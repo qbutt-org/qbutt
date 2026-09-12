@@ -107,6 +107,4 @@ if (DBUS)
     target_compile_definitions(qbt_common_cfg INTERFACE QBT_USES_DBUS)
 endif()
 
-if (LibtorrentRasterbar_VERSION VERSION_GREATER_EQUAL ${minLibtorrentVersion})
-    target_compile_definitions(qbt_common_cfg INTERFACE QBT_USES_LIBTORRENT2)
-endif()
+target_compile_definitions(qbt_common_cfg INTERFACE QBT_USES_LIBTORRENT2)

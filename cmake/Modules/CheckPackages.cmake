@@ -36,10 +36,7 @@ macro(find_libtorrent version)
     endif()
 endmacro()
 
-find_libtorrent(${minLibtorrent1Version})
-if (LibtorrentRasterbar_FOUND AND (LibtorrentRasterbar_VERSION VERSION_GREATER_EQUAL 2.0))
-    find_libtorrent(${minLibtorrentVersion})
-endif()
+find_libtorrent(${minLibtorrentVersion})
 
 # force variable type so that it always shows up in ccmake/cmake-gui frontends
 set_property(CACHE LibtorrentRasterbar_DIR PROPERTY TYPE PATH)
