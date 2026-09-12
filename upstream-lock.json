@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "qbittorrent": {
+    "repository": "https://github.com/qbittorrent/qBittorrent.git",
+    "tag": "release-5.2.3",
+    "commit": "0b63c3d17373f6132ea211c9dcd4241284ccdfaf"
+  },
+  "mihomo": {
+    "repository": "https://github.com/MetaCubeX/mihomo.git",
+    "commit": "d3ec342d441b086ec4318332f59dd05d8a2b5697"
+  },
+  "qbuttNet": {
+    "repository": "https://github.com/qbutt-org/qbutt-net.git",
+    "commit": "a268eef9753311478f664fd8b1229e2f40fca686"
+  },
+  "windows": {
+    "architecture": "x64",
+    "validatedHostTools": {
+      "msvc": "19.41.34120.0",
+      "cmake": "4.4.3",
+      "python": "3.12.10"
+    },
+    "aqtinstall": "3.3.0",
+    "go": {
+      "version": "1.27.1",
+      "url": "https://proxy.golang.org/golang.org/toolchain/@v/v0.0.1-go1.27.1.windows-amd64.zip",
+      "directory": "golang.org/toolchain@v0.0.1-go1.27.1.windows-amd64",
+      "sha256": "9b858c41f36cc976282f8bf9130414351cd834fe25b5b07dec697957078bbc80",
+      "moduleChecksum": "h1:uvUPiZUFKn246/ZPbYpTzP8aUKAjcMH5rgIl9vsjoyQ="
+    },
+    "ninja": {
+      "version": "1.12.0",
+      "url": "https://github.com/ninja-build/ninja/releases/download/v1.12.0/ninja-win.zip",
+      "sha256": "51d99be9ceea8835edf536d52d47fa4c316aa332e57f71a08df5bd059da11417"
+    },
+    "qt": {
+      "version": "6.10.1",
+      "sourceUrl": "https://download.qt.io/archive/qt/6.10/6.10.1/single/qt-everywhere-src-6.10.1.tar.xz",
+      "architecture": "win64_msvc2022_64",
+      "directory": "msvc2022_64",
+      "license": {
+        "url": "https://raw.githubusercontent.com/qt/qtbase/v6.10.1/LICENSES/LGPL-3.0-only.txt",
+        "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+      },
+      "archives": [
+        {
+          "file": "qtbase-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+          "sha256": "4de2db56548aa6084479210843a0905d7a3ae3539ef6b918ac88d12a5eeb8178"
+        },
+        {
+          "file": "qtimageformats-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+          "sha256": "61c9f285a4a66382d6cf282e41ff5ae3c79e47528b5eee9cb78eee16545b0c5e"
+        },
+        {
+          "file": "qtsvg-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+          "sha256": "78949d2c42d9a35ef9d3bf376bec75de2321573de4c60cf0326f6f4b3d0f79c7"
+        },
+        {
+          "file": "qttools-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+          "sha256": "273d5fde0844cf68b025d66ba4a57faad23c8274fe3ec98e539d44d1b8f8fb1a"
+        },
+        {
+          "file": "qttranslations-Windows-Windows_11_24H2-MSVC2022-Windows-Windows_11_24H2-X86_64.7z",
+          "sha256": "bcd7a6d1e844dfb24122f7332f860ed2afa6e1fa62960e0aa232dfa0fd027da1"
+        }
+      ]
+    },
+    "boost": {
+      "version": "1.90.0",
+      "directory": "boost_1_90_0",
+      "url": "https://archives.boost.io/release/1.90.0/source/boost_1_90_0.tar.gz",
+      "sha256": "5e93d582aff26868d581a52ae78c7d8edf3f3064742c6e77901a1f18a437eea9"
+    },
+    "libtorrent": {
+      "repository": "https://github.com/arvidn/libtorrent.git",
+      "tag": "v2.0.11",
+      "commit": "9d7443f467147d1784fb7516d2a882db1abb5a8b"
+    },
+    "vcpkg": {
+      "repository": "https://github.com/microsoft/vcpkg.git",
+      "tag": "2026.07.29",
+      "commit": "9e593bb18ea69cc5095e012465dcd675a822ed0d",
+      "openssl": "3.6.3",
+      "zlib": "1.3.2#1"
+    }
+  }
+}
