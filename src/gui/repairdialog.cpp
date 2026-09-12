@@ -12,6 +12,7 @@
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -98,7 +99,11 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent)
         m_status->setText(tr("Preparing files for an in-place repair and starting the torrent recheck..."));
         m_service->apply();
     });
-    connect(m_service, &BitTorrent::RepairService::analyzed, this, &RepairDialog::showAnalysis);
+    connect(m_service, &BitTorrent::RepairService::analyzed, this
+        , [this, directory = torrent->actualStorageLocation().toString()](const BitTorrent::RepairAnalysis &analysis)
+    {
+        showAnalysis(analysis, directory);
+    });
     connect(m_service, &BitTorrent::RepairService::failed, this, &RepairDialog::showFailure);
     connect(m_service, &BitTorrent::RepairService::recheckStarted, this, [this]()
     {
@@ -114,12 +119,12 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent)
     m_service->analyze();
 }
 
-void RepairDialog::showAnalysis(const BitTorrent::RepairAnalysis &analysis)
+void RepairDialog::showAnalysis(const BitTorrent::RepairAnalysis &analysis, const QString &directory)
 {
     m_progress->hide();
     for (const BitTorrent::RepairFileAnalysis &file : analysis.files)
     {
-        auto *item = new QTreeWidgetItem {m_files, {file.path, locale().toString(file.expectedSize)
+        auto *item = new QTreeWidgetItem {m_files, {QDir(directory).relativeFilePath(file.path), locale().toString(file.expectedSize)
             , (file.actualSize < 0) ? tr("Missing") : locale().toString(file.actualSize)
             , locale().toString(file.verifiedBytes), file.problems.join(u'\n')}};
         item->setToolTip(0, file.path);

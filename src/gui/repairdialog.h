@@ -34,7 +34,7 @@ public:
     RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent);
 
 private:
-    void showAnalysis(const BitTorrent::RepairAnalysis &analysis);
+    void showAnalysis(const BitTorrent::RepairAnalysis &analysis, const QString &directory);
     void showFailure(const QString &message);
 
     BitTorrent::RepairService *m_service = nullptr;
