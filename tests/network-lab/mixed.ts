@@ -43,7 +43,7 @@ const subsets: { pieces: number[]; bytes: number; path: string; hashes: Record<s
 const credentials = tunnelSides.map(() => ({
     username: randomBytes(16).toString("hex"), password: randomBytes(24).toString("hex"),
 }));
-const setupSeedUploadRate = 1024;
+const setupSeedUploadRate = 8 * 1024;
 const transferSeedUploadRate = 256 * 1024;
 let failure: unknown;
 try {
@@ -224,6 +224,13 @@ try {
                 // the per-seed cap keeps early peers from finishing meanwhile.
                 const setupStartedAt = Date.now();
                 const setupDeadlineMilliseconds = sides.length * 60000;
+                for (const { side, host } of endpoints) {
+                    await lab.request("torrents/addPeers", { hashes: hash, peers: `${host}:${seeds[side]!.port}` });
+                    await waitFor("physical peer connects through its exclusive path", readPaths, status =>
+                        status.peers.some(peer => peer.peer === host && peer.port === seeds[side]!.port
+                            && peer.pathId === expectedPaths[side]!.pathId
+                            && peer.generation === expectedPaths[side]!.generation && peer.payloadDownload > 0), 60000);
+                }
                 const ready = await waitFor("every exclusive path connects during bounded setup", readPaths, status =>
                     endpoints.every(({ side, host }) => status.peers.some(peer => peer.peer === host
                         && peer.port === seeds[side]!.port && peer.pathId === expectedPaths[side]!.pathId
@@ -235,7 +242,7 @@ try {
             }
             let concurrentPeers: PathsStatus["peers"] = [];
             for (const { side, host } of endpoints) {
-                if (retry || native) {
+                if (retry) {
                     await lab.request("torrents/addPeers", { hashes: hash, peers: `${host}:${seeds[side]!.port}` });
                 }
                 if (retry) {

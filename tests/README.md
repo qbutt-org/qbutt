@@ -44,6 +44,7 @@ bun run smoke:mixed
 bun run smoke:mixed-baseline
 bun run smoke:tunnels
 bun run smoke:native-route
+bun run smoke:route-policy
 bun run smoke:path-auth
 bun run smoke:path-dns
 ```
@@ -173,9 +174,10 @@ from independent partial files. One application torrent must receive all four
 subsets concurrently, report the original peer/path/generation through native
 telemetry, and finish with exact hashes and sizes. The Native seed accepts only
 clients from the configured physical address and must observe that address. The
-test also tries wrong remote routes before automatic retry, restarts the app, and
-requires the persisted fail-closed policy. This proves application binding on the
-host; public egress and physical-wire routing require a separate environment.
+test establishes every exact peer/path/generation while the seeds are rate-limited,
+proves all four counters advance in one snapshot, restarts the app, and requires
+the persisted fail-closed policy. This proves application binding on the host;
+public egress and physical-wire routing require a separate environment.
 
 `smoke:tunnels` uses the same complementary peers without a Native route. It
 starts a public torrent while Pinned, proves that the first edge can obtain only
@@ -187,6 +189,14 @@ retry coverage with the persisted Tunnels-only policy.
 requires the same Native interface variables, transfers a generated public
 torrent through only that route, verifies exact payload, and requires the seed
 to observe the selected source address.
+
+`smoke:route-policy` drives the standalone libtorrent integration executable.
+Set `QBUTT_POLICY_EXE` to the built `route-policy-integration.exe` and
+`QBUTT_PUBLIC_IPV4` to the currently observed public IPv4. It proves live policy
+replacement for HTTP/UDP trackers and DHT generations, an authenticated SOCKS
+webseed, an unaffected default session, and automatic managed uTP with exact
+payload bytes and source binding. The address is used as the fixture route's
+explicit external identity; the lab does not send traffic to it.
 
 Run `bun run smoke:mixed-baseline` against the unchanged upstream control or
 alpha application to verify the negative control: each single proxy obtains
