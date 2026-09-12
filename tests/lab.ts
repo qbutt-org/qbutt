@@ -1,0 +1,253 @@
+import { pbkdf2Sync, randomBytes } from "node:crypto";
+import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { generateFixtures, sha256, type FixtureManifest, type PayloadFile } from "./fixtures/generate";
+
+export interface TorrentStatus {
+    hash: string;
+    state: string;
+    progress: number;
+    completed: number;
+}
+
+export interface TorrentFile {
+    index: number;
+    name: string;
+    progress: number;
+    priority: number;
+}
+
+export function requireCondition(value: unknown, message: string): asserts value {
+    if (!value)
+        throw new Error(message);
+}
+
+async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+        return await Promise.race([operation, new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+        })]);
+    }
+    finally {
+        clearTimeout(timer!);
+    }
+}
+
+export async function waitFor<T>(label: string, read: () => Promise<T>, accepts: (value: T) => boolean, timeoutMs = 45000): Promise<T> {
+    const deadline = Date.now() + timeoutMs;
+    let last: T;
+    do {
+        last = await read();
+        if (accepts(last))
+            return last;
+        await Bun.sleep(150);
+    } while (Date.now() < deadline);
+    throw new Error(`${label} timed out; last observation: ${JSON.stringify(last!)}`);
+}
+
+async function freePort(): Promise<number> {
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    requireCondition(address && typeof address !== "string", "No local port assigned");
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    return address.port;
+}
+
+export async function createLab(name: string) {
+    const executable = process.env.QBUTT_LAB_EXE;
+    const python = process.env.QBUTT_LAB_PYTHON;
+    const appName = process.env.QBUTT_LAB_APP_NAME ?? "qbutt";
+    requireCondition(executable && python, "Set QBUTT_LAB_EXE and QBUTT_LAB_PYTHON");
+    requireCondition(appName === "qbutt" || appName === "qBittorrent", "QBUTT_LAB_APP_NAME must be qbutt or qBittorrent");
+    requireCondition((await stat(executable)).isFile(), "Native executable is missing");
+    const root = await mkdtemp(join(tmpdir(), `qbutt-${name}-`));
+    const fixtures = await generateFixtures(python, join(root, "fixtures"));
+    const manifest = JSON.parse(await readFile(join(fixtures, "manifest.json"), "utf8")) as FixtureManifest;
+    const port = await freePort();
+    const peerPort = await freePort();
+    const profile = join(root, "profile");
+    const config = join(profile, appName, "config");
+    await mkdir(config, { recursive: true });
+    const password = randomBytes(32).toString("hex");
+    const salt = randomBytes(16);
+    const passwordHash = `${salt.toString("base64")}:${pbkdf2Sync(password, salt, 100000, 64, "sha512").toString("base64")}`;
+    await writeFile(join(config, `${appName}.ini`), [
+        "[BitTorrent]",
+        "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
+        "Session\\BTProtocol=1", "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
+        "Session\\IgnoreLimitsOnLAN=false", "Session\\AddExtensionToIncompleteFiles=false",
+        "Session\\UseUnwantedFolder=false", "Session\\QueueingSystemEnabled=false",
+        "[Network]", "PortForwardingEnabled=false",
+        "[Preferences]", "General\\ExitConfirm=false",
+        "Advanced\\updateCheck=false", "Connection\\ResolvePeerCountries=false", "Connection\\ResolvePeerHostNames=false",
+        "General\\CloseToTray=false", "General\\MinimizeToTray=false",
+        "WebUI\\Enabled=true", "WebUI\\Address=127.0.0.1", `WebUI\\Port=${port}`,
+        "WebUI\\Username=lab", `WebUI\\Password_PBKDF2=@ByteArray(${passwordHash})`,
+        "WebUI\\LocalHostAuth=true", "WebUI\\UseUPnP=false",
+        "WebUI\\ServerDomains=127.0.0.1", "WebUI\\HostHeaderValidation=true", "WebUI\\CSRFProtection=true",
+        "",
+    ].join("\n"));
+    const origin = `http://127.0.0.1:${port}`;
+    let processHandle: ReturnType<typeof Bun.spawn> | undefined;
+    let launch = 0;
+    let cookie = "";
+    const evidence: Record<string, unknown> = {
+        schema: 1, suite: name, status: "running", executable: resolve(executable),
+        executableSha256: sha256(await readFile(executable)), generator: manifest.generator,
+        profile, startedAt: new Date().toISOString(), checks: [],
+    };
+
+    async function request(path: string, body?: Record<string, string> | FormData): Promise<Response> {
+        const response = await fetch(`${origin}/api/v2/${path}`, {
+            method: body ? "POST" : "GET",
+            headers: { Origin: origin, Referer: `${origin}/`, Cookie: cookie },
+            body: body instanceof FormData ? body : body ? new URLSearchParams(body) : undefined,
+            signal: AbortSignal.timeout(5000),
+        });
+        if (!response.ok)
+            throw new Error(`WebUI ${path.split("?")[0]} returned HTTP ${response.status}`);
+        return response;
+    }
+    async function json<T>(path: string): Promise<T> {
+        return (await request(path)).json() as Promise<T>;
+    }
+    async function start() {
+        requireCondition(!processHandle, "Lab process is already running");
+        ++launch;
+        processHandle = Bun.spawn([executable!, `--profile=${profile}`, `--webui-port=${port}`, "--no-splash", "--confirm-legal-notice"], {
+            env: { ...process.env, QT_QPA_PLATFORM: "offscreen" },
+            stdout: Bun.file(join(root, `app-${launch}.stdout.log`)),
+            stderr: Bun.file(join(root, `app-${launch}.stderr.log`)),
+        });
+        await waitFor("WebUI readiness", async () => {
+            requireCondition(processHandle!.exitCode === null, `Native app exited ${processHandle!.exitCode}; inspect ${root}`);
+            try {
+                const response = await request("auth/login", { username: "lab", password });
+                await response.text();
+                cookie = response.headers.get("set-cookie")?.split(";")[0] ?? "";
+                return cookie ? "ready" : "";
+            }
+            catch { return ""; }
+        }, version => version.length > 0, 30000);
+        evidence.appVersion = await (await request("app/version")).text();
+        evidence.buildInfo = await json("app/buildInfo");
+        const preferences = await json<Record<string, unknown>>("app/preferences");
+        requireCondition(preferences.dht === false && preferences.lsd === false && preferences.pex === false,
+            "Isolated lab must disable public discovery before adding torrents");
+    }
+    async function shutdown() {
+        if (!processHandle)
+            return;
+        const child = processHandle;
+        try {
+            await request("app/shutdown", {});
+            const exitCode = await withTimeout(child.exited, 20000, "Native app clean shutdown timed out");
+            requireCondition(exitCode === 0, `Native app exited ${exitCode}`);
+        }
+        finally {
+            if (child.exitCode === null) {
+                child.kill();
+                await child.exited;
+            }
+            processHandle = undefined;
+        }
+    }
+    async function info(hash: string): Promise<TorrentStatus> {
+        const torrents = await json<TorrentStatus[]>(`torrents/info?hashes=${hash}`);
+        requireCondition(torrents.length === 1, `Expected one torrent for ${hash}`);
+        return torrents[0]!;
+    }
+    async function add(torrentName: string, destination: string): Promise<string> {
+        await mkdir(destination, { recursive: true });
+        const torrent = manifest.torrents.find(item => item.name === torrentName);
+        requireCondition(torrent, `Unknown fixture ${torrentName}`);
+        const data = new FormData();
+        data.set("torrents", Bun.file(join(fixtures, torrent.file)));
+        data.set("savepath", destination);
+        data.set("stopped", "true");
+        data.set("autoTMM", "false");
+        data.set("contentLayout", "Original");
+        await request("torrents/add", data);
+        // qBittorrent uses libtorrent get_best(): truncated v2 for hybrid too.
+        const hash = torrent.infoHashV2?.slice(0, 40) ?? torrent.infoHashV1!;
+        await waitFor("torrent add", () => json<TorrentStatus[]>(`torrents/info?hashes=${hash}`), items => items.length === 1);
+        return hash;
+    }
+    async function checkpoint(check: Record<string, unknown>) {
+        (evidence.checks as unknown[]).push(check);
+        await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n");
+        console.log(JSON.stringify({ suite: name, ...check }));
+    }
+    async function finish(error?: unknown) {
+        evidence.status = error ? "failed" : "passed";
+        evidence.finishedAt = new Date().toISOString();
+        if (error)
+            evidence.error = error instanceof Error ? error.message : String(error);
+        await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n");
+        console.log(JSON.stringify({ status: evidence.status, evidence: join(root, "evidence.json") }));
+    }
+    return { root, fixtures, manifest, python, origin, request, json, info, add, start, shutdown, checkpoint, finish };
+}
+
+export async function verifyPayload(root: string, expected: PayloadFile[]): Promise<number> {
+    let verified = 0;
+    for (const file of expected) {
+        const bytes = await readFile(join(root, file.path));
+        requireCondition(bytes.length === file.size, `${file.path}: expected exact size ${file.size}, got ${bytes.length}`);
+        requireCondition(sha256(bytes) === file.sha256, `${file.path}: SHA-256 mismatch`);
+        verified += bytes.length;
+    }
+    return verified;
+}
+
+export async function startSeed(python: string, fixtures: string, name: string, logs: string) {
+    const child = Bun.spawn([python, join(import.meta.dir, "network-lab", "seed.py"), join(fixtures, `${name}.torrent`), join(fixtures, "seed")], {
+        stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(logs, `seed-${name}.stderr.log`)),
+    });
+    const reader = child.stdout.getReader();
+    let text = "";
+    try {
+        while (!text.includes("\n")) {
+            const result = await withTimeout(reader.read(), 35000, "Seed readiness timeout");
+            requireCondition(!result.done, "Seed ended before readiness");
+            text += new TextDecoder().decode(result.value);
+        }
+        const ready = JSON.parse(text.split("\n")[0]!) as { ready: boolean; host: string; port: number };
+        requireCondition(ready.ready && ready.port > 0, "Seed failed readiness");
+        return {
+            ...ready,
+            async stop() {
+                child.stdin.end();
+                let exitCode: number;
+                try {
+                    exitCode = await withTimeout(child.exited, 15000, "Seed shutdown timed out");
+                }
+                finally {
+                    if (child.exitCode === null) {
+                        child.kill();
+                        await child.exited;
+                    }
+                }
+                requireCondition(exitCode === 0, `Seed exited ${exitCode}`);
+                const final = await reader.read();
+                if (final.value)
+                    text += new TextDecoder().decode(final.value);
+                await writeFile(join(logs, `seed-${name}.jsonl`), text);
+                reader.releaseLock();
+            },
+        };
+    }
+    catch (error) {
+        child.kill();
+        await child.exited;
+        reader.releaseLock();
+        throw error;
+    }
+}

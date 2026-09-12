@@ -1,0 +1,2 @@
+# Test tooling only, CPython 3.12 Windows x64. Production libtorrent is pinned separately.
+libtorrent==2.0.14 --hash=sha256:27f058ac33ffa226e23eccee59b39ce6a8fcb5714ae91341538b327a33eda05f

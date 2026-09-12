@@ -1,0 +1,11 @@
+{
+  "name": "qbutt-tooling",
+  "private": true,
+  "scripts": {
+    "fixtures": "bun tests/fixtures/generate.ts",
+    "smoke:native": "bun tests/native-smoke.ts",
+    "smoke:repair": "bun tests/repair/smoke.ts",
+    "smoke:proxy": "bun tests/network-lab/probe.ts",
+    "smoke:network": "bun tests/network-lab/smoke.ts"
+  }
+}
