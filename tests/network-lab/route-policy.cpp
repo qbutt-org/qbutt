@@ -16,6 +16,7 @@
 #include <libtorrent/bencode.hpp>
 #include <libtorrent/create_torrent.hpp>
 #include <libtorrent/file_storage.hpp>
+#include <libtorrent/ip_filter.hpp>
 #include <libtorrent/peer_info.hpp>
 #include <libtorrent/session.hpp>
 #include <libtorrent/settings_pack.hpp>
@@ -318,6 +319,10 @@ int main(const int argc, char **argv) try
     seedSettings.set_bool(lt::settings_pack::enable_incoming_utp, true);
     seedSettings.set_int(lt::settings_pack::upload_rate_limit, 128 * 1024);
     lt::session seedSession {seedSettings};
+    lt::ip_filter seedPeerClasses;
+    seedPeerClasses.add_rule(lt::address_v4::any(), lt::address_v4::broadcast(),
+        1 << static_cast<std::uint32_t>(lt::session::global_peer_class_id));
+    seedSession.set_peer_class_filter(seedPeerClasses);
     lt::add_torrent_params seedAdd;
     seedAdd.ti = utpInfo;
     seedAdd.save_path = (root / "utp-seed").string();
