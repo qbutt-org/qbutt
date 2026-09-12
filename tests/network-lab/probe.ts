@@ -150,13 +150,20 @@ try {
     check(proxy.stats.downloadStreamBytes === streamBytes, "Incorrect download stream count");
     check(proxy.stats.deniedConnections === 3, "Incorrect denied connection count");
 
-    const broke = once(allowed, "close", { signal: AbortSignal.timeout(3000) });
+    const concurrent = await connect();
+    check((await authenticate(concurrent)).equals(Buffer.from([1, 0])), "Concurrent stream authentication failed");
+    concurrent.write(request(syntheticHost, echoAddress.port));
+    check((await readBytes(concurrent, 10))[1] === 0, "Concurrent stream failed");
+    check(proxy.stats.activeConnections >= 2, "Concurrent relay scenario needs live connections");
+    const broke = Promise.all([allowed, concurrent].map(socket =>
+        once(socket, "close", { signal: AbortSignal.timeout(3000) })));
     await proxy.close();
-    await broke;
+    // Check the API guarantee before yielding to remote observers of the shutdown.
     check(proxy.stats.activeConnections === 0, "Proxy close retained active clients");
+    await broke;
     console.log(JSON.stringify({
         status: "passed",
-        scenarios: ["direct target unavailable", "authentication required", "wrong credentials", "target denied", "handshake timeout", "domain and IPv6 mappings", "half-close", "mapped TCP transfer", "pipelined payload", "relay death"],
+        scenarios: ["direct target unavailable", "authentication required", "wrong credentials", "target denied", "handshake timeout", "domain and IPv6 mappings", "half-close", "mapped TCP transfer", "pipelined payload", "concurrent relay death"],
         stats: proxy.stats,
         byteMeaning: "Observed SOCKS payload stream bytes; not verified torrent bytes or wire bytes",
     }, null, 2));

@@ -271,11 +271,17 @@ export async function startProxy(options: ProxyOptions) {
         port: address.port,
         stats,
         close(): Promise<void> {
-            closePromise ??= new Promise<void>((resolve, reject) => {
-                server.close(error => error ? reject(error) : resolve());
+            if (!closePromise) {
+                const socketsClosed = Array.from(sockets, socket => new Promise<void>(resolve => {
+                    socket.once("close", resolve);
+                }));
+                const listenerClosed = new Promise<void>((resolve, reject) => {
+                    server.close(error => error ? reject(error) : resolve());
+                });
                 for (const socket of sockets)
                     socket.destroy();
-            });
+                closePromise = Promise.all([listenerClosed, ...socketsClosed]).then(() => {});
+            }
             return closePromise;
         },
     };
