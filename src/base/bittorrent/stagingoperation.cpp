@@ -160,6 +160,29 @@ namespace
         return QDir(journal.value(QStringLiteral("destination")).toString())
             .filePath(u".qbutt-staging-" + journal.value(QStringLiteral("operation")).toString());
     }
+
+    bool validIdentity(const QJsonValue &value)
+    {
+        if (!value.isObject())
+            return false;
+        const QJsonObject attributes = value.toObject();
+        if (attributes.isEmpty())
+            return true; // An explicitly absent original file.
+        if (attributes.size() != 4)
+            return false;
+        for (const QString &key : {QStringLiteral("volume"), QStringLiteral("id")
+            , QStringLiteral("size"), QStringLiteral("mtime")})
+        {
+            const QJsonValue field = attributes.value(key);
+            bool parsed = false;
+            const quint64 number = field.toString().toULongLong(&parsed);
+            if (!field.isString() || !parsed || (QString::number(number) != field.toString())
+                || ((key == u"volume") && (number > std::numeric_limits<quint32>::max()))
+                || ((key == u"size") && (number > quint64(std::numeric_limits<qint64>::max()))))
+                return false;
+        }
+        return true;
+    }
 }
 
 QString StagingOperation::journalPath(const QString &torrentId)
@@ -180,6 +203,12 @@ std::unique_ptr<StagingOperation> StagingOperation::plan(const QString &journalP
     , const QMap<int, QString> &sources, const QSet<int> &selected, QString &error, const std::atomic_bool *cancelFlag)
 {
     error.clear();
+    if (selected.isEmpty() || std::any_of(selected.cbegin(), selected.cend(), [&files](const int index)
+        { return (index < 0) || (index >= files.num_files()) || files.pad_file_at(lt::file_index_t(index)); }))
+    {
+        error = QStringLiteral("Select at least one valid target file for staging.");
+        return {};
+    }
     auto destinationGuard = RepairFileGuard::open(files, destination, false, error, cancelFlag);
     if (!destinationGuard)
         return {};
@@ -301,35 +330,55 @@ std::unique_ptr<StagingOperation> StagingOperation::load(const QString &journalP
     }
     const QJsonObject journal = QJsonDocument::fromJson(input.readAll()).object();
     const QString id = journal.value(QStringLiteral("operation")).toString();
-    if ((journal.value(QStringLiteral("version")).toInt() != 1)
+    const QString state = journal.value(QStringLiteral("state")).toString();
+    const QStringList states {QStringLiteral("preparing"), QStringLiteral("downloading")
+        , QStringLiteral("ready_to_commit"), QStringLiteral("committing"), QStringLiteral("committed")
+        , QStringLiteral("rolling_back"), QStringLiteral("rolled_back")};
+    if ((journal.value(QStringLiteral("version")) != QJsonValue(1))
         || (journal.value(QStringLiteral("torrent")).toString() != torrentId)
-        || QUuid(id).isNull() || (QUuid(id).toString(QUuid::WithoutBraces) != id))
+        || QUuid(id).isNull() || (QUuid(id).toString(QUuid::WithoutBraces) != id)
+        || !states.contains(state))
     {
-        error = QStringLiteral("The staging journal identity or version is invalid.");
+        error = QStringLiteral("The staging journal identity, version or state is invalid.");
         return {};
     }
     const QJsonArray entries = journal.value(QStringLiteral("files")).toArray();
     int expectedCount = 0;
+    int selectedCount = 0;
     QSet<int> indexes;
+    const bool requiresVerified = (state == u"ready_to_commit") || (state == u"committing") || (state == u"committed");
+    const QStringList steps {QStringLiteral("untouched"), QStringLiteral("backed_up_pending"), QStringLiteral("backed_up")
+        , QStringLiteral("installed_pending"), QStringLiteral("installed"), QStringLiteral("uninstalled_pending")
+        , QStringLiteral("uninstalled"), QStringLiteral("restored_pending"), QStringLiteral("restored")};
     for (const lt::file_index_t index : files.file_range())
         expectedCount += !files.pad_file_at(index);
     for (const QJsonValue &entry : entries)
     {
         const QJsonObject file = entry.toObject();
         const int index = file.value(QStringLiteral("index")).toInt(-1);
+        const QJsonValue selected = file.value(QStringLiteral("selected"));
+        const QJsonValue verified = file.value(QStringLiteral("verified"));
         if ((index < 0) || (index >= files.num_files()) || indexes.contains(index)
+            || (file.value(QStringLiteral("index")) != QJsonValue(index))
             || files.pad_file_at(lt::file_index_t(index))
             || (file.value(QStringLiteral("path")).toString() != relativePath(files, lt::file_index_t(index)))
-            || (file.value(QStringLiteral("size")).toString() != QString::number(files.file_size(lt::file_index_t(index)))))
+            || (file.value(QStringLiteral("size")).toString() != QString::number(files.file_size(lt::file_index_t(index))))
+            || !selected.isBool() || !validIdentity(file.value(QStringLiteral("original")))
+            || !steps.contains(file.value(QStringLiteral("step")).toString())
+            || (!selected.toBool() && (file.value(QStringLiteral("step")) != QJsonValue(QStringLiteral("untouched"))))
+            || ((!verified.isUndefined() || (requiresVerified && selected.toBool()))
+                && (!selected.toBool() || !validIdentity(verified) || verified.toObject().isEmpty()
+                    || (verified.toObject().value(QStringLiteral("size")) != file.value(QStringLiteral("size"))))))
         {
             error = QStringLiteral("The journal does not match the target torrent file mapping.");
             return {};
         }
         indexes.insert(index);
+        selectedCount += selected.toBool();
     }
-    if (indexes.size() != expectedCount)
+    if ((indexes.size() != expectedCount) || (selectedCount == 0))
     {
-        error = QStringLiteral("The journal omits target files.");
+        error = QStringLiteral("The journal omits target files or has no selected files.");
         return {};
     }
     auto operation = std::unique_ptr<StagingOperation>(new StagingOperation);
