@@ -100,7 +100,6 @@ namespace
     const QString KEY_TRANSFER_AVERAGE_TIME_QUEUE = u"average_time_queue"_s;
     const QString KEY_TRANSFER_GLOBAL_RATIO = u"global_ratio"_s;
     const QString KEY_TRANSFER_QUEUED_IO_JOBS = u"queued_io_jobs"_s;
-    const QString KEY_TRANSFER_READ_CACHE_HITS = u"read_cache_hits"_s;
     const QString KEY_TRANSFER_READ_CACHE_OVERLOAD = u"read_cache_overload"_s;
     const QString KEY_TRANSFER_TOTAL_BUFFERS_SIZE = u"total_buffers_size"_s;
     const QString KEY_TRANSFER_TOTAL_PEER_CONNECTIONS = u"total_peer_connections"_s;
@@ -171,8 +170,6 @@ namespace
         map[KEY_TRANSFER_GLOBAL_RATIO] = ((atd > 0) && (atu > 0)) ? Utils::String::fromDouble(static_cast<qreal>(atu) / atd, 2) : u"-"_s;
         map[KEY_TRANSFER_TOTAL_PEER_CONNECTIONS] = sessionStatus.peersCount;
 
-        const qreal readRatio = cacheStatus.readRatio;  // TODO: remove when LIBTORRENT_VERSION_NUM >= 20000
-        map[KEY_TRANSFER_READ_CACHE_HITS] = (readRatio > 0) ? Utils::String::fromDouble(100 * readRatio, 2) : u"0"_s;
         map[KEY_TRANSFER_TOTAL_BUFFERS_SIZE] = cacheStatus.totalUsedBuffers * 16 * 1024;
 
         map[KEY_TRANSFER_WRITE_CACHE_OVERLOAD] = ((sessionStatus.diskWriteQueue > 0) && (sessionStatus.peersCount > 0))

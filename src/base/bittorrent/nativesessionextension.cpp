@@ -58,7 +58,7 @@ lt::feature_flags_t NativeSessionExtension::implemented_features()
     return alert_feature;
 }
 
-std::shared_ptr<lt::torrent_plugin> NativeSessionExtension::new_torrent(const lt::torrent_handle &torrentHandle, LTClientData clientData)
+std::shared_ptr<lt::torrent_plugin> NativeSessionExtension::new_torrent(const lt::torrent_handle &torrentHandle, lt::client_data_t clientData)
 {
     return std::make_shared<NativeTorrentExtension>(torrentHandle, static_cast<ExtensionData *>(clientData));
 }

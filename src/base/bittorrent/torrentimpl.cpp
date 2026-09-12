@@ -37,14 +37,11 @@
 #endif
 
 #include <libtorrent/address.hpp>
+#include <libtorrent/info_hash.hpp>
 #include <libtorrent/session.hpp>
 #include <libtorrent/storage_defs.hpp>
 #include <libtorrent/time.hpp>
 #include <libtorrent/write_resume_data.hpp>
-
-#ifdef QBT_USES_LIBTORRENT2
-#include <libtorrent/info_hash.hpp>
-#endif
 
 #include <QtSystemDetection>
 #include <QByteArray>
@@ -80,10 +77,6 @@
 #if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
 #include "base/utils/os.h"
 #endif // Q_OS_MACOS || Q_OS_WIN
-
-#ifndef QBT_USES_LIBTORRENT2
-#include "customstorage.h"
-#endif
 
 using namespace BitTorrent;
 
@@ -129,14 +122,9 @@ namespace
 
             for (const auto protocolVersion : btProtocols)
             {
-#ifdef QBT_USES_LIBTORRENT2
                 Q_ASSERT((protocolVersion == 1) || (protocolVersion == 2));
                 const auto ltProtocolVersion = (protocolVersion == 1) ? lt::protocol_version::V1 : lt::protocol_version::V2;
                 const lt::announce_infohash &ltAnnounceInfo = ltAnnounceEndpoint.info_hashes[ltProtocolVersion];
-#else
-                Q_ASSERT(protocolVersion == 1);
-                const lt::announce_endpoint &ltAnnounceInfo = ltAnnounceEndpoint;
-#endif
                 const QMap<int, int> &endpointUpdateInfo = updateInfo[ltAnnounceEndpoint.local_endpoint];
                 TrackerEndpointStatus &trackerEndpointStatus = trackerEntryStatus.endpoints[std::make_pair(endpointName, protocolVersion)];
 
@@ -303,11 +291,7 @@ TorrentImpl::TorrentImpl(SessionImpl *session, const lt::torrent_handle &nativeH
     : Torrent(session)
     , m_session(session)
     , m_nativeHandle(nativeHandle)
-#ifdef QBT_USES_LIBTORRENT2
     , m_infoHash(m_nativeHandle.info_hashes())
-#else
-    , m_infoHash(m_nativeHandle.info_hash())
-#endif
     , m_name(params.name)
     , m_savePath(params.savePath)
     , m_downloadPath(params.downloadPath)
@@ -1781,16 +1765,12 @@ TrackerEntryStatus TorrentImpl::updateTrackerEntryStatus(const lt::announce_entr
     if (it == m_trackerEntryStatuses.end()) [[unlikely]]
         return {};
 
-#ifdef QBT_USES_LIBTORRENT2
     QSet<int> btProtocols;
     const auto &infoHashes = nativeHandle().info_hashes();
     if (infoHashes.has(lt::protocol_version::V1))
         btProtocols.insert(1);
     if (infoHashes.has(lt::protocol_version::V2))
         btProtocols.insert(2);
-#else
-    const QSet<int> btProtocols {1};
-#endif
 
     ::updateTrackerEntryStatus(*it, announceEntry, btProtocols, updateInfo);
     m_announceStatus.reset();
@@ -2310,18 +2290,11 @@ void TorrentImpl::handleFileRenamed(const lt::file_index_t nativeFileIndex, cons
 #endif
             }
         }
-#ifdef QBT_USES_LIBTORRENT2
         else if (oldActualParentPath.filename() == UNWANTED_FOLDER_NAME)
         {
             if (newActualParentPath.filename() != UNWANTED_FOLDER_NAME)
                 Utils::Fs::rmdir(actualStorageLocation() / oldActualParentPath);
         }
-#else
-        else
-        {
-            Utils::Fs::rmdir(actualStorageLocation() / newActualParentPath / Path(UNWANTED_FOLDER_NAME));
-        }
-#endif
     }
     else
     {
@@ -2398,12 +2371,10 @@ void TorrentImpl::handleFileError(FileErrorInfo fileError)
 
 void TorrentImpl::handleMetadataReceived()
 {
-#ifdef QBT_USES_LIBTORRENT2
     const InfoHash prevInfoHash = infoHash();
     m_infoHash = InfoHash(m_nativeHandle.info_hashes());
     if (prevInfoHash != infoHash())
         m_session->handleTorrentInfoHashChanged(this, prevInfoHash);
-#endif
 
     m_maintenanceJob = MaintenanceJob::HandleMetadata;
     deferredRequestResumeData();
@@ -2492,12 +2463,7 @@ void TorrentImpl::setMetadata(const TorrentInfo &torrentInfo)
     {
         try
         {
-#ifdef QBT_USES_LIBTORRENT2
             nativeHandle.set_metadata(torrentInfo.nativeInfo()->info_section());
-#else
-            const std::shared_ptr<lt::torrent_info> nativeInfo = torrentInfo.nativeInfo();
-            nativeHandle.set_metadata(lt::span<const char>(nativeInfo->metadata().get(), nativeInfo->metadata_size()));
-#endif
         }
         catch (const std::exception &) {}
     });
@@ -2900,12 +2866,7 @@ QFuture<QBitArray> TorrentImpl::fetchDownloadingPieces() const
     {
         try
         {
-#ifdef QBT_USES_LIBTORRENT2
             const std::vector<lt::partial_piece_info> queue = nativeHandle.get_download_queue();
-#else
-            std::vector<lt::partial_piece_info> queue;
-            nativeHandle.get_download_queue(queue);
-#endif
             QBitArray result;
             result.resize(torrentInfo.piecesCount());
             for (const lt::partial_piece_info &info : queue)

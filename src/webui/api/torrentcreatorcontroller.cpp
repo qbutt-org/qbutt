@@ -44,8 +44,6 @@
 const QString KEY_COMMENT = u"comment"_s;
 const QString KEY_ERROR_MESSAGE = u"errorMessage"_s;
 const QString KEY_FORMAT = u"format"_s;
-const QString KEY_OPTIMIZE_ALIGNMENT = u"optimizeAlignment"_s;
-const QString KEY_PADDED_FILE_SIZE_LIMIT = u"paddedFileSizeLimit"_s;
 const QString KEY_PIECE_SIZE = u"pieceSize"_s;
 const QString KEY_PRIVATE = u"private"_s;
 const QString KEY_PROGRESS = u"progress"_s;
@@ -65,7 +63,6 @@ namespace
     using Utils::String::parseBool;
     using Utils::String::parseInt;
 
-#ifdef QBT_USES_LIBTORRENT2
     BitTorrent::TorrentFormat parseTorrentFormat(const QString &str)
     {
         if (str == u"v1")
@@ -87,7 +84,6 @@ namespace
             return u"hybrid"_s;
         }
     }
-#endif
 
     QStringList parseUrls(const QString &urlsParam)
     {
@@ -131,12 +127,7 @@ void TorrentCreatorController::addTaskAction()
     const BitTorrent::TorrentCreatorParams createTorrentParams
     {
         .isPrivate = parseBool(params()[KEY_PRIVATE]).value_or(false),
-#ifdef QBT_USES_LIBTORRENT2
         .torrentFormat = parseTorrentFormat(params()[KEY_FORMAT].toLower()),
-#else
-        .isAlignmentOptimized = parseBool(params()[KEY_OPTIMIZE_ALIGNMENT]).value_or(true),
-        .paddedFileSizeLimit = parseInt(params()[KEY_PADDED_FILE_SIZE_LIMIT]).value_or(-1),
-#endif
         .pieceSize = parseInt(params()[KEY_PIECE_SIZE]).value_or(0),
         .sourcePath = Path(params()[KEY_SOURCE_PATH]),
         .torrentFilePath = Path(params()[KEY_TORRENT_FILE_PATH]),
@@ -175,12 +166,7 @@ void TorrentCreatorController::statusAction()
             {KEY_PIECE_SIZE, task->params().pieceSize},
             {KEY_PRIVATE, task->params().isPrivate},
             {KEY_TIME_ADDED, task->timeAdded().toString()},
-#ifdef QBT_USES_LIBTORRENT2
             {KEY_FORMAT, torrentFormatToString(task->params().torrentFormat)},
-#else
-            {KEY_OPTIMIZE_ALIGNMENT, task->params().isAlignmentOptimized},
-            {KEY_PADDED_FILE_SIZE_LIMIT, task->params().paddedFileSizeLimit},
-#endif
             {KEY_STATUS, taskStatusString(task)},
         };
 

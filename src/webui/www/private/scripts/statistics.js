@@ -38,7 +38,6 @@ window.qBittorrent.Statistics ??= (() => {
         totalWastedSession: 0,
         globalRatio: 0,
         totalPeerConnections: 0,
-        readCacheHits: 0,
         totalBuffersSize: 0,
         writeCacheOverload: 0,
         readCacheOverload: 0,
@@ -53,7 +52,6 @@ window.qBittorrent.Statistics ??= (() => {
         statistics.totalWastedSession = serverState.total_wasted_session;
         statistics.globalRatio = serverState.global_ratio;
         statistics.totalPeerConnections = serverState.total_peer_connections;
-        statistics.readCacheHits = serverState.read_cache_hits;
         statistics.totalBuffersSize = serverState.total_buffers_size;
         statistics.writeCacheOverload = serverState.write_cache_overload;
         statistics.readCacheOverload = serverState.read_cache_overload;
@@ -71,7 +69,6 @@ window.qBittorrent.Statistics ??= (() => {
         document.getElementById("TotalWastedSession").textContent = window.qBittorrent.Misc.friendlyUnit(statistics.totalWastedSession, false);
         document.getElementById("GlobalRatio").textContent = statistics.globalRatio;
         document.getElementById("TotalPeerConnections").textContent = statistics.totalPeerConnections;
-        document.getElementById("ReadCacheHits").textContent = `${statistics.readCacheHits}%`;
         document.getElementById("TotalBuffersSize").textContent = window.qBittorrent.Misc.friendlyUnit(statistics.totalBuffersSize, false);
         document.getElementById("WriteCacheOverload").textContent = `${statistics.writeCacheOverload}%`;
         document.getElementById("ReadCacheOverload").textContent = `${statistics.readCacheOverload}%`;

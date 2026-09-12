@@ -28,13 +28,12 @@
 
 #pragma once
 
+#include <libtorrent/client_data.hpp>
 #include <libtorrent/extensions.hpp>
 #include <libtorrent/fwd.hpp>
 #include <libtorrent/session_handle.hpp>
 
 #include <QReadWriteLock>
-
-#include "extensiondata.h"
 
 class NativeSessionExtension final : public lt::plugin
 {
@@ -44,7 +43,7 @@ public:
 private:
     void added(const lt::session_handle &nativeSession) override;
     lt::feature_flags_t implemented_features() override;
-    std::shared_ptr<lt::torrent_plugin> new_torrent(const lt::torrent_handle &torrentHandle, LTClientData clientData) override;
+    std::shared_ptr<lt::torrent_plugin> new_torrent(const lt::torrent_handle &torrentHandle, lt::client_data_t clientData) override;
     void on_alert(const lt::alert *alert) override;
 
     void handleSessionStatsAlert(const lt::session_stats_alert *alert);

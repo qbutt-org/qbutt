@@ -61,9 +61,7 @@
 TrackerListWidget::TrackerListWidget(QWidget *parent)
     : QTreeView(parent)
 {
-#ifdef QBT_USES_LIBTORRENT2
     setColumnHidden(TrackerListModel::COL_PROTOCOL, true); // Must be set before calling loadSettings()
-#endif
 
     setExpandsOnDoubleClick(false);
     setAllColumnsShowFocus(true);

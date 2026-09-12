@@ -274,8 +274,6 @@ namespace
             {u"BitTorrent/Session/BandwidthSchedulerEnabled"_s, u"Preferences/Scheduler/Enabled"_s},
             {u"BitTorrent/Session/DefaultSavePath"_s, u"Preferences/Downloads/SavePath"_s},
             {u"BitTorrent/Session/DHTEnabled"_s, u"Preferences/Bittorrent/DHT"_s},
-            {u"BitTorrent/Session/DiskCacheSize"_s, u"Preferences/Downloads/DiskWriteCacheSize"_s},
-            {u"BitTorrent/Session/DiskCacheTTL"_s, u"Preferences/Downloads/DiskWriteCacheTTL"_s},
             {u"BitTorrent/Session/Encryption"_s, u"Preferences/Bittorrent/Encryption"_s},
             {u"BitTorrent/Session/FinishedTorrentExportDirectory"_s, u"Preferences/Downloads/FinishedTorrentExportDir"_s},
             {u"BitTorrent/Session/ForceProxy"_s, u"Preferences/Connection/ProxyForce"_s},

@@ -100,27 +100,13 @@
      </property>
      <layout class="QGridLayout" name="gridLayout">
       <item row="0" column="0">
-       <widget class="QLabel" name="labelCacheHitsText">
-        <property name="text">
-         <string>Read cache hits:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="0" column="1" alignment="Qt::AlignmentFlag::AlignRight">
-       <widget class="QLabel" name="labelCacheHits">
-        <property name="text">
-         <string notr="true">TextLabel</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="0">
        <widget class="QLabel" name="labelTotalBufText">
         <property name="text">
          <string>Total buffer size:</string>
         </property>
        </widget>
       </item>
-      <item row="1" column="1" alignment="Qt::AlignmentFlag::AlignRight">
+      <item row="0" column="1" alignment="Qt::AlignmentFlag::AlignRight">
        <widget class="QLabel" name="labelTotalBuf">
         <property name="text">
          <string notr="true">TextLabel</string>

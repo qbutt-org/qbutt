@@ -437,9 +437,6 @@ void AppController::preferencesAction()
     data[u"file_pool_size"_s] = session->filePoolSize();
     // Checking memory usage
     data[u"checking_memory_use"_s] = session->checkingMemUsage();
-    // Disk write cache
-    data[u"disk_cache"_s] = session->diskCacheSize();
-    data[u"disk_cache_ttl"_s] = session->diskCacheTTL();
     // Disk queue size
     data[u"disk_queue_size"_s] = session->diskQueueSize();
     // Disk IO Type
@@ -448,8 +445,6 @@ void AppController::preferencesAction()
     data[u"disk_io_read_mode"_s] = static_cast<int>(session->diskIOReadMode());
     // Disk IO write mode
     data[u"disk_io_write_mode"_s] = static_cast<int>(session->diskIOWriteMode());
-    // Coalesce reads & writes
-    data[u"enable_coalesce_read_write"_s] = session->isCoalesceReadWriteEnabled();
     // Piece Extent Affinity
     data[u"enable_piece_extent_affinity"_s] = session->usePieceExtentAffinity();
     // Suggest mode
@@ -1085,11 +1080,6 @@ void AppController::setPreferencesAction()
     // Checking Memory Usage
     if (hasKey(u"checking_memory_use"_s))
         session->setCheckingMemUsage(it.value().toInt());
-    // Disk write cache
-    if (hasKey(u"disk_cache"_s))
-        session->setDiskCacheSize(it.value().toInt());
-    if (hasKey(u"disk_cache_ttl"_s))
-        session->setDiskCacheTTL(it.value().toInt());
     // Disk queue size
     if (hasKey(u"disk_queue_size"_s))
         session->setDiskQueueSize(it.value().toLongLong());
@@ -1102,9 +1092,6 @@ void AppController::setPreferencesAction()
     // Disk IO write mode
     if (hasKey(u"disk_io_write_mode"_s))
         session->setDiskIOWriteMode(static_cast<BitTorrent::DiskIOWriteMode>(it.value().toInt()));
-    // Coalesce reads & writes
-    if (hasKey(u"enable_coalesce_read_write"_s))
-        session->setCoalesceReadWriteEnabled(it.value().toBool());
     // Piece extent affinity
     if (hasKey(u"enable_piece_extent_affinity"_s))
         session->setPieceExtentAffinity(it.value().toBool());

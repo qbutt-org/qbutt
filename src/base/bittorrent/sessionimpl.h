@@ -122,10 +122,6 @@ namespace BitTorrent
         struct
         {
             int diskBlocksInUse = -1;
-            int numBlocksRead = -1;
-#ifndef QBT_USES_LIBTORRENT2
-            int numBlocksCacheHits = -1;
-#endif
             int writeJobs = -1;
             int readJobs = -1;
             int hashJobs = -1;
@@ -311,10 +307,6 @@ namespace BitTorrent
         void setFilePoolSize(int size) override;
         int checkingMemUsage() const override;
         void setCheckingMemUsage(int size) override;
-        int diskCacheSize() const override;
-        void setDiskCacheSize(int size) override;
-        int diskCacheTTL() const override;
-        void setDiskCacheTTL(int ttl) override;
         qint64 diskQueueSize() const override;
         void setDiskQueueSize(qint64 size) override;
         DiskIOType diskIOType() const override;
@@ -323,8 +315,6 @@ namespace BitTorrent
         void setDiskIOReadMode(DiskIOReadMode mode) override;
         DiskIOWriteMode diskIOWriteMode() const override;
         void setDiskIOWriteMode(DiskIOWriteMode mode) override;
-        bool isCoalesceReadWriteEnabled() const override;
-        void setCoalesceReadWriteEnabled(bool enabled) override;
         bool usePieceExtentAffinity() const override;
         void setPieceExtentAffinity(bool enabled) override;
         bool isSuggestModeEnabled() const override;
@@ -606,10 +596,8 @@ namespace BitTorrent
         void handleSocks5Alert(const lt::socks5_alert *alert) const;
         void handleI2PAlert(const lt::i2p_alert *alert) const;
         void handleTrackerAlert(const lt::tracker_alert *alert);
-#ifdef QBT_USES_LIBTORRENT2
         void handleTorrentConflictAlert(const lt::torrent_conflict_alert *alert);
         void handleFilePrioAlert(const lt::file_prio_alert *alert);
-#endif
         void handleFastResumeRejectedAlert(const lt::fastresume_rejected_alert *alert);
         void handleFileCompletedAlert(const lt::file_completed_alert *alert);
         void handleFileRenamedAlert(const lt::file_renamed_alert *alert);
@@ -666,13 +654,10 @@ namespace BitTorrent
         CachedSettingValue<int> m_hashingThreads;
         CachedSettingValue<int> m_filePoolSize;
         CachedSettingValue<int> m_checkingMemUsage;
-        CachedSettingValue<int> m_diskCacheSize;
-        CachedSettingValue<int> m_diskCacheTTL;
         CachedSettingValue<qint64> m_diskQueueSize;
         CachedSettingValue<DiskIOType> m_diskIOType;
         CachedSettingValue<DiskIOReadMode> m_diskIOReadMode;
         CachedSettingValue<DiskIOWriteMode> m_diskIOWriteMode;
-        CachedSettingValue<bool> m_coalesceReadWriteEnabled;
         CachedSettingValue<bool> m_usePieceExtentAffinity;
         CachedSettingValue<bool> m_isSuggestMode;
         CachedSettingValue<int> m_sendBufferWatermark;

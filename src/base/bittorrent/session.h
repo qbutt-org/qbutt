@@ -102,9 +102,7 @@ namespace BitTorrent
         {
             DisableOSCache = 0,
             EnableOSCache = 1,
-#ifdef QBT_USES_LIBTORRENT2
             WriteThrough = 2
-#endif
         };
         Q_ENUM_NS(DiskIOWriteMode)
 
@@ -337,10 +335,6 @@ namespace BitTorrent
         virtual void setFilePoolSize(int size) = 0;
         virtual int checkingMemUsage() const = 0;
         virtual void setCheckingMemUsage(int size) = 0;
-        virtual int diskCacheSize() const = 0;
-        virtual void setDiskCacheSize(int size) = 0;
-        virtual int diskCacheTTL() const = 0;
-        virtual void setDiskCacheTTL(int ttl) = 0;
         virtual qint64 diskQueueSize() const = 0;
         virtual void setDiskQueueSize(qint64 size) = 0;
         virtual DiskIOType diskIOType() const = 0;
@@ -349,8 +343,6 @@ namespace BitTorrent
         virtual void setDiskIOReadMode(DiskIOReadMode mode) = 0;
         virtual DiskIOWriteMode diskIOWriteMode() const = 0;
         virtual void setDiskIOWriteMode(DiskIOWriteMode mode) = 0;
-        virtual bool isCoalesceReadWriteEnabled() const = 0;
-        virtual void setCoalesceReadWriteEnabled(bool enabled) = 0;
         virtual bool usePieceExtentAffinity() const = 0;
         virtual void setPieceExtentAffinity(bool enabled) = 0;
         virtual bool isSuggestModeEnabled() const = 0;

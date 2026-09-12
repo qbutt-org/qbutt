@@ -35,13 +35,6 @@
 #include <libtorrent/announce_entry.hpp>
 #include <libtorrent/torrent_status.hpp>
 
-#ifdef QBT_USES_LIBTORRENT2
-#include <libtorrent/client_data.hpp>
-using LTClientData = lt::client_data_t;
-#else
-using LTClientData = void *;
-#endif
-
 struct ExtensionData
 {
     lt::torrent_status status;
