@@ -63,6 +63,7 @@
 #include "api/authcontroller.h"
 #include "api/clientdatacontroller.h"
 #include "api/logcontroller.h"
+#include "api/policiescontroller.h"
 #include "api/qbuttpathscontroller.h"
 #include "api/repaircontroller.h"
 #include "api/rsscontroller.h"
@@ -855,6 +856,7 @@ void WebApplication::sessionStartImpl(const QString &sessionId, const bool useCo
     m_currentSession->registerAPIController(u"clientdata"_s, new ClientDataController(m_clientDataStorage, app(), m_currentSession));
     m_currentSession->registerAPIController(u"log"_s, new LogController(app(), m_currentSession));
     m_currentSession->registerAPIController(u"qbuttRepair"_s, m_repairController);
+    m_currentSession->registerAPIController(u"qbuttPolicies"_s, new PoliciesController(app(), m_currentSession));
     m_currentSession->registerAPIController(u"torrentcreator"_s, new TorrentCreatorController(m_torrentCreationManager, app(), m_currentSession));
     m_currentSession->registerAPIController(u"rss"_s, new RSSController(app(), m_currentSession));
     m_currentSession->registerAPIController(u"search"_s, new SearchController(app(), m_currentSession));

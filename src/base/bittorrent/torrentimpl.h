@@ -82,7 +82,8 @@ namespace BitTorrent
         HandleMetadata,
         Repair,
         RepairChecking,
-        StagingRecovery
+        StagingRecovery,
+        Completion
     };
 
     struct FileErrorInfo
@@ -278,6 +279,10 @@ namespace BitTorrent
         void startStagedDownload();
         void endRepair();
         bool isRepairing() const;
+        bool hasExclusiveFileOperation() const;
+        bool isReadyForCompletion() const;
+        bool beginCompletion(bool preview = false);
+        void endCompletion(bool resume);
 
         // Session interface
         lt::torrent_handle nativeHandle() const;
@@ -395,6 +400,7 @@ namespace BitTorrent
         bool m_hasFirstLastPiecePriority = false;
         bool m_useAutoTMM = false;
         bool m_isStopped = false;
+        bool m_resumeAfterCompletion = false;
         StopCondition m_stopCondition = StopCondition::None;
         SSLParameters m_sslParams;
 

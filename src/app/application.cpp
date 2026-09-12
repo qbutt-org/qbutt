@@ -65,7 +65,15 @@
 #endif // Q_OS_MACOS
 #endif
 
+#ifdef QBUTT_COMPLETION_FAULTS
+#include <QEventLoop>
+#include <QFile>
+#include <QFileInfo>
+#include <QTimer>
+#endif
+
 #include "base/addtorrentmanager.h"
+#include "base/bittorrent/completionpolicy.h"
 #include "base/bittorrent/infohash.h"
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/torrent.h"
@@ -785,8 +793,29 @@ void Application::torrentFinished(const BitTorrent::Torrent *torrent)
 
 void Application::allTorrentsFinished()
 {
+#ifdef QBUTT_COMPLETION_FAULTS
+    const QString gate = qEnvironmentVariable("QBUTT_COMPLETION_GATE");
+    if (!gate.isEmpty() && (qEnvironmentVariable("QBUTT_COMPLETION_GATE_POINT") == u"queued")
+        && (qEnvironmentVariable("QT_QPA_PLATFORM") == u"offscreen"))
+    {
+        QFile entered(gate + u".entered");
+        if (entered.open(QIODevice::WriteOnly))
+            entered.write("queued");
+        entered.close();
+        QEventLoop loop;
+        QTimer poll;
+        connect(&poll, &QTimer::timeout, &loop, [&loop, gate]
+        {
+            if (QFileInfo::exists(gate))
+                loop.quit();
+        });
+        poll.start(20);
+        QTimer::singleShot(15000, &loop, &QEventLoop::quit);
+        loop.exec();
+    }
+#endif
     // The completion signal is queued; a repair may have started since it was emitted.
-    if (BitTorrent::Session::instance()->hasActiveRepair())
+    if (!BitTorrent::Session::instance()->canRunCompletionAction())
         return;
 
     Preferences *const pref = Preferences::instance();
@@ -822,7 +851,7 @@ void Application::allTorrentsFinished()
 #endif // DISABLE_GUI
 
     // The confirmation dialog runs a nested event loop where a repair can start.
-    if (BitTorrent::Session::instance()->hasActiveRepair())
+    if (!BitTorrent::Session::instance()->canRunCompletionAction())
         return;
 
     // Actually shut down
@@ -939,6 +968,11 @@ int Application::exec()
 
 #ifndef DISABLE_GUI
         const auto *btSession = BitTorrent::Session::instance();
+        connect(btSession->completionPolicy(), &BitTorrent::CompletionPolicy::notified, this
+            , [this](const QString &title, const QString &message)
+        {
+            m_desktopIntegration->showNotification(title, message);
+        });
         connect(btSession, &BitTorrent::Session::fullDiskError, this
                 , [this](const BitTorrent::Torrent *torrent, const QString &msg)
         {

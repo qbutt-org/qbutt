@@ -1,3 +1,7 @@
+if (QBUTT_COMPLETION_FAULTS)
+    set_property(SOURCE shutdownconfirmdialog.cpp APPEND PROPERTY COMPILE_DEFINITIONS QBUTT_COMPLETION_FAULTS)
+endif()
+
 find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Widgets Svg Concurrent)
 
 # CMAKE_AUTO_UI causes unnecessary rebuilds
@@ -88,6 +92,7 @@ add_library(qbt_gui STATIC
     properties/speedplotview.h
     properties/speedwidget.h
     raisedmessagebox.h
+    policiesdialog.h
     repairdialog.h
     rss/articlelistwidget.h
     rss/automatedrssdownloader.h
@@ -194,6 +199,7 @@ add_library(qbt_gui STATIC
     properties/speedplotview.cpp
     properties/speedwidget.cpp
     raisedmessagebox.cpp
+    policiesdialog.cpp
     repairdialog.cpp
     rss/articlelistwidget.cpp
     rss/automatedrssdownloader.cpp

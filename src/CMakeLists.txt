@@ -1,3 +1,5 @@
+option(QBUTT_COMPLETION_FAULTS "Enable completion crash and Qt event-loop integration hooks" OFF)
+
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 add_subdirectory(app)

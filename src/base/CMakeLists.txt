@@ -1,3 +1,7 @@
+if (QBUTT_COMPLETION_FAULTS)
+    set_property(SOURCE bittorrent/completionpolicy.cpp APPEND PROPERTY COMPILE_DEFINITIONS QBUTT_COMPLETION_FAULTS)
+endif()
+
 option(QBUTT_STAGING_FAULTS "Enable deliberate process termination in staging integration fixtures" OFF)
 if (QBUTT_STAGING_FAULTS)
     set_property(SOURCE bittorrent/stagingoperation.cpp APPEND PROPERTY COMPILE_DEFINITIONS QBUTT_STAGING_FAULTS)
@@ -37,6 +41,7 @@ add_library(qbt_base STATIC
     bittorrent/portforwarderimpl.h
     bittorrent/repairanalysis.h
     bittorrent/repairfileguard.h
+    bittorrent/completionpolicy.h
     bittorrent/repairservice.h
     bittorrent/resumedatastorage.h
     bittorrent/session.h
@@ -161,6 +166,7 @@ add_library(qbt_base STATIC
     bittorrent/portforwarderimpl.cpp
     bittorrent/repairanalysis.cpp
     bittorrent/repairfileguard.cpp
+    bittorrent/completionpolicy.cpp
     bittorrent/repairservice.cpp
     bittorrent/resumedatastorage.cpp
     bittorrent/sessionimpl.cpp

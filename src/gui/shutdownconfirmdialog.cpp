@@ -32,6 +32,10 @@
 #include <chrono>
 
 #include <QDialogButtonBox>
+#ifdef QBUTT_COMPLETION_FAULTS
+#include <QFile>
+#include <QFileInfo>
+#endif
 #include <QIcon>
 #include <QPushButton>
 #include <QStyle>
@@ -88,6 +92,25 @@ void ShutdownConfirmDialog::showEvent(QShowEvent *event)
 bool ShutdownConfirmDialog::askForConfirmation(QWidget *parent, const ShutdownDialogAction &action)
 {
     ShutdownConfirmDialog dlg(parent, action);
+#ifdef QBUTT_COMPLETION_FAULTS
+    const QString gate = qEnvironmentVariable("QBUTT_COMPLETION_GATE");
+    QTimer poll;
+    if ((action == ShutdownDialogAction::Exit) && !gate.isEmpty()
+        && (qEnvironmentVariable("QBUTT_COMPLETION_GATE_POINT") == u"modal")
+        && (qEnvironmentVariable("QT_QPA_PLATFORM") == u"offscreen"))
+    {
+        QFile entered(gate + u".entered");
+        if (entered.open(QIODevice::WriteOnly))
+            entered.write("modal");
+        entered.close();
+        connect(&poll, &QTimer::timeout, &dlg, [&dlg, gate]
+        {
+            if (QFileInfo::exists(gate))
+                dlg.accept();
+        });
+        poll.start(20);
+    }
+#endif
     return (dlg.exec() == QDialog::Accepted);
 }
 

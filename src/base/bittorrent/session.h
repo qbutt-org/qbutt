@@ -56,6 +56,7 @@ namespace BitTorrent
     class Torrent;
     class TorrentDescriptor;
     class TorrentID;
+    class CompletionPolicy;
     class TorrentInfo;
     struct CacheStatus;
     struct SessionStatus;
@@ -454,6 +455,8 @@ namespace BitTorrent
 
         virtual bool isRestored() const = 0;
         virtual bool hasActiveRepair() const = 0;
+        virtual bool canRunCompletionAction() const = 0;
+        virtual CompletionPolicy *completionPolicy() const = 0;
         virtual bool canSwitchConnectionMode() const = 0;
         virtual void setPeerRoutes(const QList<Net::PeerRouteEndpoint> &routes, bool mixed) = 0;
         virtual void resetPeerRoutes() = 0;

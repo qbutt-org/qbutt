@@ -136,6 +136,7 @@ namespace BitTorrent
     {
         Q_OBJECT
         Q_DISABLE_COPY_MOVE(SessionImpl)
+        friend class CompletionPolicy;
 
     public:
         Path savePath() const override;
@@ -422,6 +423,8 @@ namespace BitTorrent
 
         bool isRestored() const override;
         bool hasActiveRepair() const override;
+        bool canRunCompletionAction() const override;
+        CompletionPolicy *completionPolicy() const override;
         bool canSwitchConnectionMode() const override;
         void setPeerRoutes(const QList<Net::PeerRouteEndpoint> &routes, bool mixed) override;
         void resetPeerRoutes() override;
@@ -482,10 +485,10 @@ namespace BitTorrent
         void handleTorrentStorageMovingStateChanged(TorrentImpl *torrent);
 
         bool addMoveTorrentStorageJob(TorrentImpl *torrent, const Path &newPath, MoveStorageMode mode, MoveStorageContext context);
-        bool isRepairPathLocked(const Path &path, const TorrentImpl *except = nullptr) const;
+        bool isDataPathLocked(const Path &path, const TorrentImpl *except = nullptr) const;
         bool hasPendingStorageJobs() const;
         QFuture<bool> drainTorrentDisk(TorrentImpl *torrent);
-        QFuture<bool> persistRepairLocation(TorrentImpl *torrent, const Path &path);
+        QFuture<bool> persistStoppedTorrent(TorrentImpl *torrent, const Path &path);
 
         lt::torrent_handle reloadTorrent(const lt::torrent_handle &currentHandle, lt::add_torrent_params params);
 
@@ -569,7 +572,7 @@ namespace BitTorrent
         void populateAdditionalTrackers();
         void enableIPFilter();
         void disableIPFilter();
-        void processTorrentShareLimits(TorrentImpl *torrent);
+        void processTorrentShareLimits(TorrentImpl *torrent, bool committed = false);
         void populateExcludedFileNamesRegExpList();
         void prepareStartup();
         void handleLoadedResumeData(ResumeSessionContext *context);
@@ -634,7 +637,7 @@ namespace BitTorrent
 
         void moveTorrentStorage(const MoveStorageJob &job) const;
         void handleMoveTorrentStorageJobFinished(const Path &newPath);
-        void processPendingFinishedTorrents();
+        void processCommittedTorrent(TorrentImpl *torrent);
 
         void loadCategories();
         void storeCategories() const;
@@ -824,13 +827,14 @@ namespace BitTorrent
         Utils::Thread::UniquePtr m_ioThread;
         QThreadPool *m_asyncWorker = nullptr;
         ResumeDataStorage *m_resumeDataStorage = nullptr;
-        struct RepairResumeWrite
+        struct StoppedResumeWrite
         {
             Path destination;
             std::shared_ptr<QPromise<bool>> promise;
             quint64 revision = 0;
+            bool completionPolicyPreview = false;
         };
-        QHash<TorrentID, RepairResumeWrite> m_repairResumeWrites;
+        QHash<TorrentID, StoppedResumeWrite> m_stoppedResumeWrites;
         quint64 m_resumeWriteRevision = 0;
         FileSearcher *m_fileSearcher = nullptr;
         TorrentContentRemover *m_torrentContentRemover = nullptr;
@@ -882,7 +886,7 @@ namespace BitTorrent
 
         QElapsedTimer m_wakeupCheckTimestamp;
 
-        QList<TorrentImpl *> m_pendingFinishedTorrents;
+        CompletionPolicy *m_completionPolicy = nullptr;
 
         FreeDiskSpaceChecker *m_freeDiskSpaceChecker = nullptr;
         QTimer *m_freeDiskSpaceCheckingTimer = nullptr;

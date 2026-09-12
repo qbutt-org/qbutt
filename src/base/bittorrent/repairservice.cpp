@@ -147,6 +147,8 @@ RepairService::RepairService(Torrent *torrent, QObject *parent)
         }
         m_state = State::Finished;
         releaseOwnership();
+        if (!m_rollingBack && m_torrent)
+            static_cast<SessionImpl *>(m_torrent->session())->handleTorrentFinished(m_torrent);
         publishStaging();
         if (!m_rollingBack)
             emit committedVerified();
@@ -224,7 +226,7 @@ RepairService::RepairService(Torrent *torrent, QObject *parent)
             {
                 m_state = State::PersistingDestination;
                 m_drainTimeout.start();
-                m_persistenceWatcher.setFuture(static_cast<SessionImpl *>(m_torrent->session())->persistRepairLocation(
+                m_persistenceWatcher.setFuture(static_cast<SessionImpl *>(m_torrent->session())->persistStoppedTorrent(
                     m_torrent, Path(m_staging->destination())));
             }
         });
@@ -584,7 +586,7 @@ void RepairService::prepareStaged()
     m_state = State::PersistingPlan;
     publishStaging();
     m_drainTimeout.start();
-    m_persistenceWatcher.setFuture(static_cast<SessionImpl *>(m_torrent->session())->persistRepairLocation(
+    m_persistenceWatcher.setFuture(static_cast<SessionImpl *>(m_torrent->session())->persistStoppedTorrent(
         m_torrent, Path(m_savePath)));
 }
 

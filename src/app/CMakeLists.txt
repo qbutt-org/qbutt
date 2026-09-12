@@ -1,3 +1,7 @@
+if (QBUTT_COMPLETION_FAULTS)
+    set_property(SOURCE application.cpp APPEND PROPERTY COMPILE_DEFINITIONS QBUTT_COMPLETION_FAULTS)
+endif()
+
 file(GLOB QBT_TS_FILES "${qBittorrent_SOURCE_DIR}/src/lang/*.ts")
 # Custom target to update .ts files and include new strings from source files
 # Depends on Qt's LinguistTools

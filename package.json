@@ -12,6 +12,8 @@
     "smoke:proxy": "bun tests/network-lab/probe.ts",
     "smoke:network": "bun tests/network-lab/smoke.ts",
     "smoke:mixed": "bun tests/network-lab/mixed.ts",
-    "smoke:path-auth": "bun tests/network-lab/path-auth.ts"
+    "smoke:path-auth": "bun tests/network-lab/path-auth.ts",
+    "smoke:policies": "bun tests/policies-smoke.ts",
+    "smoke:policies-faults": "bun tests/policies-faults.ts"
   }
 }

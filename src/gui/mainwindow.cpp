@@ -84,6 +84,7 @@
 #include "interfaces/iguiapplication.h"
 #include "lineedit.h"
 #include "optionsdialog.h"
+#include "policiesdialog.h"
 #include "powermanagement/powermanagement.h"
 #include "profileimportdialog.h"
 #include "properties/peerlistwidget.h"
@@ -336,6 +337,12 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     m_ui->actionAbout->setMenuRole(QAction::AboutRole);
     m_ui->actionUpdateStatus->setMenuRole(QAction::ApplicationSpecificRole);
     m_ui->actionOptions->setMenuRole(QAction::PreferencesRole);
+    m_ui->menuOptions->addAction(tr("Completion policies…"), this, [this]
+    {
+        auto *dialog = new PoliciesDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    });
 
 #ifdef Q_OS_MACOS
     // Set up native macOS Window menu

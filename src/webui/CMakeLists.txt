@@ -9,6 +9,7 @@ add_library(qbt_webui STATIC
     api/isessionmanager.h
     api/logcontroller.h
     api/qbuttpathscontroller.h
+    api/policiescontroller.h
     api/repaircontroller.h
     api/rsscontroller.h
     api/searchcontroller.h
@@ -29,6 +30,7 @@ add_library(qbt_webui STATIC
     api/clientdatacontroller.cpp
     api/logcontroller.cpp
     api/qbuttpathscontroller.cpp
+    api/policiescontroller.cpp
     api/repaircontroller.cpp
     api/rsscontroller.cpp
     api/searchcontroller.cpp

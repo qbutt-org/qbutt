@@ -103,6 +103,7 @@
 #include "base/version.h"
 #include "bandwidthscheduler.h"
 #include "bencoderesumedatastorage.h"
+#include "completionpolicy.h"
 #include "customstorage.h"
 #include "dbresumedatastorage.h"
 #include "downloadpriority.h"
@@ -598,6 +599,10 @@ SessionImpl::SessionImpl(QObject *parent)
 
     loadCategories();
 
+    m_completionPolicy = new CompletionPolicy(this);
+    connect(m_completionPolicy, &CompletionPolicy::wantedFilesCommitted, this, &SessionImpl::processCommittedTorrent);
+    connect(m_completionPolicy, &CompletionPolicy::allWantedFilesCommitted, this, &Session::allTorrentsFinished);
+
     const QStringList storedTags = m_storedTags.get();
     for (const QString &tagStr : storedTags)
     {
@@ -675,6 +680,8 @@ SessionImpl::SessionImpl(QObject *parent)
 
 SessionImpl::~SessionImpl()
 {
+    delete m_completionPolicy;
+    m_completionPolicy = nullptr;
     m_nativeSession->pause();
 
     const auto timeout = (m_shutdownTimeout >= 0) ? (static_cast<qint64>(m_shutdownTimeout) * 1000) : -1;
@@ -1394,13 +1401,13 @@ void SessionImpl::prepareStartup()
 
     connect(m_resumeDataStorage, &ResumeDataStorage::stored, this, [this](const quint64 revision, const bool success)
     {
-        for (auto it = m_repairResumeWrites.begin(); it != m_repairResumeWrites.end(); ++it)
+        for (auto it = m_stoppedResumeWrites.begin(); it != m_stoppedResumeWrites.end(); ++it)
         {
             if (it->revision != revision)
                 continue;
             it->promise->addResult(success);
             it->promise->finish();
-            m_repairResumeWrites.erase(it);
+            m_stoppedResumeWrites.erase(it);
             return;
         }
     });
@@ -2373,11 +2380,9 @@ void SessionImpl::populateAdditionalTrackersFromURL()
     m_additionalTrackerEntriesFromURL = parseTrackerEntries(additionalTrackersFromURL());
 }
 
-void SessionImpl::processTorrentShareLimits(TorrentImpl *torrent)
+void SessionImpl::processTorrentShareLimits(TorrentImpl *torrent, const bool committed)
 {
-    if (torrent->isCompletionPolicyPreview())
-        return;
-    if (!torrent->isFinished() || torrent->isForced())
+    if (!torrent->isReadyForCompletion() || torrent->isCompletionPolicyPreview() || torrent->isForced())
         return;
 
     const qreal ratioLimit = torrent->effectiveRatioLimit();
@@ -2406,10 +2411,18 @@ void SessionImpl::processTorrentShareLimits(TorrentImpl *torrent)
         description = tr("Torrent reached the inactive seeding time limit.");
     }
 
+    const ShareLimitAction shareLimitAction = torrent->effectiveShareLimitAction();
+    if (((shareLimitAction == ShareLimitAction::Stop) && torrent->isStopped())
+        || ((shareLimitAction == ShareLimitAction::EnableSuperSeeding) && (torrent->isStopped() || torrent->superSeeding())))
+        return;
+    if (reached && !committed)
+    {
+        m_completionPolicy->enqueue(torrent, false);
+        return;
+    }
     if (reached)
     {
         const QString torrentName = tr("Torrent: \"%1\".").arg(torrent->name());
-        const ShareLimitAction shareLimitAction = torrent->effectiveShareLimitAction();
 
         if (shareLimitAction == ShareLimitAction::Remove)
         {
@@ -2497,7 +2510,7 @@ void SessionImpl::banIP(const QString &ip)
 bool SessionImpl::removeTorrent(const TorrentID &id, const TorrentRemoveOption deleteOption)
 {
     if (const TorrentImpl *torrent = m_torrents.value(id)
-        ; torrent && isRepairPathLocked(torrent->actualStorageLocation()))
+        ; torrent && isDataPathLocked(torrent->actualStorageLocation()))
     {
         return false;
     }
@@ -2959,7 +2972,7 @@ bool SessionImpl::addTorrent_impl(const TorrentDescriptor &source, const AddTorr
     {
         lt::add_torrent_params &p = loadTorrentParams.ltAddTorrentParams;
 
-        if (isRepairPathLocked(result.savePath))
+        if (isDataPathLocked(result.savePath))
         {
             delete static_cast<ExtensionData *>(p.userdata);
             p.userdata = lt::client_data_t {};
@@ -4338,6 +4351,23 @@ bool SessionImpl::hasActiveRepair() const
     return std::ranges::any_of(asConst(m_torrents), [](const TorrentImpl *torrent) { return torrent->isRepairing(); });
 }
 
+CompletionPolicy *SessionImpl::completionPolicy() const
+{
+    return m_completionPolicy;
+}
+
+bool SessionImpl::canRunCompletionAction() const
+{
+    return isRestored() && m_completionPolicy && !m_completionPolicy->hasError() && !m_completionPolicy->isBusy()
+        && !m_completionPolicy->hasPendingEvents() && !hasPendingStorageJobs()
+        && std::ranges::all_of(asConst(m_torrents), [](const TorrentImpl *torrent)
+        {
+            return !torrent->isCompletionPolicyPreview() && !torrent->hasExclusiveFileOperation()
+                && !torrent->isMoving() && !torrent->isChecking()
+                && (torrent->isFinished() || torrent->isStopped() || torrent->isErrored());
+        });
+}
+
 bool SessionImpl::isPaused() const
 {
     return m_isPaused;
@@ -5376,15 +5406,18 @@ void SessionImpl::handleTorrentChecked(TorrentImpl *const torrent)
 
 void SessionImpl::handleTorrentFinished(TorrentImpl *const torrent)
 {
-    m_pendingFinishedTorrents.append(torrent);
+    if (m_completionPolicy)
+        m_completionPolicy->enqueue(torrent);
 }
 
 void SessionImpl::handleTorrentResumeDataReady(TorrentImpl *const torrent, LoadTorrentParams data)
 {
     quint64 revision = 0;
-    auto pending = m_repairResumeWrites.find(torrent->id());
-    if ((pending != m_repairResumeWrites.end()) && (pending->revision == 0) && data.stopped
-        && (data.savePath == pending->destination) && (Path(data.ltAddTorrentParams.save_path) == pending->destination))
+    auto pending = m_stoppedResumeWrites.find(torrent->id());
+    if ((pending != m_stoppedResumeWrites.end()) && (pending->revision == 0) && data.stopped
+        && (data.completionPolicyPreview == pending->completionPolicyPreview)
+        && ((data.savePath == pending->destination) || (data.useAutoTMM && data.savePath.isEmpty()))
+        && (Path(data.ltAddTorrentParams.save_path) == pending->destination))
     {
         revision = ++m_resumeWriteRevision;
         pending->revision = revision;
@@ -5418,14 +5451,14 @@ void SessionImpl::handleTorrentStorageMovingStateChanged(TorrentImpl *torrent)
     emit torrentsUpdated({torrent});
 }
 
-bool SessionImpl::isRepairPathLocked(const Path &path, const TorrentImpl *except) const
+bool SessionImpl::isDataPathLocked(const Path &path, const TorrentImpl *except) const
 {
     if (path.isEmpty())
         return false;
     QString candidate;
     for (const TorrentImpl *torrent : m_torrents)
     {
-        if ((torrent == except) || !torrent->isRepairing())
+        if ((torrent == except) || !torrent->hasExclusiveFileOperation())
             continue;
         if (candidate.isEmpty())
             candidate = repairPathIdentity(path.toString());
@@ -5455,12 +5488,12 @@ QFuture<bool> SessionImpl::drainTorrentDisk(TorrentImpl *torrent)
     return m_customDiskIO->drainTorrentDisk(torrent->nativeHandle().native_handle());
 }
 
-QFuture<bool> SessionImpl::persistRepairLocation(TorrentImpl *torrent, const Path &path)
+QFuture<bool> SessionImpl::persistStoppedTorrent(TorrentImpl *torrent, const Path &path)
 {
     auto promise = std::make_shared<QPromise<bool>>();
     promise->start();
     const QFuture<bool> future = promise->future();
-    m_repairResumeWrites.insert(torrent->id(), {path, promise, 0});
+    m_stoppedResumeWrites.insert(torrent->id(), {path, promise, 0, torrent->isCompletionPolicyPreview()});
     torrent->requestResumeData(lt::torrent_handle::save_info_dict);
     return future;
 }
@@ -5469,7 +5502,7 @@ bool SessionImpl::addMoveTorrentStorageJob(TorrentImpl *torrent, const Path &new
 {
     Q_ASSERT(torrent);
 
-    if (isRepairPathLocked(newPath) || isRepairPathLocked(torrent->actualStorageLocation()))
+    if (isDataPathLocked(newPath) || isDataPathLocked(torrent->actualStorageLocation()))
         return false;
 
     const lt::torrent_handle torrentHandle = torrent->nativeHandle();
@@ -5575,36 +5608,12 @@ void SessionImpl::handleMoveTorrentStorageJobFinished(const Path &newPath)
     }
 }
 
-void SessionImpl::processPendingFinishedTorrents()
+void SessionImpl::processCommittedTorrent(TorrentImpl *torrent)
 {
-    if (m_pendingFinishedTorrents.isEmpty())
-        return;
-
-    for (TorrentImpl *torrent : asConst(m_pendingFinishedTorrents))
-    {
-        // A native finish alert can arrive after Stop and repair admission.
-        // Discard it before external programs and other completion policies run.
-        if (torrent->isRepairing() || torrent->isCompletionPolicyPreview())
-            continue;
-
-        LogMsg(tr("Torrent download finished. Torrent: \"%1\"").arg(torrent->name()));
-        emit torrentFinished(torrent);
-
-        if (const Path exportPath = finishedTorrentExportDirectory(); !exportPath.isEmpty())
-            exportTorrentFile(torrent, exportPath);
-
-        processTorrentShareLimits(torrent);
-    }
-
-    m_pendingFinishedTorrents.clear();
-
-    const bool hasUnfinishedTorrents = std::ranges::any_of(asConst(m_torrents), [](const TorrentImpl *torrent)
-    {
-        return torrent->isRepairing() || torrent->isCompletionPolicyPreview()
-            || !(torrent->isFinished() || torrent->isStopped() || torrent->isErrored());
-    });
-    if (!hasUnfinishedTorrents)
-        emit allTorrentsFinished();
+    LogMsg(tr("Torrent download finished. Torrent: \"%1\"").arg(torrent->name()));
+    if (const Path exportPath = finishedTorrentExportDirectory(); !exportPath.isEmpty())
+        exportTorrentFile(torrent, exportPath);
+    emit torrentFinished(torrent);
 }
 
 void SessionImpl::storeCategories() const
@@ -5874,9 +5883,6 @@ void SessionImpl::readAlerts()
         previousAlertType = alertType;
     }
     endAlertSequence(previousAlertType, alertSequenceSize);
-
-    // Some torrents may become "finished" after different alerts handling.
-    processPendingFinishedTorrents();
 }
 
 void SessionImpl::handleAddTorrentAlert(const lt::add_torrent_alert *alert)
@@ -6563,6 +6569,14 @@ void SessionImpl::handleSaveResumeDataFailedAlert(const lt::save_resume_data_fai
     TorrentImpl *torrent = getTorrent(alert->handle);
     if (!torrent) [[unlikely]]
         return;
+
+    if (auto pending = m_stoppedResumeWrites.find(torrent->id());
+        (pending != m_stoppedResumeWrites.end()) && (alert->error != lt::errors::resume_data_not_modified))
+    {
+        pending->promise->addResult(false);
+        pending->promise->finish();
+        m_stoppedResumeWrites.erase(pending);
+    }
 
     if (alert->error != lt::errors::resume_data_not_modified)
     {
