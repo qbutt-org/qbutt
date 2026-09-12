@@ -10,7 +10,7 @@ Public Mihomo commit `d3ec342d441b086ec4318332f59dd05d8a2b5697` already contains
 
 The application starts its bundled child with inherited private stdin/stdout pipes. Bounded versioned JSON messages use these handles; SOCKS payload uses a separate authenticated loopback listener. This deliberately replaces the planned named-pipe endpoint for the parent/child-only slice: there is no discoverable control address, extra ACL configuration or background service. EOF closes the child and its sockets. A standalone control client would require a separate design.
 
-Only a selected node definition is imported from a local YAML file. Global client rules, DNS/TUN settings, external providers and automatic cross-server fallback are not part of that import. Edge identity is explicit; a node's display name does not establish its public IP or inbound capability.
+Network settings accept an ordinary Mihomo subscription, independent of any service or account system. The application retrieves the profile, then imports only the selected node definition into its transport process. Global client rules, DNS/TUN settings, external providers and automatic cross-server fallback are not part of that import. Edge identity is explicit inside the application; a node's display name does not establish its public IP or inbound capability. The settings UI exposes basic subscription, node and enable/disable choices rather than requiring users to understand these internal contracts.
 
 ## Repair boundary
 
