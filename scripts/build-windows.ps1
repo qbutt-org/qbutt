@@ -248,6 +248,8 @@ $($pins.qt.sourceUrl)
 The Qt DLLs can be replaced with compatible modified builds of the pinned Qt version.
 
 libtorrent source: $($pins.libtorrent.repository -replace '\.git$', '')/tree/$($pins.libtorrent.commit)
+Based on upstream libtorrent $($pins.libtorrent.upstream.tag):
+$($pins.libtorrent.upstream.repository -replace '\.git$', '')/tree/$($pins.libtorrent.upstream.commit)
 Boost source: $($pins.boost.url)
 OpenSSL and zlib source recipes, source checksums, and patches:
 https://github.com/microsoft/vcpkg/tree/$($pins.vcpkg.commit)/ports/openssl

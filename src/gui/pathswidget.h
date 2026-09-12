@@ -7,7 +7,6 @@
 
 #include <QGroupBox>
 
-class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
@@ -34,7 +33,10 @@ private:
     QComboBox *m_nodes;
     QComboBox *m_interfaces;
     QComboBox *m_mode;
-    QCheckBox *m_includeNative;
+    QLineEdit *m_dnsServer;
+    QLineEdit *m_bootstrapServer;
+    QComboBox *m_dnsFamily;
+    QPushButton *m_dnsApply;
     QListWidget *m_paths;
     QPushButton *m_refresh;
     QPushButton *m_localFile;

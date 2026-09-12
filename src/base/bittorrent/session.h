@@ -47,6 +47,7 @@ class QString;
 
 namespace Net
 {
+    enum class RoutePolicy;
     struct PeerRouteEndpoint;
 }
 
@@ -457,10 +458,9 @@ namespace BitTorrent
         virtual bool hasActiveRepair() const = 0;
         virtual bool canRunCompletionAction() const = 0;
         virtual CompletionPolicy *completionPolicy() const = 0;
-        virtual bool canSwitchConnectionMode() const = 0;
-        virtual void setPeerRoutes(const QList<Net::PeerRouteEndpoint> &routes, bool mixed) = 0;
-        virtual void resetPeerRoutes() = 0;
-        virtual void invalidatePeerRoute(quint64 pathId, quint64 generation) = 0;
+        virtual bool setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &routes, Net::RoutePolicy policy) = 0;
+        virtual bool resetNetworkRoutes() = 0;
+        virtual void invalidateNetworkRoute(quint64 pathId, quint64 generation) = 0;
         virtual QJsonArray peerRouteStatus() const = 0;
 
         virtual bool isPaused() const = 0;

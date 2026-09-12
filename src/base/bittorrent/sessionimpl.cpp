@@ -61,6 +61,7 @@
 #include <libtorrent/session_stats.hpp>
 #include <libtorrent/session_status.hpp>
 #include <libtorrent/torrent_info.hpp>
+#include <libtorrent/torrent_route_policy.hpp>
 
 #include <QDateTime>
 #include <QDeadlineTimer>
@@ -1939,10 +1940,11 @@ lt::settings_pack SessionImpl::loadLTSettings() const
     // proxy
     settingsPack.set_int(lt::settings_pack::proxy_type, lt::settings_pack::none);
     const auto *proxyManager = Net::ProxyConfigurationManager::instance();
-    settingsPack.set_bool(lt::settings_pack::proxy_require_authentication, proxyManager->hasRuntimeProxy());
+    const bool managedNetwork = proxyManager->hasRuntimeProxy();
+    settingsPack.set_bool(lt::settings_pack::proxy_require_authentication, false);
     const Net::ProxyConfiguration proxyConfig = proxyManager->proxyConfiguration();
-    if ((proxyConfig.type != Net::ProxyType::None)
-        && (proxyManager->hasRuntimeProxy() || Preferences::instance()->useProxyForBT()))
+    if (!managedNetwork && (proxyConfig.type != Net::ProxyType::None)
+        && Preferences::instance()->useProxyForBT())
     {
         switch (proxyConfig.type)
         {
@@ -1977,8 +1979,7 @@ lt::settings_pack SessionImpl::loadLTSettings() const
             settingsPack.set_str(lt::settings_pack::proxy_password, proxyConfig.password.toStdString());
         }
 
-        settingsPack.set_bool(lt::settings_pack::proxy_peer_connections,
-            proxyManager->hasRuntimeProxy() || isProxyPeerConnectionsEnabled());
+        settingsPack.set_bool(lt::settings_pack::proxy_peer_connections, isProxyPeerConnectionsEnabled());
         settingsPack.set_bool(lt::settings_pack::proxy_hostnames, proxyConfig.hostnameLookupEnabled);
     }
 
@@ -2161,19 +2162,28 @@ lt::settings_pack SessionImpl::loadLTSettings() const
         break;
     }
 
-    if (proxyManager->hasRuntimeProxy())
+    if (managedNetwork)
     {
-        // The initial pinned path supports outgoing TCP. Keep this override
-        // effective even if Preferences or WebUI changes the saved settings.
-        settingsPack.set_bool(lt::settings_pack::proxy_tracker_connections, true);
+        // Managed torrent operations receive immutable per-route bindings.
+        // The session proxy and discovery sockets must not become a fallback.
+        settingsPack.set_int(lt::settings_pack::proxy_type, lt::settings_pack::none);
+        settingsPack.set_str(lt::settings_pack::proxy_hostname, "");
+        settingsPack.set_int(lt::settings_pack::proxy_port, 0);
+        settingsPack.set_str(lt::settings_pack::proxy_username, "");
+        settingsPack.set_str(lt::settings_pack::proxy_password, "");
+        settingsPack.set_bool(lt::settings_pack::proxy_require_authentication, false);
+        settingsPack.set_bool(lt::settings_pack::proxy_peer_connections, false);
+        settingsPack.set_bool(lt::settings_pack::proxy_tracker_connections, false);
+        settingsPack.set_bool(lt::settings_pack::proxy_hostnames, false);
         settingsPack.set_bool(lt::settings_pack::enable_dht, false);
         settingsPack.set_bool(lt::settings_pack::enable_lsd, false);
         settingsPack.set_bool(lt::settings_pack::enable_incoming_tcp, false);
         settingsPack.set_bool(lt::settings_pack::enable_incoming_utp, false);
-        settingsPack.set_bool(lt::settings_pack::enable_outgoing_utp, false);
-        settingsPack.set_bool(lt::settings_pack::enable_outgoing_tcp, true);
+        settingsPack.set_bool(lt::settings_pack::enable_outgoing_utp, btProtocol() != BTProtocol::TCP);
+        settingsPack.set_bool(lt::settings_pack::enable_outgoing_tcp, btProtocol() != BTProtocol::UTP);
         settingsPack.set_bool(lt::settings_pack::enable_upnp, false);
         settingsPack.set_bool(lt::settings_pack::enable_natpmp, false);
+        settingsPack.set_str(lt::settings_pack::dht_bootstrap_nodes, "");
         settingsPack.set_str(lt::settings_pack::listen_interfaces, "127.0.0.1:0");
         settingsPack.set_str(lt::settings_pack::outgoing_interfaces, "127.0.0.1");
 #if TORRENT_USE_I2P
@@ -4263,29 +4273,29 @@ bool SessionImpl::isRestored() const
     return m_isRestored;
 }
 
-bool SessionImpl::canSwitchConnectionMode() const
+bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoints, const Net::RoutePolicy policy)
 {
-    // Include metadata-only and pending native torrents, which are not shown
-    // in the transfer list. get_torrents() synchronizes with libtorrent's queue.
-    return isRestored() && m_torrents.isEmpty() && m_addTorrentAlertHandlers.isEmpty()
-        && m_nativeSession->get_torrents().empty();
-}
+    std::vector<lt::peer_route> peerRoutes;
+    std::vector<lt::network_route> allRoutes;
+    std::vector<lt::network_route> pinnedRoutes;
+    std::vector<lt::udp_route> udpRoutes;
+    peerRoutes.reserve(endpoints.size());
+    allRoutes.reserve(endpoints.size() * 2);
+    udpRoutes.reserve(endpoints.size() * 4);
+    const lt::peer_route_context pinned = endpoints.isEmpty()
+        ? lt::peer_route_context {} : lt::peer_route_context {endpoints.front().pathId, endpoints.front().generation};
 
-void SessionImpl::setPeerRoutes(const QList<Net::PeerRouteEndpoint> &endpoints, const bool mixed)
-{
-    std::vector<lt::peer_route> routes;
-    routes.reserve(endpoints.size());
     for (const Net::PeerRouteEndpoint &endpoint : endpoints)
     {
         lt::peer_route route;
         route.type = lt::peer_route::type_t::blocked;
         route.context = {endpoint.pathId, endpoint.generation};
-        route.proxy_endpoint = {lt::address_v4::loopback(), endpoint.port};
-        route.username = endpoint.username.toStdString();
-        route.password = endpoint.password.toStdString();
         if (endpoint.type == Net::PeerRouteEndpoint::Type::Socks5)
         {
             route.type = lt::peer_route::type_t::socks5;
+            route.proxy_endpoint = {lt::address_v4::loopback(), endpoint.port};
+            route.username = endpoint.username.toStdString();
+            route.password = endpoint.password.toStdString();
         }
         else if (endpoint.type == Net::PeerRouteEndpoint::Type::Native)
         {
@@ -4300,23 +4310,149 @@ void SessionImpl::setPeerRoutes(const QList<Net::PeerRouteEndpoint> &endpoints, 
 #endif
             }
         }
-        routes.push_back(std::move(route));
+        peerRoutes.push_back(route);
+        if ((route.type != lt::peer_route::type_t::socks5)
+            && (route.type != lt::peer_route::type_t::native))
+        {
+            continue;
+        }
+
+        const auto addFamily = [&](const lt::route_family family)
+        {
+            lt::network_route networkRoute;
+            networkRoute.binding = route;
+            networkRoute.family = family;
+            allRoutes.push_back(networkRoute);
+            if (route.context == pinned)
+                pinnedRoutes.push_back(networkRoute);
+            if (!endpoint.supportsUdp)
+                return;
+
+            lt::udp_route udpRoute;
+            udpRoute.route = route;
+            udpRoute.family = family;
+            udpRoute.enable_utp = true;
+            udpRoute.enable_trackers = true;
+            udpRoutes.push_back(udpRoute);
+            udpRoute.ssl = true;
+            udpRoute.enable_trackers = false;
+            udpRoutes.push_back(std::move(udpRoute));
+        };
+        if (endpoint.supportsIPv4)
+            addFamily(lt::route_family::ipv4);
+        if (endpoint.supportsIPv6)
+            addFamily(lt::route_family::ipv6);
+    }
+
+    const auto sameUdpIdentity = [](const lt::udp_route &left, const lt::udp_route &right)
+    {
+        return (left.route.context == right.route.context) && (left.family == right.family)
+            && (left.ssl == right.ssl);
+    };
+    const auto sameUdpDescriptor = [&](const lt::udp_route &left, const lt::udp_route &right)
+    {
+        return sameUdpIdentity(left, right)
+            && (static_cast<const lt::route_descriptor &>(left.route)
+                == static_cast<const lt::route_descriptor &>(right.route))
+            && (left.route.transport == right.route.transport)
+            && (left.enable_utp == right.enable_utp) && (left.enable_dht == right.enable_dht)
+            && (left.enable_trackers == right.enable_trackers)
+            && (left.external_address == right.external_address);
+    };
+    std::vector<lt::udp_route> transitionRoutes = m_managedUdpRoutes;
+    for (const lt::udp_route &route : udpRoutes)
+    {
+        const auto existing = std::ranges::find_if(transitionRoutes,
+            [&](const lt::udp_route &candidate) { return sameUdpIdentity(candidate, route); });
+        if (existing == transitionRoutes.end())
+            transitionRoutes.push_back(route);
+        else if (!sameUdpDescriptor(*existing, route))
+            return false;
+    }
+
+    lt::error_code error = m_nativeSession->set_udp_routes(std::move(transitionRoutes));
+    if (error)
+    {
+        LogMsg(tr("Failed to register managed UDP routes. Reason: \"%1\".")
+            .arg(QString::fromStdString(error.message())), Log::WARNING);
+        return false;
+    }
+
+    const bool multipleRoutes = policy != Net::RoutePolicy::Pinned;
+    const std::vector<lt::network_route> publicRoutes = multipleRoutes ? allRoutes : pinnedRoutes;
+    error = m_nativeSession->set_torrent_route_policy_selector(
+        [publicRoutes, pinnedRoutes, pinned](const lt::torrent_route_request &request)
+        {
+            lt::torrent_route_policy result;
+            result.mode = lt::torrent_route_policy::mode_t::managed;
+            result.pinned = pinned;
+            result.routes = (request.private_torrent || !request.has_metadata)
+                ? pinnedRoutes : publicRoutes;
+            return result;
+        });
+    if (error)
+    {
+        m_nativeSession->set_udp_routes(m_managedUdpRoutes);
+        LogMsg(tr("Failed to apply the managed torrent route policy. Reason: \"%1\".")
+            .arg(QString::fromStdString(error.message())), Log::WARNING);
+        return false;
     }
 
     // Selection and verified feedback share one owner on libtorrent's thread.
     // Replacing both callbacks is a synchronous catalog barrier.
-    const auto selector = std::make_shared<Net::PeerRouteSelector>(std::move(routes), mixed);
+    const auto selector = std::make_shared<Net::PeerRouteSelector>(std::move(peerRoutes), multipleRoutes);
     m_nativeSession->set_peer_route_selector(
         [selector](const lt::peer_route_request &request) { return selector->select(request); },
         [selector](const lt::peer_route_observation &observation) { selector->observe(observation); });
+
+    error = m_nativeSession->set_udp_routes(udpRoutes);
+    if (error)
+    {
+        m_nativeSession->set_torrent_route_policy_selector(
+            [](const lt::torrent_route_request &)
+            {
+                lt::torrent_route_policy result;
+                result.mode = lt::torrent_route_policy::mode_t::managed;
+                return result;
+            });
+        m_nativeSession->set_peer_route_selector(
+            [](const lt::peer_route_request &)
+            {
+                lt::peer_route result;
+                result.type = lt::peer_route::type_t::blocked;
+                return result;
+            });
+        m_nativeSession->set_udp_routes({});
+        m_managedUdpRoutes.clear();
+        LogMsg(tr("Failed to retire superseded managed UDP routes. Reason: \"%1\".")
+            .arg(QString::fromStdString(error.message())), Log::WARNING);
+        return false;
+    }
+    m_managedUdpRoutes = std::move(udpRoutes);
+    return true;
 }
 
-void SessionImpl::resetPeerRoutes()
+bool SessionImpl::resetNetworkRoutes()
 {
+    if (const lt::error_code error = m_nativeSession->set_udp_routes({}))
+    {
+        LogMsg(tr("Failed to retire managed UDP routes. Reason: \"%1\".")
+            .arg(QString::fromStdString(error.message())), Log::WARNING);
+        return false;
+    }
+    const lt::error_code error = m_nativeSession->set_torrent_route_policy_selector({});
+    if (error)
+    {
+        LogMsg(tr("Failed to restore the default torrent route policy. Reason: \"%1\".")
+            .arg(QString::fromStdString(error.message())), Log::WARNING);
+        return false;
+    }
     m_nativeSession->set_peer_route_selector({});
+    m_managedUdpRoutes.clear();
+    return true;
 }
 
-void SessionImpl::invalidatePeerRoute(const quint64 pathId, const quint64 generation)
+void SessionImpl::invalidateNetworkRoute(const quint64 pathId, const quint64 generation)
 {
     m_nativeSession->invalidate_peer_route({pathId, generation});
 }

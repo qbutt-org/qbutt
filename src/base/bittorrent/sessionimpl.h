@@ -37,6 +37,7 @@
 #include <libtorrent/fwd.hpp>
 #include <libtorrent/portmap.hpp>
 #include <libtorrent/torrent_handle.hpp>
+#include <libtorrent/udp_route.hpp>
 
 #include <QtContainerFwd>
 #include <QElapsedTimer>
@@ -425,10 +426,9 @@ namespace BitTorrent
         bool hasActiveRepair() const override;
         bool canRunCompletionAction() const override;
         CompletionPolicy *completionPolicy() const override;
-        bool canSwitchConnectionMode() const override;
-        void setPeerRoutes(const QList<Net::PeerRouteEndpoint> &routes, bool mixed) override;
-        void resetPeerRoutes() override;
-        void invalidatePeerRoute(quint64 pathId, quint64 generation) override;
+        bool setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &routes, Net::RoutePolicy policy) override;
+        bool resetNetworkRoutes() override;
+        void invalidateNetworkRoute(quint64 pathId, quint64 generation) override;
         QJsonArray peerRouteStatus() const override;
 
         bool isPaused() const override;
@@ -853,6 +853,7 @@ namespace BitTorrent
         TagSet m_tags;
 
         std::vector<lt::alert *> m_alerts;  // make it a class variable so it can preserve its allocated `capacity`
+        std::vector<lt::udp_route> m_managedUdpRoutes;
         qsizetype m_receivedAddTorrentAlertsCount = 0;
         QList<Torrent *> m_loadedTorrents;
 

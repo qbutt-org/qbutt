@@ -52,16 +52,56 @@ void QbuttPathsController::policyAction()
 {
     requireParams({u"mode"_s});
     requireIdle();
-    if ((params().value(u"mode"_s) != u"mixed") && (params().value(u"mode"_s) != u"pinned"))
+    const QString mode = params().value(u"mode"_s);
+    if ((mode != u"mixed") && (mode != u"pinned") && (mode != u"tunnels"))
         throw APIError(APIErrorType::BadParams, tr("Unsupported network policy."));
-    Net::PathManager::instance()->setPolicy(params().value(u"mode"_s), params().value(u"nativeInterface"_s));
+    if ((mode == u"mixed") && params().value(u"nativeInterface"_s).isEmpty())
+        throw APIError(APIErrorType::BadParams, tr("Mixed mode requires a physical Native interface."));
+    auto *manager = Net::PathManager::instance();
+    if (!manager->setPolicy(mode, params().value(u"nativeInterface"_s)))
+        throw APIError(APIErrorType::BadParams, manager->status());
     statusAction();
 }
 
 void QbuttPathsController::stopAction()
 {
-    requireIdle();
+    const QJsonObject state = Net::PathManager::instance()->statusData();
+    if (!params().value(u"pathId"_s).isEmpty()
+        && (state.value(u"resolution"_s).toObject().value(u"state"_s) != u"pending"_s))
+    {
+        requireIdle();
+    }
     Net::PathManager::instance()->stopPath(params().value(u"pathId"_s));
+    statusAction();
+}
+
+void QbuttPathsController::dnsAction()
+{
+    requireParams({u"server"_s, u"bootstrapServer"_s, u"family"_s});
+    requireIdle();
+    auto *manager = Net::PathManager::instance();
+    if (!manager->setDnsPolicy(params().value(u"server"_s), params().value(u"bootstrapServer"_s),
+        params().value(u"family"_s)))
+    {
+        throw APIError(APIErrorType::BadParams, manager->status());
+    }
+    statusAction();
+}
+
+void QbuttPathsController::resolveAction()
+{
+    requireParams({u"pathId"_s, u"generation"_s, u"host"_s, u"family"_s});
+    requireIdle();
+    bool valid = false;
+    const quint64 generation = params().value(u"generation"_s).toULongLong(&valid);
+    if (!valid || (generation == 0) || (generation > 9007199254740991))
+        throw APIError(APIErrorType::BadParams, tr("Invalid path generation."));
+    auto *manager = Net::PathManager::instance();
+    if (manager->resolveHost(params().value(u"pathId"_s), generation,
+        params().value(u"host"_s), params().value(u"family"_s)) == 0)
+    {
+        throw APIError(APIErrorType::BadParams, manager->status());
+    }
     statusAction();
 }
 

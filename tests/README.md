@@ -41,7 +41,11 @@ bun run smoke:repair
 bun run smoke:staging
 bun run smoke:completion
 bun run smoke:mixed
+bun run smoke:mixed-baseline
+bun run smoke:tunnels
+bun run smoke:native-route
 bun run smoke:path-auth
+bun run smoke:path-dns
 ```
 
 To exercise the real qbutt-net child, place its pinned binary beside the app and
@@ -162,40 +166,54 @@ observations; native and seed logs remain beside it. Failed and unsupported
 filesystem scenarios are explicit. Credentials are never printed. Generated
 profiles, payloads and logs are temporary artifacts, not repository source.
 
-`smoke:mixed` requires the route-aware application and bundled qbutt-net. Two
-native peers hash-check complementary even/odd pieces stored in independent
-physical partial files. Each synthetic peer address has an exclusive authenticated
-SOCKS route and rejects direct connections. One application torrent must receive
-both subsets concurrently, report the original peer/path/generation through native
-telemetry, and finish with exact hashes and sizes. A second run deliberately tries
-the wrong routes before automatic retry through the alternatives. The partial
-peers cannot download their missing complement; their final bitmaps and physical
-files must stay unchanged.
+`smoke:mixed` requires the route-aware application, bundled qbutt-net,
+`QBUTT_LAB_NATIVE_INTERFACE`, and `QBUTT_LAB_NATIVE_ADDRESS`. Three exclusive
+authenticated routes and one physical Native route expose complementary subsets
+from independent partial files. One application torrent must receive all four
+subsets concurrently, report the original peer/path/generation through native
+telemetry, and finish with exact hashes and sizes. The Native seed accepts only
+clients from the configured physical address and must observe that address. The
+test also tries wrong remote routes before automatic retry, restarts the app, and
+requires the persisted fail-closed policy. This proves application binding on the
+host; public egress and physical-wire routing require a separate environment.
 
-`bun run smoke:mixed --native` extends this fixture to four complementary subsets:
-three exclusive tunnels and Native. Set `QBUTT_LAB_NATIVE_INTERFACE` to an active
-physical adapter name and `QBUTT_LAB_NATIVE_ADDRESS` to its private local IPv4
-address. The native peer binds only that address and accepts only clients from
-the same address. All four paths must feed one torrent concurrently; the native
-peer must observe that exact source address. This proves application binding on
-the host, while public egress and traffic on the physical wire require separate
-environments.
+`smoke:tunnels` uses the same complementary peers without a Native route. It
+starts a public torrent while Pinned, proves that the first edge can obtain only
+its own subset, changes the live job to Tunnels only, and verifies completion
+through both authenticated routes. It then repeats concurrent and failed-route
+retry coverage with the persisted Tunnels-only policy.
 
-Run `bun run smoke:mixed --baseline` against the unchanged upstream control or
+`smoke:native-route` isolates that physical binding from route selection. It
+requires the same Native interface variables, transfers a generated public
+torrent through only that route, verifies exact payload, and requires the seed
+to observe the selected source address.
+
+Run `bun run smoke:mixed-baseline` against the unchanged upstream control or
 alpha application to verify the negative control: each single proxy obtains
 exactly its available subset and cannot finish the target. A timeout is a failure;
 the negative result requires a checked native piece bitmap and matching bytes.
 
 `smoke:path-auth` copies only executable/runtime files into a temporary bundle and
-compiles a small fake child there. It tests the real application's SOCKS negotiation
-against no-auth downgrade and rejected credentials for both session and peer
-sockets, then incompatible child hello.
+compiles a small fake child there. It verifies that the application does not install
+a session-wide SOCKS proxy, then tests managed peer-socket negotiation against
+no-auth downgrade and rejected credentials and checks incompatible child hello.
+DNS cases use protocol 2 and exercise
+numeric/family/bounds checks, request errors with retry, child timeout/crash,
+generation admission, authentication and redacted public results.
 The normal bundle and profiles are untouched. The fake child records protocol
 method/command numbers, never authentication payload. All scenarios produce their
 own evidence; any failed scenario makes the suite fail.
 
-This local TCP lab does not prove physical VPS egress, throughput gain, DNS/UDP/
-uTP/DHT isolation, Koala coexistence, public inbound, or Tunnels only. It also does
-not implement network namespaces/netem or physical source-volume/power failure;
-those require their own integration environments. Staging crash tests cover
-abrupt process termination on the local Windows filesystem.
+`smoke:path-dns` uses the real bundled child with two generated SOCKS nodes and
+two local TCP DNS servers returning different A/AAAA answers for the same name.
+It checks immutable DNS policy per opened generation, address families, stale
+generation rejection, stopping one path while a lookup is pending without
+terminating its healthy neighbour, global stop, and saved settings after restart.
+This checks the application's DNS control boundary; it does not prove that every
+libtorrent tracker, peer, webseed or discovery operation uses that boundary.
+
+This local lab does not prove physical VPS egress, throughput gain, complete DNS
+isolation, Koala coexistence or public inbound. It also does not implement network
+namespaces/netem or physical source-volume/power failure; those require separate
+integration environments. Staging crash tests cover abrupt process termination on
+the local Windows filesystem.

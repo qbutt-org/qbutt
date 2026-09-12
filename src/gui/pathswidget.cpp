@@ -11,7 +11,6 @@
 #include <iphlpapi.h>
 #endif
 
-#include <QCheckBox>
 #include <QComboBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -36,7 +35,10 @@ PathsWidget::PathsWidget(QWidget *parent)
     , m_nodes {new QComboBox(this)}
     , m_interfaces {new QComboBox(this)}
     , m_mode {new QComboBox(this)}
-    , m_includeNative {new QCheckBox(tr("Include Native through the selected physical interface"), this)}
+    , m_dnsServer {new QLineEdit(this)}
+    , m_bootstrapServer {new QLineEdit(this)}
+    , m_dnsFamily {new QComboBox(this)}
+    , m_dnsApply {new QPushButton(tr("Save DNS settings"), this)}
     , m_paths {new QListWidget(this)}
     , m_refresh {new QPushButton(tr("Refresh"), this)}
     , m_localFile {new QPushButton(tr("Local file…"), this)}
@@ -90,12 +92,52 @@ PathsWidget::PathsWidget(QWidget *parent)
     m_interfaces->setToolTip(tr("The selected adapter is bound by qbutt-net. Its actual route must still be verified."));
     form->addRow(tr("Interface:"), m_interfaces);
     m_mode->setObjectName(u"mihomoPeerPolicy"_s);
-    m_mode->addItem(tr("Pinned TCP — first selected edge"), u"pinned"_s);
-    m_mode->addItem(tr("Mixed TCP — selected edges"), u"mixed"_s);
+    m_mode->addItem(tr("Pinned — first selected edge"), u"pinned"_s);
+    m_mode->addItem(tr("Tunnels only — selected remote edges"), u"tunnels"_s);
+    m_mode->addItem(tr("Mixed — remote edges and Native"), u"mixed"_s);
     form->addRow(tr("Peer connections:"), m_mode);
-    m_includeNative->setObjectName(u"mihomoIncludeNative"_s);
-    form->addRow(QString(), m_includeNative);
     layout->addLayout(form);
+
+    auto *dnsToggle = new QPushButton(tr("DNS settings…"), this);
+    dnsToggle->setObjectName(u"mihomoDnsSettings"_s);
+    dnsToggle->setCheckable(true);
+    layout->addWidget(dnsToggle, 0, Qt::AlignLeft);
+    auto *dnsOptions = new QWidget(this);
+    auto *dnsForm = new QFormLayout(dnsOptions);
+    dnsForm->setContentsMargins(0, 0, 0, 0);
+    m_dnsServer->setObjectName(u"mihomoDnsServer"_s);
+    m_bootstrapServer->setObjectName(u"mihomoBootstrapServer"_s);
+    m_dnsFamily->setObjectName(u"mihomoDnsFamily"_s);
+    m_dnsApply->setObjectName(u"mihomoSaveDns"_s);
+    m_dnsServer->setToolTip(tr("Numeric IP:port. Hostname lookups use this DNS server through each selected node."));
+    m_bootstrapServer->setToolTip(tr("Numeric IP:port. Only the node's own hostname is resolved through the selected physical interface."));
+    m_dnsFamily->addItem(tr("IPv4 and IPv6"), u"dual"_s);
+    m_dnsFamily->addItem(tr("IPv4 only"), u"ipv4"_s);
+    m_dnsFamily->addItem(tr("IPv6 only"), u"ipv6"_s);
+    dnsForm->addRow(tr("DNS server:"), m_dnsServer);
+    dnsForm->addRow(tr("Bootstrap DNS:"), m_bootstrapServer);
+    dnsForm->addRow(tr("Destination addresses:"), m_dnsFamily);
+    dnsForm->addRow(QString(), m_dnsApply);
+    auto *dnsDescription = new QLabel(tr("The default is Cloudflare DNS (1.1.1.1). Changes apply when connecting a node. "
+        "Full application DNS isolation has not been verified."), dnsOptions);
+    dnsDescription->setWordWrap(true);
+    dnsForm->addRow(dnsDescription);
+    dnsOptions->hide();
+    layout->addWidget(dnsOptions);
+    connect(dnsToggle, &QPushButton::toggled, dnsOptions, &QWidget::setVisible);
+    const auto loadDnsSettings = [this]()
+    {
+        const QJsonObject dns = m_manager->dnsPolicy();
+        m_dnsServer->setText(dns.value(u"server"_s).toString());
+        m_bootstrapServer->setText(dns.value(u"bootstrapServer"_s).toString());
+        m_dnsFamily->setCurrentIndex(m_dnsFamily->findData(dns.value(u"family"_s).toString()));
+    };
+    loadDnsSettings();
+    connect(m_manager, &Net::PathManager::dnsPolicyChanged, this, loadDnsSettings);
+    connect(m_dnsApply, &QPushButton::clicked, this, [this]()
+    {
+        m_manager->setDnsPolicy(m_dnsServer->text(), m_bootstrapServer->text(), m_dnsFamily->currentData().toString());
+    });
 
     m_paths->setObjectName(u"mihomoPaths"_s);
     m_paths->setMaximumHeight(110);
@@ -109,9 +151,9 @@ PathsWidget::PathsWidget(QWidget *parent)
     actions->addWidget(m_native);
     actions->addStretch();
     layout->addLayout(actions);
-    auto *description = new QLabel(tr("Mixed shares one torrent session across selected TCP paths. Including Native exposes your "
-        "home address to public torrent peers. Private torrents and trackers stay on the first tunnel edge. "
-        "UDP, DHT and public inbound are not available in this build."), this);
+    auto *description = new QLabel(tr("All policies share one torrent session. Supported UDP routes carry uTP and UDP trackers. "
+        "DHT stays disabled until an external route address is verified, and public inbound remains unavailable. "
+        "Including Native exposes its address to public torrent peers; private torrents stay on the first remote edge."), this);
     description->setWordWrap(true);
     layout->addWidget(description);
     m_status->setWordWrap(true);
@@ -143,13 +185,12 @@ PathsWidget::PathsWidget(QWidget *parent)
     const auto applyPolicy = [this]()
     {
         m_manager->setPolicy(m_mode->currentData().toString(),
-            m_includeNative->isChecked() ? m_interfaces->currentData().toString() : QString());
+            (m_mode->currentData() == u"mixed"_s) ? m_interfaces->currentData().toString() : QString());
     };
     connect(m_mode, &QComboBox::activated, this, applyPolicy);
-    connect(m_includeNative, &QCheckBox::clicked, this, applyPolicy);
     connect(m_interfaces, &QComboBox::activated, this, [this]()
     {
-        if (m_includeNative->isChecked())
+        if (m_mode->currentData() == u"mixed"_s)
             m_manager->setPolicy(m_mode->currentData().toString(), m_interfaces->currentData().toString());
     });
     connect(m_native, &QPushButton::clicked, m_manager, &Net::PathManager::useNative);
@@ -184,9 +225,6 @@ void PathsWidget::refreshState()
     const QJsonObject state = m_manager->statusData();
     m_mode->setCurrentIndex(m_mode->findData(state.value(u"mode"_s).toString()));
     m_mode->setEnabled(!busy);
-    m_includeNative->setChecked(!state.value(u"nativeInterface"_s).toString().isEmpty());
-    m_includeNative->setEnabled(!busy && (m_mode->currentData() == u"mixed"_s)
-        && !m_interfaces->currentData().toString().isEmpty());
     const QSignalBlocker pathsBlocker(m_paths);
     const QString selectedPath = m_paths->currentItem()
         ? m_paths->currentItem()->data(Qt::UserRole).toString() : QString();
@@ -206,13 +244,18 @@ void PathsWidget::refreshState()
     }
     if (!m_paths->currentItem() && (m_paths->count() > 0))
         m_paths->setCurrentRow(0);
-    m_disconnect->setEnabled(!busy && m_paths->currentItem()
+    const bool resolving = state.value(u"resolution"_s).toObject().value(u"state"_s) == u"pending"_s;
+    m_disconnect->setEnabled((!busy || resolving) && m_paths->currentItem()
         && m_paths->currentItem()->data(Qt::UserRole + 1).toBool());
     m_url->setEnabled(!busy);
     m_refresh->setEnabled(!busy);
     m_localFile->setEnabled(!busy);
     m_nodes->setEnabled(!busy);
     m_interfaces->setEnabled(!busy);
+    m_dnsServer->setEnabled(!busy);
+    m_bootstrapServer->setEnabled(!busy);
+    m_dnsFamily->setEnabled(!busy);
+    m_dnsApply->setEnabled(!busy);
     m_start->setEnabled(!busy && !nodeConnected && (m_nodes->count() > 0)
         && !m_interfaces->currentData().toString().isEmpty());
     m_native->setEnabled(!busy && Net::ProxyConfigurationManager::instance()->hasRuntimeProxy());

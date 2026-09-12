@@ -20,6 +20,8 @@ private slots:
     void refreshAction();
     void openAction();
     void policyAction();
+    void dnsAction();
+    void resolveAction();
     void stopAction();
     void nativeAction();
 

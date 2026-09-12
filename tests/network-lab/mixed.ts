@@ -19,7 +19,10 @@ interface PathsStatus {
 
 const baseline = process.argv.includes("--baseline");
 const native = process.argv.includes("--native");
-assert(!(baseline && native), "The unchanged baseline control uses two complementary tunnel paths");
+const tunnelsOnly = process.argv.includes("--tunnels");
+assert([baseline, native, tunnelsOnly].filter(Boolean).length === 1,
+    "Baseline, Native and Tunnels-only are separate integration scenarios");
+const managedMode = tunnelsOnly ? "tunnels" : "mixed";
 const nativeInterface = process.env.QBUTT_LAB_NATIVE_INTERFACE;
 const nativeAddress = process.env.QBUTT_LAB_NATIVE_ADDRESS;
 if (native) {
@@ -29,7 +32,7 @@ if (native) {
 }
 const sides = native ? [0, 1, 2, 3] : [0, 1];
 const tunnelSides = native ? [0, 1, 2] : sides;
-const lab = await createLab(baseline ? "mixed-baseline" : native ? "mixed-native" : "mixed");
+const lab = await createLab(baseline ? "mixed-baseline" : native ? "mixed-native" : tunnelsOnly ? "tunnels-only" : "mixed");
 const seeds: Awaited<ReturnType<typeof startSeed>>[] = [];
 const proxies: Awaited<ReturnType<typeof startProxy>>[] = [];
 const torrent = lab.manifest.torrents.find(item => item.name === "v1-public")!;
@@ -102,6 +105,11 @@ try {
             : "Loopback TCP topology with exclusive authenticated proxy maps; no public egress claim" });
 
     await lab.start();
+    if (native) {
+        await lab.request("app/setPreferences", { json: JSON.stringify({ bittorrent_protocol: 1 }) });
+        await waitFor("physical Mixed TCP peer protocol", () =>
+            lab.json<Record<string, unknown>>("app/preferences"), preferences => preferences.bittorrent_protocol === 1);
+    }
     if (baseline) {
         for (const side of tunnelSides) {
             const proxy = proxies[side]!;
@@ -166,15 +174,37 @@ try {
             const status = await waitFor("open independent path", readPaths, status => !status.busy);
             assert(status.paths?.filter(path => path.open).length === side + 1, "Expected independent active paths");
         }
-        await lab.request("qbuttPaths/policy", { mode: "mixed", ...(native ? { nativeInterface: nativeInterface! } : {}) });
+        if (tunnelsOnly) {
+            const destination = join(lab.root, "active-policy-transition");
+            const hash = await lab.add(torrent.name, destination);
+            await lab.request("torrents/start", { hashes: hash });
+            await lab.request("torrents/addPeers", { hashes: hash, peers: `127.0.0.2:${seeds[0]!.port}` });
+            const pinned = await waitFor("pinned path obtains only its complementary subset", () => lab.info(hash),
+                info => info.completed === subsets[0]!.bytes);
+            assert(pinned.progress < 1, "Pinned path unexpectedly completed the complementary torrent");
+            await Bun.sleep(1500);
+            assert((await lab.info(hash)).completed === pinned.completed, "Pinned path received bytes outside its subset");
+            await lab.request("qbuttPaths/policy", { mode: managedMode });
+            await lab.request("torrents/addPeers", { hashes: hash, peers: `127.0.0.3:${seeds[1]!.port}` });
+            await waitFor("active torrent uses the newly admitted tunnel", readPaths, status => status.peers.some(peer =>
+                peer.peer === "127.0.0.3" && peer.port === seeds[1]!.port && peer.payloadDownload > 16384), 120000);
+            await waitFor("active torrent completes after Tunnels-only transition", () => lab.info(hash),
+                info => info.progress === 1, 120000);
+            const verifiedBytes = await verifyPayload(destination, lab.manifest.payload);
+            await lab.checkpoint({ check: "active-pinned-to-tunnels-only-transition", verifiedBytes, exactSizes: true });
+            await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
+            await waitFor("transition torrent removed", () => lab.json<unknown[]>("torrents/info"), jobs => jobs.length === 0);
+        }
+        await lab.request("qbuttPaths/policy", { mode: managedMode, ...(native ? { nativeInterface: nativeInterface! } : {}) });
         const selected = await readPaths();
         const expectedPaths = sides.map(side => selected.paths.find(path => native && side === 3
             ? path.edgeId === "native" && path.localAddress === nativeAddress : path.edgeId === `edge-${side}`));
-        assert(selected.mode === "mixed" && expectedPaths.every(path => path?.open)
-            && new Set(expectedPaths.map(path => path!.pathId)).size === sides.length, "Mixed policy did not retain the distinct fixture paths");
+        assert(selected.mode === managedMode && expectedPaths.every(path => path?.open)
+            && new Set(expectedPaths.map(path => path!.pathId)).size === sides.length,
+            `${managedMode} policy did not retain the distinct fixture paths`);
         for (const retry of native ? [false] : [false, true]) {
             if (retry)
-                await lab.request("qbuttPaths/policy", { mode: "mixed" }); // Reset per-peer route exploration.
+                await lab.request("qbuttPaths/policy", { mode: managedMode }); // Reset per-peer route exploration.
             const destination = join(lab.root, retry ? "retry-target" : "mixed-target");
             const hash = await lab.add(torrent.name, destination);
             await lab.request("torrents/start", { hashes: hash });
@@ -182,9 +212,11 @@ try {
             const failuresBefore = proxies.map(proxy => proxy.stats.deniedConnections);
             const endpoints = order.map(side => ({ side,
                 host: native && side === 3 ? nativeAddress! : `127.0.0.${side + (retry ? 4 : 2)}` }));
-            // Admit all complementary peers together. The native fixture rate
-            // keeps early peers productive while other routes undergo retries.
-            if (!retry)
+            // The physical scenario admits peers in path order so libtorrent's
+            // asynchronous torrent iteration cannot assign the first attempts
+            // to unrelated exclusive endpoints. Every seed is rate-limited,
+            // keeping earlier connections active for the concurrent-flow check.
+            if (!retry && !native)
                 await lab.request("torrents/addPeers", { hashes: hash,
                     peers: endpoints.map(({ side, host }) => `${host}:${seeds[side]!.port}`).join("|") });
             if (native) {
@@ -203,8 +235,10 @@ try {
             }
             let concurrentPeers: PathsStatus["peers"] = [];
             for (const { side, host } of endpoints) {
-                if (retry) {
+                if (retry || native) {
                     await lab.request("torrents/addPeers", { hashes: hash, peers: `${host}:${seeds[side]!.port}` });
+                }
+                if (retry) {
                     await waitFor("wrong path rejected before alternative retry", async () => proxies[1 - side]!.stats.deniedConnections,
                         count => count > failuresBefore[1 - side]!);
                 }
@@ -254,7 +288,7 @@ try {
         await lab.shutdown();
         await lab.start();
         const restored = await readPaths();
-        assert(restored.mode === "mixed" && restored.paths.every(path => !path.open),
+        assert(restored.mode === managedMode && restored.paths.every(path => !path.open),
             "Restart did not preserve the blocked managed policy");
         await lab.checkpoint({ check: "managed-policy-restart", mode: restored.mode, openPaths: 0 });
     }

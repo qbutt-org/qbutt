@@ -11,9 +11,13 @@
     "smoke:profile": "bun tests/profile-lab/smoke.ts",
     "smoke:proxy": "bun tests/network-lab/probe.ts",
     "smoke:network": "bun tests/network-lab/smoke.ts",
-    "smoke:mixed": "bun tests/network-lab/mixed.ts",
+    "smoke:mixed": "bun tests/network-lab/mixed.ts --native",
+    "smoke:mixed-baseline": "bun tests/network-lab/mixed.ts --baseline",
+    "smoke:tunnels": "bun tests/network-lab/mixed.ts --tunnels",
+    "smoke:native-route": "bun tests/network-lab/native-route.ts",
     "smoke:route-policy": "bun tests/network-lab/route-policy.ts",
     "smoke:path-auth": "bun tests/network-lab/path-auth.ts",
+    "smoke:path-dns": "bun tests/network-lab/path-dns.ts",
     "smoke:policies": "bun tests/policies-smoke.ts",
     "smoke:policies-faults": "bun tests/policies-faults.ts"
   }

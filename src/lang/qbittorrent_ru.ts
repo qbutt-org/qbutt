@@ -6045,6 +6045,42 @@ Minimum requirement: %2.</source>
 <context>
     <name>Net::PathManager</name>
     <message>
+        <source>qbutt-net did not complete DNS resolution within 8 seconds.</source>
+        <translation>qbutt-net не завершил DNS-запрос за 8 секунд.</translation>
+    </message>
+    <message>
+        <source>DNS servers must be numeric IP:port addresses, with IPv4, IPv6 or both selected.</source>
+        <translation>Укажите DNS-серверы в формате IP:порт и выберите IPv4, IPv6 или оба протокола.</translation>
+    </message>
+    <message>
+        <source>Unable to save DNS settings.</source>
+        <translation>Не удалось сохранить настройки DNS.</translation>
+    </message>
+    <message>
+        <source>DNS settings saved. They apply when connecting a node; existing paths keep their settings.</source>
+        <translation>Настройки DNS сохранены и будут применены при подключении узла. Текущие соединения сохраняют свои настройки.</translation>
+    </message>
+    <message>
+        <source>Choose an active path generation, a hostname and a valid address family.</source>
+        <translation>Укажите действующее поколение пути, имя узла и допустимое семейство адресов.</translation>
+    </message>
+    <message>
+        <source>Correct the saved DNS settings before connecting a node.</source>
+        <translation>Перед подключением узла исправьте сохранённые настройки DNS.</translation>
+    </message>
+    <message>
+        <source>The qbutt-net request identifier limit was reached. Restart qbutt.</source>
+        <translation>Достигнут предел идентификаторов запросов qbutt-net. Перезапустите qbutt.</translation>
+    </message>
+    <message>
+        <source>qbutt-net returned an invalid DNS address list.</source>
+        <translation>qbutt-net вернул недопустимый список DNS-адресов.</translation>
+    </message>
+    <message>
+        <source>qbutt-net returned an invalid DNS address or family.</source>
+        <translation>qbutt-net вернул недопустимый DNS-адрес или семейство адресов.</translation>
+    </message>
+    <message>
         <location filename="../base/net/pathmanager.cpp" line="45"/>
         <source>Pinned path unavailable. Start a path to reconnect; automatic Native fallback is disabled.</source>
         <translation>Соединение через выбранный узел недоступно. Подключите узел повторно; автоматический переход к обычному соединению отключён.</translation>
@@ -6132,9 +6168,16 @@ Minimum requirement: %2.</source>
         <translation>Подключение узла. Выход в интернет и сетевые возможности ещё не проверены.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="319"/>
-        <source>Choose Pinned or Mixed TCP. Other network policies are not available yet.</source>
-        <translation>Выберите Pinned или Mixed TCP. Остальные сетевые режимы пока недоступны.</translation>
+        <source>Choose Pinned, Mixed or Tunnels only.</source>
+        <translation>Выберите Pinned, Mixed или Tunnels only.</translation>
+    </message>
+    <message>
+        <source>Choose a physical Native interface for Mixed mode.</source>
+        <translation>Выберите физический адаптер Native для режима Mixed.</translation>
+    </message>
+    <message>
+        <source>The torrent session is not ready for a network policy transition.</source>
+        <translation>Торрент-сессия не готова к смене сетевого режима.</translation>
     </message>
     <message>
         <location filename="../base/net/pathmanager.cpp" line="361"/>
@@ -6157,14 +6200,20 @@ Minimum requirement: %2.</source>
         <translation>Не удалось сохранить сетевой режим.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="404"/>
-        <source>Mixed TCP: new peer connections use the selected edges. Private torrents stay pinned.</source>
-        <translation>Mixed TCP: новые соединения с пирами используют выбранные выходы. Приватные торренты закреплены за первым выходом.</translation>
+        <source>Unable to apply the network policy.</source>
+        <translation>Не удалось применить сетевой режим.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="405"/>
-        <source>Pinned TCP: peer connections use the first selected edge.</source>
-        <translation>Pinned TCP: соединения с пирами используют первый выбранный выход.</translation>
+        <source>Mixed: public torrents use selected edges and the chosen Native interface. Private torrents stay pinned.</source>
+        <translation>Mixed: публичные торренты используют выбранные выходы и адаптер Native. Приватные торренты остаются закреплены за первым выходом.</translation>
+    </message>
+    <message>
+        <source>Tunnels only: public torrents use selected remote edges. Private torrents stay pinned.</source>
+        <translation>Tunnels only: публичные торренты используют выбранные удалённые выходы. Приватные торренты остаются закреплены за первым выходом.</translation>
+    </message>
+    <message>
+        <source>Pinned: torrent traffic uses the first selected edge.</source>
+        <translation>Pinned: торрент-трафик использует первый выбранный выход.</translation>
     </message>
     <message>
         <location filename="../base/net/pathmanager.cpp" line="429"/>
@@ -6180,6 +6229,22 @@ Minimum requirement: %2.</source>
         <location filename="../base/net/pathmanager.cpp" line="441"/>
         <source>Unable to save the Native startup policy. The pinned path remains blocked.</source>
         <translation>Не удалось сохранить режим обычного соединения при запуске. Передача через выбранный узел остаётся заблокированной.</translation>
+    </message>
+    <message>
+        <source>Unable to restore the saved managed network policy.</source>
+        <translation>Не удалось восстановить сохранённый управляемый сетевой режим.</translation>
+    </message>
+    <message>
+        <source>Unable to restore the default torrent network routes.</source>
+        <translation>Не удалось восстановить обычные сетевые маршруты торрентов.</translation>
+    </message>
+    <message>
+        <source>Unable to apply the network routes returned by qbutt-net.</source>
+        <translation>Не удалось применить сетевые маршруты, полученные от qbutt-net.</translation>
+    </message>
+    <message>
+        <source>Unable to revoke the selected network path.</source>
+        <translation>Не удалось отключить выбранный сетевой путь.</translation>
     </message>
     <message>
         <location filename="../base/net/pathmanager.cpp" line="484"/>
@@ -8298,14 +8363,53 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
 <context>
     <name>PathsWidget</name>
     <message>
+        <source>Save DNS settings</source>
+        <translation>Сохранить настройки DNS</translation>
+    </message>
+    <message>
+        <source>DNS settings…</source>
+        <translation>Настройки DNS…</translation>
+    </message>
+    <message>
+        <source>Numeric IP:port. Hostname lookups use this DNS server through each selected node.</source>
+        <translation>Числовой IP:порт. Запросы имён к этому DNS-серверу проходят через каждый выбранный узел.</translation>
+    </message>
+    <message>
+        <source>Numeric IP:port. Only the node's own hostname is resolved through the selected physical interface.</source>
+        <translation>Числовой IP:порт. Через выбранный физический адаптер определяется только адрес самого узла.</translation>
+    </message>
+    <message>
+        <source>IPv4 and IPv6</source>
+        <translation>IPv4 и IPv6</translation>
+    </message>
+    <message>
+        <source>IPv4 only</source>
+        <translation>Только IPv4</translation>
+    </message>
+    <message>
+        <source>IPv6 only</source>
+        <translation>Только IPv6</translation>
+    </message>
+    <message>
+        <source>DNS server:</source>
+        <translation>DNS-сервер:</translation>
+    </message>
+    <message>
+        <source>Bootstrap DNS:</source>
+        <translation>DNS для адреса узла:</translation>
+    </message>
+    <message>
+        <source>Destination addresses:</source>
+        <translation>Адреса назначения:</translation>
+    </message>
+    <message>
+        <source>The default is Cloudflare DNS (1.1.1.1). Changes apply when connecting a node. Full application DNS isolation has not been verified.</source>
+        <translation>По умолчанию используется Cloudflare DNS (1.1.1.1). Изменения применяются при подключении узла. Полная изоляция DNS приложения пока не проверена.</translation>
+    </message>
+    <message>
         <location filename="../gui/pathswidget.cpp" line="33"/>
         <source>Mihomo subscription (experimental)</source>
         <translation>Подписка Mihomo (экспериментально)</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="39"/>
-        <source>Include Native through the selected physical interface</source>
-        <translation>Добавить Native через выбранный физический адаптер</translation>
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="41"/>
@@ -8363,14 +8467,16 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Сетевой адаптер:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="93"/>
-        <source>Pinned TCP — first selected edge</source>
-        <translation>Pinned TCP — первый выбранный выход</translation>
+        <source>Pinned — first selected edge</source>
+        <translation>Pinned — первый выбранный выход</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="94"/>
-        <source>Mixed TCP — selected edges</source>
-        <translation>Mixed TCP — выбранные выходы</translation>
+        <source>Tunnels only — selected remote edges</source>
+        <translation>Tunnels only — выбранные удалённые выходы</translation>
+    </message>
+    <message>
+        <source>Mixed — remote edges and Native</source>
+        <translation>Mixed — удалённые выходы и Native</translation>
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="95"/>
@@ -8378,9 +8484,8 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Соединения с пирами:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="112"/>
-        <source>Mixed shares one torrent session across selected TCP paths. Including Native exposes your home address to public torrent peers. Private torrents and trackers stay on the first tunnel edge. UDP, DHT and public inbound are not available in this build.</source>
-        <translation>Mixed использует выбранные TCP-соединения в одной торрент-сессии. При включении Native пиры публичных торрентов видят ваш домашний IP-адрес. Приватные торренты и трекеры используют первый туннель. UDP, DHT и входящие подключения из интернета пока недоступны.</translation>
+        <source>All policies share one torrent session. Supported UDP routes carry uTP and UDP trackers. DHT stays disabled until an external route address is verified, and public inbound remains unavailable. Including Native exposes its address to public torrent peers; private torrents stay on the first remote edge.</source>
+        <translation>Все режимы используют одну торрент-сессию. Поддерживаемые UDP-маршруты передают uTP и UDP-трекеры. DHT остаётся отключённым, пока не подтверждён внешний адрес маршрута; входящие подключения из интернета пока недоступны. В режиме Native его адрес виден пирам публичных торрентов; приватные торренты остаются на первом удалённом выходе.</translation>
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="128"/>
@@ -9791,6 +9896,10 @@ Showing the first %L1 files.</source>
 <context>
     <name>QbuttPathsController</name>
     <message>
+        <source>Invalid path generation.</source>
+        <translation>Недопустимое поколение пути.</translation>
+    </message>
+    <message>
         <location filename="../webui/api/qbuttpathscontroller.cpp" line="23"/>
         <source>A path operation is already running.</source>
         <translation>Операция с соединением уже выполняется.</translation>
@@ -9799,6 +9908,10 @@ Showing the first %L1 files.</source>
         <location filename="../webui/api/qbuttpathscontroller.cpp" line="56"/>
         <source>Unsupported network policy.</source>
         <translation>Этот сетевой режим не поддерживается.</translation>
+    </message>
+    <message>
+        <source>Mixed mode requires a physical Native interface.</source>
+        <translation>Для режима Mixed требуется физический адаптер Native.</translation>
     </message>
 </context>
 <context>

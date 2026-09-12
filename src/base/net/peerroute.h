@@ -9,6 +9,13 @@
 
 namespace Net
 {
+    enum class RoutePolicy
+    {
+        Pinned,
+        Mixed,
+        TunnelsOnly
+    };
+
     // Process-local payload endpoint. Credentials never enter diagnostics or settings.
     struct PeerRouteEndpoint
     {
@@ -27,5 +34,8 @@ namespace Net
         QString password;
         QString localAddress;
         quint32 interfaceIndex = 0;
+        bool supportsIPv4 = true;
+        bool supportsIPv6 = true;
+        bool supportsUdp = false;
     };
 }
