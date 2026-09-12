@@ -20,7 +20,7 @@ function Assert-Sha256([string] $Path, [string] $Expected) {
     }
 }
 
-function Get-Archive([string] $Path, [string] $Url, [string] $Sha256) {
+function Save-VerifiedDownload([string] $Path, [string] $Url, [string] $Sha256) {
     if (-not (Test-Path -LiteralPath $Path)) {
         $partial = "$Path.$PID.partial"
         try {
@@ -87,10 +87,11 @@ foreach ($line in $environment) {
 }
 $env:PATH = "${env:ProgramFiles}\CMake\bin;${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
 $cmake = (Get-Command cmake.exe -ErrorAction Stop).Source
+$bun = (Get-Command bun.exe -ErrorAction Stop).Source
 $env:VCPKG_MAX_CONCURRENCY = "$Parallel"
 
 $ninjaArchive = Join-Path $DependencyRoot 'ninja-win.zip'
-Get-Archive $ninjaArchive $pins.ninja.url $pins.ninja.sha256
+Save-VerifiedDownload $ninjaArchive $pins.ninja.url $pins.ninja.sha256
 $ninja = Join-Path $DependencyRoot 'ninja'
 if (-not (Test-Path "$ninja/ninja.exe")) { Expand-Archive -LiteralPath $ninjaArchive -DestinationPath $ninja }
 $env:PATH = "$ninja;$env:PATH"
@@ -113,7 +114,7 @@ Invoke-Native "$vcpkg/vcpkg.exe" @('install', 'openssl:x64-windows-static-md-rel
 
 $boost = Join-Path $DependencyRoot $pins.boost.directory
 $boostArchive = "$boost.tar.gz"
-Get-Archive $boostArchive $pins.boost.url $pins.boost.sha256
+Save-VerifiedDownload $boostArchive $pins.boost.url $pins.boost.sha256
 if (-not (Test-Path "$boost/lib/cmake/Boost-$($pins.boost.version)/BoostConfig.cmake")) {
     Invoke-Native tar.exe @('-xf', $boostArchive, '-C', $DependencyRoot)
     Push-Location $boost
@@ -145,7 +146,7 @@ foreach ($archive in $pins.qt.archives) {
     Assert-Sha256 (Join-Path $qtArchives $archive.file) $archive.sha256
 }
 $qtLicense = Join-Path $DependencyRoot 'qt-LGPL-3.0-only.txt'
-Get-Archive $qtLicense $pins.qt.license.url $pins.qt.license.sha256
+Save-VerifiedDownload $qtLicense $pins.qt.license.url $pins.qt.license.sha256
 
 $libtorrent = Join-Path $DependencyRoot 'libtorrent'
 Initialize-Source $libtorrent $pins.libtorrent
@@ -161,7 +162,7 @@ Invoke-Native $cmake @('--install', "$libtorrent/build")
 $net = Join-Path $DependencyRoot 'qbutt-net'
 Initialize-Source $net $lock.qbuttNet
 $goArchive = Join-Path $DependencyRoot "go$($pins.go.version).zip"
-Get-Archive $goArchive $pins.go.url $pins.go.sha256
+Save-VerifiedDownload $goArchive $pins.go.url $pins.go.sha256
 $goToolchain = Join-Path $DependencyRoot "go$($pins.go.version)"
 $go = Join-Path $goToolchain "$($pins.go.directory)/bin/go.exe"
 if (-not (Test-Path -LiteralPath $go)) { Expand-Archive -LiteralPath $goArchive -DestinationPath $goToolchain }
@@ -213,6 +214,11 @@ Copy-Item -LiteralPath "$vcpkg/installed/x64-windows-static-md-release/share/ope
 Copy-Item -LiteralPath "$vcpkg/installed/x64-windows-static-md-release/share/zlib/copyright" -Destination "$licenses/zlib.txt"
 Copy-Item -LiteralPath $qtLicense -Destination "$licenses/qt-LGPL-3.0.txt"
 Copy-Item -Path "$qtRoot/sbom/*.spdx.json" -Destination $licenses
+Push-Location $net
+try {
+    Invoke-Native $bun @('scripts/collect-notices.ts', (Join-Path $portable 'qbutt-net.exe'), $licenses, $go)
+}
+finally { Pop-Location }
 @"
 qbutt is a fork of qBittorrent; see COPYING, COPYING.GPLv2, COPYING.GPLv3 and AUTHORS.
 Source and build instructions: https://github.com/qbutt-org/qbutt
@@ -220,6 +226,7 @@ Exact source revisions and binary archive hashes: upstream-lock.json.
 
 qbutt-net is a separate process under GPLv3 (licenses/qbutt-net.txt).
 Source: $($lock.qbuttNet.repository -replace '\.git$', '')/tree/$($lock.qbuttNet.commit)
+Linked dependency attributions: licenses/qbutt-net-notices.txt and licenses/qbutt-net-notices.json.
 Go runtime license: licenses/go.txt. Pinned toolchain and standard library source:
 $($pins.go.url)
 
@@ -251,6 +258,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
     cmake = (& $cmake --version | Select-Object -First 1)
     ninja = (& "$ninja/ninja.exe" --version)
     go = $goVersion
+    bun = (& $bun --version)
     qt = $pins.qt.version
     dependencyLockSha256 = (Get-FileHash (Join-Path $PSScriptRoot '../upstream-lock.json') -Algorithm SHA256).Hash.ToLowerInvariant()
 } | ConvertTo-Json | Set-Content (Join-Path $portable 'build-manifest.json')

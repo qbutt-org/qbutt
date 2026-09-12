@@ -11,14 +11,15 @@
   },
   "qbuttNet": {
     "repository": "https://github.com/qbutt-org/qbutt-net.git",
-    "commit": "a268eef9753311478f664fd8b1229e2f40fca686"
+    "commit": "599a78654d71e245cb226dbe5f6080af863c4943"
   },
   "windows": {
     "architecture": "x64",
     "validatedHostTools": {
       "msvc": "19.41.34120.0",
       "cmake": "4.4.3",
-      "python": "3.12.10"
+      "python": "3.12.10",
+      "bun": "1.4.0"
     },
     "aqtinstall": "3.3.0",
     "go": {
