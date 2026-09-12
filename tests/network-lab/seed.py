@@ -35,11 +35,11 @@ params.flags &= ~lt.torrent_flags.auto_managed
 params.flags &= ~lt.torrent_flags.paused
 handle = session.add_torrent(params)
 deadline = time.monotonic() + 30
-while not handle.status().is_seeding:
+while not handle.status().is_seeding or session.listen_port() == 0:
     if time.monotonic() > deadline:
         raise RuntimeError("Controlled seed did not verify its payload")
     for alert in session.pop_alerts():
-        if isinstance(alert, lt.torrent_error_alert):
+        if isinstance(alert, (lt.torrent_error_alert, lt.listen_failed_alert)):
             raise RuntimeError(alert.message())
     time.sleep(0.05)
 print(json.dumps({"ready": True, "host": "127.0.0.1", "port": session.listen_port(), "libtorrent": lt.__version__}), flush=True)

@@ -62,7 +62,7 @@ export async function generateFixtures(python: string, output?: string): Promise
     }
     await writeFile(join(root, "payload.json"), JSON.stringify(payload, null, 2) + "\n");
     const generated = Bun.spawn([python, join(import.meta.dir, "torrents.py"), root], {
-        stdout: "pipe", stderr: "pipe",
+        stdout: "pipe", stderr: "pipe", timeout: 30000,
     });
     const [exitCode, stdout, stderr] = await Promise.all([
         generated.exited, new Response(generated.stdout).text(), new Response(generated.stderr).text(),

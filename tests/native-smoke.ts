@@ -1,6 +1,7 @@
+import assert from "node:assert/strict";
 import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createLab, requireCondition, startSeed, verifyPayload, waitFor, type TorrentFile } from "./lab";
+import { createLab, startSeed, verifyPayload, waitFor, type TorrentFile } from "./lab";
 
 const lab = await createLab("native");
 let failure: unknown;
@@ -14,14 +15,14 @@ try {
             const peer = `${seed.host}:${seed.port}`;
             const files = await lab.json<TorrentFile[]>(`torrents/files?hash=${hash}`);
             const skipped = files.find(file => file.name.endsWith("/skip.bin"));
-            requireCondition(skipped, "Selective fixture must contain skip.bin");
+            assert(skipped, "Selective fixture must contain skip.bin");
             await lab.request("torrents/filePrio", { hash, id: String(skipped.index), priority: "0" });
             await lab.request("torrents/start", { hashes: hash });
             await lab.request("torrents/addPeers", { hashes: hash, peers: peer });
             await waitFor("selective download", () => lab.info(hash), info => info.progress === 1);
             const selection = await lab.json<TorrentFile[]>(`torrents/files?hash=${hash}`);
             const skippedStatus = selection.find(file => file.index === skipped.index)!;
-            requireCondition(skippedStatus.priority === 0 && skippedStatus.progress < 1, "Skipped file was not excluded from download");
+            assert(skippedStatus.priority === 0 && skippedStatus.progress < 1, "Skipped file was not excluded from download");
             await lab.request("torrents/stop", { hashes: hash });
             await waitFor("selective stop", () => lab.info(hash), info => info.state.startsWith("stopped"));
             const selectedBytes = await verifyPayload(destination, lab.manifest.payload.filter(file => !file.path.endsWith("/skip.bin")));
@@ -40,11 +41,11 @@ try {
             await waitFor("partial stop", () => lab.info(hash), info => info.state === "stoppedDL");
             const stopped = await lab.info(hash);
             await Bun.sleep(400);
-            requireCondition((await lab.info(hash)).completed === stopped.completed, "Stopped job continued completing data");
+            assert((await lab.info(hash)).completed === stopped.completed, "Stopped job continued completing data");
             await lab.shutdown();
             await lab.start();
             const restored = await waitFor("partial torrent restoration", () => lab.info(hash), info => info.state === "stoppedDL");
-            requireCondition(restored.state === "stoppedDL" && restored.progress > 0 && restored.progress < 1,
+            assert(restored.state === "stoppedDL" && restored.progress > 0 && restored.progress < 1,
                 "Restart did not restore stopped partial torrent");
             await lab.request("torrents/start", { hashes: hash });
             await lab.request("torrents/addPeers", { hashes: hash, peers: peer });
@@ -57,7 +58,7 @@ try {
             // Do not accept the pre-request stoppedUP snapshot as completion.
             await Bun.sleep(2000);
             await waitFor("recheck completion", () => lab.info(hash), info => info.progress === 1 && info.state === "stoppedUP");
-            requireCondition(await verifyPayload(destination, lab.manifest.payload) === verifiedBytes, "Recheck changed verified data");
+            assert(await verifyPayload(destination, lab.manifest.payload) === verifiedBytes, "Recheck changed verified data");
             await lab.checkpoint({ name, check: "download-stop-restart-resume-recheck", verifiedBytes, exactSizes: true });
 
             if (name === "v1") {
@@ -75,19 +76,25 @@ try {
                 await Bun.sleep(2000);
                 await waitFor("overlong recheck", () => lab.info(hash), info => info.progress === 1 && info.state === "stoppedUP");
                 const tailPreserved = (await stat(alpha)).size === before.length + 8193;
-                requireCondition(tailPreserved, "Baseline assumption changed: ordinary recheck now truncates extra tails");
+                assert(tailPreserved, "Baseline assumption changed: ordinary recheck now truncates extra tails");
                 await lab.checkpoint({ name, check: "ordinary-recheck-does-not-repair-tail", hashComplete: true, extraTailBytes: 8193 });
                 // Restore only this lab-owned generated payload before final verification.
                 await writeFile(alpha, before);
             }
             await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
-            requireCondition(await verifyPayload(destination, lab.manifest.payload) === verifiedBytes, "Remove torrent deleted payload");
+            await waitFor("torrent removal", () => lab.json<unknown[]>(`torrents/info?hashes=${hash}`), items => items.length === 0);
+            assert(await verifyPayload(destination, lab.manifest.payload) === verifiedBytes, "Remove torrent deleted payload");
         }
         finally {
             await seed.stop();
         }
     }
     await lab.shutdown();
+    // Content removal is deferred beyond the HTTP response and visible job
+    // removal. Clean process exit drains that work before this final proof.
+    for (const name of ["v1", "v2", "hybrid"])
+        await verifyPayload(join(lab.root, "downloads", name), lab.manifest.payload);
+    await lab.checkpoint({ check: "removed-payload-survives-clean-shutdown", formats: ["v1", "v2", "hybrid"] });
 }
 catch (error) {
     failure = error;

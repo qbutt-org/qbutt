@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { pbkdf2Sync, randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -17,11 +18,6 @@ export interface TorrentFile {
     name: string;
     progress: number;
     priority: number;
-}
-
-export function requireCondition(value: unknown, message: string): asserts value {
-    if (!value)
-        throw new Error(message);
 }
 
 async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -55,7 +51,7 @@ async function freePort(): Promise<number> {
         server.listen(0, "127.0.0.1", resolve);
     });
     const address = server.address();
-    requireCondition(address && typeof address !== "string", "No local port assigned");
+    assert(address && typeof address !== "string", "No local port assigned");
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     return address.port;
 }
@@ -64,9 +60,9 @@ export async function createLab(name: string) {
     const executable = process.env.QBUTT_LAB_EXE;
     const python = process.env.QBUTT_LAB_PYTHON;
     const appName = process.env.QBUTT_LAB_APP_NAME ?? "qbutt";
-    requireCondition(executable && python, "Set QBUTT_LAB_EXE and QBUTT_LAB_PYTHON");
-    requireCondition(appName === "qbutt" || appName === "qBittorrent", "QBUTT_LAB_APP_NAME must be qbutt or qBittorrent");
-    requireCondition((await stat(executable)).isFile(), "Native executable is missing");
+    assert(executable && python, "Set QBUTT_LAB_EXE and QBUTT_LAB_PYTHON");
+    assert(appName === "qbutt" || appName === "qBittorrent", "QBUTT_LAB_APP_NAME must be qbutt or qBittorrent");
+    assert((await stat(executable)).isFile(), "Native executable is missing");
     const root = await mkdtemp(join(tmpdir(), `qbutt-${name}-`));
     const fixtures = await generateFixtures(python, join(root, "fixtures"));
     const manifest = JSON.parse(await readFile(join(fixtures, "manifest.json"), "utf8")) as FixtureManifest;
@@ -119,7 +115,7 @@ export async function createLab(name: string) {
         return (await request(path)).json() as Promise<T>;
     }
     async function start() {
-        requireCondition(!processHandle, "Lab process is already running");
+        assert(!processHandle, "Lab process is already running");
         ++launch;
         processHandle = Bun.spawn([executable!, `--profile=${profile}`, `--webui-port=${port}`, "--no-splash", "--confirm-legal-notice"], {
             env: { ...process.env, QT_QPA_PLATFORM: "offscreen" },
@@ -127,7 +123,7 @@ export async function createLab(name: string) {
             stderr: Bun.file(join(root, `app-${launch}.stderr.log`)),
         });
         await waitFor("WebUI readiness", async () => {
-            requireCondition(processHandle!.exitCode === null, `Native app exited ${processHandle!.exitCode}; inspect ${root}`);
+            assert(processHandle!.exitCode === null, `Native app exited ${processHandle!.exitCode}; inspect ${root}`);
             try {
                 const response = await request("auth/login", { username: "lab", password });
                 await response.text();
@@ -139,7 +135,7 @@ export async function createLab(name: string) {
         evidence.appVersion = await (await request("app/version")).text();
         evidence.buildInfo = await json("app/buildInfo");
         const preferences = await json<Record<string, unknown>>("app/preferences");
-        requireCondition(preferences.dht === false && preferences.lsd === false && preferences.pex === false,
+        assert(preferences.dht === false && preferences.lsd === false && preferences.pex === false,
             "Isolated lab must disable public discovery before adding torrents");
     }
     async function shutdown() {
@@ -149,7 +145,7 @@ export async function createLab(name: string) {
         try {
             await request("app/shutdown", {});
             const exitCode = await withTimeout(child.exited, 20000, "Native app clean shutdown timed out");
-            requireCondition(exitCode === 0, `Native app exited ${exitCode}`);
+            assert(exitCode === 0, `Native app exited ${exitCode}`);
         }
         finally {
             if (child.exitCode === null) {
@@ -161,13 +157,13 @@ export async function createLab(name: string) {
     }
     async function info(hash: string): Promise<TorrentStatus> {
         const torrents = await json<TorrentStatus[]>(`torrents/info?hashes=${hash}`);
-        requireCondition(torrents.length === 1, `Expected one torrent for ${hash}`);
+        assert(torrents.length === 1, `Expected one torrent for ${hash}`);
         return torrents[0]!;
     }
     async function add(torrentName: string, destination: string): Promise<string> {
         await mkdir(destination, { recursive: true });
         const torrent = manifest.torrents.find(item => item.name === torrentName);
-        requireCondition(torrent, `Unknown fixture ${torrentName}`);
+        assert(torrent, `Unknown fixture ${torrentName}`);
         const data = new FormData();
         data.set("torrents", Bun.file(join(fixtures, torrent.file)));
         data.set("savepath", destination);
@@ -200,8 +196,8 @@ export async function verifyPayload(root: string, expected: PayloadFile[]): Prom
     let verified = 0;
     for (const file of expected) {
         const bytes = await readFile(join(root, file.path));
-        requireCondition(bytes.length === file.size, `${file.path}: expected exact size ${file.size}, got ${bytes.length}`);
-        requireCondition(sha256(bytes) === file.sha256, `${file.path}: SHA-256 mismatch`);
+        assert(bytes.length === file.size, `${file.path}: expected exact size ${file.size}, got ${bytes.length}`);
+        assert(sha256(bytes) === file.sha256, `${file.path}: SHA-256 mismatch`);
         verified += bytes.length;
     }
     return verified;
@@ -216,11 +212,11 @@ export async function startSeed(python: string, fixtures: string, name: string, 
     try {
         while (!text.includes("\n")) {
             const result = await withTimeout(reader.read(), 35000, "Seed readiness timeout");
-            requireCondition(!result.done, "Seed ended before readiness");
+            assert(!result.done, "Seed ended before readiness");
             text += new TextDecoder().decode(result.value);
         }
         const ready = JSON.parse(text.split("\n")[0]!) as { ready: boolean; host: string; port: number };
-        requireCondition(ready.ready && ready.port > 0, "Seed failed readiness");
+        assert(ready.ready && ready.port > 0, "Seed failed readiness");
         return {
             ...ready,
             async stop() {
@@ -235,7 +231,7 @@ export async function startSeed(python: string, fixtures: string, name: string, 
                         await child.exited;
                     }
                 }
-                requireCondition(exitCode === 0, `Seed exited ${exitCode}`);
+                assert(exitCode === 0, `Seed exited ${exitCode}`);
                 const final = await reader.read();
                 if (final.value)
                     text += new TextDecoder().decode(final.value);
