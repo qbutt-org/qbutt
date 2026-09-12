@@ -3848,6 +3848,15 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
 <context>
     <name>MainWindow</name>
     <message>
+        <source>Completion policies…</source>
+        <translation>Правила завершения…</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="348"/>
+        <source>Import profile...</source>
+        <translation>Импорт профиля…</translation>
+    </message>
+    <message>
         <location filename="../gui/mainwindow.ui" line="43"/>
         <source>&amp;Edit</source>
         <translation>&amp;Правка</translation>
@@ -8921,6 +8930,267 @@ Those plugins were disabled.</source>
     </message>
 </context>
 <context>
+    <name>PoliciesDialog</name>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="45"/>
+        <location filename="../gui/policiesdialog.cpp" line="182"/>
+        <source>Stop</source>
+        <translation>Остановить</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="47"/>
+        <location filename="../gui/policiesdialog.cpp" line="183"/>
+        <source>Remove torrent (keep files)</source>
+        <translation>Удалить торрент (сохранить файлы)</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="49"/>
+        <location filename="../gui/policiesdialog.cpp" line="184"/>
+        <source>Delete data and remove torrent</source>
+        <translation>Удалить данные и торрент</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="51"/>
+        <location filename="../gui/policiesdialog.cpp" line="80"/>
+        <source>Notify</source>
+        <translation>Уведомить</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="59"/>
+        <location filename="../gui/policiesdialog.cpp" line="142"/>
+        <source>Enable completion rules</source>
+        <translation>Включить правила завершения</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="60"/>
+        <source>Allow rules to delete downloaded files</source>
+        <translation>Разрешить правилам удалять загруженные файлы</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="66"/>
+        <source>Completion policies</source>
+        <translation>Правила завершения</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="71"/>
+        <source>Rules run in order after wanted files are verified, moves finish and resume data is saved. The first matching Stop, Remove torrent or Delete data rule ends evaluation. Remove torrent keeps downloaded files. Category * matches all categories; tags are comma separated. Reusing a rule ID does not replay an action.</source>
+        <translation>Правила выполняются по порядку после проверки выбранных файлов, завершения перемещений и сохранения данных возобновления. Первое подходящее правило остановки, удаления торрента или удаления данных завершает обработку. Удаление торрента сохраняет загруженные файлы. Категория * соответствует всем категориям; метки разделяются запятыми. Повторное использование ID правила не запускает действие повторно.</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="79"/>
+        <source>Rule ID</source>
+        <translation>ID правила</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="79"/>
+        <source>Enabled</source>
+        <translation>Включено</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="79"/>
+        <source>Category</source>
+        <translation>Категория</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="79"/>
+        <source>Tags</source>
+        <translation>Метки</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="79"/>
+        <source>Min ratio</source>
+        <translation>Мин. рейтинг</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="80"/>
+        <source>Min seeding seconds</source>
+        <translation>Мин. время раздачи, с</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="80"/>
+        <source>Terminal action</source>
+        <translation>Завершающее действие</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="83"/>
+        <source>Add rule</source>
+        <translation>Добавить правило</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="84"/>
+        <source>Remove rule</source>
+        <translation>Удалить правило</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="85"/>
+        <source>Move up</source>
+        <translation>Выше</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="86"/>
+        <source>Move down</source>
+        <translation>Ниже</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="88"/>
+        <source>Rules</source>
+        <translation>Правила</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="91"/>
+        <location filename="../gui/policiesdialog.cpp" line="99"/>
+        <source>Torrent</source>
+        <translation>Торрент</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="91"/>
+        <location filename="../gui/policiesdialog.cpp" line="99"/>
+        <source>Rule</source>
+        <translation>Правило</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="91"/>
+        <location filename="../gui/policiesdialog.cpp" line="99"/>
+        <source>Actions</source>
+        <translation>Действия</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="91"/>
+        <source>Readiness</source>
+        <translation>Готовность</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="91"/>
+        <source>Import preview</source>
+        <translation>Предпросмотр импорта</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="96"/>
+        <source>Enable saved policies for selected imported torrent…</source>
+        <translation>Включить сохранённые правила для выбранного импортированного торрента…</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="98"/>
+        <source>Preview</source>
+        <translation>Предпросмотр</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="99"/>
+        <source>Time</source>
+        <translation>Время</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="99"/>
+        <source>Result</source>
+        <translation>Результат</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="99"/>
+        <source>Reason</source>
+        <translation>Причина</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="101"/>
+        <source>Journal</source>
+        <translation>Журнал</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="107"/>
+        <source>Refresh preview</source>
+        <translation>Обновить предпросмотр</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="143"/>
+        <source>Save these rules and allow their actions for eligible torrents? Review the Preview tab first. Imported torrents still require their separate preview acknowledgement.</source>
+        <translation>Сохранить эти правила и разрешить их действия для подходящих торрентов? Сначала проверьте вкладку «Предпросмотр». Для импортированных торрентов требуется отдельное подтверждение предпросмотра.</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="147"/>
+        <source>Rules saved.</source>
+        <translation>Правила сохранены.</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="154"/>
+        <source>Accept imported torrent preview</source>
+        <translation>Подтверждение предпросмотра импортированного торрента</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="155"/>
+        <source>Enable the saved completion rules for this torrent? Stop it first. A rule may remove its task or delete files when the separate deletion setting is enabled.</source>
+        <translation>Включить сохранённые правила завершения для этого торрента? Сначала остановите его. Правило может удалить торрент из списка или удалить файлы, если это разрешено отдельной настройкой.</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="160"/>
+        <source>Saving preview acknowledgement…</source>
+        <translation>Сохраняем подтверждение предпросмотра…</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="181"/>
+        <source>None</source>
+        <translation>Нет</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="244"/>
+        <source>No match</source>
+        <translation>Нет совпадений</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="246"/>
+        <source>Recorded; no automatic repeat</source>
+        <translation>Зафиксировано; без автоповтора</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="247"/>
+        <source>Start the torrent to finish its native recheck; actions wait for verification</source>
+        <translation>Запустите торрент для перепроверки; действия ждут подтверждения данных</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="248"/>
+        <source>Ready</source>
+        <translation>Готово</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="248"/>
+        <source>Waiting for verified data and file operations</source>
+        <translation>Ожидание проверки данных и завершения файловых операций</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="249"/>
+        <source>Required</source>
+        <translation>Требуется</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="249"/>
+        <source>Accepted</source>
+        <translation>Подтверждено</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="260"/>
+        <source>Category: %1; tags: %2; ratio: %3; seeding: %4 s</source>
+        <translation>Категория: %1; метки: %2; рейтинг: %3; раздача: %4 с</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="264"/>
+        <source>Interrupted; review required</source>
+        <translation>Прервано; требуется проверка</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="265"/>
+        <source>Blocked; review required</source>
+        <translation>Заблокировано; требуется проверка</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="265"/>
+        <source>Action submitted</source>
+        <translation>Действие передано на выполнение</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="271"/>
+        <source>Claimed actions are never repeated automatically after a crash. Dispatched records mean the action was submitted to the native session. Key: %1</source>
+        <translation>Зафиксированные действия не повторяются автоматически после сбоя. Статус отправки означает передачу действия движку торрентов. Ключ: %1</translation>
+    </message>
+</context>
+<context>
     <name>PreviewSelectDialog</name>
     <message>
         <location filename="../gui/previewselectdialog.cpp" line="65"/>
@@ -9041,6 +9311,184 @@ Those plugins were disabled.</source>
         <location filename="../gui/properties/proptabbar.cpp" line="97"/>
         <source>Speed</source>
         <translation>Скорость</translation>
+    </message>
+</context>
+<context>
+    <name>ProfileImportDialog</name>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="45"/>
+        <source>The source client is closed and no longer manages the selected data.</source>
+        <translation>Исходный клиент закрыт и больше не управляет выбранными файлами.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="48"/>
+        <source>Import profile</source>
+        <translation>Импорт профиля</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="53"/>
+        <source>Import selected qBittorrent settings and torrents into qbutt on its next start. The source profile is read-only. Payload files are not moved or copied, and all imported torrents start stopped.</source>
+        <translation>Выбранные настройки и торренты qBittorrent будут импортированы в qbutt при следующем запуске. Исходный профиль используется только для чтения. Файлы раздач не перемещаются и не копируются. Все импортированные торренты будут остановлены.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="60"/>
+        <source>Choose qBittorrent settings</source>
+        <translation>Выберите настройки qBittorrent</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="61"/>
+        <source>Settings files (*.ini *.conf);;All files (*)</source>
+        <translation>Файлы настроек (*.ini *.conf);;Все файлы (*)</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="64"/>
+        <source>Choose the data directory containing BT_backup or torrents.db</source>
+        <translation>Выберите папку данных профиля с BT_backup или torrents.db</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="67"/>
+        <source>Choose the source portable profile base</source>
+        <translation>Выберите папку исходного переносимого профиля</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="70"/>
+        <source>Settings file:</source>
+        <translation>Файл настроек:</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="71"/>
+        <source>Data directory:</source>
+        <translation>Папка данных профиля:</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="72"/>
+        <source>Portable profile base (optional):</source>
+        <translation>Папка переносимого профиля (необязательно):</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="74"/>
+        <source>A portable profile base is needed only when the source uses relative paths. Otherwise, source and destination paths must be absolute.</source>
+        <translation>Папка переносимого профиля нужна только для относительных путей в исходном профиле. В остальных случаях пути источника и назначения должны быть абсолютными.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="83"/>
+        <location filename="../gui/profileimportdialog.cpp" line="209"/>
+        <source>Choose the source files, then preview the import.</source>
+        <translation>Выберите исходные файлы, затем откройте предпросмотр импорта.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="90"/>
+        <source>Settings</source>
+        <translation>Настройки</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="90"/>
+        <source>Value to import</source>
+        <translation>Импортируемое значение</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="96"/>
+        <source>Only the settings shown above are imported. Completion policies remain in preview until reviewed in qbutt. Expand Skipped settings to review the excluded names.</source>
+        <translation>Импортируются только настройки, показанные выше. Правила завершения останутся в режиме предпросмотра до их подтверждения в qbutt. Раскройте «Пропущенные настройки», чтобы просмотреть исключённые имена.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="103"/>
+        <source>Import</source>
+        <translation>Импорт</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="103"/>
+        <source>Torrent</source>
+        <translation>Торрент</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="103"/>
+        <source>Source payload location</source>
+        <translation>Исходная папка файлов</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="103"/>
+        <source>Destination root</source>
+        <translation>Папка назначения</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="111"/>
+        <source>Edit a destination root to point to the existing payload on this computer. Unchecked torrents will not be imported.</source>
+        <translation>В поле «Папка назначения» укажите расположение существующих файлов на этом компьютере. Торренты без отметки не будут импортированы.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="119"/>
+        <source>Preview</source>
+        <translation>Предпросмотр</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="121"/>
+        <source>Import on next start</source>
+        <translation>Импорт при следующем запуске</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="145"/>
+        <source>Cannot preview this profile: %1</source>
+        <translation>Не удалось открыть предпросмотр профиля: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="155"/>
+        <source>Import was not prepared: %1</source>
+        <translation>Импорт не подготовлен: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="159"/>
+        <source>Import prepared</source>
+        <translation>Импорт подготовлен</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="160"/>
+        <source>Restart qbutt to finish importing the selected settings and stopped torrents. Keep the source client closed; it must no longer manage the selected data.</source>
+        <translation>Перезапустите qbutt, чтобы завершить импорт выбранных настроек и остановленных торрентов. Исходный клиент должен оставаться закрытым и больше не управлять выбранными файлами.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="175"/>
+        <source>Reading the source profile. No files are changed.</source>
+        <translation>Читаем исходный профиль. Файлы не изменяются.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="195"/>
+        <source>Preparing the import for qbutt's next start. Wait for this operation to finish before closing.</source>
+        <translation>Подготавливаем импорт при следующем запуске qbutt. Дождитесь завершения операции перед закрытием окна.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="215"/>
+        <source>Settings to import (%L1)</source>
+        <translation>Настройки для импорта (%L1)</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="219"/>
+        <source>Skipped settings (%L1)</source>
+        <translation>Пропущенные настройки (%L1)</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="250"/>
+        <source>%1 → %2</source>
+        <translation>%1 → %2</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="252"/>
+        <source>Relative file paths (%L1):
+%2</source>
+        <translation>Относительные пути файлов (%L1):
+%2</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="254"/>
+        <source>
+Showing the first %L1 files.</source>
+        <translation>
+Показаны первые %L1 файлов.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="266"/>
+        <source>Preview ready: %L1 safe settings and %L2 torrents. Review the destination roots before importing.</source>
+        <translation>Предпросмотр готов. Безопасных настроек: %L1; торрентов: %L2. Перед импортом проверьте папки назначения.</translation>
     </message>
 </context>
 <context>
@@ -9854,99 +10302,227 @@ Those plugins were disabled.</source>
 <context>
     <name>RepairDialog</name>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="35"/>
-        <source>I closed other writers and consent to repair in place without rollback.</source>
-        <translation>Другие программы, изменяющие эти файлы, закрыты. Разрешаю восстановление в текущей папке без возможности отката.</translation>
+        <location filename="../gui/repairdialog.cpp" line="45"/>
+        <source>I authorize this operation and have closed other programs that can write to the target.</source>
+        <translation>Разрешаю эту операцию. Другие программы, изменяющие файлы назначения, закрыты.</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="37"/>
+        <location filename="../gui/repairdialog.cpp" line="47"/>
         <source>Smart repair</source>
         <translation>Проверка и восстановление файлов</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="47"/>
+        <location filename="../gui/repairdialog.cpp" line="57"/>
         <source>Torrent:</source>
         <translation>Торрент:</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="52"/>
-        <source>Current location:</source>
-        <translation>Папка с файлами:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairdialog.cpp" line="58"/>
-        <source>Analyzing existing files using this torrent&apos;s current file mappings. No data is changed during analysis.</source>
-        <translation>Анализируем существующие файлы с учётом их текущих путей и имён в торренте. Анализ не изменяет данные.</translation>
+        <location filename="../gui/repairdialog.cpp" line="63"/>
+        <source>Target destination:</source>
+        <translation>Папка назначения:</translation>
     </message>
     <message>
         <location filename="../gui/repairdialog.cpp" line="65"/>
+        <source>Safe staged update</source>
+        <translation>Безопасное обновление через отдельную копию</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <source>Repair in place, without rollback</source>
+        <translation>Восстановление в текущей папке без отката</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <source>Recover interrupted staged update</source>
+        <translation>Восстановление прерванного обновления</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="68"/>
+        <source>Operation:</source>
+        <translation>Операция:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="70"/>
+        <source>Optional source directories, one per line. Only these locations are searched.</source>
+        <translation>Необязательные папки с исходными файлами, по одной на строку. Поиск выполняется только в этих папках.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="72"/>
+        <source>Find existing data:</source>
+        <translation>Поиск имеющихся данных:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="73"/>
+        <source>Add source directory…</source>
+        <translation>Добавить папку с исходными файлами…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="75"/>
+        <source>Choose source for selected target file…</source>
+        <translation>Выбрать источник для выделенного файла…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="82"/>
+        <source>Choose existing bytes for this target file</source>
+        <translation>Выберите существующий файл с данными для этого файла назначения</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="86"/>
+        <location filename="../gui/repairdialog.cpp" line="282"/>
+        <source>Source: %1</source>
+        <translation>Источник: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="90"/>
+        <source>Choose a source directory</source>
+        <translation>Выберите папку с исходными файлами</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="99"/>
+        <source>Choose an operation and analyze the target torrent. Analysis does not change source data.</source>
+        <translation>Выберите операцию и проанализируйте файлы торрента. Анализ не изменяет исходные данные.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="107"/>
         <source>File</source>
         <translation>Файл</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <location filename="../gui/repairdialog.cpp" line="107"/>
         <source>Expected bytes</source>
         <translation>Ожидается, байт</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <location filename="../gui/repairdialog.cpp" line="107"/>
         <source>Actual bytes</source>
         <translation>На диске, байт</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <location filename="../gui/repairdialog.cpp" line="107"/>
         <source>Verified bytes</source>
         <translation>Подтверждено, байт</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <location filename="../gui/repairdialog.cpp" line="107"/>
         <source>Problems</source>
         <translation>Проблемы</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="75"/>
-        <source>Repair in place can replace existing data and truncates oversized files to the torrent&apos;s exact sizes. Size changes use exclusive file access, then the standard torrent engine takes over for recheck. There is no rollback. Keep other applications that can write to this location closed throughout repair and downloading. Files not listed in this torrent are left untouched.</source>
-        <translation>Восстановление может изменить существующие данные. Файлы большего размера будут обрезаны до размера, указанного в торренте. При изменении размера доступ к файлам блокируется для других программ, затем запускается обычная перепроверка торрента. Отменить внесённые изменения нельзя. До завершения восстановления и загрузки не открывайте программы, которые могут изменять файлы в этой папке. Файлы, не входящие в торрент, останутся нетронутыми.</translation>
+        <location filename="../gui/repairdialog.cpp" line="119"/>
+        <source>Not analyzed</source>
+        <translation>Не проверено</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="85"/>
+        <location filename="../gui/repairdialog.cpp" line="123"/>
+        <source>Safe update creates an independent target layout in staging and downloads selected missing data. Originals remain until explicit commit. Commit replaces only selected torrent files, retaining originals as recoverable backups. Repair in place writes directly and has no rollback. Files absent from the torrent are always preserved.</source>
+        <translation>Безопасное обновление создаёт отдельную копию файлов и докачивает недостающие выбранные данные. Исходные файлы сохраняются до явного применения обновления. При применении заменяются только выбранные файлы торрента, а оригиналы остаются в резервной копии для восстановления. Восстановление в текущей папке изменяет файлы напрямую и не поддерживает откат. Файлы, не входящие в торрент, всегда сохраняются.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="132"/>
+        <source>Analyze</source>
+        <translation>Анализировать</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="133"/>
+        <source>Prepare staging</source>
+        <translation>Подготовить копию</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="134"/>
+        <source>Commit verified update</source>
+        <translation>Применить обновление</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="135"/>
+        <source>Roll back</source>
+        <translation>Откатить</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="168"/>
+        <source>Prepare / resume staging</source>
+        <translation>Подготовить / продолжить</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="168"/>
         <source>Repair in place and recheck</source>
-        <translation>Подготовить файлы и перепроверить</translation>
+        <translation>Восстановить и перепроверить</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="98"/>
-        <source>Preparing files for an in-place repair and starting the torrent recheck...</source>
+        <location filename="../gui/repairdialog.cpp" line="171"/>
+        <source>I closed other writers and consent to repair in place without rollback.</source>
+        <translation>Другие программы, изменяющие эти файлы, закрыты. Разрешаю восстановление в текущей папке без возможности отката.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="188"/>
+        <source>Copying candidates into independent staging, then checking and downloading with the torrent engine…</source>
+        <translation>Копируем найденные данные в отдельную папку, затем проверяем и докачиваем их через движок торрентов…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="189"/>
+        <source>Preparing files for an in-place repair and starting the torrent recheck…</source>
         <translation>Подготавливаем файлы в текущей папке и запускаем перепроверку торрента…</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="105"/>
+        <location filename="../gui/repairdialog.cpp" line="203"/>
+        <source>Checking staging before downloading. Closing this dialog stops the operation and retains its recovery journal.</source>
+        <translation>Проверяем отдельную копию перед докачкой. Закрытие окна остановит операцию и сохранит журнал восстановления.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="204"/>
         <source>Checking the prepared data. Closing this dialog cancels the recheck.</source>
         <translation>Проверяем подготовленные файлы. Закрытие этого окна прервёт перепроверку.</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="110"/>
+        <location filename="../gui/repairdialog.cpp" line="209"/>
         <source>Recheck finished. The torrent is stopped. Close this dialog and use Start to download any missing data.</source>
         <translation>Перепроверка завершена. Торрент остановлен. Закройте это окно и нажмите «Запустить», чтобы докачать недостающие данные.</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="123"/>
+        <location filename="../gui/repairdialog.cpp" line="225"/>
+        <source>
+Independent staging requires %L1 additional bytes; %L2 bytes are available.</source>
+        <translation>
+Для отдельной копии требуется ещё %L1 байт; доступно %L2 байт.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="231"/>
+        <source>Every selected target hash and exact file size is verified. Close other writers and confirm commit, or roll back.</source>
+        <translation>Хеши и точные размеры всех выбранных файлов подтверждены. Закройте другие программы, изменяющие эти файлы, и подтвердите применение обновления или откат.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="235"/>
+        <source>Verified update committed. The torrent is stopped at the destination. Original files remain in the staging backup directory.</source>
+        <translation>Проверенное обновление применено. Торрент остановлен в папке назначения. Исходные файлы сохранены в папке резервной копии обновления.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="239"/>
+        <source>Rollback completed. Original target files are restored; independent staged data and unknown files are preserved.</source>
+        <translation>Откат завершён. Исходные файлы назначения восстановлены; отдельная копия обновления и файлы, не входящие в торрент, сохранены.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="243"/>
+        <source>Staged operation: %1. Recovery data is retained at %2.</source>
+        <translation>Обновление через отдельную копию: %1. Данные для восстановления сохранены в %2.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="280"/>
         <source>Missing</source>
         <translation>Отсутствует</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="131"/>
+        <location filename="../gui/repairdialog.cpp" line="288"/>
         <source>Verified %L1 of %L2 bytes. %L3 valid pieces; %L4 unverified pieces.</source>
         <translation>Подтверждено %L1 из %L2 байт. Целых частей: %L3; неподтверждённых: %L4.</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="134"/>
+        <location filename="../gui/repairdialog.cpp" line="291"/>
         <source>
 Verification used v2 whole-file roots; partial files require the torrent recheck.</source>
         <translation>
 Проверка выполнена по корневым хешам целых файлов v2. Для неполных файлов требуется перепроверка торрента.</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="145"/>
+        <location filename="../gui/repairdialog.cpp" line="302"/>
         <source>Repair cannot continue: %1</source>
         <translation>Невозможно продолжить восстановление файлов: %1</translation>
     </message>
@@ -13090,7 +13666,7 @@ Please choose a different name and try again.</source>
     <message>
         <location filename="../gui/transferlistwidget.cpp" line="1016"/>
         <source>Smart repair...</source>
-        <translation>Проверить и докачать файлы…</translation>
+        <translation>Проверить и восстановить файлы…</translation>
     </message>
     <message>
         <location filename="../gui/transferlistwidget.cpp" line="689"/>

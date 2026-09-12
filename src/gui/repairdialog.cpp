@@ -24,6 +24,7 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QTextDocument>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -139,6 +140,17 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent)
     buttons->button(QDialogButtonBox::Close)->setDefault(true);
     layout->addWidget(buttons);
 
+    const auto updateSources = [this, mode, roots, browse, chooseSource]
+    {
+        const bool enabled = mode->isEnabled() && (mode->currentIndex() == 0);
+        roots->setEnabled(enabled);
+        browse->setEnabled(enabled);
+        chooseSource->setEnabled(enabled && m_files->currentItem());
+    };
+    connect(mode, &QComboBox::currentIndexChanged, this, updateSources);
+    connect(m_files, &QTreeWidget::currentItemChanged, this, updateSources);
+    updateSources();
+
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_consent, &QCheckBox::toggled, this, [this](const bool consent)
     {
@@ -146,12 +158,10 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent)
         m_commit->setEnabled(consent && m_stagingStatus.value(QStringLiteral("can_commit")).toBool());
         m_rollback->setEnabled(consent && m_stagingStatus.value(QStringLiteral("can_rollback")).toBool());
     });
-    connect(analyze, &QPushButton::clicked, this, [this, mode, roots, browse, chooseSource, analyze]
+    connect(analyze, &QPushButton::clicked, this, [this, mode, roots, analyze, updateSources]
     {
         mode->setEnabled(false);
-        roots->setEnabled(false);
-        browse->setEnabled(false);
-        chooseSource->setEnabled(false);
+        updateSources();
         analyze->setEnabled(false);
         m_progress->show();
         m_staged = mode->currentIndex() != 1;
@@ -269,8 +279,8 @@ void RepairDialog::showAnalysis(const BitTorrent::RepairAnalysis &analysis, cons
         auto *item = new QTreeWidgetItem {m_files, {name, locale().toString(file.expectedSize)
             , (file.actualSize < 0) ? tr("Missing") : locale().toString(file.actualSize)
             , locale().toString(file.verifiedBytes), file.problems.join(u'\n')}};
-        item->setToolTip(0, m_staged ? tr("Source: %1").arg(file.path) : file.path);
-        item->setToolTip(4, file.problems.join(u'\n'));
+        item->setToolTip(0, Qt::convertFromPlainText(m_staged ? tr("Source: %1").arg(file.path) : file.path));
+        item->setToolTip(4, Qt::convertFromPlainText(file.problems.join(u'\n')));
         for (int column = 1; column <= 3; ++column)
             item->setTextAlignment(column, Qt::AlignRight | Qt::AlignVCenter);
     }
