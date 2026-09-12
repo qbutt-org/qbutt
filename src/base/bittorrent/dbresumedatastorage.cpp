@@ -45,12 +45,14 @@
 #include <QList>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QScopeGuard>
 #include <QSet>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QSqlRecord>
 #include <QThread>
+#include <QUuid>
 #include <QWaitCondition>
 
 #include "base/exceptions.h"
@@ -284,6 +286,105 @@ BitTorrent::DBResumeDataStorage::~DBResumeDataStorage()
     m_asyncWorker->requestInterruption();
     m_asyncWorker->wait();
     QSqlDatabase::removeDatabase(DB_CONNECTION_NAME);
+}
+
+BitTorrent::ExternalResumeDataResult BitTorrent::DBResumeDataStorage::readExternalSnapshot(
+    const Path &dbPath, const Path &sourceProfileBase)
+{
+    const QString connectionName = u"ExternalResumeData-"_s + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const auto removeConnection = qScopeGuard([&connectionName] { QSqlDatabase::removeDatabase(connectionName); });
+    auto db = QSqlDatabase::addDatabase(u"QSQLITE"_s, connectionName);
+    db.setDatabaseName(dbPath.data());
+    db.setConnectOptions(u"QSQLITE_OPEN_READONLY;QSQLITE_BUSY_TIMEOUT=1000"_s);
+    if (!db.open())
+        return nonstd::make_unexpected(tr("Cannot open the external resume database snapshot: %1").arg(db.lastError().text()));
+    if (!db.transaction())
+        return nonstd::make_unexpected(tr("Cannot read a consistent external resume database snapshot: %1").arg(db.lastError().text()));
+
+    QSqlQuery query {db};
+    if (!query.exec(u"PRAGMA quick_check(1)"_s) || !query.next() || (query.value(0).toString() != u"ok"))
+        return nonstd::make_unexpected(tr("The external resume database failed its integrity check."));
+    if (!query.exec(u"SELECT value FROM meta WHERE name = 'version'"_s) || !query.next())
+        return nonstd::make_unexpected(tr("The external resume database has an unsupported schema: no version is available."));
+    bool versionValid = false;
+    const int version = query.value(0).toInt(&versionValid);
+    if (!versionValid || (version != DB_VERSION))
+        return nonstd::make_unexpected(tr("The external resume database schema is unsupported. Expected version %1; found %2.")
+            .arg(DB_VERSION).arg(version));
+
+    const QSqlRecord columns = db.record(DB_TABLE_TORRENTS);
+    const QList<Column> requiredColumns = {
+        DB_COLUMN_TORRENT_ID, DB_COLUMN_QUEUE_POSITION, DB_COLUMN_NAME, DB_COLUMN_CATEGORY, DB_COLUMN_TAGS,
+        DB_COLUMN_COMMENT, DB_COLUMN_TARGET_SAVE_PATH, DB_COLUMN_DOWNLOAD_PATH, DB_COLUMN_CONTENT_LAYOUT,
+        DB_COLUMN_RATIO_LIMIT, DB_COLUMN_SEEDING_TIME_LIMIT, DB_COLUMN_INACTIVE_SEEDING_TIME_LIMIT,
+        DB_COLUMN_SHARE_LIMIT_ACTION, DB_COLUMN_HAS_OUTER_PIECES_PRIORITY, DB_COLUMN_HAS_SEED_STATUS,
+        DB_COLUMN_OPERATING_MODE, DB_COLUMN_STOPPED, DB_COLUMN_STOP_CONDITION, DB_COLUMN_SSL_CERTIFICATE,
+        DB_COLUMN_SSL_PRIVATE_KEY, DB_COLUMN_SSL_DH_PARAMS, DB_COLUMN_RESUMEDATA, DB_COLUMN_METADATA
+    };
+    for (const Column &column : requiredColumns)
+    {
+        if (!columns.contains(column.name))
+            return nonstd::make_unexpected(tr("The external resume database schema is missing column %1.").arg(column.name));
+    }
+
+    if (!query.exec(u"SELECT * FROM torrents ORDER BY queue_position LIMIT %1"_s.arg(ExternalTorrentCountLimit + 1)))
+        return nonstd::make_unexpected(tr("Cannot read the external resume database: %1").arg(query.lastError().text()));
+    const auto resolvePath = [&sourceProfileBase](const Path &storedPath)
+    {
+        if (storedPath.isRelative() && !storedPath.isEmpty() && sourceProfileBase.isEmpty())
+            throw RuntimeError(tr("Select the source profile base to resolve relative resume paths."));
+        return (storedPath.isEmpty() || storedPath.isAbsolute()) ? storedPath : sourceProfileBase / storedPath;
+    };
+    QList<LoadedResumeData> result;
+    QSet<TorrentID> identities;
+    qint64 totalSize = 0;
+    while (query.next())
+    {
+        if (result.size() >= ExternalTorrentCountLimit)
+            return nonstd::make_unexpected(tr("The external profile exceeds the limit of %1 torrents.").arg(ExternalTorrentCountLimit));
+        const TorrentID torrentID = TorrentID::fromString(query.value(DB_COLUMN_TORRENT_ID.name).toString());
+        if (!torrentID.isValid() || identities.contains(torrentID))
+            return nonstd::make_unexpected(tr("The external resume database contains an invalid or duplicate torrent ID."));
+        identities.insert(torrentID);
+        const qsizetype resumeSize = query.value(DB_COLUMN_RESUMEDATA.name).toByteArray().size();
+        const qsizetype metadataSize = query.value(DB_COLUMN_METADATA.name).toByteArray().size();
+        if ((resumeSize > ExternalFileSizeLimit) || (metadataSize > ExternalFileSizeLimit)
+            || ((resumeSize + metadataSize) > ExternalTotalSizeLimit - totalSize))
+        {
+            return nonstd::make_unexpected(tr("The external resume data exceeds the import size limit."));
+        }
+        totalSize += resumeSize + metadataSize;
+
+        LoadResumeDataResult parsed;
+        try
+        {
+            parsed = parseQueryResultRow(query, resolvePath, ExternalDecodeDepthLimit, ExternalDecodeTokenLimit);
+        }
+        catch (const RuntimeError &error)
+        {
+            parsed = nonstd::make_unexpected(error.message());
+        }
+        if (parsed)
+        {
+            const auto &params = parsed->ltAddTorrentParams;
+            const InfoHash infoHash {params.ti ? params.ti->info_hashes() : params.info_hashes};
+            const bool mismatchingMetadata = params.ti
+                && ((params.info_hashes.has_v1() && (params.info_hashes.v1 != params.ti->info_hashes().v1))
+                    || (params.info_hashes.has_v2() && (params.info_hashes.v2 != params.ti->info_hashes().v2)));
+            if (mismatchingMetadata || ((torrentID != TorrentID::fromInfoHash(infoHash))
+                && (!infoHash.v1().isValid() || (torrentID != TorrentID::fromSHA1Hash(infoHash.v1())))))
+            {
+                parsed = nonstd::make_unexpected(tr("The database torrent ID or metadata does not match its resume info-hash."));
+            }
+        }
+        result.append({.torrentID = torrentID, .result = std::move(parsed)});
+    }
+    if (query.lastError().isValid())
+        return nonstd::make_unexpected(tr("Cannot finish reading the external resume database: %1").arg(query.lastError().text()));
+    query.finish();
+    if (!db.commit())
+        return nonstd::make_unexpected(tr("Cannot finish the external resume database snapshot: %1").arg(db.lastError().text()));
+    return result;
 }
 
 QList<BitTorrent::TorrentID> BitTorrent::DBResumeDataStorage::registeredTorrents() const
@@ -626,6 +727,15 @@ void BitTorrent::DBResumeDataStorage::enableWALMode() const
 
 LoadResumeDataResult DBResumeDataStorage::parseQueryResultRow(const QSqlQuery &query) const
 {
+    const auto *pref = Preferences::instance();
+    return parseQueryResultRow(query
+        , [](const Path &path) { return Profile::instance()->fromPortablePath(path); }
+        , pref->getBdecodeDepthLimit(), pref->getBdecodeTokenLimit());
+}
+
+LoadResumeDataResult DBResumeDataStorage::parseQueryResultRow(const QSqlQuery &query
+    , const ResumeDataPathResolver &resolvePath, const int depthLimit, const int tokenLimit)
+{
     LoadTorrentParams resumeData;
     resumeData.name = query.value(DB_COLUMN_NAME.name).toString();
     resumeData.category = query.value(DB_COLUMN_CATEGORY.name).toString();
@@ -657,22 +767,18 @@ LoadResumeDataResult DBResumeDataStorage::parseQueryResultRow(const QSqlQuery &q
             .dhParams = query.value(DB_COLUMN_SSL_DH_PARAMS.name).toByteArray()
         };
 
-    resumeData.savePath = Profile::instance()->fromPortablePath(
+    resumeData.savePath = resolvePath(
         Path(query.value(DB_COLUMN_TARGET_SAVE_PATH.name).toString()));
     resumeData.useAutoTMM = resumeData.savePath.isEmpty();
     if (!resumeData.useAutoTMM)
     {
-        resumeData.downloadPath = Profile::instance()->fromPortablePath(
+        resumeData.downloadPath = resolvePath(
             Path(query.value(DB_COLUMN_DOWNLOAD_PATH.name).toString()));
     }
 
     const QByteArray bencodedResumeData = query.value(DB_COLUMN_RESUMEDATA.name).toByteArray();
-    const auto *pref = Preferences::instance();
-    const int bdecodeDepthLimit = pref->getBdecodeDepthLimit();
-    const int bdecodeTokenLimit = pref->getBdecodeTokenLimit();
-
     lt::error_code ec;
-    const lt::bdecode_node resumeDataRoot = lt::bdecode(bencodedResumeData, ec, nullptr, bdecodeDepthLimit, bdecodeTokenLimit);
+    const lt::bdecode_node resumeDataRoot = lt::bdecode(bencodedResumeData, ec, nullptr, depthLimit, tokenLimit);
     if (ec)
         return nonstd::make_unexpected(tr("Cannot parse resume data: %1").arg(QString::fromStdString(ec.message())));
 
@@ -688,7 +794,7 @@ LoadResumeDataResult DBResumeDataStorage::parseQueryResultRow(const QSqlQuery &q
             ; !bencodedMetadata.isEmpty())
     {
         const lt::bdecode_node torrentInfoRoot = lt::bdecode(bencodedMetadata, ec
-                , nullptr, bdecodeDepthLimit, bdecodeTokenLimit);
+                , nullptr, depthLimit, tokenLimit);
         if (ec)
             return nonstd::make_unexpected(tr("Cannot parse torrent info: %1").arg(QString::fromStdString(ec.message())));
 
@@ -697,7 +803,7 @@ LoadResumeDataResult DBResumeDataStorage::parseQueryResultRow(const QSqlQuery &q
             return nonstd::make_unexpected(tr("Cannot parse torrent info: %1").arg(QString::fromStdString(ec.message())));
     }
 
-    p.save_path = Profile::instance()->fromPortablePath(Path(fromLTString(p.save_path)))
+    p.save_path = resolvePath(Path(fromLTString(p.save_path)))
             .toString().toStdString();
     if (p.save_path.empty())
         return nonstd::make_unexpected(tr("Corrupted resume data: %1").arg(tr("save_path is invalid")));

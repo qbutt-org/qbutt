@@ -1,4 +1,4 @@
-find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Widgets Svg)
+find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Widgets Svg Concurrent)
 
 # CMAKE_AUTO_UI causes unnecessary rebuilds
 qt_wrap_ui(UI_HEADERS
@@ -75,6 +75,7 @@ add_library(qbt_gui STATIC
     powermanagement/powermanagement.h
     previewlistdelegate.h
     previewselectdialog.h
+    profileimportdialog.h
     progressbarpainter.h
     properties/downloadedpiecesbar.h
     properties/peerlistsortmodel.h
@@ -180,6 +181,7 @@ add_library(qbt_gui STATIC
     powermanagement/powermanagement.cpp
     previewlistdelegate.cpp
     previewselectdialog.cpp
+    profileimportdialog.cpp
     progressbarpainter.cpp
     properties/downloadedpiecesbar.cpp
     properties/peerlistsortmodel.cpp
@@ -264,6 +266,7 @@ target_include_directories(qbt_gui PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(qbt_gui
     PRIVATE
         qbt_base
+        Qt::Concurrent
     PUBLIC
         Qt::Gui Qt::Widgets
 )

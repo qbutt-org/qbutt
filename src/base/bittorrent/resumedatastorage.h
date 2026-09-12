@@ -28,6 +28,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include <QtContainerFwd>
 #include <QList>
 #include <QMutex>
@@ -48,6 +50,9 @@ namespace BitTorrent
         LoadResumeDataResult result;
     };
 
+    using ExternalResumeDataResult = nonstd::expected<QList<LoadedResumeData>, QString>;
+    using ResumeDataPathResolver = std::function<Path(const Path &)>;
+
     class ResumeDataStorage : public QObject
     {
         Q_OBJECT
@@ -55,6 +60,8 @@ namespace BitTorrent
 
     public:
         explicit ResumeDataStorage(const Path &path, QObject *parent = nullptr);
+
+        static ExternalResumeDataResult readExternal(const Path &sourceDataDirectory, const Path &sourceProfileBase);
 
         Path path() const;
 
@@ -74,6 +81,12 @@ namespace BitTorrent
         void loadFinished();
 
     protected:
+        static constexpr int ExternalTorrentCountLimit = 10000;
+        static constexpr qint64 ExternalFileSizeLimit = 64 * 1024 * 1024;
+        static constexpr qint64 ExternalTotalSizeLimit = 256 * 1024 * 1024;
+        static constexpr int ExternalDecodeDepthLimit = 100;
+        static constexpr int ExternalDecodeTokenLimit = 2000000;
+
         void onResumeDataLoaded(const TorrentID &torrentID, LoadResumeDataResult loadResumeDataResult) const;
 
     private:

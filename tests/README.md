@@ -119,6 +119,33 @@ the active journal. These fixtures never lock an existing user profile.
 action is enabled, while a held repair prevents auto-exit after another torrent
 finishes. It does not inject the queued-signal or nested-dialog race windows.
 
+`smoke:profile` uses the actual native resume stores and startup import service.
+Build its standalone driver against the same configured application build, with
+`CMAKE_EXPORT_COMPILE_COMMANDS=ON`, and keep the deployed Qt libraries in `PATH`:
+
+```powershell
+bun tests/profile-lab/build.ts C:/path/to/build C:/path/to/drivers C:/path/to/msvc-env.cmd
+$env:QBUTT_PROFILE_DRIVER = 'C:/path/to/drivers/service.exe'
+bun run smoke:profile
+```
+
+The MSVC environment script must initialize the x64 compiler and linker. The
+profile lab covers Bencode/SQLite source and destination combinations, portable
+paths, incomplete filename mappings, writer exclusion, native recheck/restart,
+and a forced process exit during installation. An incomplete rollback backup
+must fail before removing current metadata. Source bytes and modification times
+must remain unchanged. Use ordinary physical temporary paths for payloads;
+repair ownership guards deliberately reject paths through junctions or symlinks.
+
+The optional `gui-smoke` argument to the driver builder produces a real Qt
+offscreen import dialog driver. Pass generated source settings, data directory,
+source profile base, and a fresh output directory. It exercises file selection,
+preview, destination editing, consent, asynchronous preparation and close guards,
+then saves PNGs and reads back the staged native records. Neither driver needs a
+live profile. Windows external SQLite import supports schema 9 and snapshots
+the source DB/WAL under write-excluding handles; unsupported schemas fail before
+installation. Torrents must have complete metadata before importing them.
+
 `smoke:proxy` exercises the bounded authenticated TCP fixture relay using real
 sockets. `smoke:network` drives the native client through that relay to a seed and
 HTTP tracker whose synthetic endpoints have no direct listener, kills the relay

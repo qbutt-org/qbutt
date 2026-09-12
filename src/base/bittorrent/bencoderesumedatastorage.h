@@ -48,6 +48,8 @@ namespace BitTorrent
     public:
         explicit BencodeResumeDataStorage(const Path &path, QObject *parent = nullptr);
 
+        static ExternalResumeDataResult readExternal(const Path &path, const Path &sourceProfileBase);
+
         QList<TorrentID> registeredTorrents() const override;
         LoadResumeDataResult load(const TorrentID &id) const override;
         void store(const TorrentID &id, LoadTorrentParams resumeData, quint64 revision = 0) const override;
@@ -57,7 +59,8 @@ namespace BitTorrent
     private:
         void doLoadAll() const override;
         void loadQueue(const Path &queueFilename);
-        LoadResumeDataResult loadTorrentResumeData(const QByteArray &data, const QByteArray &metadata) const;
+        static LoadResumeDataResult loadTorrentResumeData(const QByteArray &data, const QByteArray &metadata
+            , const ResumeDataPathResolver &resolvePath, int depthLimit, int tokenLimit);
 
         QList<TorrentID> m_registeredTorrents;
         Utils::Thread::UniquePtr m_ioThread;

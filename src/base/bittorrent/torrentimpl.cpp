@@ -346,7 +346,7 @@ TorrentImpl::TorrentImpl(SessionImpl *session, const lt::torrent_handle &nativeH
 
             const auto fileIter = m_ltAddTorrentParams.renamed_files.find(nativeIndex);
             const Path filePath = ((fileIter != m_ltAddTorrentParams.renamed_files.end())
-                    ? makeUserPath(Path(fileIter->second)) : m_torrentInfo.filePath(i));
+                    ? userFilePath(Path(fileIter->second)) : m_torrentInfo.filePath(i));
             m_filePaths.append(filePath);
 
             const auto priority = LT::fromNative(filePriorities[LT::toUnderlyingType(nativeIndex)]);
@@ -636,7 +636,7 @@ Path TorrentImpl::makeActualPath(int index, const Path &path) const
     return actualPath;
 }
 
-Path TorrentImpl::makeUserPath(const Path &path) const
+Path TorrentImpl::userFilePath(const Path &path)
 {
     Path userPath = path.removedExtension(QB_EXT);
 
@@ -2324,7 +2324,7 @@ void TorrentImpl::handleFileRenamed(const lt::file_index_t nativeFileIndex, cons
     Q_ASSERT(fileIndex >= 0);
 
     const Path oldFilePath = m_filePaths.at(fileIndex);
-    const Path newFilePath = makeUserPath(newActualFilePath);
+    const Path newFilePath = userFilePath(newActualFilePath);
 
     // Check if ".!qB" extension or ".unwanted" folder was just added or removed
     // We should compare path in a case sensitive manner even on case insensitive

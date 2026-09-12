@@ -95,6 +95,7 @@ add_library(qbt_base STATIC
     pathfwd.h
     preferences.h
     profile.h
+    profileimport.h
     profile_p.h
     rss/feed_serializer.h
     rss/rss_article.h
@@ -201,6 +202,7 @@ add_library(qbt_base STATIC
     path.cpp
     preferences.cpp
     profile.cpp
+    profileimport.cpp
     profile_p.cpp
     rss/feed_serializer.cpp
     rss/rss_article.cpp

@@ -85,6 +85,7 @@
 #include "lineedit.h"
 #include "optionsdialog.h"
 #include "powermanagement/powermanagement.h"
+#include "profileimportdialog.h"
 #include "properties/peerlistwidget.h"
 #include "properties/propertieswidget.h"
 #include "properties/proptabbar.h"
@@ -344,6 +345,15 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 #endif
 
     connect(m_ui->actionManageCookies, &QAction::triggered, this, &MainWindow::manageCookies);
+    auto *importProfile = new QAction {tr("Import profile..."), this};
+    importProfile->setObjectName(u"actionImportProfile"_s);
+    m_ui->menuOptions->insertAction(m_ui->actionOptions, importProfile);
+    connect(importProfile, &QAction::triggered, this, [this]
+    {
+        auto *dialog = new ProfileImportDialog {this};
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->open();
+    });
 
     // Initialise system sleep inhibition timer
     m_preventTimer->setSingleShot(true);

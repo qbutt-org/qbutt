@@ -63,6 +63,7 @@ public:
     std::unique_ptr<QSettings> applicationSettings(const QString &name) const;
 
     Path rootPath() const;
+    Path basePath() const;
     QString configurationName() const;
 
     /// Returns either default name for configuration file (QCoreApplication::applicationName())

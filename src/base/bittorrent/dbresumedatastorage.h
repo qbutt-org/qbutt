@@ -54,12 +54,17 @@ namespace BitTorrent
         void storeQueue(const QList<TorrentID> &queue) const override;
 
     private:
+        friend class ResumeDataStorage;
+
+        static ExternalResumeDataResult readExternalSnapshot(const Path &dbPath, const Path &sourceProfileBase);
         void doLoadAll() const override;
         int currentDBVersion() const;
         void createDB() const;
         void updateDB(int fromVersion) const;
         void enableWALMode() const;
         LoadResumeDataResult parseQueryResultRow(const QSqlQuery &query) const;
+        static LoadResumeDataResult parseQueryResultRow(const QSqlQuery &query
+            , const ResumeDataPathResolver &resolvePath, int depthLimit, int tokenLimit);
 
         class Worker;
         Worker *m_asyncWorker = nullptr;

@@ -2375,6 +2375,8 @@ void SessionImpl::populateAdditionalTrackersFromURL()
 
 void SessionImpl::processTorrentShareLimits(TorrentImpl *torrent)
 {
+    if (torrent->isCompletionPolicyPreview())
+        return;
     if (!torrent->isFinished() || torrent->isForced())
         return;
 
@@ -5582,7 +5584,7 @@ void SessionImpl::processPendingFinishedTorrents()
     {
         // A native finish alert can arrive after Stop and repair admission.
         // Discard it before external programs and other completion policies run.
-        if (torrent->isRepairing())
+        if (torrent->isRepairing() || torrent->isCompletionPolicyPreview())
             continue;
 
         LogMsg(tr("Torrent download finished. Torrent: \"%1\"").arg(torrent->name()));
@@ -5598,7 +5600,8 @@ void SessionImpl::processPendingFinishedTorrents()
 
     const bool hasUnfinishedTorrents = std::ranges::any_of(asConst(m_torrents), [](const TorrentImpl *torrent)
     {
-        return torrent->isRepairing() || !(torrent->isFinished() || torrent->isStopped() || torrent->isErrored());
+        return torrent->isRepairing() || torrent->isCompletionPolicyPreview()
+            || !(torrent->isFinished() || torrent->isStopped() || torrent->isErrored());
     });
     if (!hasUnfinishedTorrents)
         emit allTorrentsFinished();

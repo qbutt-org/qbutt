@@ -97,6 +97,8 @@ namespace BitTorrent
         Q_DISABLE_COPY_MOVE(TorrentImpl)
 
     public:
+        static Path userFilePath(const Path &path);
+
         TorrentImpl(SessionImpl *session, const lt::torrent_handle &nativeHandle, LoadTorrentParams params);
         ~TorrentImpl() override;
 
@@ -322,7 +324,6 @@ namespace BitTorrent
         void doForceRecheck();
 
         Path makeActualPath(int index, const Path &path) const;
-        Path makeUserPath(const Path &path) const;
         void adjustStorageLocation();
         void doRenameFile(int index, const Path &path);
         void moveStorage(const Path &newPath, MoveStorageContext context);

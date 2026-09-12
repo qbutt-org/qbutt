@@ -80,6 +80,7 @@
 #include "base/net/smtp.h"
 #include "base/preferences.h"
 #include "base/profile.h"
+#include "base/profileimport.h"
 #include "base/rss/rss_autodownloader.h"
 #include "base/rss/rss_session.h"
 #include "base/search/searchpluginmanager.h"
@@ -293,6 +294,13 @@ Application::Application(int &argc, char **argv)
                         (m_commandLineArgs.relativeFastresumePaths || portableModeEnabled));
 
     m_instanceManager = new ApplicationInstanceManager(Profile::instance()->location(SpecialFolder::Config), this);
+
+    if (m_instanceManager->isFirstInstance())
+    {
+        const auto imported = ProfileImport::recover();
+        if (!imported)
+            throw RuntimeError(imported.error());
+    }
 
     SettingsStorage::initInstance();
     Preferences::initInstance();

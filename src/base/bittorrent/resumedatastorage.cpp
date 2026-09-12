@@ -28,12 +28,31 @@
 
 #include "resumedatastorage.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <memory>
 #include <utility>
+#include <vector>
 
+#ifdef Q_OS_WIN
+#include <fcntl.h>
+#include <io.h>
+#include <windows.h>
+#endif
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QList>
 #include <QMetaObject>
 #include <QMutexLocker>
+#include <QScopeGuard>
+#include <QTemporaryDir>
 #include <QThread>
+
+#include "base/global.h"
+#include "bencoderesumedatastorage.h"
+#include "dbresumedatastorage.h"
 
 const int TORRENTIDLIST_TYPEID = qRegisterMetaType<QList<BitTorrent::TorrentID>>();
 
@@ -41,6 +60,94 @@ BitTorrent::ResumeDataStorage::ResumeDataStorage(const Path &path, QObject *pare
     : QObject(parent)
     , m_path {path}
 {
+}
+
+BitTorrent::ExternalResumeDataResult BitTorrent::ResumeDataStorage::readExternal(
+    const Path &sourceDataDirectory, const Path &sourceProfileBase)
+{
+    if (!sourceDataDirectory.isAbsolute() || !QFileInfo(sourceDataDirectory.data()).isDir()
+        || (!sourceProfileBase.isEmpty()
+            && (!sourceProfileBase.isAbsolute() || !QFileInfo(sourceProfileBase.data()).isDir())))
+    {
+        return nonstd::make_unexpected(tr("Select an existing external data directory and, when needed, its absolute profile base."));
+    }
+    const Path dbPath = sourceDataDirectory / Path(u"torrents.db"_s);
+    if (!dbPath.exists())
+    {
+        const Path backupPath = sourceDataDirectory / Path(u"BT_backup"_s);
+        if (!QFileInfo(backupPath.data()).isDir())
+            return nonstd::make_unexpected(tr("The selected data directory contains neither torrents.db nor BT_backup."));
+        return BencodeResumeDataStorage::readExternal(backupPath, sourceProfileBase);
+    }
+
+#ifndef Q_OS_WIN
+    return nonstd::make_unexpected(tr("A write-excluding external SQLite snapshot is currently supported only on Windows."));
+#else
+    // A read-only SQLite connection can still create or change its WAL index.
+    // Freeze source DB/WAL files using Windows sharing rules and let SQLite read
+    // only a disposable copy. Existing source writers make this operation fail.
+    QTemporaryDir snapshot {QDir::tempPath() + u"/qbutt-profile-read-XXXXXX"};
+    if (!snapshot.isValid())
+        return nonstd::make_unexpected(tr("Cannot create a temporary directory for the external profile snapshot."));
+    std::vector<std::unique_ptr<QFile>> sourceFiles;
+    qint64 totalSize = 0;
+    for (const QString &suffix : {QString(), u"-wal"_s, u"-journal"_s})
+    {
+        const Path sourcePath = dbPath + suffix;
+        if (!suffix.isEmpty() && !sourcePath.exists())
+            continue;
+        QString nativePath = QDir::toNativeSeparators(sourcePath.data());
+        if (!nativePath.startsWith(u"\\\\?\\"))
+        {
+            if (nativePath.startsWith(u"\\\\"))
+                nativePath = u"\\\\?\\UNC\\" + nativePath.sliced(2);
+            else
+                nativePath = u"\\\\?\\" + nativePath;
+        }
+        const HANDLE handle = CreateFileW(reinterpret_cast<LPCWSTR>(nativePath.utf16()), GENERIC_READ
+            , FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (handle == INVALID_HANDLE_VALUE)
+            return nonstd::make_unexpected(tr("Cannot freeze the external resume database (Windows error %1). Close the source client and try again.")
+                .arg(GetLastError()));
+        auto closeHandle = qScopeGuard([handle] { CloseHandle(handle); });
+        BY_HANDLE_FILE_INFORMATION attributes {};
+        if (!GetFileInformationByHandle(handle, &attributes)
+            || (attributes.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)))
+        {
+            return nonstd::make_unexpected(tr("An external database file is not a regular file."));
+        }
+        const int descriptor = _open_osfhandle(reinterpret_cast<intptr_t>(handle), _O_RDONLY | _O_BINARY);
+        if (descriptor < 0)
+            return nonstd::make_unexpected(tr("Cannot read the external resume database snapshot."));
+        closeHandle.dismiss();
+        auto closeDescriptor = qScopeGuard([descriptor] { _close(descriptor); });
+        auto file = std::make_unique<QFile>();
+        if (!file->open(descriptor, QIODevice::ReadOnly, QFileDevice::AutoCloseHandle))
+            return nonstd::make_unexpected(tr("Cannot read the external resume database snapshot: %1").arg(file->errorString()));
+        closeDescriptor.dismiss();
+        const qint64 size = file->size();
+        if ((size < 0) || (size > ExternalTotalSizeLimit - totalSize))
+            return nonstd::make_unexpected(tr("The external database snapshot exceeds the import size limit."));
+        if ((suffix == u"-journal") && (size != 0))
+            return nonstd::make_unexpected(tr("The external database has an unfinished rollback journal. Recover it in the source client before import."));
+        totalSize += size;
+        QFile target {snapshot.filePath(u"torrents.db"_s + suffix)};
+        if (!target.open(QIODevice::WriteOnly | QIODevice::NewOnly))
+            return nonstd::make_unexpected(tr("Cannot write the temporary resume database snapshot: %1").arg(target.errorString()));
+        qint64 copied = 0;
+        while (copied < size)
+        {
+            const QByteArray bytes = file->read(std::min(qint64(1024 * 1024), size - copied));
+            if (bytes.isEmpty() || (target.write(bytes) != bytes.size()))
+                return nonstd::make_unexpected(tr("Cannot finish copying the external resume database snapshot."));
+            copied += bytes.size();
+        }
+        if (!target.flush())
+            return nonstd::make_unexpected(tr("Cannot flush the temporary resume database snapshot: %1").arg(target.errorString()));
+        sourceFiles.push_back(std::move(file));
+    }
+    return DBResumeDataStorage::readExternalSnapshot(Path(snapshot.filePath(u"torrents.db"_s)), sourceProfileBase);
+#endif
 }
 
 Path BitTorrent::ResumeDataStorage::path() const

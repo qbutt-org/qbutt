@@ -37,8 +37,11 @@
 #include <libtorrent/write_resume_data.hpp>
 
 #include <QByteArray>
+#include <QDateTime>
 #include <QDebug>
+#include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QThread>
 
@@ -162,7 +165,91 @@ BitTorrent::LoadResumeDataResult BitTorrent::BencodeResumeDataStorage::load(cons
 
     const QByteArray data = resumeDataReadResult.value();
     const QByteArray metadata = metadataReadResult.value_or(QByteArray());
-    return loadTorrentResumeData(data, metadata);
+    const auto *pref = Preferences::instance();
+    return loadTorrentResumeData(data, metadata
+        , [](const Path &path) { return Profile::instance()->fromPortablePath(path); }
+        , pref->getBdecodeDepthLimit(), pref->getBdecodeTokenLimit());
+}
+
+BitTorrent::ExternalResumeDataResult BitTorrent::BencodeResumeDataStorage::readExternal(
+    const Path &path, const Path &sourceProfileBase)
+{
+    const QRegularExpression filenamePattern {u"^([A-Fa-f0-9]{40})\\.fastresume$"_s};
+    QDirIterator iterator {path.data(), {u"*.fastresume"_s}, QDir::Files};
+    QList<LoadedResumeData> result;
+    qint64 totalSize = 0;
+    const auto resolvePath = [&sourceProfileBase](const Path &storedPath)
+    {
+        if (storedPath.isRelative() && !storedPath.isEmpty() && sourceProfileBase.isEmpty())
+            throw RuntimeError(tr("Select the source profile base to resolve relative resume paths."));
+        return (storedPath.isEmpty() || storedPath.isAbsolute()) ? storedPath : sourceProfileBase / storedPath;
+    };
+
+    while (iterator.hasNext())
+    {
+        iterator.next();
+        const QRegularExpressionMatch match = filenamePattern.match(iterator.fileName());
+        if (!match.hasMatch())
+            continue;
+        if (result.size() >= ExternalTorrentCountLimit)
+            return nonstd::make_unexpected(tr("The external profile exceeds the limit of %1 torrents.").arg(ExternalTorrentCountLimit));
+
+        const TorrentID torrentID = TorrentID::fromString(match.captured(1));
+        const Path metadataPath = path / Path(match.captured(1) + u".torrent");
+        const auto read = [&totalSize](const Path &filePath) -> nonstd::expected<QByteArray, QString>
+        {
+            const QFileInfo before {filePath.data()};
+            if (!before.isFile() || before.isSymLink())
+                return nonstd::make_unexpected(tr("An external resume file is not a regular file: %1").arg(filePath.toString()));
+            if ((before.size() > ExternalFileSizeLimit) || (before.size() > ExternalTotalSizeLimit - totalSize))
+                return nonstd::make_unexpected(tr("The external resume data exceeds the import size limit."));
+            const auto bytes = Utils::IO::readFile(filePath, ExternalFileSizeLimit);
+            if (!bytes)
+                return nonstd::make_unexpected(bytes.error().message);
+            const QFileInfo after {filePath.data()};
+            if ((before.size() != after.size()) || (before.lastModified() != after.lastModified()))
+                return nonstd::make_unexpected(tr("The external profile changed while it was read. Close the source client and try again."));
+            totalSize += bytes->size();
+            return *bytes;
+        };
+
+        const auto data = read(Path(iterator.filePath()));
+        if (!data)
+            return nonstd::make_unexpected(data.error());
+        QByteArray metadata;
+        if (metadataPath.exists())
+        {
+            const auto bytes = read(metadataPath);
+            if (!bytes)
+                return nonstd::make_unexpected(bytes.error());
+            metadata = *bytes;
+        }
+
+        LoadResumeDataResult parsed;
+        try
+        {
+            parsed = loadTorrentResumeData(*data, metadata, resolvePath, ExternalDecodeDepthLimit, ExternalDecodeTokenLimit);
+        }
+        catch (const RuntimeError &error)
+        {
+            parsed = nonstd::make_unexpected(error.message());
+        }
+        if (parsed)
+        {
+            const auto &params = parsed->ltAddTorrentParams;
+            const InfoHash infoHash {params.ti ? params.ti->info_hashes() : params.info_hashes};
+            const bool mismatchingMetadata = params.ti
+                && ((params.info_hashes.has_v1() && (params.info_hashes.v1 != params.ti->info_hashes().v1))
+                    || (params.info_hashes.has_v2() && (params.info_hashes.v2 != params.ti->info_hashes().v2)));
+            if (mismatchingMetadata || ((torrentID != TorrentID::fromInfoHash(infoHash))
+                && (!infoHash.v1().isValid() || (torrentID != TorrentID::fromSHA1Hash(infoHash.v1())))))
+            {
+                parsed = nonstd::make_unexpected(tr("The resume filename or metadata does not match its torrent info-hash."));
+            }
+        }
+        result.append({.torrentID = torrentID, .result = std::move(parsed)});
+    }
+    return result;
 }
 
 void BitTorrent::BencodeResumeDataStorage::doLoadAll() const
@@ -222,13 +309,13 @@ void BitTorrent::BencodeResumeDataStorage::loadQueue(const Path &queueFilename)
     }
 }
 
-BitTorrent::LoadResumeDataResult BitTorrent::BencodeResumeDataStorage::loadTorrentResumeData(const QByteArray &data, const QByteArray &metadata) const
+BitTorrent::LoadResumeDataResult BitTorrent::BencodeResumeDataStorage::loadTorrentResumeData(
+    const QByteArray &data, const QByteArray &metadata, const ResumeDataPathResolver &resolvePath
+    , const int depthLimit, const int tokenLimit)
 {
-    const auto *pref = Preferences::instance();
-
     lt::error_code ec;
     const lt::bdecode_node resumeDataRoot = lt::bdecode(data, ec
-            , nullptr, pref->getBdecodeDepthLimit(), pref->getBdecodeTokenLimit());
+            , nullptr, depthLimit, tokenLimit);
     if (ec)
         return nonstd::make_unexpected(tr("Cannot parse resume data: %1").arg(QString::fromStdString(ec.message())));
 
@@ -247,12 +334,12 @@ BitTorrent::LoadResumeDataResult BitTorrent::BencodeResumeDataStorage::loadTorre
     torrentParams.shareLimitAction = Utils::String::toEnum(
             fromLTString(resumeDataRoot.dict_find_string_value("qBt-shareLimitAction")), ShareLimitAction::Default);
 
-    torrentParams.savePath = Profile::instance()->fromPortablePath(
+    torrentParams.savePath = resolvePath(
             Path(fromLTString(resumeDataRoot.dict_find_string_value("qBt-savePath"))));
     torrentParams.useAutoTMM = torrentParams.savePath.isEmpty();
     if (!torrentParams.useAutoTMM)
     {
-        torrentParams.downloadPath = Profile::instance()->fromPortablePath(
+        torrentParams.downloadPath = resolvePath(
                 Path(fromLTString(resumeDataRoot.dict_find_string_value("qBt-downloadPath"))));
     }
 
@@ -309,7 +396,7 @@ BitTorrent::LoadResumeDataResult BitTorrent::BencodeResumeDataStorage::loadTorre
     if (!metadata.isEmpty())
     {
         const lt::bdecode_node torrentInfoRoot = lt::bdecode(metadata, ec
-                , nullptr, pref->getBdecodeDepthLimit(), pref->getBdecodeTokenLimit());
+                , nullptr, depthLimit, tokenLimit);
         if (ec)
             return nonstd::make_unexpected(tr("Cannot parse torrent info: %1").arg(QString::fromStdString(ec.message())));
 
@@ -329,7 +416,7 @@ BitTorrent::LoadResumeDataResult BitTorrent::BencodeResumeDataStorage::loadTorre
         }
     }
 
-    p.save_path = Profile::instance()->fromPortablePath(
+    p.save_path = resolvePath(
                 Path(fromLTString(p.save_path))).toString().toStdString();
     if (p.save_path.empty())
         return nonstd::make_unexpected(tr("Corrupted resume data: %1").arg(tr("save_path is invalid")));

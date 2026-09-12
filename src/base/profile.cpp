@@ -98,6 +98,11 @@ Path Profile::rootPath() const
     return m_profileImpl->rootPath();
 }
 
+Path Profile::basePath() const
+{
+    return m_profileImpl->basePath();
+}
+
 QString Profile::configurationName() const
 {
     return m_profileImpl->configurationName();
