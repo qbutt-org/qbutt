@@ -63,6 +63,7 @@
 #include "api/authcontroller.h"
 #include "api/clientdatacontroller.h"
 #include "api/logcontroller.h"
+#include "api/qbuttpathscontroller.h"
 #include "api/rsscontroller.h"
 #include "api/searchcontroller.h"
 #include "api/synccontroller.h"
@@ -322,6 +323,14 @@ void WebApplication::doProcessRequest(const bool isUsingApiKey)
 
     const QString action = match.captured(u"action"_s);
     const QString scope = match.captured(u"scope"_s);
+
+    // Path configuration is a local, authenticated control API. A reverse
+    // proxy or a WebUI authentication exemption does not grant access to it.
+    if ((scope == u"qbuttPaths") && (!m_env.clientAddress.isLoopback() || !m_clientAddress.isLoopback()
+        || (!isUsingApiKey && !isAuthNeeded())))
+    {
+        throw ForbiddenHTTPError();
+    }
 
     // Check public/private scope
     if (!session() && !isPublicAPI(scope, action))
@@ -837,6 +846,7 @@ void WebApplication::sessionStartImpl(const QString &sessionId, const bool useCo
     m_sessions[m_currentSession->id()] = m_currentSession;
 
     m_currentSession->registerAPIController(u"app"_s, new AppController(app(), m_currentSession));
+    m_currentSession->registerAPIController(u"qbuttPaths"_s, new QbuttPathsController(app(), m_currentSession));
     m_currentSession->registerAPIController(u"clientdata"_s, new ClientDataController(m_clientDataStorage, app(), m_currentSession));
     m_currentSession->registerAPIController(u"log"_s, new LogController(app(), m_currentSession));
     m_currentSession->registerAPIController(u"torrentcreator"_s, new TorrentCreatorController(m_torrentCreationManager, app(), m_currentSession));

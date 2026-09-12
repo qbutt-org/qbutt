@@ -28,6 +28,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include <QObject>
 
 #include "base/global.h"
@@ -57,6 +59,7 @@ namespace Net
         bool hostnameLookupEnabled = true;
     };
     bool operator==(const ProxyConfiguration &left, const ProxyConfiguration &right);
+    ProxyConfiguration blockedRuntimeProxy();
 
     class ProxyConfigurationManager final : public QObject
     {
@@ -72,7 +75,11 @@ namespace Net
         static ProxyConfigurationManager *instance();
 
         ProxyConfiguration proxyConfiguration() const;
+        ProxyConfiguration savedProxyConfiguration() const;
         void setProxyConfiguration(const ProxyConfiguration &config);
+        bool hasRuntimeProxy() const;
+        bool setRuntimeProxy(const ProxyConfiguration &config);
+        bool clearRuntimeProxy();
 
     signals:
         void proxyConfigurationChanged();
@@ -80,6 +87,8 @@ namespace Net
     private:
         static ProxyConfigurationManager *m_instance;
         ProxyConfiguration m_config;
+        std::optional<ProxyConfiguration> m_runtimeProxy;
+        SettingValue<bool> m_storeRuntimeProxyRequired;
         SettingValue<ProxyType> m_storeProxyType;
         SettingValue<QString> m_storeProxyIP;
         SettingValue<ushort> m_storeProxyPort;

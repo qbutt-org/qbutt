@@ -43,10 +43,21 @@ bool Net::operator==(const ProxyConfiguration &left, const ProxyConfiguration &r
 
 using namespace Net;
 
+ProxyConfiguration Net::blockedRuntimeProxy()
+{
+    ProxyConfiguration proxy;
+    proxy.type = ProxyType::SOCKS5;
+    proxy.ip = u"127.0.0.1"_s;
+    proxy.port = 0;
+    proxy.authEnabled = true;
+    return proxy;
+}
+
 ProxyConfigurationManager *ProxyConfigurationManager::m_instance = nullptr;
 
 ProxyConfigurationManager::ProxyConfigurationManager(QObject *parent)
     : QObject(parent)
+    , m_storeRuntimeProxyRequired {SETTINGS_KEY(u"RuntimeRequired"_s)}
     , m_storeProxyType {SETTINGS_KEY(u"Type"_s)}
     , m_storeProxyIP {SETTINGS_KEY(u"IP"_s)}
     , m_storeProxyPort {SETTINGS_KEY(u"Port"_s)}
@@ -64,6 +75,13 @@ ProxyConfigurationManager::ProxyConfigurationManager(QObject *parent)
     m_config.username = m_storeProxyUsername;
     m_config.password = m_storeProxyPassword;
     m_config.hostnameLookupEnabled = m_storeProxyHostnameLookupEnabled.get(true);
+
+    if (m_storeRuntimeProxyRequired)
+    {
+        // Credentials and endpoints are process-local. A previous pinned session
+        // stays blocked on restart until the user starts a path or selects Native.
+        m_runtimeProxy = blockedRuntimeProxy();
+    }
 }
 
 void ProxyConfigurationManager::initInstance()
@@ -85,7 +103,51 @@ ProxyConfigurationManager *ProxyConfigurationManager::instance()
 
 ProxyConfiguration ProxyConfigurationManager::proxyConfiguration() const
 {
+    return m_runtimeProxy.value_or(m_config);
+}
+
+ProxyConfiguration ProxyConfigurationManager::savedProxyConfiguration() const
+{
     return m_config;
+}
+
+bool ProxyConfigurationManager::hasRuntimeProxy() const
+{
+    return m_runtimeProxy.has_value();
+}
+
+bool ProxyConfigurationManager::setRuntimeProxy(const ProxyConfiguration &config)
+{
+    if (!m_storeRuntimeProxyRequired)
+    {
+        m_storeRuntimeProxyRequired = true;
+        if (!SettingsStorage::instance()->save())
+        {
+            m_storeRuntimeProxyRequired = false;
+            return false;
+        }
+    }
+
+    m_runtimeProxy = config;
+    emit proxyConfigurationChanged();
+    return true;
+}
+
+bool ProxyConfigurationManager::clearRuntimeProxy()
+{
+    if (m_storeRuntimeProxyRequired)
+    {
+        m_storeRuntimeProxyRequired = false;
+        if (!SettingsStorage::instance()->save())
+        {
+            m_storeRuntimeProxyRequired = true;
+            return false;
+        }
+    }
+
+    m_runtimeProxy.reset();
+    emit proxyConfigurationChanged();
+    return true;
 }
 
 void ProxyConfigurationManager::setProxyConfiguration(const ProxyConfiguration &config)
@@ -101,6 +163,7 @@ void ProxyConfigurationManager::setProxyConfiguration(const ProxyConfiguration &
         m_storeProxyPassword = config.password;
         m_storeProxyHostnameLookupEnabled = config.hostnameLookupEnabled;
 
-        emit proxyConfigurationChanged();
+        if (!m_runtimeProxy)
+            emit proxyConfigurationChanged();
     }
 }

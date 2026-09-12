@@ -641,7 +641,15 @@ SessionImpl::SessionImpl(QObject *parent)
 
     connect(Net::ProxyConfigurationManager::instance()
         , &Net::ProxyConfigurationManager::proxyConfigurationChanged
-        , this, &SessionImpl::configureDeferred);
+        , this, [this]()
+    {
+        m_listenInterfaceConfigured = false;
+        if (Net::ProxyConfigurationManager::instance()->hasRuntimeProxy())
+            disablePortMapping();
+        else if (Net::PortForwarder::instance()->isEnabled())
+            enablePortMapping();
+        configureDeferred();
+    });
 
     m_freeDiskSpaceChecker->moveToThread(m_ioThread.get());
     connect(m_ioThread.get(), &QThread::finished, m_freeDiskSpaceChecker, &QObject::deleteLater);
@@ -1937,7 +1945,8 @@ lt::settings_pack SessionImpl::loadLTSettings() const
     settingsPack.set_int(lt::settings_pack::proxy_type, lt::settings_pack::none);
     const auto *proxyManager = Net::ProxyConfigurationManager::instance();
     const Net::ProxyConfiguration proxyConfig = proxyManager->proxyConfiguration();
-    if ((proxyConfig.type != Net::ProxyType::None) && Preferences::instance()->useProxyForBT())
+    if ((proxyConfig.type != Net::ProxyType::None)
+        && (proxyManager->hasRuntimeProxy() || Preferences::instance()->useProxyForBT()))
     {
         switch (proxyConfig.type)
         {
@@ -1972,7 +1981,8 @@ lt::settings_pack SessionImpl::loadLTSettings() const
             settingsPack.set_str(lt::settings_pack::proxy_password, proxyConfig.password.toStdString());
         }
 
-        settingsPack.set_bool(lt::settings_pack::proxy_peer_connections, isProxyPeerConnectionsEnabled());
+        settingsPack.set_bool(lt::settings_pack::proxy_peer_connections,
+            proxyManager->hasRuntimeProxy() || isProxyPeerConnectionsEnabled());
         settingsPack.set_bool(lt::settings_pack::proxy_hostnames, proxyConfig.hostnameLookupEnabled);
     }
 
@@ -2172,6 +2182,28 @@ lt::settings_pack SessionImpl::loadLTSettings() const
     case SeedChokingAlgorithm::AntiLeech:
         settingsPack.set_int(lt::settings_pack::seed_choking_algorithm, lt::settings_pack::anti_leech);
         break;
+    }
+
+    if (proxyManager->hasRuntimeProxy())
+    {
+        // The initial pinned path supports outgoing TCP. Keep this override
+        // effective even if Preferences or WebUI changes the saved settings.
+        settingsPack.set_bool(lt::settings_pack::proxy_tracker_connections, true);
+        settingsPack.set_bool(lt::settings_pack::enable_dht, false);
+        settingsPack.set_bool(lt::settings_pack::enable_lsd, false);
+        settingsPack.set_bool(lt::settings_pack::enable_incoming_tcp, false);
+        settingsPack.set_bool(lt::settings_pack::enable_incoming_utp, false);
+        settingsPack.set_bool(lt::settings_pack::enable_outgoing_utp, false);
+        settingsPack.set_bool(lt::settings_pack::enable_outgoing_tcp, true);
+        settingsPack.set_bool(lt::settings_pack::enable_upnp, false);
+        settingsPack.set_bool(lt::settings_pack::enable_natpmp, false);
+        settingsPack.set_str(lt::settings_pack::listen_interfaces, "127.0.0.1:0");
+        settingsPack.set_str(lt::settings_pack::outgoing_interfaces, "127.0.0.1");
+#if defined(QBT_USES_LIBTORRENT2) && TORRENT_USE_I2P
+        settingsPack.set_str(lt::settings_pack::i2p_hostname, "");
+        settingsPack.set_int(lt::settings_pack::i2p_port, 0);
+        settingsPack.set_bool(lt::settings_pack::allow_i2p_mixed, false);
+#endif
     }
 
     return settingsPack;
@@ -3019,7 +3051,7 @@ void SessionImpl::enablePortMapping()
 {
     invokeAsync([this]
     {
-        if (m_isPortMappingEnabled)
+        if (m_isPortMappingEnabled || Net::ProxyConfigurationManager::instance()->hasRuntimeProxy())
             return;
 
         lt::settings_pack settingsPack;

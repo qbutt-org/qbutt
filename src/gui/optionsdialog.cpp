@@ -74,6 +74,7 @@
 #include "banlistoptionsdialog.h"
 #include "interfaces/iguiapplication.h"
 #include "ipsubnetwhitelistoptionsdialog.h"
+#include "pathswidget.h"
 #include "rss/automatedrssdownloader.h"
 #include "ui_optionsdialog.h"
 #include "uithemedialog.h"
@@ -899,7 +900,8 @@ void OptionsDialog::loadConnectionTabOptions()
 #endif
 
     const auto *proxyConfigManager = Net::ProxyConfigurationManager::instance();
-    const Net::ProxyConfiguration proxyConf = proxyConfigManager->proxyConfiguration();
+    m_ui->verticalLayout_20->insertWidget(0, new PathsWidget(this));
+    const Net::ProxyConfiguration proxyConf = proxyConfigManager->savedProxyConfiguration();
 
     m_ui->comboProxyType->addItem(tr("(None)"), QVariant::fromValue(Net::ProxyType::None));
     m_ui->comboProxyType->addItem(tr("SOCKS4"), QVariant::fromValue(Net::ProxyType::SOCKS4));

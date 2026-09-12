@@ -70,6 +70,7 @@ add_library(qbt_gui STATIC
     log/logmodel.h
     mainwindow.h
     optionsdialog.h
+    pathswidget.h
     powermanagement/inhibitor.h
     powermanagement/powermanagement.h
     previewlistdelegate.h
@@ -173,6 +174,7 @@ add_library(qbt_gui STATIC
     log/logmodel.cpp
     mainwindow.cpp
     optionsdialog.cpp
+    pathswidget.cpp
     powermanagement/inhibitor.cpp
     powermanagement/powermanagement.cpp
     previewlistdelegate.cpp

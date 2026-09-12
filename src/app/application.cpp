@@ -74,6 +74,7 @@
 #include "base/logger.h"
 #include "base/net/downloadmanager.h"
 #include "base/net/geoipmanager.h"
+#include "base/net/pathmanager.h"
 #include "base/net/proxyconfigurationmanager.h"
 #include "base/net/reverseresolution.h"
 #include "base/net/smtp.h"
@@ -1423,6 +1424,7 @@ void Application::cleanup()
 #ifdef DISABLE_GUI
     delete m_addTorrentManager;
 #endif
+    Net::PathManager::instance()->shutdown();
     BitTorrent::Session::freeInstance();
     Net::ReverseResolution::freeInstance();
     Net::GeoIPManager::freeInstance();

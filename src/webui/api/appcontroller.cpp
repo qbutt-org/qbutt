@@ -254,7 +254,7 @@ void AppController::preferencesAction()
 
     // Proxy Server
     const auto *proxyManager = Net::ProxyConfigurationManager::instance();
-    Net::ProxyConfiguration proxyConf = proxyManager->proxyConfiguration();
+    Net::ProxyConfiguration proxyConf = proxyManager->savedProxyConfiguration();
     data[u"proxy_type"_s] = Utils::String::fromEnum(proxyConf.type);
     data[u"proxy_ip"_s] = proxyConf.ip;
     data[u"proxy_port"_s] = proxyConf.port;
@@ -747,7 +747,7 @@ void AppController::setPreferencesAction()
 
     // Proxy Server
     auto *proxyManager = Net::ProxyConfigurationManager::instance();
-    Net::ProxyConfiguration proxyConf = proxyManager->proxyConfiguration();
+    Net::ProxyConfiguration proxyConf = proxyManager->savedProxyConfiguration();
     if (hasKey(u"proxy_type"_s))
         proxyConf.type = Utils::String::toEnum(it.value().toString(), Net::ProxyType::None);
     if (hasKey(u"proxy_ip"_s))
