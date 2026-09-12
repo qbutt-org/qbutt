@@ -205,19 +205,25 @@ export async function verifyPayload(root: string, expected: PayloadFile[]): Prom
     return verified;
 }
 
-export async function startSeed(python: string, fixtures: string, name: string, logs: string) {
-    const child = Bun.spawn([python, join(import.meta.dir, "network-lab", "seed.py"), join(fixtures, `${name}.torrent`), join(fixtures, "seed")], {
-        stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(logs, `seed-${name}.stderr.log`)),
+export async function startSeed(python: string, fixtures: string, name: string, logs: string,
+    options: { savePath?: string; pieces?: number[]; label?: string; listenAddress?: string; uploadRate?: number } = {}) {
+    const label = options.label ?? name;
+    const child = Bun.spawn([python, join(import.meta.dir, "network-lab", "seed.py"), join(fixtures, `${name}.torrent`),
+        options.savePath ?? join(fixtures, "seed"), JSON.stringify(options.pieces ?? null),
+        options.listenAddress ?? "127.0.0.1", String(options.uploadRate ?? 256 * 1024)], {
+        stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(logs, `seed-${label}.stderr.log`)),
     });
     const reader = child.stdout.getReader();
     let text = "";
     try {
         while (!text.includes("\n")) {
             const result = await withTimeout(reader.read(), 35000, "Seed readiness timeout");
-            assert(!result.done, `Seed ${name} ended before readiness; inspect ${join(logs, `seed-${name}.stderr.log`)}`);
+            assert(!result.done, `Seed ${label} ended before readiness; inspect ${join(logs, `seed-${label}.stderr.log`)}`);
             text += new TextDecoder().decode(result.value);
         }
-        const ready = JSON.parse(text.split("\n")[0]!) as { ready: boolean; host: string; port: number };
+        const ready = JSON.parse(text.split("\n")[0]!) as {
+            ready: boolean; host: string; port: number; pieces: number[]; verifiedPayloadBytes: number;
+        };
         assert(ready.ready && ready.port > 0, "Seed failed readiness");
         return {
             ...ready,
@@ -234,11 +240,17 @@ export async function startSeed(python: string, fixtures: string, name: string, 
                     }
                 }
                 assert(exitCode === 0, `Seed exited ${exitCode}`);
-                const final = await reader.read();
-                if (final.value)
+                for (;;) {
+                    const final = await reader.read();
+                    if (final.done)
+                        break;
                     text += new TextDecoder().decode(final.value);
-                await writeFile(join(logs, `seed-${name}.jsonl`), text);
+                }
+                await writeFile(join(logs, `seed-${label}.jsonl`), text);
                 reader.releaseLock();
+                return JSON.parse(text.trimEnd().split("\n").at(-1)!) as {
+                    uploadPayloadBytes: number; downloadPayloadBytes: number; pieces: number[]; peerAddresses: string[];
+                };
             },
         };
     }

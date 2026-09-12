@@ -14,6 +14,7 @@ payload = json.loads((root / "payload.json").read_text(encoding="utf-8"))
 descriptions = []
 for name, piece_size, flags in [
     ("v1", 16384, lt.create_torrent.v1_only),
+    ("v1-public", 16384, lt.create_torrent.v1_only),
     ("v1-64k", 65536, lt.create_torrent.v1_only),
     ("v2", 16384, lt.create_torrent.v2_only),
     ("hybrid", 16384, 0),
@@ -24,7 +25,7 @@ for name, piece_size, flags in [
     creator = lt.create_torrent(files, piece_size, flags)
     creator.set_creator("qbutt integration fixtures")
     creator.set_comment("Generated test data; no third-party payload")
-    creator.set_priv(True)
+    creator.set_priv(name != "v1-public")
     lt.set_piece_hashes(creator, str(root / "seed"))
     metadata = creator.generate()
     # The creation timestamp is outside the info dictionary and has no hash semantics.
