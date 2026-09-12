@@ -2121,7 +2121,7 @@ lt::settings_pack SessionImpl::loadLTSettings() const
         settingsPack.set_bool(lt::settings_pack::enable_natpmp, false);
         settingsPack.set_str(lt::settings_pack::listen_interfaces, "127.0.0.1:0");
         settingsPack.set_str(lt::settings_pack::outgoing_interfaces, "127.0.0.1");
-#if defined(QBT_USES_LIBTORRENT2) && TORRENT_USE_I2P
+#if TORRENT_USE_I2P
         settingsPack.set_str(lt::settings_pack::i2p_hostname, "");
         settingsPack.set_int(lt::settings_pack::i2p_port, 0);
         settingsPack.set_bool(lt::settings_pack::allow_i2p_mixed, false);

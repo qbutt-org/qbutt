@@ -32,7 +32,8 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 
 ## Git and public delivery
 
-- `origin` is the public `qbutt-org/qbutt` fork; `upstream` is `qbittorrent/qBittorrent`. Preserve upstream licenses and notices. Keep upstream engagement separate from delivery to this fork.
+- `origin` is the standalone public `qbutt-org/qbutt` repository; `upstream` is `qbittorrent/qBittorrent`. Keep only `main` in the published repository. Do not mirror upstream branches or tags, or join GitHub's fork network. Preserve source history, licenses and notices.
+- Fetch upstream into its own remote, review the selected release or commit against our changes, integrate it locally, and update `upstream-lock.json` after applicable checks. Publish the resulting qbutt state to `origin/main`; upstream engagement is a separate action. Apply the same maintenance model to component repositories.
 - Never commit/push credentials, subscription URLs, private profiles, dumps or signing keys. Never print secrets in logs, diffs, answers or GitHub content. Audit selected changes from private dependencies before transferring them; never publish their history wholesale.
 - Keep component repositories under `qbutt-org` with short `qbutt-*` names. Create a component repository only when it owns actual source changes.
 - Verify published commit and repository visibility through GitHub, not the remote name. Review the complete outgoing diff and use explicit staging paths.

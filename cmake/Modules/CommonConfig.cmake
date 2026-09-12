@@ -106,5 +106,3 @@ endif()
 if (DBUS)
     target_compile_definitions(qbt_common_cfg INTERFACE QBT_USES_DBUS)
 endif()
-
-target_compile_definitions(qbt_common_cfg INTERFACE QBT_USES_LIBTORRENT2)
