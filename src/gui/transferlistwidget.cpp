@@ -1285,8 +1285,14 @@ void TransferListWidget::displayListMenu()
         listMenu->addSeparator();
     if (oneHasMetadata)
         listMenu->addAction(actionForceRecheck);
-    if ((selectedIndexes.size() == 1) && oneHasMetadata && !needsStop)
-        listMenu->addAction(actionRepair);
+    if ((selectedIndexes.size() == 1) && oneHasMetadata)
+    {
+        if (const auto *torrent = m_listModel->torrentHandle(mapToSource(selectedIndexes.first()))
+            ; torrent && torrent->isStopped())
+        {
+            listMenu->addAction(actionRepair);
+        }
+    }
     // We can not force reannounce torrents that are stopped/errored/checking/missing files/queued.
     // We may already have the tracker list from magnet url. So we can force reannounce torrents without metadata anyway.
     listMenu->addAction(actionForceReannounce);
