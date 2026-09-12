@@ -82,8 +82,8 @@ directory is excluded when comparing the original installation.
 `smoke:staging-faults` requires a separate integration build configured with
 `-DQBUTT_STAGING_FAULTS=ON` (default OFF; never enable it in a release). It terminates
 the actual app after journal publication and before, during and after each file
-rename. All 68 rollback boundaries and 34 forward-recovery cases restart through
-the normal profile, keep ordinary writers suspended, and verify hashes, exact
+rename. The 68 restart cases and 34 forward-recovery cases use the normal
+profile, keep ordinary writers suspended, and verify hashes, exact
 sizes, original files and unknown files. Four additional cases cover absent
 targets and v2/hybrid restart.
 Writer rejection is observed across more than two native info-cache refreshes.
