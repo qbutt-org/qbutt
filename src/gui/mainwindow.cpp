@@ -108,9 +108,6 @@
 #include "macosstatusitem/statusitem.h"
 #include "macutilities.h"
 #endif
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-#include "programupdater.h"
-#endif
 
 using namespace std::chrono_literals;
 
@@ -186,7 +183,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     m_ui->menuAutoShutdownOnDownloadsCompletion->setIcon(UIThemeManager::instance()->getIcon(u"task-complete"_s, u"application-exit"_s));
     m_ui->actionManageCookies->setIcon(UIThemeManager::instance()->getIcon(u"browser-cookies"_s, u"preferences-web-browser-cookies"_s));
     m_ui->menuLog->setIcon(UIThemeManager::instance()->getIcon(u"help-contents"_s));
-    m_ui->actionCheckForUpdates->setIcon(UIThemeManager::instance()->getIcon(u"view-refresh"_s));
+    m_ui->actionUpdateStatus->setIcon(UIThemeManager::instance()->getIcon(u"help-about"_s));
 
     m_ui->actionPauseSession->setVisible(!BitTorrent::Session::instance()->isPaused());
     m_ui->actionResumeSession->setVisible(BitTorrent::Session::instance()->isPaused());
@@ -324,21 +321,19 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     connect(m_ui->actionMinimize, &QAction::triggered, this, &MainWindow::minimizeWindow);
     connect(m_ui->actionUseAlternativeSpeedLimits, &QAction::triggered, this, &MainWindow::toggleAlternativeSpeeds);
 
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-    connect(m_ui->actionCheckForUpdates, &QAction::triggered, this, [this]() { checkProgramUpdate(true); });
-
-    // trigger an early check on startup
-    if (pref->isUpdateCheckEnabled())
-        checkProgramUpdate(false);
-#else
-    m_ui->actionCheckForUpdates->setVisible(false);
-#endif
+    connect(m_ui->actionUpdateStatus, &QAction::triggered, this, [this]()
+    {
+        QMessageBox::information(this, tr("qbutt update status")
+            , tr("Automatic updates are not available in this development build. "
+                 "Published qbutt releases are available at:") + u"<br/><br/>"
+                + u"<a href=\"https://github.com/qbutt-org/qbutt/releases\">github.com/qbutt-org/qbutt/releases</a>"_s);
+    });
 
     // Certain menu items should reside at specific places on macOS.
     // Qt partially does it on its own, but updates and different languages require tuning.
     m_ui->actionExit->setMenuRole(QAction::QuitRole);
     m_ui->actionAbout->setMenuRole(QAction::AboutRole);
-    m_ui->actionCheckForUpdates->setMenuRole(QAction::ApplicationSpecificRole);
+    m_ui->actionUpdateStatus->setMenuRole(QAction::ApplicationSpecificRole);
     m_ui->actionOptions->setMenuRole(QAction::PreferencesRole);
 
 #ifdef Q_OS_MACOS
@@ -469,7 +464,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
                 hide();
                 if (!pref->minimizeToTrayNotified())
                 {
-                    app->desktopIntegration()->showNotification(tr("qBittorrent is minimized to tray"), tr("This behavior can be changed in the settings. You won't be reminded again."));
+                    app->desktopIntegration()->showNotification(tr("qbutt is minimized to tray"), tr("This behavior can be changed in the settings. You won't be reminded again."));
                     pref->setMinimizeToTrayNotified(true);
                 }
             }
@@ -564,7 +559,7 @@ void MainWindow::setTitleSuffix(const QString &suffix)
 {
     const auto emDash = QChar(0x2014);
     const QString separator = u' ' + emDash + u' ';
-    m_windowTitle = QStringLiteral("qBittorrent " QBT_VERSION)
+    m_windowTitle = u"qbutt"_s + separator + tr("based on qBittorrent %1").arg(QStringLiteral(QBT_VERSION))
         + (!suffix.isEmpty() ? (separator + suffix) : QString());
 
     refreshWindowTitle();
@@ -802,7 +797,7 @@ void MainWindow::updateNbTorrents()
 
 void MainWindow::on_actionDocumentation_triggered() const
 {
-    QDesktopServices::openUrl(QUrl(u"https://doc.qbittorrent.org"_s));
+    QDesktopServices::openUrl(QUrl(u"https://github.com/qbutt-org/qbutt"_s));
 }
 
 void MainWindow::tabChanged([[maybe_unused]] const int newTab)
@@ -857,11 +852,6 @@ void MainWindow::cleanup()
 
     m_preventTimer->stop();
     delete m_pwr;
-
-#if (defined(Q_OS_WIN) || defined(Q_OS_MACOS))
-    if (m_programUpdateTimer)
-        m_programUpdateTimer->stop();
-#endif
 
     // remove all child widgets
     while (auto *w = findChild<QWidget *>())
@@ -1056,7 +1046,7 @@ void MainWindow::notifyOfUpdate(const QString &)
 {
     // Show restart message
     m_statusBar->showRestartRequired();
-    LogMsg(tr("qBittorrent was just updated and needs to be restarted for the changes to be effective.")
+    LogMsg(tr("qbutt was just updated and needs to be restarted for the changes to be effective.")
                                    , Log::CRITICAL);
     // Delete the executable watcher
     delete m_executableWatcher;
@@ -1192,7 +1182,7 @@ void MainWindow::closeEvent(QCloseEvent *e)
         QMetaObject::invokeMethod(this, &QWidget::hide, Qt::QueuedConnection);
         if (!pref->closeToTrayNotified())
         {
-            app()->desktopIntegration()->showNotification(tr("qBittorrent is closed to tray"), tr("This behavior can be changed in the settings. You won't be reminded again."));
+            app()->desktopIntegration()->showNotification(tr("qbutt is closed to tray"), tr("This behavior can be changed in the settings. You won't be reminded again."));
             pref->setCloseToTrayNotified(true);
         }
         return;
@@ -1210,9 +1200,9 @@ void MainWindow::closeEvent(QCloseEvent *e)
         {
             if (!isVisible())
                 show();
-            QMessageBox confirmBox(QMessageBox::Question, tr("Exiting qBittorrent"),
+            QMessageBox confirmBox(QMessageBox::Question, tr("Exiting qbutt"),
                                    // Split it because the last sentence is used in the WebUI
-                                   tr("Some files are currently transferring.") + u'\n' + tr("Are you sure you want to quit qBittorrent?"),
+                                   tr("Some files are currently transferring.") + u'\n' + tr("Are you sure you want to quit qbutt?"),
                                    QMessageBox::NoButton, this);
             QPushButton *noBtn = confirmBox.addButton(tr("&No"), QMessageBox::NoRole);
             confirmBox.addButton(tr("&Yes"), QMessageBox::YesRole);
@@ -1285,7 +1275,7 @@ bool MainWindow::event(QEvent *e)
                     QMetaObject::invokeMethod(this, &QWidget::hide, Qt::QueuedConnection);
                     if (!pref->minimizeToTrayNotified())
                     {
-                        app()->desktopIntegration()->showNotification(tr("qBittorrent is minimized to tray"), tr("This behavior can be changed in the settings. You won't be reminded again."));
+                        app()->desktopIntegration()->showNotification(tr("qbutt is minimized to tray"), tr("This behavior can be changed in the settings. You won't be reminded again."));
                         pref->setMinimizeToTrayNotified(true);
                     }
                     return true;
@@ -1445,25 +1435,6 @@ void MainWindow::loadPreferences()
 
     // Torrent properties
     m_propertiesWidget->reloadPreferences();
-
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-    if (pref->isUpdateCheckEnabled())
-    {
-        if (!m_programUpdateTimer)
-        {
-            m_programUpdateTimer = new QTimer(this);
-            m_programUpdateTimer->setInterval(24h);
-            m_programUpdateTimer->setSingleShot(true);
-            connect(m_programUpdateTimer, &QTimer::timeout, this, [this]() { checkProgramUpdate(false); });
-            m_programUpdateTimer->start();
-        }
-    }
-    else
-    {
-        delete m_programUpdateTimer;
-        m_programUpdateTimer = nullptr;
-    }
-#endif
 
 #ifdef Q_OS_MACOS
     // Clear dock badge immediately if speed display is disabled
@@ -1671,62 +1642,6 @@ void MainWindow::on_actionDownloadFromURL_triggered()
     }
 }
 
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-void MainWindow::handleUpdateCheckFinished(ProgramUpdater *updater, const bool invokedByUser)
-{
-    m_ui->actionCheckForUpdates->setEnabled(true);
-    m_ui->actionCheckForUpdates->setText(tr("&Check for Updates"));
-    m_ui->actionCheckForUpdates->setToolTip(tr("Check for program updates"));
-
-    const auto cleanup = [this, updater]()
-    {
-        if (m_programUpdateTimer)
-            m_programUpdateTimer->start();
-        updater->deleteLater();
-    };
-
-    const ProgramUpdater::Version newVersion = updater->getNewVersion();
-    if (newVersion.isValid())
-    {
-        const QString msg {tr("A new version is available.") + u"<br/>"
-            + tr("Do you want to download %1?").arg(newVersion.toString()) + u"<br/><br/>"
-            + u"<a href=\"https://www.qbittorrent.org/news\">%1</a>"_s.arg(tr("Open changelog..."))};
-        auto *msgBox = new QMessageBox {QMessageBox::Question, tr("qBittorrent Update Available"), msg
-            , (QMessageBox::Yes | QMessageBox::No), this};
-        msgBox->setAttribute(Qt::WA_DeleteOnClose);
-        msgBox->setAttribute(Qt::WA_ShowWithoutActivating);
-        msgBox->setDefaultButton(QMessageBox::Yes);
-        msgBox->setWindowModality(Qt::NonModal);
-        connect(msgBox, &QMessageBox::buttonClicked, this, [msgBox, updater](QAbstractButton *button)
-        {
-            if (msgBox->buttonRole(button) == QMessageBox::YesRole)
-            {
-                updater->updateProgram();
-            }
-        });
-        connect(msgBox, &QDialog::finished, this, cleanup);
-        msgBox->show();
-    }
-    else
-    {
-        if (invokedByUser)
-        {
-            auto *msgBox = new QMessageBox {QMessageBox::Information, u"qBittorrent"_s
-                , tr("No updates available.\nYou are already using the latest version.")
-                , QMessageBox::Ok, this};
-            msgBox->setAttribute(Qt::WA_DeleteOnClose);
-            msgBox->setWindowModality(Qt::NonModal);
-            connect(msgBox, &QDialog::finished, this, cleanup);
-            msgBox->show();
-        }
-        else
-        {
-            cleanup();
-        }
-    }
-}
-#endif
-
 void MainWindow::toggleAlternativeSpeeds()
 {
     BitTorrent::Session *const session = BitTorrent::Session::instance();
@@ -1900,26 +1815,6 @@ void MainWindow::refreshTrayIconTooltip()
         app()->desktopIntegration()->setToolTip(tr("Paused"));
     }
 }
-
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-void MainWindow::checkProgramUpdate(const bool invokedByUser)
-{
-    if (m_programUpdateTimer)
-        m_programUpdateTimer->stop();
-
-    m_ui->actionCheckForUpdates->setEnabled(false);
-    m_ui->actionCheckForUpdates->setText(tr("Checking for Updates..."));
-    m_ui->actionCheckForUpdates->setToolTip(tr("Already checking for program updates in the background"));
-
-    auto *updater = new ProgramUpdater(this);
-    connect(updater, &ProgramUpdater::updateCheckFinished
-        , this, [this, invokedByUser, updater]()
-    {
-        handleUpdateCheckFinished(updater, invokedByUser);
-    });
-    updater->checkForUpdates();
-}
-#endif
 
 #ifdef Q_OS_WIN
 void MainWindow::installPython()

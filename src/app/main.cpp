@@ -118,11 +118,11 @@ namespace
         }
         else
         {
-            const QString errMsg = QCoreApplication::translate("Main", "qBittorrent has encountered an unrecoverable error.") + u'\n' + message + u'\n';
+            const QString errMsg = QCoreApplication::translate("Main", "qbutt has encountered an unrecoverable error.") + u'\n' + message + u'\n';
             fprintf(stderr, "%s", qUtf8Printable(errMsg));
         }
 #else
-        const QString errMsg = QCoreApplication::translate("Main", "qBittorrent has encountered an unrecoverable error.") + u'\n' + message + u'\n';
+        const QString errMsg = QCoreApplication::translate("Main", "qbutt has encountered an unrecoverable error.") + u'\n' + message + u'\n';
         fprintf(stderr, "%s", qUtf8Printable(errMsg));
 #endif
     }
@@ -130,7 +130,7 @@ namespace
 #if !defined(Q_OS_WIN) || defined(DISABLE_GUI)
     void displayVersion()
     {
-        printf("%s %s\n", qUtf8Printable(qApp->applicationName()), QBT_VERSION);
+        printf("%s (based on qBittorrent %s)\n", qUtf8Printable(qApp->applicationName()), QBT_VERSION);
     }
 #endif
 
@@ -225,20 +225,20 @@ int main(int argc, char *argv[])
                                                         .arg(params.unknownParameter));
         }
 
-        // Check if qBittorrent is already running
+        // Check if qbutt is already running
         if (app->hasAnotherInstance())
         {
 #if defined(DISABLE_GUI) && !defined(Q_OS_WIN)
             if (params.shouldDaemonize)
             {
-                throw CommandLineParameterError(QCoreApplication::translate("Main", "You cannot use %1: qBittorrent is already running.")
+                throw CommandLineParameterError(QCoreApplication::translate("Main", "You cannot use %1: qbutt is already running.")
                     .arg(u"-d (or --daemon)"_s));
             }
 
             // print friendly message if there are no other command line args
             if (argc == 1)
             {
-                const QString message = QCoreApplication::translate("Main", "Another qBittorrent instance is already running.");
+                const QString message = QCoreApplication::translate("Main", "Another qbutt instance is already running.");
                 printf("%s\n", qUtf8Printable(message));
             }
 #endif
@@ -294,7 +294,7 @@ int main(int argc, char *argv[])
                 {
                     // It is undefined behavior to write to log file since there is another qbt instance
                     // in play. But we still do it since there is chance that the log message will survive.
-                    const QString errorMessage = QCoreApplication::translate("Main", "Found unexpected qBittorrent instance. Exiting this instance. Current process ID: %1.")
+                    const QString errorMessage = QCoreApplication::translate("Main", "Found unexpected qbutt instance. Exiting this instance. Current process ID: %1.")
                         .arg(QString::number(QCoreApplication::applicationPid()));
                     LogMsg(errorMessage, Log::CRITICAL);
                     // stdout, stderr is closed so we can't use them

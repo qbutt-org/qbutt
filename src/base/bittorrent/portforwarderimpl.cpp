@@ -34,7 +34,7 @@
 
 PortForwarderImpl::PortForwarderImpl(BitTorrent::SessionImpl *provider, QObject *parent)
     : Net::PortForwarder(parent)
-    , m_storeActive {u"Network/PortForwardingEnabled"_s, true}
+    , m_storeActive {u"Network/PortForwardingEnabled"_s, false}
     , m_provider {provider}
 {
     if (isEnabled())

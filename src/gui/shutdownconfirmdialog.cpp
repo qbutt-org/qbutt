@@ -115,7 +115,7 @@ void ShutdownConfirmDialog::initText()
     switch (m_action)
     {
     case ShutdownDialogAction::Exit:
-        m_msg = tr("qBittorrent will now exit.");
+        m_msg = tr("qbutt will now exit.");
         okButton->setText(tr("E&xit Now"));
         setWindowTitle(tr("Exit confirmation"));
         break;

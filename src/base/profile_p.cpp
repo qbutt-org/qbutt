@@ -110,7 +110,7 @@ Path Private::DefaultProfile::dataLocation() const
 
 Path Private::DefaultProfile::downloadLocation() const
 {
-    return Path(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
+    return Path(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)) / Path(profileName());
 }
 
 std::unique_ptr<QSettings> Private::DefaultProfile::applicationSettings(const QString &name) const

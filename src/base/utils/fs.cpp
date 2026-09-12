@@ -59,6 +59,7 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QStorageInfo>
+#include <QTemporaryDir>
 
 #include "base/path.h"
 
@@ -213,9 +214,10 @@ qint64 Utils::Fs::freeDiskSpaceOnPath(const Path &path)
 
 Path Utils::Fs::tempPath()
 {
-    static const Path path = Path(QDir::tempPath()) / Path(u".qBittorrent"_s);
-    mkdir(path);
-    return path;
+    static const QTemporaryDir directory {QDir::tempPath() + u"/.qbutt-XXXXXX"};
+    if (!directory.isValid())
+        qFatal("Could not create the qbutt temporary directory: %s", qUtf8Printable(directory.errorString()));
+    return Path(directory.path());
 }
 
 // Validates a file name, where "file" refers to both files and directories in Windows and Unix-like systems.

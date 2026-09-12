@@ -96,8 +96,8 @@ namespace
     void abnormalExitHandler(const int signum)
     {
         const char msg[] = "\n\n*************************************************************\n"
-            "Please file a bug report at https://bug.qbittorrent.org and provide the following information:\n\n"
-            "qBittorrent version: " QBT_VERSION "\n\n"
+            "Please file a bug report at https://github.com/qbutt-org/qbutt/issues and provide the following information:\n\n"
+            "qbutt, based on qBittorrent version: " QBT_VERSION "\n\n"
             "Caught signal: ";
         const char *sigName = sysSigName[signum];
         const std::string stacktrace = getStacktrace();

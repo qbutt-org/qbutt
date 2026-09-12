@@ -31,13 +31,13 @@ BEGIN
     BEGIN
         BLOCK "040904B0"
         BEGIN
-            VALUE "CompanyName",      "The qBittorrent Project"
-            VALUE "FileDescription",  "qBittorrent - A Bittorrent Client"
+            VALUE "CompanyName",      "The qbutt Project"
+            VALUE "FileDescription",  "qbutt - A BitTorrent Client"
             VALUE "FileVersion",      VER_FILEVERSION_STR
-            VALUE "InternalName",     "qbittorrent"
+            VALUE "InternalName",     "qbutt"
             VALUE "LegalCopyright",   "Copyright ©2006-2026 The qBittorrent Project"
-            VALUE "OriginalFilename", "qbittorrent.exe"
-            VALUE "ProductName",      "qBittorrent"
+            VALUE "OriginalFilename", "qbutt.exe"
+            VALUE "ProductName",      "qbutt"
             VALUE "ProductVersion",   VER_PRODUCTVERSION_STR
         END
     END

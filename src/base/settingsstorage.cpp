@@ -46,7 +46,7 @@ using namespace std::chrono_literals;
 SettingsStorage *SettingsStorage::m_instance = nullptr;
 
 SettingsStorage::SettingsStorage()
-    : m_nativeSettingsName {u"qBittorrent"_s}
+    : m_nativeSettingsName {u"qbutt"_s}
 {
     readNativeSettings();
 
@@ -142,7 +142,7 @@ void SettingsStorage::readNativeSettings()
         // "_new" file is NOT empty
         // This means that the PC closed either due to power outage
         // or because the disk was full. In any case the settings weren't transferred
-        // in their final position. So assume that qbittorrent_new.ini/qbittorrent_new.conf
+        // in their final position. So assume that qbutt_new.ini/qbutt_new.conf
         // contains the most recent settings.
         LogMsg(tr("Detected unclean program exit. Using fallback file to restore settings: %1")
                .arg(newPath.toString()), Log::WARNING);
@@ -168,8 +168,8 @@ bool SettingsStorage::writeNativeSettings() const
     // QSettings deletes the file before writing it out. This can result in problems
     // if the disk is full or a power outage occurs. Those events might occur
     // between deleting the file and recreating it. This is a safety measure.
-    // Write everything to qBittorrent_new.ini/qBittorrent_new.conf and if it succeeds
-    // replace qBittorrent.ini/qBittorrent.conf with it.
+    // Write everything to qbutt_new.ini/qbutt_new.conf and if it succeeds
+    // replace qbutt.ini/qbutt.conf with it.
     for (auto i = m_data.cbegin(); i != m_data.cend(); ++i)
         nativeSettings->setValue(i.key(), i.value());
 

@@ -59,7 +59,7 @@
      <string>&amp;Help</string>
     </property>
     <addaction name="actionDocumentation"/>
-    <addaction name="actionCheckForUpdates"/>
+    <addaction name="actionUpdateStatus"/>
     <addaction name="separator"/>
     <addaction name="actionDonateMoney"/>
     <addaction name="actionAbout"/>
@@ -349,7 +349,7 @@
   </action>
   <action name="actionLock">
    <property name="text">
-    <string>L&amp;ock qBittorrent</string>
+    <string>L&amp;ock qbutt</string>
    </property>
    <property name="iconText">
     <string>Lock</string>
@@ -360,10 +360,10 @@
   </action>
   <action name="actionDonateMoney">
    <property name="text">
-    <string>Do&amp;nate!</string>
+    <string>Support qBittorrent</string>
    </property>
    <property name="toolTip">
-    <string>If you like qBittorrent, please donate!</string>
+    <string>Support the upstream qBittorrent project</string>
    </property>
   </action>
   <action name="actionAutoExit">
@@ -371,7 +371,7 @@
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>&amp;Exit qBittorrent</string>
+    <string>&amp;Exit qbutt</string>
    </property>
   </action>
   <action name="actionAutoSuspend">
@@ -429,12 +429,12 @@
     <string>&amp;Statistics</string>
    </property>
   </action>
-  <action name="actionCheckForUpdates">
+  <action name="actionUpdateStatus">
    <property name="text">
-    <string>Check for Updates</string>
+    <string>Update status</string>
    </property>
    <property name="toolTip">
-    <string>Check for Program Updates</string>
+    <string>Show qbutt update status</string>
    </property>
   </action>
   <action name="actionManageCookies">

@@ -84,7 +84,7 @@ namespace
 
         QString envVarName() const
         {
-            return u"QBT_"
+            return u"QBUTT_"
                    + m_name.toString().toUpper().replace(u'-', u'_');
         }
 
@@ -494,9 +494,9 @@ QString makeUsage(const QString &prgName)
     const QString indentation {USAGE_INDENTATION, u' '};
 
 #if defined(Q_OS_WIN)
-    const QString noSplashCommand = u"set QBT_NO_SPLASH=1 && " + prgName;
+    const QString noSplashCommand = u"set QBUTT_NO_SPLASH=1 && " + prgName;
 #else
-    const QString noSplashCommand = u"QBT_NO_SPLASH=1 " + prgName;
+    const QString noSplashCommand = u"QBUTT_NO_SPLASH=1 " + prgName;
 #endif
 
     const QString text = QCoreApplication::translate("CMD Options", "Usage:") + u'\n'
@@ -523,7 +523,7 @@ QString makeUsage(const QString &prgName)
         + PROFILE_OPTION.usage(QCoreApplication::translate("CMD Options", "dir"))
         + wrapText(QCoreApplication::translate("CMD Options", "Store configuration files in <dir>")) + u'\n'
         + CONFIGURATION_OPTION.usage(QCoreApplication::translate("CMD Options", "name"))
-        + wrapText(QCoreApplication::translate("CMD Options", "Store configuration files in directories qBittorrent_<name>")) + u'\n'
+        + wrapText(QCoreApplication::translate("CMD Options", "Store configuration files in directories qbutt_<name>")) + u'\n'
         + RELATIVE_FASTRESUME.usage()
         + wrapText(QCoreApplication::translate("CMD Options", "Hack into libtorrent fastresume files and make file paths relative "
                                 "to the profile directory")) + u'\n'
@@ -547,7 +547,7 @@ QString makeUsage(const QString &prgName)
         + u'\n'
 
         + wrapText(QCoreApplication::translate("CMD Options", "Option values may be supplied via environment variables. For option named "
-                                "'parameter-name', environment variable name is 'QBT_PARAMETER_NAME' (in upper "
+                                "'parameter-name', environment variable name is 'QBUTT_PARAMETER_NAME' (in upper "
                                 "case, '-' replaced with '_'). To pass flag values, set the variable to '1' or "
                                 "'TRUE'. For example, to disable the splash screen: "), 0) + u'\n'
         + noSplashCommand + u'\n'

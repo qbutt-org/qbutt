@@ -322,7 +322,6 @@ void OptionsDialog::loadBehaviorTabOptions()
 
 #if !(defined(Q_OS_WIN) || defined(Q_OS_MACOS))
     m_ui->groupFileAssociation->setVisible(false);
-    m_ui->checkProgramUpdates->setVisible(false);
 #endif
 
 #ifndef Q_OS_MACOS
@@ -349,10 +348,6 @@ void OptionsDialog::loadBehaviorTabOptions()
     m_ui->checkAssociateTorrents->setEnabled(!m_ui->checkAssociateTorrents->isChecked());
     m_ui->checkAssociateMagnetLinks->setChecked(MacUtils::isMagnetLinkAssocSet());
     m_ui->checkAssociateMagnetLinks->setEnabled(!m_ui->checkAssociateMagnetLinks->isChecked());
-#endif
-
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-    m_ui->checkProgramUpdates->setChecked(pref->isUpdateCheckEnabled());
 #endif
 
     m_ui->checkPreventFromSuspendWhenDownloading->setChecked(pref->preventFromSuspendWhenDownloading());
@@ -435,10 +430,6 @@ void OptionsDialog::loadBehaviorTabOptions()
 #if defined(Q_OS_MACOS)
     connect(m_ui->checkAssociateTorrents, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
     connect(m_ui->checkAssociateMagnetLinks, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
-#endif
-
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-    connect(m_ui->checkProgramUpdates, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
 #endif
 
 #ifdef Q_OS_WIN
@@ -545,10 +536,6 @@ void OptionsDialog::saveBehaviorTabOptions() const
     }
 #endif
 
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-    pref->setUpdateCheckEnabled(m_ui->checkProgramUpdates->isChecked());
-#endif
-
     pref->setPreventFromSuspendWhenDownloading(m_ui->checkPreventFromSuspendWhenDownloading->isChecked());
     pref->setPreventFromSuspendWhenSeeding(m_ui->checkPreventFromSuspendWhenSeeding->isChecked());
 
@@ -610,7 +597,7 @@ void OptionsDialog::loadDownloadsTabOptions()
     m_ui->deleteTorrentWarningLabel->setToolTip(u"<html><body><p>" +
         tr("By enabling these options, you can <strong>irrevocably lose</strong> your .torrent files!") +
         u"</p><p>" +
-        tr("When these options are enabled, qBittorrent will <strong>delete</strong> .torrent files "
+        tr("When these options are enabled, qbutt will <strong>delete</strong> .torrent files "
         "after they were successfully (the first option) or not (the second option) added to its "
         "download queue. This will be applied <strong>not only</strong> to the files opened via "
         "&ldquo;Add torrent&rdquo; menu action but to those opened via <strong>file type association</strong> as well") +
@@ -1508,7 +1495,7 @@ void OptionsDialog::onBtnWebUIAPIKeyRotateClicked()
         ? tr("Generate API key")
         : tr("Rotate API key");
     const QString message = m_currentAPIKey.isEmpty()
-        ? tr("Generate an API key? This key can be used to interact with qBittorrent's API.")
+        ? tr("Generate an API key? This key can be used to interact with qbutt's API.")
         : tr("Rotate this API key? The current key will immediately stop working and a new key will be generated.");
 
     const QMessageBox::StandardButton button = QMessageBox::question(

@@ -50,26 +50,27 @@ AboutDialog::AboutDialog(QWidget *parent)
     m_ui->setupUi(this);
 
     // Title
-    m_ui->labelName->setText(QStringLiteral("<b><h2>qBittorrent " QBT_VERSION " (%1-bit)</h2></b>").arg(QT_POINTER_SIZE * 8));
+    m_ui->labelName->setText(QStringLiteral("<b><h2>qbutt (%1-bit)</h2></b>").arg(QT_POINTER_SIZE * 8));
 
     m_ui->logo->setPixmap(UIThemeManager::instance()->getScaledPixmap(u"qbittorrent-tray"_s, 32));
 
     // About
     const QString aboutText =
         u"<p style=\"white-space: pre-wrap;\">"
+        u"qbutt is a fork of qBittorrent " QBT_VERSION u".\n\n"
         u"%1\n\n"
         u"%2\n\n"
         u"<table>"
-        u"<tr><td>%3</td><td><a href=\"https://www.qbittorrent.org\">https://www.qbittorrent.org</a></td></tr>"
-        u"<tr><td>%4</td><td><a href=\"https://forum.qbittorrent.org\">https://forum.qbittorrent.org</a></td></tr>"
-        u"<tr><td>%5</td><td><a href=\"https://bugs.qbittorrent.org\">https://bugs.qbittorrent.org</a></td></tr>"
+        u"<tr><td>%3</td><td><a href=\"https://github.com/qbutt-org/qbutt\">github.com/qbutt-org/qbutt</a></td></tr>"
+        u"<tr><td>%4</td><td><a href=\"https://www.qbittorrent.org\">https://www.qbittorrent.org</a></td></tr>"
+        u"<tr><td>%5</td><td><a href=\"https://github.com/qbutt-org/qbutt/issues\">https://github.com/qbutt-org/qbutt/issues</a></td></tr>"
         u"</table>"
         u"</p>"_s
         .arg(tr("An advanced BitTorrent client programmed in C++, based on Qt toolkit and libtorrent-rasterbar.")
                 .replace(u"C++"_s, u"C\u2060+\u2060+"_s) // make C++ non-breaking
             , tr("Copyright %1 2006-2026 The qBittorrent project").arg(C_COPYRIGHT)
             , tr("Home Page:")
-            , tr("Forum:")
+            , tr("Upstream:")
             , tr("Bug Tracker:"));
     m_ui->labelAbout->setText(aboutText);
 

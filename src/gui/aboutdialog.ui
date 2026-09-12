@@ -12,7 +12,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>About qBittorrent</string>
+   <string>About qbutt</string>
   </property>
   <layout class="QVBoxLayout" name="aboutDlgLayout">
    <item>
