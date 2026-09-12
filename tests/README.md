@@ -22,6 +22,13 @@ implementation is used. The default torrents are private with no public tracker.
 `v1-public` exists for Mixed routing tests; the isolated application and seed
 sessions disable public discovery and use only explicitly added controlled peers.
 
+On Windows, run the lab from an elevated terminal with PowerShell 7 available.
+Before launching a fixture, the shared runner registers persistent inbound firewall
+rules for its canonical executable paths, including Bun and the actual Python
+interpreter. This prevents firewall prompts when using a fresh temporary bundle.
+Standalone native drivers must first run `bun tests/windows-firewall.ts <exe-path>`.
+Rules belong to the `qbutt integration lab` group; firewall profiles stay enabled.
+
 Point the lab at a built, deployed Windows executable with Qt's `qoffscreen.dll`:
 
 ```powershell

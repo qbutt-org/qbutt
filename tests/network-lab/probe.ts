@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { createConnection, createServer, type Socket } from "node:net";
+import { allowLabNetwork } from "../windows-firewall";
 import { startProxy } from "./proxy";
 
 function check(condition: boolean, message: string): asserts condition {
@@ -36,6 +37,7 @@ function readBytes(socket: Socket, length: number): Promise<Buffer> {
 }
 
 // Real loopback TCP integration: no external peer, DNS or production configuration.
+await allowLabNetwork([process.execPath]);
 const echoClients = new Set<Socket>();
 const echo = createServer(socket => {
     echoClients.add(socket);

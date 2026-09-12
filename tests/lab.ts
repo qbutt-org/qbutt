@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { pbkdf2Sync, randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { generateFixtures, sha256, type FixtureManifest, type PayloadFile } from "./fixtures/generate";
+import { allowLabNetwork } from "./windows-firewall";
 
 export interface TorrentStatus {
     hash: string;
@@ -63,6 +65,8 @@ export async function createLab(name: string) {
     assert(executable && python, "Set QBUTT_LAB_EXE and QBUTT_LAB_PYTHON");
     assert(appName === "qbutt" || appName === "qBittorrent", "QBUTT_LAB_APP_NAME must be qbutt or qBittorrent");
     assert((await stat(executable)).isFile(), "Native executable is missing");
+    const networkChild = join(dirname(executable), "qbutt-net.exe");
+    await allowLabNetwork([process.execPath, executable, python, ...(existsSync(networkChild) ? [networkChild] : [])]);
     const root = await mkdtemp(join(tmpdir(), `qbutt-${name}-`));
     const fixtures = await generateFixtures(python, join(root, "fixtures"));
     const manifest = JSON.parse(await readFile(join(fixtures, "manifest.json"), "utf8")) as FixtureManifest;
