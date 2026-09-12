@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLab, verifyPayload, waitFor, type TorrentStatus } from "../lab";
 import { sha256 } from "../fixtures/generate";
+import { allowLabNetwork } from "../windows-firewall";
 
 const driver = process.env.QBUTT_PROFILE_DRIVER;
 assert(driver, "Set QBUTT_PROFILE_DRIVER to the standalone native service integration executable");
+await allowLabNetwork([driver]);
 const lab = await createLab("profile-import");
 
 async function run(mode: string, target: string, args: string[] = [], expected = 0) {

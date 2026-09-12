@@ -121,11 +121,14 @@ finishes. It does not inject the queued-signal or nested-dialog race windows.
 
 `smoke:profile` uses the actual native resume stores and startup import service.
 Build its standalone driver against the same configured application build, with
-`CMAKE_EXPORT_COMPILE_COMMANDS=ON`, and keep the deployed Qt libraries in `PATH`:
+`CMAKE_EXPORT_COMPILE_COMMANDS=ON`. Point both DLL and plugin lookup at the deployed
+application bundle so the separate driver can load the same SQLite plugin:
 
 ```powershell
 bun tests/profile-lab/build.ts C:/path/to/build C:/path/to/drivers C:/path/to/msvc-env.cmd
 $env:QBUTT_PROFILE_DRIVER = 'C:/path/to/drivers/service.exe'
+$env:PATH = 'C:/path/to/portable;' + $env:PATH
+$env:QT_PLUGIN_PATH = 'C:/path/to/portable'
 bun run smoke:profile
 ```
 
