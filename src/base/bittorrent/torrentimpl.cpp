@@ -2483,18 +2483,28 @@ lt::torrent_handle TorrentImpl::nativeHandle() const
     return m_nativeHandle;
 }
 
-bool TorrentImpl::beginRepair()
+nonstd::expected<void, QString> TorrentImpl::beginRepair()
 {
-    if (!isStopped() || !hasMetadata() || isChecking() || isMoving() || (m_renameCount != 0)
-        || (m_maintenanceJob != MaintenanceJob::None) || m_session->hasPendingStorageJobs()
-        || m_session->isRepairPathLocked(actualStorageLocation()))
-    {
-        return false;
-    }
+    if (!isStopped())
+        return nonstd::make_unexpected(tr("Stop the torrent before analyzing its data for repair."));
+    if (!hasMetadata())
+        return nonstd::make_unexpected(tr("Wait for the torrent metadata before starting repair."));
+    if (m_nativeStatus.state == lt::torrent_status::checking_resume_data)
+        return nonstd::make_unexpected(tr("Wait for torrent initialization to finish before starting repair."));
+    if (isMoving() || (m_renameCount != 0) || (m_maintenanceJob != MaintenanceJob::None))
+        return nonstd::make_unexpected(tr("Wait for this torrent's file operations or current repair to finish."));
+    if (m_session->hasPendingStorageJobs())
+        return nonstd::make_unexpected(tr("Wait for pending torrent additions, moves and deletions to finish before repair."));
+    if (m_session->isRepairPathLocked(actualStorageLocation()))
+        return nonstd::make_unexpected(tr("Another repair already owns this data directory."));
+
+    // A stopped torrent can remain in checking_files until it is resumed.
+    // Keep that pending check paused; RepairService drains its disk jobs before
+    // opening the data, without running a check that could initialize files.
     m_maintenanceJob = MaintenanceJob::Repair;
     setAutoManaged(false);
     m_nativeHandle.pause();
-    return true;
+    return {};
 }
 
 void TorrentImpl::endRepair()

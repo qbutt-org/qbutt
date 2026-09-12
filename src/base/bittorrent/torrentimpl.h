@@ -266,7 +266,7 @@ namespace BitTorrent
 
         bool needSaveResumeData() const;
 
-        bool beginRepair();
+        nonstd::expected<void, QString> beginRepair();
         void startRepairRecheck();
         void endRepair();
         bool isRepairing() const;

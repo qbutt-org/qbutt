@@ -134,9 +134,9 @@ void RepairService::analyze()
         m_files.rename_file(indexes.at(i), m_torrent->actualFilePath(i).toString().toStdString());
 
     snapshotOtherFiles();
-    if (!m_torrent->beginRepair())
+    if (const auto result = m_torrent->beginRepair(); !result)
     {
-        fail(tr("Stop the torrent and wait for checking, adding, moving, renaming, deletion and other repairs to finish before repair."));
+        fail(result.error());
         return;
     }
 
