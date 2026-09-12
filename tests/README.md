@@ -29,6 +29,7 @@ bun run smoke:native
 bun run smoke:proxy
 bun run smoke:network
 bun run smoke:repair
+bun run smoke:completion
 ```
 
 To exercise the real qbutt-net child, place its pinned binary beside the app and
@@ -54,6 +55,10 @@ It checks authentication even with localhost exemption enabled, exact verified-b
 accounting, and missing nonzero targets. An absent zero-length target must reject
 apply without creating files.
 It drives the real session through standard recheck and download after apply.
+
+`smoke:completion` proves that normal completion exits an isolated app when that
+action is enabled, while a held repair prevents auto-exit after another torrent
+finishes. It does not inject the queued-signal or nested-dialog race windows.
 
 `smoke:proxy` exercises the bounded authenticated TCP fixture relay using real
 sockets. `smoke:network` drives the native client through that relay to a seed and

@@ -143,7 +143,8 @@ export async function createLab(name: string) {
             return;
         const child = processHandle;
         try {
-            await request("app/shutdown", {});
+            if (child.exitCode === null)
+                await request("app/shutdown", {});
             const exitCode = await withTimeout(child.exited, 20000, "Native app clean shutdown timed out");
             assert(exitCode === 0, `Native app exited ${exitCode}`);
         }
@@ -189,7 +190,8 @@ export async function createLab(name: string) {
         await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n");
         console.log(JSON.stringify({ status: evidence.status, evidence: join(root, "evidence.json") }));
     }
-    return { root, fixtures, manifest, python, origin, request, json, info, add, start, shutdown, checkpoint, finish };
+    return { root, fixtures, manifest, python, origin, request, json, info, add, start, shutdown, checkpoint, finish,
+        get exitCode() { return processHandle?.exitCode; } };
 }
 
 export async function verifyPayload(root: string, expected: PayloadFile[]): Promise<number> {
@@ -212,7 +214,7 @@ export async function startSeed(python: string, fixtures: string, name: string, 
     try {
         while (!text.includes("\n")) {
             const result = await withTimeout(reader.read(), 35000, "Seed readiness timeout");
-            assert(!result.done, "Seed ended before readiness");
+            assert(!result.done, `Seed ${name} ended before readiness; inspect ${join(logs, `seed-${name}.stderr.log`)}`);
             text += new TextDecoder().decode(result.value);
         }
         const ready = JSON.parse(text.split("\n")[0]!) as { ready: boolean; host: string; port: number };
