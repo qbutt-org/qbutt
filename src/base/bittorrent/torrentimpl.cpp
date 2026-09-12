@@ -306,6 +306,7 @@ TorrentImpl::TorrentImpl(SessionImpl *session, const lt::torrent_handle &nativeH
     , m_operatingMode(params.operatingMode)
     , m_contentLayout(params.contentLayout)
     , m_hasFinishedStatus(params.hasFinishedStatus)
+    , m_completionPolicyPreview(params.completionPolicyPreview)
     , m_hasFirstLastPiecePriority(params.firstLastPiecePriority)
     , m_useAutoTMM(params.useAutoTMM)
     , m_isStopped(params.stopped)
@@ -1030,6 +1031,19 @@ qlonglong TorrentImpl::timeSinceActivity() const
     return ((upTime < 0) != (downTime < 0))
                ? std::max(upTime, downTime)
                : std::min(upTime, downTime);
+}
+
+bool TorrentImpl::isCompletionPolicyPreview() const
+{
+    return m_completionPolicyPreview;
+}
+
+void TorrentImpl::setCompletionPolicyPreview(const bool enabled)
+{
+    if (m_completionPolicyPreview == enabled)
+        return;
+    m_completionPolicyPreview = enabled;
+    deferredRequestResumeData();
 }
 
 qreal TorrentImpl::ratioLimit() const
@@ -2284,6 +2298,7 @@ void TorrentImpl::prepareResumeData(lt::add_torrent_params params)
         .useAutoTMM = m_useAutoTMM,
         .firstLastPiecePriority = m_hasFirstLastPiecePriority,
         .hasFinishedStatus = m_hasFinishedStatus,
+        .completionPolicyPreview = m_completionPolicyPreview,
         .stopped = m_isStopped,
         .stopCondition = m_stopCondition,
         .addToQueueTop = false,

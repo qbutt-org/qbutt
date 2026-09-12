@@ -152,6 +152,8 @@ namespace BitTorrent
         qlonglong timeSinceActivity() const override;
 
         qreal ratioLimit() const override;
+        bool isCompletionPolicyPreview() const override;
+        void setCompletionPolicyPreview(bool enabled) override;
         void setRatioLimit(qreal limit) override;
         int seedingTimeLimit() const override;
         void setSeedingTimeLimit(int limit) override;
@@ -387,6 +389,7 @@ namespace BitTorrent
         TorrentOperatingMode m_operatingMode = TorrentOperatingMode::AutoManaged;
         TorrentContentLayout m_contentLayout = TorrentContentLayout::Original;
         bool m_hasFinishedStatus = false;
+        bool m_completionPolicyPreview = false;
         bool m_hasMissingFiles = false;
         bool m_hasFirstLastPiecePriority = false;
         bool m_useAutoTMM = false;

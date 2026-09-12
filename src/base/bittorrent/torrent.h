@@ -220,6 +220,8 @@ namespace BitTorrent
 
         // Share limits
         virtual qreal ratioLimit() const = 0;
+        virtual bool isCompletionPolicyPreview() const = 0;
+        virtual void setCompletionPolicyPreview(bool enabled) = 0;
         virtual void setRatioLimit(qreal limit) = 0;
         virtual int seedingTimeLimit() const = 0;
         virtual void setSeedingTimeLimit(int limit) = 0;

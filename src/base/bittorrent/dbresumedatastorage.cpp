@@ -678,6 +678,8 @@ LoadResumeDataResult DBResumeDataStorage::parseQueryResultRow(const QSqlQuery &q
 
     lt::add_torrent_params &p = resumeData.ltAddTorrentParams;
 
+    resumeData.completionPolicyPreview = resumeDataRoot.dict_find_int_value("qbutt-completion-policy-preview");
+
     p = lt::read_resume_data(resumeDataRoot, ec);
     if (ec)
         return nonstd::make_unexpected(tr("Cannot parse resume data: %1").arg(QString::fromStdString(ec.message())));
@@ -880,6 +882,7 @@ StoreJob::StoreJob(const TorrentID &torrentID, LoadTorrentParams resumeData)
         };
 
         lt::entry data = lt::write_resume_data(p);
+        data["qbutt-completion-policy-preview"] = m_resumeData.completionPolicyPreview;
 
         // metadata is stored in separate column
         QByteArray bencodedMetadata;
