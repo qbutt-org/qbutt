@@ -75,6 +75,9 @@ unknown-file preservation, restart, and ordinary download after selecting an
 uncommitted file. Source hardlinks/reparse points and new staging hardlinks are
 rejected. A same-size mutation with the original Windows mtime restored must fail
 the commit's hash verification while preserving the original installation.
+Full target, source, unknown and retained transaction files are checked again
+after torrent removal and clean app shutdown. Only the current operation's
+directory is excluded when comparing the original installation.
 
 `smoke:staging-faults` requires a separate integration build configured with
 `-DQBUTT_STAGING_FAULTS=ON` (default OFF; never enable it in a release). It terminates
@@ -83,6 +86,7 @@ rename. All 68 rollback boundaries and 34 forward-recovery cases restart through
 the normal profile, keep ordinary writers suspended, and verify hashes, exact
 sizes, original files and unknown files. Four additional cases cover absent
 targets and v2/hybrid restart.
+Writer rejection is observed across more than two native info-cache refreshes.
 `QBUTT_STAGING_CASE` selects a single
 checkpoint, for example `committing:0:backed_up:renamed` or
 `committing:0:backed_up:renamed@commit`. Fault builds exit 197 at that checkpoint.
@@ -91,6 +95,25 @@ receipt and the active journal was retired, not merely that file renames ended.
 The finished manifest remains in the profile's staging directory, and original
 backups remain in the destination's operation directory. No recursive cleanup
 is part of these operations.
+
+Set `QBUTT_LAB_RESUME_BACKEND` to `Legacy` (default) or `SQLite` before a suite
+to exercise that native resume store. Startup verifies the requested preference.
+The following additional integration fixtures use the ordinary production build:
+
+```powershell
+$env:QBUTT_LAB_RESUME_BACKEND = 'SQLite' # repeat with Legacy
+bun tests/repair/staging-journal.ts
+bun tests/repair/staging-receipt.ts
+```
+
+The journal fixture corrupts persisted selection, identities, mappings and state,
+then requires rejection without changing the active journal or any payload after
+shutdown. It restores the valid journal and checks recovery and replay rejection.
+The receipt fixture holds a real Windows sharing conflict on `.fastresume`, or a
+SQLite writer transaction on the owned profile database. Commit must retain the
+journal and suspend ordinary writers when final resume persistence fails. After
+the lock is released, restart and recovery must complete the receipt and retire
+the active journal. These fixtures never lock an existing user profile.
 
 `smoke:completion` proves that normal completion exits an isolated app when that
 action is enabled, while a held repair prevents auto-exit after another torrent

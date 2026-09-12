@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { sha256 } from "../fixtures/generate";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { snapshot, assertRecoverySuspended } from "./staging-checks";
 import { createLab, verifyPayload, waitFor } from "../lab";
 
 interface Status {
@@ -9,20 +9,6 @@ interface Status {
     state: string;
     error?: string;
     staging?: { payload_path: string; finalized: boolean };
-}
-
-async function snapshot(root: string, prefix = ""): Promise<Record<string, string>> {
-    const result: Record<string, string> = {};
-    for (const entry of await readdir(join(root, prefix), { withFileTypes: true })) {
-        if (entry.name.startsWith(".qbutt-staging-"))
-            continue;
-        const path = join(prefix, entry.name);
-        if (entry.isDirectory())
-            Object.assign(result, await snapshot(root, path));
-        else
-            result[path] = sha256(await readFile(join(root, path)));
-    }
-    return result;
 }
 
 const lab = await createLab("staging-faults");
@@ -91,6 +77,8 @@ try {
         else
             await cp(join(lab.fixtures, "variants", "grow"), destination, { recursive: true });
         await writeFile(join(destination, "unknown-save.dat"), `unknown-${caseIndex}`);
+        await mkdir(join(destination, ".qbutt-staging-user-data"));
+        await writeFile(join(destination, ".qbutt-staging-user-data", "save.bin"), `prefix-unknown-${caseIndex}`);
         const hash = await lab.add(format, destination);
         await waitFor("stopped fault target", () => lab.info(hash), torrent => torrent.state.startsWith("stopped"));
         const before = await snapshot(destination);
@@ -99,7 +87,8 @@ try {
         let operation = await (await lab.request("qbuttRepair/analyze", {
             hash, mode: "staged", mappings: JSON.stringify(mappings),
         })).json() as Status;
-        await status(["planned"]);
+        const planned = await status(["planned"]);
+        const transactionRoot = dirname(planned.staging!.payload_path);
         await lab.request("qbuttRepair/prepare", { id: operation.id, consent: "true" });
         if (!["preparing", "downloading", "ready_to_commit"].includes(firstFault)) {
             await status(["ready_to_commit"]);
@@ -116,9 +105,7 @@ try {
         }
         else {
             operation = await recover(hash, rollback ? point : undefined);
-            await lab.request("torrents/start", { hashes: hash });
-            const suspended = await lab.info(hash);
-            assert(suspended.state.startsWith("stopped") || suspended.state === "missingFiles", "Pending recovery admitted a normal writer");
+            await assertRecoverySuspended(lab, hash);
             if (forward) {
                 if (point === "downloading") {
                     await lab.request("qbuttRepair/prepare", { id: operation.id, consent: "true" });
@@ -145,7 +132,7 @@ try {
                 const restored = await waitFor("rollback persisted and journal retired", () => lab.json<Status>("qbuttRepair/status"),
                     value => value.staging?.finalized === true || value.state === "failed");
                 assert(restored.state === "rolled_back", restored.error);
-                assert.deepEqual(await snapshot(destination), before, `Original target changed after ${point} recovery`);
+                assert.deepEqual(await snapshot(destination, transactionRoot), before, `Original target changed after ${point} recovery`);
                 assert((await lab.info(hash)).progress < 1, "Rollback retained staged completion bits");
                 await lab.request("qbuttRepair/cancel", { id: operation.id });
                 await lab.shutdown();
@@ -153,14 +140,20 @@ try {
                 await lab.start();
                 await waitFor("rolled back torrent restarted stopped", () => lab.info(hash),
                     torrent => torrent.state.startsWith("stopped") || torrent.state === "missingFiles");
-                assert.deepEqual(await snapshot(destination), before, "Restart after rollback changed original payload");
+                assert.deepEqual(await snapshot(destination, transactionRoot), before, "Restart after rollback changed original payload");
             }
         }
         await verifyPayload(join(lab.fixtures, "seed"), lab.manifest.payload);
         assert((await readFile(join(destination, "unknown-save.dat"), "utf8")) === `unknown-${caseIndex}`);
+        assert.equal(await readFile(join(destination, ".qbutt-staging-user-data", "save.bin"), "utf8"), `prefix-unknown-${caseIndex}`);
+        const finalTarget = await snapshot(destination, transactionRoot);
+        const finalTransaction = await snapshot(transactionRoot);
         await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
         await lab.shutdown();
-        await lab.checkpoint({ point: name, check: "crash-restart-idempotent-recovery-preserves-original-source-unknown" });
+        assert.deepEqual(await snapshot(destination, transactionRoot), finalTarget, "Removal/shutdown changed target or unknown files");
+        assert.deepEqual(await snapshot(transactionRoot), finalTransaction, "Removal/shutdown changed retained staging/backup files");
+        await verifyPayload(join(lab.fixtures, "seed"), lab.manifest.payload);
+        await lab.checkpoint({ point: name, check: "crash-restart-idempotent-recovery-preserves-original-source-unknown", afterShutdown: true });
     }
 }
 catch (error) { failure = error; }

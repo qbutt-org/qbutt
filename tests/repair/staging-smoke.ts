@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { cp, link, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { sha256 } from "../fixtures/generate";
+import { cp, link, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { snapshot } from "./staging-checks";
 import { createLab, startSeed, verifyPayload, waitFor, type TorrentFile } from "../lab";
 
 interface StagedStatus {
@@ -12,21 +12,8 @@ interface StagedStatus {
         files: { path: string; source: string; verified: { mtime: string } }[] };
 }
 
-async function snapshot(root: string, prefix = ""): Promise<Record<string, string>> {
-    const result: Record<string, string> = {};
-    for (const item of await readdir(join(root, prefix), { withFileTypes: true })) {
-        if (item.name.startsWith(".qbutt-staging-"))
-            continue;
-        const path = join(prefix, item.name);
-        if (item.isDirectory())
-            Object.assign(result, await snapshot(root, path));
-        else
-            result[path] = sha256(await readFile(join(root, path)));
-    }
-    return result;
-}
-
 const lab = await createLab("staging");
+const preserved: { path: string; files: Awaited<ReturnType<typeof snapshot>> }[] = [];
 let failure: unknown;
 try {
     await lab.start();
@@ -58,9 +45,10 @@ try {
             const planned = await waitFor("staging plan", () => lab.json<StagedStatus>("qbuttRepair/status"),
                 status => status.state === "planned" || status.state === "failed");
             assert(planned.state === "planned", planned.error);
+            const transactionRoot = dirname(planned.staging!.payload_path);
             assert.deepEqual(await snapshot(destination), original, "Planning wrote target data");
             assert.deepEqual(await snapshot(source), sourceBefore, "Planning wrote source data");
-            await assert.rejects(stat(planned.staging!.payload_path), "Read-only planning created staging");
+            await assert.rejects(stat(planned.staging!.payload_path), { code: "ENOENT" }, "Read-only planning created staging");
             const heldSource = join(source, "bundle", selective ? "renamed.bin" : "alpha.bin");
             await assert.rejects(writeFile(heldSource, await readFile(heldSource)), "Planning did not exclude source writers");
             assert(Number(planned.staging!.payload_bytes) === lab.manifest.payload.reduce((sum, file) => sum + file.size, 0));
@@ -75,7 +63,7 @@ try {
                 status => status.state === "ready_to_commit" || status.state === "failed", 90000);
             assert(ready.state === "ready_to_commit", ready.error);
             await verifyPayload(ready.staging!.payload_path, lab.manifest.payload);
-            assert.deepEqual(await snapshot(destination), original, "Staged download wrote the original target");
+            assert.deepEqual(await snapshot(destination, transactionRoot), original, "Staged download wrote the original target");
             assert.deepEqual(await snapshot(source), sourceBefore, "Staged download wrote its source");
             await lab.request("qbuttRepair/commit", { id: operation.id, consent: "true" });
             const committed = await waitFor("journalled commit", () => lab.json<StagedStatus>("qbuttRepair/status"),
@@ -102,7 +90,9 @@ try {
                 await waitFor("normal completion stopped", () => lab.info(hash), status => status.state.startsWith("stopped"));
                 await verifyPayload(destination, lab.manifest.payload);
             }
+            preserved.push({ path: destination, files: await snapshot(destination) }, { path: source, files: sourceBefore });
             await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
+            await waitFor("staging torrent removed", () => lab.json<unknown[]>("torrents/info"), items => items.length === 0);
             await lab.checkpoint({ scenario, check: "independent-staging-native-download-verified-commit-restart", verifiedBytes });
         }
         finally { await seed.stop(); }
@@ -124,8 +114,11 @@ try {
             status => status.state === "failed");
         assert(/hardlink|reparse|link/i.test(rejected.error!), rejected.error);
         assert.deepEqual(await snapshot(destination), before);
+        await verifyPayload(join(lab.fixtures, "variants", kind), lab.manifest.payload);
+        preserved.push({ path: destination, files: before });
         await lab.request("qbuttRepair/cancel", { id: operation.id });
         await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
+        await waitFor("rejected torrent removed", () => lab.json<unknown[]>("torrents/info"), items => items.length === 0);
         await lab.checkpoint({ check: "unsafe-source-rejected-without-writes", kind });
     }
 
@@ -141,6 +134,7 @@ try {
     await lab.request("qbuttRepair/prepare", { id: operation.id, consent: "true" });
     const prepared = await waitFor("mutation stage ready", () => lab.json<StagedStatus>("qbuttRepair/status"),
         status => status.state === "ready_to_commit");
+    const transactionRoot = dirname(prepared.staging!.payload_path);
     const stagedFile = join(prepared.staging!.payload_path, "bundle", "alpha.bin");
     const alias = join(lab.root, "stage-alias.bin");
     const valid = await readFile(stagedFile);
@@ -152,7 +146,7 @@ try {
     await lab.request("qbuttRepair/commit", { id: operation.id, consent: "true" });
     await waitFor("hardlinked stage rejected", () => lab.json<StagedStatus>("qbuttRepair/status"), status => status.state === "failed");
     assert.deepEqual(await readFile(alias), valid, "Commit modified a hardlink alias");
-    assert.deepEqual(await snapshot(destination), original);
+    assert.deepEqual(await snapshot(destination, transactionRoot), original);
     await unlink(alias);
     await lab.request("qbuttRepair/cancel", { id: operation.id });
 
@@ -173,7 +167,7 @@ try {
     await lab.request("qbuttRepair/commit", { id: operation.id, consent: "true" });
     const rejected = await waitFor("same-identity corruption rejected by hashes", () => lab.json<StagedStatus>("qbuttRepair/status"), status => status.state === "failed");
     assert(/hashes.*changed/.test(rejected.error!), rejected.error);
-    assert.deepEqual(await snapshot(destination), original);
+    assert.deepEqual(await snapshot(destination, transactionRoot), original);
     await verifyPayload(join(lab.fixtures, "seed"), lab.manifest.payload);
     await lab.request("qbuttRepair/cancel", { id: operation.id });
     await writeFile(stagedFile, valid);
@@ -182,11 +176,26 @@ try {
     await waitFor("recover restored staging", () => lab.json<StagedStatus>("qbuttRepair/status"), status => status.state === "ready_to_commit");
     await lab.request("qbuttRepair/rollback", { id: operation.id, consent: "true" });
     await waitFor("mutation scenario safely rolled back", () => lab.json<StagedStatus>("qbuttRepair/status"), status => status.staging?.finalized === true);
-    assert.deepEqual(await snapshot(destination), original);
+    assert.deepEqual(await snapshot(destination, transactionRoot), original);
+    preserved.push({ path: destination, files: await snapshot(destination) });
     await lab.checkpoint({ check: "commit-rejects-new-hardlinks-and-content-mutation-with-restored-mtime" });
 }
 catch (error) { failure = error; }
-finally { await lab.shutdown(); }
+finally {
+    try { await lab.shutdown(); }
+    catch (error) { failure ??= error; }
+}
+if (!failure) {
+    try {
+        for (const target of preserved)
+            assert.deepEqual(await snapshot(target.path), target.files, "Removal/shutdown changed target, source, unknown or retained backup files");
+        await verifyPayload(join(lab.fixtures, "seed"), lab.manifest.payload);
+        for (const kind of ["hardlink", "reparse"])
+            await verifyPayload(join(lab.fixtures, "variants", kind), lab.manifest.payload);
+        await lab.checkpoint({ check: "all-staging-data-preserved-after-remove-and-shutdown", targets: preserved.length });
+    }
+    catch (error) { failure = error; }
+}
 await lab.finish(failure);
 if (failure)
     throw failure;

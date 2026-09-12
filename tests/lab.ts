@@ -62,8 +62,10 @@ export async function createLab(name: string) {
     const executable = process.env.QBUTT_LAB_EXE;
     const python = process.env.QBUTT_LAB_PYTHON;
     const appName = process.env.QBUTT_LAB_APP_NAME ?? "qbutt";
+    const resumeBackend = process.env.QBUTT_LAB_RESUME_BACKEND ?? "Legacy";
     assert(executable && python, "Set QBUTT_LAB_EXE and QBUTT_LAB_PYTHON");
     assert(appName === "qbutt" || appName === "qBittorrent", "QBUTT_LAB_APP_NAME must be qbutt or qBittorrent");
+    assert(resumeBackend === "Legacy" || resumeBackend === "SQLite", "QBUTT_LAB_RESUME_BACKEND must be Legacy or SQLite");
     assert((await stat(executable)).isFile(), "Native executable is missing");
     const networkChild = join(dirname(executable), "qbutt-net.exe");
     await allowLabNetwork([process.execPath, executable, python, ...(existsSync(networkChild) ? [networkChild] : [])]);
@@ -80,6 +82,7 @@ export async function createLab(name: string) {
     const passwordHash = `${salt.toString("base64")}:${pbkdf2Sync(password, salt, 100000, 64, "sha512").toString("base64")}`;
     await writeFile(join(config, `${appName}.ini`), [
         "[BitTorrent]",
+        `Session\\ResumeDataStorageType=${resumeBackend}`,
         "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
         "Session\\BTProtocol=1", "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
         "Session\\IgnoreLimitsOnLAN=false", "Session\\AddExtensionToIncompleteFiles=false",
@@ -101,7 +104,7 @@ export async function createLab(name: string) {
     const evidence: Record<string, unknown> = {
         schema: 1, suite: name, status: "running", executable: resolve(executable),
         executableSha256: sha256(await readFile(executable)), generator: manifest.generator,
-        profile, startedAt: new Date().toISOString(), checks: [],
+        profile, resumeBackend, startedAt: new Date().toISOString(), checks: [],
     };
 
     async function request(path: string, body?: Record<string, string> | FormData): Promise<Response> {
@@ -139,6 +142,7 @@ export async function createLab(name: string) {
         evidence.appVersion = await (await request("app/version")).text();
         evidence.buildInfo = await json("app/buildInfo");
         const preferences = await json<Record<string, unknown>>("app/preferences");
+        assert(preferences.resume_data_storage_type === resumeBackend, "Native resume backend differs from requested fixture");
         assert(preferences.dht === false && preferences.lsd === false && preferences.pex === false,
             "Isolated lab must disable public discovery before adding torrents");
     }
