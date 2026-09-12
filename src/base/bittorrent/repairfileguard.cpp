@@ -269,7 +269,9 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
                 error = fileError(current, code);
                 return DirectoryState::Invalid;
             }
+            auto closeHandle = qScopeGuard([handle] { CloseHandle(handle); });
             guard->m_directories.push_back(handle);
+            closeHandle.dismiss();
             BY_HANDLE_FILE_INFORMATION info {};
             if (!GetFileInformationByHandle(handle, &info)
                 || !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
@@ -328,7 +330,9 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             return {};
         }
 
+        auto closeHandle = qScopeGuard([handle] { CloseHandle(handle); });
         guard->m_files.push_back({handle, int(index), path, files.file_size(index), 0});
+        closeHandle.dismiss();
         BY_HANDLE_FILE_INFORMATION info {};
         if (!GetFileInformationByHandle(handle, &info)
             || (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))
