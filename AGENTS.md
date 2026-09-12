@@ -29,6 +29,7 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 - Review the diff after each change. After a working result, perform an ablation pass: remove each unnecessary abstraction, state, wrapper, fallback and special case, then repeat applicable checks. Preserve clear architectural boundaries and useful diagnostics.
 - "Работает" недостаточно. После того как довел до рабочего состояния, убедись, что решение встроено в код красиво и без временных подпорок. Если по пути пришлось оставить костыль или фоллбэк, потом обязательно добейся его удаления, даже если для этого надо явно попросить пользователя сделать связанное изменение.
 - Native regressions, incorrect payload, data loss and leaks override throughput claims. Report measured verified bytes separately from relay/wire traffic and identify untested real-network scenarios.
+- The Windows build entrypoint is `./scripts/build-windows.ps1`; it produces a portable bundle and records the source revision/dirty state. Use the isolated fixture setup and `bun run smoke:native`, `smoke:repair`, `smoke:proxy`, and `smoke:network` commands in `tests/README.md`. Set `QBUTT_LAB_PATHS=1` to exercise the bundled transport child. Never use a live profile as a test fixture.
 
 ## Git and public delivery
 

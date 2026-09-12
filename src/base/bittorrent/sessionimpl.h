@@ -420,6 +420,7 @@ namespace BitTorrent
         void setTorrentContentRemoveOption(TorrentContentRemoveOption option) override;
 
         bool isRestored() const override;
+        bool hasActiveRepair() const override;
         bool canSwitchConnectionMode() const override;
 
         bool isPaused() const override;
@@ -774,9 +775,7 @@ namespace BitTorrent
         SettingValue<bool> m_startPaused;
 
         lt::session *m_nativeSession = nullptr;
-#ifdef QBT_USES_LIBTORRENT2
         CustomDiskIOThread *m_customDiskIO = nullptr;
-#endif
         NativeSessionExtension *m_nativeSessionExtension = nullptr;
 
         bool m_deferredConfigureScheduled = false;

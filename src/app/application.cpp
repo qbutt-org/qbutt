@@ -777,6 +777,10 @@ void Application::torrentFinished(const BitTorrent::Torrent *torrent)
 
 void Application::allTorrentsFinished()
 {
+    // The completion signal is queued; a repair may have started since it was emitted.
+    if (BitTorrent::Session::instance()->hasActiveRepair())
+        return;
+
     Preferences *const pref = Preferences::instance();
     bool isExit = pref->shutdownqBTWhenDownloadsComplete();
     bool isShutdown = pref->shutdownWhenDownloadsComplete();
@@ -808,6 +812,10 @@ void Application::allTorrentsFinished()
         if (!ShutdownConfirmDialog::askForConfirmation(m_window, action)) return;
     }
 #endif // DISABLE_GUI
+
+    // The confirmation dialog runs a nested event loop where a repair can start.
+    if (BitTorrent::Session::instance()->hasActiveRepair())
+        return;
 
     // Actually shut down
     if (action != ShutdownDialogAction::Exit)

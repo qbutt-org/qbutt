@@ -800,7 +800,7 @@ bool SessionImpl::isAppendExtensionEnabled() const
 
 void SessionImpl::setAppendExtensionEnabled(const bool enabled)
 {
-    if (std::ranges::any_of(asConst(m_torrents), [](const TorrentImpl *torrent) { return torrent->isRepairing(); }))
+    if (hasActiveRepair())
         return;
 
     if (isAppendExtensionEnabled() != enabled)
@@ -4219,6 +4219,11 @@ bool SessionImpl::canSwitchConnectionMode() const
         && m_nativeSession->get_torrents().empty();
 }
 
+bool SessionImpl::hasActiveRepair() const
+{
+    return std::ranges::any_of(asConst(m_torrents), [](const TorrentImpl *torrent) { return torrent->isRepairing(); });
+}
+
 bool SessionImpl::isPaused() const
 {
     return m_isPaused;
@@ -5318,12 +5323,7 @@ bool SessionImpl::hasPendingStorageJobs() const
 
 QFuture<bool> SessionImpl::drainTorrentDisk(TorrentImpl *torrent)
 {
-#ifdef QBT_USES_LIBTORRENT2
     return m_customDiskIO->drainTorrentDisk(torrent->nativeHandle().native_handle());
-#else
-    Q_UNUSED(torrent)
-    return QtFuture::makeReadyValueFuture(false);
-#endif
 }
 
 bool SessionImpl::addMoveTorrentStorageJob(TorrentImpl *torrent, const Path &newPath, const MoveStorageMode mode, const MoveStorageContext context)

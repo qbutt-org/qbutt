@@ -326,10 +326,13 @@ void WebApplication::doProcessRequest(const bool isUsingApiKey)
     const QString action = match.captured(u"action"_s);
     const QString scope = match.captured(u"scope"_s);
 
-    // Path configuration is a local, authenticated control API. A reverse
-    // proxy or a WebUI authentication exemption does not grant access to it.
-    if ((scope == u"qbuttPaths") && (!m_env.clientAddress.isLoopback() || !m_clientAddress.isLoopback()
-        || (!isUsingApiKey && !isAuthNeeded())))
+    // New control operations require authentication even when ordinary WebUI
+    // operations are exempted for local or whitelisted clients.
+    if (((scope == u"qbuttPaths") || (scope == u"qbuttRepair")) && !isUsingApiKey && !isAuthNeeded())
+        throw ForbiddenHTTPError();
+
+    // Path configuration additionally requires a direct local connection.
+    if ((scope == u"qbuttPaths") && (!m_env.clientAddress.isLoopback() || !m_clientAddress.isLoopback()))
     {
         throw ForbiddenHTTPError();
     }

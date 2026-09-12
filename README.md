@@ -14,11 +14,11 @@ The selected node carries TCP peers and HTTP(S) trackers. Disconnecting or losin
 
 For repair, stop a manually managed torrent, select all its files, and use its context menu **Smart repair…**. Analysis reads the current file mappings and target hashes without changing payload data. Review the expected and actual sizes, explicitly consent to in-place changes, then select **Repair in place and recheck**. qbutt removes oversized tails, starts the standard engine recheck and leaves the torrent stopped; use **Start** to download missing data. Unknown files are preserved. In-place repair does not provide rollback.
 
-The initial repair operation requires one save directory on a fixed local Windows drive, with incomplete-file extensions and unwanted-file relocation disabled. It rejects hardlink aliases, reparse points and conflicting writers. Torrent file renames are supported through the current torrent mappings. Safe staged updates and repair from unrelated torrents are later stages.
+The initial repair operation requires one save directory on a fixed local Windows drive, with incomplete-file extensions and unwanted-file relocation disabled. It rejects hardlink aliases, reparse points and conflicting writers. Size changes use exclusive file handles, then hand control to normal libtorrent recheck/download; keep other writers closed throughout. Missing nonempty files can be analyzed and downloaded, but a missing zero-byte target permits analysis only in this version. Torrent file renames are supported through the current torrent mappings. Safe staged updates and repair from unrelated torrents are later stages.
 
 ## Build and verify
 
-Use Windows x64, Visual Studio 2022 with the C++ desktop workload and Windows SDK, CMake, Git and Python 3.12. From PowerShell:
+Use Windows x64, Visual Studio 2022 with the C++ desktop workload and Windows SDK, CMake, Git, Python 3.12 and Bun 1.4.0. From PowerShell:
 
 ```powershell
 ./scripts/build-windows.ps1
