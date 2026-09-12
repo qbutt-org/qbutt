@@ -29,15 +29,23 @@ for (const holdRepair of [false, true]) {
             + "[ShutdownConfirmDlg]\nDontConfirmAutoExit=true\n");
         await lab.start();
 
+        const destination = join(lab.root, "download");
+        const hash = await lab.add("v1-64k", destination);
+        await lab.request("torrents/rename", { hash, name: "completion-download" });
+        await lab.request("torrents/start", { hashes: hash });
+        // Keep an unfinished job active while the preseeded candidate is
+        // checked, so its setup cannot trigger the configured exit action.
+        await waitFor("unfinished completion trigger", () => lab.info(hash), info => info.state === "stalledDL");
+
         let operation: RepairStatus | undefined;
         const candidate = join(lab.root, "candidate");
         if (holdRepair) {
             await cp(join(lab.fixtures, "variants", "grow"), candidate, { recursive: true });
-            const hash = await lab.add("v1", candidate);
-            await lab.request("torrents/recheck", { hashes: hash });
-            await waitFor("completed repair candidate", () => lab.info(hash),
+            const repairHash = await lab.add("v1", candidate);
+            await lab.request("torrents/recheck", { hashes: repairHash });
+            await waitFor("completed repair candidate", () => lab.info(repairHash),
                 info => info.state === "stoppedUP" && info.progress === 1);
-            await lab.request("qbuttRepair/analyze", { hash });
+            await lab.request("qbuttRepair/analyze", { hash: repairHash });
             operation = await waitFor("held read-only repair", () => lab.json<RepairStatus>("qbuttRepair/status"),
                 status => status.state === "analyzed" || status.state === "failed");
             assert(operation.state === "analyzed" && operation.analysis,
@@ -46,12 +54,8 @@ for (const holdRepair of [false, true]) {
                 "Grow fixture did not retain fully verified torrent content");
         }
 
-        const destination = join(lab.root, "download");
         const seed = await startSeed(lab.python, lab.fixtures, "v1-64k", lab.root);
         try {
-            const hash = await lab.add("v1-64k", destination);
-            await lab.request("torrents/rename", { hash, name: "completion-download" });
-            await lab.request("torrents/start", { hashes: hash });
             await lab.request("torrents/addPeers", { hashes: hash, peers: `${seed.host}:${seed.port}` });
             if (operation) {
                 await waitFor("download completed while repair held", () => lab.info(hash), info => info.progress === 1);
