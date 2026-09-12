@@ -14,7 +14,7 @@ The public source baseline is [Mihomo d3ec342d](https://github.com/MetaCubeX/mih
 
 The first child reports source-supported TCP/UDP independently of measured public reachability. An unprobed external address, stable UDP mapping, TCP inbound or UDP inbound is **unknown**. SOCKS UDP support does not establish inbound reachability. Controlled TCP proxy tests do not establish torrent UDP, tracker identity, Koala coexistence or Tunnels-only behavior.
 
-The existing subscription service emits complete client profiles. Its transport objects can be reused, but its groups, routing policies, DNS settings, provisioning and server lifecycle remain outside this application. Multiple aliases or protocols for one server do not create independent network edges.
+Mihomo subscriptions can contain complete client profiles. Their node definitions can be reused, but routing groups, DNS settings, provisioning and server lifecycle remain outside this application. Multiple aliases or protocols for one server do not create independent network edges.
 
 ## Runtime evidence, 12 September 2026
 

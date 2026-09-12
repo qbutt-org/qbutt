@@ -34,4 +34,6 @@ Read [AGENTS.md](AGENTS.md), [the architecture](docs/qbutt-architecture.md), [th
 
 The public repositories publish only `main`. Upstream updates are reviewed and integrated through a separate `upstream` remote; upstream branches and tags are not mirrored into these repositories. Report qbutt issues [here](https://github.com/qbutt-org/qbutt/issues).
 
+Release builds and validation run locally; finished archives are uploaded to GitHub Releases. GitHub workflows are available only for an explicit manual run and do not start on pushes or pull requests.
+
 qbutt preserves the work and notices of the [qBittorrent contributors](AUTHORS), libtorrent and the other bundled projects. See [COPYING](COPYING), [COPYING.GPLv2](COPYING.GPLv2) and [COPYING.GPLv3](COPYING.GPLv3); portable archives include dependency notices and source references. The optional IP-to-country data comes from [DB-IP](https://db-ip.com/db/download/ip-to-country-lite) under CC BY 4.0.

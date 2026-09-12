@@ -37,6 +37,7 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 - Never commit/push credentials, subscription URLs, private profiles, dumps or signing keys. Never print secrets in logs, diffs, answers or GitHub content. Audit selected changes from private dependencies before transferring them; never publish their history wholesale.
 - Keep component repositories under `qbutt-org` with short `qbutt-*` names. Create a component repository only when it owns actual source changes.
 - Verify published commit and repository visibility through GitHub, not the remote name. Review the complete outgoing diff and use explicit staging paths.
+- Build and validate releases locally, then upload the finished artifacts. GitHub workflows may retain only `workflow_dispatch`; do not add automatic triggers or dispatch a run without an explicit user request. Preserve CI credits.
 
 ## Maintaining instructions
 

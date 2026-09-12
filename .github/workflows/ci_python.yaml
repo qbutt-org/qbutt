@@ -2,16 +2,8 @@ name: CI - Python
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths: ["**.py", ".github/workflows/ci_python.yaml"]
-  push:
-    paths: ["**.py", ".github/workflows/ci_python.yaml"]
 
 permissions: {}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: ${{ github.head_ref != '' }}
 
 jobs:
   ci:
