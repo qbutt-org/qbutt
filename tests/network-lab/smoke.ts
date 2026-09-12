@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { sha256 } from "../fixtures/generate";
 import { createLab, startSeed, verifyPayload, waitFor } from "../lab";
 import { startProxy } from "./proxy";
 
@@ -66,6 +67,8 @@ try {
         }
     };
     if (pathsMode) {
+        const childExecutable = join(dirname(process.env.QBUTT_LAB_EXE!), "qbutt-net.exe");
+        await lab.checkpoint({ check: "qbutt-net-binary", sha256: sha256(await readFile(childExecutable)) });
         const unauthenticated = await fetch(`${lab.origin}/api/v2/qbuttPaths/status`, {
             headers: { Origin: lab.origin, Referer: `${lab.origin}/` }, signal: AbortSignal.timeout(5000),
         });

@@ -50,6 +50,9 @@ in that profile before launch.
 explicit consent and operation identity, held write exclusion, corruption,
 extra tails, truncation, renamed mappings, inserted bytes, mutation after an
 index snapshot, preservation of unknown files, and hardlink/reparse rejection.
+It checks authentication even with localhost exemption enabled, exact verified-byte
+accounting, and missing nonzero targets. An absent zero-length target must reject
+apply without creating files.
 It drives the real session through standard recheck and download after apply.
 
 `smoke:proxy` exercises the bounded authenticated TCP fixture relay using real
