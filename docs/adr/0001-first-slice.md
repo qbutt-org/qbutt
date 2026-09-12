@@ -1,6 +1,6 @@
 # First runnable slice
 
-The application stays at the repository root, preserving qBittorrent's source layout and history. The baseline is upstream release 5.2.3, commit `0b63c3d17373f6132ea211c9dcd4241284ccdfaf`. The supported engine starts at libtorrent 2.0.11. The transport executable belongs to `qbutt-org/qbutt-mihomo`; it is built and bundled separately. There is no libtorrent fork until an actual engine change requires one.
+The application stays at the repository root, preserving qBittorrent's source layout and history. The baseline is upstream release 5.2.3, commit `0b63c3d17373f6132ea211c9dcd4241284ccdfaf`. The supported engine starts at libtorrent 2.0.11. The transport executable belongs to `qbutt-org/qbutt-net`; it is built and bundled separately. There is no libtorrent fork until an actual engine change requires one.
 
 The first application operations are managed in-place repair and one explicitly selected proxy path. Mixed routing, safe-update staging, reverse inbound, adaptive selection and signed updates remain later acceptance stages in [the implementation plan](../implementation.md).
 
