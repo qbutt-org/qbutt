@@ -37,6 +37,8 @@ Net::PathManager::PathManager(QObject *parent)
         : tr("Native / saved connection settings. No qbutt-net path is active.")}
     , m_storeSubscriptionUrl {u"Network/Paths/SubscriptionUrl"_s}
     , m_storeConfigurationPath {u"Network/Paths/ConfigurationPath"_s}
+    , m_storeProxyName {u"Network/Paths/ProxyName"_s}
+    , m_storeInterfaceName {u"Network/Paths/InterfaceName"_s}
 {
     m_timeout.setSingleShot(true);
     m_timeout.setInterval(15000);
@@ -96,7 +98,8 @@ QJsonObject Net::PathManager::statusData() const
     return {{u"v"_s, 1}, {u"busy"_s, isBusy()}, {u"open"_s, m_open},
         {u"pinned"_s, ProxyConfigurationManager::instance()->hasRuntimeProxy()},
         {u"status"_s, m_status}, {u"processId"_s, m_process.processId()},
-        {u"pathId"_s, m_pathId}, {u"generation"_s, m_generation}, {u"nodes"_s, m_proxies}};
+        {u"pathId"_s, m_pathId}, {u"generation"_s, m_generation}, {u"nodes"_s, m_proxies},
+        {u"proxyName"_s, proxyName()}, {u"interfaceName"_s, interfaceName()}};
 }
 
 QString Net::PathManager::subscriptionUrl() const
@@ -107,6 +110,16 @@ QString Net::PathManager::subscriptionUrl() const
 QString Net::PathManager::configurationPath() const
 {
     return m_storeConfigurationPath;
+}
+
+QString Net::PathManager::proxyName() const
+{
+    return m_storeProxyName;
+}
+
+QString Net::PathManager::interfaceName() const
+{
+    return m_storeInterfaceName;
 }
 
 void Net::PathManager::refreshSubscription(const QString &urlText)
@@ -186,9 +199,9 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
 
     const auto *session = BitTorrent::Session::instance();
     auto *proxyManager = ProxyConfigurationManager::instance();
-    if (!session->isRestored() || (!proxyManager->hasRuntimeProxy() && !session->torrents().isEmpty()))
+    if (!session->isRestored() || (!proxyManager->hasRuntimeProxy() && !session->canSwitchConnectionMode()))
     {
-        reportError(tr("The initial Native-to-Pinned transition requires an empty torrent list. "
+        reportError(tr("The initial Native-to-Pinned transition requires no torrents or metadata downloads. "
             "Reconnecting an unavailable pinned path preserves existing jobs."));
         return;
     }
@@ -215,9 +228,9 @@ void Net::PathManager::useNative()
     if (isBusy())
         return;
     const auto *session = BitTorrent::Session::instance();
-    if (!session->isRestored() || !session->torrents().isEmpty())
+    if (!session->canSwitchConnectionMode())
     {
-        reportError(tr("Switching to Native requires an empty torrent list in this initial version."));
+        reportError(tr("Switching to the default connection requires no torrents or metadata downloads in this initial version."));
         return;
     }
 
@@ -395,6 +408,9 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             return;
         }
         m_open = true;
+        m_storeConfigurationPath = request.value(u"configPath"_s).toString();
+        m_storeProxyName = request.value(u"proxyName"_s).toString();
+        m_storeInterfaceName = request.value(u"interfaceName"_s).toString();
         m_status = tr("Pinned TCP endpoint ready: %1\n"
             "Egress, UDP, public inbound and throughput: unknown (not probed).")
             .arg(request.value(u"proxyName"_s).toString());

@@ -455,6 +455,7 @@ namespace BitTorrent
         virtual void setTorrentContentRemoveOption(TorrentContentRemoveOption option) = 0;
 
         virtual bool isRestored() const = 0;
+        virtual bool canSwitchConnectionMode() const = 0;
 
         virtual bool isPaused() const = 0;
         virtual void pause() = 0;

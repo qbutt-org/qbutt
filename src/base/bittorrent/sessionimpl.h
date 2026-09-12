@@ -429,6 +429,7 @@ namespace BitTorrent
         void setTorrentContentRemoveOption(TorrentContentRemoveOption option) override;
 
         bool isRestored() const override;
+        bool canSwitchConnectionMode() const override;
 
         bool isPaused() const override;
         void pause() override;

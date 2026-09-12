@@ -75,7 +75,10 @@ PathsWidget::PathsWidget(QWidget *parent)
 #endif
         m_interfaces->addItem(iface.humanReadableName(), bindName);
     }
-    if (m_interfaces->count() == 2)
+    const int savedInterface = m_interfaces->findData(m_manager->interfaceName());
+    if (savedInterface > 0)
+        m_interfaces->setCurrentIndex(savedInterface);
+    else if (m_interfaces->count() == 2)
         m_interfaces->setCurrentIndex(1);
     m_interfaces->setToolTip(tr("The selected adapter is bound by qbutt-net. Its actual route must still be verified."));
     form->addRow(tr("Interface:"), m_interfaces);
@@ -126,7 +129,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     connect(m_manager, &Net::PathManager::changed, this, &PathsWidget::refreshState);
     connect(m_manager, &Net::PathManager::proxiesLoaded, this, [this](const QJsonArray &proxies)
     {
-        const QString previous = m_nodes->currentData().toString();
+        const QString previous = (m_nodes->count() > 0) ? m_nodes->currentData().toString() : m_manager->proxyName();
         m_nodes->clear();
         for (const QJsonValue &value : proxies)
         {

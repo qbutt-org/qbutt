@@ -648,7 +648,9 @@ SessionImpl::SessionImpl(QObject *parent)
             disablePortMapping();
         else if (Net::PortForwarder::instance()->isEnabled())
             enablePortMapping();
-        configureDeferred();
+        // Queue the native settings before any subsequent async_add_torrent.
+        // A deferred Qt callback would leave an old-route window for new jobs.
+        configure();
     });
 
     m_freeDiskSpaceChecker->moveToThread(m_ioThread.get());
@@ -4280,6 +4282,14 @@ QStringList SessionImpl::bannedIPs() const
 bool SessionImpl::isRestored() const
 {
     return m_isRestored;
+}
+
+bool SessionImpl::canSwitchConnectionMode() const
+{
+    // Include metadata-only and pending native torrents, which are not shown
+    // in the transfer list. get_torrents() synchronizes with libtorrent's queue.
+    return isRestored() && m_torrents.isEmpty() && m_addTorrentAlertHandlers.isEmpty()
+        && m_nativeSession->get_torrents().empty();
 }
 
 bool SessionImpl::isPaused() const

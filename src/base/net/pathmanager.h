@@ -37,6 +37,8 @@ namespace Net
         QJsonObject statusData() const;
         QString subscriptionUrl() const;
         QString configurationPath() const;
+        QString proxyName() const;
+        QString interfaceName() const;
         void refreshSubscription(const QString &url);
         void inspectConfiguration(const QString &configPath);
         void openPath(const QString &configPath, const QString &proxyName,
@@ -73,5 +75,7 @@ namespace Net
         QString m_status;
         SettingValue<QString> m_storeSubscriptionUrl;
         SettingValue<QString> m_storeConfigurationPath;
+        SettingValue<QString> m_storeProxyName;
+        SettingValue<QString> m_storeInterfaceName;
     };
 }
