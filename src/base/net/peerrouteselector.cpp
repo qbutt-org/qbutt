@@ -161,10 +161,18 @@ void Net::PeerRouteSelector::observe(const libtorrent::peer_route_observation &o
     else if (observation.event == libtorrent::peer_route_observation::event_t::closed)
     {
         const bool networkFailure = isNetworkFailure(observation.error, observation.operation);
+        // Establishment errors also include platform-specific address/interface
+        // failures. They disqualify this peer/route attempt without implying
+        // that other peers cannot use the route. Revocation is not a failure.
+        const bool establishmentFailure = observation.error
+            && (observation.error != boost::asio::error::operation_aborted)
+            && ((observation.operation == libtorrent::operation_t::connect)
+                || (observation.operation == libtorrent::operation_t::sock_bind)
+                || (observation.operation == libtorrent::operation_t::get_interface));
         // A relay may acknowledge TCP before its remote handshake completes.
         // EOF then warrants trying this peer elsewhere, but is not evidence
         // that the whole route is bad or that a choked peer had low goodput.
-        if (!networkFailure && (observation.error != boost::asio::error::eof))
+        if (!networkFailure && !establishmentFailure && (observation.error != boost::asio::error::eof))
             return;
         if (networkFailure)
             history.failurePressure = 0.8 * history.failurePressure + 0.2;

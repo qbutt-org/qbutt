@@ -40,6 +40,8 @@ const subsets: { pieces: number[]; bytes: number; path: string; hashes: Record<s
 const credentials = tunnelSides.map(() => ({
     username: randomBytes(16).toString("hex"), password: randomBytes(24).toString("hex"),
 }));
+const setupSeedUploadRate = 1024;
+const transferSeedUploadRate = 256 * 1024;
 let failure: unknown;
 try {
     for (const side of sides) {
@@ -66,7 +68,7 @@ try {
         subsets.push({ pieces, bytes, path, hashes });
         const seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root,
             { savePath: path, pieces, label: `partial-${side}`, listenAddress: native && side === 3 ? nativeAddress : undefined,
-                uploadRate: native ? 8 * 1024 : undefined });
+                uploadRate: native ? setupSeedUploadRate : undefined });
         seeds.push(seed);
         assert.deepEqual(seed.pieces, pieces, "Native seed did not verify its exact complementary bitmap");
         assert(seed.verifiedPayloadBytes === bytes, "Native partial seed verified-byte count differs from physical layout");
@@ -185,6 +187,20 @@ try {
             if (!retry)
                 await lab.request("torrents/addPeers", { hashes: hash,
                     peers: endpoints.map(({ side, host }) => `${host}:${seeds[side]!.port}`).join("|") });
+            if (native) {
+                // Bound setup by one normal reconnect interval per candidate;
+                // the per-seed cap keeps early peers from finishing meanwhile.
+                const setupStartedAt = Date.now();
+                const setupDeadlineMilliseconds = sides.length * 60000;
+                const ready = await waitFor("every exclusive path connects during bounded setup", readPaths, status =>
+                    endpoints.every(({ side, host }) => status.peers.some(peer => peer.peer === host
+                        && peer.port === seeds[side]!.port && peer.pathId === expectedPaths[side]!.pathId
+                        && peer.generation === expectedPaths[side]!.generation && peer.payloadDownload > 0)), setupDeadlineMilliseconds);
+                await Promise.all(seeds.map(seed => seed.setUploadRate(transferSeedUploadRate)));
+                await lab.checkpoint({ check: "native-mixed-connection-setup", setupSeedUploadRate,
+                    setupDeadlineMilliseconds, setupMilliseconds: Date.now() - setupStartedAt,
+                    transferSeedUploadRate, setupRateRaised: true, peers: ready.peers });
+            }
             let concurrentPeers: PathsStatus["peers"] = [];
             for (const { side, host } of endpoints) {
                 if (retry) {
@@ -204,14 +220,19 @@ try {
                     concurrentPeers = observation.peers;
             }
             if (!retry) {
-                assert(new Set(concurrentPeers.filter(peer => peer.payloadDownload > 0).map(peer => peer.pathId)).size === sides.length,
-                    "One torrent was not fed by every fixture path concurrently");
+                assert(concurrentPeers.length === endpoints.length && endpoints.every(({ side, host }) =>
+                    concurrentPeers.some(peer => peer.peer === host && peer.port === seeds[side]!.port
+                        && peer.pathId === expectedPaths[side]!.pathId && peer.generation === expectedPaths[side]!.generation
+                        && peer.payloadDownload > 16384)),
+                "Every exact fixture peer must supply data through its own path in the same snapshot");
                 assert(concurrentPeers.every(peer => peer.infoHash === hash), "Peer telemetry escaped the torrent's infohash");
+                const intervalStartedAt = Date.now();
                 const flowing = await waitFor("payload increases on every concurrent path", readPaths, status =>
                     concurrentPeers.every(previous => status.peers.some(peer => peer.peer === previous.peer
                         && peer.port === previous.port && peer.pathId === previous.pathId && peer.generation === previous.generation
                         && peer.payloadDownload > previous.payloadDownload)), 10000);
-                await lab.checkpoint({ check: "same-torrent-concurrent-native-peer-paths", previousPeers: concurrentPeers, peers: flowing.peers });
+                await lab.checkpoint({ check: "same-torrent-concurrent-native-peer-paths", intervalMilliseconds: Date.now() - intervalStartedAt,
+                    previousPeers: concurrentPeers, peers: flowing.peers });
             }
             await waitFor("complete complementary payload", () => lab.info(hash), info => info.progress === 1, 120000);
             await lab.request("torrents/stop", { hashes: hash });

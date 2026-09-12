@@ -235,6 +235,12 @@ export async function startSeed(python: string, fixtures: string, name: string, 
         assert(ready.ready && ready.port > 0, "Seed failed readiness");
         return {
             ...ready,
+            async setUploadRate(bytesPerSecond: number) {
+                assert(Number.isInteger(bytesPerSecond) && bytesPerSecond >= 1024 && bytesPerSecond <= 1024 * 1024,
+                    "Seed upload rate must be between 1 KiB/s and 1 MiB/s");
+                child.stdin.write(`${JSON.stringify({ uploadRate: bytesPerSecond })}\n`);
+                await child.stdin.flush();
+            },
             async stop() {
                 child.stdin.end();
                 let exitCode: number;

@@ -22,8 +22,8 @@ upload_rate = int(sys.argv[5]) if len(sys.argv) > 5 else 256 * 1024
 address = ipaddress.IPv4Address(listen_address)
 if not address.is_private or address.is_unspecified or address.is_multicast:
     raise RuntimeError("Fixture listener requires an explicit private local IPv4 address")
-if not 8192 <= upload_rate <= 1024 * 1024:
-    raise RuntimeError("Fixture upload rate must be bounded between 8 KiB/s and 1 MiB/s")
+if not 1024 <= upload_rate <= 1024 * 1024:
+    raise RuntimeError("Fixture upload rate must be bounded between 1 KiB/s and 1 MiB/s")
 # libtorrent opens UDP on the TCP listen port even with uTP and DHT disabled.
 # Windows may exclude a port for only one protocol; choose a port both can bind
 # instead of treating a disabled-transport bind failure as a healthy seed.
@@ -93,17 +93,29 @@ print(json.dumps({"ready": True, "host": listen_address, "port": session.listen_
                   "libtorrent": lt.__version__, "pieces": pieces,
                   "verifiedPayloadBytes": status.total_done}), flush=True)
 finished = threading.Event()
+command_errors = []
 
 
-def await_shutdown():
-    sys.stdin.readline()
-    finished.set()
+def await_commands():
+    try:
+        for line in sys.stdin:
+            command = json.loads(line)
+            if (set(command) != {"uploadRate"} or type(command["uploadRate"]) is not int
+                    or not 1024 <= command["uploadRate"] <= 1024 * 1024):
+                raise RuntimeError("Invalid seed control command")
+            session.apply_settings({"upload_rate_limit": command["uploadRate"]})
+    except Exception as error:
+        command_errors.append(error)
+    finally:
+        finished.set()
 
 
-threading.Thread(target=await_shutdown, daemon=True).start()
+threading.Thread(target=await_commands, daemon=True).start()
 peer_addresses = set()
 while not finished.wait(0.05):
     peer_addresses.update(peer.ip[0] for peer in handle.get_peer_info())
+if command_errors:
+    raise RuntimeError("Seed control failed") from command_errors[0]
 status = handle.status()
 pieces = [index for index, have in enumerate(status.pieces) if have]
 if expected_pieces is not None and (pieces != expected_pieces or status.total_payload_download != 0):
