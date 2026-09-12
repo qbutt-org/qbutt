@@ -2923,7 +2923,7 @@ bool SessionImpl::addTorrent_impl(const TorrentDescriptor &source, const AddTorr
         if (isRepairPathLocked(result.savePath))
         {
             delete static_cast<ExtensionData *>(p.userdata);
-            p.userdata = LTClientData {};
+            p.userdata = lt::client_data_t {};
             emit addTorrentFailed(getInfoHash(p), {AddTorrentError::Other, tr("The data directory is owned by a repair preview. Close it before adding another torrent here.")});
             return;
         }
