@@ -1,6 +1,6 @@
 # qbutt
 
-qbutt is a native Qt BitTorrent client based on qBittorrent, with in-place Smart repair and an optional Mihomo subscription. It is an independent public project: no service account, private API or prescribed VPN provider is required.
+qbutt is a native Qt BitTorrent client based on qBittorrent, focused on configurable network paths through an ordinary Mihomo subscription. It is an independent public project: no service account, private API or prescribed VPN provider is required.
 
 This is an experimental Windows x64 implementation. The application keeps qBittorrent's source layout and one libtorrent session; [qbutt-net](https://github.com/qbutt-org/qbutt-net) runs the selected transport in a separate process. The current source baseline is qBittorrent 5.2.3 with libtorrent 2.0.11. Exact dependencies are recorded in [upstream-lock.json](upstream-lock.json).
 

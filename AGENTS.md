@@ -4,6 +4,8 @@ qbutt is a public Windows-first native Qt fork of qBittorrent. Keep the upstream
 
 qbutt is architecturally independent from the private Svoiseti service. Its network settings accept an ordinary Mihomo subscription and expose basic node selection and enable/disable controls. Do not require service accounts, private APIs, fixed servers, provisioning or service-specific formats. Existing private projects are architectural references only.
 
+Prioritize the network and download behavior. Repair is a low-priority secondary feature; do not let its roadmap displace the core network work. Implement automatic updates last, using a simple GitHub Releases download flow like the existing `element-max` project rather than an elaborate updater framework.
+
 ## Sources of truth
 
 - `docs/qbutt-architecture.md` defines the target architecture; `docs/implementation.md` defines the staged acceptance criteria. Planned APIs and capabilities in these documents are not evidence that they exist.

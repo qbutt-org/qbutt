@@ -4,6 +4,8 @@ The application stays at the repository root, preserving qBittorrent's source la
 
 The first application operations are managed in-place repair and one explicitly selected proxy path. Mixed routing, safe-update staging, reverse inbound, adaptive selection and signed updates remain later acceptance stages in [the implementation plan](../implementation.md).
 
+The user's subsequent priority clarification puts network and download behavior first, repair at low priority and automatic updates last. The existing repair slice will be checked within its current limits; further repair work must not gate network progress. The eventual updater should simply retrieve GitHub Release bundles, following the existing `element-max` flow.
+
 ## Transport boundary
 
 Public Mihomo commit `d3ec342d441b086ec4318332f59dd05d8a2b5697` already contains the necessary transport adapters, per-listener proxy selection and Windows interface binding. The existing service's additional fallback-group policy is not needed for an explicitly selected node. The public component starts from this upstream commit and carries no private repository history.
