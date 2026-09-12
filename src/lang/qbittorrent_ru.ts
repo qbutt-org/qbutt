@@ -2204,6 +2204,99 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
 </context>
 <context>
+    <name>BitTorrent::RepairService</name>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="31"/>
+        <source>The torrent did not release disk I/O within 30 seconds. No repair changes were made.</source>
+        <translation>Торрент не завершил операции с диском за 30 секунд. Файлы не изменены.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="39"/>
+        <source>The torrent storage was unavailable while draining disk I/O.</source>
+        <translation>Хранилище торрента стало недоступно при ожидании завершения операций с диском.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="57"/>
+        <source>The native recheck failed: %1</source>
+        <translation>Ошибка перепроверки торрента: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="103"/>
+        <source>Select a torrent with its target metadata available.</source>
+        <translation>Выберите торрент с загруженными метаданными.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="108"/>
+        <source>This repair slice requires manual torrent management and a single save directory.</source>
+        <translation>Для восстановления требуется ручное управление торрентом и одна папка сохранения.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="114"/>
+        <source>Disable the incomplete-file extension before using this repair slice.</source>
+        <translation>Перед восстановлением отключите добавление расширения к незавершённым файлам.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="124"/>
+        <source>This repair slice requires all files selected and no temporary filename or unwanted-folder mappings. Explicit torrent file renames are supported.</source>
+        <translation>Для восстановления выберите все файлы. Временные имена и перенос в папку ненужных файлов не поддерживаются. Переименование файлов в торренте допускается.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="139"/>
+        <source>Stop the torrent and wait for checking, adding, moving, renaming, deletion and other repairs to finish before repair.</source>
+        <translation>Остановите торрент и дождитесь завершения проверки, добавления, перемещения, переименования, удаления и других операций восстановления.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="174"/>
+        <source>Cannot resolve the data directory identity.</source>
+        <translation>Не удалось определить фактический путь к папке с данными.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="181"/>
+        <source>Another torrent is still resolving its data layout in this directory: %1</source>
+        <translation>Другой торрент ещё определяет расположение своих файлов в этой папке: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="193"/>
+        <source>Cannot resolve a target file identity.</source>
+        <translation>Не удалось определить фактический путь к целевому файлу.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="201"/>
+        <source>Analysis cancelled.</source>
+        <translation>Анализ отменён.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="204"/>
+        <source>Cannot resolve another torrent&apos;s file identity: %1</source>
+        <translation>Не удалось определить фактический путь к файлу другого торрента: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="211"/>
+        <source>Another torrent owns an overlapping data path: %1</source>
+        <translation>Другой торрент использует пересекающийся путь к данным: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="251"/>
+        <source>Repair operation failed: %1</source>
+        <translation>Ошибка восстановления файлов: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="263"/>
+        <source>Torrent ownership changed. Analyze the data again.</source>
+        <translation>Условия доступа к торренту изменились. Выполните анализ заново.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="273"/>
+        <source>This repair slice cannot apply while a zero-length target file is missing. Create it with the normal downloader, stop the torrent, and analyze again.</source>
+        <translation>Восстановление невозможно: отсутствует файл нулевого размера. Запустите обычную загрузку, чтобы создать его, затем остановите торрент и повторите анализ.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="293"/>
+        <source>The data changed after analysis. No repair changes were made; analyze it again.</source>
+        <translation>После анализа данные изменились. Восстановление не внесло изменений; выполните анализ заново.</translation>
+    </message>
+</context>
+<context>
     <name>BitTorrent::ResumeDataStorage</name>
     <message>
         <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="880"/>
@@ -5922,6 +6015,168 @@ Minimum requirement: %2.</source>
     </message>
 </context>
 <context>
+    <name>Net::PathManager</name>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="37"/>
+        <source>Pinned path unavailable. Start a path to reconnect; automatic Native fallback is disabled.</source>
+        <translation>Соединение через выбранный узел недоступно. Подключите узел повторно; автоматический переход к обычному соединению отключён.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="38"/>
+        <location filename="../base/net/pathmanager.cpp" line="260"/>
+        <location filename="../base/net/pathmanager.cpp" line="462"/>
+        <source>Native / saved connection settings. No qbutt-net path is active.</source>
+        <translation>Используются сохранённые настройки соединения. Соединение через qbutt-net не используется.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="54"/>
+        <source>qbutt-net did not respond within 15 seconds.</source>
+        <translation>qbutt-net не ответил за 15 секунд.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="63"/>
+        <source>Unable to run the bundled qbutt-net process.</source>
+        <translation>Не удалось запустить встроенный компонент qbutt-net.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="67"/>
+        <source>qbutt-net stopped. The pinned path remains blocked.</source>
+        <translation>qbutt-net остановлен. Передача через выбранный узел остаётся заблокированной.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="145"/>
+        <source>Enter an HTTPS subscription URL without user information or a fragment.</source>
+        <translation>Введите HTTPS-адрес подписки без имени пользователя, пароля и фрагмента после знака #.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="179"/>
+        <source>Unable to download the subscription (HTTPS, 2 MiB and 15 second limits).</source>
+        <translation>Не удалось загрузить подписку. Требуется HTTPS, размер до 2 МиБ и время загрузки до 15 секунд.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="189"/>
+        <source>Unable to save the subscription in the private qbutt profile.</source>
+        <translation>Не удалось сохранить подписку в отдельном профиле qbutt.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="208"/>
+        <source>A path operation is already active. Stop the current path before changing it.</source>
+        <translation>Соединение уже используется или настраивается. Отключите его перед изменением.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="216"/>
+        <source>The initial Native-to-Pinned transition requires no torrents or metadata downloads. Reconnecting an unavailable pinned path preserves existing jobs.</source>
+        <translation>Для первого перехода к выбранному узлу список торрентов и загрузок метаданных должен быть пуст. Повторное подключение недоступного узла сохраняет текущие задания.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="222"/>
+        <source>Select a proxy node and choose its physical interface.</source>
+        <translation>Выберите прокси-узел и физический сетевой адаптер.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="227"/>
+        <source>Unable to save the pinned startup policy. The path was not started.</source>
+        <translation>Не удалось сохранить режим подключения через выбранный узел при запуске. Соединение не запущено.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="232"/>
+        <source>Starting pinned path. Egress and network capabilities have not been probed.</source>
+        <translation>Подключение выбранного узла. Выход в интернет и сетевые возможности ещё не проверены.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="245"/>
+        <source>Switching to the default connection requires no torrents or metadata downloads in this initial version.</source>
+        <translation>В текущей версии для перехода к обычному соединению список торрентов и загрузок метаданных должен быть пуст.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="252"/>
+        <source>The previous qbutt-net process has not stopped. Native was not enabled.</source>
+        <translation>Предыдущий процесс qbutt-net ещё не остановлен. Обычное соединение не включено.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="257"/>
+        <source>Unable to save the Native startup policy. The pinned path remains blocked.</source>
+        <translation>Не удалось сохранить режим обычного соединения при запуске. Передача через выбранный узел остаётся заблокированной.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="295"/>
+        <source>Unable to send a bounded qbutt-net control request.</source>
+        <translation>Не удалось отправить запрос управления qbutt-net в пределах допустимого размера.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="313"/>
+        <source>qbutt-net exceeded the control frame size limit.</source>
+        <translation>qbutt-net превысил допустимый размер сообщения управления.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="320"/>
+        <source>qbutt-net returned an invalid control frame.</source>
+        <translation>qbutt-net вернул некорректное сообщение управления.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="334"/>
+        <source>qbutt-net control version or request identifier does not match.</source>
+        <translation>Версия протокола управления или идентификатор запроса qbutt-net не совпадает.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="347"/>
+        <source>The bundled qbutt-net rejected the protocol handshake.</source>
+        <translation>Встроенный компонент qbutt-net отклонил согласование протокола.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="349"/>
+        <source>qbutt-net rejected the request. Check the selected node and interface.</source>
+        <translation>qbutt-net отклонил запрос. Проверьте выбранный узел и сетевой адаптер.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="354"/>
+        <source>qbutt-net returned a missing control result.</source>
+        <translation>В ответе qbutt-net отсутствует результат запроса управления.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="365"/>
+        <source>The bundled qbutt-net is incompatible with this application.</source>
+        <translation>Встроенный компонент qbutt-net несовместим с этой версией приложения.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="378"/>
+        <source>qbutt-net returned an invalid proxy list.</source>
+        <translation>qbutt-net вернул некорректный список прокси.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="389"/>
+        <source>qbutt-net returned an invalid node description.</source>
+        <translation>qbutt-net вернул некорректное описание узла.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="410"/>
+        <source>qbutt-net returned an invalid authenticated loopback endpoint.</source>
+        <translation>qbutt-net вернул некорректные параметры локального подключения с аутентификацией.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="419"/>
+        <source>Unable to save the pinned startup policy. The path remains blocked.</source>
+        <translation>Не удалось сохранить режим подключения через выбранный узел при запуске. Передача остаётся заблокированной.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="426"/>
+        <source>Pinned TCP endpoint ready: %1
+Egress, UDP, public inbound and throughput: unknown (not probed).</source>
+        <translation>Локальное TCP-подключение через узел готово: %1
+Выход в интернет, UDP, входящие подключения из интернета и скорость ещё не проверены.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="457"/>
+        <source>The qbutt-net process has not stopped yet.</source>
+        <translation>Процесс qbutt-net ещё не остановлен.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="461"/>
+        <source>Pinned path stopped. Automatic Native fallback is disabled.</source>
+        <translation>Соединение через выбранный узел остановлено. Автоматический переход к обычному соединению отключён.</translation>
+    </message>
+</context>
+<context>
     <name>Net::Smtp</name>
     <message>
         <location filename="../base/net/smtp.cpp" line="216"/>
@@ -7948,6 +8203,90 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
     </message>
 </context>
 <context>
+    <name>PathsWidget</name>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="30"/>
+        <source>Mihomo subscription (experimental)</source>
+        <translation>Подписка Mihomo (экспериментально)</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="35"/>
+        <source>Refresh</source>
+        <translation>Обновить</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="36"/>
+        <source>Local file…</source>
+        <translation>Из файла…</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="37"/>
+        <location filename="../gui/pathswidget.cpp" line="159"/>
+        <source>Use selected node</source>
+        <translation>Подключить выбранный узел</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="38"/>
+        <source>Use default connection</source>
+        <translation>Обычное соединение</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="48"/>
+        <source>Stored only in your qbutt profile. Refresh uses the regular control network.</source>
+        <translation>Хранится только в вашем профиле qbutt. Подписка обновляется через обычное соединение для служебных запросов.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="52"/>
+        <source>Subscription:</source>
+        <translation>Подписка:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="54"/>
+        <source>Node:</source>
+        <translation>Узел:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="57"/>
+        <source>Choose a physical interface</source>
+        <translation>Выберите физический сетевой адаптер</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="83"/>
+        <source>The selected adapter is bound by qbutt-net. Its actual route must still be verified.</source>
+        <translation>qbutt-net привязывает соединение к выбранному адаптеру. Фактический маршрут ещё нужно проверить.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="84"/>
+        <source>Interface:</source>
+        <translation>Сетевой адаптер:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="94"/>
+        <source>Uses one node for TCP torrent connections. Disconnecting blocks transfers until you reconnect or choose the default connection. DHT, local discovery and incoming peers are unavailable.</source>
+        <translation>Для TCP-соединений торрентов используется один узел. После отключения передача данных блокируется до повторного подключения или выбора обычного соединения. DHT, поиск пиров в локальной сети и входящие подключения пиров недоступны.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="109"/>
+        <source>Select a Mihomo subscription</source>
+        <translation>Выберите файл подписки Mihomo</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="110"/>
+        <source>Mihomo YAML (*.yaml *.yml);;All files (*)</source>
+        <translation>Файлы Mihomo YAML (*.yaml *.yml);;Все файлы (*)</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="159"/>
+        <source>Disconnect node</source>
+        <translation>Отключить узел</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="163"/>
+        <source>Working…</source>
+        <translation>Выполняется…</translation>
+    </message>
+</context>
+<context>
     <name>PeerInfo</name>
     <message>
         <location filename="../base/bittorrent/peerinfo.cpp" line="226"/>
@@ -9328,6 +9667,162 @@ Those plugins were disabled.</source>
         <location filename="../gui/rss/rsswidget.cpp" line="695"/>
         <source>Open link</source>
         <translation>Открыть ссылку</translation>
+    </message>
+</context>
+<context>
+    <name>RepairAnalysis</name>
+    <message>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="87"/>
+        <source>Analysis cancelled.</source>
+        <translation>Анализ отменён.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="127"/>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="141"/>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="218"/>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="237"/>
+        <source>Cannot read the required file data.</source>
+        <translation>Не удалось прочитать нужные данные файла.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="163"/>
+        <source>A v1 piece covering this file does not match its expected hash.</source>
+        <translation>Хеш части v1, содержащей данные этого файла, не совпадает с ожидаемым.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="197"/>
+        <source>The v2 piece layer has an invalid length.</source>
+        <translation>Слой хешей частей v2 имеет некорректную длину.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="210"/>
+        <source>The v2 piece layer does not match the file root hash.</source>
+        <translation>Слой хешей частей v2 не соответствует корневому хешу файла.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="264"/>
+        <source>The v2 file root does not match; individual pieces cannot be verified without a piece layer.</source>
+        <translation>Корневой хеш файла v2 не совпадает. Без слоя хешей частей нельзя проверить отдельные части.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="265"/>
+        <source>A v2 piece does not match its expected hash.</source>
+        <translation>Хеш части v2 не совпадает с ожидаемым.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="280"/>
+        <source>The torrent metadata or file mapping is invalid.</source>
+        <translation>Некорректные метаданные торрента или сопоставление файлов.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="304"/>
+        <source>File size is %1 bytes; expected exactly %2 bytes.</source>
+        <translation>Размер файла: %1 байт; ожидается ровно %2 байт.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairanalysis.cpp" line="311"/>
+        <source>File is missing.</source>
+        <translation>Файл отсутствует.</translation>
+    </message>
+</context>
+<context>
+    <name>RepairDialog</name>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="35"/>
+        <source>I closed other writers and consent to repair in place without rollback.</source>
+        <translation>Другие программы, изменяющие эти файлы, закрыты. Разрешаю восстановление в текущей папке без возможности отката.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="37"/>
+        <source>Smart repair</source>
+        <translation>Проверка и восстановление файлов</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="47"/>
+        <source>Torrent:</source>
+        <translation>Торрент:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="52"/>
+        <source>Current location:</source>
+        <translation>Папка с файлами:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="58"/>
+        <source>Analyzing existing files using this torrent&apos;s current file mappings. No data is changed during analysis.</source>
+        <translation>Анализируем существующие файлы с учётом их текущих путей и имён в торренте. Анализ не изменяет данные.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <source>File</source>
+        <translation>Файл</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <source>Expected bytes</source>
+        <translation>Ожидается, байт</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <source>Actual bytes</source>
+        <translation>На диске, байт</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <source>Verified bytes</source>
+        <translation>Подтверждено, байт</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="65"/>
+        <source>Problems</source>
+        <translation>Проблемы</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="75"/>
+        <source>Repair in place can replace existing data and truncates oversized files to the torrent&apos;s exact sizes. Size changes use exclusive file access, then the standard torrent engine takes over for recheck. There is no rollback. Keep other applications that can write to this location closed throughout repair and downloading. Files not listed in this torrent are left untouched.</source>
+        <translation>Восстановление может изменить существующие данные. Файлы большего размера будут обрезаны до размера, указанного в торренте. При изменении размера доступ к файлам блокируется для других программ, затем запускается обычная перепроверка торрента. Отменить внесённые изменения нельзя. До завершения восстановления и загрузки не открывайте программы, которые могут изменять файлы в этой папке. Файлы, не входящие в торрент, останутся нетронутыми.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="85"/>
+        <source>Repair in place and recheck</source>
+        <translation>Подготовить файлы и перепроверить</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="98"/>
+        <source>Preparing files for an in-place repair and starting the torrent recheck...</source>
+        <translation>Подготавливаем файлы в текущей папке и запускаем перепроверку торрента…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="105"/>
+        <source>Checking the prepared data. Closing this dialog cancels the recheck.</source>
+        <translation>Проверяем подготовленные файлы. Закрытие этого окна прервёт перепроверку.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="110"/>
+        <source>Recheck finished. The torrent is stopped. Close this dialog and use Start to download any missing data.</source>
+        <translation>Перепроверка завершена. Торрент остановлен. Закройте это окно и нажмите «Запустить», чтобы докачать недостающие данные.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="123"/>
+        <source>Missing</source>
+        <translation>Отсутствует</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="131"/>
+        <source>Verified %L1 of %L2 bytes. %L3 valid pieces; %L4 unverified pieces.</source>
+        <translation>Подтверждено %L1 из %L2 байт. Целых частей: %L3; неподтверждённых: %L4.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="134"/>
+        <source>
+Verification used v2 whole-file roots; partial files require the torrent recheck.</source>
+        <translation>
+Проверка выполнена по корневым хешам целых файлов v2. Для неполных файлов требуется перепроверка торрента.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="145"/>
+        <source>Repair cannot continue: %1</source>
+        <translation>Невозможно продолжить восстановление файлов: %1</translation>
     </message>
 </context>
 <context>
@@ -12466,6 +12961,11 @@ Please choose a different name and try again.</source>
 </context>
 <context>
     <name>TransferListWidget</name>
+    <message>
+        <location filename="../gui/transferlistwidget.cpp" line="1016"/>
+        <source>Smart repair...</source>
+        <translation>Проверить и докачать файлы…</translation>
+    </message>
     <message>
         <location filename="../gui/transferlistwidget.cpp" line="689"/>
         <source>Column visibility</source>
