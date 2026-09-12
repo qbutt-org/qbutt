@@ -47,6 +47,7 @@
 #include <QByteArray>
 #include <QCache>
 #include <QDebug>
+#include <QFileInfo>
 #include <QFuture>
 #include <QPointer>
 #include <QPromise>
@@ -72,6 +73,7 @@
 #include "peeraddress.h"
 #include "peerinfo.h"
 #include "sessionimpl.h"
+#include "stagingoperation.h"
 #include "trackerentry.h"
 
 #if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
@@ -378,6 +380,9 @@ TorrentImpl::TorrentImpl(SessionImpl *session, const lt::torrent_handle &nativeH
 
     if (hasMetadata())
         applyFirstLastPiecePriority(m_hasFirstLastPiecePriority);
+
+    if (QFileInfo::exists(StagingOperation::journalPath(id().toString())))
+        m_maintenanceJob = MaintenanceJob::StagingRecovery;
 }
 
 TorrentImpl::~TorrentImpl() = default;
@@ -1673,18 +1678,7 @@ void TorrentImpl::doForceRecheck()
 
     m_nativeHandle.force_recheck();
 
-    // We have to force update the cached state, otherwise someone will be able to get
-    // an incorrect one during the interval until the cached state is updated in a regular way.
-    m_nativeStatus.state = lt::torrent_status::checking_resume_data;
-    m_nativeStatus.pieces.clear_all();
-    m_nativeStatus.num_pieces = 0;
-    m_ltAddTorrentParams.have_pieces.clear();
-    m_ltAddTorrentParams.verified_pieces.clear();
-    m_ltAddTorrentParams.unfinished_pieces.clear();
-    m_completedFiles.fill(false);
-    m_filesProgress.fill(0);
-    m_pieces.fill(false);
-    m_unchecked = false;
+    invalidatePieceState();
 
     if (m_hasMissingFiles)
     {
@@ -1703,6 +1697,22 @@ void TorrentImpl::doForceRecheck()
         doStart(TorrentOperatingMode::AutoManaged);
         m_stopCondition = StopCondition::FilesChecked;
     }
+}
+
+void TorrentImpl::invalidatePieceState()
+{
+    // We have to force update the cached state, otherwise someone will be able to get
+    // an incorrect one during the interval until the cached state is updated in a regular way.
+    m_nativeStatus.state = lt::torrent_status::checking_resume_data;
+    m_nativeStatus.pieces.clear_all();
+    m_nativeStatus.num_pieces = 0;
+    m_ltAddTorrentParams.have_pieces.clear();
+    m_ltAddTorrentParams.verified_pieces.clear();
+    m_ltAddTorrentParams.unfinished_pieces.clear();
+    m_completedFiles.fill(false);
+    m_filesProgress.fill(0);
+    m_pieces.fill(false);
+    m_unchecked = false;
 }
 
 void TorrentImpl::setSequentialDownload(const bool enable)
@@ -2483,7 +2493,7 @@ lt::torrent_handle TorrentImpl::nativeHandle() const
     return m_nativeHandle;
 }
 
-nonstd::expected<void, QString> TorrentImpl::beginRepair()
+nonstd::expected<void, QString> TorrentImpl::beginRepair(const bool recover)
 {
     if (!isStopped())
         return nonstd::make_unexpected(tr("Stop the torrent before analyzing its data for repair."));
@@ -2491,11 +2501,12 @@ nonstd::expected<void, QString> TorrentImpl::beginRepair()
         return nonstd::make_unexpected(tr("Wait for the torrent metadata before starting repair."));
     if (m_nativeStatus.state == lt::torrent_status::checking_resume_data)
         return nonstd::make_unexpected(tr("Wait for torrent initialization to finish before starting repair."));
-    if (isMoving() || (m_renameCount != 0) || (m_maintenanceJob != MaintenanceJob::None))
+    if (isMoving() || (m_renameCount != 0) || ((m_maintenanceJob != MaintenanceJob::None)
+        && !(recover && (m_maintenanceJob == MaintenanceJob::StagingRecovery))))
         return nonstd::make_unexpected(tr("Wait for this torrent's file operations or current repair to finish."));
     if (m_session->hasPendingStorageJobs())
         return nonstd::make_unexpected(tr("Wait for pending torrent additions, moves and deletions to finish before repair."));
-    if (m_session->isRepairPathLocked(actualStorageLocation()))
+    if (m_session->isRepairPathLocked(actualStorageLocation(), this))
         return nonstd::make_unexpected(tr("Another repair already owns this data directory."));
 
     // A stopped torrent can remain in checking_files until it is resumed.
@@ -2510,7 +2521,53 @@ nonstd::expected<void, QString> TorrentImpl::beginRepair()
 void TorrentImpl::endRepair()
 {
     if (isRepairing())
-        m_maintenanceJob = MaintenanceJob::None;
+        m_maintenanceJob = QFileInfo::exists(StagingOperation::journalPath(id().toString()))
+            ? MaintenanceJob::StagingRecovery : MaintenanceJob::None;
+}
+
+void TorrentImpl::switchRepairStorage(const Path &path, const bool invalidatePieces)
+{
+    Q_ASSERT(isRepairing() && isStopped() && m_repairStorageTarget.isEmpty());
+    m_maintenanceJob = MaintenanceJob::Repair;
+    m_repairStorageTarget = path;
+    m_repairInvalidatePieces = invalidatePieces;
+    m_nativeHandle.move_storage(path.toString().toStdString(), lt::move_flags_t::reset_save_path_unchecked);
+}
+
+bool TorrentImpl::handleRepairStorageMoved(const Path &path, const QString &error)
+{
+    if (m_repairStorageTarget.isEmpty())
+        return false;
+    if (error.isEmpty())
+    {
+        Q_ASSERT(path == m_repairStorageTarget);
+        m_savePath = path;
+        m_nativeStatus.save_path = path.toString().toStdString();
+        m_ltAddTorrentParams.save_path = m_nativeStatus.save_path;
+        m_hasMissingFiles = false;
+        m_nativeHandle.clear_error();
+        if (m_repairInvalidatePieces)
+        {
+            // Restored or skipped originals differ from the staged payload.
+            // Recovered jobs also have an unrelated hold-directory bitfield.
+            // Keep recheck paused; the next Start checks before downloading.
+            m_nativeHandle.force_recheck();
+            invalidatePieceState();
+            m_hasFinishedStatus = false;
+        }
+        m_session->handleTorrentSavePathChanged(this);
+        deferredRequestResumeData();
+    }
+    m_repairStorageTarget = {};
+    m_repairInvalidatePieces = false;
+    emit repairStorageChanged(error);
+    return true;
+}
+
+void TorrentImpl::startStagedDownload()
+{
+    Q_ASSERT(m_maintenanceJob == MaintenanceJob::RepairChecking);
+    doStart(TorrentOperatingMode::Forced);
 }
 
 void TorrentImpl::startRepairRecheck()
@@ -2522,7 +2579,8 @@ void TorrentImpl::startRepairRecheck()
 
 bool TorrentImpl::isRepairing() const
 {
-    return (m_maintenanceJob == MaintenanceJob::Repair) || (m_maintenanceJob == MaintenanceJob::RepairChecking);
+    return (m_maintenanceJob == MaintenanceJob::Repair) || (m_maintenanceJob == MaintenanceJob::RepairChecking)
+        || (m_maintenanceJob == MaintenanceJob::StagingRecovery);
 }
 
 int TorrentImpl::fileIndexFromNative(const lt::file_index_t nativeFileIndex) const

@@ -11,6 +11,8 @@
 #pragma once
 
 #include <QDialog>
+#include <QJsonObject>
+#include <QMap>
 
 class QCheckBox;
 class QLabel;
@@ -43,4 +45,9 @@ private:
     QTreeWidget *m_files = nullptr;
     QCheckBox *m_consent = nullptr;
     QPushButton *m_apply = nullptr;
+    QPushButton *m_commit = nullptr;
+    QPushButton *m_rollback = nullptr;
+    bool m_staged = true;
+    QJsonObject m_stagingStatus;
+    QMap<int, QString> m_sourceMappings;
 };

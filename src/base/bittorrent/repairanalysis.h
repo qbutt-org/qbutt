@@ -15,6 +15,7 @@
 #include <libtorrent/fwd.hpp>
 
 #include <QList>
+#include <QMap>
 #include <QSet>
 #include <QString>
 #include <QStringList>
@@ -46,7 +47,10 @@ namespace BitTorrent
     // concurrent writes and path replacement throughout this read-only scan.
     // readableFiles freezes the native file indexes present in that snapshot;
     // absent files are not opened even if they appear during analysis.
+    // readDescriptors optionally binds reads to caller-owned open files instead
+    // of reopening names. Descriptors remain borrowed and must permit seeking.
     RepairAnalysis analyzeRepairData(const lt::torrent_info &target
         , const lt::file_storage &mappedFiles, const QString &savePath
-        , const std::atomic_bool *cancelled = nullptr, const QSet<int> *readableFiles = nullptr);
+        , const std::atomic_bool *cancelled = nullptr, const QSet<int> *readableFiles = nullptr
+        , const QMap<int, int> *readDescriptors = nullptr);
 }

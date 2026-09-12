@@ -146,13 +146,14 @@ QString BitTorrent::repairPathIdentity(const QString &path)
 
 std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
     const lt::file_storage &files, const QString &savePath, const bool writable, QString &error
-    , const std::atomic_bool *cancelled)
+    , const std::atomic_bool *cancelled, const bool renameChildren)
 {
 #ifndef Q_OS_WIN
     Q_UNUSED(files)
     Q_UNUSED(savePath)
     Q_UNUSED(writable)
     Q_UNUSED(cancelled)
+    Q_UNUSED(renameChildren)
     error = QStringLiteral("Managed repair currently requires Windows file ownership checks.");
     return {};
 #else
@@ -220,7 +221,6 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
         }
     }
 
-    QSet<QString> directories;
     QSet<QString> missingDirectories;
     const auto lockDirectories = [&](const QString &path) -> DirectoryState
     {
@@ -242,11 +242,11 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
                 current += components.at(i);
             }
             const QString key = current.toCaseFolded();
-            if (directories.contains(key))
+            if (guard->m_directoryHandles.contains(key))
                 continue;
             if (missingDirectories.contains(key))
                 return DirectoryState::Missing;
-            if ((guard->m_directories.size() + guard->m_files.size()) >= MaximumHandles)
+            if ((guard->m_directoryHandles.size() + guard->m_files.size()) >= MaximumHandles)
             {
                 error = QStringLiteral("Repair exceeds the limit of %1 open file and directory handles.").arg(MaximumHandles);
                 return DirectoryState::Invalid;
@@ -256,7 +256,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             // Attribute-only handles do not enforce share exclusions. Directory
             // read access prevents rename/reparse conversion without blocking child I/O.
             HANDLE handle = CreateFileW(reinterpret_cast<LPCWSTR>(native.utf16()), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES
-                , FILE_SHARE_READ, nullptr, OPEN_EXISTING
+                , FILE_SHARE_READ | (renameChildren ? FILE_SHARE_WRITE : 0), nullptr, OPEN_EXISTING
                 , FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
             if (handle == INVALID_HANDLE_VALUE)
             {
@@ -270,8 +270,6 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
                 return DirectoryState::Invalid;
             }
             auto closeHandle = qScopeGuard([handle] { CloseHandle(handle); });
-            guard->m_directories.push_back(handle);
-            closeHandle.dismiss();
             BY_HANDLE_FILE_INFORMATION info {};
             if (!GetFileInformationByHandle(handle, &info)
                 || !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
@@ -280,7 +278,8 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
                 error = QStringLiteral("Repair refuses a reparse point or non-directory: %1").arg(current);
                 return DirectoryState::Invalid;
             }
-            directories.insert(key);
+            guard->m_directoryHandles.insert(key, handle);
+            closeHandle.dismiss();
         }
         return DirectoryState::Locked;
     };
@@ -308,7 +307,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             identity << false;
             continue;
         }
-        if ((guard->m_directories.size() + guard->m_files.size()) >= MaximumHandles)
+        if ((guard->m_directoryHandles.size() + guard->m_files.size()) >= MaximumHandles)
         {
             error = QStringLiteral("Repair exceeds the limit of %1 open file and directory handles.").arg(MaximumHandles);
             return {};
@@ -364,8 +363,8 @@ BitTorrent::RepairFileGuard::~RepairFileGuard()
 {
     releaseFiles();
 #ifdef Q_OS_WIN
-    for (void *handle : m_directories)
-        CloseHandle(handle);
+    for (auto it = m_directoryHandles.cbegin(); it != m_directoryHandles.cend(); ++it)
+        CloseHandle(it.value());
 #endif
 }
 
@@ -376,6 +375,11 @@ void BitTorrent::RepairFileGuard::releaseFiles()
         CloseHandle(file.handle);
 #endif
     m_files.clear();
+}
+
+void *BitTorrent::RepairFileGuard::directoryHandle(const QString &path) const
+{
+    return m_directoryHandles.value(QDir::cleanPath(path).toCaseFolded());
 }
 
 QByteArray BitTorrent::RepairFileGuard::identity() const

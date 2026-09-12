@@ -8,6 +8,8 @@
 #include <exception>
 
 #include <QDir>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <QPromise>
 #include <QSet>
 
@@ -15,9 +17,101 @@
 #include "common.h"
 #include "repairfileguard.h"
 #include "sessionimpl.h"
+#include "stagingoperation.h"
 #include "torrentimpl.h"
 
 using namespace BitTorrent;
+
+namespace
+{
+    QMap<int, QString> findSources(const lt::file_storage &files, const QString &destination
+        , const QStringList &roots, const QMap<int, QString> &explicitMappings, QString &error, const std::atomic_bool &cancelled)
+    {
+        QMap<qint64, QStringList> bySize;
+        QSet<QString> indexed;
+        int inspected = 0;
+        if (roots.size() > 32)
+        {
+            error = QStringLiteral("Select at most 32 source directories per analysis.");
+            return {};
+        }
+        for (const QString &root : roots)
+        {
+            const QFileInfo directory(root);
+            if (!directory.isDir() || directory.isSymbolicLink() || directory.isJunction())
+            {
+                error = QStringLiteral("Select ordinary source directories without links or junctions.");
+                return {};
+            }
+            auto rootGuard = RepairFileGuard::open(lt::file_storage {}, root, false, error);
+            if (!rootGuard)
+                return {};
+            QStringList directories {root};
+            while (!directories.isEmpty())
+            {
+                QDirIterator iterator(directories.takeLast(), QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
+                while (iterator.hasNext())
+                {
+                    if (cancelled.load(std::memory_order_relaxed))
+                    {
+                        error = QStringLiteral("Source indexing cancelled.");
+                        return {};
+                    }
+                    const QString path = QDir::cleanPath(QDir::fromNativeSeparators(iterator.next()));
+                    const QFileInfo info = iterator.fileInfo();
+                    if (++inspected > 100000)
+                    {
+                        error = QStringLiteral("The selected source roots exceed 100000 entries. Select narrower directories.");
+                        return {};
+                    }
+                    if (info.isSymbolicLink() || info.isJunction() || indexed.contains(path))
+                        continue;
+                    if (info.isDir())
+                    {
+                        directories.append(path);
+                        continue;
+                    }
+                    indexed.insert(path);
+                    bySize[info.size()].append(path);
+                }
+            }
+        }
+        QMap<int, QString> mappings = explicitMappings;
+        for (const lt::file_index_t index : files.file_range())
+        {
+            if (files.pad_file_at(index) || mappings.contains(int(index)))
+                continue;
+            const QString relative = QDir::fromNativeSeparators(QString::fromStdString(files.file_path(index)));
+            QStringList exact;
+            for (const QString &root : roots)
+            {
+                const QString path = QDir(root).filePath(relative);
+                if (QFileInfo::exists(path) && !exact.contains(path))
+                    exact.append(path);
+            }
+            if (!exact.isEmpty())
+            {
+                mappings.insert(int(index), exact.first());
+                continue;
+            }
+            const QStringList candidates = bySize.value(files.file_size(index));
+            QStringList names;
+            for (const QString &path : candidates)
+            {
+                if (QFileInfo(path).fileName().compare(QFileInfo(relative).fileName(), Qt::CaseInsensitive) == 0)
+                    names.append(path);
+            }
+            const QStringList &matches = names.isEmpty() ? candidates : names;
+            if (matches.size() == 1)
+                mappings.insert(int(index), matches.first());
+            else if (QFileInfo::exists(QDir(destination).filePath(relative)))
+                mappings.insert(int(index), QDir(destination).filePath(relative));
+            // Ambiguous metadata never becomes a claimed match. Explicit native
+            // file mappings resolve it; otherwise the engine downloads the file.
+        }
+        return mappings;
+    }
+}
 
 RepairService::RepairService(Torrent *torrent, QObject *parent)
     : QObject {parent}
@@ -28,18 +122,61 @@ RepairService::RepairService(Torrent *torrent, QObject *parent)
     m_drainTimeout.setInterval(30000);
     connect(&m_drainTimeout, &QTimer::timeout, this, [this]
     {
-        fail(tr("The torrent did not release disk I/O within 30 seconds. No repair changes were made."));
+        fail(m_staged ? tr("Staged repair timed out waiting for disk I/O or saved torrent location. The recovery journal is retained.")
+            : tr("The torrent did not release disk I/O within 30 seconds. No repair changes were made."));
+    });
+    connect(&m_persistenceWatcher, &QFutureWatcher<bool>::finished, this, [this]
+    {
+        if ((m_state != State::PersistingDestination) && (m_state != State::PersistingPlan))
+            return;
+        m_drainTimeout.stop();
+        if (m_persistenceWatcher.isCanceled() || !m_persistenceWatcher.result())
+        {
+            fail(tr("The final torrent location could not be saved. The recovery journal is retained."));
+            return;
+        }
+        if (m_state == State::PersistingPlan)
+        {
+            prepareStagingData();
+            return;
+        }
+        if (!m_staging->finish(m_error))
+        {
+            fail(m_error);
+            return;
+        }
+        m_state = State::Finished;
+        releaseOwnership();
+        publishStaging();
+        if (!m_rollingBack)
+            emit committedVerified();
     });
     connect(&m_drainWatcher, &QFutureWatcher<bool>::finished, this, [this]
     {
-        if (m_state != State::Draining)
+        if ((m_state != State::Draining) && (m_state != State::DrainingStaging))
             return;
         if (m_drainWatcher.isCanceled() || !m_drainWatcher.result())
         {
             fail(tr("The torrent storage was unavailable while draining disk I/O."));
             return;
         }
-        analyzeDrainedData();
+        if (m_state == State::DrainingStaging)
+        {
+            m_drainTimeout.stop();
+            if (m_rollingBack)
+            {
+                m_state = State::RollingBackStaging;
+                runWorker([this] { m_staging->rollback(m_error, &m_cancelled); });
+            }
+            else
+            {
+                verifyStaging();
+            }
+        }
+        else
+        {
+            analyzeDrainedData();
+        }
     });
     if (m_torrent)
     {
@@ -47,6 +184,13 @@ RepairService::RepairService(Torrent *torrent, QObject *parent)
         {
             if ((m_state != State::Rechecking) || (torrent != m_torrent))
                 return;
+            if (m_staged)
+            {
+                m_state = State::DownloadingStaging;
+                m_torrent->startStagedDownload();
+                publishStaging();
+                return;
+            }
             m_state = State::Finished;
             releaseOwnership();
             emit recheckFinished();
@@ -55,6 +199,34 @@ RepairService::RepairService(Torrent *torrent, QObject *parent)
         {
             if ((m_state == State::Rechecking) && m_torrent && m_torrent->hasError())
                 fail(tr("The native recheck failed: %1").arg(m_torrent->error()));
+            if ((m_state == State::DownloadingStaging) && m_torrent && (m_torrent->progress() == 1.0))
+            {
+                m_torrent->stop();
+                m_state = State::DrainingStaging;
+                m_drainTimeout.start();
+                m_drainWatcher.setFuture(static_cast<SessionImpl *>(m_torrent->session())->drainTorrentDisk(m_torrent));
+            }
+        });
+        connect(m_torrent, &TorrentImpl::repairStorageChanged, this, [this](const QString &error)
+        {
+            if (!error.isEmpty())
+            {
+                fail(error);
+                return;
+            }
+            if (m_state == State::SwitchingStaging)
+            {
+                m_state = State::Rechecking;
+                m_torrent->startRepairRecheck();
+                emit recheckStarted();
+            }
+            else if (m_state == State::SwitchingDestination)
+            {
+                m_state = State::PersistingDestination;
+                m_drainTimeout.start();
+                m_persistenceWatcher.setFuture(static_cast<SessionImpl *>(m_torrent->session())->persistRepairLocation(
+                    m_torrent, Path(m_staging->destination())));
+            }
         });
     }
 
@@ -69,6 +241,25 @@ RepairService::RepairService(Torrent *torrent, QObject *parent)
         {
             m_state = State::Ready;
             emit analyzed(m_analysis);
+            if (m_staged)
+                publishStaging();
+        }
+        else if (m_state == State::PreparingStaging)
+        {
+            m_state = State::SwitchingStaging;
+            m_torrent->switchRepairStorage(Path(m_staging->payloadPath()));
+            publishStaging();
+        }
+        else if (m_state == State::VerifyingStaging)
+        {
+            m_state = State::ReadyToCommit;
+            publishStaging();
+        }
+        else if ((m_state == State::CommittingStaging) || (m_state == State::RollingBackStaging))
+        {
+            m_state = State::SwitchingDestination;
+            m_torrent->switchRepairStorage(Path(m_staging->destination())
+                , m_rollingBack || m_recovering || (m_selectedFiles.size() != m_torrent->filesCount()));
         }
         else if (m_state == State::Applying)
         {
@@ -103,6 +294,11 @@ void RepairService::analyze()
         fail(tr("Select a torrent with its target metadata available."));
         return;
     }
+    if (!m_recovering && QFileInfo::exists(StagingOperation::journalPath(m_torrent->id().toString())))
+    {
+        fail(tr("Recover the pending staged operation before starting a new analysis."));
+        return;
+    }
     if (m_torrent->isAutoTMMEnabled() || !m_torrent->downloadPath().isEmpty())
     {
         fail(tr("This repair slice requires manual torrent management and a single save directory."));
@@ -117,8 +313,8 @@ void RepairService::analyze()
     const QList<DownloadPriority> priorities = m_torrent->filePriorities();
     for (int i = 0; i < m_torrent->filesCount(); ++i)
     {
-        if ((priorities.at(i) == DownloadPriority::Ignored)
-            || (m_torrent->actualFilePath(i) != m_torrent->filePath(i))
+        if ((!m_staged && (priorities.at(i) == DownloadPriority::Ignored))
+            || (!m_staged && (m_torrent->actualFilePath(i) != m_torrent->filePath(i)))
             || m_torrent->filePath(i).hasExtension(QB_EXT))
         {
             fail(tr("This repair slice requires all files selected and no temporary filename or unwanted-folder mappings. Explicit torrent file renames are supported."));
@@ -131,10 +327,19 @@ void RepairService::analyze()
     m_files = m_target->files();
     const QList<lt::file_index_t> indexes = m_torrent->info().nativeIndexes();
     for (int i = 0; i < m_torrent->filesCount(); ++i)
+    {
         m_files.rename_file(indexes.at(i), m_torrent->actualFilePath(i).toString().toStdString());
+        if (priorities.at(i) != DownloadPriority::Ignored)
+            m_selectedFiles.insert(int(indexes.at(i)));
+    }
+    if (m_staged && m_selectedFiles.isEmpty())
+    {
+        fail(tr("Select at least one target file before preparing a staged update."));
+        return;
+    }
 
     snapshotOtherFiles();
-    if (const auto result = m_torrent->beginRepair(); !result)
+    if (const auto result = m_torrent->beginRepair(m_recovering); !result)
     {
         fail(result.error());
         return;
@@ -221,12 +426,31 @@ void RepairService::analyzeDrainedData()
     m_state = State::Analyzing;
     runWorker([this]
     {
+        if (m_recovering)
+        {
+            m_staging = StagingOperation::load(StagingOperation::journalPath(m_torrent->id().toString())
+                , m_torrent->id().toString(), m_files, m_error);
+            if (m_staging)
+                m_savePath = m_staging->destination();
+            return;
+        }
         m_error = conflictingTorrent();
         if (!m_error.isEmpty())
             return;
         m_guard = RepairFileGuard::open(m_files, m_savePath, false, m_error, &m_cancelled);
         if (!m_guard)
             return;
+        if (m_staged)
+        {
+            const QMap<int, QString> sources = findSources(m_files, m_savePath, m_sourceRoots, m_sourceMappings, m_error, m_cancelled);
+            if (!m_error.isEmpty())
+                return;
+            m_staging = StagingOperation::plan(StagingOperation::journalPath(m_torrent->id().toString())
+                , m_torrent->id().toString(), *m_target, m_files, m_savePath, sources, m_selectedFiles, m_error, &m_cancelled);
+            if (m_staging)
+                m_analysis = m_staging->analysis();
+            return;
+        }
         const QSet<int> readableFiles = m_guard->existingFiles();
         m_analysis = analyzeRepairData(*m_target, m_files, m_savePath, &m_cancelled, &readableFiles);
         m_error = m_analysis.error;
@@ -300,7 +524,8 @@ void RepairService::apply()
 void RepairService::releaseOwnership()
 {
     m_drainTimeout.stop();
-    if (m_ownsTorrent && m_torrent && (m_state == State::Rechecking))
+    m_persistenceWatcher.cancel();
+    if (m_ownsTorrent && m_torrent && ((m_state == State::Rechecking) || m_staged))
     {
         m_torrent->stop();
         auto *session = static_cast<SessionImpl *>(m_torrent->session());
@@ -312,9 +537,131 @@ void RepairService::releaseOwnership()
     m_ownsTorrent = false;
 }
 
+void RepairService::analyzeStaged(const QStringList &sourceRoots, const QMap<int, QString> &mappings)
+{
+    if (m_state != State::Idle)
+        return;
+    m_staged = true;
+    m_sourceRoots = sourceRoots;
+    m_sourceMappings = mappings;
+    analyze();
+}
+
+void RepairService::recoverStaged()
+{
+    if (m_state != State::Idle)
+        return;
+    m_staged = true;
+    m_recovering = true;
+    analyze();
+}
+
+void RepairService::prepareStaged()
+{
+    if (!m_staged || !m_staging || (m_state != State::Ready))
+        return;
+    if (m_recovering)
+    {
+        if (m_staging->state() == u"downloading")
+        {
+            m_guard = RepairFileGuard::open(m_files, m_staging->payloadPath(), false, m_error, &m_cancelled);
+            if (!m_guard || (m_guard->existingFiles().size() != m_torrent->filesCount()))
+            {
+                fail(m_error.isEmpty() ? tr("Staged files are missing. Roll back and prepare a new independent staging directory.") : m_error);
+                return;
+            }
+            m_guard->releaseFiles();
+            m_state = State::SwitchingStaging;
+            m_torrent->switchRepairStorage(Path(m_staging->payloadPath()));
+            publishStaging();
+        }
+        else
+        {
+            fail(tr("Use commit recovery or rollback for this interrupted operation."));
+        }
+        return;
+    }
+    m_state = State::PersistingPlan;
+    publishStaging();
+    m_drainTimeout.start();
+    m_persistenceWatcher.setFuture(static_cast<SessionImpl *>(m_torrent->session())->persistRepairLocation(
+        m_torrent, Path(m_savePath)));
+}
+
+void RepairService::prepareStagingData()
+{
+    m_state = State::PreparingStaging;
+    runWorker([this]
+    {
+        if (!m_staging->prepare(m_error, &m_cancelled))
+            return;
+        m_guard.reset();
+        m_guard = RepairFileGuard::open(m_files, m_staging->payloadPath(), false, m_error, &m_cancelled);
+        if (m_guard)
+            m_guard->releaseFiles();
+    });
+}
+
+void RepairService::verifyStaging()
+{
+    m_state = State::VerifyingStaging;
+    runWorker([this] { m_staging->verify(*m_target, m_error, &m_cancelled); });
+}
+
+void RepairService::commitStaged()
+{
+    if (!m_staging || ((m_state != State::ReadyToCommit) && !(m_recovering && (m_state == State::Ready))))
+        return;
+    m_guard.reset();
+    m_state = State::CommittingStaging;
+    publishStaging();
+    snapshotOtherFiles();
+    runWorker([this]
+    {
+        m_error = conflictingTorrent();
+        if (m_error.isEmpty())
+            m_staging->commit(*m_target, m_error, &m_cancelled);
+    });
+}
+
+void RepairService::rollbackStaged()
+{
+    if (!m_staging || !m_ownsTorrent || m_watcher.isRunning()
+        || ((m_state != State::Ready) && (m_state != State::ReadyToCommit) && (m_state != State::DownloadingStaging)))
+        return;
+    m_rollingBack = true;
+    m_guard.reset();
+    m_torrent->stop();
+    m_state = State::DrainingStaging;
+    publishStaging();
+    m_drainTimeout.start();
+    m_drainWatcher.setFuture(static_cast<SessionImpl *>(m_torrent->session())->drainTorrentDisk(m_torrent));
+}
+
+QJsonObject RepairService::stagingStatus() const
+{
+    if (!m_staging)
+        return {};
+    QJsonObject status = m_staging->status();
+    const QString state = m_staging->state();
+    status.insert(QStringLiteral("finalized"), (m_state == State::Finished) && m_error.isEmpty());
+    status.insert(QStringLiteral("can_prepare"), (m_state == State::Ready) && ((state == u"planned") || (state == u"downloading")));
+    status.insert(QStringLiteral("can_commit"), (m_state == State::ReadyToCommit) || ((m_state == State::Ready) && m_recovering
+        && ((state == u"ready_to_commit") || (state == u"committing") || (state == u"committed"))));
+    status.insert(QStringLiteral("can_rollback"), m_ownsTorrent && !m_watcher.isRunning() && (state != u"planned")
+        && ((m_state == State::Ready) || (m_state == State::ReadyToCommit) || (m_state == State::DownloadingStaging)));
+    return status;
+}
+
+void RepairService::publishStaging()
+{
+    emit stagingChanged(stagingStatus());
+}
+
 void RepairService::fail(const QString &error)
 {
+    m_error = error;
     releaseOwnership();
     m_state = State::Finished;
-    emit failed(error);
+    emit failed(m_error);
 }

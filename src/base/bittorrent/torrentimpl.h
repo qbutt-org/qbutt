@@ -81,7 +81,8 @@ namespace BitTorrent
         None,
         HandleMetadata,
         Repair,
-        RepairChecking
+        RepairChecking,
+        StagingRecovery
     };
 
     struct FileErrorInfo
@@ -266,8 +267,11 @@ namespace BitTorrent
 
         bool needSaveResumeData() const;
 
-        nonstd::expected<void, QString> beginRepair();
+        nonstd::expected<void, QString> beginRepair(bool recover = false);
         void startRepairRecheck();
+        void switchRepairStorage(const Path &path, bool invalidatePieces = false);
+        bool handleRepairStorageMoved(const Path &path, const QString &error = {});
+        void startStagedDownload();
         void endRepair();
         bool isRepairing() const;
 
@@ -296,12 +300,16 @@ namespace BitTorrent
         TrackerEntryStatus updateTrackerEntryStatus(const lt::announce_entry &announceEntry, const QHash<lt::tcp::endpoint, QMap<int, int>> &updateInfo);
         void resetTrackerEntryStatuses();
 
+    signals:
+        void repairStorageChanged(const QString &error);
+
     private:
         using EventTrigger = std::function<void ()>;
 
         std::shared_ptr<const lt::torrent_info> nativeTorrentInfo() const;
 
         void updateStatus(const lt::torrent_status &nativeStatus);
+        void invalidatePieceState();
         void updateProgress();
         void updateState();
 
@@ -358,6 +366,8 @@ namespace BitTorrent
         QQueue<EventTrigger> m_statusUpdatedTriggers;
 
         MaintenanceJob m_maintenanceJob = MaintenanceJob::None;
+        Path m_repairStorageTarget;
+        bool m_repairInvalidatePieces = false;
 
         QList<TrackerEntryStatus> m_trackerEntryStatuses;
         mutable std::optional<TorrentAnnounceStatus> m_announceStatus;

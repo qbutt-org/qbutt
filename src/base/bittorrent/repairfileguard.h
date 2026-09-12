@@ -12,6 +12,7 @@
 #include <libtorrent/fwd.hpp>
 
 #include <QByteArray>
+#include <QMap>
 #include <QSet>
 #include <QString>
 
@@ -25,8 +26,12 @@ namespace BitTorrent
     class RepairFileGuard
     {
     public:
+        // renameChildren permits modification through retained directory handles
+        // during commit. Directory replacement is still denied; callers must
+        // use handle-relative renames, never traverse these paths again.
         static std::shared_ptr<RepairFileGuard> open(const lt::file_storage &files
-            , const QString &savePath, bool writable, QString &error, const std::atomic_bool *cancelled = nullptr);
+            , const QString &savePath, bool writable, QString &error, const std::atomic_bool *cancelled = nullptr
+            , bool renameChildren = false);
         ~RepairFileGuard();
 
         QByteArray identity() const;
@@ -34,6 +39,7 @@ namespace BitTorrent
         bool truncateOversized(QString &error, const std::atomic_bool *cancelled = nullptr);
         // Permit engine file I/O while retaining directory identities until recheck completes.
         void releaseFiles();
+        void *directoryHandle(const QString &path) const;
 
     private:
         RepairFileGuard() = default;
@@ -47,7 +53,7 @@ namespace BitTorrent
             qint64 actualSize = 0;
         };
 
-        std::vector<void *> m_directories;
+        QMap<QString, void *> m_directoryHandles;
         std::vector<File> m_files;
         QByteArray m_identity;
         bool m_writable = false;

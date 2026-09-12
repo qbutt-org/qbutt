@@ -38,6 +38,7 @@ bun run smoke:native
 bun run smoke:proxy
 bun run smoke:network
 bun run smoke:repair
+bun run smoke:staging
 bun run smoke:completion
 bun run smoke:mixed
 bun run smoke:path-auth
@@ -66,6 +67,30 @@ It checks authentication even with localhost exemption enabled, exact verified-b
 accounting, and missing nonzero targets. An absent zero-length target must reject
 apply without creating files.
 It drives the real session through standard recheck and download after apply.
+
+`smoke:staging` uses independent copies and the same native downloader for full
+and selected v1/v2/hybrid targets. It checks a read-only plan, renamed-source
+indexing, source write exclusion, allocation estimates, exact selected commit,
+unknown-file preservation, restart, and ordinary download after selecting an
+uncommitted file. Source hardlinks/reparse points and new staging hardlinks are
+rejected. A same-size mutation with the original Windows mtime restored must fail
+the commit's hash verification while preserving the original installation.
+
+`smoke:staging-faults` requires a separate integration build configured with
+`-DQBUTT_STAGING_FAULTS=ON` (default OFF; never enable it in a release). It terminates
+the actual app after journal publication and before, during and after each file
+rename. All 68 rollback boundaries and 34 forward-recovery cases restart through
+the normal profile, keep ordinary writers suspended, and verify hashes, exact
+sizes, original files and unknown files. Four additional cases cover absent
+targets and v2/hybrid restart.
+`QBUTT_STAGING_CASE` selects a single
+checkpoint, for example `committing:0:backed_up:renamed` or
+`committing:0:backed_up:renamed@commit`. Fault builds exit 197 at that checkpoint.
+Finalization means the stopped destination resume data received a durable storage
+receipt and the active journal was retired, not merely that file renames ended.
+The finished manifest remains in the profile's staging directory, and original
+backups remain in the destination's operation directory. No recursive cleanup
+is part of these operations.
 
 `smoke:completion` proves that normal completion exits an isolated app when that
 action is enabled, while a held repair prevents auto-exit after another torrent
@@ -118,5 +143,6 @@ own evidence; any failed scenario makes the suite fail.
 
 This local TCP lab does not prove physical VPS egress, throughput gain, DNS/UDP/
 uTP/DHT isolation, Koala coexistence, public inbound, or Tunnels only. It also does
-not implement network namespaces/netem, source-volume failure or safe-update
-crash recovery; those require their own integration environments.
+not implement network namespaces/netem or physical source-volume/power failure;
+those require their own integration environments. Staging crash tests cover
+abrupt process termination on the local Windows filesystem.

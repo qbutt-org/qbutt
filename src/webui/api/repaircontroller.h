@@ -33,6 +33,9 @@ private slots:
     void statusAction();
     void applyAction();
     void cancelAction();
+    void prepareAction();
+    void commitAction();
+    void rollbackAction();
 
 private:
     void requireOperation() const;

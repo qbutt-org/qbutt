@@ -1,3 +1,8 @@
+option(QBUTT_STAGING_FAULTS "Enable deliberate process termination in staging integration fixtures" OFF)
+if (QBUTT_STAGING_FAULTS)
+    set_property(SOURCE bittorrent/stagingoperation.cpp APPEND PROPERTY COMPILE_DEFINITIONS QBUTT_STAGING_FAULTS)
+endif()
+
 add_library(qbt_base STATIC
     # headers
     3rdparty/expected.hpp
@@ -40,6 +45,7 @@ add_library(qbt_base STATIC
     bittorrent/sharelimits.h
     bittorrent/speedmonitor.h
     bittorrent/sslparameters.h
+    bittorrent/stagingoperation.h
     bittorrent/torrent.h
     bittorrent/torrentannouncestatus.h
     bittorrent/torrentcontenthandler.h
@@ -159,6 +165,7 @@ add_library(qbt_base STATIC
     bittorrent/sessionimpl.cpp
     bittorrent/speedmonitor.cpp
     bittorrent/sslparameters.cpp
+    bittorrent/stagingoperation.cpp
     bittorrent/torrent.cpp
     bittorrent/torrentcontenthandler.cpp
     bittorrent/torrentcontentremover.cpp

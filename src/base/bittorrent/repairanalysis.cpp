@@ -94,8 +94,17 @@ namespace
             file.problems.append(problem);
     }
 
+    bool openInput(QFile &input, const BitTorrent::RepairFileAnalysis &file, const QMap<int, int> *descriptors)
+    {
+        if (descriptors)
+            return input.open(descriptors->value(file.nativeIndex, -1), QIODevice::ReadOnly, QFileDevice::DontCloseHandle)
+                && input.seek(0);
+        input.setFileName(file.path);
+        return input.open(QIODevice::ReadOnly);
+    }
+
     void analyzeV1(const lt::torrent_info &target, BitTorrent::RepairAnalysis &result
-        , const std::vector<int> &fileReports, lt::bitfield &verified, const std::atomic_bool *cancelled)
+        , const std::vector<int> &fileReports, lt::bitfield &verified, const std::atomic_bool *cancelled, const QMap<int, int> *descriptors)
     {
         std::array<char, BlockSize> buffer {};
         const lt::file_storage &files = target.files();
@@ -121,8 +130,7 @@ namespace
                         readable = false;
                         break;
                     }
-                    input.setFileName(file.path);
-                    if (!input.open(QIODevice::ReadOnly) || !input.seek(slice.offset))
+                    if (!openInput(input, file, descriptors) || !input.seek(slice.offset))
                     {
                         recordProblem(file, QCoreApplication::translate("RepairAnalysis", "Cannot read the required file data."));
                         readable = false;
@@ -168,7 +176,7 @@ namespace
     }
 
     void analyzeV2(const lt::torrent_info &target, BitTorrent::RepairAnalysis &result
-        , const std::vector<int> &fileReports, lt::bitfield &verified, const std::atomic_bool *cancelled)
+        , const std::vector<int> &fileReports, lt::bitfield &verified, const std::atomic_bool *cancelled, const QMap<int, int> *descriptors)
     {
         const lt::file_storage &files = target.files();
         std::array<char, BlockSize> buffer {};
@@ -212,8 +220,8 @@ namespace
                 }
             }
 
-            QFile input {file.path};
-            if (!input.open(QIODevice::ReadOnly))
+            QFile input;
+            if (!openInput(input, file, descriptors))
             {
                 recordProblem(file, QCoreApplication::translate("RepairAnalysis", "Cannot read the required file data."));
                 continue;
@@ -271,7 +279,7 @@ namespace
 
 BitTorrent::RepairAnalysis BitTorrent::analyzeRepairData(const lt::torrent_info &target
     , const lt::file_storage &mappedFiles, const QString &savePath, const std::atomic_bool *cancelled
-    , const QSet<int> *readableFiles)
+    , const QSet<int> *readableFiles, const QMap<int, int> *readDescriptors)
 {
     RepairAnalysis result;
     const lt::file_storage &files = target.files();
@@ -296,9 +304,10 @@ BitTorrent::RepairAnalysis BitTorrent::analyzeRepairData(const lt::torrent_info 
         if (!readableFiles || readableFiles->contains(int(index)))
         {
             const QFileInfo fileInfo {file.path};
-            if (fileInfo.exists())
+            QFile input;
+            if (readDescriptors ? openInput(input, file, readDescriptors) : fileInfo.exists())
             {
-                file.actualSize = fileInfo.size();
+                file.actualSize = readDescriptors ? input.size() : fileInfo.size();
                 if (file.actualSize != file.expectedSize)
                 {
                     file.problems.append(QCoreApplication::translate("RepairAnalysis", "File size is %1 bytes; expected exactly %2 bytes.")
@@ -318,9 +327,9 @@ BitTorrent::RepairAnalysis BitTorrent::analyzeRepairData(const lt::torrent_info 
     lt::bitfield v1Verified {target.num_pieces(), !target.v1()};
     lt::bitfield v2Verified {target.num_pieces(), !target.v2()};
     if (target.v1())
-        analyzeV1(target, result, fileReports, v1Verified, cancelled);
+        analyzeV1(target, result, fileReports, v1Verified, cancelled, readDescriptors);
     if (target.v2() && result.error.isEmpty())
-        analyzeV2(target, result, fileReports, v2Verified, cancelled);
+        analyzeV2(target, result, fileReports, v2Verified, cancelled, readDescriptors);
     if (!result.error.isEmpty())
         return result;
 

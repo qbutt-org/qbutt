@@ -12,6 +12,7 @@
 #include <libtorrent/file_storage.hpp>
 
 #include <QFutureWatcher>
+#include <QJsonObject>
 #include <QMap>
 #include <QObject>
 #include <QPointer>
@@ -23,6 +24,7 @@
 namespace BitTorrent
 {
     class RepairFileGuard;
+    class StagingOperation;
     class Torrent;
     class TorrentImpl;
 
@@ -36,12 +38,20 @@ namespace BitTorrent
 
         void analyze();
         void apply();
+        void analyzeStaged(const QStringList &sourceRoots, const QMap<int, QString> &mappings = {});
+        void prepareStaged();
+        void recoverStaged();
+        void commitStaged();
+        void rollbackStaged();
+        QJsonObject stagingStatus() const;
 
     signals:
         void analyzed(const RepairAnalysis &analysis);
         void failed(const QString &error);
         void recheckStarted();
         void recheckFinished();
+        void stagingChanged(const QJsonObject &status);
+        void committedVerified();
 
     private:
         enum class State
@@ -52,6 +62,17 @@ namespace BitTorrent
             Ready,
             Applying,
             Rechecking,
+            PersistingPlan,
+            PreparingStaging,
+            SwitchingStaging,
+            DownloadingStaging,
+            DrainingStaging,
+            VerifyingStaging,
+            ReadyToCommit,
+            CommittingStaging,
+            RollingBackStaging,
+            SwitchingDestination,
+            PersistingDestination,
             Finished
         };
 
@@ -61,6 +82,9 @@ namespace BitTorrent
         void runWorker(std::function<void ()> work);
         void releaseOwnership();
         void fail(const QString &error);
+        void verifyStaging();
+        void prepareStagingData();
+        void publishStaging();
 
         QPointer<TorrentImpl> m_torrent;
         std::shared_ptr<lt::torrent_info> m_target;
@@ -69,7 +93,15 @@ namespace BitTorrent
         QMap<QString, QString> m_otherFiles;
         QMap<QString, QString> m_unresolvedDirectories;
         std::shared_ptr<RepairFileGuard> m_guard;
+        std::unique_ptr<StagingOperation> m_staging;
+        QStringList m_sourceRoots;
+        QMap<int, QString> m_sourceMappings;
+        QSet<int> m_selectedFiles;
+        bool m_staged = false;
+        bool m_recovering = false;
+        bool m_rollingBack = false;
         QFutureWatcher<bool> m_drainWatcher;
+        QFutureWatcher<bool> m_persistenceWatcher;
         QFutureWatcher<void> m_watcher;
         QThreadPool m_worker;
         RepairAnalysis m_analysis;

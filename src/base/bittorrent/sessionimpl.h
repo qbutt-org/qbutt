@@ -63,6 +63,7 @@ class QTimer;
 class QUrl;
 
 template <typename T> class QFuture;
+template <typename T> class QPromise;
 
 class BandwidthScheduler;
 class CustomDiskIOThread;
@@ -484,6 +485,7 @@ namespace BitTorrent
         bool isRepairPathLocked(const Path &path, const TorrentImpl *except = nullptr) const;
         bool hasPendingStorageJobs() const;
         QFuture<bool> drainTorrentDisk(TorrentImpl *torrent);
+        QFuture<bool> persistRepairLocation(TorrentImpl *torrent, const Path &path);
 
         lt::torrent_handle reloadTorrent(const lt::torrent_handle &currentHandle, lt::add_torrent_params params);
 
@@ -822,6 +824,14 @@ namespace BitTorrent
         Utils::Thread::UniquePtr m_ioThread;
         QThreadPool *m_asyncWorker = nullptr;
         ResumeDataStorage *m_resumeDataStorage = nullptr;
+        struct RepairResumeWrite
+        {
+            Path destination;
+            std::shared_ptr<QPromise<bool>> promise;
+            quint64 revision = 0;
+        };
+        QHash<TorrentID, RepairResumeWrite> m_repairResumeWrites;
+        quint64 m_resumeWriteRevision = 0;
         FileSearcher *m_fileSearcher = nullptr;
         TorrentContentRemover *m_torrentContentRemover = nullptr;
 

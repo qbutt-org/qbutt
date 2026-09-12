@@ -66,6 +66,7 @@
 #include <QDeadlineTimer>
 #include <QDebug>
 #include <QDir>
+#include <QFileInfo>
 #include <QFuture>
 #include <QHostAddress>
 #include <QJsonArray>
@@ -114,6 +115,7 @@
 #include "portforwarderimpl.h"
 #include "repairfileguard.h"
 #include "resumedatastorage.h"
+#include "stagingoperation.h"
 #include "torrentcontentremover.h"
 #include "torrentdescriptor.h"
 #include "torrentimpl.h"
@@ -1390,6 +1392,19 @@ void SessionImpl::prepareStartup()
     if (!context->startupStorage)
         context->startupStorage = m_resumeDataStorage;
 
+    connect(m_resumeDataStorage, &ResumeDataStorage::stored, this, [this](const quint64 revision, const bool success)
+    {
+        for (auto it = m_repairResumeWrites.begin(); it != m_repairResumeWrites.end(); ++it)
+        {
+            if (it->revision != revision)
+                continue;
+            it->promise->addResult(success);
+            it->promise->finish();
+            m_repairResumeWrites.erase(it);
+            return;
+        }
+    });
+
     connect(context->startupStorage, &ResumeDataStorage::loadStarted, context
             , [this, context](const QList<TorrentID> &torrents)
     {
@@ -1601,6 +1616,21 @@ void SessionImpl::processNextResumeData(ResumeSessionContext *context)
     });
 
     resumeData.ltAddTorrentParams.userdata = lt::client_data_t(new ExtensionData);
+
+    if (QFileInfo::exists(StagingOperation::journalPath(torrentID.toString())))
+    {
+        // A durable journal precedes every staging write. Even if resume data
+        // still names the old installation, startup must never open it as a
+        // writer while a file-level commit may be half complete.
+        const Path holdPath = specialFolderLocation(SpecialFolder::Data) / Path(u"staging/hold/" + torrentID.toString());
+        resumeData.stopped = true;
+        resumeData.useAutoTMM = false;
+        resumeData.savePath = holdPath;
+        resumeData.downloadPath = {};
+        resumeData.ltAddTorrentParams.save_path = holdPath.toString().toStdString();
+        resumeData.ltAddTorrentParams.flags |= lt::torrent_flags::paused;
+        resumeData.ltAddTorrentParams.flags &= ~lt::torrent_flags::auto_managed;
+    }
 
     qDebug() << "Starting up torrent" << torrentID.toString() << "...";
     m_nativeSession->async_add_torrent(resumeData.ltAddTorrentParams);
@@ -5349,7 +5379,15 @@ void SessionImpl::handleTorrentFinished(TorrentImpl *const torrent)
 
 void SessionImpl::handleTorrentResumeDataReady(TorrentImpl *const torrent, LoadTorrentParams data)
 {
-    m_resumeDataStorage->store(torrent->id(), std::move(data));
+    quint64 revision = 0;
+    auto pending = m_repairResumeWrites.find(torrent->id());
+    if ((pending != m_repairResumeWrites.end()) && (pending->revision == 0) && data.stopped
+        && (data.savePath == pending->destination) && (Path(data.ltAddTorrentParams.save_path) == pending->destination))
+    {
+        revision = ++m_resumeWriteRevision;
+        pending->revision = revision;
+    }
+    m_resumeDataStorage->store(torrent->id(), std::move(data), revision);
     const auto iter = m_changedTorrentIDs.constFind(torrent->id());
     if (iter != m_changedTorrentIDs.cend())
     {
@@ -5393,6 +5431,13 @@ bool SessionImpl::isRepairPathLocked(const Path &path, const TorrentImpl *except
         if (candidate.isEmpty() || owned.isEmpty() || (candidate == owned)
             || candidate.startsWith(owned + u'/') || owned.startsWith(candidate + u'/'))
             return true;
+        if (QFileInfo::exists(StagingOperation::journalPath(torrent->id().toString())))
+        {
+            const QString destination = repairPathIdentity(StagingOperation::pendingDestination(torrent->id().toString()));
+            if (destination.isEmpty() || (candidate == destination) || candidate.startsWith(destination + u'/')
+                || destination.startsWith(candidate + u'/'))
+                return true;
+        }
     }
     return false;
 }
@@ -5406,6 +5451,16 @@ bool SessionImpl::hasPendingStorageJobs() const
 QFuture<bool> SessionImpl::drainTorrentDisk(TorrentImpl *torrent)
 {
     return m_customDiskIO->drainTorrentDisk(torrent->nativeHandle().native_handle());
+}
+
+QFuture<bool> SessionImpl::persistRepairLocation(TorrentImpl *torrent, const Path &path)
+{
+    auto promise = std::make_shared<QPromise<bool>>();
+    promise->start();
+    const QFuture<bool> future = promise->future();
+    m_repairResumeWrites.insert(torrent->id(), {path, promise, 0});
+    torrent->requestResumeData(lt::torrent_handle::save_info_dict);
+    return future;
 }
 
 bool SessionImpl::addMoveTorrentStorageJob(TorrentImpl *torrent, const Path &newPath, const MoveStorageMode mode, const MoveStorageContext context)
@@ -6310,6 +6365,9 @@ void SessionImpl::handleAlertsDroppedAlert(const lt::alerts_dropped_alert *alert
 
 void SessionImpl::handleStorageMovedAlert(const lt::storage_moved_alert *alert)
 {
+    if (TorrentImpl *torrent = getTorrent(alert->handle)
+        ; torrent && torrent->handleRepairStorageMoved(Path {QString::fromUtf8(alert->storage_path())}))
+        return;
     Q_ASSERT(!m_moveStorageQueue.isEmpty());
 
     const MoveStorageJob &currentJob = m_moveStorageQueue.constFirst();
@@ -6327,6 +6385,9 @@ void SessionImpl::handleStorageMovedAlert(const lt::storage_moved_alert *alert)
 
 void SessionImpl::handleStorageMovedFailedAlert(const lt::storage_moved_failed_alert *alert)
 {
+    if (TorrentImpl *torrent = getTorrent(alert->handle)
+        ; torrent && torrent->handleRepairStorageMoved({}, QString::fromStdString(alert->error.message())))
+        return;
     Q_ASSERT(!m_moveStorageQueue.isEmpty());
 
     const MoveStorageJob &currentJob = m_moveStorageQueue.constFirst();
