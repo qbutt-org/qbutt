@@ -2241,11 +2241,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Для восстановления выберите все файлы. Временные имена и перенос в папку ненужных файлов не поддерживаются. Переименование файлов в торренте допускается.</translation>
     </message>
     <message>
-        <location filename="../base/bittorrent/repairservice.cpp" line="139"/>
-        <source>Stop the torrent and wait for checking, adding, moving, renaming, deletion and other repairs to finish before repair.</source>
-        <translation>Остановите торрент и дождитесь завершения проверки, добавления, перемещения, переименования, удаления и других операций восстановления.</translation>
-    </message>
-    <message>
         <location filename="../base/bittorrent/repairservice.cpp" line="174"/>
         <source>Cannot resolve the data directory identity.</source>
         <translation>Не удалось определить фактический путь к папке с данными.</translation>
@@ -2877,6 +2872,30 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
 </context>
 <context>
     <name>BitTorrent::TorrentImpl</name>
+    <message>
+        <source>Stop the torrent before analyzing its data for repair.</source>
+        <translation>Остановите торрент перед анализом файлов для восстановления.</translation>
+    </message>
+    <message>
+        <source>Wait for the torrent metadata before starting repair.</source>
+        <translation>Дождитесь получения метаданных торрента перед восстановлением.</translation>
+    </message>
+    <message>
+        <source>Wait for torrent initialization to finish before starting repair.</source>
+        <translation>Дождитесь завершения инициализации торрента перед восстановлением.</translation>
+    </message>
+    <message>
+        <source>Wait for this torrent's file operations or current repair to finish.</source>
+        <translation>Дождитесь завершения операций с файлами или текущего восстановления этого торрента.</translation>
+    </message>
+    <message>
+        <source>Wait for pending torrent additions, moves and deletions to finish before repair.</source>
+        <translation>Перед восстановлением дождитесь завершения добавления, перемещения и удаления торрентов.</translation>
+    </message>
+    <message>
+        <source>Another repair already owns this data directory.</source>
+        <translation>Папка с данными уже занята другой операцией восстановления.</translation>
+    </message>
     <message>
         <location filename="../base/bittorrent/torrentimpl.cpp" line="853"/>
         <source>Failed to add peer &quot;%1&quot; to torrent &quot;%2&quot;. Reason: %3</source>
