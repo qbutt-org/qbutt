@@ -1,6 +1,11 @@
 name: CI - WebUI
 
-on: [pull_request, push]
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["src/webui/www/**", ".github/workflows/ci_webui.yaml"]
+  push:
+    paths: ["src/webui/www/**", ".github/workflows/ci_webui.yaml"]
 
 permissions: {}
 

@@ -1,6 +1,11 @@
 name: CI - Python
 
-on: [pull_request, push]
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["**.py", ".github/workflows/ci_python.yaml"]
+  push:
+    paths: ["**.py", ".github/workflows/ci_python.yaml"]
 
 permissions: {}
 
