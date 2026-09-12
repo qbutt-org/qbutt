@@ -420,9 +420,10 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
 
 void Net::PathManager::fail(const QString &message)
 {
+    auto *proxyManager = ProxyConfigurationManager::instance();
+    if (proxyManager->hasRuntimeProxy())
+        proxyManager->setRuntimeProxy(blockedRuntimeProxy());
     shutdown();
-    // A dead authenticated endpoint cannot become a direct connection. Keep
-    // the effective proxy and its persisted startup requirement in place.
     reportError(message);
 }
 
@@ -436,6 +437,9 @@ void Net::PathManager::stopPath()
 {
     if (isBusy())
         return;
+    auto *proxyManager = ProxyConfigurationManager::instance();
+    if (proxyManager->hasRuntimeProxy())
+        proxyManager->setRuntimeProxy(blockedRuntimeProxy());
     if (!shutdown())
     {
         reportError(tr("The qbutt-net process has not stopped yet."));

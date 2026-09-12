@@ -128,8 +128,11 @@ bool ProxyConfigurationManager::setRuntimeProxy(const ProxyConfiguration &config
         }
     }
 
-    m_runtimeProxy = config;
-    emit proxyConfigurationChanged();
+    if (!m_runtimeProxy || (*m_runtimeProxy != config))
+    {
+        m_runtimeProxy = config;
+        emit proxyConfigurationChanged();
+    }
     return true;
 }
 
