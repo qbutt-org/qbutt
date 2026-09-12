@@ -60,7 +60,7 @@ namespace BitTorrent
 
         virtual QList<TorrentID> registeredTorrents() const = 0;
         virtual LoadResumeDataResult load(const TorrentID &id) const = 0;
-        virtual void store(const TorrentID &id, LoadTorrentParams resumeData) const = 0;
+        virtual void store(const TorrentID &id, LoadTorrentParams resumeData, quint64 revision = 0) const = 0;
         virtual void remove(const TorrentID &id) const = 0;
         virtual void storeQueue(const QList<TorrentID> &queue) const = 0;
 
@@ -68,6 +68,8 @@ namespace BitTorrent
         QList<LoadedResumeData> fetchLoadedResumeData() const;
 
     signals:
+        // Nonzero caller revisions are acknowledged after the actual file or DB commit.
+        void stored(quint64 revision, bool success);
         void loadStarted(const QList<BitTorrent::TorrentID> &torrents);
         void loadFinished();
 

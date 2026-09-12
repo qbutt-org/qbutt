@@ -28,6 +28,7 @@
 
 #include "dbresumedatastorage.h"
 
+#include <exception>
 #include <memory>
 #include <queue>
 #include <utility>
@@ -81,14 +82,16 @@ namespace
     {
     public:
         virtual ~Job() = default;
-        virtual void perform(QSqlDatabase db) = 0;
+        virtual bool perform(QSqlDatabase db) = 0;
+
+        quint64 revision = 0;
     };
 
     class StoreJob final : public Job
     {
     public:
         StoreJob(const TorrentID &torrentID, LoadTorrentParams resumeData);
-        void perform(QSqlDatabase db) override;
+        bool perform(QSqlDatabase db) override;
 
     private:
         const TorrentID m_torrentID;
@@ -99,7 +102,7 @@ namespace
     {
     public:
         explicit RemoveJob(const TorrentID &torrentID);
-        void perform(QSqlDatabase db) override;
+        bool perform(QSqlDatabase db) override;
 
     private:
         const TorrentID m_torrentID;
@@ -109,7 +112,7 @@ namespace
     {
     public:
         explicit StoreQueueJob(const QList<TorrentID> &queue);
-        void perform(QSqlDatabase db) override;
+        bool perform(QSqlDatabase db) override;
 
     private:
         const QList<TorrentID> m_queue;
@@ -228,12 +231,12 @@ namespace BitTorrent
         Q_DISABLE_COPY_MOVE(Worker)
 
     public:
-        Worker(const Path &dbPath, QReadWriteLock &dbLock, QObject *parent = nullptr);
+        Worker(const Path &dbPath, QReadWriteLock &dbLock, DBResumeDataStorage *storage);
 
         void run() override;
         void requestInterruption();
 
-        void store(const TorrentID &id, LoadTorrentParams resumeData);
+        void store(const TorrentID &id, LoadTorrentParams resumeData, quint64 revision);
         void remove(const TorrentID &id);
         void storeQueue(const QList<TorrentID> &queue);
 
@@ -243,6 +246,7 @@ namespace BitTorrent
         const QString m_connectionName = u"ResumeDataStorageWorker"_s;
         const Path m_path;
         QReadWriteLock &m_dbLock;
+        DBResumeDataStorage *const m_storage;
 
         std::queue<std::unique_ptr<Job>> m_jobs;
         QMutex m_jobsMutex;
@@ -329,9 +333,9 @@ BitTorrent::LoadResumeDataResult BitTorrent::DBResumeDataStorage::load(const Tor
     return parseQueryResultRow(query);
 }
 
-void BitTorrent::DBResumeDataStorage::store(const TorrentID &id, LoadTorrentParams resumeData) const
+void BitTorrent::DBResumeDataStorage::store(const TorrentID &id, LoadTorrentParams resumeData, const quint64 revision) const
 {
-    m_asyncWorker->store(id, std::move(resumeData));
+    m_asyncWorker->store(id, std::move(resumeData), revision);
 }
 
 void BitTorrent::DBResumeDataStorage::remove(const BitTorrent::TorrentID &id) const
@@ -705,10 +709,11 @@ LoadResumeDataResult DBResumeDataStorage::parseQueryResultRow(const QSqlQuery &q
     return resumeData;
 }
 
-BitTorrent::DBResumeDataStorage::Worker::Worker(const Path &dbPath, QReadWriteLock &dbLock, QObject *parent)
-    : QThread(parent)
+BitTorrent::DBResumeDataStorage::Worker::Worker(const Path &dbPath, QReadWriteLock &dbLock, DBResumeDataStorage *storage)
+    : QThread(storage)
     , m_path {dbPath}
     , m_dbLock {dbLock}
+    , m_storage {storage}
 {
 }
 
@@ -718,46 +723,61 @@ void BitTorrent::DBResumeDataStorage::Worker::run()
         auto db = QSqlDatabase::addDatabase(u"QSQLITE"_s, m_connectionName);
         db.setDatabaseName(m_path.data());
         if (!db.open())
-            throw RuntimeError(db.lastError().text());
+            LogMsg(tr("Couldn't open resume data database. Error: %1").arg(db.lastError().text()), Log::CRITICAL);
 
-        int64_t transactedJobsCount = 0;
         while (true)
         {
-            QMutexLocker jobsLocker {&m_jobsMutex};
-
-            if (m_jobs.empty())
+            std::queue<std::unique_ptr<Job>> batch;
             {
-                if (transactedJobsCount > 0)
-                {
-                    db.commit();
-                    m_dbLock.unlock();
-
-                    qDebug() << "Resume data changes are committed. Transacted jobs:" << transactedJobsCount;
-                    transactedJobsCount = 0;
-                }
-
-                if (isInterruptionRequested())
+                QMutexLocker jobsLocker {&m_jobsMutex};
+                while (m_jobs.empty() && !isInterruptionRequested())
+                    m_waitCondition.wait(&m_jobsMutex);
+                if (m_jobs.empty())
                     break;
-
-                m_waitCondition.wait(&m_jobsMutex);
-                if (isInterruptionRequested())
-                    break;
-
-                m_dbLock.lockForWrite();
-                if (!db.transaction())
-                {
-                    LogMsg(tr("Save resume data transaction failed. Error: %1").arg(db.lastError().text()), Log::WARNING);
-                    m_dbLock.unlock();
-                    break;
-                }
+                batch.swap(m_jobs);
             }
 
-            std::unique_ptr<Job> job = std::move(m_jobs.front());
-            m_jobs.pop();
-            jobsLocker.unlock();
+            QList<QPair<quint64, bool>> receipts;
+            bool committed = false;
+            {
+                const QWriteLocker dbLocker {&m_dbLock};
+                const bool transacting = db.isOpen() && db.transaction();
+                if (!transacting)
+                    LogMsg(tr("Save resume data transaction failed. Error: %1").arg(db.lastError().text()), Log::CRITICAL);
 
-            job->perform(db);
-            ++transactedJobsCount;
+                while (!batch.empty())
+                {
+                    std::unique_ptr<Job> job = std::move(batch.front());
+                    batch.pop();
+                    bool success = false;
+                    if (transacting)
+                    {
+                        try
+                        {
+                            success = job->perform(db);
+                        }
+                        catch (const std::exception &error)
+                        {
+                            LogMsg(tr("Couldn't store resume data. Error: %1")
+                                    .arg(QString::fromLocal8Bit(error.what())), Log::CRITICAL);
+                        }
+                    }
+                    if (job->revision != 0)
+                        receipts.append({job->revision, success});
+                }
+
+                if (transacting)
+                {
+                    committed = db.commit();
+                    if (!committed)
+                    {
+                        LogMsg(tr("Commit resume data transaction failed. Error: %1").arg(db.lastError().text()), Log::CRITICAL);
+                        db.rollback();
+                    }
+                }
+            }
+            for (const auto &[revision, success] : asConst(receipts))
+                emit m_storage->stored(revision, success && committed);
         }
 
         db.close();
@@ -768,13 +788,16 @@ void BitTorrent::DBResumeDataStorage::Worker::run()
 
 void DBResumeDataStorage::Worker::requestInterruption()
 {
+    const QMutexLocker jobsLocker {&m_jobsMutex};
     QThread::requestInterruption();
     m_waitCondition.wakeAll();
 }
 
-void BitTorrent::DBResumeDataStorage::Worker::store(const TorrentID &id, LoadTorrentParams resumeData)
+void BitTorrent::DBResumeDataStorage::Worker::store(const TorrentID &id, LoadTorrentParams resumeData, const quint64 revision)
 {
-    addJob(std::make_unique<StoreJob>(id, std::move(resumeData)));
+    auto job = std::make_unique<StoreJob>(id, std::move(resumeData));
+    job->revision = revision;
+    addJob(std::move(job));
 }
 
 void BitTorrent::DBResumeDataStorage::Worker::remove(const TorrentID &id)
@@ -806,7 +829,7 @@ StoreJob::StoreJob(const TorrentID &torrentID, LoadTorrentParams resumeData)
     {
     }
 
-    void StoreJob::perform(QSqlDatabase db)
+    bool StoreJob::perform(QSqlDatabase db)
     {
         // We need to adjust native libtorrent resume data
         lt::add_torrent_params p = m_resumeData.ltAddTorrentParams;
@@ -879,7 +902,7 @@ StoreJob::StoreJob(const TorrentID &torrentID, LoadTorrentParams resumeData)
             {
                 LogMsg(ResumeDataStorage::tr("Couldn't save torrent metadata. Error: %1.")
                         .arg(QString::fromLocal8Bit(err.what())), Log::CRITICAL);
-                return;
+                return false;
             }
 
             columns.append(DB_COLUMN_METADATA);
@@ -935,7 +958,9 @@ StoreJob::StoreJob(const TorrentID &torrentID, LoadTorrentParams resumeData)
         {
             LogMsg(ResumeDataStorage::tr("Couldn't store resume data for torrent '%1'. Error: %2")
                     .arg(m_torrentID.toString(), err.message()), Log::CRITICAL);
+            return false;
         }
+        return true;
     }
 
     RemoveJob::RemoveJob(const TorrentID &torrentID)
@@ -943,7 +968,7 @@ StoreJob::StoreJob(const TorrentID &torrentID, LoadTorrentParams resumeData)
     {
     }
 
-    void RemoveJob::perform(QSqlDatabase db)
+    bool RemoveJob::perform(QSqlDatabase db)
     {
         const auto deleteTorrentStatement = u"DELETE FROM %1 WHERE %2 = %3;"_s
                 .arg(quoted(DB_TABLE_TORRENTS), quoted(DB_COLUMN_TORRENT_ID.name), DB_COLUMN_TORRENT_ID.placeholder);
@@ -963,7 +988,9 @@ StoreJob::StoreJob(const TorrentID &torrentID, LoadTorrentParams resumeData)
         {
             LogMsg(ResumeDataStorage::tr("Couldn't delete resume data of torrent '%1'. Error: %2")
                     .arg(m_torrentID.toString(), err.message()), Log::CRITICAL);
+            return false;
         }
+        return true;
     }
 
     StoreQueueJob::StoreQueueJob(const QList<TorrentID> &queue)
@@ -971,7 +998,7 @@ StoreJob::StoreJob(const TorrentID &torrentID, LoadTorrentParams resumeData)
     {
     }
 
-    void StoreQueueJob::perform(QSqlDatabase db)
+    bool StoreQueueJob::perform(QSqlDatabase db)
     {
         const auto updateQueuePosStatement = u"UPDATE %1 SET %2 = %3 WHERE %4 = %5;"_s
                 .arg(quoted(DB_TABLE_TORRENTS), quoted(DB_COLUMN_QUEUE_POSITION.name), DB_COLUMN_QUEUE_POSITION.placeholder
@@ -997,6 +1024,8 @@ StoreJob::StoreJob(const TorrentID &torrentID, LoadTorrentParams resumeData)
         {
             LogMsg(ResumeDataStorage::tr("Couldn't store torrents queue positions. Error: %1")
                     .arg(err.message()), Log::CRITICAL);
+            return false;
         }
+        return true;
     }
 }

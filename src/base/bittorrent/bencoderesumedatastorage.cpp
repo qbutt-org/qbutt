@@ -28,6 +28,8 @@
 
 #include "bencoderesumedatastorage.h"
 
+#include <exception>
+
 #include <libtorrent/bdecode.hpp>
 #include <libtorrent/entry.hpp>
 #include <libtorrent/read_resume_data.hpp>
@@ -62,7 +64,7 @@ namespace BitTorrent
     public:
         explicit Worker(const Path &resumeDataDir);
 
-        void store(const TorrentID &id, const LoadTorrentParams &resumeData) const;
+        bool store(const TorrentID &id, const LoadTorrentParams &resumeData) const;
         void remove(const TorrentID &id) const;
         void storeQueue(const QList<TorrentID> &queue) const;
 
@@ -348,11 +350,22 @@ BitTorrent::LoadResumeDataResult BitTorrent::BencodeResumeDataStorage::loadTorre
     return torrentParams;
 }
 
-void BitTorrent::BencodeResumeDataStorage::store(const TorrentID &id, LoadTorrentParams resumeData) const
+void BitTorrent::BencodeResumeDataStorage::store(const TorrentID &id, LoadTorrentParams resumeData, const quint64 revision) const
 {
-    QMetaObject::invokeMethod(m_asyncWorker, [this, id, resumeData = std::move(resumeData)]
+    QMetaObject::invokeMethod(m_asyncWorker, [this, id, resumeData = std::move(resumeData), revision]
     {
-        m_asyncWorker->store(id, resumeData);
+        bool success = false;
+        try
+        {
+            success = m_asyncWorker->store(id, resumeData);
+        }
+        catch (const std::exception &error)
+        {
+            LogMsg(tr("Couldn't store resume data for torrent '%1'. Error: %2")
+                    .arg(id.toString(), QString::fromLocal8Bit(error.what())), Log::CRITICAL);
+        }
+        if (revision != 0)
+            emit const_cast<BencodeResumeDataStorage *>(this)->stored(revision, success);
     });
 }
 
@@ -377,7 +390,7 @@ BitTorrent::BencodeResumeDataStorage::Worker::Worker(const Path &resumeDataDir)
 {
 }
 
-void BitTorrent::BencodeResumeDataStorage::Worker::store(const TorrentID &id, const LoadTorrentParams &resumeData) const
+bool BitTorrent::BencodeResumeDataStorage::Worker::store(const TorrentID &id, const LoadTorrentParams &resumeData) const
 {
     // We need to adjust native libtorrent resume data
     lt::add_torrent_params p = resumeData.ltAddTorrentParams;
@@ -422,7 +435,7 @@ void BitTorrent::BencodeResumeDataStorage::Worker::store(const TorrentID &id, co
         {
             LogMsg(tr("Couldn't save torrent metadata to '%1'. Error: %2.")
                    .arg(torrentFilepath.toString(), result.error()), Log::CRITICAL);
-            return;
+            return false;
         }
     }
 
@@ -460,6 +473,7 @@ void BitTorrent::BencodeResumeDataStorage::Worker::store(const TorrentID &id, co
         LogMsg(tr("Couldn't save torrent resume data to '%1'. Error: %2.")
                .arg(resumeFilepath.toString(), result.error()), Log::CRITICAL);
     }
+    return result.has_value();
 }
 
 void BitTorrent::BencodeResumeDataStorage::Worker::remove(const TorrentID &id) const
