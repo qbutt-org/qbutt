@@ -5443,6 +5443,11 @@ void SessionImpl::processPendingFinishedTorrents()
 
     for (TorrentImpl *torrent : asConst(m_pendingFinishedTorrents))
     {
+        // A native finish alert can arrive after Stop and repair admission.
+        // Discard it before external programs and other completion policies run.
+        if (torrent->isRepairing())
+            continue;
+
         LogMsg(tr("Torrent download finished. Torrent: \"%1\"").arg(torrent->name()));
         emit torrentFinished(torrent);
 
