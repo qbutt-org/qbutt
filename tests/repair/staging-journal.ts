@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { createLab, verifyPayload, waitFor } from "../lab";
+import { createLab, verifyPayload, waitFor, type TorrentFile } from "../lab";
 import { assertRecoverySuspended, snapshot } from "./staging-checks";
 
 interface Status {
@@ -23,6 +23,10 @@ try {
     await lab.start();
     const hash = await lab.add("v1", destination);
     await waitFor("journal target stopped", () => lab.info(hash), info => info.state.startsWith("stopped"));
+    const files = await lab.json<TorrentFile[]>(`torrents/files?hash=${hash}`);
+    const skipped = files.find(file => file.name.endsWith("/skip.bin"));
+    assert(skipped, "Expected selectable fixture file");
+    await lab.request("torrents/filePrio", { hash, id: String(skipped.index), priority: "0" });
     let operation = await (await lab.request("qbuttRepair/analyze", {
         hash, mode: "staged", sources: JSON.stringify([join(lab.fixtures, "seed")]),
     })).json() as Status;
@@ -40,6 +44,10 @@ try {
     const before = await snapshot(destination);
     const journalPath = join(lab.root, "profile", process.env.QBUTT_LAB_APP_NAME ?? "qbutt", "data", "staging", `${hash}.json`);
     const valid = await readFile(journalPath, "utf8");
+    const persisted = JSON.parse(valid) as Journal;
+    assert(persisted.files.some(file => file.selected === false && file.verified === undefined),
+        "Valid recovery must exercise an unselected file without a verified identity");
+    assert.equal(persisted.files[0]!.selected, true, "Corrupt variants require a selected first file");
     const changes: [string, (journal: Journal) => void][] = [
         ["missing-selection", journal => { delete journal.files[0]!.selected; }],
         ["wrong-selection-type", journal => { journal.files[0]!.selected = "true"; }],
