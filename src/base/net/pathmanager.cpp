@@ -29,9 +29,10 @@ namespace
     constexpr int MAX_SUBSCRIPTION_BYTES = 2 * 1024 * 1024;
 }
 
-Net::PathManager::PathManager(QObject *parent)
-    : QObject(parent)
-    , m_pathId {QUuid::createUuid().toString(QUuid::WithoutBraces)}
+Net::PathManager *Net::PathManager::m_instance = nullptr;
+
+Net::PathManager::PathManager()
+    : m_pathId {QUuid::createUuid().toString(QUuid::WithoutBraces)}
     , m_status {ProxyConfigurationManager::instance()->hasRuntimeProxy()
         ? tr("Pinned path unavailable. Start a path to reconnect; automatic Native fallback is disabled.")
         : tr("Native / saved connection settings. No qbutt-net path is active.")}
@@ -74,8 +75,19 @@ Net::PathManager::~PathManager()
 
 Net::PathManager *Net::PathManager::instance()
 {
-    static auto *manager = new PathManager(QCoreApplication::instance());
-    return manager;
+    return m_instance;
+}
+
+void Net::PathManager::initInstance()
+{
+    if (!m_instance)
+        m_instance = new PathManager;
+}
+
+void Net::PathManager::freeInstance()
+{
+    delete m_instance;
+    m_instance = nullptr;
 }
 
 bool Net::PathManager::isBusy() const

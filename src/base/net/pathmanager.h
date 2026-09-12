@@ -26,10 +26,12 @@ namespace Net
         Q_OBJECT
         Q_DISABLE_COPY_MOVE(PathManager)
 
-    public:
-        explicit PathManager(QObject *parent = nullptr);
+        PathManager();
         ~PathManager() override;
 
+    public:
+        static void initInstance();
+        static void freeInstance();
         static PathManager *instance();
         bool isBusy() const;
         bool isOpen() const;
@@ -45,19 +47,21 @@ namespace Net
             const QString &interfaceName);
         void useNative();
         void stopPath();
-        bool shutdown();
 
     signals:
         void changed();
         void proxiesLoaded(const QJsonArray &proxies);
 
     private:
+        static PathManager *m_instance;
+
         void request(QJsonObject message);
         void send(QJsonObject message);
         void readOutput();
         void handleResponse(const QJsonObject &message);
         void fail(const QString &message);
         void reportError(const QString &message);
+        bool shutdown();
 
         QProcess m_process;
         QNetworkAccessManager m_network;
