@@ -66,7 +66,8 @@ $SourceDir = (Resolve-Path -LiteralPath $SourceDir).Path
 $BuildRoot = [IO.Path]::GetFullPath($BuildRoot)
 $DependencyRoot = [IO.Path]::GetFullPath($DependencyRoot)
 New-Item -ItemType Directory -Force $BuildRoot, $DependencyRoot | Out-Null
-$lock = Get-Content (Join-Path $PSScriptRoot '../upstream-lock.json') -Raw | ConvertFrom-Json
+$lockPath = Join-Path $SourceDir 'upstream-lock.json'
+$lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
 $pins = $lock.windows
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -146,8 +147,14 @@ if (-not (Test-Path "$qtRoot/bin/qmake.exe") -or $missingQtArchives.Count) {
 foreach ($archive in $pins.qt.archives) {
     Assert-Sha256 (Join-Path $qtArchives $archive.file) $archive.sha256
 }
-$qtLicense = Join-Path $DependencyRoot 'qt-LGPL-3.0-only.txt'
-Save-VerifiedDownload $qtLicense $pins.qt.license.url $pins.qt.license.sha256
+$qtLicenses = Join-Path $DependencyRoot 'qt-licenses'
+New-Item -ItemType Directory -Force $qtLicenses | Out-Null
+$qtLicensePaths = @(foreach ($license in $pins.qt.licenseFiles) {
+    if ([IO.Path]::GetFileName($license.file) -ne $license.file) { throw "Unsafe Qt license filename: $($license.file)" }
+    $licensePath = Join-Path $qtLicenses $license.file
+    Save-VerifiedDownload $licensePath $license.url $license.sha256
+    $licensePath
+})
 
 $libtorrent = Join-Path $DependencyRoot 'qbutt-libtorrent'
 Initialize-Source $libtorrent $pins.libtorrent
@@ -182,7 +189,7 @@ finally { Pop-Location }
 
 Invoke-Native $cmake (@('-S', $SourceDir, '-B', $BuildRoot) + $common + @(
     "-DLibtorrentRasterbar_DIR=$libtorrent/install/lib/cmake/LibtorrentRasterbar", "-DCMAKE_PREFIX_PATH=$qtRoot",
-    '-DMSVC_RUNTIME_DYNAMIC=ON', '-DTESTING=OFF'))
+    '-DMSVC_RUNTIME_DYNAMIC=ON', '-DTESTING=OFF', '-DQBUTT_STAGING_FAULTS=OFF', '-DQBUTT_COMPLETION_FAULTS=OFF'))
 Invoke-Native $cmake @('--build', $BuildRoot, '--parallel', "$Parallel")
 
 $portable = Join-Path $BuildRoot 'portable'
@@ -203,7 +210,7 @@ Invoke-Native "$qtRoot/bin/windeployqt.exe" @('--release', '--no-compiler-runtim
     '--exclude-plugins', 'qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql', '--dir', $portable, (Join-Path $portable 'qbutt.exe'))
 Copy-Item -Path (Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT/*.dll') -Destination $portable
 Copy-Item -LiteralPath (Join-Path $SourceDir 'COPYING'), (Join-Path $SourceDir 'COPYING.GPLv2'), (Join-Path $SourceDir 'COPYING.GPLv3'),
-    (Join-Path $SourceDir 'AUTHORS'), (Join-Path $PSScriptRoot '../upstream-lock.json') -Destination $portable
+    (Join-Path $SourceDir 'AUTHORS'), $lockPath -Destination $portable
 Copy-Item -LiteralPath (Join-Path $SourceDir 'dist/windows/qt.conf') -Destination $portable
 $licenses = Join-Path $portable 'licenses'
 New-Item -ItemType Directory -Path $licenses | Out-Null
@@ -213,7 +220,9 @@ Copy-Item -LiteralPath "$libtorrent/LICENSE" -Destination "$licenses/libtorrent.
 Copy-Item -LiteralPath "$boost/LICENSE_1_0.txt" -Destination "$licenses/boost.txt"
 Copy-Item -LiteralPath "$vcpkg/installed/x64-windows-static-md-release/share/openssl/copyright" -Destination "$licenses/openssl.txt"
 Copy-Item -LiteralPath "$vcpkg/installed/x64-windows-static-md-release/share/zlib/copyright" -Destination "$licenses/zlib.txt"
-Copy-Item -LiteralPath $qtLicense -Destination "$licenses/qt-LGPL-3.0.txt"
+$qtPortableLicenses = Join-Path $licenses 'qt'
+New-Item -ItemType Directory -Path $qtPortableLicenses | Out-Null
+Copy-Item -LiteralPath $qtLicensePaths -Destination $qtPortableLicenses
 Copy-Item -Path "$qtRoot/sbom/*.spdx.json" -Destination $licenses
 Push-Location $net
 try {
@@ -231,13 +240,14 @@ Linked dependency attributions: licenses/qbutt-net-notices.txt and licenses/qbut
 Go runtime license: licenses/go.txt. Pinned toolchain and standard library source:
 $($pins.go.url)
 
-Qt $($pins.qt.version) is dynamically linked under LGPLv3 (licenses/qt-LGPL-3.0.txt).
-Qt library and bundled third-party notices are recorded in licenses/*.spdx.json.
+Qt $($pins.qt.version) is dynamically linked under LGPLv3 (licenses/qt/qtbase-LGPL-3.0-only.txt).
+Qt library and bundled third-party notices are recorded in licenses/*.spdx.json;
+the corresponding license texts are included in licenses/qt/.
 Corresponding Qt source, including third-party licenses and build instructions:
 $($pins.qt.sourceUrl)
 The Qt DLLs can be replaced with compatible modified builds of the pinned Qt version.
 
-libtorrent source: https://github.com/arvidn/libtorrent/tree/$($pins.libtorrent.commit)
+libtorrent source: $($pins.libtorrent.repository -replace '\.git$', '')/tree/$($pins.libtorrent.commit)
 Boost source: $($pins.boost.url)
 OpenSSL and zlib source recipes, source checksums, and patches:
 https://github.com/microsoft/vcpkg/tree/$($pins.vcpkg.commit)/ports/openssl
@@ -261,7 +271,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
     go = $goVersion
     bun = (& $bun --version)
     qt = $pins.qt.version
-    dependencyLockSha256 = (Get-FileHash (Join-Path $PSScriptRoot '../upstream-lock.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+    dependencyLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
 } | ConvertTo-Json | Set-Content (Join-Path $portable 'build-manifest.json')
 Compress-Archive -Path "$portable/*" -DestinationPath (Join-Path $BuildRoot 'qbutt-windows-x64.zip') -Force
 Write-Output "Portable build: $portable"
