@@ -8,3 +8,7 @@ add_executable(selector-integration
 )
 target_compile_features(selector-integration PRIVATE cxx_std_20)
 target_link_libraries(selector-integration PRIVATE LibtorrentRasterbar::torrent-rasterbar)
+
+add_executable(route-policy-integration route-policy.cpp)
+target_compile_features(route-policy-integration PRIVATE cxx_std_20)
+target_link_libraries(route-policy-integration PRIVATE LibtorrentRasterbar::torrent-rasterbar)

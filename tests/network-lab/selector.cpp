@@ -19,6 +19,7 @@
 #include <libtorrent/session.hpp>
 #include <libtorrent/settings_pack.hpp>
 #include <libtorrent/torrent_info.hpp>
+#include <libtorrent/torrent_route_policy.hpp>
 #include <libtorrent/torrent_status.hpp>
 
 #include "../../src/base/net/peerrouteselector.h"
@@ -233,12 +234,19 @@ int main(const int argc, char **argv)
     settings.set_int(lt::settings_pack::out_enc_policy, lt::settings_pack::pe_disabled);
     settings.set_int(lt::settings_pack::in_enc_policy, lt::settings_pack::pe_disabled);
     std::vector<lt::peer_route> routes;
+    lt::torrent_route_policy torrentPolicy;
+    torrentPolicy.mode = lt::torrent_route_policy::mode_t::managed;
+    torrentPolicy.pinned = {1, 7};
     for (unsigned int index = 0; index < 3; ++index)
     {
         lt::peer_route route;
         route.type = lt::peer_route::type_t::native;
         route.context = {index + 1, 7};
         route.local_endpoint = {lt::address_v4::loopback(), 0};
+        lt::network_route networkRoute;
+        networkRoute.binding = route;
+        networkRoute.family = lt::route_family::ipv4;
+        torrentPolicy.routes.push_back(std::move(networkRoute));
         routes.push_back(std::move(route));
     }
     auto selector = std::make_shared<Net::PeerRouteSelector>(std::move(routes), true);
@@ -253,6 +261,9 @@ int main(const int argc, char **argv)
     std::atomic<int> privatePath = 0;
     std::atomic<int> failures = 0;
     lt::session client {settings};
+    if (client.set_torrent_route_policy_selector(
+        [torrentPolicy](const lt::torrent_route_request &) { return torrentPolicy; }))
+        return 12;
     client.set_peer_route_selector([&](const lt::peer_route_request &request)
     {
         const lt::peer_route route = selector->select(request);
@@ -346,11 +357,16 @@ int main(const int argc, char **argv)
         return 7;
     }
 
-    // New infohashes make real new dials through the same selector. The measured
-    // productive route beats an untried failure-free route except for the
-    // admitted 10% exploration budget; failure avoidance alone cannot pass.
+    // New infohashes make real new dials through the same selector. It first
+    // covers the one route not exercised by failover, then the measured
+    // productive route wins except for the admitted 10% exploration budget.
     const std::int64_t originalCredit = verified[1];
     const std::int64_t retryCredit = verified[2];
+    auto invalidPolicy = torrentPolicy;
+    invalidPolicy.routes.push_back(invalidPolicy.routes.front());
+    if (!client.set_torrent_route_policy_selector(
+        [invalidPolicy](const lt::torrent_route_request &) { return invalidPolicy; }))
+        return 13;
     for (int index = 0; index < 20; ++index)
     {
         lt::entry entry = creator.generate();
@@ -367,11 +383,12 @@ int main(const int argc, char **argv)
             return 8;
         client.remove_torrent(next);
     }
-    const int explored = firstPathAttempts + thirdPathAttempts - 1;
+    const int coldCoverageAndExploration = firstPathAttempts + thirdPathAttempts - 1;
     const int publicAttempts = attempts;
-    if ((publicAttempts != 22) || (explored != publicAttempts / 10))
+    if ((publicAttempts != 22) || (coldCoverageAndExploration != 1 + publicAttempts / 10))
     {
-        std::cerr << "publicAttempts=" << publicAttempts << " explored=" << explored << '\n';
+        std::cerr << "publicAttempts=" << publicAttempts
+            << " coldCoverageAndExploration=" << coldCoverageAndExploration << '\n';
         return 9;
     }
 
@@ -405,7 +422,9 @@ int main(const int argc, char **argv)
         << ",\"originalRouteVerifiedBytes\":" << originalCredit
         << ",\"retryRouteVerifiedBytes\":" << retryCredit
         << ",\"chokedMilliseconds\":" << chokedMilliseconds
-        << ",\"publicAttempts\":" << publicAttempts << ",\"explorationAttempts\":" << explored
+        << ",\"publicAttempts\":" << publicAttempts
+        << ",\"coldCatalogCoverage\":1,\"explorationAttempts\":" << coldCoverageAndExploration - 1
         << ",\"privatePinned\":true,\"unknownMetadataPinned\":true"
-        << ",\"networkFailureRetry\":true,\"immutableBlockOrigin\":true}\n";
+        << ",\"networkFailureRetry\":true,\"immutableBlockOrigin\":true"
+        << ",\"torrentPolicyBarrier\":true}\n";
 }

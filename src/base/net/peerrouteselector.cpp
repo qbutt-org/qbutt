@@ -126,9 +126,12 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
     if (!selected)
         return blocked;
 
-    // At most every tenth admitted public dial explores. All dials still share
-    // libtorrent's global connection and connection-attempt budgets.
-    if ((++m_attempts % 10) == 0)
+    // Cover a new catalog once before throughput rewards can make an already
+    // productive route dominate every new peer. Later, one in ten admitted
+    // public dials explores. All attempts still share libtorrent's limits.
+    ++m_attempts;
+    const RouteKey leastTriedKey {leastTried->context.path_id, leastTried->context.generation};
+    if ((m_history.at(leastTriedKey).attempts == 0) || ((m_attempts % 10) == 0))
         selected = leastTried;
     ++m_history.at({selected->context.path_id, selected->context.generation}).attempts;
     return *selected;
