@@ -18,13 +18,13 @@ The initial repair operation requires one save directory on a fixed local Window
 
 ## Build and verify
 
-Use Windows x64, Visual Studio 2022 with the C++ desktop workload, CMake, Git, Python 3.12 and Go. From PowerShell:
+Use Windows x64, Visual Studio 2022 with the C++ desktop workload and Windows SDK, CMake, Git and Python 3.12. From PowerShell:
 
 ```powershell
 ./scripts/build-windows.ps1
 ```
 
-The script retrieves pinned Qt, Boost, libtorrent, OpenSSL, zlib and qbutt-net dependencies, then writes the portable ZIP and build manifest under `%LOCALAPPDATA%/qbutt/build`. The manifest identifies the source revision and whether the application checkout was dirty.
+The script retrieves pinned Qt, Boost, libtorrent, OpenSSL, zlib, Go, Ninja and qbutt-net dependencies, then writes the portable ZIP and build manifest under `%LOCALAPPDATA%/qbutt/build`. The manifest identifies the source revision and whether the application checkout was dirty.
 
 [The integration lab](tests/README.md) uses Bun and generated legal v1, v2 and hybrid torrents to exercise the real application, repair, a local seed and transport failure/retry. No public swarm or existing user profile is used by the lab. [Transport capabilities](docs/capabilities.md) distinguish available adapters from measured behavior.
 
