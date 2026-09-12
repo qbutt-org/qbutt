@@ -33,6 +33,7 @@
 #include <concepts>
 #include <cstdint>
 #include <ctime>
+#include <memory>
 #include <ranges>
 #include <string>
 
@@ -54,6 +55,8 @@
 #include <libtorrent/extensions/ut_pex.hpp>
 #include <libtorrent/ip_filter.hpp>
 #include <libtorrent/magnet_uri.hpp>
+#include <libtorrent/peer_info.hpp>
+#include <libtorrent/peer_route.hpp>
 #include <libtorrent/session.hpp>
 #include <libtorrent/session_stats.hpp>
 #include <libtorrent/session_status.hpp>
@@ -84,6 +87,8 @@
 #include "base/global.h"
 #include "base/logger.h"
 #include "base/net/downloadmanager.h"
+#include "base/net/peerroute.h"
+#include "base/net/peerrouteselector.h"
 #include "base/net/proxyconfigurationmanager.h"
 #include "base/preferences.h"
 #include "base/profile.h"
@@ -1831,6 +1836,7 @@ lt::settings_pack SessionImpl::loadLTSettings() const
         | lt::alert::file_progress_notification
         | lt::alert::ip_block_notification
         | lt::alert::peer_notification
+        | lt::alert_category::connect
         | (isPerformanceWarningEnabled() ? lt::alert::performance_warning : lt::alert_category_t())
         | lt::alert::port_mapping_notification
         | lt::alert::status_notification
@@ -1896,6 +1902,7 @@ lt::settings_pack SessionImpl::loadLTSettings() const
     // proxy
     settingsPack.set_int(lt::settings_pack::proxy_type, lt::settings_pack::none);
     const auto *proxyManager = Net::ProxyConfigurationManager::instance();
+    settingsPack.set_bool(lt::settings_pack::proxy_require_authentication, proxyManager->hasRuntimeProxy());
     const Net::ProxyConfiguration proxyConfig = proxyManager->proxyConfiguration();
     if ((proxyConfig.type != Net::ProxyType::None)
         && (proxyManager->hasRuntimeProxy() || Preferences::instance()->useProxyForBT()))
@@ -4219,6 +4226,81 @@ bool SessionImpl::canSwitchConnectionMode() const
         && m_nativeSession->get_torrents().empty();
 }
 
+void SessionImpl::setPeerRoutes(const QList<Net::PeerRouteEndpoint> &endpoints, const bool mixed)
+{
+    std::vector<lt::peer_route> routes;
+    routes.reserve(endpoints.size());
+    for (const Net::PeerRouteEndpoint &endpoint : endpoints)
+    {
+        lt::peer_route route;
+        route.type = lt::peer_route::type_t::blocked;
+        route.context = {endpoint.pathId, endpoint.generation};
+        route.proxy_endpoint = {lt::address_v4::loopback(), endpoint.port};
+        route.username = endpoint.username.toStdString();
+        route.password = endpoint.password.toStdString();
+        if (endpoint.type == Net::PeerRouteEndpoint::Type::Socks5)
+        {
+            route.type = lt::peer_route::type_t::socks5;
+        }
+        else if (endpoint.type == Net::PeerRouteEndpoint::Type::Native)
+        {
+            lt::error_code error;
+            const lt::address address = lt::make_address(endpoint.localAddress.toStdString(), error);
+            if (!error && !address.is_unspecified() && (endpoint.interfaceIndex > 0))
+            {
+                route.type = lt::peer_route::type_t::native;
+                route.local_endpoint = {address, 0};
+#ifdef Q_OS_WIN
+                route.native_interface_index = endpoint.interfaceIndex;
+#endif
+            }
+        }
+        routes.push_back(std::move(route));
+    }
+
+    // Selection and verified feedback share one owner on libtorrent's thread.
+    // Replacing both callbacks is a synchronous catalog barrier.
+    const auto selector = std::make_shared<Net::PeerRouteSelector>(std::move(routes), mixed);
+    m_nativeSession->set_peer_route_selector(
+        [selector](const lt::peer_route_request &request) { return selector->select(request); },
+        [selector](const lt::peer_route_observation &observation) { selector->observe(observation); });
+}
+
+void SessionImpl::resetPeerRoutes()
+{
+    m_nativeSession->set_peer_route_selector({});
+}
+
+void SessionImpl::invalidatePeerRoute(const quint64 pathId, const quint64 generation)
+{
+    m_nativeSession->invalidate_peer_route({pathId, generation});
+}
+
+QJsonArray SessionImpl::peerRouteStatus() const
+{
+    QJsonArray result;
+    for (const TorrentImpl *torrent : asConst(m_torrents))
+    {
+        std::vector<lt::peer_info> peers;
+        torrent->nativeHandle().get_peer_info(peers);
+        for (const lt::peer_info &peer : peers)
+        {
+            if (peer.route.path_id == 0)
+                continue;
+            result.append(QJsonObject {{u"pathId"_s, QString::number(peer.route.path_id)},
+                {u"generation"_s, static_cast<qint64>(peer.route.generation)},
+                {u"infoHash"_s, torrent->infoHash().toString()},
+                {u"peer"_s, QString::fromStdString(peer.ip.address().to_string())},
+                {u"port"_s, peer.ip.port()},
+                {u"localAddress"_s, QString::fromStdString(peer.local_endpoint.address().to_string())},
+                {u"localPort"_s, peer.local_endpoint.port()},
+                {u"payloadDownload"_s, static_cast<qint64>(peer.route_payload_download)},
+                {u"payloadUpload"_s, static_cast<qint64>(peer.route_payload_upload)}});
+        }
+    }
+    return result;
+}
+
 bool SessionImpl::hasActiveRepair() const
 {
     return std::ranges::any_of(asConst(m_torrents), [](const TorrentImpl *torrent) { return torrent->isRepairing(); });
@@ -5755,6 +5837,13 @@ void SessionImpl::handleAlert(lt::alert *alert)
     {
         switch (alert->type())
         {
+        case lt::peer_route_alert::alert_type:
+            {
+                const auto *route = static_cast<const lt::peer_route_alert *>(alert);
+                emit peerRouteClosed(route->route.path_id, route->route.generation,
+                    route->route_payload_download, route->route_payload_upload);
+            }
+            break;
         case lt::file_prio_alert::alert_type:
             handleFilePrioAlert(static_cast<const lt::file_prio_alert *>(alert));
             break;

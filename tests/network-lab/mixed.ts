@@ -11,7 +11,8 @@ import { startProxy } from "./proxy";
 interface PathsStatus {
     busy: boolean;
     mode: string;
-    paths: { pathId: string; generation: number; edgeId: string; open: boolean; localAddress?: string }[];
+    paths: { pathId: string; generation: number; edgeId: string; open: boolean; localAddress?: string;
+        closedPayloadDownload?: number }[];
     peers: { pathId: string; generation: number; peer: string; port: number; localAddress: string; localPort: number;
         infoHash: string; payloadDownload: number; payloadUpload: number }[];
 }
@@ -65,7 +66,7 @@ try {
         subsets.push({ pieces, bytes, path, hashes });
         const seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root,
             { savePath: path, pieces, label: `partial-${side}`, listenAddress: native && side === 3 ? nativeAddress : undefined,
-                uploadRate: native ? 32 * 1024 : undefined });
+                uploadRate: native ? 8 * 1024 : undefined });
         seeds.push(seed);
         assert.deepEqual(seed.pieces, pieces, "Native seed did not verify its exact complementary bitmap");
         assert(seed.verifiedPayloadBytes === bytes, "Native partial seed verified-byte count differs from physical layout");
@@ -177,13 +178,20 @@ try {
             await lab.request("torrents/start", { hashes: hash });
             const order = retry ? [1, 0] : sides;
             const failuresBefore = proxies.map(proxy => proxy.stats.deniedConnections);
+            const endpoints = order.map(side => ({ side,
+                host: native && side === 3 ? nativeAddress! : `127.0.0.${side + (retry ? 4 : 2)}` }));
+            // Admit all complementary peers together. The native fixture rate
+            // keeps early peers productive while other routes undergo retries.
+            if (!retry)
+                await lab.request("torrents/addPeers", { hashes: hash,
+                    peers: endpoints.map(({ side, host }) => `${host}:${seeds[side]!.port}`).join("|") });
             let concurrentPeers: PathsStatus["peers"] = [];
-            for (const side of order) {
-                const host = native && side === 3 ? nativeAddress! : `127.0.0.${side + (retry ? 4 : 2)}`;
-                await lab.request("torrents/addPeers", { hashes: hash, peers: `${host}:${seeds[side]!.port}` });
-                if (retry)
+            for (const { side, host } of endpoints) {
+                if (retry) {
+                    await lab.request("torrents/addPeers", { hashes: hash, peers: `${host}:${seeds[side]!.port}` });
                     await waitFor("wrong path rejected before alternative retry", async () => proxies[1 - side]!.stats.deniedConnections,
                         count => count > failuresBefore[1 - side]!);
+                }
                 const observation = await waitFor("peer supplies data through its exclusive path", readPaths, status =>
                     status.peers.some(peer => peer.peer === host && peer.port === seeds[side]!.port && peer.payloadDownload > 16384), 120000);
                 const peer = observation.peers.find(peer => peer.peer === host && peer.port === seeds[side]!.port)!;
@@ -209,8 +217,11 @@ try {
             await lab.request("torrents/stop", { hashes: hash });
             await waitFor("complete target stopped", () => lab.info(hash), info => info.state === "stoppedUP");
             const verifiedBytes = await verifyPayload(destination, lab.manifest.payload);
+            const closed = await waitFor("closed peer payload is retained per path", readPaths, status =>
+                tunnelSides.every(side => (status.paths.find(path => path.pathId === expectedPaths[side]!.pathId)
+                    ?.closedPayloadDownload ?? 0) >= subsets[side]!.bytes * (retry ? 2 : 1)));
             await lab.checkpoint({ check: retry ? "failed-route-retries-alternative-and-completes" : "mixed-complementary-payload",
-                verifiedBytes, exactSizes: true, paths: (await readPaths()).paths,
+                verifiedBytes, exactSizes: true, paths: closed.paths,
                 relay: proxies.map(proxy => ({ ...proxy.stats })) });
             await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
             await waitFor("completed job removed", () => lab.json<unknown[]>("torrents/info"), jobs => jobs.length === 0);
@@ -219,6 +230,12 @@ try {
         await lab.request("qbuttPaths/stop", {});
         const stopped = await readPaths();
         assert(stopped.paths.every(path => !path.open), "Path shutdown retained a live listener");
+        await lab.shutdown();
+        await lab.start();
+        const restored = await readPaths();
+        assert(restored.mode === "mixed" && restored.paths.every(path => !path.open),
+            "Restart did not preserve the blocked managed policy");
+        await lab.checkpoint({ check: "managed-policy-restart", mode: restored.mode, openPaths: 0 });
     }
     await lab.shutdown();
 }

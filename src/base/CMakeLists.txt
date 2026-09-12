@@ -78,6 +78,8 @@ add_library(qbt_base STATIC
     net/geoipdatabase.h
     net/geoipmanager.h
     net/pathmanager.h
+    net/peerroute.h
+    net/peerrouteselector.h
     net/portforwarder.h
     net/proxyconfigurationmanager.h
     net/reverseresolution.h
@@ -184,6 +186,7 @@ add_library(qbt_base STATIC
     net/geoipdatabase.cpp
     net/geoipmanager.cpp
     net/pathmanager.cpp
+    net/peerrouteselector.cpp
     net/portforwarder.cpp
     net/proxyconfigurationmanager.cpp
     net/reverseresolution.cpp

@@ -7,9 +7,11 @@
 
 #include <QGroupBox>
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QPushButton;
 
 namespace Net
@@ -31,9 +33,13 @@ private:
     QLineEdit *m_url;
     QComboBox *m_nodes;
     QComboBox *m_interfaces;
+    QComboBox *m_mode;
+    QCheckBox *m_includeNative;
+    QListWidget *m_paths;
     QPushButton *m_refresh;
     QPushButton *m_localFile;
     QPushButton *m_start;
+    QPushButton *m_disconnect;
     QPushButton *m_native;
     QLabel *m_status;
 };

@@ -5,17 +5,26 @@
 
 #include "pathmanager.h"
 
+#include <algorithm>
+
+#ifdef Q_OS_WIN
+#include <winsock2.h>
+#include <ws2ipdef.h>
+#include <iphlpapi.h>
+#endif
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QNetworkAddressEntry>
+#include <QNetworkInterface>
 #include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QSaveFile>
 #include <QSignalBlocker>
 #include <QUrl>
-#include <QUuid>
 
 #include "base/bittorrent/session.h"
 #include "base/global.h"
@@ -32,14 +41,15 @@ namespace
 Net::PathManager *Net::PathManager::m_instance = nullptr;
 
 Net::PathManager::PathManager()
-    : m_pathId {QUuid::createUuid().toString(QUuid::WithoutBraces)}
-    , m_status {ProxyConfigurationManager::instance()->hasRuntimeProxy()
+    : m_status {ProxyConfigurationManager::instance()->hasRuntimeProxy()
         ? tr("Pinned path unavailable. Start a path to reconnect; automatic Native fallback is disabled.")
         : tr("Native / saved connection settings. No qbutt-net path is active.")}
     , m_storeSubscriptionUrl {u"Network/Paths/SubscriptionUrl"_s}
     , m_storeConfigurationPath {u"Network/Paths/ConfigurationPath"_s}
     , m_storeProxyName {u"Network/Paths/ProxyName"_s}
     , m_storeInterfaceName {u"Network/Paths/InterfaceName"_s}
+    , m_storeMixed {u"Network/Paths/Mixed"_s}
+    , m_storeNativeInterface {u"Network/Paths/NativeInterface"_s}
 {
     m_timeout.setSingleShot(true);
     m_timeout.setInterval(15000);
@@ -66,6 +76,21 @@ Net::PathManager::PathManager()
     {
         fail(tr("qbutt-net stopped. The pinned path remains blocked."));
     });
+    connect(BitTorrent::Session::instance(), &BitTorrent::Session::peerRouteClosed, this,
+        [this](const quint64 pathId, const quint64 generation, const qint64 downloaded, const qint64 uploaded)
+    {
+        for (ActivePath &path : m_paths)
+        {
+            if ((path.endpoint.pathId == pathId) && (path.endpoint.generation == generation))
+            {
+                path.closedPayloadDownload += downloaded;
+                path.closedPayloadUpload += uploaded;
+                break;
+            }
+        }
+    });
+    if (ProxyConfigurationManager::instance()->hasRuntimeProxy())
+        applyRoutes();
 }
 
 Net::PathManager::~PathManager()
@@ -97,7 +122,8 @@ bool Net::PathManager::isBusy() const
 
 bool Net::PathManager::isOpen() const
 {
-    return m_open;
+    return !m_nativeEndpoints.isEmpty()
+        || std::ranges::any_of(m_paths, [](const ActivePath &path) { return path.endpoint.port > 0; });
 }
 
 QString Net::PathManager::status() const
@@ -105,12 +131,34 @@ QString Net::PathManager::status() const
     return m_status;
 }
 
-QJsonObject Net::PathManager::statusData() const
+QJsonObject Net::PathManager::statusData(const bool includePeers) const
 {
-    return {{u"v"_s, 1}, {u"busy"_s, isBusy()}, {u"open"_s, m_open},
+    QJsonArray paths;
+    for (const ActivePath &path : m_paths)
+    {
+        paths.append(QJsonObject {{u"pathId"_s, QString::number(path.endpoint.pathId)},
+            {u"generation"_s, static_cast<qint64>(path.endpoint.generation)},
+            {u"edgeId"_s, path.edgeId}, {u"proxyName"_s, path.proxyName},
+            {u"open"_s, path.endpoint.port > 0},
+            {u"interfaceName"_s, path.interfaceName}, {u"capabilities"_s, path.capabilities},
+            {u"closedPayloadDownload"_s, path.closedPayloadDownload},
+            {u"closedPayloadUpload"_s, path.closedPayloadUpload}});
+    }
+    for (const PeerRouteEndpoint &endpoint : m_nativeEndpoints)
+    {
+        paths.append(QJsonObject {{u"pathId"_s, QString::number(endpoint.pathId)},
+            {u"generation"_s, static_cast<qint64>(endpoint.generation)}, {u"edgeId"_s, u"native"_s},
+            {u"proxyName"_s, tr("Native")}, {u"interfaceName"_s, m_storeNativeInterface.get()},
+            {u"open"_s, m_storeMixed.get()}, {u"localAddress"_s, endpoint.localAddress}});
+    }
+    return {{u"v"_s, 1}, {u"busy"_s, isBusy()}, {u"open"_s, isOpen()},
         {u"pinned"_s, ProxyConfigurationManager::instance()->hasRuntimeProxy()},
         {u"status"_s, m_status}, {u"processId"_s, m_process.processId()},
-        {u"pathId"_s, m_pathId}, {u"generation"_s, m_generation}, {u"nodes"_s, m_proxies},
+        {u"mode"_s, m_storeMixed.get() ? u"mixed"_s : u"pinned"_s},
+        {u"nativeInterface"_s, m_storeNativeInterface.get()},
+        {u"paths"_s, paths},
+        {u"peers"_s, includePeers ? BitTorrent::Session::instance()->peerRouteStatus() : QJsonArray {}},
+        {u"generation"_s, m_generation}, {u"nodes"_s, m_proxies},
         {u"proxyName"_s, proxyName()}, {u"interfaceName"_s, interfaceName()}};
 }
 
@@ -201,11 +249,11 @@ void Net::PathManager::inspectConfiguration(const QString &configPath)
 }
 
 void Net::PathManager::openPath(const QString &configPath, const QString &proxyName,
-    const QString &interfaceName)
+    const QString &interfaceName, const QString &edgeId)
 {
-    if (isBusy() || m_open)
+    if (isBusy())
     {
-        reportError(tr("A path operation is already active. Stop the current path before changing it."));
+        reportError(tr("A path operation is already running."));
         return;
     }
 
@@ -222,17 +270,154 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
         reportError(tr("Select a proxy node and choose its physical interface."));
         return;
     }
-    if (!proxyManager->setRuntimeProxy(blockedRuntimeProxy()))
+    const QString selectedEdge = edgeId.isEmpty() ? proxyName : edgeId;
+    quint64 pathId = 0;
+    for (const ActivePath &path : m_paths)
+    {
+        if (path.edgeId == selectedEdge)
+        {
+            if (path.endpoint.port > 0)
+            {
+                reportError(tr("This edge already has an active transport. Disconnect it before choosing another transport."));
+                return;
+            }
+            pathId = path.endpoint.pathId;
+            break;
+        }
+    }
+    if ((pathId == 0) && (m_paths.size() >= 8))
+    {
+        reportError(tr("Eight edges are already selected. Reset the selection before adding another edge."));
+        return;
+    }
+    if (selectedEdge.toUtf8().size() > 128)
+    {
+        reportError(tr("The edge name must fit within 128 UTF-8 bytes."));
+        return;
+    }
+    if (!proxyManager->hasRuntimeProxy() && !proxyManager->setRuntimeProxy(blockedRuntimeProxy()))
     {
         reportError(tr("Unable to save the pinned startup policy. The path was not started."));
         return;
     }
 
     ++m_generation;
-    m_status = tr("Starting pinned path. Egress and network capabilities have not been probed.");
+    if (pathId == 0)
+        pathId = ++m_nextPathId;
+    m_status = tr("Starting path. Egress and network capabilities have not been probed.");
     request({{u"method"_s, u"open"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
-        {u"proxyName"_s, proxyName}, {u"pathId"_s, m_pathId}, {u"generation"_s, m_generation},
-        {u"interfaceName"_s, interfaceName}});
+        {u"proxyName"_s, proxyName}, {u"pathId"_s, QString::number(pathId)},
+        {u"generation"_s, m_generation}, {u"interfaceName"_s, interfaceName}, {u"edgeId"_s, selectedEdge}});
+}
+
+void Net::PathManager::setPolicy(const QString &mode, const QString &nativeInterface)
+{
+    if (isBusy())
+        return;
+    if ((mode != u"mixed") && (mode != u"pinned"))
+    {
+        reportError(tr("Choose Pinned or Mixed TCP. Other network policies are not available yet."));
+        return;
+    }
+    const bool mixed = (mode == u"mixed");
+    QList<PeerRouteEndpoint> nativeEndpoints;
+    if (mixed && !nativeInterface.isEmpty())
+    {
+        for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces())
+        {
+            if ((iface.name() != nativeInterface) && (iface.humanReadableName() != nativeInterface))
+                continue;
+            if (!iface.flags().testFlag(QNetworkInterface::IsUp)
+                || !iface.flags().testFlag(QNetworkInterface::IsRunning))
+                break;
+#ifdef Q_OS_WIN
+            MIB_IF_ROW2 row {};
+            row.InterfaceIndex = static_cast<NET_IFINDEX>(iface.index());
+            if ((GetIfEntry2(&row) != NO_ERROR) || !row.InterfaceAndOperStatusFlags.HardwareInterface)
+                break;
+#endif
+            bool haveIPv4 = false;
+            bool haveIPv6 = false;
+            for (const QNetworkAddressEntry &entry : iface.addressEntries())
+            {
+                const QHostAddress address = entry.ip();
+                const bool ipv6 = address.protocol() == QAbstractSocket::IPv6Protocol;
+                if (address.isNull() || address.isLoopback() || address.isLinkLocal()
+                    || (ipv6 ? haveIPv6 : haveIPv4))
+                    continue;
+                PeerRouteEndpoint endpoint;
+                endpoint.type = PeerRouteEndpoint::Type::Native;
+                endpoint.pathId = ipv6 ? 2 : 1;
+                endpoint.generation = m_nativeGeneration + 1;
+                endpoint.localAddress = address.toString();
+                endpoint.interfaceIndex = static_cast<quint32>(iface.index());
+                nativeEndpoints.append(std::move(endpoint));
+                (ipv6 ? haveIPv6 : haveIPv4) = true;
+            }
+            break;
+        }
+        if (nativeEndpoints.isEmpty())
+        {
+            reportError(tr("The selected physical Native interface has no usable address."));
+            return;
+        }
+    }
+    const bool previous = m_storeMixed;
+    const QString previousInterface = m_storeNativeInterface;
+    auto *proxyManager = ProxyConfigurationManager::instance();
+    if (!proxyManager->hasRuntimeProxy())
+    {
+        if (!BitTorrent::Session::instance()->canSwitchConnectionMode())
+        {
+            reportError(tr("Starting a managed network policy requires no torrents or metadata downloads."));
+            return;
+        }
+        if (!proxyManager->setRuntimeProxy(blockedRuntimeProxy()))
+        {
+            reportError(tr("Unable to save the managed startup policy."));
+            return;
+        }
+    }
+    m_storeMixed = mixed;
+    m_storeNativeInterface = mixed ? nativeInterface : QString();
+    if (((previous != m_storeMixed) || (previousInterface != m_storeNativeInterface))
+        && !SettingsStorage::instance()->save())
+    {
+        m_storeMixed = previous;
+        m_storeNativeInterface = previousInterface;
+        reportError(tr("Unable to save the network policy."));
+        return;
+    }
+    const QList<PeerRouteEndpoint> oldNativeEndpoints = std::move(m_nativeEndpoints);
+    m_nativeEndpoints = std::move(nativeEndpoints);
+    ++m_nativeGeneration;
+    applyRoutes();
+    if (!mixed)
+    {
+        for (qsizetype index = 1; index < m_paths.size(); ++index)
+        {
+            const auto &endpoint = m_paths.at(index).endpoint;
+            BitTorrent::Session::instance()->invalidatePeerRoute(endpoint.pathId, endpoint.generation);
+        }
+    }
+    for (const PeerRouteEndpoint &endpoint : oldNativeEndpoints)
+        BitTorrent::Session::instance()->invalidatePeerRoute(endpoint.pathId, endpoint.generation);
+    m_status = mixed ? tr("Mixed TCP: new peer connections use the selected edges. Private torrents stay pinned.")
+        : tr("Pinned TCP: peer connections use the first selected edge.");
+    emit changed();
+}
+
+void Net::PathManager::applyRoutes()
+{
+    QList<PeerRouteEndpoint> endpoints;
+    for (const ActivePath &path : m_paths)
+        endpoints.append(path.endpoint);
+    // An unavailable pinned edge must never turn into Native for private torrents.
+    if (endpoints.isEmpty())
+        endpoints.append(PeerRouteEndpoint {});
+    if (m_storeMixed)
+        endpoints.append(m_nativeEndpoints);
+    BitTorrent::Session::instance()->setPeerRoutes(endpoints, m_storeMixed);
 }
 
 void Net::PathManager::useNative()
@@ -257,6 +442,9 @@ void Net::PathManager::useNative()
         fail(tr("Unable to save the Native startup policy. The pinned path remains blocked."));
         return;
     }
+    BitTorrent::Session::instance()->resetPeerRoutes();
+    m_paths.clear();
+    m_nativeEndpoints.clear();
     m_status = tr("Native / saved connection settings. No qbutt-net path is active.");
     emit changed();
 }
@@ -288,6 +476,8 @@ void Net::PathManager::send(QJsonObject message)
     message.insert(u"v"_s, 1);
     message.insert(u"id"_s, m_pendingId);
     m_pendingRequest = message;
+    // Edge grouping belongs to the application, not to the transport process.
+    message.remove(u"edgeId"_s);
     QByteArray frame = QJsonDocument(message).toJson(QJsonDocument::Compact);
     frame.append('\n');
     if ((frame.size() > MAX_FRAME_BYTES) || (m_process.write(frame) != frame.size()))
@@ -410,20 +600,59 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             fail(tr("qbutt-net returned an invalid authenticated loopback endpoint."));
             return;
         }
+        const bool replacePrimary = !m_storeMixed && !isOpen();
+        ActivePath path;
+        path.endpoint.type = PeerRouteEndpoint::Type::Socks5;
+        path.endpoint.pathId = request.value(u"pathId"_s).toString().toULongLong();
+        path.endpoint.generation = static_cast<quint64>(request.value(u"generation"_s).toInteger());
+        path.endpoint.port = static_cast<quint16>(port);
+        path.endpoint.username = username;
+        path.endpoint.password = password;
+        path.edgeId = request.value(u"edgeId"_s).toString();
+        path.proxyName = request.value(u"proxyName"_s).toString();
+        path.interfaceName = request.value(u"interfaceName"_s).toString();
+        path.capabilities = result.value(u"capabilities"_s).toObject();
+        auto existing = std::ranges::find(m_paths, path.endpoint.pathId,
+            [](const ActivePath &entry) { return entry.endpoint.pathId; });
+        if (existing != m_paths.end())
+        {
+            const qsizetype index = std::distance(m_paths.begin(), existing);
+            *existing = std::move(path);
+            if (replacePrimary)
+                m_paths.move(index, 0);
+        }
+        else if (!replacePrimary)
+        {
+            m_paths.append(std::move(path));
+        }
+        else
+        {
+            m_paths.prepend(std::move(path));
+        }
+
+        const PeerRouteEndpoint &primary = m_paths.front().endpoint;
         ProxyConfiguration proxy = blockedRuntimeProxy();
-        proxy.port = static_cast<ushort>(port);
-        proxy.username = username;
-        proxy.password = password;
+        proxy.port = primary.port;
+        proxy.username = primary.username;
+        proxy.password = primary.password;
         if (!ProxyConfigurationManager::instance()->setRuntimeProxy(proxy))
         {
             fail(tr("Unable to save the pinned startup policy. The path remains blocked."));
             return;
         }
-        m_open = true;
+        applyRoutes();
+        if (!m_storeMixed)
+        {
+            for (qsizetype index = 1; index < m_paths.size(); ++index)
+            {
+                const auto &endpoint = m_paths.at(index).endpoint;
+                BitTorrent::Session::instance()->invalidatePeerRoute(endpoint.pathId, endpoint.generation);
+            }
+        }
         m_storeConfigurationPath = request.value(u"configPath"_s).toString();
         m_storeProxyName = request.value(u"proxyName"_s).toString();
         m_storeInterfaceName = request.value(u"interfaceName"_s).toString();
-        m_status = tr("Pinned TCP endpoint ready: %1\n"
+        m_status = tr("TCP endpoint ready: %1\n"
             "Egress, UDP, public inbound and throughput: unknown (not probed).")
             .arg(request.value(u"proxyName"_s).toString());
     }
@@ -445,10 +674,44 @@ void Net::PathManager::reportError(const QString &message)
     emit changed();
 }
 
-void Net::PathManager::stopPath()
+void Net::PathManager::stopPath(const QString &pathId)
 {
     if (isBusy())
         return;
+    if (!pathId.isEmpty())
+    {
+        if ((pathId == u"1") || (pathId == u"2"))
+        {
+            setPolicy(m_storeMixed ? u"mixed"_s : u"pinned"_s);
+            return;
+        }
+        auto path = std::ranges::find(m_paths, pathId.toULongLong(),
+            [](const ActivePath &entry) { return entry.endpoint.pathId; });
+        if ((path == m_paths.end()) || (path->endpoint.port == 0))
+        {
+            reportError(tr("The selected path is not active."));
+            return;
+        }
+        const quint64 generation = path->endpoint.generation;
+        path->endpoint.type = PeerRouteEndpoint::Type::Blocked;
+        path->endpoint.port = 0;
+        path->endpoint.username.clear();
+        path->endpoint.password.clear();
+        applyRoutes();
+        BitTorrent::Session::instance()->invalidatePeerRoute(path->endpoint.pathId, generation);
+        if (path == m_paths.begin())
+            ProxyConfigurationManager::instance()->setRuntimeProxy(blockedRuntimeProxy());
+        m_status = tr("Path disconnected. Its existing peer connections have been closed.");
+        request({{u"method"_s, u"close"_s}, {u"pathId"_s, pathId},
+            {u"generation"_s, static_cast<qint64>(generation)}});
+        return;
+    }
+    const QList<PeerRouteEndpoint> nativeEndpoints = std::move(m_nativeEndpoints);
+    m_nativeEndpoints.clear();
+    if (!nativeEndpoints.isEmpty())
+        applyRoutes();
+    for (const PeerRouteEndpoint &endpoint : nativeEndpoints)
+        BitTorrent::Session::instance()->invalidatePeerRoute(endpoint.pathId, endpoint.generation);
     auto *proxyManager = ProxyConfigurationManager::instance();
     if (proxyManager->hasRuntimeProxy())
         proxyManager->setRuntimeProxy(blockedRuntimeProxy());
@@ -465,6 +728,18 @@ void Net::PathManager::stopPath()
 
 bool Net::PathManager::shutdown()
 {
+    auto *session = BitTorrent::Session::instance();
+    for (ActivePath &path : m_paths)
+    {
+        path.endpoint.type = PeerRouteEndpoint::Type::Blocked;
+        path.endpoint.port = 0;
+        path.endpoint.username.clear();
+        path.endpoint.password.clear();
+    }
+    if (ProxyConfigurationManager::instance()->hasRuntimeProxy())
+        applyRoutes();
+    for (const ActivePath &path : m_paths)
+        session->invalidatePeerRoute(path.endpoint.pathId, path.endpoint.generation);
     m_timeout.stop();
     if (m_subscriptionReply)
     {
@@ -485,6 +760,5 @@ bool Net::PathManager::shutdown()
     m_queuedRequest = {};
     m_pendingRequest = {};
     m_pendingId = 0;
-    m_open = false;
     return m_process.state() == QProcess::NotRunning;
 }

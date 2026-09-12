@@ -3,6 +3,7 @@ param(
     [string] $SourceDir = (Split-Path $PSScriptRoot -Parent),
     [string] $BuildRoot = (Join-Path $env:LOCALAPPDATA 'qbutt/build'),
     [string] $DependencyRoot = (Join-Path $env:LOCALAPPDATA 'qbutt/dependencies'),
+    [string] $CMakePath = (Join-Path $env:ProgramFiles 'CMake/bin/cmake.exe'),
     [ValidateRange(1, 64)] [int] $Parallel = 8
 )
 
@@ -86,7 +87,7 @@ foreach ($line in $environment) {
     }
 }
 $env:PATH = "${env:ProgramFiles}\CMake\bin;${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
-$cmake = (Get-Command cmake.exe -ErrorAction Stop).Source
+$cmake = (Get-Command $CMakePath -ErrorAction Stop).Source
 $bun = (Get-Command bun.exe -ErrorAction Stop).Source
 $env:VCPKG_MAX_CONCURRENCY = "$Parallel"
 
@@ -148,7 +149,7 @@ foreach ($archive in $pins.qt.archives) {
 $qtLicense = Join-Path $DependencyRoot 'qt-LGPL-3.0-only.txt'
 Save-VerifiedDownload $qtLicense $pins.qt.license.url $pins.qt.license.sha256
 
-$libtorrent = Join-Path $DependencyRoot 'libtorrent'
+$libtorrent = Join-Path $DependencyRoot 'qbutt-libtorrent'
 Initialize-Source $libtorrent $pins.libtorrent
 $common = @('-G', 'Ninja', '-DCMAKE_BUILD_TYPE=RelWithDebInfo', '-DCMAKE_CXX_COMPILER=cl',
     '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', "-DCMAKE_TOOLCHAIN_FILE=$vcpkg/scripts/buildsystems/vcpkg.cmake",

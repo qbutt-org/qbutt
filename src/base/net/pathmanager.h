@@ -14,12 +14,13 @@
 #include <QTimer>
 
 #include "base/settingvalue.h"
+#include "peerroute.h"
 
 class QNetworkReply;
 
 namespace Net
 {
-    // Owns only the child and its single pinned proxy. libtorrent remains the
+    // Owns the child and its payload endpoints. libtorrent remains the
     // owner of the session, peers, pieces and transfer state.
     class PathManager final : public QObject
     {
@@ -36,7 +37,7 @@ namespace Net
         bool isBusy() const;
         bool isOpen() const;
         QString status() const;
-        QJsonObject statusData() const;
+        QJsonObject statusData(bool includePeers = false) const;
         QString subscriptionUrl() const;
         QString configurationPath() const;
         QString proxyName() const;
@@ -44,9 +45,10 @@ namespace Net
         void refreshSubscription(const QString &url);
         void inspectConfiguration(const QString &configPath);
         void openPath(const QString &configPath, const QString &proxyName,
-            const QString &interfaceName);
+            const QString &interfaceName, const QString &edgeId = {});
+        void setPolicy(const QString &mode, const QString &nativeInterface = {});
         void useNative();
-        void stopPath();
+        void stopPath(const QString &pathId = {});
 
     signals:
         void changed();
@@ -62,6 +64,18 @@ namespace Net
         void fail(const QString &message);
         void reportError(const QString &message);
         bool shutdown();
+        void applyRoutes();
+
+        struct ActivePath
+        {
+            PeerRouteEndpoint endpoint;
+            QString edgeId;
+            QString proxyName;
+            QString interfaceName;
+            QJsonObject capabilities;
+            qint64 closedPayloadDownload = 0;
+            qint64 closedPayloadUpload = 0;
+        };
 
         QProcess m_process;
         QNetworkAccessManager m_network;
@@ -71,15 +85,19 @@ namespace Net
         QJsonObject m_queuedRequest;
         QJsonObject m_pendingRequest;
         QJsonArray m_proxies;
+        QList<ActivePath> m_paths;
+        QList<PeerRouteEndpoint> m_nativeEndpoints;
         int m_nextId = 0;
         int m_pendingId = 0;
         int m_generation = 0;
-        bool m_open = false;
-        QString m_pathId;
+        quint64 m_nextPathId = 2;
+        quint64 m_nativeGeneration = 0;
         QString m_status;
         SettingValue<QString> m_storeSubscriptionUrl;
         SettingValue<QString> m_storeConfigurationPath;
         SettingValue<QString> m_storeProxyName;
         SettingValue<QString> m_storeInterfaceName;
+        SettingValue<bool> m_storeMixed;
+        SettingValue<QString> m_storeNativeInterface;
     };
 }

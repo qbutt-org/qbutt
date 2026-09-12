@@ -6036,161 +6036,226 @@ Minimum requirement: %2.</source>
 <context>
     <name>Net::PathManager</name>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="37"/>
+        <location filename="../base/net/pathmanager.cpp" line="45"/>
         <source>Pinned path unavailable. Start a path to reconnect; automatic Native fallback is disabled.</source>
         <translation>Соединение через выбранный узел недоступно. Подключите узел повторно; автоматический переход к обычному соединению отключён.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="38"/>
-        <location filename="../base/net/pathmanager.cpp" line="260"/>
-        <location filename="../base/net/pathmanager.cpp" line="462"/>
+        <location filename="../base/net/pathmanager.cpp" line="46"/>
+        <location filename="../base/net/pathmanager.cpp" line="447"/>
+        <location filename="../base/net/pathmanager.cpp" line="724"/>
         <source>Native / saved connection settings. No qbutt-net path is active.</source>
         <translation>Используются сохранённые настройки соединения. Соединение через qbutt-net не используется.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="54"/>
+        <location filename="../base/net/pathmanager.cpp" line="64"/>
         <source>qbutt-net did not respond within 15 seconds.</source>
         <translation>qbutt-net не ответил за 15 секунд.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="63"/>
+        <location filename="../base/net/pathmanager.cpp" line="73"/>
         <source>Unable to run the bundled qbutt-net process.</source>
         <translation>Не удалось запустить встроенный компонент qbutt-net.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="67"/>
+        <location filename="../base/net/pathmanager.cpp" line="77"/>
         <source>qbutt-net stopped. The pinned path remains blocked.</source>
         <translation>qbutt-net остановлен. Передача через выбранный узел остаётся заблокированной.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="145"/>
+        <location filename="../base/net/pathmanager.cpp" line="151"/>
+        <source>Native</source>
+        <translation>Native</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="193"/>
         <source>Enter an HTTPS subscription URL without user information or a fragment.</source>
         <translation>Введите HTTPS-адрес подписки без имени пользователя, пароля и фрагмента после знака #.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="179"/>
+        <location filename="../base/net/pathmanager.cpp" line="227"/>
         <source>Unable to download the subscription (HTTPS, 2 MiB and 15 second limits).</source>
         <translation>Не удалось загрузить подписку. Требуется HTTPS, размер до 2 МиБ и время загрузки до 15 секунд.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="189"/>
+        <location filename="../base/net/pathmanager.cpp" line="237"/>
         <source>Unable to save the subscription in the private qbutt profile.</source>
         <translation>Не удалось сохранить подписку в отдельном профиле qbutt.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="208"/>
-        <source>A path operation is already active. Stop the current path before changing it.</source>
-        <translation>Соединение уже используется или настраивается. Отключите его перед изменением.</translation>
+        <location filename="../base/net/pathmanager.cpp" line="256"/>
+        <source>A path operation is already running.</source>
+        <translation>Операция с соединением уже выполняется.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="216"/>
+        <location filename="../base/net/pathmanager.cpp" line="264"/>
         <source>The initial Native-to-Pinned transition requires no torrents or metadata downloads. Reconnecting an unavailable pinned path preserves existing jobs.</source>
         <translation>Для первого перехода к выбранному узлу список торрентов и загрузок метаданных должен быть пуст. Повторное подключение недоступного узла сохраняет текущие задания.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="222"/>
+        <location filename="../base/net/pathmanager.cpp" line="270"/>
         <source>Select a proxy node and choose its physical interface.</source>
         <translation>Выберите прокси-узел и физический сетевой адаптер.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="227"/>
+        <location filename="../base/net/pathmanager.cpp" line="281"/>
+        <source>This edge already has an active transport. Disconnect it before choosing another transport.</source>
+        <translation>Для этого выхода уже подключён транспорт. Отключите его перед выбором другого.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="290"/>
+        <source>Eight edges are already selected. Reset the selection before adding another edge.</source>
+        <translation>Уже выбраны восемь выходов. Сбросьте выбор перед добавлением другого.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="295"/>
+        <source>The edge name must fit within 128 UTF-8 bytes.</source>
+        <translation>Имя выхода не должно превышать 128 байт UTF-8.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="300"/>
         <source>Unable to save the pinned startup policy. The path was not started.</source>
         <translation>Не удалось сохранить режим подключения через выбранный узел при запуске. Соединение не запущено.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="232"/>
-        <source>Starting pinned path. Egress and network capabilities have not been probed.</source>
-        <translation>Подключение выбранного узла. Выход в интернет и сетевые возможности ещё не проверены.</translation>
+        <location filename="../base/net/pathmanager.cpp" line="307"/>
+        <source>Starting path. Egress and network capabilities have not been probed.</source>
+        <translation>Подключение узла. Выход в интернет и сетевые возможности ещё не проверены.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="245"/>
+        <location filename="../base/net/pathmanager.cpp" line="319"/>
+        <source>Choose Pinned or Mixed TCP. Other network policies are not available yet.</source>
+        <translation>Выберите Pinned или Mixed TCP. Остальные сетевые режимы пока недоступны.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="361"/>
+        <source>The selected physical Native interface has no usable address.</source>
+        <translation>У выбранного физического адаптера Native нет подходящего IP-адреса.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="372"/>
+        <source>Starting a managed network policy requires no torrents or metadata downloads.</source>
+        <translation>Для включения сетевого режима список торрентов и загрузок метаданных должен быть пуст.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="377"/>
+        <source>Unable to save the managed startup policy.</source>
+        <translation>Не удалось сохранить сетевой режим для следующего запуска.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="387"/>
+        <source>Unable to save the network policy.</source>
+        <translation>Не удалось сохранить сетевой режим.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="404"/>
+        <source>Mixed TCP: new peer connections use the selected edges. Private torrents stay pinned.</source>
+        <translation>Mixed TCP: новые соединения с пирами используют выбранные выходы. Приватные торренты закреплены за первым выходом.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="405"/>
+        <source>Pinned TCP: peer connections use the first selected edge.</source>
+        <translation>Pinned TCP: соединения с пирами используют первый выбранный выход.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="429"/>
         <source>Switching to the default connection requires no torrents or metadata downloads in this initial version.</source>
         <translation>В текущей версии для перехода к обычному соединению список торрентов и загрузок метаданных должен быть пуст.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="252"/>
+        <location filename="../base/net/pathmanager.cpp" line="436"/>
         <source>The previous qbutt-net process has not stopped. Native was not enabled.</source>
         <translation>Предыдущий процесс qbutt-net ещё не остановлен. Обычное соединение не включено.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="257"/>
+        <location filename="../base/net/pathmanager.cpp" line="441"/>
         <source>Unable to save the Native startup policy. The pinned path remains blocked.</source>
         <translation>Не удалось сохранить режим обычного соединения при запуске. Передача через выбранный узел остаётся заблокированной.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="295"/>
+        <location filename="../base/net/pathmanager.cpp" line="484"/>
         <source>Unable to send a bounded qbutt-net control request.</source>
         <translation>Не удалось отправить запрос управления qbutt-net в пределах допустимого размера.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="313"/>
+        <location filename="../base/net/pathmanager.cpp" line="502"/>
         <source>qbutt-net exceeded the control frame size limit.</source>
         <translation>qbutt-net превысил допустимый размер сообщения управления.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="320"/>
+        <location filename="../base/net/pathmanager.cpp" line="509"/>
         <source>qbutt-net returned an invalid control frame.</source>
         <translation>qbutt-net вернул некорректное сообщение управления.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="334"/>
+        <location filename="../base/net/pathmanager.cpp" line="523"/>
         <source>qbutt-net control version or request identifier does not match.</source>
         <translation>Версия протокола управления или идентификатор запроса qbutt-net не совпадает.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="347"/>
+        <location filename="../base/net/pathmanager.cpp" line="536"/>
         <source>The bundled qbutt-net rejected the protocol handshake.</source>
         <translation>Встроенный компонент qbutt-net отклонил согласование протокола.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="349"/>
+        <location filename="../base/net/pathmanager.cpp" line="538"/>
         <source>qbutt-net rejected the request. Check the selected node and interface.</source>
         <translation>qbutt-net отклонил запрос. Проверьте выбранный узел и сетевой адаптер.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="354"/>
+        <location filename="../base/net/pathmanager.cpp" line="543"/>
         <source>qbutt-net returned a missing control result.</source>
         <translation>В ответе qbutt-net отсутствует результат запроса управления.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="365"/>
+        <location filename="../base/net/pathmanager.cpp" line="554"/>
         <source>The bundled qbutt-net is incompatible with this application.</source>
         <translation>Встроенный компонент qbutt-net несовместим с этой версией приложения.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="378"/>
+        <location filename="../base/net/pathmanager.cpp" line="567"/>
         <source>qbutt-net returned an invalid proxy list.</source>
         <translation>qbutt-net вернул некорректный список прокси.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="389"/>
+        <location filename="../base/net/pathmanager.cpp" line="578"/>
         <source>qbutt-net returned an invalid node description.</source>
         <translation>qbutt-net вернул некорректное описание узла.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="410"/>
+        <location filename="../base/net/pathmanager.cpp" line="599"/>
         <source>qbutt-net returned an invalid authenticated loopback endpoint.</source>
         <translation>qbutt-net вернул некорректные параметры локального подключения с аутентификацией.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="419"/>
+        <location filename="../base/net/pathmanager.cpp" line="639"/>
         <source>Unable to save the pinned startup policy. The path remains blocked.</source>
         <translation>Не удалось сохранить режим подключения через выбранный узел при запуске. Передача остаётся заблокированной.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="426"/>
-        <source>Pinned TCP endpoint ready: %1
+        <location filename="../base/net/pathmanager.cpp" line="654"/>
+        <source>TCP endpoint ready: %1
 Egress, UDP, public inbound and throughput: unknown (not probed).</source>
-        <translation>Локальное TCP-подключение через узел готово: %1
+        <translation>TCP-подключение готово: %1
 Выход в интернет, UDP, входящие подключения из интернета и скорость ещё не проверены.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="457"/>
+        <location filename="../base/net/pathmanager.cpp" line="691"/>
+        <source>The selected path is not active.</source>
+        <translation>Выбранное соединение не подключено.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="703"/>
+        <source>Path disconnected. Its existing peer connections have been closed.</source>
+        <translation>Соединение отключено. Его подключения к пирам закрыты.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="719"/>
         <source>The qbutt-net process has not stopped yet.</source>
         <translation>Процесс qbutt-net ещё не остановлен.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="461"/>
+        <location filename="../base/net/pathmanager.cpp" line="723"/>
         <source>Pinned path stopped. Automatic Native fallback is disabled.</source>
         <translation>Соединение через выбранный узел остановлено. Автоматический переход к обычному соединению отключён.</translation>
     </message>
@@ -8224,83 +8289,112 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
 <context>
     <name>PathsWidget</name>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="30"/>
+        <location filename="../gui/pathswidget.cpp" line="33"/>
         <source>Mihomo subscription (experimental)</source>
         <translation>Подписка Mihomo (экспериментально)</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="35"/>
+        <location filename="../gui/pathswidget.cpp" line="39"/>
+        <source>Include Native through the selected physical interface</source>
+        <translation>Добавить Native через выбранный физический адаптер</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="41"/>
         <source>Refresh</source>
         <translation>Обновить</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="36"/>
+        <location filename="../gui/pathswidget.cpp" line="42"/>
         <source>Local file…</source>
         <translation>Из файла…</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="37"/>
-        <location filename="../gui/pathswidget.cpp" line="159"/>
-        <source>Use selected node</source>
-        <translation>Подключить выбранный узел</translation>
+        <location filename="../gui/pathswidget.cpp" line="43"/>
+        <source>Connect selected node</source>
+        <translation>Подключить узел</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="38"/>
+        <location filename="../gui/pathswidget.cpp" line="44"/>
+        <source>Disconnect selected path</source>
+        <translation>Отключить соединение</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="45"/>
         <source>Use default connection</source>
         <translation>Обычное соединение</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="48"/>
+        <location filename="../gui/pathswidget.cpp" line="55"/>
         <source>Stored only in your qbutt profile. Refresh uses the regular control network.</source>
         <translation>Хранится только в вашем профиле qbutt. Подписка обновляется через обычное соединение для служебных запросов.</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="52"/>
+        <location filename="../gui/pathswidget.cpp" line="59"/>
         <source>Subscription:</source>
         <translation>Подписка:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="54"/>
+        <location filename="../gui/pathswidget.cpp" line="61"/>
         <source>Node:</source>
         <translation>Узел:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="57"/>
+        <location filename="../gui/pathswidget.cpp" line="64"/>
         <source>Choose a physical interface</source>
         <translation>Выберите физический сетевой адаптер</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="83"/>
+        <location filename="../gui/pathswidget.cpp" line="90"/>
         <source>The selected adapter is bound by qbutt-net. Its actual route must still be verified.</source>
         <translation>qbutt-net привязывает соединение к выбранному адаптеру. Фактический маршрут ещё нужно проверить.</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="84"/>
+        <location filename="../gui/pathswidget.cpp" line="91"/>
         <source>Interface:</source>
         <translation>Сетевой адаптер:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="94"/>
-        <source>Uses one node for TCP torrent connections. Disconnecting blocks transfers until you reconnect or choose the default connection. DHT, local discovery and incoming peers are unavailable.</source>
-        <translation>Для TCP-соединений торрентов используется один узел. После отключения передача данных блокируется до повторного подключения или выбора обычного соединения. DHT, поиск пиров в локальной сети и входящие подключения пиров недоступны.</translation>
+        <location filename="../gui/pathswidget.cpp" line="93"/>
+        <source>Pinned TCP — first selected edge</source>
+        <translation>Pinned TCP — первый выбранный выход</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="109"/>
+        <location filename="../gui/pathswidget.cpp" line="94"/>
+        <source>Mixed TCP — selected edges</source>
+        <translation>Mixed TCP — выбранные выходы</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="95"/>
+        <source>Peer connections:</source>
+        <translation>Соединения с пирами:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="112"/>
+        <source>Mixed shares one torrent session across selected TCP paths. Including Native exposes your home address to public torrent peers. Private torrents and trackers stay on the first tunnel edge. UDP, DHT and public inbound are not available in this build.</source>
+        <translation>Mixed использует выбранные TCP-соединения в одной торрент-сессии. При включении Native пиры публичных торрентов видят ваш домашний IP-адрес. Приватные торренты и трекеры используют первый туннель. UDP, DHT и входящие подключения из интернета пока недоступны.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="128"/>
         <source>Select a Mihomo subscription</source>
         <translation>Выберите файл подписки Mihomo</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="110"/>
+        <location filename="../gui/pathswidget.cpp" line="129"/>
         <source>Mihomo YAML (*.yaml *.yml);;All files (*)</source>
         <translation>Файлы Mihomo YAML (*.yaml *.yml);;Все файлы (*)</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="159"/>
-        <source>Disconnect node</source>
-        <translation>Отключить узел</translation>
+        <location filename="../gui/pathswidget.cpp" line="205"/>
+        <source>Connected</source>
+        <translation>Подключено</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="163"/>
+        <location filename="../gui/pathswidget.cpp" line="205"/>
+        <source>Stopped</source>
+        <translation>Остановлено</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="224"/>
         <source>Working…</source>
         <translation>Выполняется…</translation>
     </message>
@@ -9244,6 +9338,19 @@ Those plugins were disabled.</source>
         <location filename="../gui/properties/propertieswidget.cpp" line="673"/>
         <source>Web seed URL:</source>
         <translation>Адрес веб-сида:</translation>
+    </message>
+</context>
+<context>
+    <name>QbuttPathsController</name>
+    <message>
+        <location filename="../webui/api/qbuttpathscontroller.cpp" line="23"/>
+        <source>A path operation is already running.</source>
+        <translation>Операция с соединением уже выполняется.</translation>
+    </message>
+    <message>
+        <location filename="../webui/api/qbuttpathscontroller.cpp" line="56"/>
+        <source>Unsupported network policy.</source>
+        <translation>Этот сетевой режим не поддерживается.</translation>
     </message>
 </context>
 <context>

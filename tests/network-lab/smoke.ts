@@ -79,13 +79,13 @@ try {
             catch (error) { rejected = String(error).includes("HTTP 405"); }
             assert(rejected, `GET ${method} was not rejected`);
         }
-        await writeFile(configPath, JSON.stringify({ proxies: [{
-            name: "fixture", type: "socks5", server: proxy.host, port: proxy.port,
+        await writeFile(configPath, JSON.stringify({ proxies: ["fixture", "replacement"].map(name => ({
+            name, type: "socks5", server: proxy.host, port: proxy.port,
             username: credentials.username, password: credentials.password, udp: false,
-        }] }));
+        })) }));
         await lab.request("qbuttPaths/list", { configPath });
         const listed = await waitFor("qbutt-net node listing", readPath, status => !status.busy);
-        assert(listed.nodes.length === 1 && listed.nodes[0]!.name === "fixture", "Controlled node listing failed");
+        assert(listed.nodes.length === 2 && listed.nodes[0]!.name === "fixture", "Controlled node listing failed");
         const admissionHash = await lab.add("v1", join(lab.root, "admission"));
         await lab.request("qbuttPaths/open", pathRequest);
         const rejected = await readPath();
@@ -156,6 +156,8 @@ try {
     await waitFor("stop after relay death", () => lab.info(hash), info => info.state === "stoppedDL");
     if (!pathsMode)
         proxy = await startProxy({ ...credentials, targets });
+    else
+        pathRequest.proxyName = "replacement";
     await configure();
     if (pathsMode)
         assert((await readPath()).generation > deadGeneration, "qbutt-net retry reused stale generation");
@@ -167,7 +169,8 @@ try {
     await lab.request("torrents/stop", { hashes: hash });
     await waitFor("verified stop", () => lab.info(hash), info => info.state === "stoppedUP");
     const verifiedBytes = await verifyPayload(destination, lab.manifest.payload);
-    await lab.checkpoint({ check: "relay-restart-download", verifiedBytes, exactSizes: true, relay: { ...proxy.stats } });
+    await lab.checkpoint({ check: "relay-restart-download", selectedNode: pathsMode ? pathRequest.proxyName : undefined,
+        verifiedBytes, exactSizes: true, relay: { ...proxy.stats } });
     if (pathsMode) {
         await lab.request("qbuttPaths/stop", {});
         const stopped = await readPath();

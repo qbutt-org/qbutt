@@ -422,6 +422,10 @@ namespace BitTorrent
         bool isRestored() const override;
         bool hasActiveRepair() const override;
         bool canSwitchConnectionMode() const override;
+        void setPeerRoutes(const QList<Net::PeerRouteEndpoint> &routes, bool mixed) override;
+        void resetPeerRoutes() override;
+        void invalidatePeerRoute(quint64 pathId, quint64 generation) override;
+        QJsonArray peerRouteStatus() const override;
 
         bool isPaused() const override;
         void pause() override;

@@ -875,10 +875,10 @@ int Application::exec()
 #endif
 
     Net::ProxyConfigurationManager::initInstance();
-    Net::PathManager::initInstance();
     Net::DownloadManager::initInstance();
 
     BitTorrent::Session::initInstance();
+    Net::PathManager::initInstance();
 #ifndef DISABLE_GUI
     UIThemeManager::initInstance();
 

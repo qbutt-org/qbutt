@@ -19,12 +19,15 @@ namespace
     constexpr std::size_t MAX_PEER_HISTORY = 16384;
     constexpr auto HISTORY_TTL = std::chrono::minutes {15};
 
-    bool isNetworkFailure(const libtorrent::error_code &ec)
+    bool isNetworkFailure(const libtorrent::error_code &ec, const libtorrent::operation_t operation)
     {
         // Idle/choke/request timeouts, protocol rejection, cancellation, disk
         // errors and normal EOF are not evidence that a network route failed.
+        // EOF while establishing a connection means this attempt never reached
+        // the peer (including a proxy closing its handshake without a reply).
         using namespace boost::asio;
-        return (ec == error::connection_refused) || (ec == error::connection_reset)
+        return ((operation == libtorrent::operation_t::connect) && (ec == error::eof))
+            || (ec == error::connection_refused) || (ec == error::connection_reset)
             || (ec == error::connection_aborted) || (ec == error::network_down)
             || (ec == error::network_reset) || (ec == error::network_unreachable)
             || (ec == error::host_unreachable) || (ec == error::timed_out)
@@ -79,6 +82,7 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
     const libtorrent::peer_route *selected = nullptr;
     const libtorrent::peer_route *leastTried = nullptr;
     double bestScore = -std::numeric_limits<double>::infinity();
+    unsigned int fewestFailures = std::numeric_limits<unsigned int>::max();
     for (const libtorrent::peer_route &route : m_routes)
     {
         if (!eligible(route))
@@ -87,6 +91,7 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
         const auto failure = peer->second.failures.find(routeKey);
         if ((failure != peer->second.failures.end()) && (failure->second.retryAfter > now))
             continue;
+        const unsigned int failures = (failure == peer->second.failures.end()) ? 0 : failure->second.count;
 
         RouteHistory &history = m_history.at(routeKey);
         // Verified bytes and unchoked demand occupancy share a decaying window.
@@ -102,12 +107,17 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
                 * std::min(1.0, history.demandMilliseconds / 1000);
         }
         const double score = 1 - 0.75 * history.failurePressure + 0.25 * usefulReward;
-        if (!selected || (score > bestScore)
-            || ((score == bestScore) && (history.attempts < m_history.at(
-                {selected->context.path_id, selected->context.generation}).attempts)))
+        // After cooldown, a failed peer/route pair still loses to an unfailed
+        // alternative. Otherwise the session's reconnect delay can outlast
+        // cooldown and repeatedly select the same unreachable route.
+        if (!selected || (failures < fewestFailures)
+            || ((failures == fewestFailures) && ((score > bestScore)
+                || ((score == bestScore) && (history.attempts < m_history.at(
+                    {selected->context.path_id, selected->context.generation}).attempts)))))
         {
             selected = &route;
             bestScore = score;
+            fewestFailures = failures;
         }
         if (!leastTried || (history.attempts < m_history.at(
             {leastTried->context.path_id, leastTried->context.generation}).attempts))
@@ -138,16 +148,26 @@ void Net::PeerRouteSelector::observe(const libtorrent::peer_route_observation &o
     history.demandMilliseconds += observation.demand_duration_ms;
 
     const auto peer = m_peers.find({observation.info_hashes, observation.peer});
-    if (observation.event == libtorrent::peer_route_observation::event_t::connected)
+    // TCP establishment may only acknowledge a local relay. Clear peer-local
+    // failures once the BitTorrent connection produces post-handshake evidence.
+    if ((observation.event == libtorrent::peer_route_observation::event_t::activity)
+        && ((observation.payload_download > 0) || (observation.payload_upload > 0)
+            || (observation.demand_duration_ms > 0) || (observation.choked_duration_ms > 0)))
     {
         history.failurePressure *= 0.8;
         if (peer != m_peers.end())
             peer->second.failures.erase(routeKey);
     }
-    else if ((observation.event == libtorrent::peer_route_observation::event_t::closed)
-        && isNetworkFailure(observation.error))
+    else if (observation.event == libtorrent::peer_route_observation::event_t::closed)
     {
-        history.failurePressure = 0.8 * history.failurePressure + 0.2;
+        const bool networkFailure = isNetworkFailure(observation.error, observation.operation);
+        // A relay may acknowledge TCP before its remote handshake completes.
+        // EOF then warrants trying this peer elsewhere, but is not evidence
+        // that the whole route is bad or that a choked peer had low goodput.
+        if (!networkFailure && (observation.error != boost::asio::error::eof))
+            return;
+        if (networkFailure)
+            history.failurePressure = 0.8 * history.failurePressure + 0.2;
         if (peer != m_peers.end())
         {
             Failure &failure = peer->second.failures[routeKey];

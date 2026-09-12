@@ -42,7 +42,13 @@
 #include "trackerentry.h"
 #include "trackerentrystatus.h"
 
+class QJsonArray;
 class QString;
+
+namespace Net
+{
+    struct PeerRouteEndpoint;
+}
 
 namespace BitTorrent
 {
@@ -449,6 +455,10 @@ namespace BitTorrent
         virtual bool isRestored() const = 0;
         virtual bool hasActiveRepair() const = 0;
         virtual bool canSwitchConnectionMode() const = 0;
+        virtual void setPeerRoutes(const QList<Net::PeerRouteEndpoint> &routes, bool mixed) = 0;
+        virtual void resetPeerRoutes() = 0;
+        virtual void invalidatePeerRoute(quint64 pathId, quint64 generation) = 0;
+        virtual QJsonArray peerRouteStatus() const = 0;
 
         virtual bool isPaused() const = 0;
         virtual void pause() = 0;
@@ -481,6 +491,7 @@ namespace BitTorrent
         virtual qint64 freeDiskSpace() const = 0;
 
     signals:
+        void peerRouteClosed(quint64 pathId, quint64 generation, qint64 payloadDownload, qint64 payloadUpload);
         void startupProgressUpdated(int progress);
         void addTorrentFailed(const InfoHash &infoHash, const AddTorrentError &reason);
         void allTorrentsFinished();

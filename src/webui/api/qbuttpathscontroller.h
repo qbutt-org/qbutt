@@ -19,6 +19,7 @@ private slots:
     void listAction();
     void refreshAction();
     void openAction();
+    void policyAction();
     void stopAction();
     void nativeAction();
 
