@@ -62,6 +62,7 @@
 #include "mainwindow.h"
 #include "optionsdialog.h"
 #include "previewselectdialog.h"
+#include "repairdialog.h"
 #include "speedlimitdialog.h"
 #include "torrentcategorydialog.h"
 #include "torrentcreatordialog.h"
@@ -669,6 +670,17 @@ void TransferListWidget::reannounceSelectedTorrents()
     }
 }
 
+void TransferListWidget::repairSelectedTorrent()
+{
+    const QList<BitTorrent::Torrent *> torrents = getSelectedTorrents();
+    if ((torrents.size() != 1) || !torrents[0]->isStopped() || !torrents[0]->hasMetadata())
+        return;
+
+    auto *dialog = new RepairDialog {window(), torrents[0]};
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->open();
+}
+
 int TransferListWidget::visibleColumnsCount() const
 {
     int count = 0;
@@ -1001,6 +1013,8 @@ void TransferListWidget::displayListMenu()
     connect(actionSetTorrentPath, &QAction::triggered, this, &TransferListWidget::setSelectedTorrentsLocation);
     auto *actionForceRecheck = new QAction(UIThemeManager::instance()->getIcon(u"force-recheck"_s, u"document-edit-verify"_s), tr("Force rec&heck"), listMenu);
     connect(actionForceRecheck, &QAction::triggered, this, &TransferListWidget::recheckSelectedTorrents);
+    auto *actionRepair = new QAction(tr("Smart repair..."), listMenu);
+    connect(actionRepair, &QAction::triggered, this, &TransferListWidget::repairSelectedTorrent);
     auto *actionForceReannounce = new QAction(UIThemeManager::instance()->getIcon(u"reannounce"_s, u"document-edit-verify"_s), tr("Force r&eannounce"), listMenu);
     connect(actionForceReannounce, &QAction::triggered, this, &TransferListWidget::reannounceSelectedTorrents);
     auto *actionCopyMagnetLink = new QAction(UIThemeManager::instance()->getIcon(u"torrent-magnet"_s, u"kt-magnet"_s), tr("&Magnet link"), listMenu);
@@ -1271,6 +1285,8 @@ void TransferListWidget::displayListMenu()
         listMenu->addSeparator();
     if (oneHasMetadata)
         listMenu->addAction(actionForceRecheck);
+    if ((selectedIndexes.size() == 1) && oneHasMetadata && !needsStop)
+        listMenu->addAction(actionRepair);
     // We can not force reannounce torrents that are stopped/errored/checking/missing files/queued.
     // We may already have the tracker list from magnet url. So we can force reannounce torrents without metadata anyway.
     listMenu->addAction(actionForceReannounce);

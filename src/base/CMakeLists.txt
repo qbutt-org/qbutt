@@ -30,6 +30,9 @@ add_library(qbt_base STATIC
     bittorrent/peeraddress.h
     bittorrent/peerinfo.h
     bittorrent/portforwarderimpl.h
+    bittorrent/repairanalysis.h
+    bittorrent/repairfileguard.h
+    bittorrent/repairservice.h
     bittorrent/resumedatastorage.h
     bittorrent/session.h
     bittorrent/sessionimpl.h
@@ -147,6 +150,9 @@ add_library(qbt_base STATIC
     bittorrent/peeraddress.cpp
     bittorrent/peerinfo.cpp
     bittorrent/portforwarderimpl.cpp
+    bittorrent/repairanalysis.cpp
+    bittorrent/repairfileguard.cpp
+    bittorrent/repairservice.cpp
     bittorrent/resumedatastorage.cpp
     bittorrent/sessionimpl.cpp
     bittorrent/speedmonitor.cpp

@@ -65,6 +65,7 @@ class QUrl;
 template <typename T> class QFuture;
 
 class BandwidthScheduler;
+class CustomDiskIOThread;
 class FileSearcher;
 class FilterParserThread;
 class FreeDiskSpaceChecker;
@@ -475,6 +476,9 @@ namespace BitTorrent
         void handleTorrentStorageMovingStateChanged(TorrentImpl *torrent);
 
         bool addMoveTorrentStorageJob(TorrentImpl *torrent, const Path &newPath, MoveStorageMode mode, MoveStorageContext context);
+        bool isRepairPathLocked(const Path &path, const TorrentImpl *except = nullptr) const;
+        bool hasPendingStorageJobs() const;
+        QFuture<bool> drainTorrentDisk(TorrentImpl *torrent);
 
         lt::torrent_handle reloadTorrent(const lt::torrent_handle &currentHandle, lt::add_torrent_params params);
 
@@ -770,6 +774,9 @@ namespace BitTorrent
         SettingValue<bool> m_startPaused;
 
         lt::session *m_nativeSession = nullptr;
+#ifdef QBT_USES_LIBTORRENT2
+        CustomDiskIOThread *m_customDiskIO = nullptr;
+#endif
         NativeSessionExtension *m_nativeSessionExtension = nullptr;
 
         bool m_deferredConfigureScheduled = false;
@@ -823,6 +830,7 @@ namespace BitTorrent
         QHash<TorrentID, TorrentImpl *> m_torrents;
         QHash<TorrentID, TorrentImpl *> m_hybridTorrentsByAltID;
         QHash<TorrentID, RemovingTorrentData> m_removingTorrents;
+        int m_pendingContentRemovals = 0;
         QHash<TorrentID, TorrentID> m_changedTorrentIDs;
         QMap<QString, CategoryOptions> m_categories;
         TagSet m_tags;

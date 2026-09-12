@@ -64,6 +64,7 @@
 #include "api/clientdatacontroller.h"
 #include "api/logcontroller.h"
 #include "api/qbuttpathscontroller.h"
+#include "api/repaircontroller.h"
 #include "api/rsscontroller.h"
 #include "api/searchcontroller.h"
 #include "api/synccontroller.h"
@@ -164,6 +165,7 @@ WebApplication::WebApplication(IApplication *app, QObject *parent)
     : ApplicationComponent(app, parent)
     , m_cacheID {QString::number(Utils::Random::rand(), 36)}
     , m_authController {new AuthController(this, app, this)}
+    , m_repairController {new RepairController(app, this)}
     , m_torrentCreationManager {new BitTorrent::TorrentCreationManager(app, this)}
     , m_clientDataStorage {new ClientDataStorage(this)}
 {
@@ -849,6 +851,7 @@ void WebApplication::sessionStartImpl(const QString &sessionId, const bool useCo
     m_currentSession->registerAPIController(u"qbuttPaths"_s, new QbuttPathsController(app(), m_currentSession));
     m_currentSession->registerAPIController(u"clientdata"_s, new ClientDataController(m_clientDataStorage, app(), m_currentSession));
     m_currentSession->registerAPIController(u"log"_s, new LogController(app(), m_currentSession));
+    m_currentSession->registerAPIController(u"qbuttRepair"_s, m_repairController);
     m_currentSession->registerAPIController(u"torrentcreator"_s, new TorrentCreatorController(m_torrentCreationManager, app(), m_currentSession));
     m_currentSession->registerAPIController(u"rss"_s, new RSSController(app(), m_currentSession));
     m_currentSession->registerAPIController(u"search"_s, new SearchController(app(), m_currentSession));

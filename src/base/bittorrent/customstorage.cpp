@@ -28,10 +28,14 @@
 
 #include "customstorage.h"
 
+#include <boost/asio/post.hpp>
+
 #include <libtorrent/download_priority.hpp>
 #include <libtorrent/mmap_disk_io.hpp>
 #include <libtorrent/posix_disk_io.hpp>
 #include <libtorrent/session.hpp>
+
+#include <QPromise>
 
 #include "base/utils/fs.h"
 #include "common.h"
@@ -39,44 +43,76 @@
 std::unique_ptr<lt::disk_interface> customDiskIOConstructor(
         lt::io_context &ioContext, const lt::settings_interface &settings, lt::counters &counters)
 {
-    return std::make_unique<CustomDiskIOThread>(lt::default_disk_io_constructor(ioContext, settings, counters));
+    return std::make_unique<CustomDiskIOThread>(ioContext, lt::default_disk_io_constructor(ioContext, settings, counters));
 }
 
 std::unique_ptr<lt::disk_interface> customPosixDiskIOConstructor(
         lt::io_context &ioContext, const lt::settings_interface &settings, lt::counters &counters)
 {
-    return std::make_unique<CustomDiskIOThread>(lt::posix_disk_io_constructor(ioContext, settings, counters));
+    return std::make_unique<CustomDiskIOThread>(ioContext, lt::posix_disk_io_constructor(ioContext, settings, counters));
 }
 
 std::unique_ptr<lt::disk_interface> customMMapDiskIOConstructor(
         lt::io_context &ioContext, const lt::settings_interface &settings, lt::counters &counters)
 {
-    return std::make_unique<CustomDiskIOThread>(lt::mmap_disk_io_constructor(ioContext, settings, counters));
+    return std::make_unique<CustomDiskIOThread>(ioContext, lt::mmap_disk_io_constructor(ioContext, settings, counters));
 }
 
-CustomDiskIOThread::CustomDiskIOThread(std::unique_ptr<libtorrent::disk_interface> nativeDiskIOThread)
-    : m_nativeDiskIO {std::move(nativeDiskIOThread)}
+CustomDiskIOThread::CustomDiskIOThread(lt::io_context &ioContext, std::unique_ptr<libtorrent::disk_interface> nativeDiskIOThread)
+    : m_ioContext {ioContext}
+    , m_nativeDiskIO {std::move(nativeDiskIOThread)}
 {
+}
+
+QFuture<bool> CustomDiskIOThread::drainTorrentDisk(std::shared_ptr<void> torrent)
+{
+    auto promise = std::make_shared<QPromise<bool>>();
+    promise->start();
+    const QFuture<bool> future = promise->future();
+    boost::asio::post(m_ioContext, [this, torrent = std::move(torrent), promise]
+    {
+        for (auto it = m_storageData.cbegin(); it != m_storageData.cend(); ++it)
+        {
+            if (it->torrent != torrent.get())
+                continue;
+
+            // This callback belongs to this disk fence, unlike an uncorrelated
+            // cache_flushed_alert from a prior request or automatic operation.
+            m_nativeDiskIO->async_stop_torrent(it.key(), [promise, torrent]
+            {
+                promise->addResult(true);
+                promise->finish();
+            });
+            m_nativeDiskIO->submit_jobs();
+            return;
+        }
+        promise->addResult(false);
+        promise->finish();
+    });
+    return future;
 }
 
 lt::storage_holder CustomDiskIOThread::new_torrent(const lt::storage_params &storageParams, const std::shared_ptr<void> &torrent)
 {
-    lt::storage_holder storageHolder = m_nativeDiskIO->new_torrent(storageParams, torrent);
+    auto nativeStorage = std::make_shared<lt::storage_holder>(m_nativeDiskIO->new_torrent(storageParams, torrent));
+    const lt::storage_index_t storage = *nativeStorage;
 
     const Path savePath {storageParams.path};
-    m_storageData[storageHolder] =
+    m_storageData[storage] =
     {
         savePath,
         storageParams.mapped_files ? *storageParams.mapped_files : storageParams.files,
-        storageParams.priorities
+        storageParams.priorities,
+        torrent.get(),
+        std::move(nativeStorage)
     };
 
-    return storageHolder;
+    return {storage, *this};
 }
 
 void CustomDiskIOThread::remove_torrent(lt::storage_index_t storage)
 {
-    m_nativeDiskIO->remove_torrent(storage);
+    m_storageData.remove(storage);
 }
 
 void CustomDiskIOThread::async_read(lt::storage_index_t storage, const lt::peer_request &peerRequest
@@ -209,7 +245,7 @@ void CustomDiskIOThread::settings_updated()
 
 void CustomDiskIOThread::handleCompleteFiles(lt::storage_index_t storage, const Path &savePath)
 {
-    const StorageData storageData = m_storageData[storage];
+    const StorageData &storageData = m_storageData[storage];
     const lt::file_storage &fileStorage = storageData.files;
     for (const lt::file_index_t fileIndex : fileStorage.file_range())
     {

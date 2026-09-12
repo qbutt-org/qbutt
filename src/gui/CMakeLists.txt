@@ -87,6 +87,7 @@ add_library(qbt_gui STATIC
     properties/speedplotview.h
     properties/speedwidget.h
     raisedmessagebox.h
+    repairdialog.h
     rss/articlelistwidget.h
     rss/automatedrssdownloader.h
     rss/feedlistwidget.h
@@ -191,6 +192,7 @@ add_library(qbt_gui STATIC
     properties/speedplotview.cpp
     properties/speedwidget.cpp
     raisedmessagebox.cpp
+    repairdialog.cpp
     rss/articlelistwidget.cpp
     rss/automatedrssdownloader.cpp
     rss/feedlistwidget.cpp

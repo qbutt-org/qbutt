@@ -79,7 +79,9 @@ namespace BitTorrent
     enum class MaintenanceJob
     {
         None,
-        HandleMetadata
+        HandleMetadata,
+        Repair,
+        RepairChecking
     };
 
     struct FileErrorInfo
@@ -264,6 +266,11 @@ namespace BitTorrent
 
         bool needSaveResumeData() const;
 
+        bool beginRepair();
+        void startRepairRecheck();
+        void endRepair();
+        bool isRepairing() const;
+
         // Session interface
         lt::torrent_handle nativeHandle() const;
 
@@ -301,6 +308,8 @@ namespace BitTorrent
         bool isMoveInProgress() const;
 
         void setAutoManaged(bool enable);
+        void doStart(TorrentOperatingMode mode);
+        void doForceRecheck();
 
         Path makeActualPath(int index, const Path &path) const;
         Path makeUserPath(const Path &path) const;

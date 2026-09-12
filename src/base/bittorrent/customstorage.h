@@ -34,6 +34,7 @@
 #include <libtorrent/fwd.hpp>
 #include <libtorrent/io_context.hpp>
 
+#include <QFuture>
 #include <QHash>
 
 #include "base/path.h"
@@ -48,7 +49,9 @@ std::unique_ptr<lt::disk_interface> customMMapDiskIOConstructor(
 class CustomDiskIOThread final : public lt::disk_interface
 {
 public:
-    explicit CustomDiskIOThread(std::unique_ptr<libtorrent::disk_interface> nativeDiskIOThread);
+    CustomDiskIOThread(lt::io_context &ioContext, std::unique_ptr<libtorrent::disk_interface> nativeDiskIOThread);
+
+    QFuture<bool> drainTorrentDisk(std::shared_ptr<void> torrent);
 
     lt::storage_holder new_torrent(const lt::storage_params &storageParams, const std::shared_ptr<void> &torrent) override;
     void remove_torrent(lt::storage_index_t storageIndex) override;
@@ -84,6 +87,7 @@ public:
 private:
     void handleCompleteFiles(libtorrent::storage_index_t storage, const Path &savePath);
 
+    lt::io_context &m_ioContext;
     std::unique_ptr<lt::disk_interface> m_nativeDiskIO;
 
     struct StorageData
@@ -91,6 +95,8 @@ private:
         Path savePath;
         lt::file_storage files;
         lt::aux::vector<lt::download_priority_t, lt::file_index_t> filePriorities;
+        const void *torrent = nullptr;
+        std::shared_ptr<lt::storage_holder> nativeStorage;
     };
     QHash<lt::storage_index_t, StorageData> m_storageData;
 };

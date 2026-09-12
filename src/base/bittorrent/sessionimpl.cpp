@@ -107,6 +107,7 @@
 #include "lttypecast.h"
 #include "nativesessionextension.h"
 #include "portforwarderimpl.h"
+#include "repairfileguard.h"
 #include "resumedatastorage.h"
 #include "torrentcontentremover.h"
 #include "torrentdescriptor.h"
@@ -799,6 +800,9 @@ bool SessionImpl::isAppendExtensionEnabled() const
 
 void SessionImpl::setAppendExtensionEnabled(const bool enabled)
 {
+    if (std::ranges::any_of(asConst(m_torrents), [](const TorrentImpl *torrent) { return torrent->isRepairing(); }))
+        return;
+
     if (isAppendExtensionEnabled() != enabled)
     {
         m_isAppendExtensionEnabled = enabled;
@@ -1705,19 +1709,26 @@ void SessionImpl::initializeNativeSession()
     }
 
     lt::session_params sessionParams {std::move(pack), {}};
+    auto diskIOConstructor = customDiskIOConstructor;
     switch (diskIOType())
     {
     case DiskIOType::Posix:
-        sessionParams.disk_io_constructor = customPosixDiskIOConstructor;
+        diskIOConstructor = customPosixDiskIOConstructor;
         break;
     case DiskIOType::MMap:
     case DiskIOType::SimplePreadPwrite:
-        sessionParams.disk_io_constructor = customMMapDiskIOConstructor;
+        diskIOConstructor = customMMapDiskIOConstructor;
         break;
     default:
-        sessionParams.disk_io_constructor = customDiskIOConstructor;
         break;
     }
+    sessionParams.disk_io_constructor = [this, diskIOConstructor](lt::io_context &ioContext
+        , const lt::settings_interface &settings, lt::counters &counters)
+    {
+        std::unique_ptr<lt::disk_interface> diskIO = diskIOConstructor(ioContext, settings, counters);
+        m_customDiskIO = static_cast<CustomDiskIOThread *>(diskIO.get());
+        return diskIO;
+    };
 
 #if LIBTORRENT_VERSION_NUM < 20100
     m_nativeSession = new lt::session(sessionParams, lt::session::paused);
@@ -2386,6 +2397,7 @@ void SessionImpl::processTorrentShareLimits(TorrentImpl *torrent)
 
 void SessionImpl::torrentContentRemovingFinished(const QString &torrentName, const QString &errorMessage)
 {
+    --m_pendingContentRemovals;
     if (errorMessage.isEmpty())
     {
         LogMsg(tr("Torrent content removed. Torrent: \"%1\"").arg(torrentName));
@@ -2445,6 +2457,12 @@ void SessionImpl::banIP(const QString &ip)
 // and from the disk, if the corresponding deleteOption is chosen
 bool SessionImpl::removeTorrent(const TorrentID &id, const TorrentRemoveOption deleteOption)
 {
+    if (const TorrentImpl *torrent = m_torrents.value(id)
+        ; torrent && isRepairPathLocked(torrent->actualStorageLocation()))
+    {
+        return false;
+    }
+
     TorrentImpl *const torrent = m_torrents.take(id);
     if (!torrent)
         return false;
@@ -2901,6 +2919,14 @@ bool SessionImpl::addTorrent_impl(const TorrentDescriptor &source, const AddTorr
     resolveFileNames().then(this, [this, id, loadTorrentParams = std::move(loadTorrentParams)](const FileSearchResult &result) mutable
     {
         lt::add_torrent_params &p = loadTorrentParams.ltAddTorrentParams;
+
+        if (isRepairPathLocked(result.savePath))
+        {
+            delete static_cast<ExtensionData *>(p.userdata);
+            p.userdata = LTClientData {};
+            emit addTorrentFailed(getInfoHash(p), {AddTorrentError::Other, tr("The data directory is owned by a repair preview. Close it before adding another torrent here.")});
+            return;
+        }
 
         p.save_path = result.savePath.toString().toStdString();
         if (p.ti)
@@ -5265,9 +5291,47 @@ void SessionImpl::handleTorrentStorageMovingStateChanged(TorrentImpl *torrent)
     emit torrentsUpdated({torrent});
 }
 
+bool SessionImpl::isRepairPathLocked(const Path &path, const TorrentImpl *except) const
+{
+    if (path.isEmpty())
+        return false;
+    QString candidate;
+    for (const TorrentImpl *torrent : m_torrents)
+    {
+        if ((torrent == except) || !torrent->isRepairing())
+            continue;
+        if (candidate.isEmpty())
+            candidate = repairPathIdentity(path.toString());
+        const QString owned = repairPathIdentity(torrent->actualStorageLocation().toString());
+        if (candidate.isEmpty() || owned.isEmpty() || (candidate == owned)
+            || candidate.startsWith(owned + u'/') || owned.startsWith(candidate + u'/'))
+            return true;
+    }
+    return false;
+}
+
+bool SessionImpl::hasPendingStorageJobs() const
+{
+    return !m_addTorrentAlertHandlers.isEmpty() || !m_moveStorageQueue.isEmpty()
+        || !m_removingTorrents.isEmpty() || (m_pendingContentRemovals > 0);
+}
+
+QFuture<bool> SessionImpl::drainTorrentDisk(TorrentImpl *torrent)
+{
+#ifdef QBT_USES_LIBTORRENT2
+    return m_customDiskIO->drainTorrentDisk(torrent->nativeHandle().native_handle());
+#else
+    Q_UNUSED(torrent)
+    return QtFuture::makeReadyValueFuture(false);
+#endif
+}
+
 bool SessionImpl::addMoveTorrentStorageJob(TorrentImpl *torrent, const Path &newPath, const MoveStorageMode mode, const MoveStorageContext context)
 {
     Q_ASSERT(torrent);
+
+    if (isRepairPathLocked(newPath) || isRepairPathLocked(torrent->actualStorageLocation()))
+        return false;
 
     const lt::torrent_handle torrentHandle = torrent->nativeHandle();
     const Path currentLocation = torrent->actualStorageLocation();
@@ -5392,7 +5456,7 @@ void SessionImpl::processPendingFinishedTorrents()
 
     const bool hasUnfinishedTorrents = std::ranges::any_of(asConst(m_torrents), [](const TorrentImpl *torrent)
     {
-        return !(torrent->isFinished() || torrent->isStopped() || torrent->isErrored());
+        return torrent->isRepairing() || !(torrent->isFinished() || torrent->isStopped() || torrent->isErrored());
     });
     if (!hasUnfinishedTorrents)
         emit allTorrentsFinished();
@@ -6477,6 +6541,7 @@ void SessionImpl::handleRemovedTorrent(const TorrentID &torrentID, const QString
     if ((removingTorrentDataIter->removeOption == TorrentRemoveOption::RemoveContent)
             && !removingTorrentDataIter->contentStoragePath.isEmpty())
     {
+        ++m_pendingContentRemovals;
         QMetaObject::invokeMethod(m_torrentContentRemover, [this, jobData = *removingTorrentDataIter]
         {
             m_torrentContentRemover->performJob(jobData.name, jobData.contentStoragePath

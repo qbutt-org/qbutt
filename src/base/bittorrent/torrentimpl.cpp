@@ -485,6 +485,9 @@ Path TorrentImpl::savePath() const
 
 void TorrentImpl::setSavePath(const Path &path)
 {
+    if (isRepairing())
+        return;
+
     Q_ASSERT(!isAutoTMMEnabled());
     if (isAutoTMMEnabled()) [[unlikely]]
         return;
@@ -514,6 +517,9 @@ Path TorrentImpl::downloadPath() const
 
 void TorrentImpl::setDownloadPath(const Path &path)
 {
+    if (isRepairing())
+        return;
+
     Q_ASSERT(!isAutoTMMEnabled());
     if (isAutoTMMEnabled()) [[unlikely]]
         return;
@@ -568,6 +574,9 @@ bool TorrentImpl::isAutoTMMEnabled() const
 
 void TorrentImpl::setAutoTMMEnabled(bool enabled)
 {
+    if (isRepairing())
+        return;
+
     if (m_useAutoTMM == enabled)
         return;
 
@@ -1612,6 +1621,9 @@ void TorrentImpl::setName(const QString &name)
 
 bool TorrentImpl::setCategory(const QString &category)
 {
+    if (isRepairing())
+        return false;
+
     if (m_category != category)
     {
         if (!category.isEmpty() && !m_session->categories().contains(category))
@@ -1648,6 +1660,14 @@ void TorrentImpl::forceDHTAnnounce()
 
 void TorrentImpl::forceRecheck()
 {
+    if (isRepairing())
+        return;
+
+    doForceRecheck();
+}
+
+void TorrentImpl::doForceRecheck()
+{
     if (!hasMetadata())
         return;
 
@@ -1680,7 +1700,7 @@ void TorrentImpl::forceRecheck()
     if (isStopped())
     {
         // When "force recheck" is applied on Stopped torrent, we start them to perform checking
-        start();
+        doStart(TorrentOperatingMode::AutoManaged);
         m_stopCondition = StopCondition::FilesChecked;
     }
 }
@@ -1924,7 +1944,7 @@ void TorrentImpl::stop()
         m_session->handleTorrentStopped(this);
     }
 
-    if (m_maintenanceJob == MaintenanceJob::None)
+    if ((m_maintenanceJob == MaintenanceJob::None) || (m_maintenanceJob == MaintenanceJob::RepairChecking))
     {
         setAutoManaged(false);
         m_nativeHandle.pause();
@@ -1934,6 +1954,14 @@ void TorrentImpl::stop()
 }
 
 void TorrentImpl::start(const TorrentOperatingMode mode)
+{
+    if (isRepairing())
+        return;
+
+    doStart(mode);
+}
+
+void TorrentImpl::doStart(const TorrentOperatingMode mode)
 {
     if (hasError())
     {
@@ -1959,7 +1987,7 @@ void TorrentImpl::start(const TorrentOperatingMode mode)
         m_session->handleTorrentStarted(this);
     }
 
-    if (m_maintenanceJob == MaintenanceJob::None)
+    if ((m_maintenanceJob == MaintenanceJob::None) || (m_maintenanceJob == MaintenanceJob::RepairChecking))
     {
         setAutoManaged(m_operatingMode == TorrentOperatingMode::AutoManaged);
         if (m_operatingMode == TorrentOperatingMode::Forced)
@@ -1969,6 +1997,9 @@ void TorrentImpl::start(const TorrentOperatingMode mode)
 
 void TorrentImpl::moveStorage(const Path &newPath, const MoveStorageContext context)
 {
+    if (isRepairing())
+        return;
+
     if (!hasMetadata())
     {
         if (context == MoveStorageContext::ChangeSavePath)
@@ -2433,6 +2464,9 @@ void TorrentImpl::adjustStorageLocation()
 
 void TorrentImpl::doRenameFile(const int index, const Path &path)
 {
+    if (isRepairing() || m_session->isRepairPathLocked(actualStorageLocation(), this))
+        return;
+
     const QList<lt::file_index_t> nativeIndexes = m_torrentInfo.nativeIndexes();
 
     Q_ASSERT(index >= 0);
@@ -2447,6 +2481,38 @@ void TorrentImpl::doRenameFile(const int index, const Path &path)
 lt::torrent_handle TorrentImpl::nativeHandle() const
 {
     return m_nativeHandle;
+}
+
+bool TorrentImpl::beginRepair()
+{
+    if (!isStopped() || !hasMetadata() || isChecking() || isMoving() || (m_renameCount != 0)
+        || (m_maintenanceJob != MaintenanceJob::None) || m_session->hasPendingStorageJobs()
+        || m_session->isRepairPathLocked(actualStorageLocation()))
+    {
+        return false;
+    }
+    m_maintenanceJob = MaintenanceJob::Repair;
+    setAutoManaged(false);
+    m_nativeHandle.pause();
+    return true;
+}
+
+void TorrentImpl::endRepair()
+{
+    if (isRepairing())
+        m_maintenanceJob = MaintenanceJob::None;
+}
+
+void TorrentImpl::startRepairRecheck()
+{
+    Q_ASSERT(m_maintenanceJob == MaintenanceJob::Repair);
+    m_maintenanceJob = MaintenanceJob::RepairChecking;
+    doForceRecheck();
+}
+
+bool TorrentImpl::isRepairing() const
+{
+    return (m_maintenanceJob == MaintenanceJob::Repair) || (m_maintenanceJob == MaintenanceJob::RepairChecking);
 }
 
 int TorrentImpl::fileIndexFromNative(const lt::file_index_t nativeFileIndex) const
@@ -2920,6 +2986,9 @@ QFuture<QList<qreal>> TorrentImpl::fetchAvailableFileFractions() const
 
 void TorrentImpl::prioritizeFiles(const QList<DownloadPriority> &priorities)
 {
+    if (isRepairing())
+        return;
+
     if (!hasMetadata())
         return;
 

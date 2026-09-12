@@ -62,6 +62,7 @@ inline const Utils::Version<3, 2> API_VERSION {2, 15, 1};
 class APIController;
 class AuthController;
 class ClientDataStorage;
+class RepairController;
 class WebApplication;
 
 namespace BitTorrent
@@ -178,6 +179,10 @@ private:
         {{u"qbuttPaths"_s, u"open"_s}, Http::METHOD_POST},
         {{u"qbuttPaths"_s, u"stop"_s}, Http::METHOD_POST},
         {{u"qbuttPaths"_s, u"native"_s}, Http::METHOD_POST},
+        {{u"qbuttRepair"_s, u"analyze"_s}, Http::METHOD_POST},
+        {{u"qbuttRepair"_s, u"apply"_s}, Http::METHOD_POST},
+        {{u"qbuttRepair"_s, u"cancel"_s}, Http::METHOD_POST},
+        {{u"qbuttRepair"_s, u"status"_s}, Http::METHOD_GET},
         {{u"rss"_s, u"addFeed"_s}, Http::METHOD_POST},
         {{u"rss"_s, u"addFolder"_s}, Http::METHOD_POST},
         {{u"rss"_s, u"markAsRead"_s}, Http::METHOD_POST},
@@ -263,6 +268,7 @@ private:
     bool m_translationFileLoaded = false;
 
     AuthController *m_authController = nullptr;
+    RepairController *m_repairController = nullptr;
     bool m_isLocalAuthEnabled = false;
     bool m_isAuthSubnetWhitelistEnabled = false;
     QList<Utils::Net::Subnet> m_authSubnetWhitelist;

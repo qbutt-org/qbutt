@@ -92,6 +92,7 @@ public slots:
     void openSelectedTorrentsFolder();
     void openDestinationFolder(const BitTorrent::Torrent *torrent);
     void recheckSelectedTorrents();
+    void repairSelectedTorrent();
     void reannounceSelectedTorrents();
     void setTorrentOptions();
     void previewSelectedTorrents();
