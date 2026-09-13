@@ -362,6 +362,12 @@ int main(const int argc, char **argv) try
     defaultSettings.set_bool(lt::settings_pack::enable_upnp, false);
     defaultSettings.set_bool(lt::settings_pack::enable_natpmp, false);
     lt::session defaultSession {defaultSettings};
+    const auto defaultListenDeadline = std::chrono::steady_clock::now() + 10s;
+    while ((defaultSession.listen_port() == 0)
+        && (std::chrono::steady_clock::now() < defaultListenDeadline))
+        std::this_thread::sleep_for(20ms);
+    if (defaultSession.listen_port() == 0)
+        return 17;
     lt::add_torrent_params defaultAdd;
     defaultAdd.ti = defaultInfo;
     defaultAdd.save_path = (root / "download").string();
