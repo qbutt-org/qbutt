@@ -16,6 +16,7 @@
     "smoke:tunnels": "bun tests/network-lab/mixed.ts --tunnels",
     "smoke:native-route": "bun tests/network-lab/native-route.ts",
     "smoke:route-policy": "bun tests/network-lab/route-policy.ts",
+    "benchmark:network": "bun tests/network-lab/benchmark.ts",
     "smoke:path-auth": "bun tests/network-lab/path-auth.ts",
     "smoke:path-dns": "bun tests/network-lab/path-dns.ts",
     "smoke:policies": "bun tests/policies-smoke.ts",

@@ -100,10 +100,17 @@ def await_commands():
     try:
         for line in sys.stdin:
             command = json.loads(line)
-            if (set(command) != {"uploadRate"} or type(command["uploadRate"]) is not int
+            if (set(command) != {"controlId", "uploadRate"} or type(command["controlId"]) is not int
+                    or command["controlId"] <= 0 or type(command["uploadRate"]) is not int
                     or not 1024 <= command["uploadRate"] <= 1024 * 1024):
                 raise RuntimeError("Invalid seed control command")
             session.apply_settings({"upload_rate_limit": command["uploadRate"]})
+            deadline = time.monotonic() + 2
+            while session.get_settings()["upload_rate_limit"] != command["uploadRate"]:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Upload rate was not applied before acknowledgement")
+                time.sleep(0.005)
+            print(json.dumps(command), flush=True)
     except Exception as error:
         command_errors.append(error)
     finally:

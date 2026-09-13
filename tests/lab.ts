@@ -262,48 +262,82 @@ export async function startSeed(python: string, fixtures: string, name: string, 
     });
     const reader = child.stdout.getReader();
     let text = "";
-    try {
-        while (!text.includes("\n")) {
-            const result = await withTimeout(reader.read(), 35000, "Seed readiness timeout");
-            assert(!result.done, `Seed ${label} ended before readiness; inspect ${join(logs, `seed-${label}.stderr.log`)}`);
+    let unreadOffset = 0;
+    const readLine = async (timeoutMs: number, message: string) => {
+        for (;;) {
+            const newline = text.indexOf("\n", unreadOffset);
+            if (newline >= 0) {
+                const line = text.slice(unreadOffset, newline);
+                unreadOffset = newline + 1;
+                return line;
+            }
+            const result = await withTimeout(reader.read(), timeoutMs, message);
+            assert(!result.done, `Seed ${label} ended before sending a complete response`);
             text += new TextDecoder().decode(result.value);
         }
-        const ready = JSON.parse(text.split("\n")[0]!) as {
+    };
+    try {
+        const ready = JSON.parse(await readLine(35000, "Seed readiness timeout")) as {
             ready: boolean; host: string; port: number; pieces: number[]; verifiedPayloadBytes: number;
         };
         assert(ready.ready && ready.port > 0, "Seed failed readiness");
+        let controlId = 0;
+        let control = Promise.resolve();
+        let stopPromise: Promise<{ uploadPayloadBytes: number; downloadPayloadBytes: number;
+            pieces: number[]; peerAddresses: string[] }> | undefined;
         return {
             ...ready,
-            async setUploadRate(bytesPerSecond: number) {
+            setUploadRate(bytesPerSecond: number) {
                 assert(Number.isInteger(bytesPerSecond) && bytesPerSecond >= 1024 && bytesPerSecond <= 1024 * 1024,
                     "Seed upload rate must be between 1 KiB/s and 1 MiB/s");
-                child.stdin.write(`${JSON.stringify({ uploadRate: bytesPerSecond })}\n`);
-                await child.stdin.flush();
+                const requestId = ++controlId;
+                control = control.then(async () => {
+                    child.stdin.write(`${JSON.stringify({ controlId: requestId, uploadRate: bytesPerSecond })}\n`);
+                    await child.stdin.flush();
+                    const response = JSON.parse(await readLine(5000, "Seed upload-rate acknowledgement timed out")) as {
+                        controlId: number; uploadRate: number;
+                    };
+                    assert(response.controlId === requestId && response.uploadRate === bytesPerSecond,
+                        "Seed acknowledged a different upload-rate command");
+                });
+                return control;
             },
-            async stop() {
-                child.stdin.end();
-                let exitCode: number;
-                try {
-                    exitCode = await withTimeout(child.exited, 15000, "Seed shutdown timed out");
-                }
-                finally {
-                    if (child.exitCode === null) {
-                        child.kill();
+            stop() {
+                stopPromise ??= (async () => {
+                    try { await control; }
+                    catch (error) {
+                        if (child.exitCode === null)
+                            child.kill();
                         await child.exited;
+                        await reader.closed.catch(() => {});
+                        try { reader.releaseLock(); } catch {}
+                        throw error;
                     }
-                }
-                assert(exitCode === 0, `Seed exited ${exitCode}`);
-                for (;;) {
-                    const final = await reader.read();
-                    if (final.done)
-                        break;
-                    text += new TextDecoder().decode(final.value);
-                }
-                await writeFile(join(logs, `seed-${label}.jsonl`), text);
-                reader.releaseLock();
-                return JSON.parse(text.trimEnd().split("\n").at(-1)!) as {
-                    uploadPayloadBytes: number; downloadPayloadBytes: number; pieces: number[]; peerAddresses: string[];
-                };
+                    child.stdin.end();
+                    let exitCode: number;
+                    try {
+                        exitCode = await withTimeout(child.exited, 15000, "Seed shutdown timed out");
+                    }
+                    finally {
+                        if (child.exitCode === null) {
+                            child.kill();
+                            await child.exited;
+                        }
+                    }
+                    assert(exitCode === 0, `Seed exited ${exitCode}`);
+                    for (;;) {
+                        const final = await reader.read();
+                        if (final.done)
+                            break;
+                        text += new TextDecoder().decode(final.value);
+                    }
+                    await writeFile(join(logs, `seed-${label}.jsonl`), text);
+                    reader.releaseLock();
+                    return JSON.parse(text.trimEnd().split("\n").at(-1)!) as {
+                        uploadPayloadBytes: number; downloadPayloadBytes: number; pieces: number[]; peerAddresses: string[];
+                    };
+                })();
+                return stopPromise;
             },
         };
     }

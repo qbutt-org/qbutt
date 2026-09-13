@@ -205,6 +205,22 @@ peer port. The local DHT packet source is loopback, so this proves route-local
 node identity and announced port behavior. Public address correctness and
 reachability require the external gateway scenario.
 
+`benchmark:network` runs three or more interleaved rounds for the validated
+unchanged upstream executable, qbutt Native, one authenticated tunnel, and
+RouteSelector Mixed with two tunnels plus the selected physical Native route.
+Set `QBUTT_BENCH_BASELINE_EXE`, `QBUTT_BENCH_QBUTT_EXE`,
+`QBUTT_LAB_PYTHON`, `QBUTT_LAB_NATIVE_INTERFACE`, and
+`QBUTT_LAB_NATIVE_ADDRESS`. The control executable must match the pinned hash in
+`docs/baseline.md`; override the default four counterbalanced rounds with
+`QBUTT_BENCH_ROUNDS=3..9`. Every route starts at a 1 KiB/s warmup cap, then
+uses the same acknowledged `QBUTT_BENCH_ROUTE_RATE` cap (32–512 KiB/s).
+Evidence records connection setup and end-to-end completion separately from timed
+goodput, exact verified bytes, per-route seed and relay counters, redundant
+payload, and WebUI response latency.
+Relay stream bytes include protocol data and are not wire bytes. The local
+single-host TCP topology proves only the stated controlled comparison; its
+evidence lists the untested public, UDP, inbound, resource and last-mile cases.
+
 Run `bun run smoke:mixed-baseline` against the unchanged upstream control or
 alpha application to verify the negative control: each single proxy obtains
 exactly its available subset and cannot finish the target. A timeout is a failure;
