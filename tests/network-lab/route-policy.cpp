@@ -394,7 +394,8 @@ int main(const int argc, char **argv) try
         | lt::torrent_flags::disable_pex;
     const lt::torrent_handle seedTorrent = seedSession.add_torrent(seedAdd);
     const auto seedDeadline = std::chrono::steady_clock::now() + 15s;
-    while (!seedTorrent.status().is_seeding && (std::chrono::steady_clock::now() < seedDeadline))
+    while ((!seedTorrent.status().is_seeding || (seedSession.listen_port() == 0))
+        && (std::chrono::steady_clock::now() < seedDeadline))
         std::this_thread::sleep_for(20ms);
     if (!seedTorrent.status().is_seeding || (seedSession.listen_port() == 0))
         return 18;
