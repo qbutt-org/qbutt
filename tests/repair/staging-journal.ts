@@ -49,6 +49,14 @@ try {
         "Valid recovery must exercise an unselected file without a verified identity");
     assert.equal(persisted.files[0]!.selected, true, "Corrupt variants require a selected first file");
     const changes: [string, (journal: Journal) => void][] = [
+        ["missing-destination-identity", journal => { delete journal.destination_identity; }],
+        ["noncanonical-destination-identity", journal => {
+            journal.destination_identity = `${journal.destination_identity as string}=`;
+        }],
+        ["missing-destination-directories", journal => { delete journal.destination_directories; }],
+        ["noncanonical-destination-directories", journal => {
+            journal.destination_directories = `${journal.destination_directories as string}=`;
+        }],
         ["missing-selection", journal => { delete journal.files[0]!.selected; }],
         ["wrong-selection-type", journal => { journal.files[0]!.selected = "true"; }],
         ["empty-selection", journal => {
@@ -119,6 +127,71 @@ try {
     assert.deepEqual(await snapshot(destination, transactionRoot), original, "Valid rollback or removal changed original data");
     await verifyPayload(join(lab.fixtures, "seed"), lab.manifest.payload);
     await lab.checkpoint({ check: "valid-journal-recovery-and-repeated-rollback-rejection", afterShutdown: true });
+
+    const legacyDestination = join(lab.root, "legacy-journal-target");
+    await cp(join(lab.fixtures, "variants", "grow"), legacyDestination, { recursive: true });
+    await writeFile(join(legacyDestination, "unknown-save.dat"), "preserve through legacy journal recovery");
+    const legacyOriginal = await snapshot(legacyDestination);
+    await lab.start();
+    const legacyHash = await lab.add("v1", legacyDestination);
+    await waitFor("legacy journal target stopped", () => lab.info(legacyHash), info => info.state.startsWith("stopped"));
+    operation = await (await lab.request("qbuttRepair/analyze", {
+        hash: legacyHash, mode: "staged", sources: JSON.stringify([join(lab.fixtures, "seed")]),
+    })).json() as Status;
+    const legacyPlan = await waitFor("legacy journal plan", () => lab.json<Status>("qbuttRepair/status"),
+        status => status.state === "planned" || status.state === "failed");
+    assert.equal(legacyPlan.state, "planned", legacyPlan.error);
+    await lab.request("qbuttRepair/prepare", { id: operation.id, consent: "true" });
+    const legacyPrepared = await waitFor("legacy journal staging ready", () => lab.json<Status>("qbuttRepair/status"),
+        status => status.state === "ready_to_commit" || status.state === "failed");
+    assert.equal(legacyPrepared.state, "ready_to_commit", legacyPrepared.error);
+    const legacyTransaction = dirname(legacyPrepared.staging!.payload_path);
+    await lab.request("qbuttRepair/cancel", { id: operation.id });
+    await lab.shutdown();
+    const legacyJournalPath = join(lab.root, "profile", process.env.QBUTT_LAB_APP_NAME ?? "qbutt",
+        "data", "staging", `${legacyHash}.json`);
+    const legacyJournal = JSON.parse(await readFile(legacyJournalPath, "utf8")) as Journal;
+    legacyJournal.version = 1;
+    delete legacyJournal.destination_identity;
+    delete legacyJournal.destination_directories;
+    const legacyText = JSON.stringify(legacyJournal);
+    await writeFile(legacyJournalPath, legacyText);
+
+    await lab.start();
+    await waitFor("legacy forward recovery torrent initialized", () => lab.info(legacyHash),
+        info => info.state.startsWith("stopped") || info.state === "missingFiles");
+    operation = await (await lab.request("qbuttRepair/analyze", { hash: legacyHash, mode: "recover" })).json() as Status;
+    const legacyRecovered = await waitFor("legacy journal admitted for rollback", () => lab.json<Status>("qbuttRepair/status"),
+        status => status.state === "ready_to_commit" || status.state === "failed");
+    assert.equal(legacyRecovered.state, "ready_to_commit", legacyRecovered.error);
+    await lab.request("qbuttRepair/commit", { id: operation.id, consent: "true" });
+    const legacyForward = await waitFor("legacy forward commit rejected", () => lab.json<Status>("qbuttRepair/status"),
+        status => status.state === "failed");
+    assert.match(legacyForward.error ?? "", /older recovery journal can only be rolled back/i);
+    await lab.request("qbuttRepair/cancel", { id: operation.id });
+    await lab.shutdown();
+    assert.equal(await readFile(legacyJournalPath, "utf8"), legacyText,
+        "Rejected legacy commit rewrote its recovery journal");
+    assert.deepEqual(await snapshot(legacyDestination, legacyTransaction), legacyOriginal,
+        "Rejected legacy commit changed target or unknown files");
+
+    await lab.start();
+    await waitFor("legacy rollback torrent initialized", () => lab.info(legacyHash),
+        info => info.state.startsWith("stopped") || info.state === "missingFiles");
+    operation = await (await lab.request("qbuttRepair/analyze", { hash: legacyHash, mode: "recover" })).json() as Status;
+    const legacyRollbackReady = await waitFor("legacy rollback recovery", () => lab.json<Status>("qbuttRepair/status"),
+        status => status.state === "ready_to_commit" || status.state === "failed");
+    assert.equal(legacyRollbackReady.state, "ready_to_commit", legacyRollbackReady.error);
+    await lab.request("qbuttRepair/rollback", { id: operation.id, consent: "true" });
+    const legacyRolledBack = await waitFor("legacy rollback finalized", () => lab.json<Status>("qbuttRepair/status"),
+        status => status.staging?.finalized === true || status.state === "failed");
+    assert.equal(legacyRolledBack.state, "rolled_back", legacyRolledBack.error);
+    await lab.request("qbuttRepair/cancel", { id: operation.id });
+    await lab.request("torrents/delete", { hashes: legacyHash, deleteFiles: "false" });
+    await lab.shutdown();
+    assert.deepEqual(await snapshot(legacyDestination, legacyTransaction), legacyOriginal,
+        "Legacy rollback or torrent removal changed original or unknown files");
+    await lab.checkpoint({ check: "v1-journal-forward-blocked-and-rollback-recovery-preserved-data", afterShutdown: true });
 }
 catch (error) { failure = error; }
 finally {

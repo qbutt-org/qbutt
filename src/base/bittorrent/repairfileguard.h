@@ -39,6 +39,7 @@ namespace BitTorrent
         ~RepairFileGuard();
 
         QByteArray identity() const;
+        QByteArray directoryIdentity() const;
         QSet<int> existingFiles() const;
         bool createMissingEmpty(QString &error, const std::atomic_bool *cancelled = nullptr);
         bool truncateOversized(QString &error, const std::atomic_bool *cancelled = nullptr);
@@ -68,6 +69,7 @@ namespace BitTorrent
         std::vector<File> m_files;
         std::vector<MissingEmptyFile> m_missingEmptyFiles;
         QByteArray m_identity;
+        QByteArray m_directoryIdentity;
         QString m_root;
         bool m_writable = false;
     };

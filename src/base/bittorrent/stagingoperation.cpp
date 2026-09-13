@@ -270,9 +270,12 @@ std::unique_ptr<StagingOperation> StagingOperation::plan(const QString &journalP
     auto operation = std::unique_ptr<StagingOperation>(new StagingOperation);
     operation->m_journalPath = journalPath;
     operation->m_files = files;
-    operation->m_journal = {{QStringLiteral("version"), 1}, {QStringLiteral("torrent"), torrentId}
+    operation->m_journal = {{QStringLiteral("version"), 2}, {QStringLiteral("torrent"), torrentId}
         , {QStringLiteral("operation"), QUuid::createUuid().toString(QUuid::WithoutBraces)}
-        , {QStringLiteral("destination"), destination}, {QStringLiteral("state"), QStringLiteral("planned")}};
+        , {QStringLiteral("destination"), destination}
+        , {QStringLiteral("destination_identity"), QString::fromLatin1(destinationGuard->identity().toBase64())}
+        , {QStringLiteral("destination_directories"), QString::fromLatin1(destinationGuard->directoryIdentity().toBase64())}
+        , {QStringLiteral("state"), QStringLiteral("planned")}};
 
     operation->m_sourceGuards = RepairFileGuard::openSources(files, sources, error, cancelFlag);
     if (!error.isEmpty())
@@ -346,7 +349,15 @@ std::unique_ptr<StagingOperation> StagingOperation::load(const QString &journalP
     const QStringList states {QStringLiteral("preparing"), QStringLiteral("downloading")
         , QStringLiteral("ready_to_commit"), QStringLiteral("committing"), QStringLiteral("committed")
         , QStringLiteral("rolling_back"), QStringLiteral("rolled_back")};
-    if ((journal.value(QStringLiteral("version")) != QJsonValue(1))
+    const int version = journal.value(QStringLiteral("version")).toInt();
+    const QString destinationIdentityText = journal.value(QStringLiteral("destination_identity")).toString();
+    const QString destinationDirectoriesText = journal.value(QStringLiteral("destination_directories")).toString();
+    const QByteArray destinationIdentity = QByteArray::fromBase64(destinationIdentityText.toLatin1());
+    const QByteArray destinationDirectories = QByteArray::fromBase64(destinationDirectoriesText.toLatin1());
+    if (((version != 1) && (version != 2))
+        || ((version == 2) && (destinationIdentity.isEmpty() || destinationDirectories.isEmpty()
+            || (QString::fromLatin1(destinationIdentity.toBase64()) != destinationIdentityText)
+            || (QString::fromLatin1(destinationDirectories.toBase64()) != destinationDirectoriesText)))
         || (journal.value(QStringLiteral("torrent")).toString() != torrentId)
         || QUuid(id).isNull() || (QUuid(id).toString(QUuid::WithoutBraces) != id)
         || !states.contains(state))
@@ -457,6 +468,13 @@ bool StagingOperation::prepare(QString &error, const std::atomic_bool *cancelFla
     auto destinationGuard = RepairFileGuard::open(m_files, destination(), false, error, cancelFlag);
     if (!destinationGuard)
         return false;
+    const QByteArray plannedIdentity = QByteArray::fromBase64(
+        m_journal.value(QStringLiteral("destination_identity")).toString().toLatin1());
+    if (plannedIdentity.isEmpty() || (destinationGuard->identity() != plannedIdentity))
+    {
+        error = QStringLiteral("The target volume or file layout changed after planning. No staging data was created.");
+        return false;
+    }
     m_journal.insert(QStringLiteral("state"), QStringLiteral("preparing"));
     if (!save(error))
         return false;
@@ -640,6 +658,12 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
         error = QStringLiteral("The durable operation state does not permit this transition.");
         return false;
     }
+    const int version = m_journal.value(QStringLiteral("version")).toInt();
+    if (!rollback && (version < 2) && (state() != u"committed"))
+    {
+        error = QStringLiteral("This older recovery journal can only be rolled back safely.");
+        return false;
+    }
     const QString backup = QDir(transactionRoot(m_journal)).filePath(QStringLiteral("backup"));
     QJsonArray entries = m_journal.value(QStringLiteral("files")).toArray();
     // Existing parents remain held while absent directories are prepared. Then
@@ -647,6 +671,16 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
     auto targetDirectories = RepairFileGuard::open(m_files, destination(), false, error);
     if (!targetDirectories)
         return false;
+    if (version >= 2)
+    {
+        const QByteArray expectedDirectories = QByteArray::fromBase64(
+            m_journal.value(QStringLiteral("destination_directories")).toString().toLatin1());
+        if (expectedDirectories.isEmpty() || (targetDirectories->directoryIdentity() != expectedDirectories))
+        {
+            error = QStringLiteral("The target volume or directory layout changed. Recovery preserved every file.");
+            return false;
+        }
+    }
     targetDirectories->releaseFiles();
     for (const QJsonValue &entry : entries)
     {
@@ -679,6 +713,9 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
         guard->releaseFiles();
         parents.append(std::move(guard));
     }
+    if (version >= 2)
+        m_journal.insert(QStringLiteral("destination_directories")
+            , QString::fromLatin1(checkingDirectories.constFirst()->directoryIdentity().toBase64()));
     targetDirectories.reset();
 
     struct OwnedFile

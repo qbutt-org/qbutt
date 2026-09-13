@@ -5,10 +5,13 @@
 
 #include "repairfileguard.h"
 
+#include <array>
+#include <cstddef>
 #include <limits>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
+#include <winioctl.h>
 #include <winternl.h>
 #endif
 
@@ -40,6 +43,46 @@ namespace
         Missing,
         Invalid
     };
+
+    struct MountPointReparseData
+    {
+        DWORD tag;
+        WORD dataLength;
+        WORD reserved;
+        WORD substituteNameOffset;
+        WORD substituteNameLength;
+        WORD printNameOffset;
+        WORD printNameLength;
+        WCHAR pathBuffer[1];
+    };
+
+    QString volumeMountPointTarget(const HANDLE handle)
+    {
+        std::array<std::byte, MAXIMUM_REPARSE_DATA_BUFFER_SIZE> buffer {};
+        DWORD size = 0;
+        if (!DeviceIoControl(handle, FSCTL_GET_REPARSE_POINT, nullptr, 0, buffer.data()
+            , static_cast<DWORD>(buffer.size()), &size, nullptr))
+        {
+            return {};
+        }
+        if (size < offsetof(MountPointReparseData, pathBuffer))
+            return {};
+        const auto *data = reinterpret_cast<const MountPointReparseData *>(buffer.data());
+        const DWORD pathOffset = offsetof(MountPointReparseData, pathBuffer) + data->substituteNameOffset;
+        const DWORD pathEnd = pathOffset + data->substituteNameLength;
+        if ((data->tag != IO_REPARSE_TAG_MOUNT_POINT) || (data->substituteNameLength % sizeof(wchar_t))
+            || (pathEnd > size)
+            || (pathEnd > (offsetof(MountPointReparseData, substituteNameOffset) + data->dataLength)))
+        {
+            return {};
+        }
+        const QString target = QString::fromWCharArray(
+            reinterpret_cast<const wchar_t *>(buffer.data() + pathOffset)
+            , data->substituteNameLength / sizeof(wchar_t));
+        if (!target.startsWith(QStringView {uR"(\??\Volume{)"}, Qt::CaseInsensitive) || !target.endsWith(u"}\\"))
+            return {};
+        return target.toCaseFolded();
+    }
 
     bool isSafeComponent(const QString &component)
     {
@@ -370,22 +413,31 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             }
             auto closeHandle = qScopeGuard([handle] { CloseHandle(handle); });
             BY_HANDLE_FILE_INFORMATION info {};
-            if (!GetFileInformationByHandle(handle, &info)
-                || !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                || (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
+            if (!GetFileInformationByHandle(handle, &info))
             {
-                error = QStringLiteral("Repair refuses a reparse point or non-directory: %1").arg(current);
+                error = QStringLiteral("Repair cannot identify directory: %1").arg(current);
                 return DirectoryState::Invalid;
             }
-            QByteArray directoryIdentity;
-            QDataStream(&directoryIdentity, QIODevice::WriteOnly) << quint32(info.dwVolumeSerialNumber)
+            const QString mountTarget = (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                ? volumeMountPointTarget(handle) : QString {};
+            if (!(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                || ((info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) && mountTarget.isEmpty()))
+            {
+                error = QStringLiteral("Repair refuses a non-volume reparse point or non-directory: %1").arg(current);
+                return DirectoryState::Invalid;
+            }
+            QByteArray directoryId;
+            QDataStream(&directoryId, QIODevice::WriteOnly) << quint32(info.dwVolumeSerialNumber)
                 << quint32(info.nFileIndexHigh) << quint32(info.nFileIndexLow);
-            if (directoryIds.contains(directoryIdentity))
+            if (directoryIds.contains(directoryId))
             {
                 error = QStringLiteral("Multiple target directory paths refer to the same directory: %1").arg(current);
                 return DirectoryState::Invalid;
             }
-            directoryIds.insert(directoryIdentity);
+            directoryIds.insert(directoryId);
+            QByteArray directoryIdentity;
+            QDataStream directoryIdentityStream(&directoryIdentity, QIODevice::WriteOnly);
+            directoryIdentityStream << directoryId << mountTarget;
             directoryIdentities.insert(key, directoryIdentity);
             guard->m_directoryHandles.insert(key, handle);
             closeHandle.dismiss();
@@ -475,6 +527,8 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             << quint32(info.ftLastWriteTime.dwHighDateTime) << quint32(info.ftLastWriteTime.dwLowDateTime);
     }
     identity << directoryIdentities;
+    QDataStream directoryStream(&guard->m_directoryIdentity, QIODevice::WriteOnly);
+    directoryStream << root << directoryIdentities;
     return guard;
 #endif
 }
@@ -505,6 +559,11 @@ void *BitTorrent::RepairFileGuard::directoryHandle(const QString &path) const
 QByteArray BitTorrent::RepairFileGuard::identity() const
 {
     return m_identity;
+}
+
+QByteArray BitTorrent::RepairFileGuard::directoryIdentity() const
+{
+    return m_directoryIdentity;
 }
 
 QSet<int> BitTorrent::RepairFileGuard::existingFiles() const

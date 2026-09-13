@@ -113,6 +113,20 @@ The finished manifest remains in the profile's staging directory, and original
 backups remain in the destination's operation directory. No recursive cleanup
 is part of these operations.
 
+`smoke:storage-faults` uses two isolated 96 MiB NTFS VHDX files under its fresh
+temporary lab, mounted one at a time at the same private directory without a
+drive letter. It verifies that newly exhausted space cannot select in-place or
+create staging, a detached target fails closed, and a different VHDX mounted at
+the same private mount path is rejected by the planned volume/directory/file
+identity before the first write. A real Windows sharing conflict must stop commit
+before any rename and remain recoverable after the handle is released. The same
+suite commits through a path longer than 260 characters in a case-sensitive
+directory while preserving two unknown files whose names differ only by case.
+Run it for both Legacy and SQLite resume backends from an elevated shell. The
+fixture also kills the process owning a third, 32 MiB VHDX and proves that the
+next preflight removes only the exact marked mount and image. Every path is
+validated before creation, detachment or deletion.
+
 Set `QBUTT_LAB_RESUME_BACKEND` to `Legacy` (default) or `SQLite` before a suite
 to exercise that native resume store. Startup verifies the requested preference.
 The following additional integration fixtures use the ordinary production build:
@@ -126,6 +140,8 @@ bun tests/repair/staging-receipt.ts
 The journal fixture corrupts persisted selection, identities, mappings and state,
 then requires rejection without changing the active journal or any payload after
 shutdown. It restores the valid journal and checks recovery and replay rejection.
+Version 1 journals remain readable for rollback, but cannot resume a forward
+commit without the volume, directory and file identities recorded by version 2.
 The receipt fixture holds a real Windows sharing conflict on `.fastresume`, or a
 SQLite writer transaction on the owned profile database. Commit must retain the
 journal and suspend ordinary writers when final resume persistence fails. After
