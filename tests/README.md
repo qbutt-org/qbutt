@@ -222,6 +222,30 @@ Relay stream bytes include protocol data and are not wire bytes. The local
 single-host TCP topology proves only the stated controlled comparison; its
 evidence lists the untested public, UDP, inbound, resource and last-mile cases.
 
+`benchmark:public-swarm` uses the pinned official Ubuntu 24.04.5 live-server
+torrent and a separate empty profile for every bounded window. Set
+`QBUTT_PUBLIC_SWARM_CONTROL_EXE`, `QBUTT_PUBLIC_SWARM_NATIVE_INTERFACE`, and
+`QBUTT_PUBLIC_SWARM_NATIVE_ADDRESS`. Add `QBUTT_PUBLIC_SWARM_QBUTT_EXE` for the
+counterbalanced upstream/qbutt Native comparison. The executable paths must be
+stable: firewall rules are registered before launch and remain keyed to those
+exact files. Optional one-tunnel and Mixed windows require an ordinary Mihomo
+file in `QBUTT_PUBLIC_SWARM_PROXY_CONFIG` and pipe-separated node names in
+`QBUTT_PUBLIC_SWARM_PROXY_NAMES`; credentials and node names are not copied to
+the fixture JSON.
+
+The default suite runs three upstream-only windows or four rotating comparative
+rounds. A logical window may make up to three attempts; a timeout or WebUI failure
+is recorded in `rejectedAttempts` and never enters the summary. Each accepted
+window stops and flushes the client, reads every completed piece from disk, and
+checks its SHA-1 against the exact pinned torrent. The full ISO SHA-256 is only
+recorded as the expected upstream value because the bounded fixture deliberately
+does not download the full image. Client transfer and qbutt path payload counters
+are reported separately and are not packet-level wire bytes. The verified-rate
+metric counts pieces that become verified during the window; any partial blocks
+received during warmup are not separable and this limit is recorded in evidence.
+Public results show external applicability and variability; release thresholds
+still come from the controlled benchmark.
+
 Run `bun run smoke:mixed-baseline` against the unchanged upstream control or
 alpha application to verify the negative control: each single proxy obtains
 exactly its available subset and cannot finish the target. A timeout is a failure;
