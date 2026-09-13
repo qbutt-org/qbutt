@@ -20,11 +20,8 @@ for (const point of ["before_claim", "claimed", "dispatched", "acknowledged"].fi
         await lab.request("torrents/recheck", { hashes: hash });
         await waitFor("native check complete", () => lab.info(hash), item => item.progress === 1 && item.state === "stoppedUP");
         await lab.shutdown();
-        if (point === "acknowledged") {
-            const resume = join(lab.root, "profile", "qbutt", "data", "BT_backup", `${hash}.fastresume`);
-            const marker = Bun.spawn([lab.python, "-c", "import libtorrent as lt,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=lt.bdecode(p.read_bytes()); d[b'qbutt-completion-policy-preview']=1; p.write_bytes(lt.bencode(d))", resume], { stdout: "pipe", stderr: "pipe" });
-            assert(await marker.exited === 0, await new Response(marker.stderr).text());
-        }
+        if (point === "acknowledged")
+            await lab.markCompletionPreview(hash);
         process.env.QBUTT_COMPLETION_FAULT = point;
         await lab.start();
         await lab.request("qbuttPolicies/configure", { configuration: JSON.stringify({ enabled: true, allow_delete_data: false,

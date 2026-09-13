@@ -164,6 +164,45 @@ export async function createLab(name: string) {
             processHandle = undefined;
         }
     }
+    async function markCompletionPreview(torrentID: string) {
+        assert(!processHandle, "Resume data must only be changed while the native app is stopped");
+        const markerScript = `
+import libtorrent as lt
+import pathlib
+import sqlite3
+import sys
+
+backend, data_path, torrent_id = sys.argv[1:]
+data_path = pathlib.Path(data_path)
+if backend == "SQLite":
+    connection = sqlite3.connect(data_path / "torrents.db")
+    try:
+        row = connection.execute(
+            "SELECT libtorrent_resume_data FROM torrents WHERE torrent_id = ?",
+            (torrent_id,),
+        ).fetchone()
+        assert row is not None, f"Missing SQLite resume record for {torrent_id}"
+        resume = lt.bdecode(row[0])
+        resume[b"qbutt-completion-policy-preview"] = 1
+        cursor = connection.execute(
+            "UPDATE torrents SET libtorrent_resume_data = ? WHERE torrent_id = ?",
+            (lt.bencode(resume), torrent_id),
+        )
+        assert cursor.rowcount == 1
+        connection.commit()
+    finally:
+        connection.close()
+else:
+    path = data_path / "BT_backup" / f"{torrent_id}.fastresume"
+    resume = lt.bdecode(path.read_bytes())
+    resume[b"qbutt-completion-policy-preview"] = 1
+    path.write_bytes(lt.bencode(resume))
+`;
+        const marker = Bun.spawn([python!, "-c", markerScript, resumeBackend, join(profile, appName, "data"), torrentID], {
+            stdout: "pipe", stderr: "pipe",
+        });
+        assert(await marker.exited === 0, await new Response(marker.stderr).text());
+    }
     async function info(hash: string): Promise<TorrentStatus> {
         const torrents = await json<TorrentStatus[]>(`torrents/info?hashes=${hash}`);
         assert(torrents.length === 1, `Expected one torrent for ${hash}`);
@@ -198,7 +237,7 @@ export async function createLab(name: string) {
         await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n");
         console.log(JSON.stringify({ status: evidence.status, evidence: join(root, "evidence.json") }));
     }
-    return { root, fixtures, manifest, python, origin, request, json, info, add, start, shutdown, checkpoint, finish,
+    return { root, fixtures, manifest, python, origin, request, json, info, add, start, shutdown, markCompletionPreview, checkpoint, finish,
         get exitCode() { return processHandle?.exitCode; } };
 }
 

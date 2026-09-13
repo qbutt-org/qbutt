@@ -70,9 +70,7 @@ try {
     // independent policy list. D3 exercises the actual migration writer.
     await configure([rule("import-removal", ["remove_torrent"])], false, false);
     await lab.shutdown();
-    const resume = join(lab.root, "profile", "qbutt", "data", "BT_backup", `${hash}.fastresume`);
-    const marker = Bun.spawn([lab.python, "-c", "import libtorrent as lt,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=lt.bdecode(p.read_bytes()); d[b'qbutt-completion-policy-preview']=1; p.write_bytes(lt.bencode(d))", resume], { stdout: "pipe", stderr: "pipe" });
-    assert(await marker.exited === 0, await new Response(marker.stderr).text());
+    await lab.markCompletionPreview(hash);
     await lab.start();
     await configure([rule("import-removal", ["remove_torrent"])]);
     const preview = (await lab.json<Preview[]>("qbuttPolicies/preview")).find(item => item.hash === hash)!;
