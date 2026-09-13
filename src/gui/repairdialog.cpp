@@ -25,6 +25,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QTextDocument>
+#include <QTimer>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -36,7 +37,7 @@
 #include "base/bittorrent/torrentinfo.h"
 #include "base/path.h"
 
-RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent)
+RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const RepairDialogOptions &options)
     : QDialog {parent}
     , m_service {new BitTorrent::RepairService {torrent, this}}
     , m_status {new QLabel {this}}
@@ -44,6 +45,7 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent)
     , m_files {new QTreeWidget {this}}
     , m_consent {new QCheckBox {tr("I authorize this operation and have closed other programs that can write to the target."), this}}
 {
+    setObjectName(QStringLiteral("RepairDialog"));
     setWindowTitle(tr("Smart repair"));
     setWindowModality(Qt::WindowModal);
     resize(880, 620);
@@ -62,13 +64,20 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent)
     location->setWordWrap(true);
     details->addRow(tr("Target destination:"), location);
     auto *mode = new QComboBox {this};
+    mode->setObjectName(QStringLiteral("repairMode"));
     mode->addItems({tr("Safe staged update"), tr("Repair in place, without rollback"), tr("Recover interrupted staged update")});
-    if (QFileInfo::exists(BitTorrent::StagingOperation::journalPath(torrent->id().toString())))
+    if (options.mode == RepairDialogMode::RecoverStaged
+        || QFileInfo::exists(BitTorrent::StagingOperation::journalPath(torrent->id().toString())))
         mode->setCurrentIndex(2);
+    else if (options.mode == RepairDialogMode::InPlace)
+        mode->setCurrentIndex(1);
     details->addRow(tr("Operation:"), mode);
     auto *roots = new QPlainTextEdit {this};
+    roots->setObjectName(QStringLiteral("repairSourceRoots"));
     roots->setPlaceholderText(tr("Optional source directories, one per line. Only these locations are searched."));
     roots->setMaximumHeight(64);
+    roots->setPlainText(options.sourceRoots.join(u'\n'));
+    m_sourceMappings = options.sourceMappings;
     details->addRow(tr("Find existing data:"), roots);
     auto *browse = new QPushButton {tr("Add source directory…"), this};
     details->addRow(QString {}, browse);
@@ -94,17 +103,20 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent)
     layout->addLayout(details);
 
     m_status->setTextFormat(Qt::PlainText);
+    m_status->setObjectName(QStringLiteral("repairStatus"));
     m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_status->setWordWrap(true);
     m_status->setText(tr("Choose an operation and analyze the target torrent. Analysis does not change source data."));
     layout->addWidget(m_status);
 
     m_progress->setRange(0, 0);
+    m_progress->setObjectName(QStringLiteral("repairProgress"));
     m_progress->setTextVisible(false);
     m_progress->hide();
     layout->addWidget(m_progress);
 
     m_files->setHeaderLabels({tr("File"), tr("Expected bytes"), tr("Actual bytes"), tr("Verified bytes"), tr("Problems")});
+    m_files->setObjectName(QStringLiteral("repairFiles"));
     m_files->setRootIsDecorated(false);
     m_files->setAlternatingRowColors(true);
     m_files->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -126,13 +138,18 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent)
     warning->setWordWrap(true);
     layout->addWidget(warning);
     m_consent->setEnabled(false);
+    m_consent->setObjectName(QStringLiteral("repairConsent"));
     layout->addWidget(m_consent);
 
     auto *buttons = new QDialogButtonBox {QDialogButtonBox::Close, this};
     auto *analyze = buttons->addButton(tr("Analyze"), QDialogButtonBox::ActionRole);
+    analyze->setObjectName(QStringLiteral("repairAnalyze"));
     m_apply = buttons->addButton(tr("Prepare staging"), QDialogButtonBox::ActionRole);
+    m_apply->setObjectName(QStringLiteral("repairPrepare"));
     m_commit = buttons->addButton(tr("Commit verified update"), QDialogButtonBox::ActionRole);
+    m_commit->setObjectName(QStringLiteral("repairCommit"));
     m_rollback = buttons->addButton(tr("Roll back"), QDialogButtonBox::ActionRole);
+    m_rollback->setObjectName(QStringLiteral("repairRollback"));
     m_commit->setEnabled(false);
     m_rollback->setEnabled(false);
     m_apply->setEnabled(false);
@@ -258,6 +275,8 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent)
         m_consent->setEnabled(false);
         m_service->rollbackStaged();
     });
+    if (options.analyzeImmediately)
+        QTimer::singleShot(0, analyze, &QPushButton::click);
 }
 
 void RepairDialog::showAnalysis(const BitTorrent::RepairAnalysis &analysis, const QString &directory)

@@ -94,6 +94,7 @@ add_library(qbt_gui STATIC
     raisedmessagebox.h
     policiesdialog.h
     repairdialog.h
+    repairpreviewdialog.h
     rss/articlelistwidget.h
     rss/automatedrssdownloader.h
     rss/feedlistwidget.h
@@ -201,6 +202,7 @@ add_library(qbt_gui STATIC
     raisedmessagebox.cpp
     policiesdialog.cpp
     repairdialog.cpp
+    repairpreviewdialog.cpp
     rss/articlelistwidget.cpp
     rss/automatedrssdownloader.cpp
     rss/feedlistwidget.cpp

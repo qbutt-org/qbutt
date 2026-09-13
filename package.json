@@ -5,6 +5,7 @@
     "fixtures": "bun tests/fixtures/generate.ts",
     "smoke:native": "bun tests/native-smoke.ts",
     "smoke:repair": "bun tests/repair/smoke.ts",
+    "smoke:repair-product": "bun tests/repair-product/smoke.ts",
     "smoke:staging": "bun tests/repair/staging-smoke.ts",
     "smoke:staging-faults": "bun tests/repair/staging-faults.ts",
     "smoke:completion": "bun tests/completion-smoke.ts",

@@ -192,6 +192,45 @@ QString BitTorrent::repairPathIdentity(const QString &path)
     return {};
 }
 
+QList<std::shared_ptr<BitTorrent::RepairFileGuard>> BitTorrent::RepairFileGuard::openSources(const lt::file_storage &targetFiles
+    , const QMap<int, QString> &sources, QString &error, const std::atomic_bool *cancelled)
+{
+    error.clear();
+    QMap<QString, lt::file_storage> sourceVolumes;
+    QSet<QString> sourcePaths;
+    for (auto it = sources.cbegin(); it != sources.cend(); ++it)
+    {
+        const QString path = QDir::fromNativeSeparators(it.value());
+        if ((it.key() < 0) || (it.key() >= targetFiles.num_files()) || (path.size() < 4)
+            || (path.mid(1, 2) != u":/") || (QDir::cleanPath(path) != path))
+        {
+            error = QStringLiteral("A source mapping is not a normalized local file path.");
+            return {};
+        }
+        if (!sourcePaths.contains(path.toCaseFolded()))
+        {
+            sourceVolumes[path.left(3)].add_file(
+                path.mid(3).toStdString(), targetFiles.file_size(lt::file_index_t(it.key())));
+            sourcePaths.insert(path.toCaseFolded());
+        }
+    }
+
+    QList<std::shared_ptr<RepairFileGuard>> guards;
+    for (auto it = sourceVolumes.cbegin(); it != sourceVolumes.cend(); ++it)
+    {
+        auto guard = open(it.value(), it.key(), false, error, cancelled);
+        if (!guard)
+            return {};
+        if (guard->existingFiles().size() != it.value().num_files())
+        {
+            error = QStringLiteral("A mapped source changed before it could be owned. Analyze the data again.");
+            return {};
+        }
+        guards.append(std::move(guard));
+    }
+    return guards;
+}
+
 std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
     const lt::file_storage &files, const QString &savePath, const bool writable, QString &error
     , const std::atomic_bool *cancelled, const bool renameChildren)

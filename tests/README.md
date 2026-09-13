@@ -38,6 +38,7 @@ bun run smoke:native
 bun run smoke:proxy
 bun run smoke:network
 bun run smoke:repair
+bun run smoke:repair-product
 bun run smoke:staging
 bun run smoke:completion
 bun run smoke:mixed
@@ -74,6 +75,15 @@ including its absent parent directories, is created only after consent under the
 same exclusive guard used for apply; a target or mapped parent directory appearing
 after analysis is rejected.
 It drives the real session through standard recheck and download after apply.
+
+`smoke:repair-product` drives the standalone Smart Repair entry dialog through
+Qt's offscreen platform before any torrent exists. Build its process-level driver
+against the current production build with `tests/repair-product/build.ts`, then set
+`QBUTT_REPAIR_PREVIEW_DRIVER`. It verifies explicit mappings and separate candidate,
+hash-verified, target-network and staging-storage summaries, a responsive cancelled
+scan, and visible refusal for missing roots, hardlinks and reparse points. Every
+source and target tree is hashed before and after; the driver never clicks Apply,
+so no torrent, resume record, journal or payload write is created.
 
 `smoke:staging` uses independent copies and the same native downloader for full
 and selected v1/v2/hybrid targets. It checks a read-only plan, renamed-source

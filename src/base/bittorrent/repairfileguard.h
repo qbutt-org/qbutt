@@ -12,6 +12,7 @@
 #include <libtorrent/fwd.hpp>
 
 #include <QByteArray>
+#include <QList>
 #include <QMap>
 #include <QSet>
 #include <QString>
@@ -33,6 +34,8 @@ namespace BitTorrent
         static std::shared_ptr<RepairFileGuard> open(const lt::file_storage &files
             , const QString &savePath, bool writable, QString &error, const std::atomic_bool *cancelled = nullptr
             , bool renameChildren = false);
+        static QList<std::shared_ptr<RepairFileGuard>> openSources(const lt::file_storage &targetFiles
+            , const QMap<int, QString> &sources, QString &error, const std::atomic_bool *cancelled = nullptr);
         ~RepairFileGuard();
 
         QByteArray identity() const;
