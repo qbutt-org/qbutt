@@ -195,8 +195,14 @@ Set `QBUTT_POLICY_EXE` to the built `route-policy-integration.exe` and
 `QBUTT_PUBLIC_IPV4` to the currently observed public IPv4. It proves live policy
 replacement for HTTP/UDP trackers and DHT generations, an authenticated SOCKS
 webseed, an unaffected default session, and automatic managed uTP with exact
-payload bytes and source binding. The address is used as the fixture route's
-explicit external identity; the lab does not send traffic to it.
+payload bytes and source binding. HTTP and UDP tracker captures require the
+configured public address and generic peer port, reject a hostile session-wide
+announce address, and verify identical peer IDs and keys. DHT uses a distinct UDP
+listener port; an outgoing-only route performs `get_peers` without
+`announce_peer`, and anonymous announces suppress addresses while preserving the
+peer port. The local DHT packet source is loopback, so this proves route-local
+node identity and announced port behavior. Public address correctness and
+reachability require the external gateway scenario.
 
 Run `bun run smoke:mixed-baseline` against the unchanged upstream control or
 alpha application to verify the negative control: each single proxy obtains
