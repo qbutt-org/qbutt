@@ -5,8 +5,11 @@
 
 #include "repairfileguard.h"
 
+#include <limits>
+
 #ifdef Q_OS_WIN
 #include <windows.h>
+#include <winternl.h>
 #endif
 
 #include <libtorrent/file_storage.hpp>
@@ -23,7 +26,7 @@ namespace
     {
         if (!cancelled || !cancelled->load(std::memory_order_relaxed))
             return false;
-        error = modifying ? QStringLiteral("Repair cancelled. Earlier truncations may already be applied.")
+        error = modifying ? QStringLiteral("Repair cancelled. Earlier in-place changes may already have been applied.")
             : QStringLiteral("Repair cancelled.");
         return true;
     }
@@ -65,6 +68,51 @@ namespace
     {
         return QStringLiteral("Cannot exclusively access %1 (Windows error %2). Close programs using this data.")
             .arg(path).arg(code);
+    }
+
+    HANDLE createOwnedObject(const HANDLE parent, const QString &component, const QString &path
+        , const ACCESS_MASK access, const ULONG shareAccess, const ULONG options, QString &error)
+    {
+        static const auto createFile = reinterpret_cast<decltype(&NtCreateFile)>(
+            GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtCreateFile"));
+        static const auto statusToError = reinterpret_cast<decltype(&RtlNtStatusToDosError)>(
+            GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlNtStatusToDosError"));
+        if (!createFile || !statusToError)
+        {
+            error = QStringLiteral("The handle-relative creation API is unavailable.");
+            return INVALID_HANDLE_VALUE;
+        }
+        const qsizetype bytes = component.size() * qsizetype(sizeof(wchar_t));
+        if (bytes > std::numeric_limits<USHORT>::max())
+        {
+            error = QStringLiteral("The target path component is too long: %1").arg(path);
+            return INVALID_HANDLE_VALUE;
+        }
+        UNICODE_STRING name {};
+        name.Length = static_cast<USHORT>(bytes);
+        name.MaximumLength = name.Length;
+        name.Buffer = const_cast<PWSTR>(reinterpret_cast<LPCWSTR>(component.utf16()));
+        OBJECT_ATTRIBUTES attributes {};
+        InitializeObjectAttributes(&attributes, &name, OBJ_CASE_INSENSITIVE, parent, nullptr);
+        IO_STATUS_BLOCK result {};
+        HANDLE object = INVALID_HANDLE_VALUE;
+        const NTSTATUS status = createFile(&object, access, &attributes, &result, nullptr
+            , FILE_ATTRIBUTE_NORMAL, shareAccess, FILE_CREATE, options, nullptr, 0);
+        if (!NT_SUCCESS(status))
+        {
+            error = QStringLiteral("Cannot atomically create the missing repair target %1 "
+                "(Windows error %2, NT status 0x%3).")
+                .arg(path).arg(statusToError(status)).arg(quint32(status), 8, 16, QLatin1Char('0'));
+            return INVALID_HANDLE_VALUE;
+        }
+        if ((object == INVALID_HANDLE_VALUE) || (result.Information != FILE_CREATED))
+        {
+            if (object != INVALID_HANDLE_VALUE)
+                CloseHandle(object);
+            error = QStringLiteral("The handle-relative create did not exclusively create repair target %1.").arg(path);
+            return INVALID_HANDLE_VALUE;
+        }
+        return object;
     }
 #endif
 }
@@ -169,6 +217,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
         error = QStringLiteral("Repair requires an absolute, normalized local drive path.");
         return {};
     }
+    guard->m_root = root;
 
     if (GetDriveTypeW(reinterpret_cast<LPCWSTR>(root.left(3).utf16())) != DRIVE_FIXED)
     {
@@ -222,10 +271,13 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
     }
 
     QSet<QString> missingDirectories;
+    QMap<QString, QByteArray> directoryIdentities;
+    QSet<QByteArray> directoryIds;
     const auto lockDirectories = [&](const QString &path) -> DirectoryState
     {
         QString current = root.left(3);
         const QStringList components = path.mid(3).split(u'/', Qt::SkipEmptyParts);
+        bool missing = false;
         for (qsizetype i = -1; i < components.size(); ++i)
         {
             if (checkCancellation(error, cancelled))
@@ -244,8 +296,13 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             const QString key = current.toCaseFolded();
             if (guard->m_directoryHandles.contains(key))
                 continue;
-            if (missingDirectories.contains(key))
-                return DirectoryState::Missing;
+            if (missing || missingDirectories.contains(key))
+            {
+                missing = true;
+                missingDirectories.insert(key);
+                directoryIdentities.insert(key, QByteArray {});
+                continue;
+            }
             if ((guard->m_directoryHandles.size() + guard->m_files.size()) >= MaximumHandles)
             {
                 error = QStringLiteral("Repair exceeds the limit of %1 open file and directory handles.").arg(MaximumHandles);
@@ -255,7 +312,8 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             const QString native = windowsPath(current);
             // Attribute-only handles do not enforce share exclusions. Directory
             // read access prevents rename/reparse conversion without blocking child I/O.
-            HANDLE handle = CreateFileW(reinterpret_cast<LPCWSTR>(native.utf16()), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES
+            HANDLE handle = CreateFileW(reinterpret_cast<LPCWSTR>(native.utf16())
+                , FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES
                 , FILE_SHARE_READ | (renameChildren ? FILE_SHARE_WRITE : 0), nullptr, OPEN_EXISTING
                 , FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
             if (handle == INVALID_HANDLE_VALUE)
@@ -263,8 +321,10 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
                 const DWORD code = GetLastError();
                 if ((code == ERROR_FILE_NOT_FOUND) || (code == ERROR_PATH_NOT_FOUND))
                 {
+                    missing = true;
                     missingDirectories.insert(key);
-                    return DirectoryState::Missing;
+                    directoryIdentities.insert(key, QByteArray {});
+                    continue;
                 }
                 error = fileError(current, code);
                 return DirectoryState::Invalid;
@@ -278,14 +338,30 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
                 error = QStringLiteral("Repair refuses a reparse point or non-directory: %1").arg(current);
                 return DirectoryState::Invalid;
             }
+            QByteArray directoryIdentity;
+            QDataStream(&directoryIdentity, QIODevice::WriteOnly) << quint32(info.dwVolumeSerialNumber)
+                << quint32(info.nFileIndexHigh) << quint32(info.nFileIndexLow);
+            if (directoryIds.contains(directoryIdentity))
+            {
+                error = QStringLiteral("Multiple target directory paths refer to the same directory: %1").arg(current);
+                return DirectoryState::Invalid;
+            }
+            directoryIds.insert(directoryIdentity);
+            directoryIdentities.insert(key, directoryIdentity);
             guard->m_directoryHandles.insert(key, handle);
             closeHandle.dismiss();
         }
-        return DirectoryState::Locked;
+        return missing ? DirectoryState::Missing : DirectoryState::Locked;
     };
 
-    if (lockDirectories(root) == DirectoryState::Invalid)
+    const DirectoryState rootState = lockDirectories(root);
+    if (rootState == DirectoryState::Invalid)
         return {};
+    if (rootState == DirectoryState::Missing)
+    {
+        error = QStringLiteral("The repair data directory must already exist.");
+        return {};
+    }
 
     QSet<QByteArray> fileIds;
     QDataStream identity(&guard->m_identity, QIODevice::WriteOnly);
@@ -305,6 +381,8 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
         if (directoryState == DirectoryState::Missing)
         {
             identity << false;
+            if (files.file_size(index) == 0)
+                guard->m_missingEmptyFiles.push_back({int(index), path});
             continue;
         }
         if ((guard->m_directoryHandles.size() + guard->m_files.size()) >= MaximumHandles)
@@ -323,6 +401,8 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             if ((code == ERROR_FILE_NOT_FOUND) || (code == ERROR_PATH_NOT_FOUND))
             {
                 identity << false;
+                if (files.file_size(index) == 0)
+                    guard->m_missingEmptyFiles.push_back({int(index), path});
                 continue;
             }
             error = fileError(path, code);
@@ -355,6 +435,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             << quint32(info.nFileIndexHigh) << quint32(info.nFileIndexLow) << size
             << quint32(info.ftLastWriteTime.dwHighDateTime) << quint32(info.ftLastWriteTime.dwLowDateTime);
     }
+    identity << directoryIdentities;
     return guard;
 #endif
 }
@@ -395,6 +476,101 @@ QSet<int> BitTorrent::RepairFileGuard::existingFiles() const
     return indexes;
 }
 
+bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::atomic_bool *cancelled)
+{
+    error.clear();
+    if (!m_writable)
+    {
+        error = QStringLiteral("Read-only analysis cannot create files.");
+        return false;
+    }
+#ifdef Q_OS_WIN
+    for (const MissingEmptyFile &file : m_missingEmptyFiles)
+    {
+        if (checkCancellation(error, cancelled, true))
+            return false;
+        QString current = m_root;
+        const QString relativeParent = QDir(m_root).relativeFilePath(QFileInfo(file.path).path());
+        const QStringList components = (relativeParent == u".")
+            ? QStringList {} : relativeParent.split(u'/', Qt::SkipEmptyParts);
+        for (const QString &component : components)
+        {
+            const HANDLE parent = static_cast<HANDLE>(m_directoryHandles.value(current.toCaseFolded()));
+            if (!parent)
+            {
+                error = QStringLiteral("Repair lost ownership of target directory %1.").arg(current);
+                return false;
+            }
+            current = QDir(current).filePath(component);
+            const QString key = current.toCaseFolded();
+            if (m_directoryHandles.contains(key))
+                continue;
+            if ((m_directoryHandles.size() + m_files.size()) >= MaximumHandles)
+            {
+                error = QStringLiteral("Repair exceeds the limit of %1 open file and directory handles. Earlier empty directories may already have been created.")
+                    .arg(MaximumHandles);
+                return false;
+            }
+            const HANDLE directory = createOwnedObject(parent, component, current
+                , FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ
+                , FILE_DIRECTORY_FILE, error);
+            if (directory == INVALID_HANDLE_VALUE)
+            {
+                error += QStringLiteral(" Earlier target directories may already have been created.");
+                return false;
+            }
+            auto closeDirectory = qScopeGuard([directory] { CloseHandle(directory); });
+            BY_HANDLE_FILE_INFORMATION directoryInfo {};
+            if (!GetFileInformationByHandle(directory, &directoryInfo)
+                || !(directoryInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                || (directoryInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
+            {
+                error = QStringLiteral("The newly created target directory is not an exclusive regular directory: %1").arg(current);
+                return false;
+            }
+            m_directoryHandles.insert(key, directory);
+            closeDirectory.dismiss();
+        }
+        if ((m_directoryHandles.size() + m_files.size()) >= MaximumHandles)
+        {
+            error = QStringLiteral("Repair exceeds the limit of %1 open file and directory handles. "
+                "Earlier empty directories or targets may already have been created.").arg(MaximumHandles);
+            return false;
+        }
+        const HANDLE parent = static_cast<HANDLE>(m_directoryHandles.value(current.toCaseFolded()));
+        if (!parent)
+        {
+            error = QStringLiteral("Repair lost ownership of target directory %1.").arg(current);
+            return false;
+        }
+        const HANDLE handle = createOwnedObject(parent, QFileInfo(file.path).fileName(), file.path
+            , GENERIC_READ | GENERIC_WRITE, 0, FILE_NON_DIRECTORY_FILE, error);
+        if (handle == INVALID_HANDLE_VALUE)
+        {
+            error += QStringLiteral(" Earlier empty targets may already have been created.");
+            return false;
+        }
+        auto closeHandle = qScopeGuard([handle] { CloseHandle(handle); });
+        BY_HANDLE_FILE_INFORMATION info {};
+        if (!GetFileInformationByHandle(handle, &info)
+            || (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))
+            || (info.nNumberOfLinks != 1) || (info.nFileSizeHigh != 0) || (info.nFileSizeLow != 0))
+        {
+            error = QStringLiteral("The newly created empty target is not an exclusive regular file: %1").arg(file.path);
+            return false;
+        }
+        m_files.push_back({handle, file.nativeIndex, file.path, 0, 0});
+        closeHandle.dismiss();
+    }
+    m_missingEmptyFiles.clear();
+    return true;
+#else
+    Q_UNUSED(cancelled)
+    error = QStringLiteral("Managed repair currently requires Windows file ownership checks.");
+    return false;
+#endif
+}
+
 bool BitTorrent::RepairFileGuard::truncateOversized(QString &error, const std::atomic_bool *cancelled)
 {
     error.clear();
@@ -420,8 +596,10 @@ bool BitTorrent::RepairFileGuard::truncateOversized(QString &error, const std::a
         if (!SetFilePointerEx(file.handle, end, nullptr, FILE_BEGIN) || !SetEndOfFile(file.handle)
             || !FlushFileBuffers(file.handle))
         {
-            error = QStringLiteral("In-place repair stopped at %1 (Windows error %2). Earlier truncations may already be applied.")
-                .arg(file.path).arg(GetLastError());
+            const DWORD code = GetLastError();
+            error = QStringLiteral("In-place repair stopped at %1 (Windows error %2). "
+                "Earlier in-place changes may already have been applied.")
+                .arg(file.path).arg(code);
             return false;
         }
         LARGE_INTEGER size {};

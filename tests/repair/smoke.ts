@@ -174,6 +174,30 @@ try {
                         await lab.checkpoint({ name, variant, check: "missing-target-race",
                             outcome: raced ? "identity-change-rejected" : "external-create-blocked" });
                     }
+                    if (name === "v1" && variant === "missing-empty-directory") {
+                        const racedParent = join(destination, "bundle", "new-empty", "deep");
+                        await mkdir(racedParent, { recursive: true });
+                        await lab.request("qbuttRepair/apply", { id: operation.id, consent: "true" });
+                        const rejected = await waitFor("raced missing directory rejection",
+                            () => lab.json<RepairStatus>("qbuttRepair/status"), status => status.state === "failed");
+                        assert(rejected.error, "Missing-directory race failed without a diagnostic");
+                        await assert.rejects(stat(join(destination, missingPath!)), { code: "ENOENT" },
+                            "Rejected missing-directory race created the empty target");
+                        assert.deepEqual(await readdir(racedParent), [],
+                            "Rejected missing-directory race changed the external directory");
+                        await lab.checkpoint({ name, variant, check: "directory-identity-change-rejected" });
+                        await lab.request("qbuttRepair/cancel", { id: operation.id });
+                        await rm(join(destination, "bundle", "new-empty"), { recursive: true });
+                        const previousId = operation.id;
+                        operation = await (await lab.request("qbuttRepair/analyze", { hash })).json() as RepairStatus;
+                        analysis = await waitFor("analysis after missing-directory race",
+                            () => lab.json<RepairStatus>("qbuttRepair/status"),
+                            status => status.state === "analyzed" || status.state === "failed");
+                        assert(analysis.state === "analyzed" && analysis.analysis && operation.id !== previousId,
+                            "Rejected missing-directory race did not permit a fresh analysis");
+                        assert.deepEqual(await snapshot(destination), before,
+                            "Missing-directory race cleanup changed candidate data");
+                    }
                     const summary = analysis.analysis!;
                     assert(summary.expected_bytes === lab.manifest.payload.reduce((sum, file) => sum + file.size, 0),
                         "Repair byte accounting included padding or omitted payload");

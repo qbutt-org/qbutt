@@ -489,18 +489,6 @@ void RepairService::apply()
         fail(tr("Torrent ownership changed. Analyze the data again."));
         return;
     }
-    for (const RepairFileAnalysis &file : m_analysis.files)
-    {
-        // libtorrent initialize_storage creates absent zero-length files even
-        // during recheck. This slice does not safely reserve missing paths for
-        // that write. Nonzero missing targets are read-only during the check.
-        if ((file.expectedSize == 0) && (file.actualSize < 0))
-        {
-            fail(tr("This repair slice cannot apply while a zero-length target file is missing. "
-                "Create it with the normal downloader, stop the torrent, and analyze again."));
-            return;
-        }
-    }
     snapshotOtherFiles();
 
     m_state = State::Applying;
@@ -519,6 +507,8 @@ void RepairService::apply()
             m_error = tr("The data changed after analysis. No repair changes were made; analyze it again.");
             return;
         }
+        if (!m_guard->createMissingEmpty(m_error, &m_cancelled))
+            return;
         m_guard->truncateOversized(m_error, &m_cancelled);
     });
 }
