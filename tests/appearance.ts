@@ -1,5 +1,4 @@
-export function labAppearanceSettings(): string[] {
-    const mode = process.env.QBUTT_LAB_APPEARANCE ?? "functional";
+export function labAppearanceSettings(mode = process.env.QBUTT_LAB_APPEARANCE ?? "functional"): string[] {
     if (mode !== "functional" && mode !== "product")
         throw new Error("QBUTT_LAB_APPEARANCE must be functional or product");
 

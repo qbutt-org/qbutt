@@ -63,7 +63,14 @@ PoliciesDialog::PoliciesDialog(QWidget *parent)
     , m_journal(new QTableWidget(0, 6, this))
     , m_status(new QLabel(this))
 {
+    setObjectName(u"completionPoliciesDialog"_s);
     setWindowTitle(tr("Completion policies"));
+    m_enabled->setObjectName(u"completionPoliciesEnabled"_s);
+    m_deleteData->setObjectName(u"completionPoliciesAllowDelete"_s);
+    m_rules->setObjectName(u"completionPoliciesRules"_s);
+    m_preview->setObjectName(u"completionPoliciesPreview"_s);
+    m_journal->setObjectName(u"completionPoliciesJournal"_s);
+    m_status->setObjectName(u"completionPoliciesStatus"_s);
     resize(1100, 650);
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(m_enabled);
@@ -81,6 +88,7 @@ PoliciesDialog::PoliciesDialog(QWidget *parent)
     ruleLayout->addWidget(m_rules);
     auto *ruleButtons = new QDialogButtonBox(this);
     auto *add = ruleButtons->addButton(tr("Add rule"), QDialogButtonBox::ActionRole);
+    add->setObjectName(u"completionPoliciesAdd"_s);
     auto *remove = ruleButtons->addButton(tr("Remove rule"), QDialogButtonBox::ActionRole);
     auto *up = ruleButtons->addButton(tr("Move up"), QDialogButtonBox::ActionRole);
     auto *down = ruleButtons->addButton(tr("Move down"), QDialogButtonBox::ActionRole);
@@ -105,6 +113,8 @@ PoliciesDialog::PoliciesDialog(QWidget *parent)
     layout->addWidget(m_status);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Close, this);
     auto *preview = buttons->addButton(tr("Refresh preview"), QDialogButtonBox::ActionRole);
+    preview->setObjectName(u"completionPoliciesRefresh"_s);
+    buttons->button(QDialogButtonBox::Save)->setObjectName(u"completionPoliciesSave"_s);
     layout->addWidget(buttons);
     auto *policy = BitTorrent::Session::instance()->completionPolicy();
     const QJsonObject config = policy->configuration();

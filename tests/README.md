@@ -50,6 +50,37 @@ bun run smoke:path-auth
 bun run smoke:path-dns
 ```
 
+Build and run the process-level Qt acceptance executable from the same configured
+tree and deployed bundle:
+
+```powershell
+cmake -S . -B "$env:LOCALAPPDATA/qbutt/build" -DQBUTT_QT_ACCEPTANCE=ON
+cmake --build "$env:LOCALAPPDATA/qbutt/build" --target qbutt-qt-acceptance
+$env:QBUTT_QT_ACCEPTANCE_EXE = "$env:LOCALAPPDATA/qbutt/build/qbutt-qt-acceptance.exe"
+bun run smoke:qt
+```
+
+For a short appearance-only acceptance on the same executable, use
+`bun run smoke:appearance`. It needs no Python, torrent data or transport child.
+Three offscreen app processes check a fresh built-in dark profile against
+`docs/ui-default-layout.json`, change layout and select Light through Qt
+controls, verify those settings after restart, and check an independent
+functional Light/Fusion profile. Header order, hidden state, logical widths,
+Files tab, sidebar action, palette and options controls are asserted; the
+stretched last Files column adapts to its viewport. PNGs and JSON evidence stay
+in the printed temporary directory; successful profiles and the copied Qt
+runtime are removed. These configure/build/run commands still need validation
+against the shared Windows build before reporting the suite as passed.
+
+`smoke:qt` launches the real application offscreen with a new profile. It drives
+repair preview, explicit mappings, staged commit, multiple Paths, completion
+policies, bounded diagnostics export, and a 2,000-row transfer list. The runner
+creates and cancels a 30,000-file source search, measures event-loop response,
+checks payload snapshots before consent, and verifies final bytes and preserved
+unknown files. Set `QBUTT_QT_ACCEPTANCE_BUNDLE` only when the deployed runtime is
+not in the build tree's `portable` directory. This is process/UI-model acceptance,
+not physical desktop interaction or public-network evidence.
+
 To exercise the real qbutt-net child, place its pinned binary beside the app and
 run `smoke:network` with `$env:QBUTT_LAB_PATHS = '1'`. This adds node listing,
 session transition guards, termination of the owned child PID, blocked-path
