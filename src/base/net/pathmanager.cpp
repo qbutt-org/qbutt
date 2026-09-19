@@ -1499,7 +1499,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         else
         {
             const QJsonArray values = result.value(u"addresses"_s).toArray();
-            if ((result.size() != 1) || !result.value(u"addresses"_s).isArray()
+            if ((result.size() != ((method == u"resolveNative") ? 3 : 1)) || !result.value(u"addresses"_s).isArray()
                 || values.isEmpty() || (values.size() > 64))
             {
                 fail(tr("qbutt-net returned an invalid DNS address list."));
