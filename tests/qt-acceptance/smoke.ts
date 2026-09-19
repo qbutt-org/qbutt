@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { generateFixtures } from "../fixtures/generate";
 import { allowLabNetwork } from "../windows-firewall";
 import { labAppearanceSettings } from "../appearance";
@@ -103,34 +103,26 @@ async function probePayloadAuthentication(path: string, signal: AbortSignal): Pr
     }
 }
 
+async function removeOwnedDirectory(parent: string, name: string) {
+    const path = join(parent, name);
+    try {
+        const expected = join(await realpath(parent), name);
+        assert.equal(await realpath(path), expected, "Fixture cleanup escaped its owned directory");
+        await rm(path, { recursive: true, force: true });
+    }
+    catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+}
+
 const root = await mkdtemp(join(tmpdir(), "qbutt-qt-acceptance-"));
+assert((await realpath(root)).startsWith(await realpath(tmpdir()) + sep)
+    && basename(root).startsWith("qbutt-qt-acceptance-"), "Unexpected Qt fixture root");
 // Keep executable paths stable so the firewall preflight creates one reusable
 // rule per process while every profile, payload and evidence tree stays fresh.
 const bundle = join(tmpdir(), "qbutt-qt-acceptance-runtime");
 const runtimeLock = `${bundle}.lock`;
-for (;;) {
-    try {
-        const descriptor = openSync(runtimeLock, "wx");
-        writeFileSync(descriptor, String(process.pid));
-        closeSync(descriptor);
-        break;
-    }
-    catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST")
-            throw error;
-        const owner = Number(readFileSync(runtimeLock, "utf8"));
-        try {
-            process.kill(owner, 0);
-            throw new Error(`Qt acceptance runtime is already owned by process ${owner}`);
-        }
-        catch (ownerError) {
-            if ((ownerError as NodeJS.ErrnoException).code !== "ESRCH")
-                throw ownerError;
-            unlinkSync(runtimeLock);
-        }
-    }
-}
-let runtimeLockHeld = true;
+let runtimeLockHeld = false;
 const releaseRuntimeLock = () => {
     if (runtimeLockHeld) {
         runtimeLockHeld = false;
@@ -138,20 +130,49 @@ const releaseRuntimeLock = () => {
     }
 };
 process.once("exit", releaseRuntimeLock);
-await rm(bundle, { recursive: true, force: true });
-await mkdir(bundle);
-await cp(runtimeSource, bundle, { recursive: true, filter: path => {
-    if (["profile", ".git"].includes(basename(path)))
-        return false;
-    const extension = extname(path).toLowerCase();
-    return !extension || [".exe", ".dll", ".qm", ".conf"].includes(extension);
-} });
-const executable = join(bundle, basename(sourceExecutable));
-await cp(sourceExecutable, executable);
-if (appearanceOnly) {
-    // Three real application processes exercise first-run defaults and restart
-    // persistence. No torrents, transport child or Python fixture are needed.
-    try {
+let application: ReturnType<typeof Bun.spawn> | undefined;
+let compiler: ReturnType<typeof Bun.spawn> | undefined;
+let authenticationAbort: AbortController | undefined;
+let authentication: Promise<void> | undefined;
+let failure: unknown;
+let result: Record<string, unknown> | undefined;
+try {
+    for (;;) {
+        try {
+            const descriptor = openSync(runtimeLock, "wx");
+            writeFileSync(descriptor, String(process.pid));
+            closeSync(descriptor);
+            break;
+        }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST")
+                throw error;
+            const owner = Number(readFileSync(runtimeLock, "utf8"));
+            try {
+                process.kill(owner, 0);
+                throw new Error(`Qt acceptance runtime is already owned by process ${owner}`);
+            }
+            catch (ownerError) {
+                if ((ownerError as NodeJS.ErrnoException).code !== "ESRCH")
+                    throw ownerError;
+                unlinkSync(runtimeLock);
+            }
+        }
+    }
+    runtimeLockHeld = true;
+    await removeOwnedDirectory(tmpdir(), basename(bundle));
+    await mkdir(bundle);
+    await cp(runtimeSource, bundle, { recursive: true, filter: path => {
+        if (["profile", ".git"].includes(basename(path)))
+            return false;
+        const extension = extname(path).toLowerCase();
+        return !extension || [".exe", ".dll", ".qm", ".conf"].includes(extension);
+    } });
+    const executable = join(bundle, basename(sourceExecutable));
+    await cp(sourceExecutable, executable);
+    if (appearanceOnly) {
+        // Three real application processes exercise first-run defaults and restart
+        // persistence. No torrents, transport child or Python fixture are needed.
         await allowLabNetwork([executable]);
         const layoutDefaults = resolve(import.meta.dir, "../../docs/ui-default-layout.json");
         assert((await stat(layoutDefaults)).isFile(), "Captured default layout is missing");
@@ -181,15 +202,15 @@ if (appearanceOnly) {
             const spec = join(root, `${phase}-spec.json`);
             await writeFile(spec, JSON.stringify({ schema: 1, mode: "appearance", appearance: phase,
                 evidencePath, profile, screenshots, layoutDefaults, retainedState }, null, 2));
-            const run = Bun.spawn([executable, `--profile=${profile}`, "--no-splash", "--confirm-legal-notice"], {
+            application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash", "--confirm-legal-notice"], {
                 cwd: bundle, windowsHide: true,
                 env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QT_SCALE_FACTOR: "1",
                     QBUTT_QT_ACCEPTANCE_SPEC: spec },
                 stdout: Bun.file(join(root, `${phase}-stdout.log`)),
                 stderr: Bun.file(join(root, `${phase}-stderr.log`)), timeout: 90000,
             });
-            const exitCode = await run.exited;
-            assert.equal(exitCode, 0, `Appearance ${phase} exited ${exitCode} (signal ${run.signalCode}); inspect ${root}`);
+            const exitCode = await application.exited;
+            assert.equal(exitCode, 0, `Appearance ${phase} exited ${exitCode} (signal ${application.signalCode}); inspect ${root}`);
             const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
             assert.equal(evidence.status, "passed", `Appearance ${phase} failed; inspect ${evidencePath}`);
             assert(evidence.checks.some((check: { name: string }) => check.name === `appearance-${phase}`),
@@ -197,116 +218,133 @@ if (appearanceOnly) {
             results.push({ phase, evidence: evidencePath });
         }
         const executableSha256 = createHash("sha256").update(await readFile(executable)).digest("hex");
-        await Promise.all(["product-profile", "functional-profile"].map(name => rm(join(root, name), { recursive: true, force: true })));
-        console.log(JSON.stringify({ status: "passed", suite: "appearance", executableSha256, results, screenshots }));
+        result = { status: "passed", suite: "appearance", executableSha256, results, screenshots };
     }
-    finally {
-        // This locked, fixed temporary runtime is only a copy of the bundle.
-        // Keep the small logs/screenshots, not another deployed Qt runtime.
-        await rm(bundle, { recursive: true, force: true });
+    else {
+        const child = join(bundle, "qbutt-net.exe");
+        compiler = Bun.spawn([process.execPath, "build", "--compile", join(import.meta.dir, "fake-child.ts"), "--outfile", child],
+            { stdout: "pipe", stderr: "pipe", windowsHide: true });
+        const [compileCode, compileOut, compileErr] = await Promise.all([
+            compiler.exited, new Response(compiler.stdout).text(), new Response(compiler.stderr).text(),
+        ]);
+        assert.equal(compileCode, 0, `Cannot compile Qt transport fixture: ${compileOut}\n${compileErr}`);
+        await allowLabNetwork([executable, child]);
+
+        assert(python, "Set QBUTT_LAB_PYTHON for torrent fixtures");
+        const fixtures = await generateFixtures(python, join(root, "fixtures"));
+        const manifest = JSON.parse(await readFile(join(fixtures, "manifest.json"), "utf8")) as {
+            torrents: { name: string; file: string }[];
+        };
+        const torrent = manifest.torrents.find(candidate => candidate.name === "v1-public");
+        assert(torrent, "Generated v1-public fixture is missing");
+        const profile = join(root, "profile");
+        const config = join(profile, "qbutt", "config");
+        await mkdir(config, { recursive: true });
+        await writeFile(join(config, "qbutt.ini"), [
+            "[BitTorrent]", "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
+            "Session\\AddTorrentStopped=true", "Session\\AddExtensionToIncompleteFiles=false", "Session\\UseUnwantedFolder=false",
+            "Session\\QueueingSystemEnabled=false", "Session\\InterfaceAddress=127.0.0.1", "Session\\ResumeDataStorageType=SQLite",
+            "[Network]", "PortForwardingEnabled=false",
+            "[GUI]", "Notifications\\Enabled=false",
+            "[Preferences]", "General\\Locale=en", "Advanced\\updateCheck=false", "Connection\\ResolvePeerCountries=false",
+            "Connection\\ResolvePeerHostNames=false", "General\\ExitConfirm=false", "General\\CloseToTray=false",
+            "General\\MinimizeToTray=false", "General\\SystrayEnabled=false", "WebUI\\Enabled=false", "",
+            ...labAppearanceSettings(),
+        ].join("\n"));
+
+        const largeRoot = join(root, "large-source");
+        await mkdir(largeRoot);
+        for (let offset = 0; offset < 30000; offset += 512) {
+            await Promise.all(Array.from({ length: Math.min(512, 30000 - offset) }, (_, index) => {
+                const number = offset + index;
+                return writeFile(join(largeRoot, `candidate-${number.toString().padStart(5, "0")}.bin`), "x");
+            }));
+        }
+        const destination = join(root, "destination");
+        await mkdir(destination);
+        await writeFile(join(destination, "unknown.keep"), "must survive repair");
+        const subscription = join(root, "subscription.yaml");
+        await writeFile(subscription, "proxies: []\n");
+        const evidencePath = join(root, "evidence.json");
+        const childEvidence = join(root, "child-evidence.json");
+        const spec = join(root, "spec.json");
+        await writeFile(spec, JSON.stringify({
+            schema: 1, evidencePath, childEvidence, torrentPath: join(fixtures, torrent.file),
+            sourceRoot: join(fixtures, "seed"), largeRoot, destination, subscription,
+            screenshots: join(root, "screenshots"), fixtureRoot: root, profile, bulkRows: 2000,
+        }, null, 2));
+        await mkdir(join(root, "screenshots"));
+
+        application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash", "--confirm-legal-notice"], {
+            cwd: bundle, windowsHide: true,
+            env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: spec,
+                QBUTT_QT_CHILD_EVIDENCE: childEvidence },
+            stdout: Bun.file(join(root, "stdout.log")), stderr: Bun.file(join(root, "stderr.log")),
+            timeout: 600000,
+        });
+        authenticationAbort = new AbortController();
+        let authenticationError: unknown;
+        authentication = probePayloadAuthentication(childEvidence, authenticationAbort.signal)
+            .catch(error => { authenticationError = error; });
+        const exitCode = await application.exited;
+        if (exitCode !== 0)
+            authenticationAbort.abort();
+        await authentication;
+        assert.equal(exitCode, 0, `Qt acceptance process exited ${exitCode}; inspect ${root}`);
+        if (authenticationError)
+            throw authenticationError;
+        const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as Record<string, unknown>;
+        assert.equal(evidence.status, "passed", `Qt acceptance failed; inspect ${root}`);
+        const transport = JSON.parse(await readFile(childEvidence, "utf8")) as {
+            protocol: number; hello: number; listed: number; status: number; authenticated: number; rejectedCredentials: number;
+            payloadBoundaries: number; delayedStatus: number; statusPending: boolean;
+            eofObserved: boolean;
+            opened: { pathId: string; generation: number; proxyName: string; port: number }[];
+            closed: { pathId: string; generation: number }[];
+            retiredOnEof: { pathId: string; generation: number }[];
+        };
+        assert.equal(transport.protocol, 4, "The Qt acceptance transport did not use the pinned v4 contract");
+        assert.equal(transport.eofObserved, true, "The transport child did not observe parent EOF and finish cleanup");
+        assert(transport.hello >= 1 && transport.listed >= 1, "The production app did not negotiate and list the transport child");
+        assert(transport.status >= 1, "The production app did not poll bounded transport counters");
+        assert.equal(transport.opened.length, 3, "The production app did not open exactly three acceptance paths");
+        const opened = new Set(transport.opened.map(path => `${path.pathId}:${path.generation}`));
+        assert.equal(opened.size, transport.opened.length, "Acceptance paths did not have independent id/generation pairs");
+        const retired = [...transport.closed, ...transport.retiredOnEof].map(path => `${path.pathId}:${path.generation}`);
+        assert.equal(new Set(retired).size, retired.length, "A path generation was retired more than once");
+        assert.deepEqual(new Set(retired), opened, "Native restoration did not retire the exact active path generations");
+        assert.equal(transport.authenticated, 3, "Authenticated payload probes did not reach every listener");
+        assert.equal(transport.rejectedCredentials, 3, "Invalid credentials were not rejected by every listener");
+        assert.equal(transport.payloadBoundaries, 3, "Authenticated SOCKS payloads did not cross every listener boundary");
+        assert.equal(transport.delayedStatus, 1, "The queued foreground request race was not exercised exactly once");
+        assert.equal(transport.statusPending, false, "The delayed status request did not complete");
+        const bytes = await readFile(executable);
+        result = { status: "passed", evidence: evidencePath, executable: resolve(sourceExecutable),
+            executableSha256: createHash("sha256").update(bytes).digest("hex"),
+            transport: { protocol: transport.protocol, opened: 3, retired: retired.length, authenticated: 3 } };
+    }
+}
+catch (error) { failure = error; }
+finally {
+    authenticationAbort?.abort();
+    const cleanupErrors: unknown[] = [];
+    const clean = async (operation: () => Promise<unknown>) => {
+        try { await operation(); } catch (error) { cleanupErrors.push(error); }
+    };
+    if (application?.exitCode === null)
+        await clean(async () => { application!.kill(); await application!.exited; });
+    if (compiler?.exitCode === null)
+        await clean(async () => { compiler!.kill(); await compiler!.exited; });
+    if (authentication) await clean(() => authentication!);
+    if (runtimeLockHeld) {
+        await clean(() => removeOwnedDirectory(tmpdir(), basename(bundle)));
         releaseRuntimeLock();
     }
-    process.exit(0);
+    for (const name of ["fixtures", "large-source", "profile", "destination", "product-profile", "functional-profile"])
+        await clean(() => removeOwnedDirectory(root, name));
+    if (cleanupErrors.length)
+        failure = new AggregateError(failure ? [failure, ...cleanupErrors] : cleanupErrors,
+            "Qt acceptance cleanup failed");
 }
-const child = join(bundle, "qbutt-net.exe");
-const compile = Bun.spawn([process.execPath, "build", "--compile", join(import.meta.dir, "fake-child.ts"), "--outfile", child],
-    { stdout: "pipe", stderr: "pipe", windowsHide: true });
-const [compileCode, compileOut, compileErr] = await Promise.all([
-    compile.exited, new Response(compile.stdout).text(), new Response(compile.stderr).text(),
-]);
-assert.equal(compileCode, 0, `Cannot compile Qt transport fixture: ${compileOut}\n${compileErr}`);
-await allowLabNetwork([executable, child]);
-
-assert(python, "Set QBUTT_LAB_PYTHON for torrent fixtures");
-const fixtures = await generateFixtures(python, join(root, "fixtures"));
-const manifest = JSON.parse(await readFile(join(fixtures, "manifest.json"), "utf8")) as {
-    torrents: { name: string; file: string }[];
-};
-const torrent = manifest.torrents.find(candidate => candidate.name === "v1-public");
-assert(torrent, "Generated v1-public fixture is missing");
-const profile = join(root, "profile");
-const config = join(profile, "qbutt", "config");
-await mkdir(config, { recursive: true });
-await writeFile(join(config, "qbutt.ini"), [
-    "[BitTorrent]", "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
-    "Session\\AddTorrentStopped=true", "Session\\AddExtensionToIncompleteFiles=false", "Session\\UseUnwantedFolder=false",
-    "Session\\QueueingSystemEnabled=false", "Session\\InterfaceAddress=127.0.0.1", "Session\\ResumeDataStorageType=SQLite",
-    "[Network]", "PortForwardingEnabled=false",
-    "[GUI]", "Notifications\\Enabled=false",
-    "[Preferences]", "General\\Locale=en", "Advanced\\updateCheck=false", "Connection\\ResolvePeerCountries=false",
-    "Connection\\ResolvePeerHostNames=false", "General\\ExitConfirm=false", "General\\CloseToTray=false",
-    "General\\MinimizeToTray=false", "General\\SystrayEnabled=false", "WebUI\\Enabled=false", "",
-    ...labAppearanceSettings(),
-].join("\n"));
-
-const largeRoot = join(root, "large-source");
-await mkdir(largeRoot);
-for (let offset = 0; offset < 30000; offset += 512) {
-    await Promise.all(Array.from({ length: Math.min(512, 30000 - offset) }, (_, index) => {
-        const number = offset + index;
-        return writeFile(join(largeRoot, `candidate-${number.toString().padStart(5, "0")}.bin`), "x");
-    }));
-}
-const destination = join(root, "destination");
-await mkdir(destination);
-await writeFile(join(destination, "unknown.keep"), "must survive repair");
-const subscription = join(root, "subscription.yaml");
-await writeFile(subscription, "proxies: []\n");
-const evidencePath = join(root, "evidence.json");
-const childEvidence = join(root, "child-evidence.json");
-const spec = join(root, "spec.json");
-await writeFile(spec, JSON.stringify({
-    schema: 1, evidencePath, childEvidence, torrentPath: join(fixtures, torrent.file),
-    sourceRoot: join(fixtures, "seed"), largeRoot, destination, subscription,
-    screenshots: join(root, "screenshots"), fixtureRoot: root, profile, bulkRows: 2000,
-}, null, 2));
-await mkdir(join(root, "screenshots"));
-
-const run = Bun.spawn([executable, `--profile=${profile}`, "--no-splash", "--confirm-legal-notice"], {
-    cwd: bundle, windowsHide: true,
-    env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: spec,
-        QBUTT_QT_CHILD_EVIDENCE: childEvidence },
-    stdout: Bun.file(join(root, "stdout.log")), stderr: Bun.file(join(root, "stderr.log")),
-    timeout: 600000,
-});
-const authenticationAbort = new AbortController();
-let authenticationError: unknown;
-const authentication = probePayloadAuthentication(childEvidence, authenticationAbort.signal)
-    .catch(error => { authenticationError = error; });
-const exitCode = await run.exited;
-if (exitCode !== 0)
-    authenticationAbort.abort();
-await authentication;
-assert.equal(exitCode, 0, `Qt acceptance process exited ${exitCode}; inspect ${root}`);
-if (authenticationError)
-    throw authenticationError;
-const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as Record<string, unknown>;
-assert.equal(evidence.status, "passed", `Qt acceptance failed; inspect ${root}`);
-const transport = JSON.parse(await readFile(childEvidence, "utf8")) as {
-    protocol: number; hello: number; listed: number; status: number; authenticated: number; rejectedCredentials: number;
-    payloadBoundaries: number; delayedStatus: number; statusPending: boolean;
-    eofObserved: boolean;
-    opened: { pathId: string; generation: number; proxyName: string; port: number }[];
-    closed: { pathId: string; generation: number }[];
-    retiredOnEof: { pathId: string; generation: number }[];
-};
-assert.equal(transport.protocol, 4, "The Qt acceptance transport did not use the pinned v4 contract");
-assert.equal(transport.eofObserved, true, "The transport child did not observe parent EOF and finish cleanup");
-assert(transport.hello >= 1 && transport.listed >= 1, "The production app did not negotiate and list the transport child");
-assert(transport.status >= 1, "The production app did not poll bounded transport counters");
-assert.equal(transport.opened.length, 3, "The production app did not open exactly three acceptance paths");
-const opened = new Set(transport.opened.map(path => `${path.pathId}:${path.generation}`));
-assert.equal(opened.size, transport.opened.length, "Acceptance paths did not have independent id/generation pairs");
-const retired = [...transport.closed, ...transport.retiredOnEof].map(path => `${path.pathId}:${path.generation}`);
-assert.equal(new Set(retired).size, retired.length, "A path generation was retired more than once");
-assert.deepEqual(new Set(retired), opened, "Native restoration did not retire the exact active path generations");
-assert.equal(transport.authenticated, 3, "Authenticated payload probes did not reach every listener");
-assert.equal(transport.rejectedCredentials, 3, "Invalid credentials were not rejected by every listener");
-assert.equal(transport.payloadBoundaries, 3, "Authenticated SOCKS payloads did not cross every listener boundary");
-assert.equal(transport.delayedStatus, 1, "The queued foreground request race was not exercised exactly once");
-assert.equal(transport.statusPending, false, "The delayed status request did not complete");
-const bytes = await readFile(executable);
-console.log(JSON.stringify({ status: "passed", evidence: evidencePath, executable: resolve(executable),
-    executableSha256: createHash("sha256").update(bytes).digest("hex"),
-    transport: { protocol: transport.protocol, opened: 3, retired: retired.length, authenticated: 3 } }));
-releaseRuntimeLock();
+if (failure) throw failure;
+if (result) console.log(JSON.stringify(result));
