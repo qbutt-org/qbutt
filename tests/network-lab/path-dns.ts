@@ -9,19 +9,20 @@ import { startProxy } from "./proxy";
 
 interface DnsPolicy { server: string; bootstrapServer: string; family: string }
 interface Path {
-    pathId: string; generation: number; open: boolean; proxyName: string; dns: DnsPolicy;
-    gateway: { state: string; tcp: boolean; udp: boolean };
+    pathId: string; generation: number; edgeId: string; open: boolean; proxyName: string;
+    localAddress?: string; dns?: DnsPolicy;
+    gateway?: { state: string; tcp: boolean; udp: boolean };
 }
 interface Status {
-    busy: boolean; pinned: boolean; processId: number; dns: DnsPolicy; paths: Path[];
+    busy: boolean; pinned: boolean; processId: number; mode: string; dns: DnsPolicy; paths: Path[];
     resolution: { requestId: number; pathId: string; generation: number; state: string;
         addresses?: string[]; errorCode?: string };
 }
 
 // One framed DNS request per TCP connection; every answer is generated locally.
-async function startDns(side: number) {
+async function startDns(side: number, listenAddress = "127.0.0.1") {
     const sockets = new Set<Socket>();
-    const queries: { family: number; slow: boolean }[] = [];
+    const queries: { family: number; slow: boolean; source: string }[] = [];
     const server = createServer(socket => {
         sockets.add(socket);
         socket.on("error", () => socket.destroy());
@@ -46,7 +47,7 @@ async function startDns(side: number) {
             const family = request.readUInt16BE(offset + 1);
             if (![1, 28].includes(family)) return socket.destroy();
             const slow = labels[0] === "slow";
-            queries.push({ family, slow });
+            queries.push({ family, slow, source: socket.remoteAddress ?? "" });
             const header = Buffer.from(request.subarray(0, 12));
             header.writeUInt16BE(0x8180, 2);
             header.writeUInt16BE(1, 6);
@@ -69,7 +70,7 @@ async function startDns(side: number) {
     });
     await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
-        server.listen(0, "127.0.0.1", resolve);
+        server.listen(0, listenAddress, resolve);
     });
     const address = server.address();
     assert(address && typeof address !== "string");
@@ -79,6 +80,13 @@ async function startDns(side: number) {
     } };
 }
 
+const nativeMode = process.argv.includes("--native");
+const nativeInterface = process.env.QBUTT_LAB_NATIVE_INTERFACE;
+const nativeAddress = process.env.QBUTT_LAB_NATIVE_ADDRESS;
+if (nativeMode)
+    assert(nativeInterface && nativeAddress && networkInterfaces()[nativeInterface]?.some(address =>
+        address.address === nativeAddress && address.family === "IPv4" && !address.internal),
+    "Set a physical QBUTT_LAB_NATIVE_INTERFACE and its QBUTT_LAB_NATIVE_ADDRESS");
 const lab = await createLab("path-dns"); // Firewall preflight precedes all listeners.
 const dnsServers: Awaited<ReturnType<typeof startDns>>[] = [];
 const proxies: Awaited<ReturnType<typeof startProxy>>[] = [];
@@ -166,6 +174,53 @@ try {
     assert(unrelated.paths.find(path => path.pathId === second.pathId)!.open && unrelated.processId === processId);
     await lab.checkpoint({ check: "selected-generation-revoked-without-killing-other-path", requestGeneration: previous.generation,
         retryGeneration: first.generation, processRetained: true });
+
+    if (nativeMode) {
+        first = await open(0);
+        const nativeDns = await startDns(2, nativeAddress!);
+        dnsServers.push(nativeDns);
+        const server = `${nativeAddress}:${nativeDns.port}`;
+        await lab.request("qbuttPaths/dns", { server, bootstrapServer: server, family: "ipv4" });
+        await lab.request("qbuttPaths/policy", { mode: "mixed", nativeInterface: nativeInterface! });
+        const mixed = await idle();
+        const native = mixed.paths.find(path => path.edgeId === "native" && path.localAddress === nativeAddress);
+        assert(native?.open && mixed.mode === "mixed" && mixed.processId === processId
+            && [first, second].every(proxy => mixed.paths.some(path => path.pathId === proxy.pathId && path.open)),
+        "Mixed Native DNS setup did not retain both SOCKS paths and the child");
+        await resolve(native, "native.test");
+        const nativeResult = await idle();
+        assert.deepEqual(nativeResult.resolution.addresses, ["127.0.0.4"]);
+        assert(nativeResult.resolution.pathId === native.pathId
+            && nativeResult.resolution.generation === native.generation);
+        assert(nativeDns.queries.some(query => query.family === 1 && query.source === nativeAddress),
+            "Native DNS did not bind the physical source interface");
+        assert(nativeResult.processId === processId && nativeResult.paths.every(path => path.open),
+            "Native DNS reply retired healthy Mixed paths");
+
+        await lab.request("qbuttPaths/policy", { mode: "tunnels" });
+        await lab.request("qbuttPaths/policy", { mode: "mixed", nativeInterface: nativeInterface! });
+        const rolled = await idle();
+        const current = rolled.paths.find(path => path.edgeId === "native" && path.localAddress === nativeAddress);
+        assert(current?.open && current.pathId === native.pathId && current.generation > native.generation);
+        const queryCount = nativeDns.queries.length;
+        await assert.rejects(lab.request("qbuttPaths/resolve", { pathId: native.pathId,
+            generation: String(native.generation), host: "stale.test", family: "ipv4" }), /HTTP 400/);
+        assert.equal(nativeDns.queries.length, queryCount, "Retired Native generation reached the DNS server");
+        await resolve(current, "current.test");
+        const currentResult = await idle();
+        assert.deepEqual(currentResult.resolution.addresses, ["127.0.0.4"]);
+        assert(currentResult.resolution.pathId === current.pathId
+            && currentResult.resolution.generation === current.generation);
+        assert(currentResult.processId === processId && currentResult.paths.every(path => path.open));
+        await lab.checkpoint({ check: "mixed-physical-native-dns-generation", nativeInterface, nativeAddress,
+            retiredGeneration: native.generation, currentGeneration: current.generation,
+            pathId: current.pathId, addresses: currentResult.resolution.addresses,
+            queryCount: nativeDns.queries.length, querySources: [...new Set(nativeDns.queries.map(query => query.source))],
+            processRetained: true,
+            activePaths: currentResult.paths.filter(path => path.open).length });
+        await lab.request("qbuttPaths/policy", { mode: "pinned" });
+        await lab.request("qbuttPaths/dns", { ...policies[0]! });
+    }
 
     await resolve(second, "slow.test");
     await lab.request("qbuttPaths/stop", {});

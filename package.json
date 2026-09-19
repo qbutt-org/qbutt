@@ -25,6 +25,7 @@
     "benchmark:public-swarm": "bun tests/network-lab/public-swarm.ts",
     "smoke:path-auth": "bun tests/network-lab/path-auth.ts",
     "smoke:path-dns": "bun tests/network-lab/path-dns.ts",
+    "smoke:path-dns:native": "bun tests/network-lab/path-dns.ts --native",
     "smoke:discovery": "bun tests/network-lab/discovery.ts",
     "smoke:pex": "bun tests/network-lab/discovery.ts --pex",
     "smoke:policies": "bun tests/policies-smoke.ts",

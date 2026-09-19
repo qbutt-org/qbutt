@@ -413,6 +413,12 @@ two local TCP DNS servers returning different A/AAAA answers for the same name.
 It checks immutable DNS policy per opened generation, address families, stale
 generation rejection, stopping one path while a lookup is pending without
 terminating its healthy neighbour, global stop, and saved settings after restart.
+`smoke:path-dns:native` adds a physical Native route in Mixed mode. Set
+`QBUTT_LAB_NATIVE_INTERFACE` and `QBUTT_LAB_NATIVE_ADDRESS` to an active IPv4
+adapter and its address. An owned DNS server binds that address; the scenario
+checks its observed physical source, exact Native answer/path generation,
+retirement of the old generation, and continued health of both SOCKS paths and
+the child. It restores the Pinned policy and prior DNS setting before cleanup.
 This checks the application's DNS control boundary; it does not prove that every
 libtorrent tracker, peer, webseed or discovery operation uses that boundary.
 
