@@ -67,6 +67,11 @@ async def main():
             raise ValueError("Outbound peer requires one numeric target and one piece owner")
         target = (str(ipaddress.IPv4Address(target["host"])),
                   bounded_integer(target["port"], 49152, 65535, "target port"))
+    proxy = config.get("connectProxy")
+    if proxy is not None:
+        if target is None or not isinstance(proxy, dict) or set(proxy) != {"port"}:
+            raise ValueError("Outbound SOCKS proxy requires a numeric target and loopback port")
+        proxy = bounded_integer(proxy["port"], 1, 65535, "SOCKS port")
     piece_count = math.ceil(len(payload) / piece_length)
     if piece_count < count:
         raise ValueError("Each side must own at least one piece")
@@ -215,6 +220,33 @@ async def main():
             started.set()
             emit({"started": True})
 
+    async def connect_outbound():
+        if proxy is None:
+            return await asyncio.open_connection(*target)
+        reader, writer = await asyncio.open_connection("127.0.0.1", proxy)
+        try:
+            writer.write(b"\x05\x01\x00")
+            await writer.drain()
+            if await reader.readexactly(2) != b"\x05\x00":
+                raise ValueError("Local SOCKS proxy rejected no-authentication method")
+            writer.write(b"\x05\x01\x00\x01" + ipaddress.IPv4Address(target[0]).packed
+                         + struct.pack("!H", target[1]))
+            await writer.drain()
+            reply = await reader.readexactly(4)
+            if reply[:3] != b"\x05\x00\x00" or reply[3] not in (1, 3, 4):
+                raise ValueError("Local SOCKS proxy could not reach the public lease")
+            length = {1: 4, 4: 16}.get(reply[3])
+            if length is None:
+                length = (await reader.readexactly(1))[0]
+                if not 1 <= length <= 255:
+                    raise ValueError("Invalid SOCKS bind address")
+            await reader.readexactly(length + 2)
+            return reader, writer
+        except (Exception, asyncio.CancelledError):
+            writer.close()
+            await writer.wait_closed()
+            raise
+
     control_task = None
     stop_task = None
     outbound_task = None
@@ -233,9 +265,16 @@ async def main():
         if target is not None:
             async def outbound():
                 try:
-                    reader, writer = await asyncio.wait_for(asyncio.open_connection(*target), 20)
+                    reader, writer = await asyncio.wait_for(connect_outbound(), 20)
+                    if proxy is not None:
+                        writers.add(writer)
+                        emit({"connected": True})
+                        await started.wait()
                     await peer(reader, writer, 0, True)
-                except (OSError, asyncio.TimeoutError) as error:
+                    if sent[0] < len(payload) and not stop.is_set():
+                        errors.append({"side": 0, "error": "Outbound peer closed before full payload"})
+                        stop.set()
+                except (OSError, asyncio.TimeoutError, asyncio.IncompleteReadError, ValueError) as error:
                     errors.append({"side": 0, "error": str(error) or type(error).__name__})
                     stop.set()
             outbound_task = asyncio.create_task(outbound())

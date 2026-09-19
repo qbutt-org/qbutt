@@ -29,6 +29,10 @@ const observerIP = process.env.QBUTT_WAN_OBSERVER_IP ?? "";
 const nativeInterface = process.env.QBUTT_LAB_NATIVE_INTERFACE ?? "";
 const gatewaySource = process.env.QBUTT_LAB_GATEWAY_SOURCE ?? "";
 const executable = process.env.QBUTT_LAB_EXE ?? "";
+const sourceProxy = process.env.QBUTT_GATEWAY_WAN_SOCKS_PORT ?? "";
+const independentSource = sourceProxy !== "";
+assert(!independentSource || (/^[1-9][0-9]{0,4}$/.test(sourceProxy) && Number(sourceProxy) <= 65535),
+    "QBUTT_GATEWAY_WAN_SOCKS_PORT must be a local SOCKS5 no-authentication port");
 assert(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(observer) && isIPv4(observerIP),
     "Set QBUTT_WAN_OBSERVER and its numeric QBUTT_WAN_OBSERVER_IP");
 assert(networkInterfaces()[nativeInterface]?.some(address => address.family === "IPv4" && !address.internal),
@@ -63,6 +67,20 @@ function responses(child: ReturnType<typeof Bun.spawn>) {
             finally { clearTimeout(timer!); }
         },
     };
+}
+
+async function observedLeasePeer(port: number): Promise<string[]> {
+    const sockets = await run([...ssh, `ss -Htn state established '( sport = :${port} )'`], { timeout: 10000 });
+    if (!sockets) return [];
+    return sockets.split(/\r?\n/).map(line => {
+        const fields = line.trim().split(/\s+/);
+        assert.equal(fields.length, 4, "Unexpected observer socket format");
+        assert(fields[2]!.endsWith(`:${port}`), "Observer socket does not belong to the owned lease");
+        const remote = /^([0-9.]+):([0-9]+)$/.exec(fields[3]!);
+        assert(remote && isIPv4(remote[1]!) && Number(remote[2]) > 0 && Number(remote[2]) <= 65535,
+            "Observer did not report a numeric IPv4 source endpoint");
+        return fields[3]!;
+    });
 }
 
 const sourceLock = JSON.parse(await readFile(join(import.meta.dir, "../..", "upstream-lock.json"), "utf8")) as {
@@ -120,7 +138,8 @@ try {
         certificates, observerIP])) as { fingerprint: string };
     assert.match(certificate.fingerprint, /^[0-9a-f]{64}$/);
     const files = [gatewayLinux, join(import.meta.dir, "gateway-wan-ports.py"),
-        join(import.meta.dir, "wan-seed.py"), ...["ca.pem", "server.pem", "server-key.pem", "client.pem", "client-key.pem"]
+        ...(!independentSource ? [join(import.meta.dir, "wan-seed.py")] : []),
+        ...["ca.pem", "server.pem", "server-key.pem", "client.pem", "client-key.pem"]
             .map(name => join(certificates, name))];
     await run([...scp, ...files, `${observer}:${remoteRoot}/`]);
     await run([...ssh, `chmod 700 ${remoteRoot}/qbutt-gateway-linux && chmod 600 ${remoteRoot}/*.pem`]);
@@ -168,6 +187,8 @@ try {
     const path = leased.paths[0]!;
     assert(path.open && path.gateway.family === "ipv4" && path.gateway.tcp && !path.gateway.udp
         && path.gateway.publicEndpoint === `${observerIP}:${ports.listener}`);
+    await lab.checkpoint({ check: "public-gateway-lease-ready", publicEndpoint: path.gateway.publicEndpoint,
+        pathId: path.pathId, generation: path.generation });
 
     const payload = randomBytes(512 * 1024);
     const source = join(lab.root, "source");
@@ -199,20 +220,39 @@ print(lt.torrent_info(encoded).info_hashes().v1)
         torrents => torrents.length === 1 && torrents[0]!.hash === hash);
     await lab.request("torrents/start", { hashes: hash });
 
-    peer = Bun.spawn([...ssh, `timeout --signal=TERM --kill-after=5s 240s python3 -u ${remoteRoot}/wan-seed.py`], {
-        stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(lab.root, "observer-peer.stderr.log")), windowsHide: true });
+    const peerCommand = independentSource
+        ? [lab.python, "-u", join(import.meta.dir, "wan-seed.py")]
+        : [...ssh, `timeout --signal=TERM --kill-after=5s 240s python3 -u ${remoteRoot}/wan-seed.py`];
+    peer = Bun.spawn(peerCommand, {
+        stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(lab.root, "source-peer.stderr.log")), windowsHide: true });
     peerReplies = responses(peer);
     peer.stdin.write(JSON.stringify({ infoHash: hash, payload: payload.toString("base64"), pieceLength: 65536,
         count: 1, rate: 128 * 1024, duration: 240,
-        connectTarget: { host: observerIP, port: ports.listener } }) + "\n");
+        connectTarget: { host: observerIP, port: ports.listener },
+        ...(independentSource ? { connectProxy: { port: Number(sourceProxy) } } : {}) }) + "\n");
     await peer.stdin.flush();
-    const peerReady = await peerReplies.next("remote first-peer readiness", 30000);
+    const peerReady = await peerReplies.next("source peer readiness", 30000);
     assert(peerReady.ready && Array.isArray(peerReady.ports) && peerReady.ports.length === 0
         && peerReady.pieceCount === payload.length / 65536);
+    let observedSource = "";
+    let homeSSHOrigin: string | undefined;
+    if (independentSource) {
+        const connected = await peerReplies.next("VPN SOCKS connection", 25000);
+        assert(connected.connected === true,
+            `Source peer could not connect through Mihomo: ${JSON.stringify(connected.errors)}`);
+        const sockets = await waitFor("independent VPN peer at public lease", () => observedLeasePeer(ports.listener),
+            endpoints => endpoints.length === 1, 10000);
+        observedSource = sockets[0]!;
+        homeSSHOrigin = (await run([...ssh, "printf '%s' \"$SSH_CONNECTION\""])).split(/\s+/)[0]!;
+        assert(isIPv4(homeSSHOrigin), "Observer could not identify the home SSH source IP");
+        const exitIP = observedSource.slice(0, observedSource.lastIndexOf(":"));
+        assert(exitIP !== homeSSHOrigin && exitIP !== observerIP,
+            "SOCKS peer did not arrive from a VPN exit distinct from home and observer");
+    }
     peer.stdin.write('{"command":"start","rate":131072}\n');
     await peer.stdin.flush();
     assert((await peerReplies.next("remote peer start")).started);
-    const inbound = await waitFor("observer-first trusted ingress", readStatus, status => status.peers.some(candidate =>
+    const inbound = await waitFor("public gateway trusted ingress", readStatus, status => status.peers.some(candidate =>
         candidate.pathId === path.pathId && candidate.generation === path.generation
         && candidate.infoHash === hash && candidate.payloadDownload > 0), 45000);
     const inboundPeer = inbound.peers.find(candidate => candidate.infoHash === hash)!;
@@ -231,8 +271,9 @@ print(lt.torrent_info(encoded).info_hashes().v1)
     const connection = observed.connections[0]!;
     assert(connection.side === 0 && connection.payloadBytes >= downloaded.length
         && connection.requestedPieces.length === payload.length / 65536,
-    "Observer did not upload the complete generated torrent");
-    assert.equal(`${inboundPeer.peer}:${inboundPeer.port}`, connection.localEndpoint,
+    "Source peer did not upload the complete generated torrent");
+    const originalRemoteEndpoint = independentSource ? observedSource : connection.localEndpoint;
+    assert.equal(`${inboundPeer.peer}:${inboundPeer.port}`, originalRemoteEndpoint,
         "Home libtorrent lost the original remote peer endpoint");
     assert(inboundPeer.pathId === path.pathId && inboundPeer.generation === path.generation,
         "Trusted ingress was assigned to the wrong path generation");
@@ -244,13 +285,15 @@ print(lt.torrent_info(encoded).info_hashes().v1)
     const wire = metered.paths.find(item => item.pathId === path.pathId)!.wire!;
     assert(wire.carrierDownloadPackets === 0 && wire.carrierUploadPackets === 0
         && wire.relayDownloadCopies === 0, "TCP-only WAN fixture reported UDP traffic");
-    await lab.checkpoint({ check: "observer-first-public-lease-to-home-libtorrent", observer,
+    await lab.checkpoint({ check: "public-gateway-ingress-to-home-libtorrent", observer,
         gatewayRevision: sourceLock.qbuttNet.commit, publicEndpoint: path.gateway.publicEndpoint,
-        originalRemoteEndpoint: connection.localEndpoint, pathId: path.pathId, generation: path.generation,
+        originalRemoteEndpoint, pathId: path.pathId, generation: path.generation,
         verifiedBytes: downloaded.length, sha256: sha256(downloaded), wire,
+        sourceProcess: independentSource ? "local-through-vpn-exit" : "observer-local",
+        independentVpnExitIngressProven: independentSource, homeSSHOrigin,
         thirdPartyReachabilityProven: false, udpProven: false });
     peer.stdin.end();
-    assert.equal(await peer.exited, 0, "Remote peer did not exit cleanly");
+    assert.equal(await peer.exited, 0, "Source peer did not exit cleanly");
     peer = undefined;
     peerReplies.close();
     peerReplies = undefined;

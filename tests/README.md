@@ -304,6 +304,15 @@ and terminal lease retirement. Both gateway and peer run on the same remote
 host, so this proves remote-host ingress to home qbutt through its gateway
 carrier, not reachability from an independent third-party Internet host.
 Blocked remote high ports fail explicitly; the fixture does not open them.
+Set `QBUTT_GATEWAY_WAN_SOCKS_PORT` to an existing local Mihomo SOCKS5
+no-authentication listener to run the same bounded peer on the home machine
+through its selected VPN exit. The fixture does not change Mihomo's configuration.
+Before uploading, it reads the exact accepted source IP and port from the
+observer kernel's `ss` for the owned lease, requires that source IP to differ
+from the observer and the home SSH origin, and checks that qbutt reports the
+same endpoint on the active path generation. This proves TCP ingress from an
+independent VPN exit, with the peer process still physically local; it does not
+prove a physically separate third-party host or UDP ingress.
 
 The final JSON line points to `evidence.json`, containing exit outcome and checked
 observations; native and seed logs remain beside it. Failed and unsupported
