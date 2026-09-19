@@ -43,12 +43,14 @@
 #include "trackerentrystatus.h"
 
 class QJsonArray;
+class QByteArray;
 class QString;
 
 namespace Net
 {
     enum class RoutePolicy;
     struct PeerRouteEndpoint;
+    struct TrustedInboundRoute;
 }
 
 namespace BitTorrent
@@ -460,6 +462,9 @@ namespace BitTorrent
         virtual CompletionPolicy *completionPolicy() const = 0;
         virtual bool setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &routes, Net::RoutePolicy policy) = 0;
         virtual bool resetNetworkRoutes() = 0;
+        virtual bool setTrustedInboundRoutes(const QList<Net::TrustedInboundRoute> &routes) = 0;
+        virtual bool acceptTrustedInbound(const Net::TrustedInboundRoute &route,
+            const QString &remoteAddress, quint16 remotePort, const QByteArray &token) = 0;
         virtual void invalidateNetworkRoute(quint64 pathId, quint64 generation) = 0;
         virtual QJsonArray peerRouteStatus() const = 0;
 

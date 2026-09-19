@@ -179,6 +179,7 @@ private:
         {{u"qbuttPaths"_s, u"open"_s}, Http::METHOD_POST},
         {{u"qbuttPaths"_s, u"policy"_s}, Http::METHOD_POST},
         {{u"qbuttPaths"_s, u"dns"_s}, Http::METHOD_POST},
+        {{u"qbuttPaths"_s, u"gateway"_s}, Http::METHOD_POST},
         {{u"qbuttPaths"_s, u"resolve"_s}, Http::METHOD_POST},
         {{u"qbuttPaths"_s, u"stop"_s}, Http::METHOD_POST},
         {{u"qbuttPaths"_s, u"native"_s}, Http::METHOD_POST},

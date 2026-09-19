@@ -428,6 +428,9 @@ namespace BitTorrent
         CompletionPolicy *completionPolicy() const override;
         bool setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &routes, Net::RoutePolicy policy) override;
         bool resetNetworkRoutes() override;
+        bool setTrustedInboundRoutes(const QList<Net::TrustedInboundRoute> &routes) override;
+        bool acceptTrustedInbound(const Net::TrustedInboundRoute &route,
+            const QString &remoteAddress, quint16 remotePort, const QByteArray &token) override;
         void invalidateNetworkRoute(quint64 pathId, quint64 generation) override;
         QJsonArray peerRouteStatus() const override;
 

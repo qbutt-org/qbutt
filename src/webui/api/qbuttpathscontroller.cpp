@@ -65,13 +65,24 @@ void QbuttPathsController::policyAction()
 
 void QbuttPathsController::stopAction()
 {
+    const QString pathIdText = params().value(u"pathId"_s);
+    if (!pathIdText.isEmpty())
+    {
+        bool validPathId = false;
+        const quint64 pathId = pathIdText.toULongLong(&validPathId);
+        if (!validPathId || (pathId == 0) || (pathId > 9007199254740991)
+            || (QString::number(pathId) != pathIdText))
+        {
+            throw APIError(APIErrorType::BadParams, tr("Invalid path identity."));
+        }
+    }
     const QJsonObject state = Net::PathManager::instance()->statusData();
-    if (!params().value(u"pathId"_s).isEmpty()
+    if (!pathIdText.isEmpty()
         && (state.value(u"resolution"_s).toObject().value(u"state"_s) != u"pending"_s))
     {
         requireIdle();
     }
-    Net::PathManager::instance()->stopPath(params().value(u"pathId"_s));
+    Net::PathManager::instance()->stopPath(pathIdText);
     statusAction();
 }
 
@@ -82,6 +93,35 @@ void QbuttPathsController::dnsAction()
     auto *manager = Net::PathManager::instance();
     if (!manager->setDnsPolicy(params().value(u"server"_s), params().value(u"bootstrapServer"_s),
         params().value(u"family"_s)))
+    {
+        throw APIError(APIErrorType::BadParams, manager->status());
+    }
+    statusAction();
+}
+
+void QbuttPathsController::gatewayAction()
+{
+    requireParams({u"controlAddress"_s, u"datagramAddress"_s, u"serverName"_s,
+        u"caPath"_s, u"certificatePath"_s, u"privateKeyPath"_s, u"port"_s, u"tcp"_s, u"udp"_s});
+    requireIdle();
+    const QString tcpText = params().value(u"tcp"_s);
+    const QString udpText = params().value(u"udp"_s);
+    bool validPort = false;
+    const int port = params().value(u"port"_s).toInt(&validPort);
+    if (!validPort || ((tcpText != u"true") && (tcpText != u"false"))
+        || ((udpText != u"true") && (udpText != u"false")))
+    {
+        throw APIError(APIErrorType::BadParams, tr("Invalid public gateway settings."));
+    }
+    auto *manager = Net::PathManager::instance();
+    if (!manager->setGatewayConfiguration({
+        {u"controlAddress"_s, params().value(u"controlAddress"_s)},
+        {u"datagramAddress"_s, params().value(u"datagramAddress"_s)},
+        {u"serverName"_s, params().value(u"serverName"_s)},
+        {u"caPath"_s, params().value(u"caPath"_s)},
+        {u"certificatePath"_s, params().value(u"certificatePath"_s)},
+        {u"privateKeyPath"_s, params().value(u"privateKeyPath"_s)},
+        {u"port"_s, port}, {u"tcp"_s, tcpText == u"true"}, {u"udp"_s, udpText == u"true"}}))
     {
         throw APIError(APIErrorType::BadParams, manager->status());
     }

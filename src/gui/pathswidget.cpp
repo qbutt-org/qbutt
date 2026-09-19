@@ -11,6 +11,7 @@
 #include <iphlpapi.h>
 #endif
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -22,6 +23,7 @@
 #include <QNetworkInterface>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QSpinBox>
 #include <QVBoxLayout>
 
 #include "base/global.h"
@@ -39,6 +41,16 @@ PathsWidget::PathsWidget(QWidget *parent)
     , m_bootstrapServer {new QLineEdit(this)}
     , m_dnsFamily {new QComboBox(this)}
     , m_dnsApply {new QPushButton(tr("Save DNS settings"), this)}
+    , m_gatewayControlAddress {new QLineEdit(this)}
+    , m_gatewayDatagramAddress {new QLineEdit(this)}
+    , m_gatewayServerName {new QLineEdit(this)}
+    , m_gatewayCaPath {new QLineEdit(this)}
+    , m_gatewayCertificatePath {new QLineEdit(this)}
+    , m_gatewayPrivateKeyPath {new QLineEdit(this)}
+    , m_gatewayPort {new QSpinBox(this)}
+    , m_gatewayTcp {new QCheckBox(tr("TCP"), this)}
+    , m_gatewayUdp {new QCheckBox(tr("UDP / uTP / DHT"), this)}
+    , m_gatewayApply {new QPushButton(tr("Save public gateway"), this)}
     , m_paths {new QListWidget(this)}
     , m_refresh {new QPushButton(tr("Refresh"), this)}
     , m_localFile {new QPushButton(tr("Local file…"), this)}
@@ -51,6 +63,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     auto *form = new QFormLayout;
     auto *subscription = new QHBoxLayout;
     m_url->setObjectName(u"mihomoSubscriptionUrl"_s);
+    m_localFile->setObjectName(u"mihomoLocalFile"_s);
     m_url->setPlaceholderText(u"https://…"_s);
     m_url->setEchoMode(QLineEdit::PasswordEchoOnEdit);
     m_url->setText(m_manager->subscriptionUrl());
@@ -139,20 +152,90 @@ PathsWidget::PathsWidget(QWidget *parent)
         m_manager->setDnsPolicy(m_dnsServer->text(), m_bootstrapServer->text(), m_dnsFamily->currentData().toString());
     });
 
+    auto *gatewayToggle = new QPushButton(tr("Public gateway settings…"), this);
+    gatewayToggle->setObjectName(u"mihomoGatewaySettings"_s);
+    gatewayToggle->setCheckable(true);
+    layout->addWidget(gatewayToggle, 0, Qt::AlignLeft);
+    auto *gatewayOptions = new QWidget(this);
+    auto *gatewayForm = new QFormLayout(gatewayOptions);
+    gatewayForm->setContentsMargins(0, 0, 0, 0);
+    m_gatewayControlAddress->setObjectName(u"mihomoGatewayControlAddress"_s);
+    m_gatewayDatagramAddress->setObjectName(u"mihomoGatewayDatagramAddress"_s);
+    m_gatewayServerName->setObjectName(u"mihomoGatewayServerName"_s);
+    m_gatewayCaPath->setObjectName(u"mihomoGatewayCaPath"_s);
+    m_gatewayCertificatePath->setObjectName(u"mihomoGatewayCertificatePath"_s);
+    m_gatewayPrivateKeyPath->setObjectName(u"mihomoGatewayPrivateKeyPath"_s);
+    m_gatewayPort->setObjectName(u"mihomoGatewayPort"_s);
+    m_gatewayTcp->setObjectName(u"mihomoGatewayTcp"_s);
+    m_gatewayUdp->setObjectName(u"mihomoGatewayUdp"_s);
+    m_gatewayApply->setObjectName(u"mihomoSaveGateway"_s);
+    m_gatewayControlAddress->setPlaceholderText(u"gateway.example:443"_s);
+    m_gatewayDatagramAddress->setPlaceholderText(u"gateway.example:443"_s);
+    m_gatewayServerName->setPlaceholderText(u"gateway.example"_s);
+    m_gatewayPort->setRange(0, 65535);
+    m_gatewayPort->setSpecialValueText(tr("Automatic"));
+    auto *protocols = new QWidget(gatewayOptions);
+    auto *protocolsLayout = new QHBoxLayout(protocols);
+    protocolsLayout->setContentsMargins(0, 0, 0, 0);
+    protocolsLayout->addWidget(m_gatewayTcp);
+    protocolsLayout->addWidget(m_gatewayUdp);
+    protocolsLayout->addStretch();
+    gatewayForm->addRow(tr("Control endpoint:"), m_gatewayControlAddress);
+    gatewayForm->addRow(tr("Datagram endpoint:"), m_gatewayDatagramAddress);
+    gatewayForm->addRow(tr("TLS server name:"), m_gatewayServerName);
+    gatewayForm->addRow(tr("CA certificate:"), m_gatewayCaPath);
+    gatewayForm->addRow(tr("Client certificate:"), m_gatewayCertificatePath);
+    gatewayForm->addRow(tr("Client private key:"), m_gatewayPrivateKeyPath);
+    gatewayForm->addRow(tr("Requested port:"), m_gatewayPort);
+    gatewayForm->addRow(tr("Listeners:"), protocols);
+    gatewayForm->addRow(QString(), m_gatewayApply);
+    auto *gatewayDescription = new QLabel(tr("The gateway is optional. qbutt advertises a public endpoint only while its "
+        "authenticated listener lease is active. Disabling both listeners retires existing leases."), gatewayOptions);
+    gatewayDescription->setWordWrap(true);
+    gatewayForm->addRow(gatewayDescription);
+    gatewayOptions->hide();
+    layout->addWidget(gatewayOptions);
+    connect(gatewayToggle, &QPushButton::toggled, gatewayOptions, &QWidget::setVisible);
+    const QJsonObject gateway = m_manager->gatewayConfiguration();
+    m_gatewayControlAddress->setText(gateway.value(u"controlAddress"_s).toString());
+    m_gatewayDatagramAddress->setText(gateway.value(u"datagramAddress"_s).toString());
+    m_gatewayServerName->setText(gateway.value(u"serverName"_s).toString());
+    m_gatewayCaPath->setText(gateway.value(u"caPath"_s).toString());
+    m_gatewayCertificatePath->setText(gateway.value(u"certificatePath"_s).toString());
+    m_gatewayPrivateKeyPath->setText(gateway.value(u"privateKeyPath"_s).toString());
+    m_gatewayPort->setValue(gateway.value(u"port"_s).toInt());
+    m_gatewayTcp->setChecked(gateway.value(u"tcp"_s).toBool());
+    m_gatewayUdp->setChecked(gateway.value(u"udp"_s).toBool());
+    connect(m_gatewayUdp, &QCheckBox::toggled, m_gatewayDatagramAddress, &QWidget::setEnabled);
+    m_gatewayDatagramAddress->setEnabled(m_gatewayUdp->isChecked());
+    connect(m_gatewayApply, &QPushButton::clicked, this, [this]()
+    {
+        m_manager->setGatewayConfiguration({
+            {u"controlAddress"_s, m_gatewayControlAddress->text()},
+            {u"datagramAddress"_s, m_gatewayDatagramAddress->text()},
+            {u"serverName"_s, m_gatewayServerName->text()},
+            {u"caPath"_s, m_gatewayCaPath->text()},
+            {u"certificatePath"_s, m_gatewayCertificatePath->text()},
+            {u"privateKeyPath"_s, m_gatewayPrivateKeyPath->text()},
+            {u"port"_s, m_gatewayPort->value()},
+            {u"tcp"_s, m_gatewayTcp->isChecked()},
+            {u"udp"_s, m_gatewayUdp->isChecked()}});
+    });
+
     m_paths->setObjectName(u"mihomoPaths"_s);
     m_paths->setMaximumHeight(110);
     layout->addWidget(m_paths);
 
     auto *actions = new QHBoxLayout;
-    m_start->setObjectName(u"startPinnedPath"_s);
-    m_native->setObjectName(u"useNativePath"_s);
+    m_start->setObjectName(u"mihomoStart"_s);
+    m_native->setObjectName(u"mihomoNative"_s);
     actions->addWidget(m_start);
     actions->addWidget(m_disconnect);
     actions->addWidget(m_native);
     actions->addStretch();
     layout->addLayout(actions);
     auto *description = new QLabel(tr("All policies share one torrent session. Supported UDP routes carry uTP and UDP trackers. "
-        "DHT stays disabled until an external route address is verified, and public inbound remains unavailable. "
+        "Public announces use active gateway leases, and DHT starts only with a gateway UDP lease. "
         "Including Native exposes its address to public torrent peers; private torrents stay on the first remote edge."), this);
     description->setWordWrap(true);
     layout->addWidget(description);
@@ -235,7 +318,11 @@ void PathsWidget::refreshState()
         const QJsonObject path = value.toObject();
         const bool open = path.value(u"open"_s).toBool();
         const QString name = path.value(u"proxyName"_s).toString();
-        auto *item = new QListWidgetItem(u"%1 — %2"_s.arg(name, open ? tr("Connected") : tr("Stopped")), m_paths);
+        const QJsonObject gateway = path.value(u"gateway"_s).toObject();
+        const QString publicEndpoint = gateway.value(u"publicEndpoint"_s).toString();
+        const QString pathState = !open ? tr("Stopped") : (publicEndpoint.isEmpty()
+            ? tr("Connected, outgoing only") : tr("Connected, public %1").arg(publicEndpoint));
+        auto *item = new QListWidgetItem(u"%1 — %2"_s.arg(name, pathState), m_paths);
         item->setData(Qt::UserRole, path.value(u"pathId"_s).toString());
         item->setData(Qt::UserRole + 1, open);
         if (item->data(Qt::UserRole).toString() == selectedPath)
@@ -256,6 +343,16 @@ void PathsWidget::refreshState()
     m_bootstrapServer->setEnabled(!busy);
     m_dnsFamily->setEnabled(!busy);
     m_dnsApply->setEnabled(!busy);
+    m_gatewayControlAddress->setEnabled(!busy);
+    m_gatewayDatagramAddress->setEnabled(!busy && m_gatewayUdp->isChecked());
+    m_gatewayServerName->setEnabled(!busy);
+    m_gatewayCaPath->setEnabled(!busy);
+    m_gatewayCertificatePath->setEnabled(!busy);
+    m_gatewayPrivateKeyPath->setEnabled(!busy);
+    m_gatewayPort->setEnabled(!busy);
+    m_gatewayTcp->setEnabled(!busy);
+    m_gatewayUdp->setEnabled(!busy);
+    m_gatewayApply->setEnabled(!busy);
     m_start->setEnabled(!busy && !nodeConnected && (m_nodes->count() > 0)
         && !m_interfaces->currentData().toString().isEmpty());
     m_native->setEnabled(!busy && Net::ProxyConfigurationManager::instance()->hasRuntimeProxy());

@@ -14,6 +14,8 @@
 #include <QProcess>
 #include <QTimer>
 
+#include <optional>
+
 #include "base/settingvalue.h"
 #include "peerroute.h"
 
@@ -44,7 +46,9 @@ namespace Net
         QString proxyName() const;
         QString interfaceName() const;
         QJsonObject dnsPolicy() const;
+        QJsonObject gatewayConfiguration() const;
         bool setDnsPolicy(const QString &server, const QString &bootstrapServer, const QString &family);
+        bool setGatewayConfiguration(const QJsonObject &configuration);
         qint64 resolveHost(const QString &pathId, quint64 generation, const QString &host, const QString &family);
         void refreshSubscription(const QString &url);
         void inspectConfiguration(const QString &configPath);
@@ -64,35 +68,75 @@ namespace Net
     private:
         static PathManager *m_instance;
 
+        struct ActivePath;
+        struct PathRollover;
+
         void request(QJsonObject message);
+        bool controlBusy() const;
         void send(QJsonObject message);
         void readOutput();
         void handleResponse(const QJsonObject &message);
+        void handleEvent(const QJsonObject &message);
         void fail(const QString &message);
         void reportError(const QString &message);
         bool shutdown();
         bool applyRoutes();
+        bool applyTrustedInboundRoutes();
         void finishResolution(const QList<QHostAddress> &addresses, const QString &errorCode = {});
         void sendQueuedRequest();
+        bool queueGatewayOpen(const ActivePath &path);
+        void queueGatewayClose(const ActivePath &path);
+        void scheduleGatewayRenewal();
+        void clearGatewayLease(ActivePath &path);
+        QList<PathRollover> activePathRollover() const;
+        bool beginPathRollover(QList<PathRollover> paths, const QString &status);
+        void handleGatewayFailure(const QJsonObject &request);
+        void startNextPathRollover();
+        bool finishStopPath(const QString &pathId);
 
         struct ActivePath
         {
+            struct PublicLease
+            {
+                TrustedInboundRoute route;
+                QString publicEndpoint;
+                QString family;
+                bool tcp = false;
+                bool udp = false;
+                qint64 expiresUnixMilli = 0;
+            };
+
             PeerRouteEndpoint endpoint;
+            QString configurationPath;
             QString edgeId;
             QString proxyName;
             QString interfaceName;
             QJsonObject capabilities;
             QJsonObject dnsPolicy;
+            QJsonObject wire;
             qint64 closedPayloadDownload = 0;
             qint64 closedPayloadUpload = 0;
+            std::optional<PublicLease> publicLease;
+        };
+
+        struct PathRollover
+        {
+            quint64 pathId = 0;
+            QString configurationPath;
+            QString proxyName;
+            QString interfaceName;
+            QString edgeId;
+            QJsonObject dnsPolicy;
         };
 
         QProcess m_process;
         QNetworkAccessManager m_network;
         QPointer<QNetworkReply> m_subscriptionReply;
         QTimer m_timeout;
+        QTimer m_gatewayRenewal;
+        QTimer m_statusRefresh;
         QByteArray m_output;
-        QJsonObject m_queuedRequest;
+        QList<QJsonObject> m_requestQueue;
         QJsonObject m_pendingRequest;
         QJsonObject m_resolution;
         QJsonArray m_proxies;
@@ -103,6 +147,10 @@ namespace Net
         int m_generation = 0;
         quint64 m_nextPathId = 2;
         quint64 m_nativeGeneration = 0;
+        QString m_pendingStopPath;
+        QList<PathRollover> m_pathRollover;
+        bool m_rolloverOpening = false;
+        bool m_rolloverFailed = false;
         QString m_status;
         SettingValue<QString> m_storeSubscriptionUrl;
         SettingValue<QString> m_storeConfigurationPath;
@@ -113,5 +161,14 @@ namespace Net
         SettingValue<QString> m_storeDnsServer;
         SettingValue<QString> m_storeBootstrapServer;
         SettingValue<QString> m_storeDnsFamily;
+        SettingValue<QString> m_storeGatewayControlAddress;
+        SettingValue<QString> m_storeGatewayDatagramAddress;
+        SettingValue<QString> m_storeGatewayServerName;
+        SettingValue<QString> m_storeGatewayCaPath;
+        SettingValue<QString> m_storeGatewayCertificatePath;
+        SettingValue<QString> m_storeGatewayPrivateKeyPath;
+        SettingValue<int> m_storeGatewayPort;
+        SettingValue<bool> m_storeGatewayTcp;
+        SettingValue<bool> m_storeGatewayUdp;
     };
 }

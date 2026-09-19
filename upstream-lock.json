@@ -11,7 +11,7 @@
   },
   "qbuttNet": {
     "repository": "https://github.com/qbutt-org/qbutt-net.git",
-    "commit": "addc9d590d4ef34e751f684bb83dc4e058a7a130"
+    "commit": "c2d84fbc872af2a90a5f7bf5078c1e1b6e514418"
   },
   "windows": {
     "architecture": "x64",
@@ -277,7 +277,7 @@
     },
     "libtorrent": {
       "repository": "https://github.com/qbutt-org/qbutt-libtorrent.git",
-      "commit": "d50a672789f3d190d9cea78c29d258065c390958",
+      "commit": "9cc73465b0d3d17a9ad66cb85b5bcf96fa573ba8",
       "upstream": {
         "repository": "https://github.com/arvidn/libtorrent.git",
         "tag": "v2.0.11",
