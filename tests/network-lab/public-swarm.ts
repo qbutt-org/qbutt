@@ -30,7 +30,15 @@ interface TransferInfo {
 
 interface PathsStatus {
     busy: boolean;
-    paths: { open: boolean; payloadDownload?: number; closedPayloadDownload?: number }[];
+    paths: { open: boolean }[];
+    diagnostics: { routes: PathCounters[] };
+}
+
+interface PathCounters {
+    pathId: string;
+    generation: number;
+    payloadDownload: number;
+    verifiedDownload: number;
 }
 
 interface RunResult {
@@ -52,7 +60,7 @@ interface RunResult {
     torrentDownloadedSessionDelta: number;
     uiProbeMilliseconds: { count: number; median: number; p95: number; maximum: number };
     publicPeers: { connectedAtWarmup: number; seedsReported: number; leechesReported: number; dhtNodes: number };
-    pathPayloadDownload?: number;
+    pathMeasurements?: (PathCounters & { verifiedBytesPerSecond: number })[];
     evidenceRoot: string;
 }
 
@@ -367,6 +375,8 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
         const verifiedBytesBeforeWindow = verifiedBytes(beforeStates);
         const beforeInfo = await info();
         const beforeTransfer = await json<TransferInfo>("transfer/info");
+        const managedPaths = mode === "qbutt-one-tunnel" || mode === "qbutt-mixed";
+        const beforePaths = managedPaths ? (await json<PathsStatus>("qbuttPaths/status")).diagnostics.routes : [];
         await request("torrents/setDownloadLimit", { hashes: INFO_HASH, limit: String(measuredRate) });
 
         const uiLatencies: number[] = [];
@@ -389,11 +399,17 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
         afterStates = stableStates;
         const measuredMilliseconds = performance.now() - measurementStarted;
         const afterTransfer = await json<TransferInfo>("transfer/info");
-        let pathPayloadDownload: number | undefined;
-        if (mode === "qbutt-one-tunnel" || mode === "qbutt-mixed") {
+        let pathMeasurements: RunResult["pathMeasurements"];
+        if (managedPaths) {
             const status = await json<PathsStatus>("qbuttPaths/status");
-            pathPayloadDownload = status.paths.reduce((sum, path) => sum
-                + (path.payloadDownload ?? path.closedPayloadDownload ?? 0), 0);
+            pathMeasurements = status.diagnostics.routes.map(route => {
+                const before = beforePaths.find(item => item.pathId === route.pathId && item.generation === route.generation);
+                const payloadDownload = route.payloadDownload - (before?.payloadDownload ?? 0);
+                const verifiedDownload = route.verifiedDownload - (before?.verifiedDownload ?? 0);
+                assert(payloadDownload >= 0 && verifiedDownload >= 0, "Path counters regressed within a generation");
+                return { pathId: route.pathId, generation: route.generation, payloadDownload, verifiedDownload,
+                    verifiedBytesPerSecond: verifiedDownload / (measuredMilliseconds / 1000) };
+            });
             await request("qbuttPaths/stop", {});
             await waitFor("public path stop", () => json<PathsStatus>("qbuttPaths/status"),
                 status => !status.busy && status.paths.every(path => !path.open), 30000);
@@ -408,7 +424,9 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
         assert(beforeStates.every((state, index) => state !== 2 || afterStates[index] === 2),
             "A verified warmup piece disappeared during the measurement window");
         const measuredVerifiedBytes = verifiedBytesAfterWindow - verifiedBytesBeforeWindow;
-        assert(measuredVerifiedBytes >= PIECE_LENGTH, "Public measurement produced no complete verified piece");
+        // A stalled window is a valid zero-speed observation. Excluding it would
+        // bias the public-swarm comparison toward successful transfer periods.
+        assert(measuredVerifiedBytes >= 0, "Verified data regressed during the window");
         const result: RunResult = {
             mode, round, ordinal, attempt, peerPort, executableSha256: executableHashes.get(executable)!, appVersion,
             connectionSetupMilliseconds, measurementMilliseconds: measuredMilliseconds,
@@ -423,7 +441,7 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
                 seedsReported: warmup.seedsReported, leechesReported: warmup.leechesReported,
                 dhtNodes: warmup.dhtNodes,
             },
-            ...(pathPayloadDownload === undefined ? {} : { pathPayloadDownload }), evidenceRoot: root,
+            ...(pathMeasurements === undefined ? {} : { pathMeasurements }), evidenceRoot: root,
         };
         return result;
     }
@@ -486,7 +504,8 @@ const evidence: Record<string, unknown> = {
         "Completed pieces are read from disk and checked against the torrent SHA-1 list;"
             + " the full ISO SHA-256 is not claimed",
         "Client transfer counters are recorded separately and are not packet-level wire-byte measurements",
-        "Path payload counters, when present, are relay/application payload and are not verified torrent or wire bytes",
+        "Path payload and hash-verified download deltas are reported separately; neither is carrier wire traffic",
+        "Zero-throughput measurement windows are retained after successful warmup, not retried or discarded",
         "Measured verified bytes are pieces that reached verified state during the window;"
             + " pre-window partial blocks are not separable",
         "Public windows complement the deterministic lab benchmark and do not replace its release thresholds",

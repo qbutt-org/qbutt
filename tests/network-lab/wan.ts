@@ -16,6 +16,7 @@ interface Peer {
 interface Status {
     busy: boolean; mode: string; peers: Peer[];
     paths: { pathId: string; generation: number; edgeId: string; open: boolean; localAddress?: string }[];
+    diagnostics: { routes: { pathId: string; generation: number; payloadDownload: number; verifiedDownload: number }[] };
 }
 interface Connection {
     side: number; remoteIP: string; peerId: string; requestedPieces: number[]; payloadBytes: number;
@@ -160,8 +161,13 @@ print(lt.torrent_info(encoded).info_hashes().v1)
             && last.infoHash === hash && last.payloadDownload > first.payloadDownload,
         "Each path must advance in the same interval for the same torrent");
         if (side === 3) assert(last.localAddress === nativeAddress, "Native peer left the physical interface");
+        const firstVerified = before.diagnostics.routes.find(route => route.pathId === last.pathId
+            && route.generation === last.generation)!.verifiedDownload;
+        const lastVerified = after.diagnostics.routes.find(route => route.pathId === last.pathId
+            && route.generation === last.generation)!.verifiedDownload;
+        assert(lastVerified > firstVerified, "Each path must contribute verified pieces in the same interval");
         return { side, pathId: last.pathId, generation: last.generation, port: last.port,
-            payloadDelta: last.payloadDownload - first.payloadDownload };
+            payloadDelta: last.payloadDownload - first.payloadDownload, verifiedDelta: lastVerified - firstVerified };
     });
     await lab.checkpoint({ check: "four-simultaneous-wan-paths", infoHash: hash,
         intervalMilliseconds: performance.now() - intervalStarted, flows });
@@ -171,6 +177,19 @@ print(lt.torrent_info(encoded).info_hashes().v1)
     await waitFor("WAN torrent stopped", () => lab.info(hash), info => info.state === "stoppedUP");
     const downloaded = await readFile(join(destination, "wan.bin"));
     assert(downloaded.length === payload.length && sha256(downloaded) === sha256(payload), "WAN payload hash/size mismatch");
+    const verifiedPaths = (await readStatus()).diagnostics.routes.filter(route =>
+        paths.some(path => path!.pathId === route.pathId && path!.generation === route.generation));
+    assert(verifiedPaths.length === 4 && verifiedPaths.every(route => route.verifiedDownload === payload.length / 4),
+        "Each WAN path must retain its exact hash-verified piece contribution after peers close");
+    await lab.request("torrents/recheck", { hashes: hash });
+    // Wait past the regular cached-status refresh before accepting stoppedUP.
+    await Bun.sleep(2000);
+    await waitFor("WAN recheck preserves completed data", () => lab.info(hash), info =>
+        info.state === "stoppedUP" && info.progress === 1);
+    const rechecked = (await readStatus()).diagnostics.routes;
+    assert(verifiedPaths.every(route => rechecked.some(current => current.pathId === route.pathId
+        && current.generation === route.generation && current.verifiedDownload === route.verifiedDownload)),
+    "A local recheck must not credit downloaded bytes again");
     server.stdin.write('{"command":"stop"}\n');
     await server.stdin.flush();
     const observed = await reply() as { stopped: boolean; connections: Connection[]; errors: string[] };
@@ -186,7 +205,7 @@ print(lt.torrent_info(encoded).info_hashes().v1)
     assert(new Set(remoteFlows.map(connection => connection.remoteIP)).size === 4,
         "Native and three VPN paths must reach the observer through four distinct public IPs");
     await lab.checkpoint({ check: "remote-egress-and-verified-payload", infoHash: hash, verifiedBytes: downloaded.length,
-        sha256: sha256(downloaded), exactSize: true, transferMilliseconds, remoteFlows,
+        sha256: sha256(downloaded), exactSize: true, transferMilliseconds, remoteFlows, verifiedPaths, recheckCreditStable: true,
         limits: "Controlled TCP fixture with manual peers and per-peer caps; no public-swarm, discovery, UDP or speedup claim" });
     server.stdin.end();
     assert(await server.exited === 0, "Observer failed to exit cleanly");
