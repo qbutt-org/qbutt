@@ -60,6 +60,7 @@
 #include "base/bittorrent/addtorrentparams.h"
 #include "base/bittorrent/completionpolicy.h"
 #include "base/bittorrent/infohash.h"
+#include "base/bittorrent/repairservice.h"
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/torrent.h"
 #include "base/bittorrent/torrentdescriptor.h"
@@ -130,7 +131,8 @@ namespace
         QSaveFile file(path);
         require(file.open(QIODevice::WriteOnly), u"Cannot create acceptance evidence"_s);
         require(file.write(QJsonDocument(object).toJson(QJsonDocument::Indented)) > 0, u"Cannot write acceptance evidence"_s);
-        require(file.commit(), u"Cannot commit acceptance evidence"_s);
+        const bool committed = file.commit();
+        require(committed, u"Cannot commit acceptance evidence %1: %2"_s.arg(path, file.errorString()));
     }
 
     QMap<QString, QString> snapshot(const QString &root)
@@ -396,6 +398,8 @@ namespace
             for (const QJsonValue &value : values)
             {
                 const QJsonObject path = value.toObject();
+                if (path.value(u"edgeId"_s).toString() == u"native")
+                    continue;
                 keys.append(u"%1:%2"_s.arg(path.value(u"pathId"_s).toString())
                     .arg(path.value(u"generation"_s).toInteger()));
             }
@@ -421,9 +425,14 @@ namespace
             require(duration <= RESPONSE_LIMIT_MS, u"Path policy blocked the UI thread"_s);
             require(Net::PathManager::instance()->statusData().value(u"mode"_s).toString() == policy,
                 u"Path policy did not reach the production model"_s);
-            require(generationKeys(Net::PathManager::instance()->statusData().value(u"paths"_s).toArray())
-                    == openedGenerations,
+            const QJsonArray activePaths = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
+            require(generationKeys(activePaths) == openedGenerations,
                 u"A policy-only transition retired an active path generation"_s);
+            const bool hasNative = std::ranges::any_of(activePaths, [](const QJsonValue &value)
+            {
+                return value.toObject().value(u"edgeId"_s).toString() == u"native";
+            });
+            require(hasNative == (policy == u"mixed"), u"Native route does not match the selected policy"_s);
             transitions.append(QJsonObject {{u"mode"_s, policy}, {u"latencyMs"_s, duration}});
         }
         require(status->text().contains(u"Pinned"_s, Qt::CaseInsensitive), u"Paths status did not explain the active policy"_s);
@@ -503,7 +512,7 @@ namespace
         require(requiredChild<QComboBox>(&preview, u"repairPreviewMode"_s)->currentIndex() == 0,
             u"Repair preview did not default to independent staging"_s);
         chooseFile(requiredChild<QPushButton>(&preview, u"repairPreviewAddRoot"_s), source);
-        require(requiredChild<QPlainTextEdit>(&preview, u"repairPreviewRoots"_s)->toPlainText().contains(source),
+        require(requiredChild<QPlainTextEdit>(&preview, u"repairPreviewRoots"_s)->toPlainText() == QDir::fromNativeSeparators(source),
             u"Repair source-directory picker did not update the production form"_s);
         requiredChild<QPushButton>(&preview, u"repairPreviewAnalyze"_s)->click();
         auto *files = requiredChild<QTableWidget>(&preview, u"repairPreviewFiles"_s);
@@ -533,6 +542,24 @@ namespace
             u"Repair preview did not retain the explicit source mapping"_s);
         require(snapshot(source) == sourceBefore && snapshot(destination) == targetBefore,
             u"Explicit-mapping preview changed source or target data before consent"_s);
+        require(!sourceMutations->changed() && !targetMutations->changed(),
+            u"Read-only preview transiently changed a monitored payload tree"_s);
+        // The separate add-job consent includes libtorrent's initialization of
+        // missing empty files. Existing files stay locked against all writes.
+        auto initializedTarget = targetBefore;
+        for (auto it = sourceBefore.cbegin(); it != sourceBefore.cend(); ++it)
+        {
+            if (!it.value().endsWith(u":0"))
+                continue;
+            if (!initializedTarget.contains(it.key()))
+                initializedTarget.insert(it.key(), it.value());
+            QString parent = it.key().section(u'/', 0, -2);
+            while (!parent.isEmpty())
+            {
+                initializedTarget.insert(parent + u'/', u"directory"_s);
+                parent = parent.section(u'/', 0, -2);
+            }
+        }
         reviewed->setChecked(true);
         require(apply->isEnabled(), u"Reviewed mappings did not enable the stopped repair job"_s);
         apply->click();
@@ -543,11 +570,15 @@ namespace
             u"Repair flow silently fell back from staging to in-place"_s);
         auto *consent = requiredChild<QCheckBox>(repair, u"repairConsent"_s);
         auto *tree = requiredChild<QTreeWidget>(repair, u"repairFiles"_s);
-        waitFor(u"Exclusive repair analysis"_s, [&] { return consent->isEnabled() && (tree->topLevelItemCount() > 0); }, 90000);
-        require(snapshot(source) == sourceBefore && snapshot(destination) == targetBefore,
-            u"Managed analysis changed payload before write consent"_s);
-        require(!sourceMutations->changed() && !targetMutations->changed(),
-            u"Repair preview or managed analysis transiently changed a monitored payload tree"_s);
+        QLabel *repairStatus = requiredChild<QLabel>(repair, u"repairStatus"_s);
+        waitFor(u"Exclusive repair analysis"_s, [&]
+        {
+            require(!repairStatus->text().startsWith(u"Repair cannot continue:"), repairStatus->text());
+            return consent->isEnabled() && (tree->topLevelItemCount() > 0);
+        }, 90000);
+        require(snapshot(source) == sourceBefore && snapshot(destination) == initializedTarget,
+            u"Stopped initialization or managed analysis changed payload beyond the authorized empty files"_s);
+        require(!sourceMutations->changed(), u"Managed analysis transiently changed source data"_s);
         sourceMutations.reset();
         targetMutations.reset();
         consent->setChecked(true);
@@ -557,7 +588,14 @@ namespace
         stagingHeartbeat.start();
         prepare->click();
         QPushButton *commit = requiredChild<QPushButton>(repair, u"repairCommit"_s);
-        waitFor(u"Verified staging"_s, [&] { return consent->isEnabled() && !consent->isChecked(); }, 120000);
+        auto *service = repair->findChild<BitTorrent::RepairService *>();
+        require(service, u"Repair dialog has no service owner"_s);
+        waitFor(u"Verified staging"_s, [&]
+        {
+            require(!repairStatus->text().startsWith(u"Repair cannot continue:"), repairStatus->text());
+            return service->stagingStatus().value(u"can_commit"_s).toBool()
+                && consent->isEnabled() && !consent->isChecked();
+        }, 120000);
         stagingHeartbeat.stop();
         require(stagingHeartbeat.ticks > 0 && stagingHeartbeat.maximumGap <= RESPONSE_LIMIT_MS,
             u"Staging or native recheck starved the Qt event loop"_s);
@@ -565,7 +603,6 @@ namespace
         consent->setChecked(true);
         require(commit->isEnabled(), u"Verified staging did not require fresh commit consent"_s);
         commit->click();
-        QLabel *repairStatus = requiredChild<QLabel>(repair, u"repairStatus"_s);
         waitFor(u"Staged commit"_s, [&]
         {
             return repairStatus->text().contains(u"committed"_s, Qt::CaseInsensitive);
@@ -697,9 +734,15 @@ namespace
         const auto refreshOnce = [&]
         {
             waitFor(u"Diagnostics refresh action"_s, [=] { return refresh->isEnabled(); });
+            const int before = displayedSampleCount(status);
+            QElapsedTimer latency;
+            latency.start();
             refresh->click();
-            require(!refresh->isEnabled(), u"Diagnostics refresh did not expose its asynchronous busy state"_s);
-            waitFor(u"Diagnostics refresh completion"_s, [=] { return refresh->isEnabled(); });
+            require(latency.elapsed() <= RESPONSE_LIMIT_MS, u"Diagnostics refresh blocked the Qt event loop"_s);
+            waitFor(u"Diagnostics refresh completion"_s, [=]
+            {
+                return refresh->isEnabled() && ((before == 300) || (displayedSampleCount(status) > before));
+            });
         };
         while (displayedSampleCount(status) < 300)
             refreshOnce();
@@ -779,6 +822,9 @@ namespace
 
     void exerciseLargeTransferList(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
+        auto *sidebar = requiredChild<QAction>(window, u"actionShowFiltersSidebar"_s);
+        if (!sidebar->isChecked())
+            sidebar->trigger();
         auto *session = BitTorrent::Session::instance();
         TransferListWidget *list = window->transferListWidget();
         require(list, u"Production transfer list is missing"_s);
@@ -800,8 +846,9 @@ namespace
             const QByteArray seed = QByteArray::number(index) + "qbutt-large-list";
             const QByteArray digest = QCryptographicHash::hash(seed, QCryptographicHash::Sha1).toHex();
             const auto descriptor = BitTorrent::TorrentDescriptor::parse(
-                u"magnet:?xt=urn:btih:%1&dn=Bulk%20%2&tr=http%3A%2F%2Facceptance.invalid%2Fannounce"_s
-                .arg(QString::fromLatin1(digest), QString::number(index).rightJustified(5, u'0')));
+                u"magnet:?xt=urn:btih:"_s + QString::fromLatin1(digest)
+                + u"&dn=Bulk%20"_s + QString::number(index).rightJustified(5, u'0')
+                + u"&tr=http%3A%2F%2Facceptance.invalid%2Fannounce"_s);
             require(descriptor && session->addTorrent(*descriptor, params), u"Cannot populate the real transfer model"_s);
             if ((index % 32) == 31)
                 QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
@@ -1173,9 +1220,8 @@ int main(int argc, char **argv)
                 catch (const std::exception &error)
                 {
                     evidence[u"status"_s] = u"failed"_s;
-                    evidence[u"error"_s] = QString::fromLocal8Bit(error.what());
+                    evidence[u"error"_s] = QString::fromUtf8(error.what());
                 }
-                writeObject(spec.value(u"evidencePath"_s).toString(), evidence);
                 application.exit(result);
             };
             if (BitTorrent::Session::instance()->isRestored())
@@ -1193,8 +1239,10 @@ int main(int argc, char **argv)
     catch (const std::exception &error)
     {
         evidence[u"status"_s] = u"failed"_s;
-        evidence[u"error"_s] = QString::fromLocal8Bit(error.what());
-        writeObject(spec.value(u"evidencePath"_s).toString(), evidence);
+        evidence[u"error"_s] = QString::fromUtf8(error.what());
     }
+    // Repair ownership can still hold directory handles when a UI check fails.
+    // Preserve its original failure and save only after application teardown.
+    writeObject(spec.value(u"evidencePath"_s).toString(), evidence);
     return result;
 }

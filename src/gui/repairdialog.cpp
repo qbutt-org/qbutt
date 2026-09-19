@@ -32,6 +32,7 @@
 #include "base/bittorrent/infohash.h"
 #include "base/bittorrent/repairanalysis.h"
 #include "base/bittorrent/repairservice.h"
+#include "base/bittorrent/session.h"
 #include "base/bittorrent/stagingoperation.h"
 #include "base/bittorrent/torrent.h"
 #include "base/bittorrent/torrentinfo.h"
@@ -275,7 +276,31 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
         m_consent->setEnabled(false);
         m_service->rollbackStaged();
     });
-    if (options.analyzeImmediately)
+    if (torrent->state() == BitTorrent::TorrentState::CheckingResumeData)
+    {
+        analyze->setEnabled(false);
+        m_progress->show();
+        m_status->setText(tr("Waiting for torrent initialization before analyzing existing data…"));
+        m_initializationConnection = connect(torrent->session(), &BitTorrent::Session::torrentsUpdated, this
+            , [this, hash = torrent->infoHash(), analyze, immediately = options.analyzeImmediately]
+        {
+            const BitTorrent::Torrent *current = BitTorrent::Session::instance()->findTorrent(hash);
+            if (current && (current->state() == BitTorrent::TorrentState::CheckingResumeData))
+                return;
+            disconnect(m_initializationConnection);
+            m_progress->hide();
+            if (!current)
+            {
+                showFailure(tr("The torrent was removed."));
+                return;
+            }
+            analyze->setEnabled(true);
+            m_status->setText(tr("Ready to analyze existing data."));
+            if (immediately)
+                analyze->click();
+        });
+    }
+    else if (options.analyzeImmediately)
         QTimer::singleShot(0, analyze, &QPushButton::click);
 }
 

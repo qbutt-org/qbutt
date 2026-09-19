@@ -60,7 +60,7 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
     , m_oversizedFiles {new QLabel {this}}
     , m_progress {new QProgressBar {this}}
     , m_files {new QTableWidget {this}}
-    , m_reviewed {new QCheckBox {tr("I reviewed the target-to-source mappings and want to add a stopped repair job."), this}}
+    , m_reviewed {new QCheckBox {tr("I reviewed the mappings and allow adding a stopped job and creating missing empty target files."), this}}
 {
     setObjectName(u"RepairPreviewDialog"_s);
     setWindowTitle(tr("Smart repair from torrent file"));
@@ -398,7 +398,7 @@ void RepairPreviewDialog::startRepair()
         updateControls();
     });
     m_operation = Operation::Adding;
-    m_status->setText(tr("Adding a stopped, manually managed repair job. No payload download is started."));
+    m_status->setText(tr("Adding a stopped, manually managed repair job. Initialization may create missing empty target files; existing files are preserved. No payload download is started."));
     updateControls();
     if (!session->addTorrent(*m_descriptor, params))
     {

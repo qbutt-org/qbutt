@@ -66,4 +66,5 @@ private:
     bool m_staged = true;
     QJsonObject m_stagingStatus;
     QMap<int, QString> m_sourceMappings;
+    QMetaObject::Connection m_initializationConnection;
 };
