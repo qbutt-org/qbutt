@@ -6,20 +6,117 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
+#include <deque>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <vector>
 
 #include <libtorrent/peer_route.hpp>
 
 namespace Net
 {
-    // The selector and its observer run only on libtorrent's network thread.
-    // The catalog contains one current transport per edge. Selection changes
-    // future dials only; libtorrent retains peer deduplication and session limits.
+    // Selection and observation run on libtorrent's network thread. Diagnostics
+    // take a bounded snapshot for the application thread under the same lock.
+    // The catalog contains one current transport per edge; libtorrent retains
+    // peer deduplication and session limits.
     class PeerRouteSelector
     {
     public:
-        PeerRouteSelector(std::vector<libtorrent::peer_route> routes, bool mixed);
+        enum class Decision
+        {
+            Pinned,
+            BestScore,
+            Exploration,
+            BlockedNoRoute,
+            BlockedCooldown
+        };
+
+        enum class RouteType
+        {
+            Blocked,
+            Relay,
+            Native
+        };
+
+        struct RouteDiagnostics
+        {
+            std::uint64_t pathId = 0;
+            std::uint64_t generation = 0;
+            RouteType type = RouteType::Blocked;
+            std::uint64_t attempts = 0;
+            std::uint64_t connected = 0;
+            std::uint64_t closed = 0;
+            std::uint64_t connectionFailures = 0;
+            std::uint64_t timeouts = 0;
+            std::int64_t payloadDownload = 0;
+            std::int64_t payloadUpload = 0;
+            // Libtorrent credits the winning downloaded blocks once when their
+            // piece passes hashing, excluding pad bytes and redundant copies.
+            // This is transfer goodput, not the size of existing verified data.
+            std::int64_t verifiedDownload = 0;
+            std::int64_t demandMilliseconds = 0;
+            std::int64_t chokedMilliseconds = 0;
+        };
+
+        struct DiagnosticEvent
+        {
+            std::int64_t ageMilliseconds = 0;
+            std::uint64_t pathId = 0;
+            std::uint64_t generation = 0;
+            Decision decision = Decision::Pinned;
+        };
+
+        struct Diagnostics
+        {
+            std::vector<RouteDiagnostics> routes;
+            std::vector<DiagnosticEvent> events;
+            std::uint64_t blockedSelections = 0;
+            bool eventsTruncated = false;
+        };
+
+        class DiagnosticHistory
+        {
+        public:
+            void configure(const std::vector<libtorrent::peer_route> &routes);
+            void retire();
+            void selected(const libtorrent::peer_route_context &route, Decision decision);
+            void observe(const libtorrent::peer_route_observation &observation);
+            Diagnostics snapshot() const;
+
+        private:
+            using Clock = std::chrono::steady_clock;
+            using RouteKey = std::pair<std::uint64_t, std::uint64_t>;
+
+            struct EventRecord
+            {
+                Clock::time_point timestamp;
+                std::uint64_t pathId = 0;
+                std::uint64_t generation = 0;
+                Decision decision = Decision::Pinned;
+            };
+
+            struct RetainedRoute
+            {
+                RouteDiagnostics value;
+                Clock::time_point touched;
+                bool current = false;
+            };
+
+            void record(Clock::time_point now, const libtorrent::peer_route_context &route, Decision decision);
+            void prune(Clock::time_point now);
+
+            std::map<RouteKey, RetainedRoute> m_routes;
+            std::deque<EventRecord> m_events;
+            std::optional<Clock::time_point> m_lastDroppedEvent;
+            std::uint64_t m_blockedSelections = 0;
+            mutable std::mutex m_mutex;
+        };
+
+        PeerRouteSelector(std::vector<libtorrent::peer_route> routes, bool mixed,
+            std::shared_ptr<DiagnosticHistory> diagnostics = {});
 
         libtorrent::peer_route select(const libtorrent::peer_route_request &request);
         void observe(const libtorrent::peer_route_observation &observation);
@@ -58,6 +155,7 @@ namespace Net
         const bool m_mixed;
         std::map<PeerKey, PeerHistory> m_peers;
         std::map<RouteKey, RouteHistory> m_history;
+        const std::shared_ptr<DiagnosticHistory> m_diagnosticHistory;
         Clock::time_point m_nextMaintenance;
         std::uint64_t m_attempts = 0;
     };

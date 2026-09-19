@@ -208,6 +208,34 @@ void TransferListSortModel::setAnnounceStatusFilter(const std::optional<BitTorre
 #endif
 }
 
+void TransferListSortModel::setPathFilter(const std::optional<QString> &path)
+{
+    if (m_path == path)
+        return;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    beginFilterChange();
+    m_path = path;
+    endFilterChange(Direction::Rows);
+#else
+    m_path = path;
+    invalidateRowsFilter();
+#endif
+}
+
+void TransferListSortModel::setSourceFilter(const std::optional<int> &sourceFlag)
+{
+    if (m_sourceFlag == sourceFlag)
+        return;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    beginFilterChange();
+    m_sourceFlag = sourceFlag;
+    endFilterChange(Direction::Rows);
+#else
+    m_sourceFlag = sourceFlag;
+    invalidateRowsFilter();
+#endif
+}
+
 int TransferListSortModel::compare(const QModelIndex &left, const QModelIndex &right) const
 {
     const int compareColumn = left.column();
@@ -326,5 +354,26 @@ bool TransferListSortModel::matchFilter(const int sourceRow, const QModelIndex &
     const BitTorrent::Torrent *torrent = model->torrentHandle(model->index(sourceRow, 0, sourceParent));
     if (!torrent) return false;
 
-    return m_filter.match(torrent);
+    if (!m_filter.match(torrent))
+        return false;
+
+    const QModelIndex sourceIndex = model->index(sourceRow, 0, sourceParent);
+    if (m_path || m_sourceFlag)
+    {
+        if (!sourceIndex.data(TransferListModel::NetworkDetailsKnownRole).toBool())
+            return false;
+    }
+    if (m_path)
+    {
+        const QStringList paths = sourceIndex.data(TransferListModel::NetworkPathsRole).toStringList();
+        if (m_path->isEmpty() ? !paths.isEmpty() : !paths.contains(*m_path))
+            return false;
+    }
+    if (m_sourceFlag)
+    {
+        const int sources = sourceIndex.data(TransferListModel::PeerSourcesRole).toInt();
+        if ((*m_sourceFlag == 0) ? (sources != 0) : !(sources & *m_sourceFlag))
+            return false;
+    }
+    return true;
 }

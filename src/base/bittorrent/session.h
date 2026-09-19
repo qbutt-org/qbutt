@@ -44,6 +44,7 @@
 
 class QHostAddress;
 class QJsonArray;
+class QJsonObject;
 class QString;
 
 namespace Net
@@ -465,6 +466,7 @@ namespace BitTorrent
         virtual bool addDHTRouteNode(quint64 pathId, quint64 generation,
             const QHostAddress &address, quint16 port) = 0;
         virtual QJsonArray peerRouteStatus() const = 0;
+        virtual QJsonObject peerRouteDiagnostics() const = 0;
 
         virtual bool isPaused() const = 0;
         virtual void pause() = 0;

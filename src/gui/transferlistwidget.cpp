@@ -60,6 +60,7 @@
 #include "deletionconfirmationdialog.h"
 #include "interfaces/iguiapplication.h"
 #include "mainwindow.h"
+#include "networkdiagnosticsdialog.h"
 #include "optionsdialog.h"
 #include "previewselectdialog.h"
 #include "repairdialog.h"
@@ -686,6 +687,29 @@ void TransferListWidget::repairSelectedTorrent()
     dialog->open();
 }
 
+void TransferListWidget::diagnoseSelectedTorrent()
+{
+    const QList<BitTorrent::Torrent *> torrents = getSelectedTorrents();
+    if (torrents.size() != 1)
+        return;
+    if (m_diagnosticsDialog)
+    {
+        if (m_diagnosticsDialog->torrent() == torrents.constFirst())
+        {
+            m_diagnosticsDialog->show();
+            m_diagnosticsDialog->raise();
+            m_diagnosticsDialog->activateWindow();
+            return;
+        }
+        m_diagnosticsDialog->close();
+    }
+
+    auto *dialog = new NetworkDiagnosticsDialog {this, torrents.constFirst()};
+    m_diagnosticsDialog = dialog;
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->open();
+}
+
 int TransferListWidget::visibleColumnsCount() const
 {
     int count = 0;
@@ -1020,6 +1044,8 @@ void TransferListWidget::displayListMenu()
     connect(actionForceRecheck, &QAction::triggered, this, &TransferListWidget::recheckSelectedTorrents);
     auto *actionRepair = new QAction(tr("Smart repair..."), listMenu);
     connect(actionRepair, &QAction::triggered, this, &TransferListWidget::repairSelectedTorrent);
+    auto *actionDiagnostics = new QAction(tr("Network diagnostics..."), listMenu);
+    connect(actionDiagnostics, &QAction::triggered, this, &TransferListWidget::diagnoseSelectedTorrent);
     auto *actionForceReannounce = new QAction(UIThemeManager::instance()->getIcon(u"reannounce"_s, u"document-edit-verify"_s), tr("Force r&eannounce"), listMenu);
     connect(actionForceReannounce, &QAction::triggered, this, &TransferListWidget::reannounceSelectedTorrents);
     auto *actionCopyMagnetLink = new QAction(UIThemeManager::instance()->getIcon(u"torrent-magnet"_s, u"kt-magnet"_s), tr("&Magnet link"), listMenu);
@@ -1186,7 +1212,10 @@ void TransferListWidget::displayListMenu()
     listMenu->addSeparator();
     listMenu->addAction(actionSetTorrentPath);
     if (selectedIndexes.size() == 1)
+    {
         listMenu->addAction(actionRename);
+        listMenu->addAction(actionDiagnostics);
+    }
     listMenu->addAction(actionEditTracker);
 
     // Category Menu
@@ -1378,6 +1407,20 @@ void TransferListWidget::applyTrackerFilter(const std::optional<QString> &tracke
 void TransferListWidget::applyAnnounceStatusFilter(const std::optional<BitTorrent::TorrentAnnounceStatus> &announceStatus)
 {
     m_sortFilterModel->setAnnounceStatusFilter(announceStatus);
+}
+
+void TransferListWidget::applyPathFilter(const std::optional<QString> &pathId)
+{
+    m_pathFilter = pathId;
+    m_listModel->setNetworkDetailsRequired(m_pathFilter.has_value() || m_sourceFilter.has_value());
+    m_sortFilterModel->setPathFilter(pathId);
+}
+
+void TransferListWidget::applySourceFilter(const std::optional<int> &sourceFlag)
+{
+    m_sourceFilter = sourceFlag;
+    m_listModel->setNetworkDetailsRequired(m_pathFilter.has_value() || m_sourceFilter.has_value());
+    m_sortFilterModel->setSourceFilter(sourceFlag);
 }
 
 void TransferListWidget::applyFilter(const QString &name, const TransferListModel::Column &type)

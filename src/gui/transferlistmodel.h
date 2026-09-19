@@ -34,6 +34,8 @@
 #include <QHash>
 #include <QIcon>
 #include <QList>
+#include <QQueue>
+#include <QSet>
 
 #include "base/bittorrent/torrent.h"
 
@@ -95,7 +97,10 @@ public:
     enum DataRole
     {
         UnderlyingDataRole = Qt::UserRole,
-        AdditionalUnderlyingDataRole
+        AdditionalUnderlyingDataRole,
+        NetworkPathsRole,
+        PeerSourcesRole,
+        NetworkDetailsKnownRole
     };
 
     explicit TransferListModel(QObject *parent = nullptr);
@@ -108,6 +113,12 @@ public:
     Qt::ItemFlags flags(const QModelIndex &index) const override;
 
     BitTorrent::Torrent *torrentHandle(const QModelIndex &index) const;
+    QStringList networkPaths() const;
+    void refreshNetworkCatalog();
+    void setNetworkDetailsRequired(bool required);
+
+signals:
+    void networkPathsChanged();
 
 private slots:
     void addTorrents(const QList<BitTorrent::Torrent *> &torrents);
@@ -118,12 +129,38 @@ private slots:
 private:
     void configure();
     void loadUIThemeResources();
+    void queueNetworkScan(BitTorrent::Torrent *torrent, bool catalogScan = false);
+    void scheduleNetworkRefresh();
+    void queueNetworkUpdate(BitTorrent::Torrent *torrent);
+    void flushNetworkUpdates();
+    void startNextNetworkScans();
     QString displayValue(const BitTorrent::Torrent *torrent, int column) const;
     QVariant internalValue(const BitTorrent::Torrent *torrent, int column, bool alt) const;
     QIcon getIconByState(BitTorrent::TorrentState state) const;
 
     QList<BitTorrent::Torrent *> m_torrentList;  // maps row number to torrent handle
     QHash<BitTorrent::Torrent *, int> m_torrentMap;  // maps torrent handle to row number
+    struct NetworkState
+    {
+        QStringList paths;
+        int peerSources = 0;
+        bool known = false;
+
+        bool operator==(const NetworkState &) const = default;
+    };
+    QHash<BitTorrent::Torrent *, NetworkState> m_networkState;
+    QQueue<BitTorrent::Torrent *> m_networkScanQueue;
+    QSet<BitTorrent::Torrent *> m_queuedNetworkScans;
+    QHash<BitTorrent::Torrent *, quint64> m_activeNetworkScans;
+    QSet<BitTorrent::Torrent *> m_networkScanReruns;
+    QSet<BitTorrent::Torrent *> m_networkCatalogScans;
+    QSet<BitTorrent::Torrent *> m_pendingNetworkUpdates;
+    QStringList m_networkPaths;
+    qsizetype m_activeNetworkScanCount = 0;
+    quint64 m_nextNetworkScanToken = 0;
+    bool m_networkRefreshScheduled = false;
+    bool m_networkUpdateScheduled = false;
+    bool m_networkDetailsRequired = false;
     const QHash<BitTorrent::TorrentState, QString> m_statusStrings;
     // row text colors
     QHash<BitTorrent::TorrentState, QColor> m_stateThemeColors;

@@ -31,6 +31,7 @@
 
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -49,6 +50,7 @@
 #include <QSet>
 #include <QThreadPool>
 
+#include "base/net/peerrouteselector.h"
 #include "base/path.h"
 #include "base/settingvalue.h"
 #include "base/utils/thread.h"
@@ -432,6 +434,7 @@ namespace BitTorrent
         bool addDHTRouteNode(quint64 pathId, quint64 generation,
             const QHostAddress &address, quint16 port) override;
         QJsonArray peerRouteStatus() const override;
+        QJsonObject peerRouteDiagnostics() const override;
 
         bool isPaused() const override;
         void pause() override;
@@ -856,6 +859,7 @@ namespace BitTorrent
 
         std::vector<lt::alert *> m_alerts;  // make it a class variable so it can preserve its allocated `capacity`
         std::vector<lt::udp_route> m_managedUdpRoutes;
+        std::shared_ptr<Net::PeerRouteSelector::DiagnosticHistory> m_peerRouteDiagnosticHistory;
         qsizetype m_receivedAddTorrentAlertsCount = 0;
         QList<Torrent *> m_loadedTorrents;
 

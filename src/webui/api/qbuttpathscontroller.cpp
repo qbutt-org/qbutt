@@ -5,6 +5,7 @@
 
 #include "qbuttpathscontroller.h"
 
+#include "base/bittorrent/session.h"
 #include "base/global.h"
 #include "base/net/pathmanager.h"
 #include "apierror.h"
@@ -12,7 +13,9 @@
 void QbuttPathsController::statusAction()
 {
     const auto *manager = Net::PathManager::instance();
-    setResult(manager->statusData(true));
+    QJsonObject status = manager->statusData(true);
+    status.insert(u"diagnostics"_s, BitTorrent::Session::instance()->peerRouteDiagnostics());
+    setResult(status);
     if (manager->isBusy())
         setStatus(APIStatus::Async);
 }

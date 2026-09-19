@@ -30,6 +30,7 @@
 #include "torrentimpl.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 
 #ifdef Q_OS_WIN
@@ -38,6 +39,7 @@
 
 #include <libtorrent/address.hpp>
 #include <libtorrent/info_hash.hpp>
+#include <libtorrent/peer_diagnostic_info.hpp>
 #include <libtorrent/session.hpp>
 #include <libtorrent/storage_defs.hpp>
 #include <libtorrent/time.hpp>
@@ -49,6 +51,7 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QFuture>
+#include <QMap>
 #include <QPointer>
 #include <QPromise>
 #include <QSet>
@@ -84,6 +87,13 @@ using namespace BitTorrent;
 
 namespace
 {
+    static_assert(TrackerPeerSource == static_cast<std::uint8_t>(lt::peer_info::tracker));
+    static_assert(DHTPeerSource == static_cast<std::uint8_t>(lt::peer_info::dht));
+    static_assert(PeXPeerSource == static_cast<std::uint8_t>(lt::peer_info::pex));
+    static_assert(LSDPeerSource == static_cast<std::uint8_t>(lt::peer_info::lsd));
+    static_assert(ResumeDataPeerSource == static_cast<std::uint8_t>(lt::peer_info::resume_data));
+    static_assert(IncomingPeerSource == static_cast<std::uint8_t>(lt::peer_info::incoming));
+
     lt::announce_entry makeNativeAnnounceEntry(const QString &url, const int tier)
     {
         lt::announce_entry entry {url.toStdString()};
@@ -1571,6 +1581,79 @@ qlonglong TorrentImpl::totalPayloadDownload() const
 int TorrentImpl::connectionsCount() const
 {
     return m_nativeStatus.num_connections;
+}
+
+TorrentDiagnosticStatus TorrentImpl::diagnosticStatus() const
+{
+    const bool expectsDownload = (m_state == TorrentState::Downloading)
+        || (m_state == TorrentState::StalledDownloading)
+        || (m_state == TorrentState::ForcedDownloading);
+    const bool expectsConnections = expectsDownload || (m_state == TorrentState::DownloadingMetadata)
+        || (m_state == TorrentState::ForcedDownloadingMetadata);
+    return {.isFinished = isFinished(),
+        .isStopped = isStopped(),
+        .hasMetadata = hasMetadata(),
+        .expectsConnections = expectsConnections,
+        .expectsDownload = expectsDownload,
+        .knownPeers = m_nativeStatus.list_peers,
+        .connectionCandidates = m_nativeStatus.connect_candidates,
+        .connections = m_nativeStatus.num_connections,
+        .establishedPeers = m_nativeStatus.num_peers,
+        .wireDownloadRate = isStopped() ? 0 : m_nativeStatus.download_rate,
+        .wireUploadRate = isStopped() ? 0 : m_nativeStatus.upload_rate,
+        .payloadDownloadRate = downloadPayloadRate(),
+        .payloadUploadRate = uploadPayloadRate(),
+        .totalPayloadDownload = m_nativeStatus.total_payload_download,
+        .totalPayloadUpload = m_nativeStatus.total_payload_upload,
+        .failedBytes = m_nativeStatus.total_failed_bytes,
+        .redundantBytes = m_nativeStatus.total_redundant_bytes};
+}
+
+QFuture<TorrentPeerDiagnosticStatus> TorrentImpl::fetchPeerDiagnosticStatus() const
+{
+    return invokeAsync([nativeHandle = m_nativeHandle]
+    {
+        TorrentPeerDiagnosticStatus result;
+        try
+        {
+            std::vector<lt::peer_diagnostic_info> peers;
+            nativeHandle.get_peer_diagnostic_info(peers);
+            QMap<QPair<quint64, quint64>, PeerPathDiagnosticStatus> paths;
+            const auto addPeer = [](PeerDiagnosticStatus &status, const lt::peer_diagnostic_info &peer)
+            {
+                const bool connecting = bool(peer.flags & lt::peer_info::connecting);
+                const bool handshaking = bool(peer.flags & lt::peer_info::handshake);
+                const bool established = !connecting && !handshaking;
+                const bool interesting = bool(peer.flags & lt::peer_info::interesting);
+                ++status.peers;
+                status.connecting += connecting;
+                status.handshaking += handshaking;
+                status.transferring += established && (peer.payload_down_speed > 0);
+                status.choked += established && interesting && bool(peer.flags & lt::peer_info::remote_choked);
+                status.noDemand += established && !interesting;
+                status.diskQueued += established && (bool(peer.read_state & lt::peer_info::bw_disk)
+                    || (peer.pending_disk_bytes > 0));
+                status.rateLimited += established && bool(peer.read_state & lt::peer_info::bw_limit);
+                status.sourceMask |= static_cast<std::uint8_t>(peer.source);
+                if (peer.connection_type != lt::peer_info::standard_bittorrent)
+                    status.sourceMask |= WebSeedPeerSource;
+                status.payloadDownloadRate += peer.payload_down_speed;
+                status.wireDownloadRate += peer.down_speed;
+            };
+            for (const lt::peer_diagnostic_info &peer : peers)
+            {
+                addPeer(result, peer);
+                PeerPathDiagnosticStatus &path = paths[{peer.route.path_id, peer.route.generation}];
+                path.pathId = peer.route.path_id;
+                path.generation = peer.route.generation;
+                addPeer(path, peer);
+            }
+            result.known = true;
+            result.paths = paths.values();
+        }
+        catch (const std::exception &) {}
+        return result;
+    });
 }
 
 int TorrentImpl::connectionsLimit() const

@@ -4404,7 +4404,10 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
 
     // Selection and verified feedback share one owner on libtorrent's thread.
     // Replacing both callbacks is a synchronous catalog barrier.
-    const auto selector = std::make_shared<Net::PeerRouteSelector>(std::move(peerRoutes), multipleRoutes);
+    if (!m_peerRouteDiagnosticHistory)
+        m_peerRouteDiagnosticHistory = std::make_shared<Net::PeerRouteSelector::DiagnosticHistory>();
+    const auto selector = std::make_shared<Net::PeerRouteSelector>(
+        std::move(peerRoutes), multipleRoutes, m_peerRouteDiagnosticHistory);
     m_nativeSession->set_peer_route_selector(
         [selector](const lt::peer_route_request &request) { return selector->select(request); },
         [selector](const lt::peer_route_observation &observation) { selector->observe(observation); });
@@ -4419,13 +4422,16 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
                 result.mode = lt::torrent_route_policy::mode_t::managed;
                 return result;
             });
+        m_peerRouteDiagnosticHistory->retire();
+        const auto diagnostics = m_peerRouteDiagnosticHistory;
         m_nativeSession->set_peer_route_selector(
             [](const lt::peer_route_request &)
             {
                 lt::peer_route result;
                 result.type = lt::peer_route::type_t::blocked;
                 return result;
-            });
+            },
+            [diagnostics](const lt::peer_route_observation &observation) { diagnostics->observe(observation); });
         m_nativeSession->set_udp_routes({});
         m_managedUdpRoutes.clear();
         LogMsg(tr("Failed to retire superseded managed UDP routes. Reason: \"%1\".")
@@ -4473,7 +4479,15 @@ bool SessionImpl::resetNetworkRoutes()
             .arg(QString::fromStdString(error.message())), Log::WARNING);
         return false;
     }
-    m_nativeSession->set_peer_route_selector({});
+    if (m_peerRouteDiagnosticHistory)
+    {
+        m_peerRouteDiagnosticHistory->retire();
+        const auto diagnostics = m_peerRouteDiagnosticHistory;
+        m_nativeSession->set_peer_route_selector({},
+            [diagnostics](const lt::peer_route_observation &observation) { diagnostics->observe(observation); });
+    }
+    else
+        m_nativeSession->set_peer_route_selector({});
     m_managedUdpRoutes.clear();
     return true;
 }
@@ -4506,6 +4520,61 @@ QJsonArray SessionImpl::peerRouteStatus() const
         }
     }
     return result;
+}
+
+QJsonObject SessionImpl::peerRouteDiagnostics() const
+{
+    using Decision = Net::PeerRouteSelector::Decision;
+    using RouteType = Net::PeerRouteSelector::RouteType;
+    const auto decisionName = [](const Decision decision)
+    {
+        switch (decision)
+        {
+        case Decision::Pinned: return u"pinned"_s;
+        case Decision::BestScore: return u"best-score"_s;
+        case Decision::Exploration: return u"exploration"_s;
+        case Decision::BlockedNoRoute: return u"blocked-no-route"_s;
+        case Decision::BlockedCooldown: return u"blocked-cooldown"_s;
+        }
+        Q_UNREACHABLE();
+    };
+    const auto routeTypeName = [](const RouteType type)
+    {
+        switch (type)
+        {
+        case RouteType::Blocked: return u"blocked"_s;
+        case RouteType::Relay: return u"relay"_s;
+        case RouteType::Native: return u"native"_s;
+        }
+        Q_UNREACHABLE_RETURN(QString {});
+    };
+
+    const Net::PeerRouteSelector::Diagnostics diagnostics = m_peerRouteDiagnosticHistory
+        ? m_peerRouteDiagnosticHistory->snapshot() : Net::PeerRouteSelector::Diagnostics {};
+    QJsonArray routes;
+    for (const auto &route : diagnostics.routes)
+    {
+        routes.append(QJsonObject {{u"pathId"_s, QString::number(route.pathId)},
+            {u"generation"_s, static_cast<qint64>(route.generation)}, {u"type"_s, routeTypeName(route.type)},
+            {u"attempts"_s, static_cast<qint64>(route.attempts)},
+            {u"connected"_s, static_cast<qint64>(route.connected)},
+            {u"closed"_s, static_cast<qint64>(route.closed)},
+            {u"connectionFailures"_s, static_cast<qint64>(route.connectionFailures)},
+            {u"timeouts"_s, static_cast<qint64>(route.timeouts)}, {u"payloadDownload"_s, route.payloadDownload},
+            {u"payloadUpload"_s, route.payloadUpload}, {u"verifiedDownload"_s, route.verifiedDownload},
+            {u"demandMilliseconds"_s, route.demandMilliseconds}, {u"chokedMilliseconds"_s, route.chokedMilliseconds}});
+    }
+    QJsonArray events;
+    for (const auto &event : diagnostics.events)
+    {
+        QJsonObject entry {{u"ageMilliseconds"_s, event.ageMilliseconds}, {u"pathId"_s, QString::number(event.pathId)},
+            {u"generation"_s, static_cast<qint64>(event.generation)}, {u"event"_s, u"selected"_s},
+            {u"decision"_s, decisionName(event.decision)}};
+        events.append(entry);
+    }
+    return {{u"v"_s, 1}, {u"scope"_s, u"session"_s},
+        {u"blockedSelections"_s, static_cast<qint64>(diagnostics.blockedSelections)},
+        {u"eventsTruncated"_s, diagnostics.eventsTruncated}, {u"routes"_s, routes}, {u"events"_s, events}};
 }
 
 bool SessionImpl::hasActiveRepair() const

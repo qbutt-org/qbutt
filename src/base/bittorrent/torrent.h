@@ -31,6 +31,7 @@
 
 #include <QtContainerFwd>
 #include <QtTypes>
+#include <QList>
 #include <QMetaType>
 #include <QString>
 
@@ -107,6 +108,65 @@ namespace BitTorrent
 
         MissingFiles,
         Error
+    };
+
+    struct TorrentDiagnosticStatus
+    {
+        bool isFinished = false;
+        bool isStopped = false;
+        bool hasMetadata = false;
+        bool expectsConnections = false;
+        bool expectsDownload = false;
+        int knownPeers = 0;
+        int connectionCandidates = 0;
+        int connections = 0;
+        int establishedPeers = 0;
+        int wireDownloadRate = 0;
+        int wireUploadRate = 0;
+        int payloadDownloadRate = 0;
+        int payloadUploadRate = 0;
+        qint64 totalPayloadDownload = 0;
+        qint64 totalPayloadUpload = 0;
+        qint64 failedBytes = 0;
+        qint64 redundantBytes = 0;
+    };
+
+    enum PeerSourceFlag : quint8
+    {
+        TrackerPeerSource = (1 << 0),
+        DHTPeerSource = (1 << 1),
+        PeXPeerSource = (1 << 2),
+        LSDPeerSource = (1 << 3),
+        ResumeDataPeerSource = (1 << 4),
+        IncomingPeerSource = (1 << 5),
+        WebSeedPeerSource = (1 << 6)
+    };
+
+    struct PeerDiagnosticStatus
+    {
+        int peers = 0;
+        int connecting = 0;
+        int handshaking = 0;
+        int transferring = 0;
+        int choked = 0;
+        int noDemand = 0;
+        int diskQueued = 0;
+        int rateLimited = 0;
+        int sourceMask = 0;
+        qint64 payloadDownloadRate = 0;
+        qint64 wireDownloadRate = 0;
+    };
+
+    struct PeerPathDiagnosticStatus : PeerDiagnosticStatus
+    {
+        quint64 pathId = 0;
+        quint64 generation = 0;
+    };
+
+    struct TorrentPeerDiagnosticStatus : PeerDiagnosticStatus
+    {
+        bool known = false;
+        QList<PeerPathDiagnosticStatus> paths;
     };
 
     std::size_t qHash(TorrentState key, std::size_t seed = 0);
@@ -286,6 +346,8 @@ namespace BitTorrent
         virtual int connectionsLimit() const = 0;
         virtual qlonglong nextAnnounce() const = 0;
         virtual TorrentAnnounceStatus announceStatus() const = 0;
+        virtual TorrentDiagnosticStatus diagnosticStatus() const = 0;
+        virtual QFuture<TorrentPeerDiagnosticStatus> fetchPeerDiagnosticStatus() const = 0;
 
         virtual void setName(const QString &name) = 0;
         virtual void setSequentialDownload(bool enable) = 0;
