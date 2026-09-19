@@ -362,9 +362,20 @@ void PropertiesWidget::readSettings()
         auto *hSplitter = static_cast<QSplitter *>(parentWidget());
         hSplitter->setSizes(m_slideSizes);
     }
-    const int currentTab = pref->getPropCurTab();
+    const int savedTab = pref->getPropCurTab();
+    const int currentTab = (savedTab >= 0) ? savedTab : PropTabBar::FilesTab;
     const bool visible = pref->getPropVisible();
-    m_ui->filesList->header()->restoreState(pref->getPropFileListState());
+    if (!m_ui->filesList->header()->restoreState(pref->getPropFileListState()))
+    {
+        for (int column = 0; column < TorrentContentModelItem::NB_COL; ++column)
+        {
+            m_ui->filesList->setColumnHidden(column, false);
+            m_ui->filesList->setColumnWidth(column, 100);
+        }
+        m_ui->filesList->setColumnWidth(TorrentContentModelItem::COL_NAME, 508);
+        m_ui->filesList->header()->setStretchLastSection(true);
+        m_ui->filesList->sortByColumn(TorrentContentModelItem::COL_NAME, Qt::AscendingOrder);
+    }
     m_tabBar->setCurrentIndex(currentTab);
     if (!visible)
         setVisibility(false);

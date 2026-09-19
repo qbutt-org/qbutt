@@ -153,33 +153,38 @@ TransferListWidget::TransferListWidget(IGUIApplication *app, QWidget *parent)
     header()->setStretchLastSection(false);
     header()->setTextElideMode(Qt::ElideRight);
 
-    // Default hidden columns
+    // First-run layout; saved header state always takes precedence.
     if (!columnLoaded)
     {
-        setColumnHidden(TransferListModel::TR_CREATE_DATE, true);
-        setColumnHidden(TransferListModel::TR_ADD_DATE, true);
-        setColumnHidden(TransferListModel::TR_SEED_DATE, true);
-        setColumnHidden(TransferListModel::TR_UPLIMIT, true);
-        setColumnHidden(TransferListModel::TR_DLLIMIT, true);
-        setColumnHidden(TransferListModel::TR_TRACKER, true);
-        setColumnHidden(TransferListModel::TR_AMOUNT_DOWNLOADED, true);
-        setColumnHidden(TransferListModel::TR_AMOUNT_UPLOADED, true);
-        setColumnHidden(TransferListModel::TR_AMOUNT_DOWNLOADED_SESSION, true);
-        setColumnHidden(TransferListModel::TR_AMOUNT_UPLOADED_SESSION, true);
-        setColumnHidden(TransferListModel::TR_AMOUNT_LEFT, true);
-        setColumnHidden(TransferListModel::TR_TIME_ELAPSED, true);
-        setColumnHidden(TransferListModel::TR_SAVE_PATH, true);
-        setColumnHidden(TransferListModel::TR_DOWNLOAD_PATH, true);
-        setColumnHidden(TransferListModel::TR_INFOHASH_V1, true);
-        setColumnHidden(TransferListModel::TR_INFOHASH_V2, true);
-        setColumnHidden(TransferListModel::TR_COMPLETED, true);
-        setColumnHidden(TransferListModel::TR_RATIO_LIMIT, true);
-        setColumnHidden(TransferListModel::TR_POPULARITY, true);
-        setColumnHidden(TransferListModel::TR_SEEN_COMPLETE_DATE, true);
-        setColumnHidden(TransferListModel::TR_LAST_ACTIVITY, true);
-        setColumnHidden(TransferListModel::TR_TOTAL_SIZE, true);
-        setColumnHidden(TransferListModel::TR_REANNOUNCE, true);
-        setColumnHidden(TransferListModel::TR_PRIVATE, true);
+        for (int column = 0; column < TransferListModel::NB_COLUMNS; ++column)
+        {
+            setColumnWidth(column, 100);
+            setColumnHidden(column, true);
+        }
+        header()->moveSection(header()->visualIndex(TransferListModel::TR_AMOUNT_DOWNLOADED), 2);
+        header()->moveSection(header()->visualIndex(TransferListModel::TR_DLSPEED), 5);
+        const struct
+        {
+            TransferListModel::Column column;
+            int width;
+        } visibleColumns[] =
+        {
+            {TransferListModel::TR_QUEUE_POSITION, 35},
+            {TransferListModel::TR_NAME, 252},
+            {TransferListModel::TR_AMOUNT_DOWNLOADED, 78},
+            {TransferListModel::TR_SIZE, 69},
+            {TransferListModel::TR_DLSPEED, 100},
+            {TransferListModel::TR_PROGRESS, 486},
+            {TransferListModel::TR_STATUS, 100},
+            {TransferListModel::TR_ETA, 100},
+            {TransferListModel::TR_AMOUNT_LEFT, 100}
+        };
+        for (const auto &[column, width] : visibleColumns)
+        {
+            setColumnHidden(column, false);
+            setColumnWidth(column, width);
+        }
+        sortByColumn(TransferListModel::TR_QUEUE_POSITION, Qt::AscendingOrder);
     }
 
     //Ensure that at least one column is visible at all times
