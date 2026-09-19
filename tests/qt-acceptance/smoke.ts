@@ -189,7 +189,7 @@ if (appearanceOnly) {
                 stderr: Bun.file(join(root, `${phase}-stderr.log`)), timeout: 90000,
             });
             const exitCode = await run.exited;
-            assert.equal(exitCode, 0, `Appearance ${phase} exited ${exitCode}; inspect ${root}`);
+            assert.equal(exitCode, 0, `Appearance ${phase} exited ${exitCode} (signal ${run.signalCode}); inspect ${root}`);
             const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
             assert.equal(evidence.status, "passed", `Appearance ${phase} failed; inspect ${evidencePath}`);
             assert(evidence.checks.some((check: { name: string }) => check.name === `appearance-${phase}`),

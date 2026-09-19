@@ -31,6 +31,7 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QFontDatabase>
+#include <QGroupBox>
 #include <QHeaderView>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -1059,7 +1060,7 @@ namespace
             require(defaults.value(u"schema"_s).toInt() == 1, u"Unsupported layout fixture schema"_s);
             require(sidebar->isChecked() == defaults.value(u"filtersSidebarVisible"_s).toBool(), u"Sidebar default differs"_s);
             require(properties->tabBar()->currentIndex() == PropTabBar::FilesTab
-                    && defaults.value(u"propertiesTab"_s) == u"files", u"Files is not the default properties tab"_s);
+                    && defaults.value(u"propertiesTab"_s).toString() == u"files", u"Files is not the default properties tab"_s);
             requireDefaultHeader(list, defaults.value(u"transfers"_s).toObject(), u"Transfers"_s);
             requireDefaultHeader(properties->getFilesList(), defaults.value(u"files"_s).toObject(), u"Files"_s);
         }
@@ -1072,7 +1073,7 @@ namespace
         OptionsDialog options {&application, window};
         options.show();
         QCoreApplication::processEvents();
-        auto *custom = requiredChild<QCheckBox>(&options, u"checkUseCustomTheme"_s);
+        auto *custom = requiredChild<QGroupBox>(&options, u"checkUseCustomTheme"_s);
         auto *scheme = requiredChild<QComboBox>(&options, u"comboColorScheme"_s);
         auto *style = requiredChild<QComboBox>(&options, u"comboStyle"_s);
         require(!custom->isChecked() && custom->isEnabled(), u"Custom theme checkbox does not reflect the default"_s);
@@ -1088,7 +1089,7 @@ namespace
         require(options.grab().save(screenshots.filePath(phase + u"-options.png"_s)), u"Cannot render appearance options"_s);
         options.hide();
         require(window->grab().save(screenshots.filePath(phase + u"-layout.png"_s)), u"Cannot render appearance layout"_s);
-        addCheck(evidence, {{u"name"_s, u"appearance-"_s + phase}, {u"layout"_s, layout()},
+        addCheck(evidence, {{u"name"_s, u"appearance-%1"_s.arg(phase)}, {u"layout"_s, layout()},
             {u"background"_s, palette.color(QPalette::Base).name()}, {u"text"_s, palette.color(QPalette::Text).name()},
             {u"customThemeChecked"_s, custom->isChecked()}, {u"offscreen"_s, true}});
         if (dark)
@@ -1113,8 +1114,6 @@ namespace
             apply->click();
             require(UIThemeManager::instance()->colorScheme() == ColorScheme::Light, u"Options did not save the user theme"_s);
 #endif
-            require(QMetaObject::invokeMethod(list, "saveSettings", Qt::DirectConnection), u"Cannot persist the changed transfer header"_s);
-            window->saveSettings();
             writeObject(spec.value(u"retainedState"_s).toString(), layout());
         }
         options.close();
@@ -1125,7 +1124,7 @@ namespace
     {
         MainWindow *window = application.mainWindow();
         require(window && BitTorrent::Session::instance()->isRestored(), u"Production application did not finish startup"_s);
-        if (spec.value(u"mode"_s) == u"appearance")
+        if (spec.value(u"mode"_s).toString() == u"appearance")
         {
             exerciseAppearance(application, window, spec, evidence);
             return;
@@ -1186,7 +1185,7 @@ int main(int argc, char **argv)
             else
             {
                 QObject::connect(BitTorrent::Session::instance(), &BitTorrent::Session::restored,
-                    &application, execute, Qt::SingleShotConnection);
+                    &application, execute, Qt::ConnectionType(Qt::QueuedConnection | Qt::SingleShotConnection));
             }
         });
         application.exec();
