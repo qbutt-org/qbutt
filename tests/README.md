@@ -353,6 +353,19 @@ Relay stream bytes include protocol data and are not wire bytes. The local
 single-host TCP topology proves only the stated controlled comparison; its
 evidence lists the untested public, UDP, inbound, resource and last-mile cases.
 
+`QBUTT_BENCH_SCENARIO=shared-cap` runs only qbutt Native and Mixed, with a single
+torrent-wide application download limit shared across every path and faster
+fixture sources. Three or more rounds require both median useful rates to reach
+70–110% of that limit and Mixed to exceed Native by no more than 10%. This models
+an aggregate application bottleneck; it does not emulate a physical last mile.
+`QBUTT_BENCH_SCENARIO=failed-path QBUTT_BENCH_ROUNDS=1` runs one Mixed window:
+after warmup the first relay closes, while another relay can reach the same
+peer. The peer must reconnect automatically through the healthy path without
+policy changes or peer reinsertion, preserve the unrelated Native connection,
+and complete the exact payload. Interrupted-block retransmission bytes are
+reported separately. Each new fixture removes its generated payload, profile
+and proxy config after its owned processes stop; compact evidence remains.
+
 `benchmark:public-swarm` uses the pinned official Ubuntu 24.04.5 live-server
 torrent and a separate empty profile for every bounded window. Set
 `QBUTT_PUBLIC_SWARM_CONTROL_EXE`, `QBUTT_PUBLIC_SWARM_NATIVE_INTERFACE`, and
