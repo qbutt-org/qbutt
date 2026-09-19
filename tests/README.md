@@ -105,6 +105,12 @@ not discovery, UDP or a general speedup.
 without an upstream control executable. Such reports explicitly omit any
 upstream performance claim. The default comparison still requires the pinned
 upstream executable. Both successful and failed windows clean their payload.
+For a focused reproduction, `QBUTT_PUBLIC_SWARM_MODES` selects a comma-separated
+subset of the available mode names; it does not establish comparisons with
+omitted modes. `QBUTT_PUBLIC_SWARM_PROTOCOL=both|tcp|utp` applies the same transport
+setting to every selected mode (default `both`). Failed runs retain bounded
+route/candidate observations before stopping the application, without node names
+or credentials.
 
 `smoke:native` checks selective download, pause/resume, clean process restart,
 recheck, exact lengths/hashes and payload preservation when removing a torrent.

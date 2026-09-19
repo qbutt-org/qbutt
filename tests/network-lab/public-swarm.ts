@@ -30,7 +30,7 @@ interface TransferInfo {
 
 interface PathsStatus {
     busy: boolean;
-    paths: { open: boolean }[];
+    paths: { open: boolean; pathId: string; generation: number }[];
     diagnostics: { routes: PathCounters[] };
 }
 
@@ -93,6 +93,10 @@ const measurementMilliseconds = Number(process.env.QBUTT_PUBLIC_SWARM_WINDOW_MS 
 const minimumWarmupPieces = Number(process.env.QBUTT_PUBLIC_SWARM_WARMUP_PIECES ?? 2);
 const peerPort = Number(process.env.QBUTT_PUBLIC_SWARM_PEER_PORT ?? 45123);
 const attemptsPerWindow = Number(process.env.QBUTT_PUBLIC_SWARM_ATTEMPTS ?? 3);
+const requestedModes = (process.env.QBUTT_PUBLIC_SWARM_MODES ?? "").split(",").filter(Boolean);
+const protocol = process.env.QBUTT_PUBLIC_SWARM_PROTOCOL ?? "both";
+assert(["both", "tcp", "utp"].includes(protocol), "QBUTT_PUBLIC_SWARM_PROTOCOL must be both, tcp or utp");
+const protocolValue = ["both", "tcp", "utp"].indexOf(protocol);
 
 assert(qbuttOnly ? qbuttExecutable : process.env.QBUTT_PUBLIC_SWARM_CONTROL_EXE,
     "Set QBUTT_PUBLIC_SWARM_CONTROL_EXE, or use --qbutt-only with QBUTT_PUBLIC_SWARM_QBUTT_EXE");
@@ -314,11 +318,11 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
         assert(interfaceAddresses.includes(nativeAddress),
             `Native address ${nativeAddress} is absent from ${nativeInterface}`);
         await request("app/setPreferences", { json: JSON.stringify({ current_network_interface: interfaceValue,
-            current_interface_address: nativeAddress, bittorrent_protocol: 0, dht: true }) });
+            current_interface_address: nativeAddress, bittorrent_protocol: protocolValue, dht: true }) });
         await waitFor("physical Native binding", () => json<Record<string, unknown>>("app/preferences"), preferences =>
             preferences.current_network_interface === interfaceValue
                 && preferences.current_interface_address === nativeAddress
-                && preferences.bittorrent_protocol === 0, 30000);
+                && preferences.bittorrent_protocol === protocolValue, 30000);
 
         if (mode === "qbutt-one-tunnel" || mode === "qbutt-mixed") {
             const selectedNames = mode === "qbutt-one-tunnel" ? proxyNames.slice(0, 1) : proxyNames;
@@ -445,6 +449,20 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
         };
         return result;
     }
+    catch (error) {
+        // Retain bounded observations before stopping a failed run. A startup
+        // failure is not evidence of zero route attempts or zero candidates.
+        if (cookie && child.exitCode === null) {
+            const observations = await Promise.allSettled([
+                info(), json("torrents/trackers?hash=" + INFO_HASH),
+                ...(mode === "upstream-native" ? [] : [json<PathsStatus>("qbuttPaths/status?hash=" + INFO_HASH)
+                    .then(status => ({ busy: status.busy, diagnostics: status.diagnostics,
+                        paths: status.paths.map(({ pathId, generation, open }) => ({ pathId, generation, open })) }))]),
+            ]);
+            await writeFile(join(root, "failure-observations.json"), JSON.stringify(observations, null, 2));
+        }
+        throw error;
+    }
     finally {
         if (!clean && child.exitCode === null) {
             child.kill();
@@ -478,8 +496,10 @@ assert(response.ok && response.url === SOURCE_URL,
 const torrentBytes = new Uint8Array(await response.arrayBuffer());
 assert(sha256(torrentBytes) === SOURCE_SHA256, "Official torrent file changed from the pinned SHA-256");
 await writeFile(torrentPath, torrentBytes);
-const modes: Mode[] = [...(qbuttOnly ? [] : ["upstream-native" as const]), ...(qbuttExecutable ? ["qbutt-native" as const] : []),
+const availableModes: Mode[] = [...(qbuttOnly ? [] : ["upstream-native" as const]), ...(qbuttExecutable ? ["qbutt-native" as const] : []),
     ...(proxyConfig ? ["qbutt-one-tunnel" as const, "qbutt-mixed" as const] : [])];
+assert(requestedModes.every(mode => availableModes.includes(mode as Mode)), "Requested public-swarm mode is unavailable");
+const modes = availableModes.filter(mode => !requestedModes.length || requestedModes.includes(mode));
 assert(peerPort + rounds * modes.length * attemptsPerWindow <= 49151,
     "The deterministic peer-port range exceeds the non-ephemeral boundary");
 const evidence: Record<string, unknown> = {
@@ -492,7 +512,7 @@ const evidence: Record<string, unknown> = {
         executableSha256: executableHashes.get(controlExecutable) },
     qbutt: qbuttExecutable
         ? { executable: qbuttExecutable, executableSha256: executableHashes.get(qbuttExecutable) } : null,
-    topology: { rounds, modes,
+    topology: { rounds, modes, protocol,
         orderByRound: Array.from({ length: rounds }, (_, index) => orderForRound(modes, index + 1)),
         warmupRateBytesPerSecond: warmupRate, measurementRateBytesPerSecond: measuredRate,
         requestedMeasurementMilliseconds: measurementMilliseconds, minimumWarmupPieces,
