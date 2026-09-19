@@ -202,92 +202,133 @@ try {
         assert(selected.mode === managedMode && expectedPaths.every(path => path?.open)
             && new Set(expectedPaths.map(path => path!.pathId)).size === sides.length,
             `${managedMode} policy did not retain the distinct fixture paths`);
-        for (const retry of native ? [false] : [false, true]) {
-            if (retry)
-                await lab.request("qbuttPaths/policy", { mode: managedMode }); // Reset per-peer route exploration.
-            const destination = join(lab.root, retry ? "retry-target" : "mixed-target");
-            const hash = await lab.add(torrent.name, destination);
-            await lab.request("torrents/start", { hashes: hash });
-            const order = retry ? [1, 0] : sides;
-            const failuresBefore = proxies.map(proxy => proxy.stats.deniedConnections);
-            const endpoints = order.map(side => ({ side,
-                host: native && side === 3 ? nativeAddress! : `127.0.0.${side + (retry ? 4 : 2)}` }));
-            // The physical scenario admits peers in path order so libtorrent's
-            // asynchronous torrent iteration cannot assign the first attempts
-            // to unrelated exclusive endpoints. Every seed is rate-limited,
-            // keeping earlier connections active for the concurrent-flow check.
-            if (!retry && !native)
-                await lab.request("torrents/addPeers", { hashes: hash,
-                    peers: endpoints.map(({ side, host }) => `${host}:${seeds[side]!.port}`).join("|") });
-            if (native) {
-                // Bound setup by one normal reconnect interval per candidate;
-                // the per-seed cap keeps early peers from finishing meanwhile.
-                const setupStartedAt = Date.now();
-                const setupDeadlineMilliseconds = sides.length * 60000;
-                for (const { side, host } of endpoints) {
-                    await lab.request("torrents/addPeers", { hashes: hash, peers: `${host}:${seeds[side]!.port}` });
-                    await waitFor("physical peer connects through its exclusive path", readPaths, status =>
-                        status.peers.some(peer => peer.peer === host && peer.port === seeds[side]!.port
-                            && peer.pathId === expectedPaths[side]!.pathId
-                            && peer.generation === expectedPaths[side]!.generation && peer.payloadDownload > 0), 60000);
-                }
-                const ready = await waitFor("every exclusive path connects during bounded setup", readPaths, status =>
-                    endpoints.every(({ side, host }) => status.peers.some(peer => peer.peer === host
-                        && peer.port === seeds[side]!.port && peer.pathId === expectedPaths[side]!.pathId
-                        && peer.generation === expectedPaths[side]!.generation && peer.payloadDownload > 0)), setupDeadlineMilliseconds);
-                await Promise.all(seeds.map(seed => seed.setUploadRate(transferSeedUploadRate)));
-                await lab.checkpoint({ check: "native-mixed-connection-setup", setupSeedUploadRate,
-                    setupDeadlineMilliseconds, setupMilliseconds: Date.now() - setupStartedAt,
-                    transferSeedUploadRate, setupRateRaised: true, peers: ready.peers });
-            }
-            let concurrentPeers: PathsStatus["peers"] = [];
+        const destination = join(lab.root, "mixed-target");
+        const hash = await lab.add(torrent.name, destination);
+        await lab.request("torrents/start", { hashes: hash });
+        const endpoints = sides.map(side => ({ side,
+            host: native && side === 3 ? nativeAddress! : `127.0.0.${side + 2}` }));
+        // The physical scenario admits peers in path order so libtorrent's
+        // asynchronous torrent iteration cannot assign the first attempts
+        // to unrelated exclusive endpoints. Every seed is rate-limited,
+        // keeping earlier connections active for the concurrent-flow check.
+        if (!native)
+            await lab.request("torrents/addPeers", { hashes: hash,
+                peers: endpoints.map(({ side, host }) => `${host}:${seeds[side]!.port}`).join("|") });
+        if (native) {
+            // Bound setup by one normal reconnect interval per candidate;
+            // the per-seed cap keeps early peers from finishing meanwhile.
+            const setupStartedAt = Date.now();
+            const setupDeadlineMilliseconds = sides.length * 60000;
             for (const { side, host } of endpoints) {
-                if (retry) {
-                    await lab.request("torrents/addPeers", { hashes: hash, peers: `${host}:${seeds[side]!.port}` });
-                }
-                if (retry) {
-                    await waitFor("wrong path rejected before alternative retry", async () => proxies[1 - side]!.stats.deniedConnections,
-                        count => count > failuresBefore[1 - side]!);
-                }
-                const observation = await waitFor("peer supplies data through its exclusive path", readPaths, status =>
-                    status.peers.some(peer => peer.peer === host && peer.port === seeds[side]!.port && peer.payloadDownload > 16384), 120000);
-                const peer = observation.peers.find(peer => peer.peer === host && peer.port === seeds[side]!.port)!;
-                assert(peer.pathId === expectedPaths[side]!.pathId && peer.generation === expectedPaths[side]!.generation,
-                    "Native peer telemetry attributed payload to the wrong path or generation");
-                if (native && side === 3)
-                    assert(peer.localAddress === nativeAddress && peer.localPort > 0,
-                        "Native socket did not bind the explicit physical source address");
-                if (!retry && side === sides.at(-1))
-                    concurrentPeers = observation.peers;
+                await lab.request("torrents/addPeers", { hashes: hash, peers: `${host}:${seeds[side]!.port}` });
+                await waitFor("physical peer connects through its exclusive path", readPaths, status =>
+                    status.peers.some(peer => peer.peer === host && peer.port === seeds[side]!.port
+                        && peer.pathId === expectedPaths[side]!.pathId
+                        && peer.generation === expectedPaths[side]!.generation && peer.payloadDownload > 0), 60000);
             }
-            if (!retry) {
-                assert(concurrentPeers.length === endpoints.length && endpoints.every(({ side, host }) =>
-                    concurrentPeers.some(peer => peer.peer === host && peer.port === seeds[side]!.port
-                        && peer.pathId === expectedPaths[side]!.pathId && peer.generation === expectedPaths[side]!.generation
-                        && peer.payloadDownload > 16384)),
-                "Every exact fixture peer must supply data through its own path in the same snapshot");
-                assert(concurrentPeers.every(peer => peer.infoHash === hash), "Peer telemetry escaped the torrent's infohash");
-                const intervalStartedAt = Date.now();
-                const flowing = await waitFor("payload increases on every concurrent path", readPaths, status =>
-                    concurrentPeers.every(previous => status.peers.some(peer => peer.peer === previous.peer
-                        && peer.port === previous.port && peer.pathId === previous.pathId && peer.generation === previous.generation
-                        && peer.payloadDownload > previous.payloadDownload)), 10000);
-                await lab.checkpoint({ check: "same-torrent-concurrent-native-peer-paths", intervalMilliseconds: Date.now() - intervalStartedAt,
-                    previousPeers: concurrentPeers, peers: flowing.peers });
-            }
-            await waitFor("complete complementary payload", () => lab.info(hash), info => info.progress === 1, 120000);
-            await lab.request("torrents/stop", { hashes: hash });
-            await waitFor("complete target stopped", () => lab.info(hash), info => info.state === "stoppedUP");
-            const verifiedBytes = await verifyPayload(destination, lab.manifest.payload);
-            const closed = await waitFor("closed peer payload is retained per path", readPaths, status =>
-                tunnelSides.every(side => (status.paths.find(path => path.pathId === expectedPaths[side]!.pathId)
-                    ?.closedPayloadDownload ?? 0) >= subsets[side]!.bytes * (retry ? 2 : 1)));
-            await lab.checkpoint({ check: retry ? "failed-route-retries-alternative-and-completes" : "mixed-complementary-payload",
-                verifiedBytes, exactSizes: true, paths: closed.paths,
-                relay: proxies.map(proxy => ({ ...proxy.stats })) });
-            await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
-            await waitFor("completed job removed", () => lab.json<unknown[]>("torrents/info"), jobs => jobs.length === 0);
-            assert(await verifyPayload(destination, lab.manifest.payload) === verifiedBytes, "Removing the job changed payload");
+            const ready = await waitFor("every exclusive path connects during bounded setup", readPaths, status =>
+                endpoints.every(({ side, host }) => status.peers.some(peer => peer.peer === host
+                    && peer.port === seeds[side]!.port && peer.pathId === expectedPaths[side]!.pathId
+                    && peer.generation === expectedPaths[side]!.generation && peer.payloadDownload > 0)), setupDeadlineMilliseconds);
+            await Promise.all(seeds.map(seed => seed.setUploadRate(transferSeedUploadRate)));
+            await lab.checkpoint({ check: "native-mixed-connection-setup", setupSeedUploadRate,
+                setupDeadlineMilliseconds, setupMilliseconds: Date.now() - setupStartedAt,
+                transferSeedUploadRate, setupRateRaised: true, peers: ready.peers });
+        }
+        let concurrentPeers: PathsStatus["peers"] = [];
+        for (const { side, host } of endpoints) {
+            const observation = await waitFor("peer supplies data through its exclusive path", readPaths, status =>
+                status.peers.some(peer => peer.peer === host && peer.port === seeds[side]!.port && peer.payloadDownload > 16384), 120000);
+            const peer = observation.peers.find(peer => peer.peer === host && peer.port === seeds[side]!.port)!;
+            assert(peer.pathId === expectedPaths[side]!.pathId && peer.generation === expectedPaths[side]!.generation,
+                "Native peer telemetry attributed payload to the wrong path or generation");
+            if (native && side === 3)
+                assert(peer.localAddress === nativeAddress && peer.localPort > 0,
+                    "Native socket did not bind the explicit physical source address");
+            if (side === sides.at(-1))
+                concurrentPeers = observation.peers;
+        }
+        assert(concurrentPeers.length === endpoints.length && endpoints.every(({ side, host }) =>
+            concurrentPeers.some(peer => peer.peer === host && peer.port === seeds[side]!.port
+                && peer.pathId === expectedPaths[side]!.pathId && peer.generation === expectedPaths[side]!.generation
+                && peer.payloadDownload > 16384)),
+        "Every exact fixture peer must supply data through its own path in the same snapshot");
+        assert(concurrentPeers.every(peer => peer.infoHash === hash), "Peer telemetry escaped the torrent's infohash");
+        const intervalStartedAt = Date.now();
+        const flowing = await waitFor("payload increases on every concurrent path", readPaths, status =>
+            concurrentPeers.every(previous => status.peers.some(peer => peer.peer === previous.peer
+                && peer.port === previous.port && peer.pathId === previous.pathId && peer.generation === previous.generation
+                && peer.payloadDownload > previous.payloadDownload)), 10000);
+        await lab.checkpoint({ check: "same-torrent-concurrent-native-peer-paths", intervalMilliseconds: Date.now() - intervalStartedAt,
+            previousPeers: concurrentPeers, peers: flowing.peers });
+        await waitFor("complete complementary payload", () => lab.info(hash), info => info.progress === 1, 120000);
+        await lab.request("torrents/stop", { hashes: hash });
+        await waitFor("complete target stopped", () => lab.info(hash), info => info.state === "stoppedUP");
+        const verifiedBytes = await verifyPayload(destination, lab.manifest.payload);
+        const closed = await waitFor("closed peer payload is retained per path", readPaths, status =>
+            tunnelSides.every(side => (status.paths.find(path => path.pathId === expectedPaths[side]!.pathId)
+                ?.closedPayloadDownload ?? 0) >= subsets[side]!.bytes));
+        await lab.checkpoint({ check: "mixed-complementary-payload", verifiedBytes, exactSizes: true,
+            paths: closed.paths, relay: proxies.map(proxy => ({ ...proxy.stats })) });
+        await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
+        await waitFor("completed job removed", () => lab.json<unknown[]>("torrents/info"), jobs => jobs.length === 0);
+        assert(await verifyPayload(destination, lab.manifest.payload) === verifiedBytes, "Removing the job changed payload");
+
+        if (!native) {
+            const correctSide = 1;
+            const wrongSide = 0;
+            const originalPath = expectedPaths[correctSide]!;
+            await lab.request("qbuttPaths/stop", { pathId: originalPath.pathId });
+            await waitFor("correct alternative is unavailable", readPaths, status => !status.busy
+                && status.paths.some(path => path.pathId === originalPath.pathId && !path.open));
+
+            const retryDestination = join(lab.root, "retry-target");
+            const retryHash = await lab.add(torrent.name, retryDestination);
+            await lab.request("torrents/start", { hashes: retryHash });
+            const retryHost = `127.0.0.${correctSide + 4}`;
+            const deniedBefore = proxies[wrongSide]!.stats.deniedConnections;
+            await lab.request("torrents/addPeers", { hashes: retryHash, peers: `${retryHost}:${seeds[correctSide]!.port}` });
+            await waitFor("only available route rejects the peer", async () => proxies[wrongSide]!.stats.deniedConnections,
+                count => count > deniedBefore);
+            await Bun.sleep(1000);
+            assert((await lab.info(retryHash)).completed === 0,
+                "Rejected route delivered torrent payload before the allowed alternative existed");
+
+            await lab.request("qbuttPaths/open", { configPath, proxyName: `partial-${correctSide}`,
+                edgeId: `edge-${correctSide}`, interfaceName: "Loopback Pseudo-Interface 1" });
+            const reopened = await waitFor("allowed alternative reopens with a new generation", readPaths, status => !status.busy
+                && status.paths.some(path => path.edgeId === `edge-${correctSide}` && path.open
+                    && path.generation > originalPath.generation));
+            const alternative = reopened.paths.find(path => path.edgeId === `edge-${correctSide}`)!;
+            expectedPaths[correctSide] = alternative;
+            const alternativeHost = `127.0.0.${correctSide + 2}`;
+            await lab.request("torrents/addPeers", { hashes: retryHash,
+                peers: `${alternativeHost}:${seeds[correctSide]!.port}` });
+            await waitFor("active task uses the newly allowed alternative", readPaths, status => status.peers.some(peer =>
+                peer.peer === alternativeHost && peer.port === seeds[correctSide]!.port
+                && peer.pathId === alternative.pathId && peer.generation === alternative.generation
+                && peer.payloadDownload > 16384), 120000);
+            const completionHost = `127.0.0.${wrongSide + 4}`;
+            await lab.request("torrents/addPeers", { hashes: retryHash,
+                peers: `${completionHost}:${seeds[wrongSide]!.port}` });
+            await waitFor("complementary peer uses the retained route", readPaths, status => status.peers.some(peer =>
+                peer.peer === completionHost && peer.port === seeds[wrongSide]!.port
+                && peer.pathId === expectedPaths[wrongSide]!.pathId
+                && peer.generation === expectedPaths[wrongSide]!.generation && peer.payloadDownload > 16384), 120000);
+            await waitFor("alternative route completes exact payload", () => lab.info(retryHash), info => info.progress === 1, 120000);
+            await lab.request("torrents/stop", { hashes: retryHash });
+            await waitFor("retry target stopped", () => lab.info(retryHash), info => info.state === "stoppedUP");
+            const retryVerifiedBytes = await verifyPayload(retryDestination, lab.manifest.payload);
+            await lab.checkpoint({ check: "failed-route-retries-available-alternative-and-completes",
+                deniedConnections: proxies[wrongSide]!.stats.deniedConnections - deniedBefore,
+                retiredGeneration: originalPath.generation, alternativeGeneration: alternative.generation,
+                deniedPeer: `${retryHost}:${seeds[correctSide]!.port}`,
+                alternativePeer: `${alternativeHost}:${seeds[correctSide]!.port}`,
+                verifiedBytes: retryVerifiedBytes, exactSizes: true });
+            await lab.request("torrents/delete", { hashes: retryHash, deleteFiles: "false" });
+            await waitFor("retry job removed", () => lab.json<unknown[]>("torrents/info"), jobs => jobs.length === 0);
+            assert(await verifyPayload(retryDestination, lab.manifest.payload) === retryVerifiedBytes,
+                "Removing the retry job changed payload");
         }
         await lab.request("qbuttPaths/stop", {});
         const stopped = await readPaths();

@@ -37,6 +37,7 @@ $env:QBUTT_LAB_APP_NAME = 'qbutt' # use qBittorrent for the upstream control bui
 bun run smoke:native
 bun run smoke:proxy
 bun run smoke:network
+bun run smoke:gateway
 bun run smoke:repair
 bun run smoke:repair-product
 bun run smoke:staging
@@ -238,6 +239,39 @@ Relay stream counters include BitTorrent/HTTP protocol bytes; they are neither
 unique verified payload bytes nor packet-level wire counters. The final SHA-256
 and exact-size checks count verified payload separately.
 
+`smoke:gateway` requires `QBUTT_LAB_GATEWAY_SOURCE` to name a qbutt-net checkout
+whose exact `HEAD` equals `upstream-lock.json.qbuttNet.commit`. The driver builds
+the real qbutt-net and qbutt-gateway executables from that checkout, copies the
+portable application to a fresh runtime, and places a transparent recorder in
+front of the real child. The recorder verifies exact protocol 4 request, result,
+error, `incomingTcp` and terminal `gatewayClosed` shapes without storing relay tokens, certificate paths or
+proxy credentials. A generated mTLS identity, controlled SOCKS route and local
+gateway use an ActiveStore `/32` on the Windows loopback interface; the address is
+validated before assignment and removed during cleanup. Persistent firewall rules
+are registered for every executable before a listener starts.
+
+The gateway configuration is applied through the authenticated `qbuttPaths/gateway`
+product API before the path opens. The source checkout must be fully clean, including
+untracked files, before either Go binary is built. Do not run this fixture concurrently
+with other socket labs: a 2026-09-13 parallel run exhausted all 16 old ephemeral
+TCP/UDP port probes before qbutt started; the isolated rerun passed. The fixture
+now probes up to 128 explicit dynamic-port candidates. This test-only port handoff
+is outside qbutt-net's `listenLease` retry boundary.
+
+The independent generated libtorrent seed initiates the only peer connection to
+the leased endpoint. The test requires trusted route path/generation telemetry,
+payload counters and final exact hashes/sizes, then observes renewal without a
+generation or endpoint change. An asynchronous carrier loss must emit the bounded
+terminal event and retire public route descriptors before reconnecting a later
+generation. The leased address family is explicit. The real
+child's relay and carrier byte counters must advance independently from verified
+bytes, while its UDP packet and fanout counters stay zero in this TCP-only scenario.
+It explicitly closes and reopens the selected edge,
+stops the gateway carrier, requires the terminal `gatewayClosed` event, and verifies that the
+application retires the old descriptor before opening a later outgoing-only
+generation. This proves application integration through a controlled host-local
+gateway. It does not prove public-Internet reachability or NAT/firewall traversal.
+
 The final JSON line points to `evidence.json`, containing exit outcome and checked
 observations; native and seed logs remain beside it. Failed and unsupported
 filesystem scenarios are explicit. Credentials are never printed. Generated
@@ -329,9 +363,24 @@ the negative result requires a checked native piece bitmap and matching bytes.
 compiles a small fake child there. It verifies that the application does not install
 a session-wide SOCKS proxy, then tests managed peer-socket negotiation against
 no-auth downgrade and rejected credentials and checks incompatible child hello.
-DNS cases use protocol 2 and exercise
+DNS cases use the exact protocol 4 handshake and exercise
 numeric/family/bounds checks, request errors with retry, child timeout/crash,
-generation admission, authentication and redacted public results.
+generation admission, authentication and redacted public results. It also rejects
+the wrong pinned upstream revision, extra handshake/envelope/method fields and
+malformed error text, and accepts only the seven-field transport counter allowlist
+for the exact active path generation.
+Delayed telemetry, a malformed delayed snapshot and decreasing counters prove that
+foreground operations queue behind low-priority status polling while every snapshot
+is still validated and monotonic. A child which cannot retire a path is terminated
+rather than left with a hidden live listener.
+The deterministic gateway rollover case injects terminal events during a two-path
+configuration rollover and while a different path is explicitly stopping. It
+requires every still-desired path to reopen at a later generation, rejects a
+non-canonical stop identity without changing active paths, and proves the stopped
+path does not return.
+These path-only cases reject unexpected gateway requests; public gateway leases
+and serialized inbound events are covered by qbutt-net's gateway-client integration
+and the application-level `smoke:gateway` scenario.
 The normal bundle and profiles are untouched. The fake child records protocol
 method/command numbers, never authentication payload. All scenarios produce their
 own evidence; any failed scenario makes the suite fail.
@@ -359,7 +408,7 @@ unverified by this scenario. Generated payloads and profiles are removed after
 owned processes stop; compact evidence and logs remain.
 
 This local lab does not prove physical VPS egress, throughput gain, complete DNS
-isolation, Koala coexistence or public inbound. It also does not implement network
+isolation, Koala coexistence or public-Internet inbound. It also does not implement network
 namespaces/netem or physical source-volume/power failure; those require separate
 integration environments. Staging crash tests cover abrupt process termination on
 the local Windows filesystem.

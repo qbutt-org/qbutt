@@ -6,6 +6,7 @@
 #include "pathmanager.h"
 
 #include <algorithm>
+#include <cmath>
 
 #ifdef Q_OS_WIN
 #include <winsock2.h>
@@ -14,6 +15,7 @@
 #endif
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -22,6 +24,7 @@
 #include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSignalBlocker>
 #include <QUrl>
@@ -36,8 +39,42 @@ namespace
 {
     constexpr int MAX_FRAME_BYTES = 65536;
     constexpr int MAX_SUBSCRIPTION_BYTES = 2 * 1024 * 1024;
-    constexpr int PROTOCOL_VERSION = 2;
+    constexpr int PROTOCOL_VERSION = 4;
+    constexpr auto QBT_NET_UPSTREAM_REVISION = u"d3ec342d441b086ec4318332f59dd05d8a2b5697";
     constexpr qint64 MAX_CONTROL_ID = 9007199254740991;
+    constexpr qint64 GATEWAY_TTL_SECONDS = 90;
+    constexpr qint64 GATEWAY_RENEWAL_HEADROOM_MS = 70000;
+
+    bool isSafeUnsignedInteger(const QJsonValue &value)
+    {
+        if (!value.isDouble())
+            return false;
+        const double number = value.toDouble();
+        return std::isfinite(number) && (number >= 0) && (number <= MAX_CONTROL_ID)
+            && (std::trunc(number) == number);
+    }
+
+    std::optional<QJsonObject> wireCounters(const QJsonValue &value)
+    {
+        static const QStringList fields {
+            u"relayDownloadBytes"_s, u"relayUploadBytes"_s,
+            u"carrierDownloadBytes"_s, u"carrierUploadBytes"_s,
+            u"carrierDownloadPackets"_s, u"carrierUploadPackets"_s,
+            u"relayDownloadCopies"_s};
+        if (!value.isObject())
+            return {};
+        const QJsonObject input = value.toObject();
+        if (input.size() != fields.size())
+            return {};
+        QJsonObject output;
+        for (const QString &field : fields)
+        {
+            if (!isSafeUnsignedInteger(input.value(field)))
+                return {};
+            output.insert(field, input.value(field));
+        }
+        return output;
+    }
 
     bool validDnsFamily(const QString &family)
     {
@@ -68,6 +105,88 @@ namespace
         return ((address.protocol() == QAbstractSocket::IPv6Protocol)
             ? u"[%1]:%2"_s : u"%1:%2"_s).arg(address.toString()).arg(port);
     }
+
+    struct NumericEndpoint
+    {
+        QHostAddress address;
+        quint16 port = 0;
+        QString text;
+    };
+
+    std::optional<NumericEndpoint> numericEndpoint(const QString &text)
+    {
+        const int separator = text.lastIndexOf(u':');
+        if (separator < 1)
+            return {};
+        QString host = text.left(separator);
+        if (host.startsWith(u'[') && host.endsWith(u']'))
+            host = host.mid(1, host.size() - 2);
+        else if (host.contains(u':'))
+            return {};
+        bool validPort = false;
+        const QString portText = text.mid(separator + 1);
+        const quint16 port = portText.toUShort(&validPort);
+        const QHostAddress address(host);
+        bool mappedIPv4 = false;
+        address.toIPv4Address(&mappedIPv4);
+        if (!validPort || (port == 0) || address.isNull() || address.isMulticast()
+            || ((address.protocol() == QAbstractSocket::IPv6Protocol) && mappedIPv4)
+            || !address.scopeId().isEmpty() || (address == QHostAddress::AnyIPv4)
+            || (address == QHostAddress::AnyIPv6))
+        {
+            return {};
+        }
+        return NumericEndpoint {address, port, ((address.protocol() == QAbstractSocket::IPv6Protocol)
+            ? u"[%1]:%2"_s : u"%1:%2"_s).arg(address.toString()).arg(port)};
+    }
+
+    QString canonicalGatewayAddress(const QString &text)
+    {
+        const QUrl url(u"tcp://"_s + text.trimmed(), QUrl::StrictMode);
+        const int port = url.port();
+        if (!url.isValid() || url.host().isEmpty() || !url.userInfo().isEmpty()
+            || (!url.path().isEmpty() && (url.path() != u"/")) || url.hasQuery() || url.hasFragment()
+            || (port < 1) || (port > 65535) || (url.host().toUtf8().size() > 253))
+        {
+            return {};
+        }
+        const QString host = url.host();
+        return host.contains(u':') ? u"[%1]:%2"_s.arg(host).arg(port) : u"%1:%2"_s.arg(host).arg(port);
+    }
+
+    bool readableAbsoluteFile(const QString &path)
+    {
+        const QFileInfo info(path);
+        const QString absolutePath = info.absoluteFilePath();
+        return info.isAbsolute() && (absolutePath.toUtf8().size() <= 1024)
+            && !QDir::toNativeSeparators(absolutePath).startsWith(u"\\\\")
+            && info.isFile() && info.isReadable() && (info.size() <= (256 * 1024));
+    }
+
+    bool validGatewayServerName(QString name)
+    {
+        const QHostAddress address(name);
+        if (!address.isNull())
+        {
+            return !address.isMulticast() && address.scopeId().isEmpty()
+                && (address != QHostAddress::AnyIPv4) && (address != QHostAddress::AnyIPv6);
+        }
+        if (name.endsWith(u'.'))
+            name.chop(1);
+        const QByteArray ace = QUrl::toAce(name);
+        if (ace.isEmpty() || (ace.size() > 253))
+            return false;
+        return std::ranges::all_of(ace.split('.'), [](const QByteArray &label)
+        {
+            if (label.isEmpty() || (label.size() > 63) || (label.front() == '-') || (label.back() == '-'))
+                return false;
+            return std::ranges::all_of(label, [](const char c)
+            {
+                return ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z'))
+                    || ((c >= '0') && (c <= '9')) || (c == '-');
+            });
+        });
+    }
 }
 
 Net::PathManager *Net::PathManager::m_instance = nullptr;
@@ -85,9 +204,20 @@ Net::PathManager::PathManager()
     , m_storeDnsServer {u"Network/Paths/DnsServer"_s}
     , m_storeBootstrapServer {u"Network/Paths/BootstrapServer"_s}
     , m_storeDnsFamily {u"Network/Paths/DnsFamily"_s}
+    , m_storeGatewayControlAddress {u"Network/Paths/Gateway/ControlAddress"_s}
+    , m_storeGatewayDatagramAddress {u"Network/Paths/Gateway/DatagramAddress"_s}
+    , m_storeGatewayServerName {u"Network/Paths/Gateway/ServerName"_s}
+    , m_storeGatewayCaPath {u"Network/Paths/Gateway/CaPath"_s}
+    , m_storeGatewayCertificatePath {u"Network/Paths/Gateway/CertificatePath"_s}
+    , m_storeGatewayPrivateKeyPath {u"Network/Paths/Gateway/PrivateKeyPath"_s}
+    , m_storeGatewayPort {u"Network/Paths/Gateway/Port"_s}
+    , m_storeGatewayTcp {u"Network/Paths/Gateway/Tcp"_s}
+    , m_storeGatewayUdp {u"Network/Paths/Gateway/Udp"_s}
 {
     m_timeout.setSingleShot(true);
     m_timeout.setInterval(15000);
+    m_gatewayRenewal.setSingleShot(true);
+    m_statusRefresh.setInterval(1000);
     // Child diagnostics are intentionally discarded. Its versioned control
     // responses contain safe errors; arbitrary transport logs may hold secrets.
     m_process.setStandardErrorFile(QProcess::nullDevice());
@@ -112,6 +242,46 @@ Net::PathManager::PathManager()
     connect(&m_process, &QProcess::finished, this, [this](int, QProcess::ExitStatus)
     {
         fail(tr("qbutt-net stopped. The pinned path remains blocked."));
+    });
+    connect(&m_gatewayRenewal, &QTimer::timeout, this, [this]()
+    {
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (std::ranges::any_of(m_paths, [now](const ActivePath &path)
+            { return path.publicLease && (path.publicLease->expiresUnixMilli <= now); }))
+        {
+            if (!beginPathRollover(activePathRollover(),
+                tr("A public gateway lease expired. Reconnecting paths with new generations.")))
+            {
+                fail(tr("An expired public gateway generation could not be retired safely."));
+            }
+            return;
+        }
+        ActivePath *renew = nullptr;
+        for (ActivePath &path : m_paths)
+        {
+            if (!path.publicLease)
+                continue;
+            if (!renew || (path.publicLease->expiresUnixMilli < renew->publicLease->expiresUnixMilli))
+                renew = &path;
+        }
+        if (renew && !controlBusy())
+        {
+            request({{u"method"_s, u"gateway.renew"_s},
+                {u"pathId"_s, QString::number(renew->endpoint.pathId)},
+                {u"generation"_s, static_cast<qint64>(renew->endpoint.generation)}});
+        }
+        else if (renew)
+        {
+            m_gatewayRenewal.start(1000);
+        }
+    });
+    connect(&m_statusRefresh, &QTimer::timeout, this, [this]()
+    {
+        if ((m_process.state() == QProcess::Running) && (m_pendingId == 0) && !controlBusy()
+            && std::ranges::any_of(m_paths, [](const ActivePath &path) { return path.endpoint.port > 0; }))
+        {
+            request({{u"method"_s, u"status"_s}});
+        }
     });
     connect(BitTorrent::Session::instance(), &BitTorrent::Session::peerRouteClosed, this,
         [this](const quint64 pathId, const quint64 generation, const qint64 downloaded, const qint64 uploaded)
@@ -192,7 +362,15 @@ void Net::PathManager::freeInstance()
 
 bool Net::PathManager::isBusy() const
 {
-    return (m_pendingId != 0) || !m_queuedRequest.isEmpty() || m_subscriptionReply;
+    return controlBusy();
+}
+
+bool Net::PathManager::controlBusy() const
+{
+    const bool foregroundRequest = (m_pendingId != 0)
+        && (m_pendingRequest.value(u"method"_s) != u"status"_s);
+    return foregroundRequest || !m_requestQueue.isEmpty() || m_subscriptionReply
+        || m_rolloverOpening || !m_pathRollover.isEmpty();
 }
 
 bool Net::PathManager::isOpen() const
@@ -211,14 +389,27 @@ QJsonObject Net::PathManager::statusData(const bool includePeers) const
     QJsonArray paths;
     for (const ActivePath &path : m_paths)
     {
-        paths.append(QJsonObject {{u"pathId"_s, QString::number(path.endpoint.pathId)},
+        QJsonObject gateway {{u"state"_s, u"outgoing-only"_s},
+            {u"tcp"_s, false}, {u"udp"_s, false}};
+        if (path.publicLease)
+        {
+            gateway = {{u"state"_s, u"leased"_s},
+                {u"publicEndpoint"_s, path.publicLease->publicEndpoint},
+                {u"family"_s, path.publicLease->family},
+                {u"tcp"_s, path.publicLease->tcp}, {u"udp"_s, path.publicLease->udp},
+                {u"expiresUnixMilli"_s, path.publicLease->expiresUnixMilli}};
+        }
+        QJsonObject data {{u"pathId"_s, QString::number(path.endpoint.pathId)},
             {u"generation"_s, static_cast<qint64>(path.endpoint.generation)},
             {u"edgeId"_s, path.edgeId}, {u"proxyName"_s, path.proxyName},
             {u"open"_s, path.endpoint.port > 0},
             {u"interfaceName"_s, path.interfaceName}, {u"capabilities"_s, path.capabilities},
-            {u"dns"_s, path.dnsPolicy},
+            {u"dns"_s, path.dnsPolicy}, {u"gateway"_s, gateway},
             {u"closedPayloadDownload"_s, path.closedPayloadDownload},
-            {u"closedPayloadUpload"_s, path.closedPayloadUpload}});
+            {u"closedPayloadUpload"_s, path.closedPayloadUpload}};
+        if (!path.wire.isEmpty())
+            data.insert(u"wire"_s, path.wire);
+        paths.append(data);
     }
     for (const PeerRouteEndpoint &endpoint : m_nativeEndpoints)
     {
@@ -266,9 +457,108 @@ QJsonObject Net::PathManager::dnsPolicy() const
         {u"family"_s, m_storeDnsFamily.get(u"dual"_s)}};
 }
 
+QJsonObject Net::PathManager::gatewayConfiguration() const
+{
+    return {{u"controlAddress"_s, m_storeGatewayControlAddress.get()},
+        {u"datagramAddress"_s, m_storeGatewayDatagramAddress.get()},
+        {u"serverName"_s, m_storeGatewayServerName.get()},
+        {u"caPath"_s, m_storeGatewayCaPath.get()},
+        {u"certificatePath"_s, m_storeGatewayCertificatePath.get()},
+        {u"privateKeyPath"_s, m_storeGatewayPrivateKeyPath.get()},
+        {u"port"_s, m_storeGatewayPort.get()}, {u"tcp"_s, m_storeGatewayTcp.get()},
+        {u"udp"_s, m_storeGatewayUdp.get()}};
+}
+
+bool Net::PathManager::setGatewayConfiguration(const QJsonObject &configuration)
+{
+    if (controlBusy())
+        return false;
+    const bool tcp = configuration.value(u"tcp"_s).toBool();
+    const bool udp = configuration.value(u"udp"_s).toBool();
+    const bool enabled = tcp || udp;
+    const QString control = canonicalGatewayAddress(configuration.value(u"controlAddress"_s).toString());
+    const QString datagram = canonicalGatewayAddress(configuration.value(u"datagramAddress"_s).toString());
+    const QString serverName = configuration.value(u"serverName"_s).toString().trimmed();
+    const auto absolutePath = [](const QString &path)
+    {
+        return path.trimmed().isEmpty() ? QString() : QFileInfo(path.trimmed()).absoluteFilePath();
+    };
+    const QString caPath = absolutePath(configuration.value(u"caPath"_s).toString());
+    const QString certificatePath = absolutePath(configuration.value(u"certificatePath"_s).toString());
+    const QString privateKeyPath = absolutePath(configuration.value(u"privateKeyPath"_s).toString());
+    const int port = configuration.value(u"port"_s).toInt(-1);
+    if ((port < 0) || (port > 65535) || (enabled && (control.isEmpty() || !validGatewayServerName(serverName)
+        || !readableAbsoluteFile(caPath) || !readableAbsoluteFile(certificatePath)
+        || !readableAbsoluteFile(privateKeyPath) || (udp && datagram.isEmpty()))))
+    {
+        reportError(tr("Enter valid gateway addresses, TLS name, readable certificate files and a port from 0 to 65535."));
+        return false;
+    }
+
+    const QJsonObject normalized {{u"controlAddress"_s, enabled
+            ? control : configuration.value(u"controlAddress"_s).toString().trimmed()},
+        {u"datagramAddress"_s, enabled
+            ? datagram : configuration.value(u"datagramAddress"_s).toString().trimmed()},
+        {u"serverName"_s, serverName}, {u"caPath"_s, caPath},
+        {u"certificatePath"_s, certificatePath}, {u"privateKeyPath"_s, privateKeyPath},
+        {u"port"_s, port}, {u"tcp"_s, tcp}, {u"udp"_s, udp}};
+    const QJsonObject previous = gatewayConfiguration();
+    const bool previouslyEnabled = previous.value(u"tcp"_s).toBool() || previous.value(u"udp"_s).toBool();
+    if (normalized == previous)
+        return true;
+    const auto store = [this](const QJsonObject &values)
+    {
+        m_storeGatewayControlAddress = values.value(u"controlAddress"_s).toString();
+        m_storeGatewayDatagramAddress = values.value(u"datagramAddress"_s).toString();
+        m_storeGatewayServerName = values.value(u"serverName"_s).toString();
+        m_storeGatewayCaPath = values.value(u"caPath"_s).toString();
+        m_storeGatewayCertificatePath = values.value(u"certificatePath"_s).toString();
+        m_storeGatewayPrivateKeyPath = values.value(u"privateKeyPath"_s).toString();
+        m_storeGatewayPort = values.value(u"port"_s).toInt();
+        m_storeGatewayTcp = values.value(u"tcp"_s).toBool();
+        m_storeGatewayUdp = values.value(u"udp"_s).toBool();
+    };
+    store(normalized);
+    if (!SettingsStorage::instance()->save())
+    {
+        store(previous);
+        reportError(tr("Unable to save public gateway settings."));
+        return false;
+    }
+
+    if (!enabled && !previouslyEnabled)
+    {
+        m_status = tr("Public gateway disabled.");
+        emit changed();
+        return true;
+    }
+
+    QList<PathRollover> rollover = activePathRollover();
+    if (rollover.isEmpty())
+    {
+        m_status = enabled ? tr("Public gateway settings saved. They apply when a path is connected.")
+            : tr("Public gateway disabled.");
+        emit changed();
+        return true;
+    }
+    if (!beginPathRollover(std::move(rollover),
+        tr("Reconnecting paths with new generations for the public gateway settings.")))
+    {
+        store(previous);
+        if (!SettingsStorage::instance()->save())
+        {
+            fail(tr("The previous public gateway settings could not be restored. Network paths remain stopped."));
+            return false;
+        }
+        reportError(tr("The active paths could not be stopped for a gateway generation change."));
+        return false;
+    }
+    return true;
+}
+
 bool Net::PathManager::setDnsPolicy(const QString &server, const QString &bootstrapServer, const QString &family)
 {
-    if (isBusy())
+    if (controlBusy())
         return false;
     const QString dns = canonicalDnsServer(server.trimmed());
     const QString bootstrap = canonicalDnsServer(bootstrapServer.trimmed());
@@ -360,7 +650,7 @@ void Net::PathManager::processDhtBootstrap()
 qint64 Net::PathManager::resolveHost(const QString &pathId, const quint64 generation,
     const QString &host, const QString &family)
 {
-    if (isBusy())
+    if (controlBusy())
         return 0;
     const PeerRouteEndpoint *endpoint = findEndpoint(pathId.toULongLong(), generation);
     if ((m_process.state() != QProcess::Running) || !endpoint
@@ -409,7 +699,7 @@ void Net::PathManager::finishResolution(const QList<QHostAddress> &addresses, co
 
 void Net::PathManager::refreshSubscription(const QString &urlText)
 {
-    if (isBusy())
+    if (controlBusy())
         return;
     const QUrl url(urlText.trimmed(), QUrl::StrictMode);
     if (!url.isValid() || (url.scheme() != u"https") || url.host().isEmpty()
@@ -476,13 +766,13 @@ void Net::PathManager::inspectConfiguration(const QString &configPath)
 void Net::PathManager::openPath(const QString &configPath, const QString &proxyName,
     const QString &interfaceName, const QString &edgeId)
 {
-    if (isBusy())
+    if (controlBusy())
     {
         reportError(tr("A path operation is already running."));
         return;
     }
 
-    const auto *session = BitTorrent::Session::instance();
+    auto *session = BitTorrent::Session::instance();
     auto *proxyManager = ProxyConfigurationManager::instance();
     if (!session->isRestored())
     {
@@ -527,9 +817,19 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
         reportError(tr("The edge name must fit within 128 UTF-8 bytes."));
         return;
     }
-    if (!proxyManager->hasRuntimeProxy() && !proxyManager->setRuntimeProxy(blockedRuntimeProxy()))
+    const bool enableManagedRoutes = !proxyManager->hasRuntimeProxy();
+    if (enableManagedRoutes && !proxyManager->setRuntimeProxy(blockedRuntimeProxy()))
     {
         reportError(tr("Unable to save the pinned startup policy. The path was not started."));
+        return;
+    }
+    if (enableManagedRoutes && !applyRoutes())
+    {
+        const bool routesReset = session->resetNetworkRoutes();
+        const bool proxyCleared = proxyManager->clearRuntimeProxy();
+        reportError((routesReset && proxyCleared)
+            ? tr("Unable to install the blocked startup route before connecting the path.")
+            : tr("Unable to restore Native after the blocked startup route failed."));
         return;
     }
 
@@ -545,7 +845,7 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
 
 bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInterface)
 {
-    if (isBusy())
+    if (controlBusy())
         return false;
     if ((mode != u"mixed") && (mode != u"pinned") && (mode != u"tunnels"))
     {
@@ -603,8 +903,12 @@ bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInter
             return false;
         }
     }
-    const QString previous = m_storePolicy.get(u"pinned"_s);
-    const QString previousInterface = m_storeNativeInterface;
+    const QString currentMode = m_storePolicy.get(u"pinned"_s);
+    const QString currentInterface = m_storeNativeInterface;
+    if ((currentMode == mode) && (currentInterface == (mixed ? nativeInterface : QString())))
+        return true;
+    const QString previous = currentMode;
+    const QString previousInterface = currentInterface;
     auto *proxyManager = ProxyConfigurationManager::instance();
     if (!proxyManager->hasRuntimeProxy())
     {
@@ -667,7 +971,7 @@ bool Net::PathManager::applyRoutes()
 
 void Net::PathManager::useNative()
 {
-    if (isBusy())
+    if (controlBusy())
         return;
     // Terminate accepted sockets before restoring saved connection settings.
     if (!shutdown())
@@ -694,23 +998,23 @@ void Net::PathManager::useNative()
 
 void Net::PathManager::request(QJsonObject message)
 {
-    if (isBusy())
-        return;
+    const bool foreground = (message.value(u"method"_s) != u"status"_s);
+    m_requestQueue.append(std::move(message));
     if (m_process.state() == QProcess::NotRunning)
     {
-        m_queuedRequest = std::move(message);
         QString program = QDir(QCoreApplication::applicationDirPath()).filePath(u"qbutt-net"_s);
 #ifdef Q_OS_WIN
         program += u".exe"_s;
 #endif
         m_process.start(program, {u"--stdio"_s});
         m_timeout.start();
-        emit changed();
     }
     else
     {
-        send(std::move(message));
+        sendQueuedRequest();
     }
+    if (foreground)
+        emit changed();
 }
 
 void Net::PathManager::send(QJsonObject message)
@@ -724,6 +1028,19 @@ void Net::PathManager::send(QJsonObject message)
     message.insert(u"v"_s, PROTOCOL_VERSION);
     message.insert(u"id"_s, m_pendingId);
     m_pendingRequest = message;
+    if (message.value(u"method"_s) == u"status"_s)
+    {
+        QJsonArray expectedPaths;
+        for (const ActivePath &path : std::as_const(m_paths))
+        {
+            if (path.endpoint.port > 0)
+            {
+                expectedPaths.append(QJsonObject {{u"pathId"_s, QString::number(path.endpoint.pathId)},
+                    {u"generation"_s, static_cast<qint64>(path.endpoint.generation)}});
+            }
+        }
+        m_pendingRequest.insert(u"expectedPaths"_s, expectedPaths);
+    }
     // Edge grouping belongs to the application, not to the transport process.
     message.remove(u"edgeId"_s);
     QByteArray frame = QJsonDocument(message).toJson(QJsonDocument::Compact);
@@ -734,15 +1051,13 @@ void Net::PathManager::send(QJsonObject message)
         return;
     }
     m_timeout.start(message.value(u"method"_s).toString().startsWith(u"resolve") ? 8000 : 15000);
-    emit changed();
 }
 
 void Net::PathManager::sendQueuedRequest()
 {
-    if ((m_pendingId != 0) || m_queuedRequest.isEmpty())
+    if ((m_pendingId != 0) || m_requestQueue.isEmpty())
         return;
-    QJsonObject queued = std::move(m_queuedRequest);
-    m_queuedRequest = {};
+    QJsonObject queued = m_requestQueue.takeFirst();
     send(std::move(queued));
 }
 
@@ -775,10 +1090,27 @@ void Net::PathManager::readOutput()
 
 void Net::PathManager::handleResponse(const QJsonObject &message)
 {
+    if (message.value(u"id"_s) == QJsonValue(0))
+    {
+        if (message.value(u"v"_s) != QJsonValue(PROTOCOL_VERSION))
+        {
+            fail(tr("qbutt-net returned an incompatible event."));
+            return;
+        }
+        handleEvent(message);
+        return;
+    }
     if ((message.value(u"v"_s) != QJsonValue(PROTOCOL_VERSION)) || (m_pendingId == 0)
         || (message.value(u"id"_s) != QJsonValue(m_pendingId)))
     {
         fail(tr("qbutt-net control version or request identifier does not match."));
+        return;
+    }
+    const bool errorResponse = message.value(u"error"_s).isObject();
+    const bool resultResponse = message.value(u"result"_s).isObject();
+    if ((message.size() != 3) || (errorResponse == resultResponse))
+    {
+        fail(tr("qbutt-net returned an invalid control response envelope."));
         return;
     }
     const QJsonObject request = m_pendingRequest;
@@ -786,36 +1118,76 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
     m_pendingId = 0;
     m_timeout.stop();
     const QString method = request.value(u"method"_s).toString();
-    if (message.contains(u"error"_s))
+    if (errorResponse)
     {
         // Do not expose arbitrary child strings: malformed subscriptions can
         // place credentials in parser/adapter errors.
-        if ((method == u"hello") || !message.value(u"error"_s).isObject() || message.contains(u"result"_s))
+        const QJsonObject error = message.value(u"error"_s).toObject();
+        const QString errorCode = error.value(u"code"_s).toString();
+        const bool exactError = (error.size() == 2) && error.value(u"code"_s).isString()
+            && error.value(u"message"_s).isString() && (error.value(u"message"_s).toString() == errorCode);
+        const bool operationalGatewayError = exactError
+            && (((method == u"gateway.open") && ((errorCode == u"invalid_gateway")
+                || (errorCode == u"gateway_credentials_unreadable")
+                || (errorCode == u"gateway_credentials_invalid") || (errorCode == u"gateway_relay_failed")
+                || (errorCode == u"gateway_connect_failed") || (errorCode == u"gateway_authentication_failed")
+                || (errorCode == u"gateway_protocol_error") || (errorCode == u"gateway_datagrams_failed")
+                || (errorCode == u"gateway_lease_rejected")))
+            || ((method == u"gateway.renew") && ((errorCode == u"gateway_renew_failed")
+                || (errorCode == u"gateway_not_open")))
+            || ((method == u"gateway.close") && ((errorCode == u"gateway_close_failed")
+                || (errorCode == u"gateway_not_open"))));
+        if (operationalGatewayError)
+        {
+            handleGatewayFailure(request);
+        }
+        else if (method.startsWith(u"gateway."))
+        {
+            fail(tr("qbutt-net rejected a gateway path-generation invariant."));
+        }
+        else if ((method == u"hello") || !exactError)
+        {
             fail(tr("The bundled qbutt-net rejected the protocol handshake."));
+        }
+        else if (method == u"status")
+        {
+            fail(tr("The bundled qbutt-net rejected transport status reporting."));
+        }
+        else if (method == u"close")
+        {
+            fail(tr("qbutt-net could not retire a stopped path generation."));
+        }
         else
         {
+            const bool bootstrapRequest = request.value(u"id"_s).toInteger() == m_bootstrapRequestId;
             if ((method == u"resolve") || (method == u"resolveNative"))
                 finishResolution({}, u"path_dns_failed"_s);
-            sendQueuedRequest();
-            if (request.value(u"id"_s).toInteger() != m_bootstrapRequestId)
-                reportError(tr("qbutt-net rejected the request. Check the selected node and interface."));
+            if ((method == u"open") && m_rolloverOpening)
+            {
+                m_rolloverFailed = true;
+                m_rolloverOpening = false;
+                reportError(tr("qbutt-net rejected a path while applying the public gateway settings."));
+                startNextPathRollover();
+            }
             else
-                emit changed();
+            {
+                sendQueuedRequest();
+                if (!bootstrapRequest)
+                    reportError(tr("qbutt-net rejected the request. Check the selected node and interface."));
+                else
+                    emit changed();
+            }
         }
         return;
     }
-    if (!message.value(u"result"_s).isObject())
-    {
-        fail(tr("qbutt-net returned a missing control result."));
-        return;
-    }
-
     const QJsonObject result = message.value(u"result"_s).toObject();
     if (method == u"hello")
     {
-        if ((result.value(u"protocol"_s) != QJsonValue(PROTOCOL_VERSION))
+        if ((result.size() != 4) || (result.value(u"protocol"_s) != QJsonValue(PROTOCOL_VERSION))
             || (result.value(u"name"_s).toString() != u"qbutt-net")
-            || (result.value(u"maxFrameBytes"_s).toInt() != MAX_FRAME_BYTES))
+            || (result.value(u"upstreamRevision"_s).toString() != QBT_NET_UPSTREAM_REVISION)
+            || !isSafeUnsignedInteger(result.value(u"maxFrameBytes"_s))
+            || (result.value(u"maxFrameBytes"_s).toInteger() != MAX_FRAME_BYTES))
         {
             fail(tr("The bundled qbutt-net is incompatible with this application."));
             return;
@@ -826,7 +1198,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
     if (method == u"list")
     {
         const QJsonArray entries = result.value(u"proxies"_s).toArray();
-        if (!result.value(u"proxies"_s).isArray() || (entries.size() > 1024))
+        if ((result.size() != 1) || !result.value(u"proxies"_s).isArray() || (entries.size() > 1024))
         {
             fail(tr("qbutt-net returned an invalid proxy list."));
             return;
@@ -837,7 +1209,8 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             const QJsonObject entry = value.toObject();
             const QString name = entry.value(u"name"_s).toString();
             const QString type = entry.value(u"type"_s).toString();
-            if (name.isEmpty() || type.isEmpty())
+            if (!value.isObject() || (entry.size() != 2) || !entry.value(u"name"_s).isString()
+                || !entry.value(u"type"_s).isString() || name.isEmpty() || type.isEmpty())
             {
                 fail(tr("qbutt-net returned an invalid node description."));
                 return;
@@ -856,7 +1229,12 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         const QString password = result.value(u"socksPassword"_s).toString();
         const QJsonObject capabilities = result.value(u"capabilities"_s).toObject();
         const QString udp = capabilities.value(u"udp"_s).toString();
-        if ((result.value(u"host"_s).toString() != u"127.0.0.1") || (port < 1) || (port > 65535)
+        if ((result.size() != 8) || (capabilities.size() != 6)
+            || !isSafeUnsignedInteger(result.value(u"port"_s)) || !result.value(u"pathId"_s).isString()
+            || !isSafeUnsignedInteger(result.value(u"generation"_s)) || !result.value(u"interfaceName"_s).isString()
+            || !result.value(u"socksUsername"_s).isString() || !result.value(u"socksPassword"_s).isString()
+            || !result.value(u"capabilities"_s).isObject()
+            || (result.value(u"host"_s).toString() != u"127.0.0.1") || (port < 1) || (port > 65535)
             || username.isEmpty() || password.isEmpty() || (username.toUtf8().size() > 255)
             || (password.toUtf8().size() > 255) || (result.value(u"pathId"_s) != request.value(u"pathId"_s))
             || (result.value(u"generation"_s) != request.value(u"generation"_s))
@@ -871,7 +1249,8 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             fail(tr("qbutt-net returned an invalid authenticated loopback endpoint."));
             return;
         }
-        const bool replacePrimary = (m_storePolicy.get(u"pinned"_s) == u"pinned") && !isOpen();
+        const bool replacePrimary = !m_rolloverOpening
+            && (m_storePolicy.get(u"pinned"_s) == u"pinned") && !isOpen();
         ActivePath path;
         path.endpoint.type = PeerRouteEndpoint::Type::Socks5;
         path.endpoint.pathId = request.value(u"pathId"_s).toString().toULongLong();
@@ -883,6 +1262,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         path.endpoint.supportsIPv4 = family != u"ipv6";
         path.endpoint.supportsIPv6 = family != u"ipv4";
         path.endpoint.supportsUdp = udp == u"source-supported";
+        path.configurationPath = request.value(u"configPath"_s).toString();
         path.edgeId = request.value(u"edgeId"_s).toString();
         path.proxyName = request.value(u"proxyName"_s).toString();
         path.interfaceName = request.value(u"interfaceName"_s).toString();
@@ -909,25 +1289,202 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
 
         const PeerRouteEndpoint &primary = m_paths.front().endpoint;
         ProxyConfiguration proxy = blockedRuntimeProxy();
-        proxy.port = primary.port;
-        proxy.username = primary.username;
-        proxy.password = primary.password;
+        if (primary.port > 0)
+        {
+            proxy.port = primary.port;
+            proxy.username = primary.username;
+            proxy.password = primary.password;
+        }
         if (!ProxyConfigurationManager::instance()->setRuntimeProxy(proxy))
         {
             fail(tr("Unable to save the pinned startup policy. The path remains blocked."));
             return;
         }
-        if (!applyRoutes())
+        m_storeConfigurationPath = request.value(u"configPath"_s).toString();
+        m_storeProxyName = request.value(u"proxyName"_s).toString();
+        m_storeInterfaceName = request.value(u"interfaceName"_s).toString();
+        const auto opened = std::ranges::find(m_paths, path.endpoint.pathId,
+            [](const ActivePath &entry) { return entry.endpoint.pathId; });
+        const bool gatewayQueued = (opened != m_paths.end()) && queueGatewayOpen(*opened);
+        if (!gatewayQueued && !applyRoutes())
         {
             fail(tr("Unable to apply the network routes returned by qbutt-net."));
             return;
         }
-        m_storeConfigurationPath = request.value(u"configPath"_s).toString();
-        m_storeProxyName = request.value(u"proxyName"_s).toString();
-        m_storeInterfaceName = request.value(u"interfaceName"_s).toString();
-        m_status = tr("TCP endpoint ready: %1\n"
-            "Egress, UDP, public inbound and throughput: unknown (not probed).")
-            .arg(request.value(u"proxyName"_s).toString());
+        m_status = gatewayQueued
+            ? tr("TCP endpoint ready for %1. Acquiring its public gateway lease before route activation.")
+                .arg(request.value(u"proxyName"_s).toString())
+            : tr("TCP endpoint ready: %1\n"
+                "Egress, UDP, public inbound and throughput: unknown (not probed).")
+                .arg(request.value(u"proxyName"_s).toString());
+        if (m_rolloverOpening && !gatewayQueued)
+        {
+            m_rolloverOpening = false;
+            startNextPathRollover();
+        }
+        if (!m_statusRefresh.isActive())
+            m_statusRefresh.start();
+    }
+    else if ((method == u"gateway.open") || (method == u"gateway.renew"))
+    {
+        const QString pathIdText = result.value(u"pathId"_s).toString();
+        bool validPathId = false;
+        const quint64 pathId = pathIdText.toULongLong(&validPathId);
+        const qint64 generationValue = result.value(u"generation"_s).toInteger();
+        const auto path = std::ranges::find(m_paths, pathId,
+            [](const ActivePath &entry) { return entry.endpoint.pathId; });
+        const auto publicEndpoint = numericEndpoint(result.value(u"publicEndpoint"_s).toString());
+        const auto relayEndpoint = numericEndpoint(u"%1:%2"_s.arg(result.value(u"relayHost"_s).toString())
+            .arg(result.value(u"relayPort"_s).toInt()));
+        const bool tcp = result.value(u"tcp"_s).toBool();
+        const bool udp = result.value(u"udp"_s).toBool();
+        const bool publicIPv4 = publicEndpoint
+            && (publicEndpoint->address.protocol() == QAbstractSocket::IPv4Protocol);
+        const qint64 expires = result.value(u"expiresUnixMilli"_s).toInteger();
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        const bool exactShape = (result.size() == 8) && result.value(u"pathId"_s).isString()
+            && isSafeUnsignedInteger(result.value(u"generation"_s)) && result.value(u"publicEndpoint"_s).isString()
+            && result.value(u"tcp"_s).isBool() && result.value(u"udp"_s).isBool()
+            && isSafeUnsignedInteger(result.value(u"expiresUnixMilli"_s))
+            && result.value(u"relayHost"_s).isString()
+            && isSafeUnsignedInteger(result.value(u"relayPort"_s));
+        if (!exactShape || !validPathId || (QString::number(pathId) != pathIdText) || (generationValue <= 0)
+            || (path == m_paths.end()) || (path->endpoint.port == 0)
+            || (path->endpoint.generation != static_cast<quint64>(generationValue))
+            || (request.value(u"pathId"_s) != result.value(u"pathId"_s))
+            || (request.value(u"generation"_s) != result.value(u"generation"_s))
+            || !publicEndpoint || (publicEndpoint->text != result.value(u"publicEndpoint"_s).toString())
+            || !publicEndpoint->address.isGlobal()
+            || (publicIPv4 ? !path->endpoint.supportsIPv4 : !path->endpoint.supportsIPv6)
+            || (udp && !path->endpoint.supportsUdp)
+            || !relayEndpoint || (relayEndpoint->address != QHostAddress::LocalHost)
+            || (result.value(u"relayHost"_s).toString() != u"127.0.0.1")
+            || (expires <= now) || (expires > (now + 300000))
+            || ((method == u"gateway.open")
+                && ((tcp != request.value(u"gateway"_s).toObject().value(u"tcp"_s).toBool())
+                    || (udp != request.value(u"gateway"_s).toObject().value(u"udp"_s).toBool())))
+            || ((method == u"gateway.renew") && (!path->publicLease
+                || (path->publicLease->publicEndpoint != publicEndpoint->text)
+                || (path->publicLease->route.relayPort != relayEndpoint->port)
+                || (path->publicLease->tcp != tcp) || (path->publicLease->udp != udp)
+                || (expires <= path->publicLease->expiresUnixMilli))))
+        {
+            fail(tr("qbutt-net returned an invalid public gateway lease."));
+            return;
+        }
+        if (method == u"gateway.open")
+        {
+            ActivePath::PublicLease lease;
+            lease.route = {.pathId = path->endpoint.pathId, .generation = path->endpoint.generation,
+                .publicAddress = publicEndpoint->address.toString(), .publicPort = publicEndpoint->port,
+                .relayAddress = relayEndpoint->address.toString(), .relayPort = relayEndpoint->port};
+            lease.publicEndpoint = publicEndpoint->text;
+            lease.family = publicIPv4 ? u"ipv4"_s : u"ipv6"_s;
+            lease.tcp = tcp;
+            lease.udp = udp;
+            lease.expiresUnixMilli = expires;
+            path->publicLease = std::move(lease);
+            path->endpoint.publicAddress = publicEndpoint->address.toString();
+            path->endpoint.publicPort = publicEndpoint->port;
+            path->endpoint.publicTcp = tcp;
+            path->endpoint.publicUdp = udp;
+            if (!applyTrustedInboundRoutes() || !applyRoutes())
+            {
+                fail(tr("Unable to register the verified public gateway lease with libtorrent."));
+                return;
+            }
+        }
+        else
+        {
+            path->publicLease->expiresUnixMilli = expires;
+        }
+        path->capabilities.insert(u"publicTcp"_s, tcp ? u"leased"_s : u"unavailable"_s);
+        path->capabilities.insert(u"publicUdp"_s, udp ? u"leased"_s : u"unavailable"_s);
+        m_status = tr("Public gateway lease active for %1 until %2.")
+            .arg(publicEndpoint->text, QDateTime::fromMSecsSinceEpoch(expires).toString(Qt::ISODate));
+        scheduleGatewayRenewal();
+        if ((method == u"gateway.open") && m_rolloverOpening)
+        {
+            m_rolloverOpening = false;
+            startNextPathRollover();
+        }
+    }
+    else if (method == u"gateway.close")
+    {
+        const QString pathIdText = request.value(u"pathId"_s).toString();
+        const quint64 pathId = pathIdText.toULongLong();
+        auto path = std::ranges::find(m_paths, pathId,
+            [](const ActivePath &entry) { return entry.endpoint.pathId; });
+        if (!result.isEmpty() || (path == m_paths.end()) || !path->publicLease
+            || (path->endpoint.generation != static_cast<quint64>(request.value(u"generation"_s).toInteger())))
+        {
+            fail(tr("qbutt-net did not retire the expected public gateway lease."));
+            return;
+        }
+        if (m_pendingStopPath != pathIdText)
+        {
+            fail(tr("qbutt-net retired an unexpected public gateway lease."));
+            return;
+        }
+        clearGatewayLease(*path);
+        m_pendingStopPath.clear();
+        if (!finishStopPath(pathIdText))
+            return;
+    }
+    else if (method == u"status")
+    {
+        const QJsonArray entries = result.value(u"paths"_s).toArray();
+        const QJsonArray expectedPaths = request.value(u"expectedPaths"_s).toArray();
+        if ((result.size() != 1) || !result.value(u"paths"_s).isArray()
+            || (entries.size() != expectedPaths.size()) || (entries.size() > 8))
+        {
+            fail(tr("qbutt-net returned an invalid transport status."));
+            return;
+        }
+        QList<quint64> seen;
+        for (const QJsonValue &value : entries)
+        {
+            const QJsonObject entry = value.toObject();
+            const QString pathIdText = entry.value(u"pathId"_s).toString();
+            bool validPathId = false;
+            const quint64 pathId = pathIdText.toULongLong(&validPathId);
+            const qint64 generation = entry.value(u"generation"_s).toInteger();
+            const auto wire = wireCounters(entry.value(u"wire"_s));
+            const auto expected = std::ranges::find_if(expectedPaths, [&](const QJsonValue &candidate)
+            {
+                const QJsonObject path = candidate.toObject();
+                return (path.value(u"pathId"_s) == entry.value(u"pathId"_s))
+                    && (path.value(u"generation"_s) == entry.value(u"generation"_s));
+            });
+            if (!value.isObject() || (entry.size() != 3) || !validPathId || (pathId == 0)
+                || (QString::number(pathId) != pathIdText) || !isSafeUnsignedInteger(entry.value(u"generation"_s))
+                || (generation <= 0) || !wire || seen.contains(pathId) || (expected == expectedPaths.end()))
+            {
+                fail(tr("qbutt-net returned status for an invalid path generation."));
+                return;
+            }
+            seen.append(pathId);
+
+            // Foreground work may have changed local path state while this
+            // low-priority snapshot was in flight. Validate it, then discard
+            // its now-stale counters before sending queued work.
+            if (!m_requestQueue.isEmpty())
+                continue;
+            const auto path = std::ranges::find(m_paths, pathId,
+                [](const ActivePath &candidate) { return candidate.endpoint.pathId; });
+            const bool monotonic = (path != m_paths.end()) && (path->wire.isEmpty()
+                || std::ranges::all_of(path->wire.keys(), [&](const QString &field)
+                {
+                    return wire->value(field).toDouble() >= path->wire.value(field).toDouble();
+                }));
+            if ((path == m_paths.end()) || (path->endpoint.port == 0)
+                || (path->endpoint.generation != static_cast<quint64>(generation)) || !monotonic)
+            {
+                fail(tr("qbutt-net returned stale or decreasing transport counters."));
+                return;
+            }
+            path->wire = *wire;
+        }
     }
     else if ((method == u"resolve") || (method == u"resolveNative"))
     {
@@ -942,7 +1499,8 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         else
         {
             const QJsonArray values = result.value(u"addresses"_s).toArray();
-            if (!result.value(u"addresses"_s).isArray() || values.isEmpty() || (values.size() > 64))
+            if ((result.size() != 1) || !result.value(u"addresses"_s).isArray()
+                || values.isEmpty() || (values.size() > 64))
             {
                 fail(tr("qbutt-net returned an invalid DNS address list."));
                 return;
@@ -978,7 +1536,285 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             finishResolution(addresses);
         }
     }
+    else if (method == u"close")
+    {
+        if (!result.isEmpty())
+        {
+            fail(tr("qbutt-net returned an invalid path close response."));
+            return;
+        }
+        if (!std::ranges::any_of(m_paths, [](const ActivePath &path) { return path.endpoint.port > 0; }))
+            m_statusRefresh.stop();
+    }
+    else
+    {
+        fail(tr("qbutt-net returned a response for an unknown request."));
+        return;
+    }
     sendQueuedRequest();
+    if (method != u"status")
+        emit changed();
+}
+
+void Net::PathManager::handleEvent(const QJsonObject &message)
+{
+    if (message.value(u"event"_s).toString() == u"gatewayClosed")
+    {
+        const QString pathIdText = message.value(u"pathId"_s).toString();
+        bool validPathId = false;
+        const quint64 pathId = pathIdText.toULongLong(&validPathId);
+        const qint64 generation = message.value(u"generation"_s).toInteger();
+        if ((message.size() != 6) || !isSafeUnsignedInteger(message.value(u"v"_s))
+            || !isSafeUnsignedInteger(message.value(u"id"_s)) || !message.value(u"event"_s).isString()
+            || !message.value(u"pathId"_s).isString() || !isSafeUnsignedInteger(message.value(u"generation"_s))
+            || !message.value(u"reason"_s).isString() || !validPathId || (pathId == 0)
+            || (QString::number(pathId) != pathIdText) || (generation <= 0)
+            || (message.value(u"reason"_s).toString() != u"gateway_closed"))
+        {
+            fail(tr("qbutt-net returned an invalid terminal gateway event."));
+            return;
+        }
+        const auto path = std::ranges::find(m_paths, pathId,
+            [](const ActivePath &entry) { return entry.endpoint.pathId; });
+        if ((path == m_paths.end()) || (path->endpoint.generation < static_cast<quint64>(generation)))
+        {
+            fail(tr("qbutt-net returned a terminal event for an unknown path generation."));
+            return;
+        }
+        if ((path->endpoint.generation > static_cast<quint64>(generation)) || !path->publicLease)
+        {
+            return;
+        }
+        if (!beginPathRollover(activePathRollover(),
+            tr("A public gateway connection ended. Reconnecting paths with new generations.")))
+        {
+            fail(tr("The ended public gateway generation could not be retired safely."));
+        }
+        return;
+    }
+
+    const QString pathIdText = message.value(u"pathId"_s).toString();
+    bool validPathId = false;
+    const quint64 pathId = pathIdText.toULongLong(&validPathId);
+    const qint64 generationValue = message.value(u"generation"_s).toInteger();
+    const auto path = std::ranges::find(m_paths, pathId,
+        [](const ActivePath &entry) { return entry.endpoint.pathId; });
+    const auto remote = numericEndpoint(message.value(u"remote"_s).toString());
+    const QString tokenText = message.value(u"relayToken"_s).toString();
+    const bool exactShape = (message.size() == 10) && isSafeUnsignedInteger(message.value(u"v"_s))
+        && isSafeUnsignedInteger(message.value(u"id"_s)) && message.value(u"event"_s).isString()
+        && message.value(u"pathId"_s).isString() && isSafeUnsignedInteger(message.value(u"generation"_s))
+        && message.value(u"remote"_s).isString() && message.value(u"publicEndpoint"_s).isString()
+        && message.value(u"relayHost"_s).isString() && isSafeUnsignedInteger(message.value(u"relayPort"_s))
+        && message.value(u"relayToken"_s).isString();
+    if (!exactShape || (message.value(u"event"_s).toString() != u"incomingTcp") || !validPathId
+        || (pathId == 0) || (QString::number(pathId) != pathIdText) || (generationValue <= 0)
+        || (path == m_paths.end()) || !path->publicLease || !path->publicLease->tcp
+        || (path->endpoint.generation != static_cast<quint64>(generationValue))
+        || (path->publicLease->expiresUnixMilli <= QDateTime::currentMSecsSinceEpoch())
+        || (message.value(u"publicEndpoint"_s).toString() != path->publicLease->publicEndpoint)
+        || (message.value(u"relayHost"_s).toString() != u"127.0.0.1")
+        || (message.value(u"relayPort"_s).toInt() != path->publicLease->route.relayPort)
+        || !remote || (remote->text != message.value(u"remote"_s).toString())
+        || !QRegularExpression(u"^[0-9a-f]{64}$"_s).match(tokenText).hasMatch())
+    {
+        fail(tr("qbutt-net returned invalid trusted incoming metadata."));
+        return;
+    }
+    QByteArray token = QByteArray::fromHex(tokenText.toLatin1());
+    const bool accepted = BitTorrent::Session::instance()->acceptTrustedInbound(path->publicLease->route,
+        remote->address.toString(), remote->port, token);
+    token.fill('\0');
+    if (!accepted)
+    {
+        m_status = tr("An incoming gateway connection was rejected before it entered the torrent session.");
+        emit changed();
+    }
+}
+
+bool Net::PathManager::applyTrustedInboundRoutes()
+{
+    QList<TrustedInboundRoute> routes;
+    for (const ActivePath &path : std::as_const(m_paths))
+    {
+        if (path.publicLease && path.publicLease->tcp)
+            routes.append(path.publicLease->route);
+    }
+    return BitTorrent::Session::instance()->setTrustedInboundRoutes(routes);
+}
+
+bool Net::PathManager::queueGatewayOpen(const ActivePath &path)
+{
+    if (path.publicLease || (path.endpoint.port == 0) || (!m_storeGatewayTcp.get() && !m_storeGatewayUdp.get()))
+        return false;
+    const QJsonObject gateway {{u"controlAddress"_s, m_storeGatewayControlAddress.get()},
+        {u"datagramAddress"_s, m_storeGatewayDatagramAddress.get()},
+        {u"serverName"_s, m_storeGatewayServerName.get()}, {u"caPath"_s, m_storeGatewayCaPath.get()},
+        {u"certificatePath"_s, m_storeGatewayCertificatePath.get()},
+        {u"privateKeyPath"_s, m_storeGatewayPrivateKeyPath.get()},
+        {u"port"_s, m_storeGatewayPort.get()}, {u"tcp"_s, m_storeGatewayTcp.get()},
+        {u"udp"_s, m_storeGatewayUdp.get()}, {u"ttlSeconds"_s, GATEWAY_TTL_SECONDS}};
+    m_requestQueue.append({{u"method"_s, u"gateway.open"_s},
+        {u"pathId"_s, QString::number(path.endpoint.pathId)},
+        {u"generation"_s, static_cast<qint64>(path.endpoint.generation)}, {u"gateway"_s, gateway}});
+    return true;
+}
+
+void Net::PathManager::queueGatewayClose(const ActivePath &path)
+{
+    m_gatewayRenewal.stop();
+    m_requestQueue.append({{u"method"_s, u"gateway.close"_s},
+        {u"pathId"_s, QString::number(path.endpoint.pathId)},
+        {u"generation"_s, static_cast<qint64>(path.endpoint.generation)}});
+}
+
+void Net::PathManager::scheduleGatewayRenewal()
+{
+    m_gatewayRenewal.stop();
+    qint64 earliest = 0;
+    for (const ActivePath &path : std::as_const(m_paths))
+    {
+        if (path.publicLease && ((earliest == 0) || (path.publicLease->expiresUnixMilli < earliest)))
+            earliest = path.publicLease->expiresUnixMilli;
+    }
+    if (earliest == 0)
+        return;
+    const qint64 remaining = earliest - QDateTime::currentMSecsSinceEpoch();
+    m_gatewayRenewal.start(static_cast<int>(std::clamp(
+        remaining - GATEWAY_RENEWAL_HEADROOM_MS, 0LL, 2100000000LL)));
+}
+
+void Net::PathManager::clearGatewayLease(ActivePath &path)
+{
+    path.publicLease.reset();
+    path.endpoint.publicAddress.clear();
+    path.endpoint.publicPort = 0;
+    path.endpoint.publicTcp = false;
+    path.endpoint.publicUdp = false;
+    path.capabilities.insert(u"publicTcp"_s, u"unknown"_s);
+    path.capabilities.insert(u"publicUdp"_s, u"unknown"_s);
+}
+
+QList<Net::PathManager::PathRollover> Net::PathManager::activePathRollover() const
+{
+    QList<PathRollover> result;
+    const auto append = [this, &result](PathRollover path)
+    {
+        if ((path.pathId == 0) || (QString::number(path.pathId) == m_pendingStopPath)
+            || std::ranges::any_of(result, [pathId = path.pathId](const PathRollover &entry)
+            { return entry.pathId == pathId; }))
+        {
+            return;
+        }
+        result.append(std::move(path));
+    };
+    for (const ActivePath &path : m_paths)
+    {
+        if (path.endpoint.port > 0)
+        {
+            append({path.endpoint.pathId, path.configurationPath, path.proxyName, path.interfaceName,
+                path.edgeId, path.dnsPolicy});
+        }
+    }
+    const auto appendOpenRequest = [&append](const QJsonObject &request)
+    {
+        if (request.value(u"method"_s) != u"open"_s)
+            return;
+        append({request.value(u"pathId"_s).toString().toULongLong(),
+            request.value(u"configPath"_s).toString(), request.value(u"proxyName"_s).toString(),
+            request.value(u"interfaceName"_s).toString(), request.value(u"edgeId"_s).toString(),
+            request.value(u"dns"_s).toObject()});
+    };
+    appendOpenRequest(m_pendingRequest);
+    for (const QJsonObject &request : m_requestQueue)
+        appendOpenRequest(request);
+    for (const PathRollover &path : m_pathRollover)
+        append(path);
+    return result;
+}
+
+bool Net::PathManager::beginPathRollover(QList<PathRollover> paths, const QString &status)
+{
+    if (paths.isEmpty() || !shutdown())
+        return false;
+    m_pathRollover = std::move(paths);
+    m_rolloverFailed = false;
+    m_status = status;
+    startNextPathRollover();
+    return true;
+}
+
+void Net::PathManager::startNextPathRollover()
+{
+    if (m_rolloverOpening || (m_pendingId != 0) || !m_requestQueue.isEmpty())
+        return;
+    if (m_pathRollover.isEmpty())
+    {
+        const bool failed = m_rolloverFailed;
+        m_rolloverFailed = false;
+        m_status = failed
+            ? tr("One or more paths or public gateway leases could not be reconnected.")
+            : tr("Paths reconnected with new transport generations.");
+        emit changed();
+        return;
+    }
+    const PathRollover path = m_pathRollover.takeFirst();
+    m_rolloverOpening = true;
+    request({{u"method"_s, u"open"_s}, {u"configPath"_s, path.configurationPath},
+        {u"proxyName"_s, path.proxyName}, {u"pathId"_s, QString::number(path.pathId)},
+        {u"generation"_s, ++m_generation}, {u"interfaceName"_s, path.interfaceName},
+        {u"edgeId"_s, path.edgeId}, {u"dns"_s, path.dnsPolicy}});
+}
+
+void Net::PathManager::handleGatewayFailure(const QJsonObject &request)
+{
+    const QString pathIdText = request.value(u"pathId"_s).toString();
+    const auto path = std::ranges::find(m_paths, pathIdText.toULongLong(),
+        [](const ActivePath &entry) { return entry.endpoint.pathId; });
+    if ((path == m_paths.end())
+        || (path->endpoint.generation != static_cast<quint64>(request.value(u"generation"_s).toInteger())))
+    {
+        fail(tr("qbutt-net failed a gateway request for an unknown path generation."));
+        return;
+    }
+    const QString method = request.value(u"method"_s).toString();
+    if (method == u"gateway.renew")
+    {
+        if (!path->publicLease || !beginPathRollover(activePathRollover(),
+            tr("The public gateway lease ended. Reconnecting paths with new generations.")))
+        {
+            fail(tr("The ended public gateway generation could not be retired safely."));
+        }
+        return;
+    }
+    if (method == u"gateway.close")
+    {
+        if (!path->publicLease || (m_pendingStopPath != pathIdText))
+        {
+            fail(tr("qbutt-net failed an unexpected public gateway transition."));
+            return;
+        }
+        clearGatewayLease(*path);
+        m_pendingStopPath.clear();
+        finishStopPath(pathIdText);
+        return;
+    }
+    if ((method != u"gateway.open") || path->publicLease || !applyRoutes())
+    {
+        fail(tr("A failed public gateway transition could not be removed safely."));
+        return;
+    }
+    m_status = tr("The public gateway could not be opened. The path is active for outgoing traffic only.");
+    if (m_rolloverOpening)
+    {
+        m_rolloverFailed = true;
+        m_rolloverOpening = false;
+        startNextPathRollover();
+    }
+    else
+    {
+        sendQueuedRequest();
+    }
     emit changed();
 }
 
@@ -1001,7 +1837,7 @@ void Net::PathManager::reportError(const QString &message)
 void Net::PathManager::stopPath(const QString &pathId)
 {
     const bool resolving = m_pendingRequest.value(u"method"_s).toString().startsWith(u"resolve");
-    if (!pathId.isEmpty() && isBusy() && (!resolving || !m_queuedRequest.isEmpty()))
+    if (!pathId.isEmpty() && controlBusy() && (!resolving || !m_requestQueue.isEmpty()))
         return;
     if (!pathId.isEmpty())
     {
@@ -1017,36 +1853,18 @@ void Net::PathManager::stopPath(const QString &pathId)
             reportError(tr("The selected path is not active."));
             return;
         }
-        const quint64 generation = path->endpoint.generation;
-        path->endpoint.type = PeerRouteEndpoint::Type::Blocked;
-        path->endpoint.port = 0;
-        path->endpoint.username.clear();
-        path->endpoint.password.clear();
-        if (!applyRoutes())
+        if (path->publicLease)
         {
-            fail(tr("Unable to revoke the selected network path."));
+            m_pendingStopPath = pathId;
+            queueGatewayClose(*path);
+            m_status = tr("Retiring the public gateway lease before disconnecting the path.");
+            if (resolving && (m_resolution.value(u"pathId"_s).toString() == pathId))
+                finishResolution({}, u"path_stopped"_s);
+            sendQueuedRequest();
+            emit changed();
             return;
         }
-        BitTorrent::Session::instance()->invalidateNetworkRoute(path->endpoint.pathId, generation);
-        if (path == m_paths.begin())
-            ProxyConfigurationManager::instance()->setRuntimeProxy(blockedRuntimeProxy());
-        m_status = tr("Path disconnected. Its existing peer connections have been closed.");
-        QJsonObject close {{u"method"_s, u"close"_s}, {u"pathId"_s, pathId},
-            {u"generation"_s, static_cast<qint64>(generation)}};
-        if (resolving)
-        {
-            m_queuedRequest = std::move(close);
-            if ((m_resolution.value(u"pathId"_s).toString() == pathId)
-                && (static_cast<quint64>(m_resolution.value(u"generation"_s).toInteger()) == generation))
-            {
-                finishResolution({}, u"path_stopped"_s);
-            }
-            emit changed();
-        }
-        else
-        {
-            request(std::move(close));
-        }
+        finishStopPath(pathId);
         return;
     }
     const QList<PeerRouteEndpoint> nativeEndpoints = std::move(m_nativeEndpoints);
@@ -1069,21 +1887,58 @@ void Net::PathManager::stopPath(const QString &pathId)
     emit changed();
 }
 
+bool Net::PathManager::finishStopPath(const QString &pathId)
+{
+    auto path = std::ranges::find(m_paths, pathId.toULongLong(),
+        [](const ActivePath &entry) { return entry.endpoint.pathId; });
+    if ((path == m_paths.end()) || (path->endpoint.port == 0) || path->publicLease)
+        return false;
+    const quint64 generation = path->endpoint.generation;
+    path->endpoint.type = PeerRouteEndpoint::Type::Blocked;
+    path->endpoint.port = 0;
+    path->endpoint.username.clear();
+    path->endpoint.password.clear();
+    path->wire = {};
+    if ((m_resolution.value(u"state"_s) == u"pending"_s)
+        && (m_resolution.value(u"pathId"_s).toString() == pathId))
+    {
+        finishResolution({}, u"path_stopped"_s);
+    }
+    if (!applyTrustedInboundRoutes() || !applyRoutes())
+    {
+        fail(tr("Unable to revoke the selected network path."));
+        return false;
+    }
+    BitTorrent::Session::instance()->invalidateNetworkRoute(path->endpoint.pathId, generation);
+    if (path == m_paths.begin())
+        ProxyConfigurationManager::instance()->setRuntimeProxy(blockedRuntimeProxy());
+    m_status = tr("Path disconnected. Its existing peer connections have been closed.");
+    scheduleGatewayRenewal();
+    request({{u"method"_s, u"close"_s}, {u"pathId"_s, pathId},
+        {u"generation"_s, static_cast<qint64>(generation)}});
+    return true;
+}
+
 bool Net::PathManager::shutdown()
 {
     m_dhtBootstrap.clear();
     m_bootstrapRequestId = 0;
     finishResolution({}, u"path_stopped"_s);
     auto *session = BitTorrent::Session::instance();
+    m_gatewayRenewal.stop();
+    m_statusRefresh.stop();
     for (ActivePath &path : m_paths)
     {
+        clearGatewayLease(path);
         path.endpoint.type = PeerRouteEndpoint::Type::Blocked;
         path.endpoint.port = 0;
         path.endpoint.username.clear();
         path.endpoint.password.clear();
+        path.wire = {};
     }
+    bool routesRetired = session->setTrustedInboundRoutes({});
     if (ProxyConfigurationManager::instance()->hasRuntimeProxy())
-        applyRoutes();
+        routesRetired = applyRoutes() && routesRetired;
     for (const ActivePath &path : m_paths)
         session->invalidateNetworkRoute(path.endpoint.pathId, path.endpoint.generation);
     m_timeout.stop();
@@ -1103,8 +1958,12 @@ bool Net::PathManager::shutdown()
         m_process.waitForFinished(500);
     }
     m_output.clear();
-    m_queuedRequest = {};
+    m_requestQueue.clear();
     m_pendingRequest = {};
     m_pendingId = 0;
-    return m_process.state() == QProcess::NotRunning;
+    m_pendingStopPath.clear();
+    m_pathRollover.clear();
+    m_rolloverOpening = false;
+    m_rolloverFailed = false;
+    return (m_process.state() == QProcess::NotRunning) && routesRetired;
 }

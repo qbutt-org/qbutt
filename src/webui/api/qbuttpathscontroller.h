@@ -21,6 +21,7 @@ private slots:
     void openAction();
     void policyAction();
     void dnsAction();
+    void gatewayAction();
     void resolveAction();
     void stopAction();
     void nativeAction();

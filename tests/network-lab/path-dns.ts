@@ -8,7 +8,10 @@ import { createLab, waitFor } from "../lab";
 import { startProxy } from "./proxy";
 
 interface DnsPolicy { server: string; bootstrapServer: string; family: string }
-interface Path { pathId: string; generation: number; open: boolean; proxyName: string; dns: DnsPolicy }
+interface Path {
+    pathId: string; generation: number; open: boolean; proxyName: string; dns: DnsPolicy;
+    gateway: { state: string; tcp: boolean; udp: boolean };
+}
 interface Status {
     busy: boolean; pinned: boolean; processId: number; dns: DnsPolicy; paths: Path[];
     resolution: { requestId: number; pathId: string; generation: number; state: string;
@@ -100,7 +103,9 @@ const open = async (side: number) => {
     await lab.request("qbuttPaths/open", { configPath, proxyName: `node-${side}`, interfaceName, edgeId: `edge-${side}` });
     const status = await idle();
     const path = status.paths.find(path => path.proxyName === `node-${side}` && path.open);
-    assert(path, "Real transport path did not open");
+    assert(path, `Real transport path did not open: ${JSON.stringify(status)}`);
+    assert.deepEqual(path.gateway, { state: "outgoing-only", tcp: false, udp: false },
+        "DNS-only fixture unexpectedly acquired a public gateway lease");
     return path;
 };
 let failure: unknown;
@@ -182,8 +187,13 @@ catch (error) {
     try { await lab.shutdown(); } catch (shutdownError) { console.error(String(shutdownError)); }
 }
 finally {
-    for (const proxy of proxies) await proxy.close();
-    for (const dns of dnsServers) await dns.stop();
+    const cleanup = await Promise.allSettled([
+        ...proxies.map(proxy => proxy.close()),
+        ...dnsServers.map(dns => dns.stop()),
+    ]);
+    const cleanupErrors = cleanup.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+    if (!failure && cleanupErrors.length > 0)
+        failure = new AggregateError(cleanupErrors, "Path DNS fixture cleanup failed");
 }
 await lab.finish(failure);
 if (failure) throw failure;

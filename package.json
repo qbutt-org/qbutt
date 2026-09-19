@@ -13,6 +13,7 @@
     "smoke:profile": "bun tests/profile-lab/smoke.ts",
     "smoke:proxy": "bun tests/network-lab/probe.ts",
     "smoke:network": "bun tests/network-lab/smoke.ts",
+    "smoke:gateway": "bun tests/network-lab/gateway.ts",
     "smoke:mixed": "bun tests/network-lab/mixed.ts --native",
     "smoke:wan": "bun tests/network-lab/wan.ts",
     "smoke:mixed-baseline": "bun tests/network-lab/mixed.ts --baseline",

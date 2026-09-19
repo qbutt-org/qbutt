@@ -7,11 +7,13 @@
 
 #include <QGroupBox>
 
+class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
 class QPushButton;
+class QSpinBox;
 
 namespace Net
 {
@@ -37,6 +39,16 @@ private:
     QLineEdit *m_bootstrapServer;
     QComboBox *m_dnsFamily;
     QPushButton *m_dnsApply;
+    QLineEdit *m_gatewayControlAddress;
+    QLineEdit *m_gatewayDatagramAddress;
+    QLineEdit *m_gatewayServerName;
+    QLineEdit *m_gatewayCaPath;
+    QLineEdit *m_gatewayCertificatePath;
+    QLineEdit *m_gatewayPrivateKeyPath;
+    QSpinBox *m_gatewayPort;
+    QCheckBox *m_gatewayTcp;
+    QCheckBox *m_gatewayUdp;
+    QPushButton *m_gatewayApply;
     QListWidget *m_paths;
     QPushButton *m_refresh;
     QPushButton *m_localFile;

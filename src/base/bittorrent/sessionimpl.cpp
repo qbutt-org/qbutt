@@ -62,6 +62,7 @@
 #include <libtorrent/session_status.hpp>
 #include <libtorrent/torrent_info.hpp>
 #include <libtorrent/torrent_route_policy.hpp>
+#include <libtorrent/trusted_inbound.hpp>
 
 #include <QDateTime>
 #include <QDeadlineTimer>
@@ -4324,22 +4325,33 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
             lt::network_route networkRoute;
             networkRoute.binding = route;
             networkRoute.family = family;
+            lt::error_code publicAddressError;
+            const lt::address publicAddress = lt::make_address(endpoint.publicAddress.toStdString(), publicAddressError);
+            const lt::tcp::endpoint publicEndpoint = (!publicAddressError && (endpoint.publicPort > 0)
+                && (publicAddress.is_v4() == (family == lt::route_family::ipv4)))
+                ? lt::tcp::endpoint {publicAddress, endpoint.publicPort} : lt::tcp::endpoint {};
+            if (endpoint.publicTcp || endpoint.publicUdp)
+                networkRoute.public_endpoint = publicEndpoint;
             allRoutes.push_back(networkRoute);
             if (route.context == pinned)
                 pinnedRoutes.push_back(networkRoute);
             if (!endpoint.supportsUdp)
+                return;
+            if (endpoint.publicUdp && publicEndpoint.address().is_unspecified())
                 return;
 
             lt::udp_route udpRoute;
             udpRoute.route = route;
             udpRoute.family = family;
             udpRoute.enable_utp = true;
-            udpRoute.enable_trackers = true;
             udpRoute.enable_dht = true;
+            udpRoute.enable_trackers = true;
+            udpRoute.external_address = endpoint.publicUdp ? publicEndpoint.address() : lt::address {};
+            udpRoute.public_endpoint = endpoint.publicUdp ? publicEndpoint : lt::tcp::endpoint {};
             udpRoutes.push_back(udpRoute);
             udpRoute.ssl = true;
-            udpRoute.enable_trackers = false;
             udpRoute.enable_dht = false;
+            udpRoute.enable_trackers = false;
             udpRoutes.push_back(std::move(udpRoute));
         };
         if (endpoint.supportsIPv4)
@@ -4361,7 +4373,8 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
             && (left.route.transport == right.route.transport)
             && (left.enable_utp == right.enable_utp) && (left.enable_dht == right.enable_dht)
             && (left.enable_trackers == right.enable_trackers)
-            && (left.external_address == right.external_address);
+            && (left.external_address == right.external_address)
+            && (left.public_endpoint == right.public_endpoint);
     };
     std::vector<lt::udp_route> transitionRoutes = m_managedUdpRoutes;
     for (const lt::udp_route &route : udpRoutes)
@@ -4466,6 +4479,12 @@ bool SessionImpl::addDHTRouteNode(const quint64 pathId, const quint64 generation
 
 bool SessionImpl::resetNetworkRoutes()
 {
+    if (const lt::error_code error = m_nativeSession->set_trusted_inbound_routes({}))
+    {
+        LogMsg(tr("Failed to retire trusted incoming routes. Reason: \"%1\".")
+            .arg(QString::fromStdString(error.message())), Log::WARNING);
+        return false;
+    }
     if (const lt::error_code error = m_nativeSession->set_udp_routes({}))
     {
         LogMsg(tr("Failed to retire managed UDP routes. Reason: \"%1\".")
@@ -4490,6 +4509,61 @@ bool SessionImpl::resetNetworkRoutes()
         m_nativeSession->set_peer_route_selector({});
     m_managedUdpRoutes.clear();
     return true;
+}
+
+bool SessionImpl::setTrustedInboundRoutes(const QList<Net::TrustedInboundRoute> &routes)
+{
+    std::vector<lt::trusted_inbound_route> nativeRoutes;
+    nativeRoutes.reserve(routes.size());
+    for (const Net::TrustedInboundRoute &route : routes)
+    {
+        lt::error_code error;
+        const lt::address publicAddress = lt::make_address(route.publicAddress.toStdString(), error);
+        if (error)
+            return false;
+        const lt::address relayAddress = lt::make_address(route.relayAddress.toStdString(), error);
+        if (error)
+            return false;
+        if ((route.pathId == 0) || (route.generation == 0) || (route.publicPort == 0) || (route.relayPort == 0)
+            || publicAddress.is_unspecified() || publicAddress.is_loopback() || publicAddress.is_multicast()
+            || (relayAddress != lt::address_v4::loopback()))
+        {
+            return false;
+        }
+        nativeRoutes.push_back({
+            .context = {route.pathId, route.generation},
+            .family = publicAddress.is_v4() ? lt::route_family::ipv4 : lt::route_family::ipv6,
+            .public_endpoint = {publicAddress, route.publicPort},
+            .relay_endpoint = {relayAddress, route.relayPort},
+            .enable_tcp = true});
+    }
+    if (const lt::error_code error = m_nativeSession->set_trusted_inbound_routes(std::move(nativeRoutes)))
+    {
+        LogMsg(tr("Failed to replace trusted incoming routes. Reason: \"%1\".")
+            .arg(QString::fromStdString(error.message())), Log::WARNING);
+        return false;
+    }
+    return true;
+}
+
+bool SessionImpl::acceptTrustedInbound(const Net::TrustedInboundRoute &route,
+    const QString &remoteAddress, const quint16 remotePort, const QByteArray &token)
+{
+    if (token.size() != static_cast<qsizetype>(lt::trusted_inbound_token {}.size()))
+        return false;
+    lt::error_code error;
+    const lt::address relayAddress = lt::make_address(route.relayAddress.toStdString(), error);
+    if (error)
+        return false;
+    const lt::address peerAddress = lt::make_address(remoteAddress.toStdString(), error);
+    if (error || (remotePort == 0))
+        return false;
+    lt::trusted_inbound_token nativeToken;
+    std::ranges::copy(token, nativeToken.begin());
+    error = m_nativeSession->async_accept_trusted_inbound({route.pathId, route.generation},
+        {relayAddress, route.relayPort}, {peerAddress, remotePort}, nativeToken);
+    std::ranges::fill(nativeToken, 0);
+    return !error;
 }
 
 void SessionImpl::invalidateNetworkRoute(const quint64 pathId, const quint64 generation)
