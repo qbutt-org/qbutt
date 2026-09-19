@@ -272,6 +272,23 @@ application retires the old descriptor before opening a later outgoing-only
 generation. This proves application integration through a controlled host-local
 gateway. It does not prove public-Internet reachability or NAT/firewall traversal.
 
+`bun run smoke:gateway-wan` is a separate controlled TCP ingress probe. Set
+`QBUTT_WAN_OBSERVER`, `QBUTT_WAN_OBSERVER_IP`, `QBUTT_LAB_NATIVE_INTERFACE`,
+`QBUTT_LAB_GATEWAY_SOURCE` and `QBUTT_LAB_EXE`. The qbutt-net source must be
+fully clean at the lock revision. The driver cross-builds the gateway server
+locally, copies it and one-hour generated TLS credentials into a unique
+`/tmp/qbutt-gateway-*` directory on the observer, and runs only high-port
+gateway and Python peer processes there, each with a 240-second watchdog. It
+changes no remote firewall, routing, service or production configuration.
+The observer's peer initiates the only BitTorrent connection to the leased
+public IPv4 endpoint. The home application must attribute its exact original
+source IP and port to the active path generation and verify the generated
+payload's size and SHA-256. The test also checks real relay/carrier counters
+and terminal lease retirement. Both gateway and peer run on the same remote
+host, so this proves remote-host ingress to home qbutt through its gateway
+carrier, not reachability from an independent third-party Internet host.
+Blocked remote high ports fail explicitly; the fixture does not open them.
+
 The final JSON line points to `evidence.json`, containing exit outcome and checked
 observations; native and seed logs remain beside it. Failed and unsupported
 filesystem scenarios are explicit. Credentials are never printed. Generated

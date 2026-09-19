@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import ipaddress
 import json
 import math
 import os
@@ -56,9 +57,16 @@ async def main():
     if not 1 <= len(payload) <= 32 * 1024 * 1024:
         raise ValueError("Payload must be between 1 byte and 32 MiB")
     piece_length = bounded_integer(config["pieceLength"], 65536, 65536, "pieceLength")
-    count = bounded_integer(config["count"], 4, 4, "count")
+    count = bounded_integer(config["count"], 1, 4, "count")
     rate = bounded_integer(config["rate"], 1024, 1024 * 1024, "rate")
     duration = bounded_integer(config["duration"], 1, 240, "duration")
+    target = config.get("connectTarget")
+    if target is not None:
+        if (count != 1 or not isinstance(target, dict) or set(target) != {"host", "port"}
+                or type(target["host"]) is not str):
+            raise ValueError("Outbound peer requires one numeric target and one piece owner")
+        target = (str(ipaddress.IPv4Address(target["host"])),
+                  bounded_integer(target["port"], 49152, 65535, "target port"))
     piece_count = math.ceil(len(payload) / piece_length)
     if piece_count < count:
         raise ValueError("Each side must own at least one piece")
@@ -101,7 +109,7 @@ async def main():
         except (ValueError, OSError):
             loop.call_soon_threadsafe(enqueue, {"command": "invalid"})
 
-    async def peer(reader, writer, side):
+    async def peer(reader, writer, side, initiator=False):
         task = asyncio.current_task()
         clients.add(task)
         writers.add(writer)
@@ -109,17 +117,23 @@ async def main():
         try:
             if len(connections) >= 32:
                 return
+            local = writer.get_extra_info("sockname")
             record = {"side": side, "remoteIP": writer.get_extra_info("peername")[0],
+                      "localEndpoint": f"{local[0]}:{local[1]}",
                       "peerId": None, "requestedPieces": [], "payloadBytes": 0,
                       "startMonotonic": time.monotonic(), "endMonotonic": None,
                       "firstPayloadMonotonic": None, "lastPayloadMonotonic": None}
             connections.append(record)
+            peer_id = b"-QBWA01-" + secrets.token_hex(6).encode("ascii")
+            if initiator:
+                writer.write(b"\x13BitTorrent protocol" + bytes(8) + info_hash + peer_id)
+                await asyncio.wait_for(writer.drain(), 10)
             handshake = await asyncio.wait_for(reader.readexactly(68), 10)
             if handshake[:20] != b"\x13BitTorrent protocol" or handshake[28:48] != info_hash:
                 raise ValueError("Invalid handshake or infohash")
             record["peerId"] = handshake[48:68].hex()
-            peer_id = b"-QBWA01-" + secrets.token_hex(6).encode("ascii")
-            writer.write(b"\x13BitTorrent protocol" + bytes(8) + info_hash + peer_id)
+            if not initiator:
+                writer.write(b"\x13BitTorrent protocol" + bytes(8) + info_hash + peer_id)
             bitfield = bytearray(math.ceil(piece_count / 8))
             for index in range(side, piece_count, count):
                 bitfield[index // 8] |= 0x80 >> (index % 8)
@@ -203,17 +217,28 @@ async def main():
 
     control_task = None
     stop_task = None
+    outbound_task = None
     try:
-        for side in range(count):
-            server = await asyncio.start_server(
-                lambda reader, writer, side=side: peer(reader, writer, side),
-                "0.0.0.0", 0, limit=32768, backlog=8)
-            servers.append(server)
+        if target is None:
+            for side in range(count):
+                server = await asyncio.start_server(
+                    lambda reader, writer, side=side: peer(reader, writer, side),
+                    "0.0.0.0", 0, limit=32768, backlog=8)
+                servers.append(server)
         ports = [server.sockets[0].getsockname()[1] for server in servers]
-        if min(ports) <= 1024:
+        if ports and min(ports) <= 1024:
             raise ValueError("Unexpected privileged listener")
         emit({"ready": True, "ports": ports, "pieceCount": piece_count})
         threading.Thread(target=read_commands, daemon=True).start()
+        if target is not None:
+            async def outbound():
+                try:
+                    reader, writer = await asyncio.wait_for(asyncio.open_connection(*target), 20)
+                    await peer(reader, writer, 0, True)
+                except (OSError, asyncio.TimeoutError) as error:
+                    errors.append({"side": 0, "error": str(error) or type(error).__name__})
+                    stop.set()
+            outbound_task = asyncio.create_task(outbound())
         control_task = asyncio.create_task(control())
         stop_task = asyncio.create_task(stop.wait())
         done, _ = await asyncio.wait([control_task, stop_task], timeout=duration,
@@ -232,11 +257,11 @@ async def main():
             writer.close()
         for task in tuple(clients):
             task.cancel()
-        for task in (control_task, stop_task):
+        for task in (control_task, stop_task, outbound_task):
             if task is not None:
                 task.cancel()
-        await asyncio.gather(*tuple(clients), *(task for task in (control_task, stop_task)
-                                              if task is not None), return_exceptions=True)
+        await asyncio.gather(*tuple(clients), *(task for task in (control_task, stop_task, outbound_task)
+                                               if task is not None), return_exceptions=True)
         await asyncio.gather(*(server.wait_closed() for server in servers))
         emit({"stopped": True, "connections": connections, "errors": errors})
     return 1 if errors else 0

@@ -17,6 +17,8 @@ export interface ProxyOptions {
     handshakeTimeoutMs?: number;
     maxConnections?: number;
     udp?: boolean;
+    // WAN fixtures may relay only to this one numeric remote IPv4 address.
+    remoteAddress?: string;
 }
 
 export interface ProxyStats {
@@ -60,13 +62,15 @@ export async function startProxy(options: ProxyOptions) {
         throw new Error("Connection limit must be between 1 and 256");
 
     const targets = new Map<string, { host: string; port: number }>();
+    if (options.remoteAddress && isIP(options.remoteAddress) !== 4)
+        throw new Error("The controlled remote SOCKS destination must be numeric IPv4");
     for (const target of options.targets) {
         const host = normalizedHost(target.host);
         const connectHost = normalizedHost(target.connectHost ?? host);
         const connectPort = target.connectPort ?? target.port;
         if (!host || host.includes("\0") || !validPort(target.port)
-            || !isLoopback(connectHost) || !validPort(connectPort))
-            throw new Error("Targets must name an exact host/port and a numeric loopback destination");
+            || (!isLoopback(connectHost) && connectHost !== options.remoteAddress) || !validPort(connectPort))
+            throw new Error("Targets must name an exact host/port and an authorized numeric destination");
         const key = `${host}\0${target.port}`;
         if (targets.has(key))
             throw new Error("Duplicate SOCKS target");
