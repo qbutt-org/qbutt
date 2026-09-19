@@ -427,7 +427,15 @@ Both relays allow all four seed endpoints; only discovery responses are route-lo
 Set `QBUTT_DISCOVERY_PROTOCOL=both` to check automatic uTP-to-TCP retry against the
 same TCP-only seeds; the default is explicit TCP.
 PEX, cross-generation DHT identity changes and real-network discovery remain
-unverified by this scenario. Generated payloads and profiles are removed after
+unverified by `smoke:discovery`. `smoke:pex` reuses its two paths and one public
+torrent with two disjoint, checked partial seeds. Only seed A is supplied through
+`addPeers`; A's controlled libtorrent neighbor link advertises seed B by PEX.
+DHT, LSD and trackers are disabled. B must appear with WebUI source flag `X`,
+deliver payload through the other path generation, and complete exact file
+sizes and SHA-256 hashes with A. Both seeds must retain their original piece
+subsets and report zero payload download from one another. This proves local
+PEX admission and cross-path selection, not Internet peer discovery.
+Generated payloads and profiles are removed after
 owned processes stop; compact evidence and logs remain.
 
 This local lab does not prove physical VPS egress, throughput gain, complete DNS

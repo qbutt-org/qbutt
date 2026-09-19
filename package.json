@@ -26,6 +26,7 @@
     "smoke:path-auth": "bun tests/network-lab/path-auth.ts",
     "smoke:path-dns": "bun tests/network-lab/path-dns.ts",
     "smoke:discovery": "bun tests/network-lab/discovery.ts",
+    "smoke:pex": "bun tests/network-lab/discovery.ts --pex",
     "smoke:policies": "bun tests/policies-smoke.ts",
     "smoke:policies-faults": "bun tests/policies-faults.ts",
     "smoke:qt": "bun tests/qt-acceptance/smoke.ts",

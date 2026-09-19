@@ -19,11 +19,20 @@ save_path = pathlib.Path(sys.argv[2])
 expected_pieces = json.loads(sys.argv[3]) if len(sys.argv) > 3 else None
 listen_address = sys.argv[4] if len(sys.argv) > 4 else "127.0.0.1"
 upload_rate = int(sys.argv[5]) if len(sys.argv) > 5 else 256 * 1024
+neighbor = json.loads(sys.argv[6]) if len(sys.argv) > 6 else None
 address = ipaddress.IPv4Address(listen_address)
 if not address.is_private or address.is_unspecified or address.is_multicast:
     raise RuntimeError("Fixture listener requires an explicit private local IPv4 address")
 if not 1024 <= upload_rate <= 1024 * 1024:
     raise RuntimeError("Fixture upload rate must be bounded between 1 KiB/s and 1 MiB/s")
+if neighbor is not None:
+    if (not isinstance(neighbor, dict) or set(neighbor) != {"host", "port"}
+            or type(neighbor["host"]) is not str or type(neighbor["port"]) is not int):
+        raise RuntimeError("Invalid PEX fixture neighbor")
+    neighbor_address = ipaddress.IPv4Address(neighbor["host"])
+    if (not neighbor_address.is_loopback or neighbor_address == address
+            or not 0 <= neighbor["port"] <= 65535):
+        raise RuntimeError("PEX fixture neighbor must use a distinct loopback address")
 # libtorrent opens UDP on the TCP listen port even with uTP and DHT disabled.
 # Windows may exclude a port for only one protocol; choose a port both can bind
 # instead of treating a disabled-transport bind failure as a healthy seed.
@@ -49,16 +58,21 @@ session = lt.session({
     "enable_incoming_utp": False,
     "enable_outgoing_utp": False,
     "enable_incoming_tcp": True,
-    "enable_outgoing_tcp": False,
+    "enable_outgoing_tcp": bool(neighbor and neighbor["port"]),
     "dht_bootstrap_nodes": "",
     "upload_rate_limit": upload_rate,
     "ignore_limits_on_local_network": False,
+    "close_redundant_connections": False if neighbor is not None else True,
     "connections_limit": 10,
 })
 peer_filter = lt.ip_filter()
 peer_filter.add_rule("0.0.0.0", "255.255.255.255", 1)
 peer_filter.add_rule("::", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", 1)
 peer_filter.add_rule(listen_address, listen_address, 0)
+if neighbor is not None:
+    # The exact-target SOCKS relay connects from the default loopback address.
+    peer_filter.add_rule("127.0.0.1", "127.0.0.1", 0)
+    peer_filter.add_rule(str(neighbor_address), str(neighbor_address), 0)
 session.set_ip_filter(peer_filter)
 params = lt.add_torrent_params()
 params.ti = lt.torrent_info(str(torrent))
@@ -89,6 +103,15 @@ while True:
         if isinstance(alert, (lt.torrent_error_alert, lt.listen_failed_alert)):
             raise RuntimeError(alert.message())
     time.sleep(0.05)
+if neighbor is not None and neighbor["port"]:
+    handle.connect_peer((str(neighbor_address), neighbor["port"]))
+    deadline = time.monotonic() + 20
+    while not any(peer.ip[0] == str(neighbor_address) and peer.progress > 0
+                  for peer in handle.get_peer_info()):
+        if time.monotonic() > deadline:
+            peers = [(peer.ip[0], peer.progress, peer.client) for peer in handle.get_peer_info()]
+            raise RuntimeError(f"PEX fixture peers did not establish their bootstrap link: {peers}")
+        time.sleep(0.05)
 print(json.dumps({"ready": True, "host": listen_address, "port": session.listen_port(),
                   "libtorrent": lt.__version__, "pieces": pieces,
                   "verifiedPayloadBytes": status.total_done}), flush=True)

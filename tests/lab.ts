@@ -59,7 +59,7 @@ async function freePort(): Promise<number> {
     return address.port;
 }
 
-export async function createLab(name: string) {
+export async function createLab(name: string, options: { pex?: boolean } = {}) {
     const executable = process.env.QBUTT_LAB_EXE;
     const python = process.env.QBUTT_LAB_PYTHON;
     const appName = process.env.QBUTT_LAB_APP_NAME ?? "qbutt";
@@ -84,7 +84,7 @@ export async function createLab(name: string) {
     await writeFile(join(config, `${appName}.ini`), [
         "[BitTorrent]",
         `Session\\ResumeDataStorageType=${resumeBackend}`,
-        "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
+        "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", `Session\\PeXEnabled=${options.pex === true}`,
         "Session\\BTProtocol=TCP", "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
         "Session\\IgnoreLimitsOnLAN=false", "Session\\AddExtensionToIncompleteFiles=false",
         "Session\\UseUnwantedFolder=false", "Session\\QueueingSystemEnabled=false",
@@ -145,8 +145,8 @@ export async function createLab(name: string) {
         evidence.buildInfo = await json("app/buildInfo");
         const preferences = await json<Record<string, unknown>>("app/preferences");
         assert(preferences.resume_data_storage_type === resumeBackend, "Native resume backend differs from requested fixture");
-        assert(preferences.dht === false && preferences.lsd === false && preferences.pex === false,
-            "Isolated lab must disable public discovery before adding torrents");
+        assert(preferences.dht === false && preferences.lsd === false && preferences.pex === (options.pex === true),
+            "Isolated lab discovery settings differ from its pre-launch profile");
     }
     async function shutdown() {
         if (!processHandle)
@@ -255,11 +255,13 @@ export async function verifyPayload(root: string, expected: PayloadFile[]): Prom
 }
 
 export async function startSeed(python: string, fixtures: string, name: string, logs: string,
-    options: { savePath?: string; pieces?: number[]; label?: string; listenAddress?: string; uploadRate?: number } = {}) {
+    options: { savePath?: string; pieces?: number[]; label?: string; listenAddress?: string; uploadRate?: number;
+        neighbor?: { host: string; port: number } } = {}) {
     const label = options.label ?? name;
     const child = Bun.spawn([python, join(import.meta.dir, "network-lab", "seed.py"), join(fixtures, `${name}.torrent`),
         options.savePath ?? join(fixtures, "seed"), JSON.stringify(options.pieces ?? null),
-        options.listenAddress ?? "127.0.0.1", String(options.uploadRate ?? 256 * 1024)], {
+        options.listenAddress ?? "127.0.0.1", String(options.uploadRate ?? 256 * 1024),
+        JSON.stringify(options.neighbor ?? null)], {
         stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(logs, `seed-${label}.stderr.log`)),
     });
     const reader = child.stdout.getReader();
