@@ -161,7 +161,7 @@ try {
         certificatePath: join(certificates, "client.pem"), privateKeyPath: join(certificates, "client-key.pem"),
         port: String(ports.listener), tcp: "true", udp: "false" });
     await lab.request("qbuttPaths/open", { configPath: nodeConfig, proxyName: "wan-gateway",
-        edgeId: "wan-gateway", interfaceName: physical[0]!.value });
+        edgeId: "wan-gateway", interfaceName: nativeInterface });
     const readStatus = () => lab.json<Status>("qbuttPaths/status");
     const leased = await waitFor("remote public gateway lease", readStatus, status => !status.busy
         && status.pinned && status.paths.length === 1 && status.paths[0]!.gateway.state === "leased", 30000);
