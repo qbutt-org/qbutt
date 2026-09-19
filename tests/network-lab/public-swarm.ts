@@ -73,7 +73,7 @@ const PAYLOAD_BYTES = 4080486400;
 const PAYLOAD_SHA256 = "97f3d7ffb032c3eb3b23d2c8be9cc76e60c2c1f2c0146ba5ba9fe01cafae0fd8";
 const PIECE_LENGTH = 262144;
 const PIECE_COUNT = 15566;
-const CONTROL_SHA256 = "70322489c36a613eec5788688355fca26268a520d74e3f41ebb2d90c1c8beb0f";
+const CONTROL_SHA256 = "9393e0c523b35a437fb9b356b4c7c7402dbbd9d97b9c1ae519fd01f1219c471e";
 const CONTROL_REVISION = "0b63c3d17373f6132ea211c9dcd4241284ccdfaf";
 
 const qbuttOnly = process.argv.includes("--qbutt-only");

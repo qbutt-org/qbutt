@@ -45,7 +45,7 @@ interface RunResult {
     evidence: string;
 }
 
-const CONTROL_SHA256 = "70322489c36a613eec5788688355fca26268a520d74e3f41ebb2d90c1c8beb0f";
+const CONTROL_SHA256 = "9393e0c523b35a437fb9b356b4c7c7402dbbd9d97b9c1ae519fd01f1219c471e";
 const CONTROL_REVISION = "0b63c3d17373f6132ea211c9dcd4241284ccdfaf";
 const WARMUP_RATE = 1024;
 const TRANSFER_RATE = Number(process.env.QBUTT_BENCH_ROUTE_RATE ?? 96 * 1024);
