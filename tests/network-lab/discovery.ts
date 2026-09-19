@@ -222,17 +222,22 @@ try {
         return current;
     }, current => endpoints.every(endpoint => current.peers.some(peer => peer.infoHash === hash
         && peer.peer === endpoint.host && peer.port === endpoint.port && peer.payloadDownload > 0)), 60000);
+    assert.equal(simultaneous.mode, "tunnels");
     assert(simultaneous.paths.filter(path => path.open).length === 2);
     assert(new Set(simultaneous.peers.map(peer => peer.pathId)).size === 2);
     for (const peer of simultaneous.peers) assert(simultaneous.paths.some(path =>
         path.pathId === peer.pathId && path.generation === peer.generation));
+    const livePeers = await lab.json<{ peers: Record<string, { connection: string }> }>(`sync/torrentPeers?hash=${hash}`);
+    assert(endpoints.every(endpoint => livePeers.peers[`${endpoint.host}:${endpoint.port}`]?.connection === "BT"),
+        "All controlled seeds must be reached over TCP, including automatic retry mode");
     assert(dhtQueries.some(query => query.side === 0 && query.query === "get_peers" && query.matchingInfoHash)
         && dhtQueries.some(query => query.side === 1 && query.query === "get_peers" && query.matchingInfoHash));
     const identities = [0, 1].map(side => new Set(dhtQueries.filter(query => query.side === side).map(query => query.nodeId)));
     assert([...identities[0]!].every(id => !identities[1]!.has(id)), "DHT paths reused a node ID");
     assert(trackerQueries.http > 0 && trackerQueries.udp > 0);
     await lab.checkpoint({ check: "route-local-discovery-union", infoHash: hash, dhtQueries, trackerQueries,
-        protocol, paths: simultaneous.paths, peers: simultaneous.peers, manualPeerInjection: false, pex: "not-tested" });
+        protocol, peerTransport: "TCP", paths: simultaneous.paths, peers: simultaneous.peers,
+        manualPeerInjection: false, pex: "not-tested" });
     await Promise.all(seeds.map(seed => seed.setUploadRate(256 * 1024)));
     await waitFor("discovered peers complete complementary pieces", () => lab.info(hash), info => info.progress === 1, 45000);
     await lab.request("torrents/stop", { hashes: hash });
@@ -254,7 +259,7 @@ finally {
     for (const [side, result] of stopped.entries()) if (result.status === "fulfilled")
         await lab.checkpoint({ check: "discovery-seed-stopped", side, ...result.value });
     tracker?.stop(true);
-    for (const socket of datagrams) socket.close();
+    await Promise.all(datagrams.map(socket => new Promise<void>(accept => socket.close(accept))));
     await lab.checkpoint({ check: "discovery-observations", dhtQueries, trackerQueries, errors,
         proxy: proxies.map(proxy => proxy.stats) });
     for (const name of ["fixtures", "profile", "download", "nodes.json", "partial-0", "partial-1", "partial-2", "partial-3"]) {
@@ -263,5 +268,6 @@ finally {
         catch (error) { failure ??= error; }
     }
 }
+if (!failure && errors.length) failure = new Error(`Discovery fixture errors: ${errors.join("; ")}`);
 await lab.finish(failure);
 if (failure) throw failure;
