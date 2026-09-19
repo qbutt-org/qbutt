@@ -12,6 +12,7 @@
 #include <libtorrent/fwd.hpp>
 
 #include <QByteArray>
+#include <QList>
 #include <QMap>
 #include <QSet>
 #include <QString>
@@ -22,7 +23,8 @@ namespace BitTorrent
     QString repairPathIdentity(const QString &path);
 
     // Owns the handles used to validate and modify a repair data set. Missing
-    // files are left for libtorrent; files outside the mapping are never opened.
+    // nonempty files are left for libtorrent; files outside the mapping are
+    // never opened.
     class RepairFileGuard
     {
     public:
@@ -32,10 +34,14 @@ namespace BitTorrent
         static std::shared_ptr<RepairFileGuard> open(const lt::file_storage &files
             , const QString &savePath, bool writable, QString &error, const std::atomic_bool *cancelled = nullptr
             , bool renameChildren = false);
+        static QList<std::shared_ptr<RepairFileGuard>> openSources(const lt::file_storage &targetFiles
+            , const QMap<int, QString> &sources, QString &error, const std::atomic_bool *cancelled = nullptr);
         ~RepairFileGuard();
 
         QByteArray identity() const;
+        QByteArray directoryIdentity() const;
         QSet<int> existingFiles() const;
+        bool createMissingEmpty(QString &error, const std::atomic_bool *cancelled = nullptr);
         bool truncateOversized(QString &error, const std::atomic_bool *cancelled = nullptr);
         // Permit engine file I/O while retaining directory identities until recheck completes.
         void releaseFiles();
@@ -53,9 +59,18 @@ namespace BitTorrent
             qint64 actualSize = 0;
         };
 
+        struct MissingEmptyFile
+        {
+            int nativeIndex = -1;
+            QString path;
+        };
+
         QMap<QString, void *> m_directoryHandles;
         std::vector<File> m_files;
+        std::vector<MissingEmptyFile> m_missingEmptyFiles;
         QByteArray m_identity;
+        QByteArray m_directoryIdentity;
+        QString m_root;
         bool m_writable = false;
     };
 }

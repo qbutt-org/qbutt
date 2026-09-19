@@ -39,6 +39,7 @@ bun run smoke:proxy
 bun run smoke:network
 bun run smoke:gateway
 bun run smoke:repair
+bun run smoke:repair-product
 bun run smoke:staging
 bun run smoke:completion
 bun run smoke:mixed
@@ -50,12 +51,60 @@ bun run smoke:path-auth
 bun run smoke:path-dns
 ```
 
+Build and run the process-level Qt acceptance executable from the same configured
+tree and deployed bundle:
+
+```powershell
+cmake -S . -B "$env:LOCALAPPDATA/qbutt/build" -DQBUTT_QT_ACCEPTANCE=ON
+cmake --build "$env:LOCALAPPDATA/qbutt/build" --target qbutt-qt-acceptance
+$env:QBUTT_QT_ACCEPTANCE_EXE = "$env:LOCALAPPDATA/qbutt/build/qbutt-qt-acceptance.exe"
+bun run smoke:qt
+```
+
+For a short appearance-only acceptance on the same executable, use
+`bun run smoke:appearance`. It needs no Python, torrent data or transport child.
+Three offscreen app processes check a fresh built-in dark profile against
+`docs/ui-default-layout.json`, change layout and select Light through Qt
+controls, verify those settings after restart, and check an independent
+functional Light/Fusion profile. Header order, hidden state, logical widths,
+Files tab, sidebar action, palette and options controls are asserted; the
+stretched last Files column adapts to its viewport. PNGs and JSON evidence stay
+in the printed temporary directory; successful profiles and the copied Qt
+runtime are removed. These configure/build/run commands still need validation
+against the shared Windows build before reporting the suite as passed.
+
+`smoke:qt` launches the real application offscreen with a new profile. It drives
+repair preview, explicit mappings, staged commit, multiple Paths, completion
+policies, bounded diagnostics export, and a 2,000-row transfer list. The runner
+creates and cancels a 30,000-file source search, measures event-loop response,
+checks payload snapshots before consent, and verifies final bytes and preserved
+unknown files. Set `QBUTT_QT_ACCEPTANCE_BUNDLE` only when the deployed runtime is
+not in the build tree's `portable` directory. This is process/UI-model acceptance,
+not physical desktop interaction or public-network evidence.
+
 To exercise the real qbutt-net child, place its pinned binary beside the app and
 run `smoke:network` with `$env:QBUTT_LAB_PATHS = '1'`. This adds node listing,
 session transition guards, termination of the owned child PID, blocked-path
 retention, a new generation on retry, and explicit stop/return to Native. The
 adapter connects only to the lab SOCKS server through the Windows loopback
 interface; this is lifecycle evidence, not a VPS egress probe.
+
+`smoke:wan` uses an explicitly selected SSH observer (`QBUTT_WAN_OBSERVER`,
+`QBUTT_WAN_OBSERVER_IP`), three standalone subscription nodes
+(`QBUTT_WAN_PROXY_CONFIG`, pipe-separated `QBUTT_WAN_PROXY_NAMES`), and the physical
+`QBUTT_LAB_NATIVE_INTERFACE` / `QBUTT_LAB_NATIVE_ADDRESS`. It transfers one generated
+16 MiB torrent through four simultaneous TCP paths with disjoint piece sets.
+The observer records the actual source IPs; all four must differ, and the local
+file must match its exact size and SHA-256. SSH runs a temporary stdlib Python
+peer with a 240-second watchdog; no production configuration is modified.
+Payload, the private node copy and remote script are removed after the run;
+compact evidence and torrent metadata remain. This proves controlled WAN TCP,
+not discovery, UDP or a general speedup.
+
+`benchmark:public-swarm --qbutt-only` compares qbutt Native, one tunnel and Mixed
+without an upstream control executable. Such reports explicitly omit any
+upstream performance claim. The default comparison still requires the pinned
+upstream executable. Both successful and failed windows clean their payload.
 
 `smoke:native` checks selective download, pause/resume, clean process restart,
 recheck, exact lengths/hashes and payload preservation when removing a torrent.
@@ -70,9 +119,20 @@ explicit consent and operation identity, held write exclusion, corruption,
 extra tails, truncation, renamed mappings, inserted bytes, mutation after an
 index snapshot, preservation of unknown files, and hardlink/reparse rejection.
 It checks authentication even with localhost exemption enabled, exact verified-byte
-accounting, and missing nonzero targets. An absent zero-length target must reject
-apply without creating files.
+accounting, and missing nonzero and zero-length targets. An absent empty target,
+including its absent parent directories, is created only after consent under the
+same exclusive guard used for apply; a target or mapped parent directory appearing
+after analysis is rejected.
 It drives the real session through standard recheck and download after apply.
+
+`smoke:repair-product` drives the standalone Smart Repair entry dialog through
+Qt's offscreen platform before any torrent exists. Build its process-level driver
+against the current production build with `tests/repair-product/build.ts`, then set
+`QBUTT_REPAIR_PREVIEW_DRIVER`. It verifies explicit mappings and separate candidate,
+hash-verified, target-network and staging-storage summaries, a responsive cancelled
+scan, and visible refusal for missing roots, hardlinks and reparse points. Every
+source and target tree is hashed before and after; the driver never clicks Apply,
+so no torrent, resume record, journal or payload write is created.
 
 `smoke:staging` uses independent copies and the same native downloader for full
 and selected v1/v2/hybrid targets. It checks a read-only plan, renamed-source
@@ -102,6 +162,20 @@ The finished manifest remains in the profile's staging directory, and original
 backups remain in the destination's operation directory. No recursive cleanup
 is part of these operations.
 
+`smoke:storage-faults` uses two isolated 96 MiB NTFS VHDX files under its fresh
+temporary lab, mounted one at a time at the same private directory without a
+drive letter. It verifies that newly exhausted space cannot select in-place or
+create staging, a detached target fails closed, and a different VHDX mounted at
+the same private mount path is rejected by the planned volume/directory/file
+identity before the first write. A real Windows sharing conflict must stop commit
+before any rename and remain recoverable after the handle is released. The same
+suite commits through a path longer than 260 characters in a case-sensitive
+directory while preserving two unknown files whose names differ only by case.
+Run it for both Legacy and SQLite resume backends from an elevated shell. The
+fixture also kills the process owning a third, 32 MiB VHDX and proves that the
+next preflight removes only the exact marked mount and image. Every path is
+validated before creation, detachment or deletion.
+
 Set `QBUTT_LAB_RESUME_BACKEND` to `Legacy` (default) or `SQLite` before a suite
 to exercise that native resume store. Startup verifies the requested preference.
 The following additional integration fixtures use the ordinary production build:
@@ -115,6 +189,8 @@ bun tests/repair/staging-receipt.ts
 The journal fixture corrupts persisted selection, identities, mappings and state,
 then requires rejection without changing the active journal or any payload after
 shutdown. It restores the valid journal and checks recovery and replay rejection.
+Version 1 journals remain readable for rollback, but cannot resume a forward
+commit without the volume, directory and file identities recorded by version 2.
 The receipt fixture holds a real Windows sharing conflict on `.fastresume`, or a
 SQLite writer transaction on the owned profile database. Commit must retain the
 journal and suspend ordinary writers when final resume persistence fails. After
@@ -229,8 +305,54 @@ Set `QBUTT_POLICY_EXE` to the built `route-policy-integration.exe` and
 `QBUTT_PUBLIC_IPV4` to the currently observed public IPv4. It proves live policy
 replacement for HTTP/UDP trackers and DHT generations, an authenticated SOCKS
 webseed, an unaffected default session, and automatic managed uTP with exact
-payload bytes and source binding. The address is used as the fixture route's
-explicit external identity; the lab does not send traffic to it.
+payload bytes and source binding. HTTP and UDP tracker captures require the
+configured public address and generic peer port, reject a hostile session-wide
+announce address, and verify identical peer IDs and keys. DHT uses a distinct UDP
+listener port; an outgoing-only route performs `get_peers` without
+`announce_peer`, and anonymous announces suppress addresses while preserving the
+peer port. The local DHT packet source is loopback, so this proves route-local
+node identity and announced port behavior. Public address correctness and
+reachability require the external gateway scenario.
+
+`benchmark:network` runs three or more interleaved rounds for the validated
+unchanged upstream executable, qbutt Native, one authenticated tunnel, and
+RouteSelector Mixed with two tunnels plus the selected physical Native route.
+Set `QBUTT_BENCH_BASELINE_EXE`, `QBUTT_BENCH_QBUTT_EXE`,
+`QBUTT_LAB_PYTHON`, `QBUTT_LAB_NATIVE_INTERFACE`, and
+`QBUTT_LAB_NATIVE_ADDRESS`. The control executable must match the pinned hash in
+`docs/baseline.md`; override the default four counterbalanced rounds with
+`QBUTT_BENCH_ROUNDS=3..9`. Every route starts at a 1 KiB/s warmup cap, then
+uses the same acknowledged `QBUTT_BENCH_ROUTE_RATE` cap (32–512 KiB/s).
+Evidence records connection setup and end-to-end completion separately from timed
+goodput, exact verified bytes, per-route seed and relay counters, redundant
+payload, and WebUI response latency.
+Relay stream bytes include protocol data and are not wire bytes. The local
+single-host TCP topology proves only the stated controlled comparison; its
+evidence lists the untested public, UDP, inbound, resource and last-mile cases.
+
+`benchmark:public-swarm` uses the pinned official Ubuntu 24.04.5 live-server
+torrent and a separate empty profile for every bounded window. Set
+`QBUTT_PUBLIC_SWARM_CONTROL_EXE`, `QBUTT_PUBLIC_SWARM_NATIVE_INTERFACE`, and
+`QBUTT_PUBLIC_SWARM_NATIVE_ADDRESS`. Add `QBUTT_PUBLIC_SWARM_QBUTT_EXE` for the
+counterbalanced upstream/qbutt Native comparison. The executable paths must be
+stable: firewall rules are registered before launch and remain keyed to those
+exact files. Optional one-tunnel and Mixed windows require an ordinary Mihomo
+file in `QBUTT_PUBLIC_SWARM_PROXY_CONFIG` and pipe-separated node names in
+`QBUTT_PUBLIC_SWARM_PROXY_NAMES`; credentials and node names are not copied to
+the fixture JSON.
+
+The default suite runs three upstream-only windows or four rotating comparative
+rounds. A logical window may make up to three attempts; a timeout or WebUI failure
+is recorded in `rejectedAttempts` and never enters the summary. Each accepted
+window stops and flushes the client, reads every completed piece from disk, and
+checks its SHA-1 against the exact pinned torrent. The full ISO SHA-256 is only
+recorded as the expected upstream value because the bounded fixture deliberately
+does not download the full image. Client transfer and qbutt path payload counters
+are reported separately and are not packet-level wire bytes. The verified-rate
+metric counts pieces that become verified during the window; any partial blocks
+received during warmup are not separable and this limit is recorded in evidence.
+Public results show external applicability and variability; release thresholds
+still come from the controlled benchmark.
 
 Run `bun run smoke:mixed-baseline` against the unchanged upstream control or
 alpha application to verify the negative control: each single proxy obtains
@@ -270,6 +392,20 @@ generation rejection, stopping one path while a lookup is pending without
 terminating its healthy neighbour, global stop, and saved settings after restart.
 This checks the application's DNS control boundary; it does not prove that every
 libtorrent tracker, peer, webseed or discovery operation uses that boundary.
+
+`smoke:discovery` uses two managed tunnel paths with exact-target local SOCKS
+relays. Their DHT responders return different peer subsets; HTTP and UDP trackers
+provide two more peers. Four libtorrent seeds own disjoint pieces of one public
+torrent. No peer is injected through `addPeers`: completion requires discovery,
+concurrent payload through both paths and exact file sizes/hashes. The torrent
+is already active when DHT is enabled. The fixture checks read-only DHT messages,
+absence of `announce_peer`, separate node IDs and current peer path generations.
+Both relays allow all four seed endpoints; only discovery responses are route-local.
+Set `QBUTT_DISCOVERY_PROTOCOL=both` to check automatic uTP-to-TCP retry against the
+same TCP-only seeds; the default is explicit TCP.
+PEX, cross-generation DHT identity changes and real-network discovery remain
+unverified by this scenario. Generated payloads and profiles are removed after
+owned processes stop; compact evidence and logs remain.
 
 This local lab does not prove physical VPS egress, throughput gain, complete DNS
 isolation, Koala coexistence or public-Internet inbound. It also does not implement network

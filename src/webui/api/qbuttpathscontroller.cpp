@@ -5,6 +5,9 @@
 
 #include "qbuttpathscontroller.h"
 
+#include "base/bittorrent/infohash.h"
+#include "base/bittorrent/session.h"
+#include "base/bittorrent/torrent.h"
 #include "base/global.h"
 #include "base/net/pathmanager.h"
 #include "apierror.h"
@@ -12,7 +15,20 @@
 void QbuttPathsController::statusAction()
 {
     const auto *manager = Net::PathManager::instance();
-    setResult(manager->statusData(true));
+    QJsonObject status = manager->statusData(true);
+    status.insert(u"diagnostics"_s, BitTorrent::Session::instance()->peerRouteDiagnostics());
+    if (const QString hash = params().value(u"hash"_s); !hash.isEmpty())
+    {
+        const auto *torrent = BitTorrent::Session::instance()->getTorrent(BitTorrent::TorrentID::fromString(hash));
+        if (!torrent)
+            throw APIError(APIErrorType::NotFound);
+        const BitTorrent::TorrentDiagnosticStatus diagnostic = torrent->diagnosticStatus();
+        status.insert(u"torrent"_s, QJsonObject {{u"knownPeers"_s, diagnostic.knownPeers},
+            {u"connectionCandidates"_s, diagnostic.connectionCandidates}, {u"connections"_s, diagnostic.connections},
+            {u"establishedPeers"_s, diagnostic.establishedPeers}, {u"expectsConnections"_s, diagnostic.expectsConnections},
+            {u"expectsDownload"_s, diagnostic.expectsDownload}, {u"isStopped"_s, diagnostic.isStopped}});
+    }
+    setResult(status);
     if (manager->isBusy())
         setStatus(APIStatus::Async);
 }

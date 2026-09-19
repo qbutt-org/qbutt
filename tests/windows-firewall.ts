@@ -34,7 +34,16 @@ foreach ($program in $programs) {
     $name = 'qbutt-lab-' + $hash
     $rule = Get-NetFirewallRule -Name $name -PolicyStore PersistentStore -ErrorAction SilentlyContinue
     if (-not $rule) {
-        New-NetFirewallRule -Name $name -DisplayName ('qbutt lab: ' + [IO.Path]::GetFileName($program)) -Group 'qbutt integration lab' -Program $program -Direction Inbound -Action Allow -Profile Any -Protocol Any -Enabled True | Out-Null
+        try {
+            New-NetFirewallRule -Name $name -DisplayName ('qbutt lab: ' + [IO.Path]::GetFileName($program)) -Group 'qbutt integration lab' -Program $program -Direction Inbound -Action Allow -Profile Any -Protocol Any -Enabled True | Out-Null
+        }
+        catch {
+            # Parallel labs may both observe an absent rule. Accept only the
+            # exact rule created by the other preflight; propagate every other
+            # firewall failure before a fixture process can open a listener.
+            $rule = Get-NetFirewallRule -Name $name -PolicyStore PersistentStore -ErrorAction SilentlyContinue
+            if (-not $rule) { throw }
+        }
     }
     elseif (($rule.Enabled -ne 'True') -or ($rule.Action -ne 'Allow') -or ($rule.Direction -ne 'Inbound')) {
         Set-NetFirewallRule -Name $name -Program $program -Direction Inbound -Action Allow -Profile Any -Protocol Any -Enabled True | Out-Null

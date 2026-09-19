@@ -56,13 +56,14 @@ namespace
     }
 
     lt::network_route nativeRoute(const std::uint64_t pathId, const std::uint64_t generation,
-        const char *address)
+        const char *address, const lt::address &publicAddress, const unsigned short publicPort)
     {
         lt::network_route result;
         result.family = lt::route_family::ipv4;
         result.binding.type = lt::route_descriptor::type_t::native;
         result.binding.context = {pathId, generation};
         result.binding.local_endpoint = {lt::make_address(address), 0};
+        result.public_endpoint = {publicAddress, publicPort};
         return result;
     }
 
@@ -80,6 +81,7 @@ namespace
     }
 
     lt::udp_route udpRoute(const lt::network_route &route, const lt::address &externalAddress,
+        const unsigned short publicPort,
         const bool enableUtp = false, const bool enableDht = true, const bool enableTrackers = true)
     {
         lt::udp_route result;
@@ -89,6 +91,8 @@ namespace
         result.enable_dht = enableDht;
         result.enable_trackers = enableTrackers;
         result.external_address = externalAddress;
+        if (publicPort != 0)
+            result.public_endpoint = {externalAddress, publicPort};
         return result;
     }
 
@@ -157,16 +161,26 @@ int main(const int argc, char **argv) try
     const auto trackerInfo = makeTorrent(root / "tracker-seed", "tracker.bin", trackerPayload,
         {"http://127.0.0.1:" + std::to_string(httpTrackerPort) + "/announce",
             "udp://127.0.0.1:" + std::to_string(udpTrackerPort) + "/announce"}, {});
+    const auto anonymousInfo = makeTorrent(root / "anonymous-seed", "anonymous.bin", trackerPayload,
+        {"http://127.0.0.1:" + std::to_string(httpTrackerPort) + "/announce",
+            "udp://127.0.0.1:" + std::to_string(udpTrackerPort) + "/announce"}, {});
     const auto defaultInfo = makeTorrent(root / "default-seed", "default.bin", trackerPayload,
         {"http://127.0.0.1:" + std::to_string(httpTrackerPort) + "/announce"}, {});
     const auto webInfo = makeTorrent(root / "web-seed", "payload.bin", webPayload,
         {"http://tracker.invalid:" + std::to_string(httpTrackerPort) + "/announce"},
         "http://webseed.invalid:" + std::to_string(webSeedPort) + "/");
     const auto utpInfo = makeTorrent(root / "utp-seed", "utp.bin", utpPayload, {}, {});
+    const auto outgoingDhtInfo = makeTorrent(root / "outgoing-dht", "outgoing.bin", trackerPayload, {}, {});
 
-    const lt::network_route routeA = nativeRoute(1, 1, "127.0.0.2");
-    const lt::network_route routeB = nativeRoute(1, 2, "127.0.0.3");
-    const lt::network_route utpRoute = nativeRoute(3, 1, "127.0.0.6");
+    constexpr unsigned short routeAPublicPort = 41001;
+    constexpr unsigned short routeBPublicPort = 41002;
+    constexpr unsigned short utpPublicPort = 41003;
+    constexpr unsigned short routeAUdpPublicPort = 42001;
+    constexpr unsigned short routeBUdpPublicPort = 42002;
+    const lt::network_route routeA = nativeRoute(1, 1, "127.0.0.2", externalAddress, routeAPublicPort);
+    const lt::network_route routeB = nativeRoute(1, 2, "127.0.0.3", externalAddress, routeBPublicPort);
+    const lt::network_route utpRoute = nativeRoute(3, 1, "127.0.0.6", externalAddress, utpPublicPort);
+    const lt::network_route outgoingDhtRoute = nativeRoute(4, 1, "127.0.0.7", {}, 0);
     const lt::network_route webRoute = socksRoute(proxyPort, username, password);
     lt::torrent_route_policy policyA;
     policyA.mode = lt::torrent_route_policy::mode_t::managed;
@@ -183,10 +197,15 @@ int main(const int argc, char **argv) try
     utpPolicy.mode = lt::torrent_route_policy::mode_t::managed;
     utpPolicy.routes = {utpRoute};
     utpPolicy.pinned = utpRoute.binding.context;
+    lt::torrent_route_policy outgoingDhtPolicy;
+    outgoingDhtPolicy.mode = lt::torrent_route_policy::mode_t::managed;
+    outgoingDhtPolicy.routes = {outgoingDhtRoute};
+    outgoingDhtPolicy.pinned = outgoingDhtRoute.binding.context;
 
     lt::settings_pack settings;
     settings.set_str(lt::settings_pack::listen_interfaces, "");
     settings.set_str(lt::settings_pack::dht_bootstrap_nodes, "");
+    settings.set_str(lt::settings_pack::announce_ip, "192.0.2.123");
     settings.set_bool(lt::settings_pack::enable_dht, true);
     settings.set_bool(lt::settings_pack::enable_lsd, false);
     settings.set_bool(lt::settings_pack::enable_upnp, false);
@@ -198,17 +217,28 @@ int main(const int argc, char **argv) try
     settings.set_bool(lt::settings_pack::announce_to_all_tiers, true);
     settings.set_int(lt::settings_pack::alert_mask, lt::alert_category::all);
     lt::session session {settings};
-    if (session.set_udp_routes({udpRoute(routeA, externalAddress)}))
+    const lt::udp_route udpA = udpRoute(routeA, externalAddress, routeAUdpPublicPort);
+    const lt::udp_route udpB = udpRoute(routeB, externalAddress, routeBUdpPublicPort);
+    const lt::udp_route outgoingDht = udpRoute(outgoingDhtRoute, externalAddress, 0);
+    if (session.set_udp_routes({udpA}))
         return 5;
     if (!waitForRoute(session, routeA.binding.context))
         return 6;
     if (session.add_dht_route_node(routeA.binding.context, lt::route_family::ipv4,
         {lt::address_v4::loopback(), dhtPort}))
         return 7;
-    const auto selectA = [trackerHash = trackerInfo->info_hashes(), policyA, webPolicy]
+    if (session.set_udp_routes({udpA, outgoingDht})
+        || !waitForRoute(session, outgoingDhtRoute.binding.context)
+        || session.add_dht_route_node(outgoingDhtRoute.binding.context, lt::route_family::ipv4,
+            {lt::address_v4::loopback(), dhtPort}))
+        return 7;
+    const auto selectA = [trackerHash = trackerInfo->info_hashes(),
+        outgoingDhtHash = outgoingDhtInfo->info_hashes(), policyA, outgoingDhtPolicy, webPolicy]
         (const lt::torrent_route_request &request)
     {
-        return (request.info_hashes == trackerHash) ? policyA : webPolicy;
+        if (request.info_hashes == trackerHash)
+            return policyA;
+        return (request.info_hashes == outgoingDhtHash) ? outgoingDhtPolicy : webPolicy;
     };
     if (session.set_torrent_route_policy_selector(selectA))
         return 8;
@@ -220,29 +250,41 @@ int main(const int argc, char **argv) try
     trackerAdd.flags &= ~(lt::torrent_flags::paused | lt::torrent_flags::auto_managed);
     trackerAdd.flags |= lt::torrent_flags::disable_lsd | lt::torrent_flags::disable_pex;
     session.add_torrent(trackerAdd);
-    if (!waitForFile(markers / "http-a", 10s))
+    lt::add_torrent_params outgoingDhtAdd;
+    outgoingDhtAdd.ti = outgoingDhtInfo;
+    outgoingDhtAdd.save_path = (root / "download").string();
+    outgoingDhtAdd.file_priorities = {lt::dont_download};
+    outgoingDhtAdd.flags &= ~(lt::torrent_flags::paused | lt::torrent_flags::auto_managed);
+    outgoingDhtAdd.flags |= lt::torrent_flags::disable_lsd | lt::torrent_flags::disable_pex;
+    session.add_torrent(outgoingDhtAdd);
+    if (!waitForFile(markers / "http-a", 10s)
+        || !waitForFile(markers / "udp-a", 10s)
+        || !waitForFile(markers / "dht-a", 10s)
+        || !waitForFile(markers / "dht-outgoing", 10s))
         return 9;
 
-    const lt::udp_route udpA = udpRoute(routeA, externalAddress);
-    const lt::udp_route udpB = udpRoute(routeB, externalAddress);
-    if (session.set_udp_routes({udpA, udpB}))
+    if (session.set_udp_routes({udpA, udpB, outgoingDht}))
         return 10;
     if (!waitForRoute(session, routeB.binding.context))
         return 11;
     if (session.add_dht_route_node(routeB.binding.context, lt::route_family::ipv4,
         {lt::address_v4::loopback(), dhtPort}))
         return 12;
-    const auto selectB = [trackerHash = trackerInfo->info_hashes(), utpHash = utpInfo->info_hashes(),
-        policyB, webPolicy, utpPolicy]
+    const auto selectB = [trackerHash = trackerInfo->info_hashes(), anonymousHash = anonymousInfo->info_hashes(),
+        utpHash = utpInfo->info_hashes(),
+        outgoingDhtHash = outgoingDhtInfo->info_hashes(), policyB, webPolicy, utpPolicy, outgoingDhtPolicy]
         (const lt::torrent_route_request &request)
     {
-        if (request.info_hashes == trackerHash)
+        if (request.info_hashes == trackerHash || request.info_hashes == anonymousHash)
             return policyB;
+        if (request.info_hashes == outgoingDhtHash)
+            return outgoingDhtPolicy;
         return (request.info_hashes == utpHash) ? utpPolicy : webPolicy;
     };
+    std::ofstream(markers / "phase-b").put('1');
     if (session.set_torrent_route_policy_selector(selectB))
         return 13;
-    if (session.set_udp_routes({udpB}))
+    if (session.set_udp_routes({udpB, outgoingDht}))
         return 14;
 
     bool httpReply = false;
@@ -263,7 +305,8 @@ int main(const int argc, char **argv) try
         }
         if (httpReply && udpReply && fs::exists(markers / "http-b")
             && fs::exists(markers / "udp-a") && fs::exists(markers / "udp-b")
-            && fs::exists(markers / "dht-a") && fs::exists(markers / "dht-b"))
+            && fs::exists(markers / "dht-a") && fs::exists(markers / "dht-b")
+            && fs::exists(markers / "dht-outgoing"))
         {
             break;
         }
@@ -271,10 +314,30 @@ int main(const int argc, char **argv) try
     }
     if (!httpReply || !udpReply || !fs::exists(markers / "http-b")
         || !fs::exists(markers / "udp-a") || !fs::exists(markers / "udp-b")
-        || !fs::exists(markers / "dht-a") || !fs::exists(markers / "dht-b"))
+        || !fs::exists(markers / "dht-a") || !fs::exists(markers / "dht-b")
+        || !fs::exists(markers / "dht-outgoing"))
     {
         return 15;
     }
+
+    std::ofstream(markers / "phase-anonymous").put('1');
+    lt::settings_pack anonymousSettings;
+    anonymousSettings.set_bool(lt::settings_pack::anonymous_mode, true);
+    session.apply_settings(anonymousSettings);
+    lt::add_torrent_params anonymousAdd;
+    anonymousAdd.ti = anonymousInfo;
+    anonymousAdd.save_path = (root / "download").string();
+    anonymousAdd.file_priorities = {lt::dont_download};
+    anonymousAdd.flags &= ~(lt::torrent_flags::paused | lt::torrent_flags::auto_managed);
+    anonymousAdd.flags |= lt::torrent_flags::disable_dht | lt::torrent_flags::disable_lsd
+        | lt::torrent_flags::disable_pex;
+    session.add_torrent(anonymousAdd);
+    if (!waitForFile(markers / "http-anonymous", 10s)
+        || !waitForFile(markers / "udp-anonymous", 10s))
+        return 22;
+    anonymousSettings.set_bool(lt::settings_pack::anonymous_mode, false);
+    session.apply_settings(anonymousSettings);
+    std::ofstream(markers / "phase-anonymous-end").put('1');
 
     lt::add_torrent_params webAdd;
     webAdd.ti = webInfo;
@@ -299,6 +362,12 @@ int main(const int argc, char **argv) try
     defaultSettings.set_bool(lt::settings_pack::enable_upnp, false);
     defaultSettings.set_bool(lt::settings_pack::enable_natpmp, false);
     lt::session defaultSession {defaultSettings};
+    const auto defaultListenDeadline = std::chrono::steady_clock::now() + 10s;
+    while ((defaultSession.listen_port() == 0)
+        && (std::chrono::steady_clock::now() < defaultListenDeadline))
+        std::this_thread::sleep_for(20ms);
+    if (defaultSession.listen_port() == 0)
+        return 17;
     lt::add_torrent_params defaultAdd;
     defaultAdd.ti = defaultInfo;
     defaultAdd.save_path = (root / "download").string();
@@ -331,13 +400,15 @@ int main(const int argc, char **argv) try
         | lt::torrent_flags::disable_pex;
     const lt::torrent_handle seedTorrent = seedSession.add_torrent(seedAdd);
     const auto seedDeadline = std::chrono::steady_clock::now() + 15s;
-    while (!seedTorrent.status().is_seeding && (std::chrono::steady_clock::now() < seedDeadline))
+    while ((!seedTorrent.status().is_seeding || (seedSession.listen_port() == 0))
+        && (std::chrono::steady_clock::now() < seedDeadline))
         std::this_thread::sleep_for(20ms);
     if (!seedTorrent.status().is_seeding || (seedSession.listen_port() == 0))
         return 18;
 
-    const lt::udp_route managedUtp = udpRoute(utpRoute, externalAddress, true, false, false);
-    if (session.set_udp_routes({udpB, managedUtp}))
+    const lt::udp_route managedUtp = udpRoute(utpRoute, externalAddress, utpPublicPort,
+        true, false, false);
+    if (session.set_udp_routes({udpB, outgoingDht, managedUtp}))
         return 19;
     if (!waitForRoute(session, utpRoute.binding.context))
         return 20;

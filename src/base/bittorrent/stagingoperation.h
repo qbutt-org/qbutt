@@ -16,6 +16,7 @@
 #include <QSet>
 #include <QStringList>
 
+#include "base/3rdparty/expected.hpp"
 #include "repairanalysis.h"
 
 namespace BitTorrent
@@ -29,6 +30,14 @@ namespace BitTorrent
     class StagingOperation
     {
     public:
+        struct StorageRequirement
+        {
+            qint64 requiredBytes = 0;
+            qint64 availableBytes = 0;
+        };
+
+        static nonstd::expected<StorageRequirement, QString> storageRequirement(
+            const lt::file_storage &files, const QString &destination, const QMap<int, QString> &sources = {});
         static QString journalPath(const QString &torrentId);
         static QString pendingDestination(const QString &torrentId);
         static std::unique_ptr<StagingOperation> plan(const QString &journalPath, const QString &torrentId

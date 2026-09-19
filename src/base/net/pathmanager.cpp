@@ -226,7 +226,7 @@ Net::PathManager::PathManager()
     m_network.setProxy(QNetworkProxy::NoProxy);
     connect(&m_timeout, &QTimer::timeout, this, [this]()
     {
-        fail(m_pendingRequest.value(u"method"_s) == u"resolve"_s
+        fail(m_pendingRequest.value(u"method"_s).toString().startsWith(u"resolve")
             ? tr("qbutt-net did not complete DNS resolution within 8 seconds.")
             : tr("qbutt-net did not respond within 15 seconds."));
     });
@@ -295,6 +295,41 @@ Net::PathManager::PathManager()
                 break;
             }
         }
+    });
+    connect(BitTorrent::Session::instance(), &BitTorrent::Session::udpRouteReady,
+        this, &PathManager::queueDhtBootstrap);
+    connect(this, &PathManager::changed, this, &PathManager::processDhtBootstrap, Qt::QueuedConnection);
+    connect(BitTorrent::Session::instance(), &BitTorrent::Session::dhtSettingsChanged, this, [this]()
+    {
+        m_dhtBootstrap.clear();
+        m_bootstrapRequestId = 0;
+        const auto queue = [this](const PeerRouteEndpoint &endpoint)
+        {
+            if (endpoint.supportsUdp)
+            {
+                if (endpoint.supportsIPv4)
+                    queueDhtBootstrap(endpoint.pathId, endpoint.generation, false);
+                if (endpoint.supportsIPv6)
+                    queueDhtBootstrap(endpoint.pathId, endpoint.generation, true);
+            }
+        };
+        for (const ActivePath &path : m_paths)
+            queue(path.endpoint);
+        for (const PeerRouteEndpoint &endpoint : m_nativeEndpoints)
+            queue(endpoint);
+    });
+    connect(this, &PathManager::hostResolved, this, [this](const qint64 requestId, const quint64 pathId,
+        const quint64 generation, const QList<QHostAddress> &addresses, const QString &)
+    {
+        if ((requestId != m_bootstrapRequestId) || m_dhtBootstrap.isEmpty())
+            return;
+        m_bootstrapRequestId = 0;
+        const DhtBootstrap &bootstrap = m_dhtBootstrap.front();
+        if ((bootstrap.pathId != pathId) || (bootstrap.generation != generation))
+            return;
+        for (const QHostAddress &address : addresses)
+            BitTorrent::Session::instance()->addDHTRouteNode(pathId, generation, address, bootstrap.port);
+        processDhtBootstrap();
     });
     if (ProxyConfigurationManager::instance()->hasRuntimeProxy())
     {
@@ -550,15 +585,76 @@ bool Net::PathManager::setDnsPolicy(const QString &server, const QString &bootst
     return true;
 }
 
+const Net::PeerRouteEndpoint *Net::PathManager::findEndpoint(const quint64 pathId, const quint64 generation) const
+{
+    for (const ActivePath &path : m_paths)
+    {
+        if ((path.endpoint.pathId == pathId) && (path.endpoint.generation == generation) && (path.endpoint.port > 0))
+            return &path.endpoint;
+    }
+    for (const PeerRouteEndpoint &endpoint : m_nativeEndpoints)
+    {
+        if ((endpoint.pathId == pathId) && (endpoint.generation == generation))
+            return &endpoint;
+    }
+    return nullptr;
+}
+
+void Net::PathManager::queueDhtBootstrap(const quint64 pathId, const quint64 generation, const bool ipv6)
+{
+    if (!BitTorrent::Session::instance()->isDHTEnabled() || !findEndpoint(pathId, generation))
+        return;
+    if (!std::ranges::any_of(m_dhtBootstrap, [=](const DhtBootstrap &entry)
+        { return (entry.pathId == pathId) && (entry.generation == generation) && (entry.ipv6 == ipv6); }))
+    {
+        m_dhtBootstrap.append({pathId, generation, ipv6});
+        QMetaObject::invokeMethod(this, &PathManager::processDhtBootstrap, Qt::QueuedConnection);
+    }
+}
+
+void Net::PathManager::processDhtBootstrap()
+{
+    if (isBusy() || (m_bootstrapRequestId != 0) || !BitTorrent::Session::instance()->isDHTEnabled())
+        return;
+    const QStringList nodes = BitTorrent::Session::instance()->getDHTBootstrapNodes().split(u',', Qt::SkipEmptyParts);
+    while (!m_dhtBootstrap.isEmpty())
+    {
+        DhtBootstrap &bootstrap = m_dhtBootstrap.front();
+        if (!findEndpoint(bootstrap.pathId, bootstrap.generation) || (bootstrap.nodeIndex >= nodes.size()))
+        {
+            m_dhtBootstrap.removeFirst();
+            continue;
+        }
+        const QUrl node(u"tcp://"_s + nodes[bootstrap.nodeIndex++].trimmed(), QUrl::StrictMode);
+        if (!node.isValid() || node.host().isEmpty() || !node.userInfo().isEmpty()
+            || !node.path().isEmpty() || node.hasQuery() || node.hasFragment() || (node.port() <= 0))
+        {
+            continue;
+        }
+        bootstrap.port = node.port();
+        const QHostAddress numeric(node.host());
+        if (!numeric.isNull())
+        {
+            if ((numeric.protocol() == QAbstractSocket::IPv6Protocol) == bootstrap.ipv6)
+                BitTorrent::Session::instance()->addDHTRouteNode(bootstrap.pathId,
+                    bootstrap.generation, numeric, bootstrap.port);
+            continue;
+        }
+        m_bootstrapRequestId = resolveHost(QString::number(bootstrap.pathId), bootstrap.generation,
+            node.host(), bootstrap.ipv6 ? u"ipv6"_s : u"ipv4"_s);
+        if (m_bootstrapRequestId != 0)
+            return;
+    }
+}
+
 qint64 Net::PathManager::resolveHost(const QString &pathId, const quint64 generation,
     const QString &host, const QString &family)
 {
     if (controlBusy())
         return 0;
-    const auto path = std::ranges::find(m_paths, pathId.toULongLong(),
-        [](const ActivePath &entry) { return entry.endpoint.pathId; });
-    if ((m_process.state() != QProcess::Running) || (path == m_paths.end()) || (path->endpoint.port == 0)
-        || (QString::number(path->endpoint.pathId) != pathId) || (path->endpoint.generation != generation)
+    const PeerRouteEndpoint *endpoint = findEndpoint(pathId.toULongLong(), generation);
+    if ((m_process.state() != QProcess::Running) || !endpoint
+        || (QString::number(endpoint->pathId) != pathId)
         || host.isEmpty() || (host.toUtf8().size() > 1024) || !validDnsFamily(family))
     {
         reportError(tr("Choose an active path generation, a hostname and a valid address family."));
@@ -567,8 +663,15 @@ qint64 Net::PathManager::resolveHost(const QString &pathId, const quint64 genera
     m_resolution = {{u"requestId"_s, m_nextId + 1}, {u"pathId"_s, pathId},
         {u"generation"_s, static_cast<qint64>(generation)}, {u"family"_s, family}, {u"state"_s, u"pending"_s}};
     const qint64 requestId = m_nextId + 1;
-    request({{u"method"_s, u"resolve"_s}, {u"pathId"_s, pathId},
-        {u"generation"_s, static_cast<qint64>(generation)}, {u"host"_s, host}, {u"family"_s, family}});
+    QJsonObject message {{u"method"_s, u"resolve"_s}, {u"pathId"_s, pathId},
+        {u"generation"_s, static_cast<qint64>(generation)}, {u"host"_s, host}, {u"family"_s, family}};
+    if (endpoint->type == PeerRouteEndpoint::Type::Native)
+    {
+        message.insert(u"method"_s, u"resolveNative"_s);
+        message.insert(u"interfaceName"_s, QNetworkInterface::interfaceFromIndex(endpoint->interfaceIndex).humanReadableName());
+        message.insert(u"dns"_s, dnsPolicy());
+    }
+    request(std::move(message));
     return requestId;
 }
 
@@ -947,7 +1050,7 @@ void Net::PathManager::send(QJsonObject message)
         fail(tr("Unable to send a bounded qbutt-net control request."));
         return;
     }
-    m_timeout.start(message.value(u"method"_s) == u"resolve"_s ? 8000 : 15000);
+    m_timeout.start(message.value(u"method"_s).toString().startsWith(u"resolve") ? 8000 : 15000);
 }
 
 void Net::PathManager::sendQueuedRequest()
@@ -1056,7 +1159,8 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         }
         else
         {
-            if (method == u"resolve")
+            const bool bootstrapRequest = request.value(u"id"_s).toInteger() == m_bootstrapRequestId;
+            if ((method == u"resolve") || (method == u"resolveNative"))
                 finishResolution({}, u"path_dns_failed"_s);
             if ((method == u"open") && m_rolloverOpening)
             {
@@ -1068,7 +1172,10 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             else
             {
                 sendQueuedRequest();
-                reportError(tr("qbutt-net rejected the request. Check the selected node and interface."));
+                if (!bootstrapRequest)
+                    reportError(tr("qbutt-net rejected the request. Check the selected node and interface."));
+                else
+                    emit changed();
             }
         }
         return;
@@ -1379,12 +1486,13 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             path->wire = *wire;
         }
     }
-    else if (method == u"resolve")
+    else if ((method == u"resolve") || (method == u"resolveNative"))
     {
+        const PeerRouteEndpoint *endpoint = findEndpoint(request.value(u"pathId"_s).toString().toULongLong(),
+            static_cast<quint64>(request.value(u"generation"_s).toInteger()));
         const auto path = std::ranges::find(m_paths, request.value(u"pathId"_s).toString().toULongLong(),
             [](const ActivePath &entry) { return entry.endpoint.pathId; });
-        if ((path == m_paths.end()) || (path->endpoint.port == 0)
-            || (path->endpoint.generation != static_cast<quint64>(request.value(u"generation"_s).toInteger())))
+        if (!endpoint)
         {
             finishResolution({}, u"path_stopped"_s);
         }
@@ -1399,7 +1507,14 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             }
             QList<QHostAddress> addresses;
             const QString family = request.value(u"family"_s).toString();
-            const QString policyFamily = path->dnsPolicy.value(u"family"_s).toString();
+            const QString policyFamily = ((method == u"resolveNative")
+                ? request.value(u"dns"_s).toObject() : path->dnsPolicy).value(u"family"_s).toString();
+            if ((method == u"resolveNative") && ((result.value(u"pathId"_s) != request.value(u"pathId"_s))
+                || (result.value(u"generation"_s) != request.value(u"generation"_s))))
+            {
+                fail(tr("qbutt-net returned a mismatched DNS path generation."));
+                return;
+            }
             for (const QJsonValue &value : values)
             {
                 const QHostAddress address(value.toString());
@@ -1721,7 +1836,7 @@ void Net::PathManager::reportError(const QString &message)
 
 void Net::PathManager::stopPath(const QString &pathId)
 {
-    const bool resolving = (m_pendingRequest.value(u"method"_s) == u"resolve"_s);
+    const bool resolving = m_pendingRequest.value(u"method"_s).toString().startsWith(u"resolve");
     if (!pathId.isEmpty() && controlBusy() && (!resolving || !m_requestQueue.isEmpty()))
         return;
     if (!pathId.isEmpty())
@@ -1806,6 +1921,8 @@ bool Net::PathManager::finishStopPath(const QString &pathId)
 
 bool Net::PathManager::shutdown()
 {
+    m_dhtBootstrap.clear();
+    m_bootstrapRequestId = 0;
     finishResolution({}, u"path_stopped"_s);
     auto *session = BitTorrent::Session::instance();
     m_gatewayRenewal.stop();

@@ -29,9 +29,15 @@
 
 #include "transferlistmodel.h"
 
+#include <algorithm>
+#include <utility>
+
 #include <QApplication>
 #include <QDateTime>
 #include <QDebug>
+#include <QFutureWatcher>
+#include <QPointer>
+#include <QTimer>
 
 #include "base/bittorrent/infohash.h"
 #include "base/bittorrent/session.h"
@@ -542,7 +548,7 @@ QVariant TransferListModel::data(const QModelIndex &index, const int role) const
     if (!index.isValid())
         return {};
 
-    const BitTorrent::Torrent *torrent = m_torrentList.value(index.row());
+    BitTorrent::Torrent *const torrent = m_torrentList.value(index.row());
     if (!torrent)
         return {};
 
@@ -558,6 +564,12 @@ QVariant TransferListModel::data(const QModelIndex &index, const int role) const
         return internalValue(torrent, index.column(), false);
     case AdditionalUnderlyingDataRole:
         return internalValue(torrent, index.column(), true);
+    case NetworkPathsRole:
+        return m_networkState.value(torrent).paths;
+    case PeerSourcesRole:
+        return m_networkState.value(torrent).peerSources;
+    case NetworkDetailsKnownRole:
+        return m_networkState.value(torrent).known;
     case Qt::DecorationRole:
         if (index.column() == TR_NAME)
             return getIconByState(torrent->state());
@@ -657,6 +669,9 @@ void TransferListModel::addTorrents(const QList<BitTorrent::Torrent *> &torrents
     }
 
     endInsertRows();
+
+    for (BitTorrent::Torrent *torrent : torrents)
+        queueNetworkScan(torrent);
 }
 
 Qt::ItemFlags TransferListModel::flags(const QModelIndex &index) const
@@ -674,6 +689,54 @@ BitTorrent::Torrent *TransferListModel::torrentHandle(const QModelIndex &index) 
     return m_torrentList.value(index.row());
 }
 
+QStringList TransferListModel::networkPaths() const
+{
+    return m_networkPaths;
+}
+
+void TransferListModel::refreshNetworkCatalog()
+{
+    for (BitTorrent::Torrent *torrent : asConst(m_torrentList))
+    {
+        if (m_networkCatalogScans.contains(torrent))
+            continue;
+        m_networkCatalogScans.insert(torrent);
+        queueNetworkScan(torrent, true);
+    }
+}
+
+void TransferListModel::setNetworkDetailsRequired(const bool required)
+{
+    if (m_networkDetailsRequired == required)
+        return;
+    m_networkDetailsRequired = required;
+    if (!required)
+    {
+        for (qsizetype index = m_networkScanQueue.size(); index > 0; --index)
+        {
+            BitTorrent::Torrent *const torrent = m_networkScanQueue.at(index - 1);
+            if (!m_networkCatalogScans.contains(torrent))
+            {
+                m_networkScanQueue.removeAt(index - 1);
+                m_queuedNetworkScans.remove(torrent);
+            }
+        }
+        m_networkScanReruns.removeIf([this](BitTorrent::Torrent *torrent)
+        {
+            return !m_networkCatalogScans.contains(torrent);
+        });
+        return;
+    }
+    for (BitTorrent::Torrent *torrent : asConst(m_torrentList))
+        m_networkState.insert(torrent, {});
+    if (!m_torrentList.isEmpty())
+        emit dataChanged(index(0, 0), index(rowCount() - 1, 0));
+    for (BitTorrent::Torrent *torrent : asConst(m_torrentList))
+        queueNetworkScan(torrent);
+    queueNetworkUpdate(nullptr);
+    scheduleNetworkRefresh();
+}
+
 void TransferListModel::handleTorrentAboutToBeRemoved(BitTorrent::Torrent *const torrent)
 {
     const int row = m_torrentMap.value(torrent, -1);
@@ -682,12 +745,20 @@ void TransferListModel::handleTorrentAboutToBeRemoved(BitTorrent::Torrent *const
     beginRemoveRows({}, row, row);
     m_torrentList.removeAt(row);
     m_torrentMap.remove(torrent);
+    m_networkState.remove(torrent);
+    m_networkScanQueue.removeAll(torrent);
+    m_queuedNetworkScans.remove(torrent);
+    m_activeNetworkScans.remove(torrent);
+    m_networkScanReruns.remove(torrent);
+    m_networkCatalogScans.remove(torrent);
+    m_pendingNetworkUpdates.remove(torrent);
     for (int &value : m_torrentMap)
     {
         if (value > row)
             --value;
     }
     endRemoveRows();
+    queueNetworkUpdate(nullptr);
 }
 
 void TransferListModel::handleTorrentStatusUpdated(BitTorrent::Torrent *const torrent)
@@ -696,6 +767,7 @@ void TransferListModel::handleTorrentStatusUpdated(BitTorrent::Torrent *const to
     Q_ASSERT(row >= 0);
 
     emit dataChanged(index(row, 0), index(row, columnCount() - 1));
+    queueNetworkScan(torrent);
 }
 
 void TransferListModel::handleTorrentsUpdated(const QList<BitTorrent::Torrent *> &torrents)
@@ -710,12 +782,150 @@ void TransferListModel::handleTorrentsUpdated(const QList<BitTorrent::Torrent *>
             Q_ASSERT(row >= 0);
 
             emit dataChanged(index(row, 0), index(row, columns));
+            queueNetworkScan(torrent);
         }
     }
     else
     {
         // save the overhead when more than half of the torrent list needs update
         emit dataChanged(index(0, 0), index((rowCount() - 1), columns));
+        for (BitTorrent::Torrent *const torrent : torrents)
+            queueNetworkScan(torrent);
+    }
+}
+
+void TransferListModel::queueNetworkScan(BitTorrent::Torrent *const torrent, const bool catalogScan)
+{
+    if (!m_networkDetailsRequired && !catalogScan)
+        return;
+    if (!m_torrentMap.contains(torrent))
+        return;
+    if (m_activeNetworkScans.contains(torrent))
+    {
+        m_networkScanReruns.insert(torrent);
+        return;
+    }
+    if (m_queuedNetworkScans.contains(torrent))
+        return;
+    m_networkScanQueue.enqueue(torrent);
+    m_queuedNetworkScans.insert(torrent);
+    startNextNetworkScans();
+}
+
+void TransferListModel::scheduleNetworkRefresh()
+{
+    if (!m_networkDetailsRequired || m_networkRefreshScheduled)
+        return;
+    m_networkRefreshScheduled = true;
+    QTimer::singleShot(1000, this, [this]
+    {
+        m_networkRefreshScheduled = false;
+        if (!m_networkDetailsRequired)
+            return;
+        for (BitTorrent::Torrent *torrent : asConst(m_torrentList))
+            queueNetworkScan(torrent);
+        scheduleNetworkRefresh();
+    });
+}
+
+void TransferListModel::startNextNetworkScans()
+{
+    constexpr qsizetype MAX_CONCURRENT_SCANS = 4;
+    while ((m_activeNetworkScanCount < MAX_CONCURRENT_SCANS) && !m_networkScanQueue.isEmpty())
+    {
+        BitTorrent::Torrent *const torrent = m_networkScanQueue.dequeue();
+        m_queuedNetworkScans.remove(torrent);
+        if (!m_torrentMap.contains(torrent))
+        {
+            m_networkCatalogScans.remove(torrent);
+            continue;
+        }
+        const quint64 token = ++m_nextNetworkScanToken;
+        m_activeNetworkScans.insert(torrent, token);
+        ++m_activeNetworkScanCount;
+        auto *watcher = new QFutureWatcher<BitTorrent::TorrentPeerDiagnosticStatus> {this};
+        const QPointer<BitTorrent::Torrent> torrentGuard {torrent};
+        connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, torrent, torrentGuard, token]
+        {
+            NetworkState next;
+            const BitTorrent::TorrentPeerDiagnosticStatus status = watcher->result();
+            const bool ownsScan = m_activeNetworkScans.value(torrent) == token;
+            const bool rerun = ownsScan && m_networkScanReruns.remove(torrent);
+            if (ownsScan && (m_networkDetailsRequired || m_networkCatalogScans.contains(torrent))
+                && torrentGuard && m_torrentMap.contains(torrent))
+            {
+                QSet<QString> paths;
+                for (const BitTorrent::PeerPathDiagnosticStatus &path : status.paths)
+                {
+                    paths.insert(QString::number(path.pathId) + u':' + QString::number(path.generation));
+                    next.peerSources |= path.sourceMask;
+                }
+                next.paths = paths.values();
+                std::ranges::sort(next.paths);
+                next.known = status.known;
+                if (m_networkState.value(torrent) != next)
+                {
+                    m_networkState.insert(torrent, next);
+                    queueNetworkUpdate(torrent);
+                }
+            }
+            if (ownsScan)
+            {
+                m_activeNetworkScans.remove(torrent);
+                if (!rerun)
+                    m_networkCatalogScans.remove(torrent);
+            }
+            Q_ASSERT(m_activeNetworkScanCount > 0);
+            --m_activeNetworkScanCount;
+            watcher->deleteLater();
+            if (rerun && torrentGuard && m_torrentMap.contains(torrent))
+                queueNetworkScan(torrent, m_networkCatalogScans.contains(torrent));
+            startNextNetworkScans();
+        });
+        watcher->setFuture(torrent->fetchPeerDiagnosticStatus());
+    }
+}
+
+void TransferListModel::queueNetworkUpdate(BitTorrent::Torrent *const torrent)
+{
+    m_pendingNetworkUpdates.insert(torrent);
+    if (m_networkUpdateScheduled)
+        return;
+    m_networkUpdateScheduled = true;
+    QTimer::singleShot(50, this, &TransferListModel::flushNetworkUpdates);
+}
+
+void TransferListModel::flushNetworkUpdates()
+{
+    m_networkUpdateScheduled = false;
+    QList<int> rows;
+    rows.reserve(m_pendingNetworkUpdates.size());
+    for (BitTorrent::Torrent *torrent : asConst(m_pendingNetworkUpdates))
+    {
+        const int row = m_torrentMap.value(torrent, -1);
+        if (row >= 0)
+            rows.append(row);
+    }
+    m_pendingNetworkUpdates.clear();
+    std::ranges::sort(rows);
+    for (qsizetype begin = 0; begin < rows.size();)
+    {
+        qsizetype end = begin;
+        while (((end + 1) < rows.size()) && (rows[end + 1] == (rows[end] + 1)))
+            ++end;
+        emit dataChanged(index(rows[begin], 0), index(rows[end], 0));
+        begin = end + 1;
+    }
+
+    QSet<QString> observed;
+    for (const NetworkState &state : asConst(m_networkState))
+        observed.unite(QSet<QString>(state.paths.cbegin(), state.paths.cend()));
+    QStringList paths = observed.values();
+    std::ranges::sort(paths);
+    if (m_networkPaths != paths)
+    {
+        m_networkPaths = std::move(paths);
+        emit networkPathsChanged();
     }
 }
 

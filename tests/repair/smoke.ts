@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, link, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { cp, link, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { sha256 } from "../fixtures/generate";
 import { createLab, startSeed, verifyPayload, waitFor, type TorrentFile } from "../lab";
@@ -36,6 +36,7 @@ async function snapshot(root: string, prefix = ""): Promise<Record<string, strin
 
 const lab = await createLab("repair");
 const finalSnapshots: { path: string; files: Record<string, string> }[] = [];
+const protectedSnapshots: { path: string; files: Record<string, string> }[] = [];
 let failure: unknown;
 try {
     await lab.start();
@@ -61,12 +62,15 @@ try {
         const seed = await startSeed(lab.python, lab.fixtures, name, lab.root);
         try {
             const variants = name === "v1"
-                ? ["corrupt", "grow", "shrink", "renamed", "unknown", "inserted", "source-mutated", "missing-nonzero", "missing-empty", "hardlink", "reparse"]
-                : ["corrupt", "grow", "shrink", "missing-nonzero", "missing-empty"];
+                ? ["corrupt", "grow", "shrink", "renamed", "unknown", "inserted", "source-mutated", "missing-nonzero", "missing-empty", "missing-empty-directory", "hardlink", "reparse"]
+                : ["corrupt", "grow", "shrink", "missing-nonzero", "missing-empty", "missing-empty-directory"];
             for (const variant of variants) {
                 const destination = join(lab.root, "candidates", name, variant);
-                const missingPath = variant === "missing-empty" ? "bundle/empty.bin"
+                const missingPath = variant === "missing-empty-directory" ? "bundle/new-empty/deep/empty.bin"
+                    : variant === "missing-empty" ? "bundle/empty.bin"
                     : variant === "missing-nonzero" ? "bundle/nested/beta.bin" : undefined;
+                const missingSize = variant.startsWith("missing-empty") ? 0
+                    : missingPath ? lab.manifest.payload.find(item => item.path === missingPath)!.size : undefined;
                 await mkdir(join(lab.root, "candidates", name), { recursive: true });
                 await cp(missingPath ? join(lab.fixtures, "seed") : join(lab.fixtures, "variants", variant),
                     destination, { recursive: true });
@@ -76,6 +80,8 @@ try {
                 if (guardedTarget)
                     assert(lab.manifest.filesystemNegatives.reparse?.status === "ready", "Reparse fixture is unsupported on this filesystem");
                 const guardedBefore = guardedTarget ? await snapshot(guardedTarget) : undefined;
+                if (guardedTarget)
+                    protectedSnapshots.push({ path: guardedTarget, files: guardedBefore! });
                 const hash = await lab.add(name, destination);
                 if (variant === "renamed") {
                     await lab.request("torrents/renameFile", {
@@ -84,9 +90,18 @@ try {
                     await waitFor("renamed torrent mapping", () => lab.json<TorrentFile[]>(`torrents/files?hash=${hash}`),
                         files => files.some(file => file.name === "bundle/renamed.bin"));
                 }
+                else if (variant === "missing-empty-directory") {
+                    await lab.request("torrents/renameFile", {
+                        hash, oldPath: "bundle/empty.bin", newPath: missingPath!,
+                    });
+                    await waitFor("missing empty directory mapping", () => lab.json<TorrentFile[]>(`torrents/files?hash=${hash}`),
+                        files => files.some(file => file.name === missingPath));
+                }
                 await waitFor("candidate stopped", () => lab.info(hash), info => info.state.startsWith("stopped"));
                 if (missingPath)
-                    await unlink(join(destination, missingPath));
+                    variant === "missing-empty-directory"
+                        ? await rm(join(destination, "bundle", "new-empty"), { recursive: true, force: true })
+                        : await unlink(join(destination, missingPath));
                 const before = await snapshot(destination);
                 const response = await lab.request("qbuttRepair/analyze", { hash });
                 let operation = await response.json() as RepairStatus;
@@ -94,6 +109,9 @@ try {
                     status => status.state === "analyzed" || status.state === "failed");
                 assert.deepEqual(await snapshot(destination), before,
                     `${name}/${variant}: read-only analysis changed candidate data`);
+                if (variant === "missing-empty-directory")
+                    await assert.rejects(stat(join(destination, "bundle", "new-empty")), { code: "ENOENT" },
+                        "Read-only analysis created a missing target directory");
                 if (guardedTarget)
                     assert.deepEqual(await snapshot(guardedTarget), guardedBefore, "Reparse target was modified");
                 if (variant === "hardlink")
@@ -101,7 +119,7 @@ try {
                         "Hardlink alias was modified");
                 if (variant === "hardlink" || variant === "reparse") {
                     assert(analysis.state === "failed", `${variant}: unsafe candidate was accepted`);
-                    await lab.checkpoint({ name, variant, check: "unsafe-path-rejected", readOnly: true });
+                    await lab.checkpoint({ name, variant, check: "unsafe-path-rejected", analysisReadOnly: true });
                     await lab.request("qbuttRepair/cancel", { id: operation.id });
                 }
                 else {
@@ -123,12 +141,69 @@ try {
                             "Cancellation did not release locks and permit a fresh analysis");
                         assert.deepEqual(await snapshot(destination), before, "Re-analysis changed candidate data");
                     }
+                    if (name === "v1" && variant === "missing-empty") {
+                        const racedPath = join(destination, missingPath!);
+                        let raced = false;
+                        try {
+                            await writeFile(racedPath, Buffer.alloc(0));
+                            raced = true;
+                        }
+                        catch (error) {
+                            assert(["EPERM", "EACCES", "EBUSY"].includes((error as NodeJS.ErrnoException).code ?? ""),
+                                `Unexpected missing-target race error: ${String(error)}`);
+                        }
+                        if (raced) {
+                            const racedSnapshot = await snapshot(destination);
+                            await lab.request("qbuttRepair/apply", { id: operation.id, consent: "true" });
+                            const rejected = await waitFor("raced missing target rejection", () => lab.json<RepairStatus>("qbuttRepair/status"),
+                                status => status.state === "failed");
+                            assert(rejected.error, "Missing-target race failed without a diagnostic");
+                            assert.deepEqual(await snapshot(destination), racedSnapshot,
+                                "Rejected missing-target race changed candidate data");
+                            await lab.request("qbuttRepair/cancel", { id: operation.id });
+                            await unlink(racedPath);
+                            const previousId = operation.id;
+                            operation = await (await lab.request("qbuttRepair/analyze", { hash })).json() as RepairStatus;
+                            analysis = await waitFor("analysis after missing-target race", () => lab.json<RepairStatus>("qbuttRepair/status"),
+                                status => status.state === "analyzed" || status.state === "failed");
+                            assert(analysis.state === "analyzed" && analysis.analysis && operation.id !== previousId,
+                                "Rejected missing-target race did not permit a fresh analysis");
+                            assert.deepEqual(await snapshot(destination), before,
+                                "Missing-target race cleanup changed candidate data");
+                        }
+                        await lab.checkpoint({ name, variant, check: "missing-target-race",
+                            outcome: raced ? "identity-change-rejected" : "external-create-blocked" });
+                    }
+                    if (name === "v1" && variant === "missing-empty-directory") {
+                        const racedParent = join(destination, "bundle", "new-empty", "deep");
+                        await mkdir(racedParent, { recursive: true });
+                        await lab.request("qbuttRepair/apply", { id: operation.id, consent: "true" });
+                        const rejected = await waitFor("raced missing directory rejection",
+                            () => lab.json<RepairStatus>("qbuttRepair/status"), status => status.state === "failed");
+                        assert(rejected.error, "Missing-directory race failed without a diagnostic");
+                        await assert.rejects(stat(join(destination, missingPath!)), { code: "ENOENT" },
+                            "Rejected missing-directory race created the empty target");
+                        assert.deepEqual(await readdir(racedParent), [],
+                            "Rejected missing-directory race changed the external directory");
+                        await lab.checkpoint({ name, variant, check: "directory-identity-change-rejected" });
+                        await lab.request("qbuttRepair/cancel", { id: operation.id });
+                        await rm(join(destination, "bundle", "new-empty"), { recursive: true });
+                        const previousId = operation.id;
+                        operation = await (await lab.request("qbuttRepair/analyze", { hash })).json() as RepairStatus;
+                        analysis = await waitFor("analysis after missing-directory race",
+                            () => lab.json<RepairStatus>("qbuttRepair/status"),
+                            status => status.state === "analyzed" || status.state === "failed");
+                        assert(analysis.state === "analyzed" && analysis.analysis && operation.id !== previousId,
+                            "Rejected missing-directory race did not permit a fresh analysis");
+                        assert.deepEqual(await snapshot(destination), before,
+                            "Missing-directory race cleanup changed candidate data");
+                    }
                     const summary = analysis.analysis!;
                     assert(summary.expected_bytes === lab.manifest.payload.reduce((sum, file) => sum + file.size, 0),
                         "Repair byte accounting included padding or omitted payload");
                     if (missingPath)
                         assert(summary.files.some(file => resolve(file.path) === join(destination, missingPath) && file.actual_size === -1
-                            && file.expected_size === lab.manifest.payload.find(item => item.path === missingPath)!.size),
+                            && file.expected_size === missingSize),
                             "Read-only analysis did not identify the absent target");
                     if (variant === "corrupt") {
                         // v1's damaged boundary piece owns 16 KiB of payload.
@@ -138,7 +213,7 @@ try {
                         assert(summary.verified_bytes === summary.expected_bytes - invalidBytes,
                             `${name}: incorrect verified-byte accounting for the corrupted boundary piece`);
                     }
-                    if (variant === "grow" || variant === "renamed" || variant === "unknown" || variant === "missing-empty")
+                    if (variant === "grow" || variant === "renamed" || variant === "unknown" || variant.startsWith("missing-empty"))
                         assert(summary.verified_bytes === summary.expected_bytes, `${variant}: valid content was not recognized`);
                     else
                         assert(summary.verified_bytes < summary.expected_bytes, `${variant}: damaged content was reported fully verified`);
@@ -155,33 +230,29 @@ try {
                     const applied = await waitFor("managed repair apply", () => lab.json<RepairStatus>("qbuttRepair/status"),
                         status => status.state === "checked" || status.state === "failed");
                     await lab.request("qbuttRepair/cancel", { id: operation.id });
-                    if (variant === "missing-empty") {
-                        assert(applied.state === "failed", "Apply accepted an absent zero-length target");
-                        assert.deepEqual(await snapshot(destination), before,
-                            "Rejected apply created or changed payload files");
-                        await lab.checkpoint({ name, variant, check: "unsafe-creation-rejected", readOnly: true });
+                    assert(applied.state === "checked", `Repair apply/recheck failed: ${applied.error}`);
+                    if (variant === "missing-nonzero")
+                        assert.deepEqual(await snapshot(destination), before, "Managed recheck created or changed payload before download");
+                    if (variant.startsWith("missing-empty"))
+                        assert((await stat(join(destination, missingPath!))).size === 0,
+                            "Managed apply did not create the exact empty target under its exclusive guard");
+                    await waitFor("repair engine recheck", () => lab.info(hash), info => info.state.startsWith("stopped"));
+                    await lab.request("torrents/start", { hashes: hash });
+                    await lab.request("torrents/addPeers", { hashes: hash, peers: `${seed.host}:${seed.port}` });
+                    await waitFor("repaired download", () => lab.info(hash), info => info.progress === 1);
+                    await lab.request("torrents/stop", { hashes: hash });
+                    await waitFor("repaired stop", () => lab.info(hash), info => info.state === "stoppedUP");
+                    const expected = lab.manifest.payload.map(file => ({
+                        ...file, path: variant === "renamed" && file.path === "bundle/alpha.bin" ? "bundle/renamed.bin"
+                            : variant === "missing-empty-directory" && file.path === "bundle/empty.bin" ? missingPath! : file.path,
+                    }));
+                    const verifiedBytes = await verifyPayload(destination, expected);
+                    if (variant === "unknown") {
+                        const path = join("bundle", "user-notes.txt");
+                        assert((await snapshot(destination))[path] === before[path], "Unknown user file changed");
                     }
-                    else {
-                        assert(applied.state === "checked", `Repair apply/recheck failed: ${applied.error}`);
-                        if (variant === "missing-nonzero")
-                            assert.deepEqual(await snapshot(destination), before, "Managed recheck created or changed payload before download");
-                        await waitFor("repair engine recheck", () => lab.info(hash), info => info.state.startsWith("stopped"));
-                        await lab.request("torrents/start", { hashes: hash });
-                        await lab.request("torrents/addPeers", { hashes: hash, peers: `${seed.host}:${seed.port}` });
-                        await waitFor("repaired download", () => lab.info(hash), info => info.progress === 1);
-                        await lab.request("torrents/stop", { hashes: hash });
-                        await waitFor("repaired stop", () => lab.info(hash), info => info.state === "stoppedUP");
-                        const expected = lab.manifest.payload.map(file => ({
-                            ...file, path: variant === "renamed" && file.path === "bundle/alpha.bin" ? "bundle/renamed.bin" : file.path,
-                        }));
-                        const verifiedBytes = await verifyPayload(destination, expected);
-                        if (variant === "unknown") {
-                            const path = join("bundle", "user-notes.txt");
-                            assert((await snapshot(destination))[path] === before[path], "Unknown user file changed");
-                        }
-                        await lab.checkpoint({ name, variant, check: "analyze-consent-repair-recheck", readOnly: true,
-                            reusedVerifiedBytes: summary.verified_bytes, verifiedBytes, exactSizes: true });
-                    }
+                    await lab.checkpoint({ name, variant, check: "analyze-consent-repair-recheck", analysisReadOnly: true,
+                        reusedVerifiedBytes: summary.verified_bytes, verifiedBytes, exactSizes: true });
                 }
                 finalSnapshots.push({ path: destination, files: await snapshot(destination) });
                 await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
@@ -196,7 +267,11 @@ try {
     for (const candidate of finalSnapshots)
         assert.deepEqual(await snapshot(candidate.path), candidate.files,
             "Torrent removal or shutdown changed candidate files");
-    await lab.checkpoint({ check: "payload-preserved-after-remove-and-shutdown", candidates: finalSnapshots.length });
+    for (const target of protectedSnapshots)
+        assert.deepEqual(await snapshot(target.path), target.files,
+            "Torrent removal or shutdown changed a rejected reparse target");
+    await lab.checkpoint({ check: "payload-preserved-after-remove-and-shutdown",
+        candidates: finalSnapshots.length, protectedTargets: protectedSnapshots.length });
 }
 catch (error) {
     failure = error;

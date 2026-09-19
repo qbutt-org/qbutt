@@ -32,6 +32,7 @@
 #include <functional>
 
 #include <QtContainerFwd>
+#include <QPointer>
 #include <QTreeView>
 
 #include "base/bittorrent/infohash.h"
@@ -39,6 +40,7 @@
 #include "transferlistmodel.h"
 
 class Path;
+class NetworkDiagnosticsDialog;
 class TransferListSortModel;
 
 namespace BitTorrent
@@ -93,6 +95,7 @@ public slots:
     void openDestinationFolder(const BitTorrent::Torrent *torrent);
     void recheckSelectedTorrents();
     void repairSelectedTorrent();
+    void diagnoseSelectedTorrent();
     void reannounceSelectedTorrents();
     void setTorrentOptions();
     void previewSelectedTorrents();
@@ -103,6 +106,8 @@ public slots:
     void applyTagFilter(const std::optional<Tag> &tag);
     void applyTrackerFilter(const std::optional<QString> &trackerHost);
     void applyAnnounceStatusFilter(const std::optional<BitTorrent::TorrentAnnounceStatus> &announceStatus);
+    void applyPathFilter(const std::optional<QString> &pathId);
+    void applySourceFilter(const std::optional<int> &sourceFlag);
     void previewFile(const Path &filePath);
     void renameSelectedTorrent();
 
@@ -143,4 +148,7 @@ private:
 
     TransferListModel *m_listModel = nullptr;
     TransferListSortModel *m_sortFilterModel = nullptr;
+    QPointer<NetworkDiagnosticsDialog> m_diagnosticsDialog;
+    std::optional<QString> m_pathFilter;
+    std::optional<int> m_sourceFilter;
 };

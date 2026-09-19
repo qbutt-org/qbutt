@@ -12,7 +12,9 @@ interface PathStatus {
     open: boolean;
     processId: number;
     generation: number;
+    mode: "pinned" | "mixed" | "tunnels";
     nodes: { name: string; type: string }[];
+    paths: { pathId: string; generation: number; edgeId: string; open: boolean }[];
 }
 
 const pathsMode = process.env.QBUTT_LAB_PATHS === "1";
@@ -23,7 +25,7 @@ let proxy: Awaited<ReturnType<typeof startProxy>> | undefined;
 let tracker: ReturnType<typeof Bun.serve> | undefined;
 try {
     seed = await startSeed(lab.python, lab.fixtures, "v1", lab.root);
-    const trackerRequests: { remoteAddress: string | undefined; event: string | null; infoHashPresent: boolean }[] = [];
+    const trackerRequests: { remoteAddress: string | undefined; infoHashPresent: boolean }[] = [];
     tracker = Bun.serve({
         hostname: "127.0.0.1", port: 0,
         fetch(request, server) {
@@ -31,7 +33,6 @@ try {
             assert(url.pathname === "/announce", "Unexpected tracker path");
             trackerRequests.push({
                 remoteAddress: server.requestIP(request)?.address,
-                event: url.searchParams.get("event"),
                 infoHashPresent: url.searchParams.has("info_hash"),
             });
             return new Response("d8:intervali60e5:peers0:e", { headers: { "Content-Type": "text/plain" } });
@@ -53,6 +54,9 @@ try {
     const readPath = () => lab.json<PathStatus>("qbuttPaths/status");
     const configure = async () => {
         if (pathsMode) {
+            const current = await readPath();
+            if (current.paths.some(path => path.edgeId === "fixture" && path.open))
+                return;
             await lab.request("qbuttPaths/open", pathRequest);
             const opened = await waitFor("qbutt-net open", readPath, status => !status.busy);
             assert(opened.open && opened.pinned, "qbutt-net did not open the controlled path");
@@ -88,11 +92,16 @@ try {
         assert(listed.nodes.length === 2 && listed.nodes[0]!.name === "fixture", "Controlled node listing failed");
         const admissionHash = await lab.add("v1", join(lab.root, "admission"));
         await lab.request("qbuttPaths/open", pathRequest);
-        const rejected = await readPath();
-        assert(!rejected.pinned && !rejected.open, "Native-to-Pinned admitted with a retained torrent");
+        const opened = await waitFor("path added to retained session", readPath, status => !status.busy);
+        assert(opened.pinned && opened.open && opened.mode === "pinned"
+            && opened.paths.some(path => path.edgeId === "fixture" && path.open),
+            "A retained torrent did not accept the new managed route");
+        const retained = await lab.json<{ hash: string }[]>(`torrents/info?hashes=${admissionHash}`);
+        assert(retained.length === 1 && retained[0]!.hash === admissionHash,
+            "Adding a path replaced or removed the live torrent session");
         await lab.request("torrents/delete", { hashes: admissionHash, deleteFiles: "false" });
         await waitFor("admission job removal", () => lab.json<unknown[]>("torrents/info"), torrents => torrents.length === 0);
-        await lab.checkpoint({ check: "initial-path-transition-requires-empty-session", nodes: listed.nodes });
+        await lab.checkpoint({ check: "path-added-with-retained-session", generation: opened.generation, nodes: listed.nodes });
     }
     await configure();
     if (pathsMode) {
@@ -106,12 +115,6 @@ try {
     }
     const destination = join(lab.root, "downloads");
     const hash = await lab.add("v1", destination);
-    if (pathsMode) {
-        await lab.request("qbuttPaths/native", {});
-        const rejected = await readPath();
-        assert(rejected.pinned && rejected.open, "Pinned-to-Native admitted with a retained torrent");
-        await lab.checkpoint({ check: "native-transition-requires-empty-session" });
-    }
     await lab.request("torrents/addTrackers", { hash, urls: `http://127.0.0.2:${tracker.port}/announce` });
     await lab.request("torrents/start", { hashes: hash });
     await lab.request("torrents/addPeers", { hashes: hash, peers: `127.0.0.2:${seed.port}` });
@@ -173,21 +176,17 @@ try {
         verifiedBytes, exactSizes: true, relay: { ...proxy.stats } });
     if (pathsMode) {
         await lab.request("qbuttPaths/stop", {});
-        const stopped = await readPath();
-        assert(stopped.pinned && !stopped.open && stopped.processId === 0, "Path stop failed to retain blocked mode");
+        const stopped = await waitFor("path stop", readPath,
+            status => !status.busy && !status.open && status.processId === 0);
+        assert(stopped.pinned, "Path stop failed to retain blocked mode");
+        await lab.request("qbuttPaths/native", {});
+        assert(!(await readPath()).pinned, "Retained session did not return to Native");
+        assert((await lab.json<{ hash: string }[]>(`torrents/info?hashes=${hash}`)).length === 1,
+            "Returning to Native replaced or removed the live torrent session");
+        assert(await verifyPayload(destination, lab.manifest.payload) === verifiedBytes, "Path shutdown changed payload");
+        await lab.checkpoint({ check: "path-stop-and-retained-session-native", verifiedBytes });
         await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
         await waitFor("final job removal", () => lab.json<unknown[]>("torrents/info"), torrents => torrents.length === 0);
-        await lab.request("qbuttPaths/native", {});
-        assert(!(await readPath()).pinned, "Empty session did not return to Native");
-        assert(await verifyPayload(destination, lab.manifest.payload) === verifiedBytes, "Path shutdown removed payload");
-        await lab.checkpoint({ check: "path-stop-and-empty-session-native", verifiedBytes });
-        const hiddenHash = lab.manifest.torrents.find(torrent => torrent.name === "v1-64k")!.infoHashV1!;
-        const metadata = await lab.request("torrents/fetchMetadata", { source: `magnet:?xt=urn:btih:${hiddenHash}` });
-        assert(metadata.status === 202, "Hidden metadata fixture was not queued");
-        assert((await lab.json<unknown[]>("torrents/info")).length === 0, "Metadata job unexpectedly became a visible torrent");
-        await lab.request("qbuttPaths/open", pathRequest);
-        assert(!(await readPath()).pinned, "Path transition ignored a hidden metadata job");
-        await lab.checkpoint({ check: "hidden-metadata-blocks-native-to-pinned" });
     }
     await lab.shutdown();
     assert(await verifyPayload(destination, lab.manifest.payload) === verifiedBytes, "Shutdown changed verified payload");

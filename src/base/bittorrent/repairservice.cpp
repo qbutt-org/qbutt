@@ -8,7 +8,6 @@
 #include <exception>
 
 #include <QDir>
-#include <QDirIterator>
 #include <QFileInfo>
 #include <QPromise>
 #include <QSet>
@@ -16,102 +15,12 @@
 #include "base/path.h"
 #include "common.h"
 #include "repairfileguard.h"
+#include "repairplan.h"
 #include "sessionimpl.h"
 #include "stagingoperation.h"
 #include "torrentimpl.h"
 
 using namespace BitTorrent;
-
-namespace
-{
-    QMap<int, QString> findSources(const lt::file_storage &files, const QString &destination
-        , const QStringList &roots, const QMap<int, QString> &explicitMappings, QString &error, const std::atomic_bool &cancelled)
-    {
-        QMap<qint64, QStringList> bySize;
-        QSet<QString> indexed;
-        int inspected = 0;
-        if (roots.size() > 32)
-        {
-            error = QStringLiteral("Select at most 32 source directories per analysis.");
-            return {};
-        }
-        for (const QString &root : roots)
-        {
-            const QFileInfo directory(root);
-            if (!directory.isDir() || directory.isSymbolicLink() || directory.isJunction())
-            {
-                error = QStringLiteral("Select ordinary source directories without links or junctions.");
-                return {};
-            }
-            auto rootGuard = RepairFileGuard::open(lt::file_storage {}, root, false, error);
-            if (!rootGuard)
-                return {};
-            QStringList directories {root};
-            while (!directories.isEmpty())
-            {
-                QDirIterator iterator(directories.takeLast(), QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot);
-                while (iterator.hasNext())
-                {
-                    if (cancelled.load(std::memory_order_relaxed))
-                    {
-                        error = QStringLiteral("Source indexing cancelled.");
-                        return {};
-                    }
-                    const QString path = QDir::cleanPath(QDir::fromNativeSeparators(iterator.next()));
-                    const QFileInfo info = iterator.fileInfo();
-                    if (++inspected > 100000)
-                    {
-                        error = QStringLiteral("The selected source roots exceed 100000 entries. Select narrower directories.");
-                        return {};
-                    }
-                    if (info.isSymbolicLink() || info.isJunction() || indexed.contains(path))
-                        continue;
-                    if (info.isDir())
-                    {
-                        directories.append(path);
-                        continue;
-                    }
-                    indexed.insert(path);
-                    bySize[info.size()].append(path);
-                }
-            }
-        }
-        QMap<int, QString> mappings = explicitMappings;
-        for (const lt::file_index_t index : files.file_range())
-        {
-            if (files.pad_file_at(index) || mappings.contains(int(index)))
-                continue;
-            const QString relative = QDir::fromNativeSeparators(QString::fromStdString(files.file_path(index)));
-            QStringList exact;
-            for (const QString &root : roots)
-            {
-                const QString path = QDir(root).filePath(relative);
-                if (QFileInfo::exists(path) && !exact.contains(path))
-                    exact.append(path);
-            }
-            if (!exact.isEmpty())
-            {
-                mappings.insert(int(index), exact.first());
-                continue;
-            }
-            const QStringList candidates = bySize.value(files.file_size(index));
-            QStringList names;
-            for (const QString &path : candidates)
-            {
-                if (QFileInfo(path).fileName().compare(QFileInfo(relative).fileName(), Qt::CaseInsensitive) == 0)
-                    names.append(path);
-            }
-            const QStringList &matches = names.isEmpty() ? candidates : names;
-            if (matches.size() == 1)
-                mappings.insert(int(index), matches.first());
-            else if (QFileInfo::exists(QDir(destination).filePath(relative)))
-                mappings.insert(int(index), QDir(destination).filePath(relative));
-            // Ambiguous metadata never becomes a claimed match. Explicit native
-            // file mappings resolve it; otherwise the engine downloads the file.
-        }
-        return mappings;
-    }
-}
 
 RepairService::RepairService(Torrent *torrent, QObject *parent)
     : QObject {parent}
@@ -444,7 +353,8 @@ void RepairService::analyzeDrainedData()
             return;
         if (m_staged)
         {
-            const QMap<int, QString> sources = findSources(m_files, m_savePath, m_sourceRoots, m_sourceMappings, m_error, m_cancelled);
+            const QMap<int, QString> sources = findRepairSources(
+                m_files, m_savePath, m_sourceRoots, m_sourceMappings, m_error, &m_cancelled);
             if (!m_error.isEmpty())
                 return;
             m_staging = StagingOperation::plan(StagingOperation::journalPath(m_torrent->id().toString())
@@ -489,18 +399,6 @@ void RepairService::apply()
         fail(tr("Torrent ownership changed. Analyze the data again."));
         return;
     }
-    for (const RepairFileAnalysis &file : m_analysis.files)
-    {
-        // libtorrent initialize_storage creates absent zero-length files even
-        // during recheck. This slice does not safely reserve missing paths for
-        // that write. Nonzero missing targets are read-only during the check.
-        if ((file.expectedSize == 0) && (file.actualSize < 0))
-        {
-            fail(tr("This repair slice cannot apply while a zero-length target file is missing. "
-                "Create it with the normal downloader, stop the torrent, and analyze again."));
-            return;
-        }
-    }
     snapshotOtherFiles();
 
     m_state = State::Applying;
@@ -519,6 +417,8 @@ void RepairService::apply()
             m_error = tr("The data changed after analysis. No repair changes were made; analyze it again.");
             return;
         }
+        if (!m_guard->createMissingEmpty(m_error, &m_cancelled))
+            return;
         m_guard->truncateOversized(m_error, &m_cancelled);
     });
 }

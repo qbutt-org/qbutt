@@ -41,6 +41,7 @@
 #include "base/preferences.h"
 #include "base/utils/compare.h"
 #include "transferlistfilters/categoryfilterwidget.h"
+#include "transferlistfilters/networkfilterwidget.h"
 #include "transferlistfilters/statusfilterwidget.h"
 #include "transferlistfilters/tagfilterwidget.h"
 #include "transferlistfilters/trackersfilterwidget.h"
@@ -113,6 +114,15 @@ TransferListFiltersWidget::TransferListFiltersWidget(QWidget *parent, TransferLi
             m_transferList->applyTagFilter(enabled ? tagFilterWidget->currentTag() : std::nullopt);
         });
         connect(item, &TransferListFiltersWidgetItem::toggled, pref, &Preferences::setTagFilterState);
+        mainWidgetLayout->addWidget(item);
+    }
+
+    {
+        auto *networkFilterWidget = new NetworkFilterWidget(this, transferList);
+        auto *item = new TransferListFiltersWidgetItem(tr("Network"), networkFilterWidget, this);
+        item->setChecked(true);
+        connect(item, &TransferListFiltersWidgetItem::toggled, networkFilterWidget, &NetworkFilterWidget::toggleFilter);
+        networkFilterWidget->toggleFilter(item->isChecked());
         mainWidgetLayout->addWidget(item);
     }
 

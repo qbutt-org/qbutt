@@ -185,6 +185,56 @@ namespace
     }
 }
 
+nonstd::expected<StagingOperation::StorageRequirement, QString> StagingOperation::storageRequirement(
+    const lt::file_storage &files, const QString &destination, const QMap<int, QString> &sources)
+{
+    const QStorageInfo storage(destination);
+    if (!storage.isValid() || !storage.isReady())
+        return nonstd::make_unexpected(QStringLiteral("Cannot inspect storage for the target destination."));
+    const qint64 allocationUnit = std::max<qint64>(4096, storage.blockSize());
+    qint64 required = 0;
+    qint64 journalBytes = allocationUnit;
+    const auto accountJournalString = [&journalBytes](const QString &value, const qint64 fixedBytes = 0)
+    {
+        const qint64 maximum = std::numeric_limits<qint64>::max();
+        if (value.size() > ((maximum - fixedBytes) / 4))
+            return false;
+        const qint64 bytes = fixedBytes + (static_cast<qint64>(value.size()) * 4);
+        if (journalBytes > (maximum - bytes))
+            return false;
+        journalBytes += bytes;
+        return true;
+    };
+    if (!accountJournalString(destination, 4096))
+        return nonstd::make_unexpected(QStringLiteral("The target exceeds supported storage accounting."));
+    for (const lt::file_index_t index : files.file_range())
+    {
+        if (files.pad_file_at(index))
+            continue;
+        const qint64 size = files.file_size(index);
+        const QString relative = relativePath(files, index);
+        const qint64 overhead = (relative.count(u'/') + 3) * allocationUnit;
+        if ((size < 0) || (required > (std::numeric_limits<qint64>::max() - overhead))
+            || (size > (std::numeric_limits<qint64>::max() - required - overhead)))
+        {
+            return nonstd::make_unexpected(QStringLiteral("The target size is invalid or exceeds supported storage accounting."));
+        }
+        const qint64 allocation = ((size + allocationUnit - 1) / allocationUnit) * allocationUnit;
+        required += allocation + ((relative.count(u'/') + 2) * allocationUnit);
+        if (!accountJournalString(relative, 512) || !accountJournalString(sources.value(int(index))))
+            return nonstd::make_unexpected(QStringLiteral("The target exceeds supported storage accounting."));
+    }
+    if (journalBytes > (std::numeric_limits<qint64>::max() - allocationUnit + 1))
+        return nonstd::make_unexpected(QStringLiteral("The target exceeds supported storage accounting."));
+    const qint64 roundedJournal = ((journalBytes + allocationUnit - 1) / allocationUnit) * allocationUnit;
+    if (roundedJournal > (std::numeric_limits<qint64>::max() / 2))
+        return nonstd::make_unexpected(QStringLiteral("The target exceeds supported storage accounting."));
+    const qint64 journalAllocation = 2 * roundedJournal;
+    if (required > (std::numeric_limits<qint64>::max() - journalAllocation))
+        return nonstd::make_unexpected(QStringLiteral("The target exceeds supported storage accounting."));
+    return StorageRequirement {required + journalAllocation, qint64(storage.bytesAvailable())};
+}
+
 QString StagingOperation::journalPath(const QString &torrentId)
 {
     return (specialFolderLocation(SpecialFolder::Data) / Path(u"staging/" + torrentId + u".json")).toString();
@@ -220,40 +270,19 @@ std::unique_ptr<StagingOperation> StagingOperation::plan(const QString &journalP
     auto operation = std::unique_ptr<StagingOperation>(new StagingOperation);
     operation->m_journalPath = journalPath;
     operation->m_files = files;
-    operation->m_journal = {{QStringLiteral("version"), 1}, {QStringLiteral("torrent"), torrentId}
+    operation->m_journal = {{QStringLiteral("version"), 2}, {QStringLiteral("torrent"), torrentId}
         , {QStringLiteral("operation"), QUuid::createUuid().toString(QUuid::WithoutBraces)}
-        , {QStringLiteral("destination"), destination}, {QStringLiteral("state"), QStringLiteral("planned")}};
+        , {QStringLiteral("destination"), destination}
+        , {QStringLiteral("destination_identity"), QString::fromLatin1(destinationGuard->identity().toBase64())}
+        , {QStringLiteral("destination_directories"), QString::fromLatin1(destinationGuard->directoryIdentity().toBase64())}
+        , {QStringLiteral("state"), QStringLiteral("planned")}};
 
-    QMap<QString, lt::file_storage> sourceVolumes;
-    QSet<QString> sourcePaths;
-    for (auto it = sources.cbegin(); it != sources.cend(); ++it)
-    {
-        const QString path = QDir::fromNativeSeparators(it.value());
-        if ((it.key() < 0) || (it.key() >= files.num_files()) || (path.size() < 4)
-            || (path.mid(1, 2) != u":/") || (QDir::cleanPath(path) != path))
-        {
-            error = QStringLiteral("A source mapping is not a normalized local file path.");
-            return {};
-        }
-        if (!sourcePaths.contains(path.toCaseFolded()))
-        {
-            sourceVolumes[path.left(3)].add_file(path.mid(3).toStdString(), files.file_size(lt::file_index_t(it.key())));
-            sourcePaths.insert(path.toCaseFolded());
-        }
-    }
-    for (auto it = sourceVolumes.cbegin(); it != sourceVolumes.cend(); ++it)
-    {
-        auto guard = RepairFileGuard::open(it.value(), it.key(), false, error, cancelFlag);
-        if (!guard)
-            return {};
-        operation->m_sourceGuards.append(std::move(guard));
-    }
+    operation->m_sourceGuards = RepairFileGuard::openSources(files, sources, error, cancelFlag);
+    if (!error.isEmpty())
+        return {};
 
     QJsonArray entries;
-    qint64 required = 0;
     qint64 payloadBytes = 0;
-    const QStorageInfo storage(destination);
-    const qint64 allocationUnit = std::max<qint64>(4096, storage.blockSize());
     lt::file_storage sourceLayout = files;
     QSet<int> readable;
     for (const lt::file_index_t index : files.file_range())
@@ -265,18 +294,7 @@ std::unique_ptr<StagingOperation> StagingOperation::plan(const QString &journalP
         const QString relative = relativePath(files, index);
         const QString source = sources.value(int(index));
         const qint64 size = files.file_size(index);
-        const qint64 overhead = (relative.count(u'/') + 3) * allocationUnit;
-        if ((size < 0) || (required > (std::numeric_limits<qint64>::max() - overhead))
-            || (size > (std::numeric_limits<qint64>::max() - required - overhead)))
-        {
-            error = QStringLiteral("The target size is invalid or exceeds supported storage accounting.");
-            return {};
-        }
         payloadBytes += size;
-        // Full target allocation, rounded to volume allocation units, plus a
-        // conservative metadata allowance for each file and its new parents.
-        const qint64 allocation = ((size + allocationUnit - 1) / allocationUnit) * allocationUnit;
-        required += allocation + ((relative.count(u'/') + 2) * allocationUnit);
         QJsonObject original;
 #ifdef Q_OS_WIN
         FileHandle handle;
@@ -301,18 +319,15 @@ std::unique_ptr<StagingOperation> StagingOperation::plan(const QString &journalP
         return {};
     }
     operation->m_journal.insert(QStringLiteral("files"), entries);
-    const qint64 journalBytes = QJsonDocument(operation->m_journal).toJson(QJsonDocument::Compact).size()
-        + (entries.size() * 256) + allocationUnit;
-    const qint64 journalAllocation = 2 * (((journalBytes + allocationUnit - 1) / allocationUnit) * allocationUnit);
-    if (required > (std::numeric_limits<qint64>::max() - journalAllocation))
+    const auto storage = storageRequirement(files, destination, sources);
+    if (!storage)
     {
-        error = QStringLiteral("The target exceeds supported storage accounting.");
+        error = storage.error();
         return {};
     }
-    required += journalAllocation;
     operation->m_journal.insert(QStringLiteral("payload_bytes"), QString::number(payloadBytes));
-    operation->m_journal.insert(QStringLiteral("required_bytes"), QString::number(required));
-    operation->m_journal.insert(QStringLiteral("available_bytes"), QString::number(storage.bytesAvailable()));
+    operation->m_journal.insert(QStringLiteral("required_bytes"), QString::number(storage->requiredBytes));
+    operation->m_journal.insert(QStringLiteral("available_bytes"), QString::number(storage->availableBytes));
     // Planning is read-only, including the journal. Preparation creates it only
     // after explicit consent and before any operation-owned payload is written.
     return operation;
@@ -334,7 +349,15 @@ std::unique_ptr<StagingOperation> StagingOperation::load(const QString &journalP
     const QStringList states {QStringLiteral("preparing"), QStringLiteral("downloading")
         , QStringLiteral("ready_to_commit"), QStringLiteral("committing"), QStringLiteral("committed")
         , QStringLiteral("rolling_back"), QStringLiteral("rolled_back")};
-    if ((journal.value(QStringLiteral("version")) != QJsonValue(1))
+    const int version = journal.value(QStringLiteral("version")).toInt();
+    const QString destinationIdentityText = journal.value(QStringLiteral("destination_identity")).toString();
+    const QString destinationDirectoriesText = journal.value(QStringLiteral("destination_directories")).toString();
+    const QByteArray destinationIdentity = QByteArray::fromBase64(destinationIdentityText.toLatin1());
+    const QByteArray destinationDirectories = QByteArray::fromBase64(destinationDirectoriesText.toLatin1());
+    if (((version != 1) && (version != 2))
+        || ((version == 2) && (destinationIdentity.isEmpty() || destinationDirectories.isEmpty()
+            || (QString::fromLatin1(destinationIdentity.toBase64()) != destinationIdentityText)
+            || (QString::fromLatin1(destinationDirectories.toBase64()) != destinationDirectoriesText)))
         || (journal.value(QStringLiteral("torrent")).toString() != torrentId)
         || QUuid(id).isNull() || (QUuid(id).toString(QUuid::WithoutBraces) != id)
         || !states.contains(state))
@@ -445,6 +468,13 @@ bool StagingOperation::prepare(QString &error, const std::atomic_bool *cancelFla
     auto destinationGuard = RepairFileGuard::open(m_files, destination(), false, error, cancelFlag);
     if (!destinationGuard)
         return false;
+    const QByteArray plannedIdentity = QByteArray::fromBase64(
+        m_journal.value(QStringLiteral("destination_identity")).toString().toLatin1());
+    if (plannedIdentity.isEmpty() || (destinationGuard->identity() != plannedIdentity))
+    {
+        error = QStringLiteral("The target volume or file layout changed after planning. No staging data was created.");
+        return false;
+    }
     m_journal.insert(QStringLiteral("state"), QStringLiteral("preparing"));
     if (!save(error))
         return false;
@@ -628,6 +658,12 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
         error = QStringLiteral("The durable operation state does not permit this transition.");
         return false;
     }
+    const int version = m_journal.value(QStringLiteral("version")).toInt();
+    if (!rollback && (version < 2) && (state() != u"committed"))
+    {
+        error = QStringLiteral("This older recovery journal can only be rolled back safely.");
+        return false;
+    }
     const QString backup = QDir(transactionRoot(m_journal)).filePath(QStringLiteral("backup"));
     QJsonArray entries = m_journal.value(QStringLiteral("files")).toArray();
     // Existing parents remain held while absent directories are prepared. Then
@@ -635,6 +671,16 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
     auto targetDirectories = RepairFileGuard::open(m_files, destination(), false, error);
     if (!targetDirectories)
         return false;
+    if (version >= 2)
+    {
+        const QByteArray expectedDirectories = QByteArray::fromBase64(
+            m_journal.value(QStringLiteral("destination_directories")).toString().toLatin1());
+        if (expectedDirectories.isEmpty() || (targetDirectories->directoryIdentity() != expectedDirectories))
+        {
+            error = QStringLiteral("The target volume or directory layout changed. Recovery preserved every file.");
+            return false;
+        }
+    }
     targetDirectories->releaseFiles();
     for (const QJsonValue &entry : entries)
     {
@@ -667,6 +713,9 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
         guard->releaseFiles();
         parents.append(std::move(guard));
     }
+    if (version >= 2)
+        m_journal.insert(QStringLiteral("destination_directories")
+            , QString::fromLatin1(checkingDirectories.constFirst()->directoryIdentity().toBase64()));
     targetDirectories.reset();
 
     struct OwnedFile

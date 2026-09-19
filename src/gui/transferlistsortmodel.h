@@ -56,6 +56,8 @@ public:
     void disableTagFilter();
     void setTrackerFilter(const std::optional<QString> &trackerHost);
     void setAnnounceStatusFilter(const std::optional<BitTorrent::TorrentAnnounceStatus> &announceStatus);
+    void setPathFilter(const std::optional<QString> &path);
+    void setSourceFilter(const std::optional<int> &sourceFlag);
 
 private:
     int compare(const QModelIndex &left, const QModelIndex &right) const;
@@ -69,6 +71,8 @@ private:
     CachedSettingValue<int> m_subSortOrder;
     int m_lastSortColumn = -1;
     int m_lastSortOrder = 0;
+    std::optional<QString> m_path;
+    std::optional<int> m_sourceFlag;
 
     Utils::Compare::NaturalCompare<Qt::CaseInsensitive> m_naturalCompare;
 };

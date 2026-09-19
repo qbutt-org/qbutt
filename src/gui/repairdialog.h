@@ -13,6 +13,7 @@
 #include <QDialog>
 #include <QJsonObject>
 #include <QMap>
+#include <QStringList>
 
 class QCheckBox;
 class QLabel;
@@ -27,13 +28,28 @@ namespace BitTorrent
     class Torrent;
 }
 
+enum class RepairDialogMode
+{
+    Staged,
+    InPlace,
+    RecoverStaged
+};
+
+struct RepairDialogOptions
+{
+    RepairDialogMode mode = RepairDialogMode::Staged;
+    QStringList sourceRoots;
+    QMap<int, QString> sourceMappings;
+    bool analyzeImmediately = false;
+};
+
 class RepairDialog final : public QDialog
 {
     Q_OBJECT
     Q_DISABLE_COPY_MOVE(RepairDialog)
 
 public:
-    RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent);
+    RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const RepairDialogOptions &options = {});
 
 private:
     void showAnalysis(const BitTorrent::RepairAnalysis &analysis, const QString &directory);

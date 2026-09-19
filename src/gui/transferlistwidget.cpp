@@ -60,6 +60,7 @@
 #include "deletionconfirmationdialog.h"
 #include "interfaces/iguiapplication.h"
 #include "mainwindow.h"
+#include "networkdiagnosticsdialog.h"
 #include "optionsdialog.h"
 #include "previewselectdialog.h"
 #include "repairdialog.h"
@@ -153,33 +154,38 @@ TransferListWidget::TransferListWidget(IGUIApplication *app, QWidget *parent)
     header()->setStretchLastSection(false);
     header()->setTextElideMode(Qt::ElideRight);
 
-    // Default hidden columns
+    // First-run layout; saved header state always takes precedence.
     if (!columnLoaded)
     {
-        setColumnHidden(TransferListModel::TR_CREATE_DATE, true);
-        setColumnHidden(TransferListModel::TR_ADD_DATE, true);
-        setColumnHidden(TransferListModel::TR_SEED_DATE, true);
-        setColumnHidden(TransferListModel::TR_UPLIMIT, true);
-        setColumnHidden(TransferListModel::TR_DLLIMIT, true);
-        setColumnHidden(TransferListModel::TR_TRACKER, true);
-        setColumnHidden(TransferListModel::TR_AMOUNT_DOWNLOADED, true);
-        setColumnHidden(TransferListModel::TR_AMOUNT_UPLOADED, true);
-        setColumnHidden(TransferListModel::TR_AMOUNT_DOWNLOADED_SESSION, true);
-        setColumnHidden(TransferListModel::TR_AMOUNT_UPLOADED_SESSION, true);
-        setColumnHidden(TransferListModel::TR_AMOUNT_LEFT, true);
-        setColumnHidden(TransferListModel::TR_TIME_ELAPSED, true);
-        setColumnHidden(TransferListModel::TR_SAVE_PATH, true);
-        setColumnHidden(TransferListModel::TR_DOWNLOAD_PATH, true);
-        setColumnHidden(TransferListModel::TR_INFOHASH_V1, true);
-        setColumnHidden(TransferListModel::TR_INFOHASH_V2, true);
-        setColumnHidden(TransferListModel::TR_COMPLETED, true);
-        setColumnHidden(TransferListModel::TR_RATIO_LIMIT, true);
-        setColumnHidden(TransferListModel::TR_POPULARITY, true);
-        setColumnHidden(TransferListModel::TR_SEEN_COMPLETE_DATE, true);
-        setColumnHidden(TransferListModel::TR_LAST_ACTIVITY, true);
-        setColumnHidden(TransferListModel::TR_TOTAL_SIZE, true);
-        setColumnHidden(TransferListModel::TR_REANNOUNCE, true);
-        setColumnHidden(TransferListModel::TR_PRIVATE, true);
+        for (int column = 0; column < TransferListModel::NB_COLUMNS; ++column)
+        {
+            setColumnWidth(column, 100);
+            setColumnHidden(column, true);
+        }
+        header()->moveSection(header()->visualIndex(TransferListModel::TR_AMOUNT_DOWNLOADED), 2);
+        header()->moveSection(header()->visualIndex(TransferListModel::TR_DLSPEED), 5);
+        const struct
+        {
+            TransferListModel::Column column;
+            int width;
+        } visibleColumns[] =
+        {
+            {TransferListModel::TR_QUEUE_POSITION, 35},
+            {TransferListModel::TR_NAME, 252},
+            {TransferListModel::TR_AMOUNT_DOWNLOADED, 78},
+            {TransferListModel::TR_SIZE, 69},
+            {TransferListModel::TR_DLSPEED, 100},
+            {TransferListModel::TR_PROGRESS, 486},
+            {TransferListModel::TR_STATUS, 100},
+            {TransferListModel::TR_ETA, 100},
+            {TransferListModel::TR_AMOUNT_LEFT, 100}
+        };
+        for (const auto &[column, width] : visibleColumns)
+        {
+            setColumnHidden(column, false);
+            setColumnWidth(column, width);
+        }
+        sortByColumn(TransferListModel::TR_QUEUE_POSITION, Qt::AscendingOrder);
     }
 
     //Ensure that at least one column is visible at all times
@@ -681,6 +687,29 @@ void TransferListWidget::repairSelectedTorrent()
     dialog->open();
 }
 
+void TransferListWidget::diagnoseSelectedTorrent()
+{
+    const QList<BitTorrent::Torrent *> torrents = getSelectedTorrents();
+    if (torrents.size() != 1)
+        return;
+    if (m_diagnosticsDialog)
+    {
+        if (m_diagnosticsDialog->torrent() == torrents.constFirst())
+        {
+            m_diagnosticsDialog->show();
+            m_diagnosticsDialog->raise();
+            m_diagnosticsDialog->activateWindow();
+            return;
+        }
+        m_diagnosticsDialog->close();
+    }
+
+    auto *dialog = new NetworkDiagnosticsDialog {this, torrents.constFirst()};
+    m_diagnosticsDialog = dialog;
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->open();
+}
+
 int TransferListWidget::visibleColumnsCount() const
 {
     int count = 0;
@@ -1015,6 +1044,8 @@ void TransferListWidget::displayListMenu()
     connect(actionForceRecheck, &QAction::triggered, this, &TransferListWidget::recheckSelectedTorrents);
     auto *actionRepair = new QAction(tr("Smart repair..."), listMenu);
     connect(actionRepair, &QAction::triggered, this, &TransferListWidget::repairSelectedTorrent);
+    auto *actionDiagnostics = new QAction(tr("Network diagnostics..."), listMenu);
+    connect(actionDiagnostics, &QAction::triggered, this, &TransferListWidget::diagnoseSelectedTorrent);
     auto *actionForceReannounce = new QAction(UIThemeManager::instance()->getIcon(u"reannounce"_s, u"document-edit-verify"_s), tr("Force r&eannounce"), listMenu);
     connect(actionForceReannounce, &QAction::triggered, this, &TransferListWidget::reannounceSelectedTorrents);
     auto *actionCopyMagnetLink = new QAction(UIThemeManager::instance()->getIcon(u"torrent-magnet"_s, u"kt-magnet"_s), tr("&Magnet link"), listMenu);
@@ -1181,7 +1212,10 @@ void TransferListWidget::displayListMenu()
     listMenu->addSeparator();
     listMenu->addAction(actionSetTorrentPath);
     if (selectedIndexes.size() == 1)
+    {
         listMenu->addAction(actionRename);
+        listMenu->addAction(actionDiagnostics);
+    }
     listMenu->addAction(actionEditTracker);
 
     // Category Menu
@@ -1373,6 +1407,20 @@ void TransferListWidget::applyTrackerFilter(const std::optional<QString> &tracke
 void TransferListWidget::applyAnnounceStatusFilter(const std::optional<BitTorrent::TorrentAnnounceStatus> &announceStatus)
 {
     m_sortFilterModel->setAnnounceStatusFilter(announceStatus);
+}
+
+void TransferListWidget::applyPathFilter(const std::optional<QString> &pathId)
+{
+    m_pathFilter = pathId;
+    m_listModel->setNetworkDetailsRequired(m_pathFilter.has_value() || m_sourceFilter.has_value());
+    m_sortFilterModel->setPathFilter(pathId);
+}
+
+void TransferListWidget::applySourceFilter(const std::optional<int> &sourceFlag)
+{
+    m_sourceFilter = sourceFlag;
+    m_listModel->setNetworkDetailsRequired(m_pathFilter.has_value() || m_sourceFilter.has_value());
+    m_sortFilterModel->setSourceFilter(sourceFlag);
 }
 
 void TransferListWidget::applyFilter(const QString &name, const TransferListModel::Column &type)

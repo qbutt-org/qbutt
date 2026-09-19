@@ -1646,7 +1646,7 @@ void Preferences::setMainGeometry(const QByteArray &geometry)
 
 bool Preferences::isFiltersSidebarVisible() const
 {
-    return value(u"GUI/MainWindow/FiltersSidebarVisible"_s, true);
+    return value(u"GUI/MainWindow/FiltersSidebarVisible"_s, false);
 }
 
 void Preferences::setFiltersSidebarVisible(const bool value)
@@ -1698,7 +1698,7 @@ void Preferences::setPeerListState(const QByteArray &state)
 
 QString Preferences::getPropSplitterSizes() const
 {
-    return value<QString>(u"TorrentProperties/SplitterSizes"_s);
+    return value(u"TorrentProperties/SplitterSizes"_s, u"467,493"_s);
 }
 
 void Preferences::setPropSplitterSizes(const QString &sizes)
@@ -1737,7 +1737,7 @@ void Preferences::setPropCurTab(const int tab)
 
 bool Preferences::getPropVisible() const
 {
-    return value(u"TorrentProperties/Visible"_s, false);
+    return value(u"TorrentProperties/Visible"_s, true);
 }
 
 void Preferences::setPropVisible(const bool visible)

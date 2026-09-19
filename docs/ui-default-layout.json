@@ -1,0 +1,335 @@
+{
+  "schema": 1,
+  "captured": "2026-09-14",
+  "source": "qBittorrent 5.2.3 saved Qt6 UI settings",
+  "widthUnit": "Qt logical pixels; adapt to viewport and DPI",
+  "filtersSidebarVisible": false,
+  "filtersSidebarWidth": 0,
+  "propertiesTab": "files",
+  "propertiesSplitterSizes": [
+    467,
+    493
+  ],
+  "transfers": {
+    "columns": [
+      {
+        "hidden": false,
+        "logicalIndex": 0,
+        "visualIndex": 0,
+        "width": 35,
+        "column": "TR_QUEUE_POSITION"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 1,
+        "visualIndex": 1,
+        "width": 252,
+        "column": "TR_NAME"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 20,
+        "visualIndex": 2,
+        "width": 78,
+        "column": "TR_AMOUNT_DOWNLOADED"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 2,
+        "visualIndex": 3,
+        "width": 69,
+        "column": "TR_SIZE"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 3,
+        "visualIndex": 4,
+        "width": 100,
+        "column": "TR_TOTAL_SIZE"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 8,
+        "visualIndex": 5,
+        "width": 100,
+        "column": "TR_DLSPEED"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 4,
+        "visualIndex": 6,
+        "width": 486,
+        "column": "TR_PROGRESS"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 5,
+        "visualIndex": 7,
+        "width": 100,
+        "column": "TR_STATUS"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 6,
+        "visualIndex": 8,
+        "width": 100,
+        "column": "TR_SEEDS"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 7,
+        "visualIndex": 9,
+        "width": 100,
+        "column": "TR_PEERS"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 9,
+        "visualIndex": 10,
+        "width": 100,
+        "column": "TR_UPSPEED"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 10,
+        "visualIndex": 11,
+        "width": 100,
+        "column": "TR_ETA"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 11,
+        "visualIndex": 12,
+        "width": 100,
+        "column": "TR_RATIO"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 12,
+        "visualIndex": 13,
+        "width": 100,
+        "column": "TR_POPULARITY"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 13,
+        "visualIndex": 14,
+        "width": 100,
+        "column": "TR_CATEGORY"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 14,
+        "visualIndex": 15,
+        "width": 100,
+        "column": "TR_TAGS"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 15,
+        "visualIndex": 16,
+        "width": 100,
+        "column": "TR_ADD_DATE"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 16,
+        "visualIndex": 17,
+        "width": 100,
+        "column": "TR_SEED_DATE"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 17,
+        "visualIndex": 18,
+        "width": 100,
+        "column": "TR_TRACKER"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 18,
+        "visualIndex": 19,
+        "width": 100,
+        "column": "TR_DLLIMIT"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 19,
+        "visualIndex": 20,
+        "width": 100,
+        "column": "TR_UPLIMIT"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 21,
+        "visualIndex": 21,
+        "width": 100,
+        "column": "TR_AMOUNT_UPLOADED"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 22,
+        "visualIndex": 22,
+        "width": 100,
+        "column": "TR_AMOUNT_DOWNLOADED_SESSION"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 23,
+        "visualIndex": 23,
+        "width": 100,
+        "column": "TR_AMOUNT_UPLOADED_SESSION"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 24,
+        "visualIndex": 24,
+        "width": 100,
+        "column": "TR_AMOUNT_LEFT"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 25,
+        "visualIndex": 25,
+        "width": 100,
+        "column": "TR_TIME_ELAPSED"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 26,
+        "visualIndex": 26,
+        "width": 100,
+        "column": "TR_SAVE_PATH"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 27,
+        "visualIndex": 27,
+        "width": 100,
+        "column": "TR_COMPLETED"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 28,
+        "visualIndex": 28,
+        "width": 100,
+        "column": "TR_RATIO_LIMIT"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 29,
+        "visualIndex": 29,
+        "width": 100,
+        "column": "TR_SEEN_COMPLETE_DATE"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 30,
+        "visualIndex": 30,
+        "width": 100,
+        "column": "TR_LAST_ACTIVITY"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 31,
+        "visualIndex": 31,
+        "width": 100,
+        "column": "TR_AVAILABILITY"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 32,
+        "visualIndex": 32,
+        "width": 100,
+        "column": "TR_DOWNLOAD_PATH"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 33,
+        "visualIndex": 33,
+        "width": 100,
+        "column": "TR_INFOHASH_V1"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 34,
+        "visualIndex": 34,
+        "width": 100,
+        "column": "TR_INFOHASH_V2"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 35,
+        "visualIndex": 35,
+        "width": 100,
+        "column": "TR_REANNOUNCE"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 36,
+        "visualIndex": 36,
+        "width": 100,
+        "column": "TR_PRIVATE"
+      },
+      {
+        "hidden": true,
+        "logicalIndex": 37,
+        "visualIndex": 37,
+        "width": 100,
+        "column": "TR_CREATE_DATE"
+      }
+    ],
+    "sortAscending": true,
+    "sortSection": 0,
+    "stretchLastSection": false
+  },
+  "files": {
+    "columns": [
+      {
+        "hidden": false,
+        "logicalIndex": 0,
+        "visualIndex": 0,
+        "width": 508,
+        "column": "COL_NAME"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 1,
+        "visualIndex": 1,
+        "width": 100,
+        "column": "COL_SIZE"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 2,
+        "visualIndex": 2,
+        "width": 100,
+        "column": "COL_PROGRESS"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 3,
+        "visualIndex": 3,
+        "width": 100,
+        "column": "COL_PRIO"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 4,
+        "visualIndex": 4,
+        "width": 100,
+        "column": "COL_REMAINING"
+      },
+      {
+        "hidden": false,
+        "logicalIndex": 5,
+        "visualIndex": 5,
+        "width": 778,
+        "column": "COL_AVAILABILITY"
+      }
+    ],
+    "sortAscending": true,
+    "sortSection": 0,
+    "stretchLastSection": true
+  }
+}

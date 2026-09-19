@@ -87,6 +87,7 @@
 #include "policiesdialog.h"
 #include "powermanagement/powermanagement.h"
 #include "profileimportdialog.h"
+#include "repairpreviewdialog.h"
 #include "properties/peerlistwidget.h"
 #include "properties/propertieswidget.h"
 #include "properties/proptabbar.h"
@@ -352,6 +353,15 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 #endif
 
     connect(m_ui->actionManageCookies, &QAction::triggered, this, &MainWindow::manageCookies);
+    auto *smartRepair = new QAction {tr("Smart repair from torrent file..."), this};
+    smartRepair->setObjectName(u"actionSmartRepair"_s);
+    m_ui->menuFile->insertAction(m_ui->actionDownloadFromURL, smartRepair);
+    connect(smartRepair, &QAction::triggered, this, [this]
+    {
+        auto *dialog = new RepairPreviewDialog {this};
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->open();
+    });
     auto *importProfile = new QAction {tr("Import profile..."), this};
     importProfile->setObjectName(u"actionImportProfile"_s);
     m_ui->menuOptions->insertAction(m_ui->actionOptions, importProfile);

@@ -73,6 +73,7 @@ add_library(qbt_gui STATIC
     log/loglistview.h
     log/logmodel.h
     mainwindow.h
+    networkdiagnosticsdialog.h
     optionsdialog.h
     pathswidget.h
     powermanagement/inhibitor.h
@@ -94,6 +95,7 @@ add_library(qbt_gui STATIC
     raisedmessagebox.h
     policiesdialog.h
     repairdialog.h
+    repairpreviewdialog.h
     rss/articlelistwidget.h
     rss/automatedrssdownloader.h
     rss/feedlistwidget.h
@@ -132,6 +134,7 @@ add_library(qbt_gui STATIC
     transferlistfilters/categoryfiltermodel.h
     transferlistfilters/categoryfilterproxymodel.h
     transferlistfilters/categoryfilterwidget.h
+    transferlistfilters/networkfilterwidget.h
     transferlistfilters/statusfilterwidget.h
     transferlistfilters/tagfiltermodel.h
     transferlistfilters/tagfilterproxymodel.h
@@ -180,6 +183,7 @@ add_library(qbt_gui STATIC
     log/loglistview.cpp
     log/logmodel.cpp
     mainwindow.cpp
+    networkdiagnosticsdialog.cpp
     optionsdialog.cpp
     pathswidget.cpp
     powermanagement/inhibitor.cpp
@@ -201,6 +205,7 @@ add_library(qbt_gui STATIC
     raisedmessagebox.cpp
     policiesdialog.cpp
     repairdialog.cpp
+    repairpreviewdialog.cpp
     rss/articlelistwidget.cpp
     rss/automatedrssdownloader.cpp
     rss/feedlistwidget.cpp
@@ -239,6 +244,7 @@ add_library(qbt_gui STATIC
     transferlistfilters/categoryfiltermodel.cpp
     transferlistfilters/categoryfilterproxymodel.cpp
     transferlistfilters/categoryfilterwidget.cpp
+    transferlistfilters/networkfilterwidget.cpp
     transferlistfilters/statusfilterwidget.cpp
     transferlistfilters/tagfiltermodel.cpp
     transferlistfilters/tagfilterproxymodel.cpp

@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { generateFixtures, sha256, type FixtureManifest, type PayloadFile } from "./fixtures/generate";
 import { allowLabNetwork } from "./windows-firewall";
+import { labAppearanceSettings } from "./appearance";
 
 export interface TorrentStatus {
     hash: string;
@@ -84,7 +85,7 @@ export async function createLab(name: string) {
         "[BitTorrent]",
         `Session\\ResumeDataStorageType=${resumeBackend}`,
         "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
-        "Session\\BTProtocol=1", "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
+        "Session\\BTProtocol=TCP", "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
         "Session\\IgnoreLimitsOnLAN=false", "Session\\AddExtensionToIncompleteFiles=false",
         "Session\\UseUnwantedFolder=false", "Session\\QueueingSystemEnabled=false",
         "[Network]", "PortForwardingEnabled=false",
@@ -95,6 +96,7 @@ export async function createLab(name: string) {
         "WebUI\\Username=lab", `WebUI\\Password_PBKDF2=@ByteArray(${passwordHash})`,
         "WebUI\\LocalHostAuth=true", "WebUI\\UseUPnP=false",
         "WebUI\\ServerDomains=127.0.0.1", "WebUI\\HostHeaderValidation=true", "WebUI\\CSRFProtection=true",
+        ...labAppearanceSettings(),
         "",
     ].join("\n"));
     const origin = `http://127.0.0.1:${port}`;
@@ -164,6 +166,45 @@ export async function createLab(name: string) {
             processHandle = undefined;
         }
     }
+    async function markCompletionPreview(torrentID: string) {
+        assert(!processHandle, "Resume data must only be changed while the native app is stopped");
+        const markerScript = `
+import libtorrent as lt
+import pathlib
+import sqlite3
+import sys
+
+backend, data_path, torrent_id = sys.argv[1:]
+data_path = pathlib.Path(data_path)
+if backend == "SQLite":
+    connection = sqlite3.connect(data_path / "torrents.db")
+    try:
+        row = connection.execute(
+            "SELECT libtorrent_resume_data FROM torrents WHERE torrent_id = ?",
+            (torrent_id,),
+        ).fetchone()
+        assert row is not None, f"Missing SQLite resume record for {torrent_id}"
+        resume = lt.bdecode(row[0])
+        resume[b"qbutt-completion-policy-preview"] = 1
+        cursor = connection.execute(
+            "UPDATE torrents SET libtorrent_resume_data = ? WHERE torrent_id = ?",
+            (lt.bencode(resume), torrent_id),
+        )
+        assert cursor.rowcount == 1
+        connection.commit()
+    finally:
+        connection.close()
+else:
+    path = data_path / "BT_backup" / f"{torrent_id}.fastresume"
+    resume = lt.bdecode(path.read_bytes())
+    resume[b"qbutt-completion-policy-preview"] = 1
+    path.write_bytes(lt.bencode(resume))
+`;
+        const marker = Bun.spawn([python!, "-c", markerScript, resumeBackend, join(profile, appName, "data"), torrentID], {
+            stdout: "pipe", stderr: "pipe",
+        });
+        assert(await marker.exited === 0, await new Response(marker.stderr).text());
+    }
     async function info(hash: string): Promise<TorrentStatus> {
         const torrents = await json<TorrentStatus[]>(`torrents/info?hashes=${hash}`);
         assert(torrents.length === 1, `Expected one torrent for ${hash}`);
@@ -198,7 +239,7 @@ export async function createLab(name: string) {
         await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n");
         console.log(JSON.stringify({ status: evidence.status, evidence: join(root, "evidence.json") }));
     }
-    return { root, fixtures, manifest, python, origin, request, json, info, add, start, shutdown, checkpoint, finish,
+    return { root, fixtures, manifest, python, origin, request, json, info, add, start, shutdown, markCompletionPreview, checkpoint, finish,
         get exitCode() { return processHandle?.exitCode; } };
 }
 
@@ -223,48 +264,82 @@ export async function startSeed(python: string, fixtures: string, name: string, 
     });
     const reader = child.stdout.getReader();
     let text = "";
-    try {
-        while (!text.includes("\n")) {
-            const result = await withTimeout(reader.read(), 35000, "Seed readiness timeout");
-            assert(!result.done, `Seed ${label} ended before readiness; inspect ${join(logs, `seed-${label}.stderr.log`)}`);
+    let unreadOffset = 0;
+    const readLine = async (timeoutMs: number, message: string) => {
+        for (;;) {
+            const newline = text.indexOf("\n", unreadOffset);
+            if (newline >= 0) {
+                const line = text.slice(unreadOffset, newline);
+                unreadOffset = newline + 1;
+                return line;
+            }
+            const result = await withTimeout(reader.read(), timeoutMs, message);
+            assert(!result.done, `Seed ${label} ended before sending a complete response`);
             text += new TextDecoder().decode(result.value);
         }
-        const ready = JSON.parse(text.split("\n")[0]!) as {
+    };
+    try {
+        const ready = JSON.parse(await readLine(35000, "Seed readiness timeout")) as {
             ready: boolean; host: string; port: number; pieces: number[]; verifiedPayloadBytes: number;
         };
         assert(ready.ready && ready.port > 0, "Seed failed readiness");
+        let controlId = 0;
+        let control = Promise.resolve();
+        let stopPromise: Promise<{ uploadPayloadBytes: number; downloadPayloadBytes: number;
+            pieces: number[]; peerAddresses: string[] }> | undefined;
         return {
             ...ready,
-            async setUploadRate(bytesPerSecond: number) {
+            setUploadRate(bytesPerSecond: number) {
                 assert(Number.isInteger(bytesPerSecond) && bytesPerSecond >= 1024 && bytesPerSecond <= 1024 * 1024,
                     "Seed upload rate must be between 1 KiB/s and 1 MiB/s");
-                child.stdin.write(`${JSON.stringify({ uploadRate: bytesPerSecond })}\n`);
-                await child.stdin.flush();
+                const requestId = ++controlId;
+                control = control.then(async () => {
+                    child.stdin.write(`${JSON.stringify({ controlId: requestId, uploadRate: bytesPerSecond })}\n`);
+                    await child.stdin.flush();
+                    const response = JSON.parse(await readLine(5000, "Seed upload-rate acknowledgement timed out")) as {
+                        controlId: number; uploadRate: number;
+                    };
+                    assert(response.controlId === requestId && response.uploadRate === bytesPerSecond,
+                        "Seed acknowledged a different upload-rate command");
+                });
+                return control;
             },
-            async stop() {
-                child.stdin.end();
-                let exitCode: number;
-                try {
-                    exitCode = await withTimeout(child.exited, 15000, "Seed shutdown timed out");
-                }
-                finally {
-                    if (child.exitCode === null) {
-                        child.kill();
+            stop() {
+                stopPromise ??= (async () => {
+                    try { await control; }
+                    catch (error) {
+                        if (child.exitCode === null)
+                            child.kill();
                         await child.exited;
+                        await reader.closed.catch(() => {});
+                        try { reader.releaseLock(); } catch {}
+                        throw error;
                     }
-                }
-                assert(exitCode === 0, `Seed exited ${exitCode}`);
-                for (;;) {
-                    const final = await reader.read();
-                    if (final.done)
-                        break;
-                    text += new TextDecoder().decode(final.value);
-                }
-                await writeFile(join(logs, `seed-${label}.jsonl`), text);
-                reader.releaseLock();
-                return JSON.parse(text.trimEnd().split("\n").at(-1)!) as {
-                    uploadPayloadBytes: number; downloadPayloadBytes: number; pieces: number[]; peerAddresses: string[];
-                };
+                    child.stdin.end();
+                    let exitCode: number;
+                    try {
+                        exitCode = await withTimeout(child.exited, 15000, "Seed shutdown timed out");
+                    }
+                    finally {
+                        if (child.exitCode === null) {
+                            child.kill();
+                            await child.exited;
+                        }
+                    }
+                    assert(exitCode === 0, `Seed exited ${exitCode}`);
+                    for (;;) {
+                        const final = await reader.read();
+                        if (final.done)
+                            break;
+                        text += new TextDecoder().decode(final.value);
+                    }
+                    await writeFile(join(logs, `seed-${label}.jsonl`), text);
+                    reader.releaseLock();
+                    return JSON.parse(text.trimEnd().split("\n").at(-1)!) as {
+                        uploadPayloadBytes: number; downloadPayloadBytes: number; pieces: number[]; peerAddresses: string[];
+                    };
+                })();
+                return stopPromise;
             },
         };
     }

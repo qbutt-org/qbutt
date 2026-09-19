@@ -165,6 +165,7 @@ add_library(qbt_base STATIC
     bittorrent/peerinfo.cpp
     bittorrent/portforwarderimpl.cpp
     bittorrent/repairanalysis.cpp
+    bittorrent/repairplan.cpp
     bittorrent/repairfileguard.cpp
     bittorrent/completionpolicy.cpp
     bittorrent/repairservice.cpp

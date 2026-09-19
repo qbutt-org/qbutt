@@ -227,6 +227,8 @@ namespace BitTorrent
         int connectionsLimit() const override;
         qlonglong nextAnnounce() const override;
         TorrentAnnounceStatus announceStatus() const override;
+        TorrentDiagnosticStatus diagnosticStatus() const override;
+        QFuture<TorrentPeerDiagnosticStatus> fetchPeerDiagnosticStatus() const override;
 
         void setName(const QString &name) override;
         void setSequentialDownload(bool enable) override;
