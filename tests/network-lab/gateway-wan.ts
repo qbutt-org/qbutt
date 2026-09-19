@@ -234,12 +234,14 @@ print(lt.torrent_info(encoded).info_hashes().v1)
     const peerReady = await peerReplies.next("source peer readiness", 30000);
     assert(peerReady.ready && Array.isArray(peerReady.ports) && peerReady.ports.length === 0
         && peerReady.pieceCount === payload.length / 65536);
+    await lab.checkpoint({ check: "source-peer-ready", sourceProcess: independentSource ? "local" : "observer" });
     let observedSource = "";
     let homeSSHOrigin: string | undefined;
     if (independentSource) {
         const connected = await peerReplies.next("VPN SOCKS connection", 25000);
         assert(connected.connected === true,
             `Source peer could not connect through Mihomo: ${JSON.stringify(connected.errors)}`);
+        await lab.checkpoint({ check: "vpn-socks-connected", publicEndpoint: path.gateway.publicEndpoint });
         const sockets = await waitFor("independent VPN peer at public lease", () => observedLeasePeer(ports.listener),
             endpoints => endpoints.length === 1, 10000);
         observedSource = sockets[0]!;
@@ -252,6 +254,7 @@ print(lt.torrent_info(encoded).info_hashes().v1)
     peer.stdin.write('{"command":"start","rate":131072}\n');
     await peer.stdin.flush();
     assert((await peerReplies.next("remote peer start")).started);
+    await lab.checkpoint({ check: "source-peer-started" });
     const inbound = await waitFor("public gateway trusted ingress", readStatus, status => status.peers.some(candidate =>
         candidate.pathId === path.pathId && candidate.generation === path.generation
         && candidate.infoHash === hash && candidate.payloadDownload > 0), 45000);
