@@ -748,6 +748,7 @@ void SessionImpl::setDHTBootstrapNodes(const QString &nodes)
 
     m_DHTBootstrapNodes = nodes;
     configureDeferred();
+    emit dhtSettingsChanged();
 }
 
 bool SessionImpl::isDHTEnabled() const
@@ -762,6 +763,7 @@ void SessionImpl::setDHTEnabled(bool enabled)
         m_isDHTEnabled = enabled;
         configureDeferred();
         LogMsg(tr("Distributed Hash Table (DHT) support: %1").arg(enabled ? tr("ON") : tr("OFF")), Log::INFO);
+        emit dhtSettingsChanged();
     }
 }
 
@@ -2175,7 +2177,7 @@ lt::settings_pack SessionImpl::loadLTSettings() const
         settingsPack.set_bool(lt::settings_pack::proxy_peer_connections, false);
         settingsPack.set_bool(lt::settings_pack::proxy_tracker_connections, false);
         settingsPack.set_bool(lt::settings_pack::proxy_hostnames, false);
-        settingsPack.set_bool(lt::settings_pack::enable_dht, false);
+        settingsPack.set_bool(lt::settings_pack::enable_dht, isDHTEnabled());
         settingsPack.set_bool(lt::settings_pack::enable_lsd, false);
         settingsPack.set_bool(lt::settings_pack::enable_incoming_tcp, false);
         settingsPack.set_bool(lt::settings_pack::enable_incoming_utp, false);
@@ -4333,9 +4335,11 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
             udpRoute.family = family;
             udpRoute.enable_utp = true;
             udpRoute.enable_trackers = true;
+            udpRoute.enable_dht = true;
             udpRoutes.push_back(udpRoute);
             udpRoute.ssl = true;
             udpRoute.enable_trackers = false;
+            udpRoute.enable_dht = false;
             udpRoutes.push_back(std::move(udpRoute));
         };
         if (endpoint.supportsIPv4)
@@ -4430,6 +4434,28 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
     }
     m_managedUdpRoutes = std::move(udpRoutes);
     return true;
+}
+
+bool SessionImpl::addDHTRouteNode(const quint64 pathId, const quint64 generation,
+    const QHostAddress &address, const quint16 port)
+{
+    if (!isDHTEnabled() || address.isNull() || (port == 0))
+        return false;
+    const lt::route_family family = (address.protocol() == QAbstractSocket::IPv6Protocol)
+        ? lt::route_family::ipv6 : lt::route_family::ipv4;
+    const lt::peer_route_context context {pathId, generation};
+    if (!std::ranges::any_of(m_managedUdpRoutes, [&](const lt::udp_route &route)
+        { return (route.route.context == context) && (route.family == family) && route.enable_dht && !route.ssl; }))
+    {
+        return false;
+    }
+    lt::error_code error;
+    const lt::address numeric = lt::make_address(address.toString().toStdString(), error);
+    if (error || m_nativeSession->add_dht_route_node(context, family, {numeric, port}, true))
+        return false;
+    // The router list alone does not start I/O after asynchronous DNS completes.
+    // Probe this owner immediately instead of waiting for its periodic refresh.
+    return !m_nativeSession->add_dht_route_node(context, family, {numeric, port}, false);
 }
 
 bool SessionImpl::resetNetworkRoutes()
@@ -6037,6 +6063,14 @@ void SessionImpl::handleAlert(lt::alert *alert)
     {
         switch (alert->type())
         {
+        case lt::udp_route_alert::alert_type:
+            {
+                const auto *route = static_cast<const lt::udp_route_alert *>(alert);
+                if (!route->ssl && (route->state == lt::udp_route_state::ready))
+                    emit udpRouteReady(route->route.path_id, route->route.generation,
+                        route->family == lt::route_family::ipv6);
+            }
+            break;
         case lt::peer_route_alert::alert_type:
             {
                 const auto *route = static_cast<const lt::peer_route_alert *>(alert);

@@ -74,6 +74,18 @@ namespace Net
         bool applyRoutes();
         void finishResolution(const QList<QHostAddress> &addresses, const QString &errorCode = {});
         void sendQueuedRequest();
+        const PeerRouteEndpoint *findEndpoint(quint64 pathId, quint64 generation) const;
+        void queueDhtBootstrap(quint64 pathId, quint64 generation, bool ipv6);
+        void processDhtBootstrap();
+
+        struct DhtBootstrap
+        {
+            quint64 pathId;
+            quint64 generation;
+            bool ipv6;
+            qsizetype nodeIndex = 0;
+            quint16 port = 0;
+        };
 
         struct ActivePath
         {
@@ -98,6 +110,8 @@ namespace Net
         QJsonArray m_proxies;
         QList<ActivePath> m_paths;
         QList<PeerRouteEndpoint> m_nativeEndpoints;
+        QList<DhtBootstrap> m_dhtBootstrap;
+        qint64 m_bootstrapRequestId = 0;
         qint64 m_nextId = 0;
         qint64 m_pendingId = 0;
         int m_generation = 0;

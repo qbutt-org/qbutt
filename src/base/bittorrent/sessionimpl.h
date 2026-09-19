@@ -429,6 +429,8 @@ namespace BitTorrent
         bool setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &routes, Net::RoutePolicy policy) override;
         bool resetNetworkRoutes() override;
         void invalidateNetworkRoute(quint64 pathId, quint64 generation) override;
+        bool addDHTRouteNode(quint64 pathId, quint64 generation,
+            const QHostAddress &address, quint16 port) override;
         QJsonArray peerRouteStatus() const override;
 
         bool isPaused() const override;
