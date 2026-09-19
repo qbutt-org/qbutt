@@ -25,11 +25,13 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 
 - Optimize for simple, strong final code across the codebase, not the smallest patch. Remove obsolete state, imports, wrappers and mistaken ownership instead of preserving them behind fallbacks.
 - Preserve unrelated dirty work. Use separate worktrees for concurrent subsystem implementations. Keep temporary backups and generated research/build artifacts outside tracked source.
+- Clean up obsolete builds, duplicated test runtimes and generated payloads as soon as they are no longer needed. Retain compact diagnostic evidence and dependencies/builds needed for unfinished work; verify cleanup paths and release owned processes and test volumes before deletion.
 - Do not write unit tests. Use generated legal fixtures and integration, end-to-end and fault scenarios appropriate to the change. A timeout or empty output is not a successful check; inspect exit status and artifacts.
 - Review the diff after each change. After a working result, perform an ablation pass: remove each unnecessary abstraction, state, wrapper, fallback and special case, then repeat applicable checks. Preserve clear architectural boundaries and useful diagnostics.
 - "Работает" недостаточно. После того как довел до рабочего состояния, убедись, что решение встроено в код красиво и без временных подпорок. Если по пути пришлось оставить костыль или фоллбэк, потом обязательно добейся его удаления, даже если для этого надо явно попросить пользователя сделать связанное изменение.
 - Native regressions, incorrect payload, data loss and leaks override throughput claims. Report measured verified bytes separately from relay/wire traffic and identify untested real-network scenarios.
 - The Windows build entrypoint is `./scripts/build-windows.ps1`; it produces a portable bundle and records the source revision/dirty state. Use the isolated fixture setup and `bun run smoke:native`, `smoke:repair`, `smoke:proxy`, and `smoke:network` commands in `tests/README.md`. Set `QBUTT_LAB_PATHS=1` to exercise the bundled transport child. Never use a live profile as a test fixture.
+- Functional visual tests use an isolated Light/Fusion profile with custom themes disabled; use `tests/appearance.ts` (default `QBUTT_LAB_APPEARANCE=functional`). Theme and release-default checks use `QBUTT_LAB_APPEARANCE=product` to exercise the built-in default, which must be dark in the finished product. Assert control state through Qt properties as well as screenshots. Never ship test appearance overrides or overwrite a user's saved layout/theme.
 
 ## Git and public delivery
 

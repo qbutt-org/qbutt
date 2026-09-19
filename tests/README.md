@@ -57,6 +57,23 @@ retention, a new generation on retry, and explicit stop/return to Native. The
 adapter connects only to the lab SOCKS server through the Windows loopback
 interface; this is lifecycle evidence, not a VPS egress probe.
 
+`smoke:wan` uses an explicitly selected SSH observer (`QBUTT_WAN_OBSERVER`,
+`QBUTT_WAN_OBSERVER_IP`), three standalone subscription nodes
+(`QBUTT_WAN_PROXY_CONFIG`, pipe-separated `QBUTT_WAN_PROXY_NAMES`), and the physical
+`QBUTT_LAB_NATIVE_INTERFACE` / `QBUTT_LAB_NATIVE_ADDRESS`. It transfers one generated
+16 MiB torrent through four simultaneous TCP paths with disjoint piece sets.
+The observer records the actual source IPs; all four must differ, and the local
+file must match its exact size and SHA-256. SSH runs a temporary stdlib Python
+peer with a 240-second watchdog; no production configuration is modified.
+Payload, the private node copy and remote script are removed after the run;
+compact evidence and torrent metadata remain. This proves controlled WAN TCP,
+not discovery, UDP or a general speedup.
+
+`benchmark:public-swarm --qbutt-only` compares qbutt Native, one tunnel and Mixed
+without an upstream control executable. Such reports explicitly omit any
+upstream performance claim. The default comparison still requires the pinned
+upstream executable. Both successful and failed windows clean their payload.
+
 `smoke:native` checks selective download, pause/resume, clean process restart,
 recheck, exact lengths/hashes and payload preservation when removing a torrent.
 It also records the existing recheck limitation: an overlong file can be fully

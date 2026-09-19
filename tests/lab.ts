@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { generateFixtures, sha256, type FixtureManifest, type PayloadFile } from "./fixtures/generate";
 import { allowLabNetwork } from "./windows-firewall";
+import { labAppearanceSettings } from "./appearance";
 
 export interface TorrentStatus {
     hash: string;
@@ -95,6 +96,7 @@ export async function createLab(name: string) {
         "WebUI\\Username=lab", `WebUI\\Password_PBKDF2=@ByteArray(${passwordHash})`,
         "WebUI\\LocalHostAuth=true", "WebUI\\UseUPnP=false",
         "WebUI\\ServerDomains=127.0.0.1", "WebUI\\HostHeaderValidation=true", "WebUI\\CSRFProtection=true",
+        ...labAppearanceSettings(),
         "",
     ].join("\n"));
     const origin = `http://127.0.0.1:${port}`;

@@ -7,6 +7,7 @@ import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { allowLabNetwork } from "../windows-firewall";
+import { labAppearanceSettings } from "../appearance";
 
 type Mode = "upstream-native" | "qbutt-native" | "qbutt-one-tunnel" | "qbutt-mixed";
 
@@ -67,6 +68,7 @@ const PIECE_COUNT = 15566;
 const CONTROL_SHA256 = "70322489c36a613eec5788688355fca26268a520d74e3f41ebb2d90c1c8beb0f";
 const CONTROL_REVISION = "0b63c3d17373f6132ea211c9dcd4241284ccdfaf";
 
+const qbuttOnly = process.argv.includes("--qbutt-only");
 const controlExecutable = resolve(process.env.QBUTT_PUBLIC_SWARM_CONTROL_EXE ?? "");
 const qbuttExecutable = process.env.QBUTT_PUBLIC_SWARM_QBUTT_EXE
     ? resolve(process.env.QBUTT_PUBLIC_SWARM_QBUTT_EXE) : undefined;
@@ -84,7 +86,8 @@ const minimumWarmupPieces = Number(process.env.QBUTT_PUBLIC_SWARM_WARMUP_PIECES 
 const peerPort = Number(process.env.QBUTT_PUBLIC_SWARM_PEER_PORT ?? 45123);
 const attemptsPerWindow = Number(process.env.QBUTT_PUBLIC_SWARM_ATTEMPTS ?? 3);
 
-assert(process.env.QBUTT_PUBLIC_SWARM_CONTROL_EXE, "Set QBUTT_PUBLIC_SWARM_CONTROL_EXE");
+assert(qbuttOnly ? qbuttExecutable : process.env.QBUTT_PUBLIC_SWARM_CONTROL_EXE,
+    "Set QBUTT_PUBLIC_SWARM_CONTROL_EXE, or use --qbutt-only with QBUTT_PUBLIC_SWARM_QBUTT_EXE");
 assert(nativeInterface && nativeAddress,
     "Set QBUTT_PUBLIC_SWARM_NATIVE_INTERFACE and QBUTT_PUBLIC_SWARM_NATIVE_ADDRESS");
 assert(networkInterfaces()[nativeInterface]?.some(address => address.family === "IPv4"
@@ -232,7 +235,7 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
     await mkdir(config, { recursive: true });
     await mkdir(destination, { recursive: true });
     await writeFile(join(config, `${appName}.ini`), [
-        "[BitTorrent]", "Session\\DHTEnabled=true", "Session\\LSDEnabled=false", "Session\\PeXEnabled=true",
+        "[BitTorrent]", "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=true",
         "Session\\BTProtocol=0", "Session\\Interface=", "Session\\InterfaceAddress=", `Session\\Port=${peerPort}`,
         "Session\\QueueingSystemEnabled=false", "Session\\IgnoreLimitsOnLAN=false",
         "Session\\AddExtensionToIncompleteFiles=false", "Session\\UseUnwantedFolder=false",
@@ -242,7 +245,7 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
         "General\\MinimizeToTray=false", "WebUI\\Enabled=true", "WebUI\\Address=127.0.0.1", `WebUI\\Port=${webPort}`,
         "WebUI\\Username=lab", `WebUI\\Password_PBKDF2=@ByteArray(${passwordHash})`, "WebUI\\LocalHostAuth=true",
         "WebUI\\UseUPnP=false", "WebUI\\ServerDomains=127.0.0.1", "WebUI\\HostHeaderValidation=true",
-        "WebUI\\CSRFProtection=true", "",
+        "WebUI\\CSRFProtection=true", ...labAppearanceSettings(), "",
     ].join("\n"));
 
     const origin = `http://127.0.0.1:${webPort}`;
@@ -303,7 +306,7 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
         assert(interfaceAddresses.includes(nativeAddress),
             `Native address ${nativeAddress} is absent from ${nativeInterface}`);
         await request("app/setPreferences", { json: JSON.stringify({ current_network_interface: interfaceValue,
-            current_interface_address: nativeAddress, bittorrent_protocol: 0 }) });
+            current_interface_address: nativeAddress, bittorrent_protocol: 0, dht: true }) });
         await waitFor("physical Native binding", () => json<Record<string, unknown>>("app/preferences"), preferences =>
             preferences.current_network_interface === interfaceValue
                 && preferences.current_interface_address === nativeAddress
@@ -313,7 +316,7 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
             const selectedNames = mode === "qbutt-one-tunnel" ? proxyNames.slice(0, 1) : proxyNames;
             for (const [index, proxyName] of selectedNames.entries()) {
                 await request("qbuttPaths/open", { configPath: proxyConfig!, proxyName,
-                    edgeId: `public-swarm-${index + 1}`, interfaceName: "Loopback Pseudo-Interface 1" });
+                    edgeId: `public-swarm-${index + 1}`, interfaceName: nativeInterface });
                 await waitFor("public path open", () => json<PathsStatus>("qbuttPaths/status"),
                     status => !status.busy && status.paths.filter(path => path.open).length === index + 1, 60000);
             }
@@ -422,9 +425,6 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
             },
             ...(pathPayloadDownload === undefined ? {} : { pathPayloadDownload }), evidenceRoot: root,
         };
-        const resolvedDestination = await realpath(destination);
-        assert(dirname(resolvedDestination) === await realpath(root), "Refusing to clean payload outside its run root");
-        await rm(destination, { recursive: true, force: true });
         return result;
     }
     finally {
@@ -432,16 +432,19 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
             child.kill();
             await child.exited;
         }
+        const resolvedDestination = await realpath(destination);
+        assert(dirname(resolvedDestination) === await realpath(root), "Refusing to clean payload outside its run root");
+        await rm(destination, { recursive: true, force: true });
     }
 }
 
-assert((await stat(controlExecutable)).isFile(), "Upstream control executable is missing");
+if (!qbuttOnly) assert((await stat(controlExecutable)).isFile(), "Upstream control executable is missing");
 if (qbuttExecutable) assert((await stat(qbuttExecutable)).isFile(), "qbutt executable is missing");
 if (proxyConfig) assert((await stat(proxyConfig)).isFile(), "Mihomo proxy config is missing");
-const executables = [controlExecutable, ...(qbuttExecutable ? [qbuttExecutable] : [])];
+const executables = [...(qbuttOnly ? [] : [controlExecutable]), ...(qbuttExecutable ? [qbuttExecutable] : [])];
 const executableHashes = new Map<string, string>();
 for (const executable of executables) executableHashes.set(executable, sha256(await readFile(executable)));
-assert(executableHashes.get(controlExecutable) === CONTROL_SHA256,
+if (!qbuttOnly) assert(executableHashes.get(controlExecutable) === CONTROL_SHA256,
     `The upstream control must be ${CONTROL_REVISION} (${CONTROL_SHA256})`);
 if (qbuttExecutable) assert(executableHashes.get(qbuttExecutable) !== CONTROL_SHA256,
     "qbutt executable must be distinct from the upstream control");
@@ -457,7 +460,7 @@ assert(response.ok && response.url === SOURCE_URL,
 const torrentBytes = new Uint8Array(await response.arrayBuffer());
 assert(sha256(torrentBytes) === SOURCE_SHA256, "Official torrent file changed from the pinned SHA-256");
 await writeFile(torrentPath, torrentBytes);
-const modes: Mode[] = ["upstream-native", ...(qbuttExecutable ? ["qbutt-native" as const] : []),
+const modes: Mode[] = [...(qbuttOnly ? [] : ["upstream-native" as const]), ...(qbuttExecutable ? ["qbutt-native" as const] : []),
     ...(proxyConfig ? ["qbutt-one-tunnel" as const, "qbutt-mixed" as const] : [])];
 assert(peerPort + rounds * modes.length * attemptsPerWindow <= 49151,
     "The deterministic peer-port range exceeds the non-ephemeral boundary");
@@ -467,7 +470,7 @@ const evidence: Record<string, unknown> = {
         infoHashV1: INFO_HASH, payloadName: PAYLOAD_NAME,
         payloadBytes: PAYLOAD_BYTES, fullPayloadSha256Expected: PAYLOAD_SHA256, fullPayloadVerified: false,
         pieceLength: PIECE_LENGTH, pieceCount: PIECE_COUNT },
-    control: { revision: CONTROL_REVISION, executable: controlExecutable,
+    control: qbuttOnly ? null : { revision: CONTROL_REVISION, executable: controlExecutable,
         executableSha256: executableHashes.get(controlExecutable) },
     qbutt: qbuttExecutable
         ? { executable: qbuttExecutable, executableSha256: executableHashes.get(qbuttExecutable) } : null,
@@ -478,6 +481,7 @@ const evidence: Record<string, unknown> = {
         nativeInterface, nativeAddress, configuredTunnelCount: proxyConfig ? proxyNames.length : 0,
         peerPortBase: peerPort, attemptsPerWindow },
     limits: [
+        ...(qbuttOnly ? ["qbutt route comparison only; no unchanged-upstream performance claim"] : []),
         "Live public swarm membership, peer capacity and Internet path conditions change during the run",
         "Completed pieces are read from disk and checked against the torrent SHA-1 list;"
             + " the full ISO SHA-256 is not claimed",
