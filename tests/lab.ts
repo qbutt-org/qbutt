@@ -85,7 +85,7 @@ export async function createLab(name: string) {
         "[BitTorrent]",
         `Session\\ResumeDataStorageType=${resumeBackend}`,
         "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
-        "Session\\BTProtocol=1", "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
+        "Session\\BTProtocol=TCP", "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
         "Session\\IgnoreLimitsOnLAN=false", "Session\\AddExtensionToIncompleteFiles=false",
         "Session\\UseUnwantedFolder=false", "Session\\QueueingSystemEnabled=false",
         "[Network]", "PortForwardingEnabled=false",

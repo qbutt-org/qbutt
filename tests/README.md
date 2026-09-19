@@ -313,6 +313,20 @@ terminating its healthy neighbour, global stop, and saved settings after restart
 This checks the application's DNS control boundary; it does not prove that every
 libtorrent tracker, peer, webseed or discovery operation uses that boundary.
 
+`smoke:discovery` uses two managed tunnel paths with exact-target local SOCKS
+relays. Their DHT responders return different peer subsets; HTTP and UDP trackers
+provide two more peers. Four libtorrent seeds own disjoint pieces of one public
+torrent. No peer is injected through `addPeers`: completion requires discovery,
+concurrent payload through both paths and exact file sizes/hashes. The torrent
+is already active when DHT is enabled. The fixture checks read-only DHT messages,
+absence of `announce_peer`, separate node IDs and current peer path generations.
+Both relays allow all four seed endpoints; only discovery responses are route-local.
+Set `QBUTT_DISCOVERY_PROTOCOL=both` to check automatic uTP-to-TCP retry against the
+same TCP-only seeds; the default is explicit TCP.
+PEX, cross-generation DHT identity changes and real-network discovery remain
+unverified by this scenario. Generated payloads and profiles are removed after
+owned processes stop; compact evidence and logs remain.
+
 This local lab does not prove physical VPS egress, throughput gain, complete DNS
 isolation, Koala coexistence or public inbound. It also does not implement network
 namespaces/netem or physical source-volume/power failure; those require separate

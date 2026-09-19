@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { createSocket } from "node:dgram";
 import { createConnection, createServer, isIP, type Socket } from "node:net";
 
 export interface ProxyTarget {
@@ -15,6 +16,7 @@ export interface ProxyOptions {
     targets: ProxyTarget[];
     handshakeTimeoutMs?: number;
     maxConnections?: number;
+    udp?: boolean;
 }
 
 export interface ProxyStats {
@@ -25,6 +27,8 @@ export interface ProxyStats {
     // Payload bytes observed by the relay, not verified torrent or wire bytes.
     uploadStreamBytes: number;
     downloadStreamBytes: number;
+    uploadDatagramBytes: number;
+    downloadDatagramBytes: number;
 }
 
 function normalizedHost(host: string): string {
@@ -41,7 +45,7 @@ function validPort(port: number): boolean {
     return Number.isInteger(port) && port > 0 && port <= 65535;
 }
 
-/** Controlled TCP-only integration relay. Never resolves DNS or routes arbitrary targets. */
+/** Controlled integration relay. Never resolves DNS or routes arbitrary targets. */
 export async function startProxy(options: ProxyOptions) {
     const username = Buffer.from(options.username);
     const password = Buffer.from(options.password);
@@ -76,8 +80,11 @@ export async function startProxy(options: ProxyOptions) {
         activeConnections: 0,
         uploadStreamBytes: 0,
         downloadStreamBytes: 0,
+        uploadDatagramBytes: 0,
+        downloadDatagramBytes: 0,
     };
     const sockets = new Set<Socket>();
+    const datagrams = new Set<ReturnType<typeof createSocket>>();
     const reply = (code: number, socket?: Socket) => {
         const ipv6 = socket?.localFamily === "IPv6";
         const response = Buffer.alloc(ipv6 ? 22 : 10);
@@ -101,7 +108,7 @@ export async function startProxy(options: ProxyOptions) {
         stats.activeConnections++;
         sockets.add(client);
         let peer: Socket | undefined;
-        let phase: "greeting" | "auth" | "request" | "connect" | "relay" | "closed" = "greeting";
+        let phase: "greeting" | "auth" | "request" | "connect" | "relay" | "udp" | "closed" = "greeting";
         let buffered = Buffer.alloc(0);
         const timer = setTimeout(() => client.destroy(), timeoutMs);
 
@@ -171,7 +178,8 @@ export async function startProxy(options: ProxyOptions) {
                 else if (phase === "request") {
                     if (buffered.length < 5)
                         return;
-                    if (buffered[0] !== 5 || buffered[1] !== 1 || buffered[2] !== 0) {
+                    const command = buffered[1];
+                    if (buffered[0] !== 5 || (command !== 1 && !(options.udp && command === 3)) || buffered[2] !== 0) {
                         reject(reply(7));
                         return;
                     }
@@ -202,6 +210,55 @@ export async function startProxy(options: ProxyOptions) {
                     else
                         host = address.toString("utf8");
                     const port = buffered.readUInt16BE(offset + addressLength);
+                    if (command === 3) {
+                        if (addressType !== 1 || (host !== "0.0.0.0" && host !== "127.0.0.1")) {
+                            reject(reply(2));
+                            return;
+                        }
+                        phase = "udp";
+                        clearTimeout(timer);
+                        client.removeListener("data", onHandshake);
+                        client.on("data", () => client.destroy());
+                        const relay = createSocket("udp4");
+                        datagrams.add(relay);
+                        relay.once("close", () => datagrams.delete(relay));
+                        const replies = new Map<string, Buffer>();
+                        let clientPort = port;
+                        relay.on("error", () => client.destroy());
+                        relay.on("message", (packet, source) => {
+                            const endpoint = `${source.address}\0${source.port}`;
+                            const fromTarget = replies.get(endpoint);
+                            if (fromTarget) {
+                                stats.downloadDatagramBytes += packet.length;
+                                relay.send(Buffer.concat([Buffer.alloc(3), fromTarget, packet]), clientPort, "127.0.0.1");
+                                return;
+                            }
+                            if (source.address !== "127.0.0.1" || (clientPort && source.port !== clientPort)
+                                || packet.length < 10 || packet.length > 65507 || packet.readUInt32BE(0) !== 1)
+                                return;
+                            const targetHost = [...packet.subarray(4, 8)].join(".");
+                            const target = targets.get(`${targetHost}\0${packet.readUInt16BE(8)}`);
+                            if (!target || isIP(target.host) !== 4) {
+                                stats.deniedConnections++;
+                                return;
+                            }
+                            clientPort = source.port;
+                            replies.set(`${target.host}\0${target.port}`, Buffer.from(packet.subarray(3, 10)));
+                            stats.uploadDatagramBytes += packet.length - 10;
+                            relay.send(packet.subarray(10), target.port, target.host);
+                        });
+                        relay.bind(0, "127.0.0.1", () => {
+                            if (client.destroyed) {
+                                relay.close();
+                                return;
+                            }
+                            client.once("close", () => relay.close());
+                            const response = Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]);
+                            response.writeUInt16BE(relay.address().port, 8);
+                            client.write(response);
+                        });
+                        return;
+                    }
                     const target = targets.get(`${normalizedHost(host)}\0${port}`);
                     if (!target) {
                         reject(reply(2));
@@ -275,12 +332,15 @@ export async function startProxy(options: ProxyOptions) {
                 const socketsClosed = Array.from(sockets, socket => new Promise<void>(resolve => {
                     socket.once("close", resolve);
                 }));
+                const datagramsClosed = Array.from(datagrams, socket => new Promise<void>(resolve => {
+                    socket.once("close", resolve);
+                }));
                 const listenerClosed = new Promise<void>((resolve, reject) => {
                     server.close(error => error ? reject(error) : resolve());
                 });
                 for (const socket of sockets)
                     socket.destroy();
-                closePromise = Promise.all([listenerClosed, ...socketsClosed]).then(() => {});
+                closePromise = Promise.all([listenerClosed, ...socketsClosed, ...datagramsClosed]).then(() => {});
             }
             return closePromise;
         },
