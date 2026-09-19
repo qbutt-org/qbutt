@@ -54,6 +54,7 @@
 #include "gui/autoexpandabledialog.h"
 #include "gui/filterpatternformatmenu.h"
 #include "gui/lineedit.h"
+#include "gui/torrentcontentmodelitem.h"
 #include "gui/trackerlist/trackerlistwidget.h"
 #include "gui/uithememanager.h"
 #include "gui/utils.h"
