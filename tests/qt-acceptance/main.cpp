@@ -1513,82 +1513,83 @@ void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evide
     try
     {
         waitFor(u"Native useful payload"_s, [&] { return peer(u"1"_s).value(u"payloadDownload"_s).toInteger() > 16384; });
+        recordNativeAdmission(u"receiving"_s);
+        const quint64 oldGeneration = paths->m_nativeEndpoints.front().generation;
+        const QJsonValue oldNativePort = peer(u"1"_s).value(u"localPort"_s);
+        const auto dhtQueries = [&](const QString &source)
+        {
+            return std::ranges::count_if(tryReadObject(spec.value(u"dhtEvidence"_s).toString())
+                .value(u"queries"_s).toArray(), [&](const QJsonValue &entry)
+            {
+                return entry.toObject().value(u"source"_s).toString() == source;
+            });
+        };
+        const quint16 dhtPort = static_cast<quint16>(spec.value(u"dhtPort"_s).toInt());
+        require(dhtPort > 0, u"DHT observer port is missing"_s);
+        session->setDHTBootstrapNodes(u"127.0.0.12:%1"_s.arg(dhtPort));
+        session->setDHTEnabled(true);
+        waitFor(u"Native DHT route ready"_s, [&]
+        {
+            return session->addDHTRouteNode(1, oldGeneration, QHostAddress(u"127.0.0.12"_s), dhtPort);
+        });
+        waitFor(u"Original Native DHT source"_s, [&] { return dhtQueries(u"127.0.0.6"_s) > 0; });
+        require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.6"_s)),
+            u"Unchanged Native snapshot failed"_s);
+        paths->m_statusRefresh.stop();
+        require((paths->m_nativeEndpoints.front().generation == oldGeneration)
+            && (peer(u"1"_s).value(u"localPort"_s) == oldNativePort) && sameRemote(),
+            u"Unchanged snapshot disturbed an established connection"_s);
+
+        paths->m_statusRefresh.start();
+        waitFor(u"Active Native address disappearance"_s, [&]
+        {
+            return paths->m_nativeEndpoints.isEmpty() && peer(u"1"_s).isEmpty();
+        }, 5000);
+        require(sameRemote(), u"Native disappearance retired the remote connection"_s);
+        const qint64 before = peer(remotePath).value(u"payloadDownload"_s).toInteger();
+        waitFor(u"Remote continues after Native loss"_s, [&]
+        {
+            return sameRemote() && (peer(remotePath).value(u"payloadDownload"_s).toInteger() > before + 16384);
+        }, 15000);
+        const auto retiredDhtQueries = dhtQueries(u"127.0.0.6"_s);
+        require(!session->addDHTRouteNode(1, oldGeneration, QHostAddress(u"127.0.0.12"_s), dhtPort),
+            u"Retired Native DHT route still accepts discovery"_s);
+        require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.7"_s)),
+            u"Replacement Native snapshot failed"_s);
+        paths->m_statusRefresh.stop();
+        const quint64 replacementGeneration = paths->m_nativeEndpoints.front().generation;
+        require(replacementGeneration > oldGeneration, u"Replacement reused the removed Native generation"_s);
+        waitFor(u"Replacement Native DHT route ready"_s, [&]
+        {
+            return session->addDHTRouteNode(1, replacementGeneration, QHostAddress(u"127.0.0.12"_s), dhtPort);
+        });
+        waitFor(u"Replacement Native DHT source"_s, [&] { return dhtQueries(u"127.0.0.7"_s) > 0; });
+        recordNativeAdmission(u"replacement-ready"_s);
+        waitFor(u"Automatic replacement Native connection"_s, [&]
+        {
+            const QJsonObject current = peer(u"1"_s);
+            return (current.value(u"generation"_s).toInteger() == static_cast<qint64>(replacementGeneration))
+                && (current.value(u"localAddress"_s).toString() == u"127.0.0.7")
+                && (current.value(u"payloadDownload"_s).toInteger() > 16384);
+        }, 90000);
+        require(sameRemote(), u"Native replacement retired the healthy remote connection"_s);
+        torrent->setDownloadLimit(0);
+        waitFor(u"Replacement Native completion"_s, [&] { return torrent->progress() == 1; }, 90000);
+        require(dhtQueries(u"127.0.0.6"_s) == retiredDhtQueries, u"Retired Native DHT source sent more packets"_s);
+        torrent->stop();
+        addCheck(evidence, {{u"name"_s, u"native-address-reconciliation"_s}, {u"oldGeneration"_s, static_cast<qint64>(oldGeneration)},
+            {u"replacementGeneration"_s, static_cast<qint64>(replacementGeneration)}, {u"remoteConnectionPreserved"_s, true},
+            {u"nativeOnlyTimer"_s, true}, {u"unchangedFamilyPreserved"_s, true},
+            {u"unchangedSnapshotPreserved"_s, true}, {u"automaticReconnect"_s, true},
+            {u"nativeDhtSourceChanged"_s, true}, {u"retiredDhtQueriesRejected"_s, true},
+            {u"verifiedBytes"_s, torrent->completedSize()}, {u"physicalInterfaceChanged"_s, false}});
+        paths->stopPath();
     }
     catch (...)
     {
         recordNativeAdmission(u"failed"_s);
         throw;
     }
-    recordNativeAdmission(u"receiving"_s);
-    const quint64 oldGeneration = paths->m_nativeEndpoints.front().generation;
-    const QJsonValue oldNativePort = peer(u"1"_s).value(u"localPort"_s);
-    const auto dhtQueries = [&](const QString &source)
-    {
-        return std::ranges::count_if(tryReadObject(spec.value(u"dhtEvidence"_s).toString())
-            .value(u"queries"_s).toArray(), [&](const QJsonValue &entry)
-        {
-            return entry.toObject().value(u"source"_s).toString() == source;
-        });
-    };
-    const quint16 dhtPort = static_cast<quint16>(spec.value(u"dhtPort"_s).toInt());
-    require(dhtPort > 0, u"DHT observer port is missing"_s);
-    session->setDHTBootstrapNodes(u"127.0.0.12:%1"_s.arg(dhtPort));
-    session->setDHTEnabled(true);
-    waitFor(u"Native DHT route ready"_s, [&]
-    {
-        return session->addDHTRouteNode(1, oldGeneration, QHostAddress(u"127.0.0.12"_s), dhtPort);
-    });
-    waitFor(u"Original Native DHT source"_s, [&] { return dhtQueries(u"127.0.0.6"_s) > 0; });
-    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.6"_s)),
-        u"Unchanged Native snapshot failed"_s);
-    paths->m_statusRefresh.stop();
-    require((paths->m_nativeEndpoints.front().generation == oldGeneration)
-        && (peer(u"1"_s).value(u"localPort"_s) == oldNativePort) && sameRemote(),
-        u"Unchanged snapshot disturbed an established connection"_s);
-
-    paths->m_statusRefresh.start();
-    waitFor(u"Active Native address disappearance"_s, [&]
-    {
-        return paths->m_nativeEndpoints.isEmpty() && peer(u"1"_s).isEmpty();
-    }, 5000);
-    require(sameRemote(), u"Native disappearance retired the remote connection"_s);
-    const qint64 before = peer(remotePath).value(u"payloadDownload"_s).toInteger();
-    waitFor(u"Remote continues after Native loss"_s, [&]
-    {
-        return sameRemote() && (peer(remotePath).value(u"payloadDownload"_s).toInteger() > before + 16384);
-    }, 15000);
-    const auto retiredDhtQueries = dhtQueries(u"127.0.0.6"_s);
-    require(!session->addDHTRouteNode(1, oldGeneration, QHostAddress(u"127.0.0.12"_s), dhtPort),
-        u"Retired Native DHT route still accepts discovery"_s);
-    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.7"_s)),
-        u"Replacement Native snapshot failed"_s);
-    paths->m_statusRefresh.stop();
-    const quint64 replacementGeneration = paths->m_nativeEndpoints.front().generation;
-    require(replacementGeneration > oldGeneration, u"Replacement reused the removed Native generation"_s);
-    waitFor(u"Replacement Native DHT route ready"_s, [&]
-    {
-        return session->addDHTRouteNode(1, replacementGeneration, QHostAddress(u"127.0.0.12"_s), dhtPort);
-    });
-    waitFor(u"Replacement Native DHT source"_s, [&] { return dhtQueries(u"127.0.0.7"_s) > 0; });
-    waitFor(u"Automatic replacement Native connection"_s, [&]
-    {
-        const QJsonObject current = peer(u"1"_s);
-        return (current.value(u"generation"_s).toInteger() == static_cast<qint64>(replacementGeneration))
-            && (current.value(u"localAddress"_s).toString() == u"127.0.0.7")
-            && (current.value(u"payloadDownload"_s).toInteger() > 16384);
-    }, 90000);
-    require(sameRemote(), u"Native replacement retired the healthy remote connection"_s);
-    torrent->setDownloadLimit(0);
-    waitFor(u"Replacement Native completion"_s, [&] { return torrent->progress() == 1; }, 90000);
-    require(dhtQueries(u"127.0.0.6"_s) == retiredDhtQueries, u"Retired Native DHT source sent more packets"_s);
-    torrent->stop();
-    addCheck(evidence, {{u"name"_s, u"native-address-reconciliation"_s}, {u"oldGeneration"_s, static_cast<qint64>(oldGeneration)},
-        {u"replacementGeneration"_s, static_cast<qint64>(replacementGeneration)}, {u"remoteConnectionPreserved"_s, true},
-        {u"nativeOnlyTimer"_s, true}, {u"unchangedFamilyPreserved"_s, true},
-        {u"unchangedSnapshotPreserved"_s, true}, {u"automaticReconnect"_s, true},
-        {u"nativeDhtSourceChanged"_s, true}, {u"retiredDhtQueriesRejected"_s, true},
-        {u"verifiedBytes"_s, torrent->completedSize()}, {u"physicalInterfaceChanged"_s, false}});
-    paths->stopPath();
 }
 
 int main(int argc, char **argv)
