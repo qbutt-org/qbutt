@@ -30,6 +30,7 @@
     "smoke:discovery": "bun tests/network-lab/discovery.ts",
     "smoke:discovery-policy": "bun tests/network-lab/discovery-policy.ts",
     "smoke:webseed": "bun tests/network-lab/webseed.ts",
+    "smoke:webseed-https": "bun tests/network-lab/webseed-https.ts",
     "smoke:pex": "bun tests/network-lab/discovery.ts --pex",
     "smoke:policies": "bun tests/policies-smoke.ts",
     "smoke:policies-faults": "bun tests/policies-faults.ts",

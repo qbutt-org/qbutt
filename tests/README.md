@@ -487,6 +487,15 @@ with zero data or HTTP requests for eight seconds, preserving the retired path
 identity while the other route remains open. A public torrent then completes via
 the surviving route, proving it works while the private torrent stays blocked.
 HTTPS certificate validation and mid-transfer webseed reconnection are not tested.
+`smoke:webseed-https` separately downloads the pinned 893-byte Ubuntu 24.04.5
+`SHA256SUMS` resource as a generated single-file torrent with an HTTPS URL seed
+and no peer or tracker sources. Supply `QBUTT_HTTPS_PROXY_CONFIG`,
+`QBUTT_HTTPS_PROXY_NAME` and `QBUTT_HTTPS_INTERFACE` through local environment
+variables for one real subscription route. It requires exact size/SHA-256 and
+verified-byte credit on that path generation, with zero other/Native route
+payload in engine accounting. It uses normal public certificate trust without
+changing system roots; rejection of invalid certificates and independent packet
+capture of Native exclusion are not covered by this positive acceptance test.
 Generated payloads and profiles are removed after
 owned processes stop; compact evidence and logs remain.
 
