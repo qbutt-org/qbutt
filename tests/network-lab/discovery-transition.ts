@@ -14,6 +14,8 @@ interface Counters {
     httpRequests: number;
     udpPackets: number;
     udpAnnounces: number;
+    udpTunnels: number;
+    udpPinned: number;
 }
 
 interface Status {
@@ -41,6 +43,7 @@ assert(torrent.infoHashV1, "The public fixture must have a v1 infohash");
 const infoHash = Buffer.from(torrent.infoHashV1, "hex");
 const counters: Counters[] = Array.from({ length: 3 }, () => ({
     dhtPackets: 0, dhtGetPeers: 0, httpRequests: 0, udpPackets: 0, udpAnnounces: 0,
+    udpTunnels: 0, udpPinned: 0,
 }));
 const errors: string[] = [];
 const dht: ReturnType<typeof createSocket>[] = [];
@@ -51,12 +54,11 @@ let seed: Awaited<ReturnType<typeof startSeed>> | undefined;
 let failure: unknown;
 
 const snapshot = () => counters.map(counter => ({ ...counter }));
-const trafficIncreased = (current: Counters, previous: Counters) =>
+const trafficIncreased = (current: Counters, previous: Counters,
+    phase: "udpTunnels" | "udpPinned") =>
     current.dhtGetPeers > previous.dhtGetPeers
         && current.httpRequests > previous.httpRequests
-        && current.udpAnnounces > previous.udpAnnounces;
-// libtorrent enforces a 60-second minimum for UDP tracker replies even on forced reannounce.
-const trackerReannounceTimeoutMs = 75_000;
+        && current[phase] > previous[phase];
 
 try {
     seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root,
@@ -130,11 +132,15 @@ try {
                     if (action === 1) {
                         assert(packet.length >= 98);
                         counters[side]!.udpAnnounces++;
+                        if (packet.includes(Buffer.from("phase=tunnels"))) counters[side]!.udpTunnels++;
+                        if (packet.includes(Buffer.from("phase=pinned"))) counters[side]!.udpPinned++;
                     }
                     reply.writeUInt32BE(30, 8);
                     reply.writeUInt32BE(1, 16);
                 }
-                tracker.send(reply, remote.port, remote.address);
+                tracker.send(reply, remote.port, remote.address, error => {
+                    if (error) errors.push(String(error));
+                });
             }
             catch (error) { errors.push(String(error)); }
         });
@@ -177,10 +183,14 @@ try {
         announce_to_all_trackers: true, announce_to_all_tiers: true,
     }) });
     const preferences = await lab.json<{ dht: boolean; dht_bootstrap_nodes: string;
-        bittorrent_protocol: number }>("app/preferences");
+        bittorrent_protocol: number; announce_to_all_trackers: boolean;
+        announce_to_all_tiers: boolean }>("app/preferences");
     assert(!preferences.dht && preferences.dht_bootstrap_nodes === `${nativeAddress}:${bootstrapPort}`
-        && preferences.bittorrent_protocol === 1,
+        && preferences.bittorrent_protocol === 1 && preferences.announce_to_all_trackers
+        && preferences.announce_to_all_tiers,
     "The fixture must begin TCP-only with DHT disabled and the controlled bootstrap node");
+    await lab.request("qbuttPaths/dns", { server: "127.0.0.1:53",
+        bootstrapServer: "127.0.0.1:53", family: "ipv4" });
     for (const side of [0, 1]) {
         await lab.request("qbuttPaths/open", { configPath, proxyName: `discovery-transition-${side}`,
             interfaceName: loopback });
@@ -222,11 +232,13 @@ try {
     const beforeNativeGrace = snapshot();
     await Bun.sleep(2000);
     const afterNativeGrace = snapshot();
+    await lab.request("torrents/addTrackers", { hash,
+        urls: `udp://${nativeAddress}:${udpPort}/announce?phase=tunnels` });
     await lab.request("torrents/reannounce", { hashes: hash });
-    const tunnels = await waitFor("both retained tunnels reannounce DHT and trackers", async () => {
+    const tunnels = await waitFor("both retained tunnels deliver fresh DHT and tracker traffic", async () => {
         assert.deepEqual(errors, []); return snapshot();
-    }, current => [0, 1].every(side => trafficIncreased(current[side]!, afterNativeGrace[side]!)),
-    trackerReannounceTimeoutMs);
+    }, current => [0, 1].every(side =>
+        trafficIncreased(current[side]!, afterNativeGrace[side]!, "udpTunnels")), 30000);
     await Bun.sleep(3000);
     const afterTunnelsHold = snapshot();
     assert.deepEqual(afterTunnelsHold[2], afterNativeGrace[2],
@@ -244,11 +256,12 @@ try {
     const afterSecondaryGrace = snapshot();
     assert.deepEqual(afterSecondaryGrace[2], afterNativeGrace[2],
         "Native discovery resumed between the two policy transitions");
+    await lab.request("torrents/addTrackers", { hash,
+        urls: `udp://${nativeAddress}:${udpPort}/announce?phase=pinned` });
     await lab.request("torrents/reannounce", { hashes: hash });
-    const pinned = await waitFor("retained Pinned route reannounces DHT and trackers", async () => {
+    const pinned = await waitFor("retained Pinned route delivers fresh DHT and tracker traffic", async () => {
         assert.deepEqual(errors, []); return snapshot();
-    }, current => trafficIncreased(current[0]!, afterSecondaryGrace[0]!),
-    trackerReannounceTimeoutMs);
+    }, current => trafficIncreased(current[0]!, afterSecondaryGrace[0]!, "udpPinned"), 30000);
     await Bun.sleep(3000);
     const afterPinnedHold = snapshot();
     assert.deepEqual(afterPinnedHold[1], afterSecondaryGrace[1],
@@ -276,7 +289,8 @@ try {
         "Native discovery resumed during Pinned payload completion");
     await lab.checkpoint({ check: "discovery-transition-payload-verified", hash, verifiedBytes,
         exactSizesAndHashes: true, finalCounters,
-        scope: "Controlled local DHT + HTTP/UDP trackers and TCP payload; no public DHT, WAN or uTP claim" });
+        scope: "Controlled local DHT, forced HTTP, fresh URL UDP tracker egress and TCP payload; "
+            + "no prior UDP response/reannounce, public DHT, WAN or uTP claim" });
 }
 catch (error) { failure = error; }
 finally {
