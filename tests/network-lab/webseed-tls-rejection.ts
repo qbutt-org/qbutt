@@ -83,6 +83,7 @@ try {
     // Prove the destination is reachable directly, then exclude this controlled probe.
     await new Promise<void>((done, fail) => {
         const socket = createConnection({ host: HOST, port: canaryPort });
+        socket.setTimeout(2000, () => socket.destroy(new Error("Native canary probe timed out")));
         socket.once("connect", () => { socket.destroy(); done(); });
         socket.once("error", fail);
     });
@@ -92,7 +93,8 @@ try {
     const certs = join(lab.root, "certificates");
     const go = process.env.QBUTT_LAB_GO ?? "go";
     const generator = Bun.spawn([go, "run", join(import.meta.dir, "gateway-certificates.go"), certs, HOST], {
-        cwd: resolve(import.meta.dir, "../.."), env: { ...process.env, GOTOOLCHAIN: "local" }, stdout: "pipe", stderr: "pipe",
+        cwd: resolve(import.meta.dir, "../.."), env: { ...process.env, GOTOOLCHAIN: "local" },
+        stdout: "ignore", stderr: "pipe", timeout: 60000, windowsHide: true,
     });
     const [exitCode, stderr] = await Promise.all([generator.exited, new Response(generator.stderr).text()]);
     assert.equal(exitCode, 0, `Certificate generator failed: ${stderr}`);
@@ -105,6 +107,7 @@ try {
         join(certs, "server-key.pem"), payloadPath, endpointPath, eventsPath], {
         stdout: Bun.file(join(lab.root, "tls-server.stdout.log")),
         stderr: Bun.file(join(lab.root, "tls-server.stderr.log")),
+        windowsHide: true,
     });
     const responderPort = (await waitFor("TLS responder ready", async () => {
         assert(responder!.exitCode === null, "Python TLS responder exited before readiness");
@@ -170,7 +173,8 @@ conn.request("GET",path)
 response=conn.getresponse()
 data=response.read()
 print(json.dumps({"status":response.status,"size":len(data),"sha256":hashlib.sha256(data).hexdigest()}))
-conn.close()`, join(certs, "ca.pem"), HOST, String(responderPort), `/${NAME}`], { stdout: "pipe", stderr: "pipe" });
+conn.close()`, join(certs, "ca.pem"), HOST, String(responderPort), `/${NAME}`],
+        { stdout: "pipe", stderr: "pipe", timeout: 10000, windowsHide: true });
     const [trustedExit, trustedOut, trustedError] = await Promise.all([trusted.exited,
         new Response(trusted.stdout).text(), new Response(trusted.stderr).text()]);
     assert.equal(trustedExit, 0, `Trusted HTTPS control failed: ${trustedError}`);

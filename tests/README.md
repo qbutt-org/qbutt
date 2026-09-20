@@ -550,7 +550,7 @@ pinned route. After that route is retired, a second private torrent stays active
 with zero data or HTTP requests for eight seconds, preserving the retired path
 identity while the other route remains open. A public torrent then completes via
 the surviving route, proving it works while the private torrent stays blocked.
-HTTPS certificate validation and mid-transfer webseed reconnection are not tested.
+That HTTP scenario does not test TLS or mid-transfer webseed reconnection.
 `smoke:webseed-https` separately downloads the pinned 893-byte Ubuntu 24.04.5
 `SHA256SUMS` resource as a generated single-file torrent with an HTTPS URL seed
 and no peer or tracker sources. Supply `QBUTT_HTTPS_PROXY_CONFIG`,
@@ -562,6 +562,15 @@ changing system roots; rejection of invalid certificates and independent packet
 capture of Native exclusion are not covered by this positive acceptance test.
 Generated payloads and profiles are removed after
 owned processes stop; compact evidence and logs remain.
+
+`smoke:webseed-tls-rejection` checks the negative certificate case locally through
+the real app and qbutt-net. It uses Go (`QBUTT_LAB_GO`, otherwise `go`) to generate
+a short-lived CA and a server certificate with the correct numeric SAN. Python's
+TLS server must receive `TLSV1_ALERT_UNKNOWN_CA` from qbutt, while HTTP requests,
+useful/verified payload and connections to a reachable Native canary remain zero.
+A separate client with the explicit fixture CA must retrieve the exact body.
+No certificate is installed in the system trust store. Certificate expiration,
+name mismatch and mid-transfer reconnection remain separate scenarios.
 
 This local lab does not prove physical VPS egress, throughput gain, complete DNS
 isolation, Koala coexistence or public-Internet inbound. It also does not implement network
