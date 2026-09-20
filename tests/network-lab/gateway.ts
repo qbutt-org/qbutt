@@ -554,6 +554,16 @@ try {
             nativeUdpCanary!.once("error", reject);
             nativeUdpCanary!.bind(udpTracker.address().port, "127.0.0.12", accept);
         });
+        const nativeProbe = createSocket("udp4");
+        try {
+            await new Promise<void>((accept, reject) => nativeProbe.send(
+                Buffer.from("canary-preflight"), udpTracker.address().port, "127.0.0.12",
+                error => error ? reject(error) : accept()));
+            await waitFor("Native UDP canary reachability", async () => nativeUdpPackets,
+                count => count === 1, 2000);
+        }
+        finally { await new Promise<void>(accept => nativeProbe.close(accept)); }
+        nativeUdpPackets = 0;
     }
     const publicPort = await probeTcpUdpPort(PUBLIC_FIXTURE_ADDRESS);
     const gatewayConfig = join(lab.root, "gateway.json");
@@ -740,9 +750,12 @@ try {
         "UDP tracker did not advertise the leased IPv4 endpoint and port");
         assert(nativeHttpRequests === 0 && nativeUdpPackets === 0,
             "Leased tracker announce bypassed the managed path");
-        await lab.checkpoint({ check: "leased-gateway-tracker-announces", pathId: secondPath.pathId,
-            generation: secondPath.generation, publicEndpoint: secondPath.gateway.publicEndpoint,
-            family: secondPath.gateway.family, http: httpAnnounces, udp: udpAnnounces,
+        // Tracker wire requests carry no path ID or generation. Correlate their
+        // exact endpoint fields with the app's active path status in this phase.
+        await lab.checkpoint({ check: "leased-gateway-tracker-announces",
+            statusPath: { pathId: secondPath.pathId, generation: secondPath.generation,
+                publicEndpoint: secondPath.gateway.publicEndpoint, family: secondPath.gateway.family },
+            http: httpAnnounces, udp: udpAnnounces,
             nativeHttpRequests, nativeUdpPackets });
     }
 
@@ -776,9 +789,10 @@ try {
             && item.ip === "0.0.0.0"), "UDP tracker retained the revoked public endpoint");
         assert(nativeHttpRequests === 0 && nativeUdpPackets === 0,
             "Tracker traffic used Native during gateway retirement");
-        await lab.checkpoint({ check: "retired-gateway-tracker-announces", pathId: thirdPath.pathId,
-            retiredGeneration: secondPath.generation, outgoingGeneration: thirdPath.generation,
-            gateway: thirdPath.gateway, http: httpAnnounces.filter(item => item.phase === "retired"),
+        await lab.checkpoint({ check: "retired-gateway-tracker-announces",
+            statusPath: { pathId: thirdPath.pathId, generation: thirdPath.generation,
+                gateway: thirdPath.gateway }, retiredGeneration: secondPath.generation,
+            http: httpAnnounces.filter(item => item.phase === "retired"),
             udp: udpAnnounces.filter(item => item.phase === "retired"), nativeHttpRequests, nativeUdpPackets });
         await lab.request("torrents/stop", { hashes: hash });
         await waitFor("tracker fixture torrent stopped", () => lab.info(hash), info => info.state === "stoppedUP");
