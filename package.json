@@ -4,6 +4,7 @@
   "scripts": {
     "fixtures": "bun tests/fixtures/generate.ts",
     "smoke:native": "bun tests/native-smoke.ts",
+    "smoke:native-inbound": "bun tests/network-lab/native-inbound.ts",
     "smoke:repair": "bun tests/repair/smoke.ts",
     "smoke:repair-product": "bun tests/repair-product/smoke.ts",
     "smoke:staging": "bun tests/repair/staging-smoke.ts",

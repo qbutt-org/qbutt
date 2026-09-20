@@ -35,6 +35,7 @@ Point the lab at a built, deployed Windows executable with Qt's `qoffscreen.dll`
 $env:QBUTT_LAB_EXE = 'C:/path/to/portable/qbutt.exe'
 $env:QBUTT_LAB_APP_NAME = 'qbutt' # use qBittorrent for the upstream control build
 bun run smoke:native
+bun run smoke:native-inbound
 bun run smoke:proxy
 bun run smoke:network
 bun run smoke:gateway
@@ -50,6 +51,16 @@ bun run smoke:route-policy
 bun run smoke:path-auth
 bun run smoke:path-dns
 ```
+
+`smoke:native-inbound` starts the app with uTP only and no managed paths or
+discovery. An independent checked libtorrent seed initiates the sole connection
+to the app's ordinary IPv4 UDP listener; the app never receives `addPeers`. The fixture
+checks the process's actual UDP bind, incoming/uTP peer flags, exact payload
+sizes/hashes, seed upload accounting and zero seed downloads. Generated data and
+profiles are removed after shutdown. For comparison with unchanged upstream,
+set `QBUTT_LAB_APP_NAME=qBittorrent`, select its executable and run
+`bun tests/network-lab/native-inbound.ts --baseline`; only qbutt's Paths API checks
+are omitted. This checks local Native ingress, not gateway or Internet inbound.
 
 Build and run the process-level Qt acceptance executable from the same configured
 tree and deployed bundle:

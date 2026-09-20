@@ -59,7 +59,7 @@ async function freePort(): Promise<number> {
     return address.port;
 }
 
-export async function createLab(name: string, options: { pex?: boolean } = {}) {
+export async function createLab(name: string, options: { pex?: boolean; protocol?: "TCP" | "UTP" } = {}) {
     const executable = process.env.QBUTT_LAB_EXE;
     const python = process.env.QBUTT_LAB_PYTHON;
     const appName = process.env.QBUTT_LAB_APP_NAME ?? "qbutt";
@@ -85,7 +85,7 @@ export async function createLab(name: string, options: { pex?: boolean } = {}) {
         "[BitTorrent]",
         `Session\\ResumeDataStorageType=${resumeBackend}`,
         "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", `Session\\PeXEnabled=${options.pex === true}`,
-        "Session\\BTProtocol=TCP", "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
+        `Session\\BTProtocol=${options.protocol ?? "TCP"}`, "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
         "Session\\IgnoreLimitsOnLAN=false", "Session\\AddExtensionToIncompleteFiles=false",
         "Session\\UseUnwantedFolder=false", "Session\\QueueingSystemEnabled=false",
         "[Network]", "PortForwardingEnabled=false",
@@ -256,12 +256,12 @@ export async function verifyPayload(root: string, expected: PayloadFile[]): Prom
 
 export async function startSeed(python: string, fixtures: string, name: string, logs: string,
     options: { savePath?: string; pieces?: number[]; label?: string; listenAddress?: string; uploadRate?: number;
-        neighbor?: { host: string; port: number } } = {}) {
+        neighbor?: { host: string; port: number }; transport?: "tcp" | "utp" } = {}) {
     const label = options.label ?? name;
     const child = Bun.spawn([python, join(import.meta.dir, "network-lab", "seed.py"), join(fixtures, `${name}.torrent`),
         options.savePath ?? join(fixtures, "seed"), JSON.stringify(options.pieces ?? null),
         options.listenAddress ?? "127.0.0.1", String(options.uploadRate ?? 256 * 1024),
-        JSON.stringify(options.neighbor ?? null)], {
+        JSON.stringify(options.neighbor ?? null), options.transport ?? "tcp"], {
         stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(logs, `seed-${label}.stderr.log`)),
     });
     const reader = child.stdout.getReader();
@@ -288,7 +288,7 @@ export async function startSeed(python: string, fixtures: string, name: string, 
         let controlId = 0;
         let control = Promise.resolve();
         let stopPromise: Promise<{ uploadPayloadBytes: number; downloadPayloadBytes: number;
-            pieces: number[]; peerAddresses: string[] }> | undefined;
+            pieces: number[]; peerAddresses: string[]; outgoingPeerAddresses: string[] }> | undefined;
         return {
             ...ready,
             setUploadRate(bytesPerSecond: number) {
@@ -339,6 +339,7 @@ export async function startSeed(python: string, fixtures: string, name: string, 
                     reader.releaseLock();
                     return JSON.parse(text.trimEnd().split("\n").at(-1)!) as {
                         uploadPayloadBytes: number; downloadPayloadBytes: number; pieces: number[]; peerAddresses: string[];
+                        outgoingPeerAddresses: string[];
                     };
                 })();
                 return stopPromise;

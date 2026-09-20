@@ -1,4 +1,4 @@
-"""A checked TCP fixture seed restricted to the selected local address."""
+"""A checked fixture seed restricted to the selected local address."""
 
 import ipaddress
 import json
@@ -20,6 +20,9 @@ expected_pieces = json.loads(sys.argv[3]) if len(sys.argv) > 3 else None
 listen_address = sys.argv[4] if len(sys.argv) > 4 else "127.0.0.1"
 upload_rate = int(sys.argv[5]) if len(sys.argv) > 5 else 256 * 1024
 neighbor = json.loads(sys.argv[6]) if len(sys.argv) > 6 else None
+transport = sys.argv[7] if len(sys.argv) > 7 else "tcp"
+if transport not in ("tcp", "utp"):
+    raise RuntimeError("Unsupported fixture transport")
 address = ipaddress.IPv4Address(listen_address)
 if not address.is_private or address.is_unspecified or address.is_multicast:
     raise RuntimeError("Fixture listener requires an explicit private local IPv4 address")
@@ -28,11 +31,13 @@ if not 1024 <= upload_rate <= 1024 * 1024:
 if neighbor is not None:
     if (not isinstance(neighbor, dict) or set(neighbor) != {"host", "port"}
             or type(neighbor["host"]) is not str or type(neighbor["port"]) is not int):
-        raise RuntimeError("Invalid PEX fixture neighbor")
+        raise RuntimeError("Invalid fixture neighbor")
     neighbor_address = ipaddress.IPv4Address(neighbor["host"])
     if (not neighbor_address.is_loopback or neighbor_address == address
             or not 0 <= neighbor["port"] <= 65535):
-        raise RuntimeError("PEX fixture neighbor must use a distinct loopback address")
+        raise RuntimeError("Fixture neighbor must use a distinct loopback address")
+if transport == "utp" and (not neighbor or not neighbor["port"]):
+    raise RuntimeError("The uTP fixture must initiate its connection")
 # libtorrent opens UDP on the TCP listen port even with uTP and DHT disabled.
 # Windows may exclude a port for only one protocol; choose a port both can bind
 # instead of treating a disabled-transport bind failure as a healthy seed.
@@ -56,14 +61,15 @@ session = lt.session({
     "enable_upnp": False,
     "enable_natpmp": False,
     "enable_incoming_utp": False,
-    "enable_outgoing_utp": False,
-    "enable_incoming_tcp": True,
-    "enable_outgoing_tcp": bool(neighbor and neighbor["port"]),
+    "enable_outgoing_utp": transport == "utp",
+    "enable_incoming_tcp": transport == "tcp",
+    "enable_outgoing_tcp": transport == "tcp" and bool(neighbor and neighbor["port"]),
     "dht_bootstrap_nodes": "",
     "upload_rate_limit": upload_rate,
     "ignore_limits_on_local_network": False,
     "close_redundant_connections": False if neighbor is not None else True,
     "connections_limit": 10,
+    "alert_mask": lt.alert.category_t.error_notification | lt.alert.category_t.peer_notification,
 })
 peer_filter = lt.ip_filter()
 peer_filter.add_rule("0.0.0.0", "255.255.255.255", 1)
@@ -106,11 +112,15 @@ while True:
 if neighbor is not None and neighbor["port"]:
     handle.connect_peer((str(neighbor_address), neighbor["port"]))
     deadline = time.monotonic() + 20
+    peer_errors = []
     while not any(peer.ip[0] == str(neighbor_address) and peer.progress > 0
                   for peer in handle.get_peer_info()):
         if time.monotonic() > deadline:
             peers = [(peer.ip[0], peer.progress, peer.client) for peer in handle.get_peer_info()]
-            raise RuntimeError(f"PEX fixture peers did not establish their bootstrap link: {peers}")
+            raise RuntimeError(f"Fixture peers did not establish their bootstrap link: {peers}; alerts: {peer_errors}")
+        for alert in session.pop_alerts():
+            if isinstance(alert, (lt.peer_error_alert, lt.peer_disconnected_alert)) and len(peer_errors) < 16:
+                peer_errors.append(alert.message())
         time.sleep(0.05)
 print(json.dumps({"ready": True, "host": listen_address, "port": session.listen_port(),
                   "libtorrent": lt.__version__, "pieces": pieces,
@@ -142,8 +152,11 @@ def await_commands():
 
 threading.Thread(target=await_commands, daemon=True).start()
 peer_addresses = set()
+outgoing_peer_addresses = set()
 while not finished.wait(0.05):
-    peer_addresses.update(peer.ip[0] for peer in handle.get_peer_info())
+    peers = handle.get_peer_info()
+    peer_addresses.update(peer.ip[0] for peer in peers)
+    outgoing_peer_addresses.update(peer.ip[0] for peer in peers if peer.flags & lt.peer_info.local_connection)
 if command_errors:
     raise RuntimeError("Seed control failed") from command_errors[0]
 status = handle.status()
@@ -152,6 +165,7 @@ if expected_pieces is not None and (pieces != expected_pieces or status.total_pa
     raise RuntimeError("Partial peer acquired data outside its original checked subset")
 print(json.dumps({"uploadPayloadBytes": status.total_payload_upload,
                   "downloadPayloadBytes": status.total_payload_download, "pieces": pieces,
-                  "peerAddresses": sorted(peer_addresses)}), flush=True)
+                  "peerAddresses": sorted(peer_addresses),
+                  "outgoingPeerAddresses": sorted(outgoing_peer_addresses)}), flush=True)
 del handle
 del session
