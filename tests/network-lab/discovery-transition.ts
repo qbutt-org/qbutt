@@ -55,6 +55,8 @@ const trafficIncreased = (current: Counters, previous: Counters) =>
     current.dhtGetPeers > previous.dhtGetPeers
         && current.httpRequests > previous.httpRequests
         && current.udpAnnounces > previous.udpAnnounces;
+// libtorrent enforces a 60-second minimum for UDP tracker replies even on forced reannounce.
+const trackerReannounceTimeoutMs = 75_000;
 
 try {
     seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root,
@@ -223,7 +225,8 @@ try {
     await lab.request("torrents/reannounce", { hashes: hash });
     const tunnels = await waitFor("both retained tunnels reannounce DHT and trackers", async () => {
         assert.deepEqual(errors, []); return snapshot();
-    }, current => [0, 1].every(side => trafficIncreased(current[side]!, afterNativeGrace[side]!)), 30000);
+    }, current => [0, 1].every(side => trafficIncreased(current[side]!, afterNativeGrace[side]!)),
+    trackerReannounceTimeoutMs);
     await Bun.sleep(3000);
     const afterTunnelsHold = snapshot();
     assert.deepEqual(afterTunnelsHold[2], afterNativeGrace[2],
@@ -244,7 +247,8 @@ try {
     await lab.request("torrents/reannounce", { hashes: hash });
     const pinned = await waitFor("retained Pinned route reannounces DHT and trackers", async () => {
         assert.deepEqual(errors, []); return snapshot();
-    }, current => trafficIncreased(current[0]!, afterSecondaryGrace[0]!), 30000);
+    }, current => trafficIncreased(current[0]!, afterSecondaryGrace[0]!),
+    trackerReannounceTimeoutMs);
     await Bun.sleep(3000);
     const afterPinnedHold = snapshot();
     assert.deepEqual(afterPinnedHold[1], afterSecondaryGrace[1],
@@ -301,7 +305,8 @@ finally {
     catch (error) { failure ??= error; }
     if (!failure && errors.length)
         failure = new Error(errors.join("; "));
-    if (appStopped && respondersStopped && [...closed, ...stopped].every(result => result.status === "fulfilled")) {
+    if (!failure && appStopped && respondersStopped
+        && [...closed, ...stopped].every(result => result.status === "fulfilled")) {
         for (const name of ["fixtures", "profile", "download", "nodes.json"]) {
             try {
                 const target = resolve(lab.root, name);
