@@ -16,7 +16,7 @@ For a subscription, open **Tools → Options → Connection → Mihomo subscript
 
 For an existing torrent, stop it and open **Smart repair...** from its transfer-list menu. **File → Smart repair from torrent file...** can preview a new torrent before adding it. Choose source directories or map individual files to reuse existing data. Analysis reads target sizes and hashes without changing payload data; review its findings before authorizing a write. **Safe staged update** builds a separate verified payload with a recoverable journal; **Repair in place, without rollback** changes the managed target under exclusive ownership and then uses the normal libtorrent recheck. Start the torrent afterward to download missing pieces. Unknown files are preserved.
 
-In-place repair requires one save directory on a fixed local Windows drive, with incomplete-file extensions and unwanted-file relocation disabled. It rejects hardlink aliases, reparse points and conflicting writers; keep other writers closed throughout. Missing nonempty files can be analyzed and downloaded, but a missing zero-byte target permits analysis only in this version. Interrupted staged updates have an explicit recovery mode. Neither repair mode treats unverified candidate bytes as completed torrent data.
+In-place repair requires one save directory on a fixed local Windows drive, with incomplete-file extensions and unwanted-file relocation disabled. It rejects hardlink aliases, reparse points and conflicting writers; keep other writers closed throughout. Missing nonempty files can be analyzed and downloaded. After read-only analysis and consent, the exclusive repair guard can create missing zero-byte targets and their directories. Interrupted staged updates have an explicit recovery mode. Neither repair mode treats unverified candidate bytes as completed torrent data.
 
 The default appearance is dark, with the familiar qBittorrent transfer layout. Theme and layout changes are saved in the separate qbutt profile.
 
@@ -30,7 +30,7 @@ Use Windows x64, Visual Studio 2022 with the C++ desktop workload and Windows SD
 
 The script retrieves pinned Qt, Boost, libtorrent, OpenSSL, zlib, Go, Ninja and qbutt-net dependencies, then writes the portable ZIP and build manifest under `%LOCALAPPDATA%/qbutt/build`. The manifest identifies the source revision and whether the application checkout was dirty.
 
-[The integration lab](tests/README.md) uses Bun and generated legal v1, v2 and hybrid torrents to exercise the real application, repair, a local seed and transport failure/retry. No public swarm or existing user profile is used by the lab. [Transport capabilities](docs/capabilities.md) distinguish available adapters from measured behavior.
+[The integration lab](tests/README.md) uses Bun, generated legal v1/v2/hybrid torrents and isolated application profiles for its default local scenarios. Explicit WAN and public-swarm scenarios can contact external hosts; the WAN fixture reads a separately supplied Mihomo configuration without modifying that source. [Transport capabilities](docs/capabilities.md) distinguish available adapters from measured behavior.
 
 ## Development
 
