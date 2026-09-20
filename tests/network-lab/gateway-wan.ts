@@ -242,6 +242,10 @@ print(lt.torrent_info(encoded).info_hashes().v1)
         assert(connected.connected === true,
             `Source peer could not connect through Mihomo: ${JSON.stringify(connected.errors)}`);
         await lab.checkpoint({ check: "vpn-socks-connected", publicEndpoint: path.gateway.publicEndpoint });
+        const handshake = await peerReplies.next("VPN BitTorrent handshake", 15000);
+        assert(handshake.peerHandshake === true,
+            `Source peer did not reach qbutt through the public lease: ${JSON.stringify(handshake.errors)}`);
+        await lab.checkpoint({ check: "public-peer-handshake", pathId: path.pathId, generation: path.generation });
         const sockets = await waitFor("independent VPN peer at public lease", () => observedLeasePeer(ports.listener),
             endpoints => endpoints.length === 1, 10000);
         observedSource = sockets[0]!;

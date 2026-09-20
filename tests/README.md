@@ -310,7 +310,9 @@ through its selected VPN exit. The fixture does not change Mihomo's configuratio
 Before uploading, it reads the exact accepted source IP and port from the
 observer kernel's `ss` for the owned lease, requires that source IP to differ
 from the observer and the home SSH origin, and checks that qbutt reports the
-same endpoint on the active path generation. This proves TCP ingress from an
+same endpoint on the active path generation. The peer exchanges BitTorrent
+handshakes first to trigger lazy VPN dialing, but remains choked until the
+kernel observation succeeds. This proves TCP ingress from an
 independent VPN exit, with the peer process still physically local; it does not
 prove a physically separate third-party host or UDP ingress.
 

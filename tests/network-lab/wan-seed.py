@@ -144,6 +144,8 @@ async def main():
                 bitfield[index // 8] |= 0x80 >> (index % 8)
             writer.write(struct.pack("!IB", len(bitfield) + 1, 5) + bitfield)
             await writer.drain()
+            if initiator and proxy is not None:
+                emit({"peerHandshake": True})
             await started.wait()
             writer.write(struct.pack("!IB", 1, 1))  # Unchoke only after control start.
             await writer.drain()
@@ -267,9 +269,7 @@ async def main():
                 try:
                     reader, writer = await asyncio.wait_for(connect_outbound(), 20)
                     if proxy is not None:
-                        writers.add(writer)
                         emit({"connected": True})
-                        await started.wait()
                     await peer(reader, writer, 0, True)
                     if sent[0] < len(payload) and not stop.is_set():
                         errors.append({"side": 0, "error": "Outbound peer closed before full payload"})
