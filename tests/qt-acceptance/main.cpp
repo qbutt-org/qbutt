@@ -693,6 +693,16 @@ namespace
             return configuration.value(u"enabled"_s).toBool()
                 && !configuration.value(u"rules"_s).toArray().isEmpty();
         });
+        // A selective commit invalidates pieces that may include untouched
+        // originals. The ordinary Start must recheck them before completion.
+        const QJsonArray held = policy->preview();
+        require((held.size() == 1) && !held.at(0).toObject().value(u"ready"_s).toBool()
+            && held.at(0).toObject().value(u"recheck_paused"_s).toBool() && policy->journal().isEmpty(),
+            u"Selective commit did not hold completion until the paused native recheck"_s);
+        BitTorrent::Torrent *torrent = BitTorrent::Session::instance()->torrents().constFirst();
+        require(torrent->isStopped() && torrent->isChecking(), u"Selective commit did not retain its paused native recheck"_s);
+        torrent->start();
+        waitFor(u"Native recheck after selective commit"_s, [=] { return !torrent->isChecking() && torrent->isFinished(); });
         waitFor(u"Completion policy dispatch"_s, [=]
         {
             const QJsonArray entries = policy->journal();
@@ -714,6 +724,7 @@ namespace
         addCheck(evidence, {{u"name"_s, u"completion-policies"_s}, {u"rules"_s, rules->rowCount()},
             {u"previewRows"_s, preview->rowCount()}, {u"journalRows"_s, journal->rowCount()},
             {u"configuredAfterVerifiedCommit"_s, true}, {u"payloadPreserved"_s, true},
+            {u"heldUntilNativeRecheck"_s, true}, {u"explicitStartAfterSelectiveCommit"_s, true},
             {u"deleteDataDefault"_s, false}});
         dialog.close();
     }
