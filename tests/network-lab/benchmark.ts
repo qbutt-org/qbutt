@@ -339,10 +339,11 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 }
                 for (const endpoint of endpoints)
                     await lab.request("torrents/addPeers", { hashes: hash, peers: endpoint });
-                const connected = await waitFor("six full peers connected over shared reachable routes",
+                const connected = await waitFor("six full peers transferring over shared reachable routes",
                     () => lab.json<PathsStatus>("qbuttPaths/status"), status =>
                         seeds.every(seed => status.peers.some(peer => peer.peer === nativeAddress
-                            && peer.port === seed.port && assignedRoutes.some(route => route.pathId === peer.pathId
+                            && peer.port === seed.port && peer.payloadDownload > 0
+                            && assignedRoutes.some(route => route.pathId === peer.pathId
                                 && route.generation === peer.generation))), 120000);
                 sharedPeerAssignments = seeds.map(seed => {
                     const peer = connected.peers.find(candidate => candidate.peer === nativeAddress
@@ -560,7 +561,7 @@ const evidence: Record<string, unknown> = {
     limits: [
         "Generated deterministic v1 payload and controlled TCP peers on one Windows host",
         comparingStatic
-            ? "Each timed window begins after all six peers connect at a 1 KiB/s warmup cap, then all acknowledge the same measured per-peer cap"
+            ? "Each timed window begins after all six peers deliver payload at a 1 KiB/s warmup cap, then all acknowledge the same measured per-peer cap"
             : "Each timed window begins after every required peer supplies payload at a 1 KiB/s warmup cap and acknowledges the measured cap",
         comparingStatic
             ? "Six full public TCP peers per run, each exact native endpoint whitelisted on both authenticated SOCKS routes; source cap is per peer, not per path"
