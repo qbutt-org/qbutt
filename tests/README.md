@@ -278,6 +278,16 @@ application retires the old descriptor before opening a later outgoing-only
 generation. This proves application integration through a controlled host-local
 gateway. It does not prove public-Internet reachability or NAT/firewall traversal.
 
+`smoke:gateway-utp` runs the same lifecycle with a UDP-only public lease and
+uTP-only peers. It requires exact payload hashes/sizes, the seed's original
+source port and path/generation, gateway datagram counters and selected SOCKS
+adapter traffic, with no `incomingTcp` event. The single gateway port accepts
+plain uTP; TLS-uTP stays outgoing-only because its initial SYN cannot distinguish
+TLS from plain uTP on the same public port. Run TCP and uTP variants sequentially.
+Both remove their generated payload, credentials and copied runtime after stopping
+owned processes; compact evidence remains. These local fixtures do not establish
+Internet UDP reachability or IPv6 support.
+
 `bun run smoke:gateway-wan` is a separate controlled TCP ingress probe. Set
 `QBUTT_WAN_OBSERVER`, `QBUTT_WAN_OBSERVER_IP`, `QBUTT_LAB_NATIVE_INTERFACE`,
 `QBUTT_LAB_GATEWAY_SOURCE` and `QBUTT_LAB_EXE`. The qbutt-net source must be

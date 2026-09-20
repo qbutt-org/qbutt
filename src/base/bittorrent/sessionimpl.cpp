@@ -2181,7 +2181,8 @@ lt::settings_pack SessionImpl::loadLTSettings() const
         settingsPack.set_bool(lt::settings_pack::enable_dht, isDHTEnabled());
         settingsPack.set_bool(lt::settings_pack::enable_lsd, false);
         settingsPack.set_bool(lt::settings_pack::enable_incoming_tcp, false);
-        settingsPack.set_bool(lt::settings_pack::enable_incoming_utp, false);
+        // Libtorrent admits managed uTP only on a live advertised UDP route.
+        settingsPack.set_bool(lt::settings_pack::enable_incoming_utp, btProtocol() != BTProtocol::TCP);
         settingsPack.set_bool(lt::settings_pack::enable_outgoing_utp, btProtocol() != BTProtocol::TCP);
         settingsPack.set_bool(lt::settings_pack::enable_outgoing_tcp, btProtocol() != BTProtocol::UTP);
         settingsPack.set_bool(lt::settings_pack::enable_upnp, false);
@@ -4352,6 +4353,9 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
             udpRoute.ssl = true;
             udpRoute.enable_dht = false;
             udpRoute.enable_trackers = false;
+            // A uTP SYN cannot distinguish plain and TLS streams. The single
+            // gateway lease belongs to plain uTP; TLS remains outgoing-only.
+            udpRoute.public_endpoint = {};
             udpRoutes.push_back(std::move(udpRoute));
         };
         if (endpoint.supportsIPv4)

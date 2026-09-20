@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { createSocket } from "node:dgram";
-import { cp, mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
@@ -14,6 +14,7 @@ const PROTOCOL = 4;
 const GATEWAY_PROTOCOL = 2;
 const PUBLIC_FIXTURE_ADDRESS = "1.0.0.2";
 const LOOPBACK_INTERFACE = 1;
+const useUtp = process.argv.includes("--utp");
 
 interface GatewayState {
     state: "leased" | "outgoing-only";
@@ -58,6 +59,7 @@ interface PathStatus {
     processId: number;
     paths: PathState[];
     peers: PeerState[];
+    diagnostics: { routes: { pathId: string; generation: number; verifiedDownload: number }[] };
 }
 
 interface TraceEntry {
@@ -220,9 +222,11 @@ import json, pathlib, sys, threading, time
 import libtorrent as lt
 if lt.__version__ != "2.0.14.0": raise RuntimeError("Unexpected libtorrent fixture binding")
 torrent, save_path, host, port, listen_port = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
+utp = sys.argv[6] == "utp"
 session = lt.session({"listen_interfaces":f"127.0.0.1:{listen_port}", "outgoing_interfaces":"127.0.0.1",
  "enable_dht":False,"enable_lsd":False,"enable_upnp":False,"enable_natpmp":False,
- "enable_incoming_utp":False,"enable_outgoing_utp":False,"enable_incoming_tcp":False,"enable_outgoing_tcp":True,
+ "enable_incoming_utp":utp,"enable_outgoing_utp":utp,"enable_incoming_tcp":False,"enable_outgoing_tcp":not utp,
+ "alert_mask":lt.alert.category_t.error_notification | lt.alert.category_t.peer_notification | lt.alert.category_t.connect_notification,
  "dht_bootstrap_nodes":"","upload_rate_limit":65536,"ignore_limits_on_local_network":False,"connections_limit":4})
 params=lt.add_torrent_params(); params.ti=lt.torrent_info(str(torrent)); params.save_path=str(save_path)
 params.flags &= ~lt.torrent_flags.auto_managed; params.flags &= ~lt.torrent_flags.paused
@@ -236,16 +240,17 @@ while not handle.status().is_seeding:
 handle.connect_peer((host,port))
 print(json.dumps({"ready":True,"target":f"{host}:{port}","verifiedPayloadBytes":handle.status().total_done}),flush=True)
 done=threading.Event(); threading.Thread(target=lambda:(sys.stdin.read(),done.set()),daemon=True).start()
-peers=set(); local_endpoints=set()
+peers=set(); local_endpoints=set(); peer_errors=[]
 while not done.wait(.05):
  info=handle.get_peer_info()
  peers.update(peer.ip[0] for peer in info)
  local_endpoints.update(f"{peer.local_endpoint[0]}:{peer.local_endpoint[1]}" for peer in info)
  for alert in session.pop_alerts():
   if isinstance(alert,lt.torrent_error_alert): raise RuntimeError(alert.message())
+  if isinstance(alert,(lt.peer_error_alert,lt.peer_disconnected_alert)) and len(peer_errors)<32: peer_errors.append(alert.message())
 status=handle.status()
 print(json.dumps({"uploadPayloadBytes":status.total_payload_upload,"downloadPayloadBytes":status.total_payload_download,
- "peerAddresses":sorted(peers),"localEndpoints":sorted(local_endpoints)}),flush=True)
+ "peerAddresses":sorted(peers),"localEndpoints":sorted(local_endpoints),"peerErrors":peer_errors}),flush=True)
 del handle; del session
 `;
 
@@ -276,7 +281,7 @@ async function startInboundSeed(python: string, root: string, fixtures: string, 
     await writeFile(source, inboundSeedSource);
     const listenPort = await probeTcpUdpPort("127.0.0.1");
     const child = Bun.spawn([python, source, join(fixtures, "v1.torrent"), join(fixtures, "seed"),
-        endpoint.slice(0, separator), endpoint.slice(separator + 1), String(listenPort)], {
+        endpoint.slice(0, separator), endpoint.slice(separator + 1), String(listenPort), useUtp ? "utp" : "tcp"], {
         stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(root, "inbound-seed.stderr.log")), windowsHide: true,
     });
     const reader = child.stdout.getReader();
@@ -340,7 +345,8 @@ assert.equal(await run(["git", "status", "--porcelain"], { cwd: gatewaySource })
 const bundle = await mkdtemp(join(tmpdir(), "qbutt-gateway-app-"));
 await cp(dirname(originalExecutable), bundle, { recursive: true, filter: path => {
     if (["profile", ".git"].includes(basename(path))) return false;
-    return !extname(path) || [".exe", ".dll", ".qm", ".json"].includes(extname(path).toLowerCase());
+    return basename(path) === basename(originalExecutable)
+        || !extname(path) || [".dll", ".qm", ".json"].includes(extname(path).toLowerCase());
 } });
 const wrapper = join(bundle, "qbutt-net.exe");
 const realNet = join(bundle, "qbutt-net-real.exe");
@@ -352,7 +358,7 @@ await allowLabNetwork([process.execPath]);
 await run([process.execPath, "build", "--compile", wrapperFile, "--outfile", wrapper]);
 process.env.QBUTT_LAB_EXE = join(bundle, basename(originalExecutable));
 
-const lab = await createLab("gateway");
+const lab = await createLab(useUtp ? "gateway-utp" : "gateway");
 const tracePath = join(lab.root, "gateway-v4-trace.jsonl");
 process.env.QBUTT_REAL_NET = realNet;
 process.env.QBUTT_GATEWAY_TRACE = tracePath;
@@ -404,27 +410,31 @@ try {
     const controlHost = ready.control.slice(0, separator);
     const controlPort = Number(ready.control.slice(separator + 1));
     const credentials = { username: randomBytes(16).toString("hex"), password: randomBytes(24).toString("hex") };
-    proxy = await startProxy({ ...credentials, targets: [{
+    proxy = await startProxy({ ...credentials, udp: useUtp, targets: [{
         host: controlHost, port: controlPort, connectHost: controlHost, connectPort: controlPort,
-    }] });
+    }, ...(useUtp ? [{ host: "127.0.0.1", port: Number(ready.datagrams.split(":").at(-1)) }] : [])] });
     const nodeConfig = join(lab.root, "controlled-gateway-node.json");
     await writeFile(nodeConfig, JSON.stringify({ proxies: [{
         name: "gateway-fixture", type: "socks5", server: proxy.host, port: proxy.port,
-        username: credentials.username, password: credentials.password, udp: false,
+        username: credentials.username, password: credentials.password, udp: useUtp,
     }] }));
     await lab.start();
     await lab.request("qbuttPaths/gateway", {
-        controlAddress: ready.control, datagramAddress: "", serverName: "127.0.0.1",
+        controlAddress: ready.control, datagramAddress: useUtp ? ready.datagrams : "", serverName: "127.0.0.1",
         caPath: join(certificates, "ca.pem"), certificatePath: join(certificates, "client.pem"),
-        privateKeyPath: join(certificates, "client-key.pem"), port: String(publicPort), tcp: "true", udp: "false",
+        privateKeyPath: join(certificates, "client-key.pem"), port: String(publicPort),
+        tcp: String(!useUtp), udp: String(useUtp),
     });
+    if (useUtp)
+        await lab.request("app/setPreferences", { json: JSON.stringify({ bittorrent_protocol: 2 }) });
     const pathRequest = { configPath: nodeConfig, proxyName: "gateway-fixture", interfaceName: "Loopback Pseudo-Interface 1" };
     const readStatus = () => lab.json<PathStatus>("qbuttPaths/status");
     await lab.request("qbuttPaths/open", pathRequest);
     const opened = await waitFor("application gateway open", readStatus, status => !status.busy
         && status.paths.length === 1 && status.paths[0]!.gateway.state === "leased");
     const firstPath = opened.paths[0]!;
-    assert(opened.open && opened.pinned && firstPath.open && firstPath.gateway.tcp && !firstPath.gateway.udp
+    assert(opened.open && opened.pinned && firstPath.open
+        && firstPath.gateway.tcp === !useUtp && firstPath.gateway.udp === useUtp
         && firstPath.gateway.family === "ipv4");
     const firstEndpoint = firstPath.gateway.publicEndpoint!;
     const firstExpiry = firstPath.gateway.expiresUnixMilli!;
@@ -462,15 +472,28 @@ try {
             && wire.carrierDownloadBytes > 0 && wire.carrierUploadBytes > 0);
     });
     const wire = metered.paths.find(path => path.pathId === firstPath.pathId)!.wire!;
-    assert(wire.carrierDownloadPackets === 0 && wire.carrierUploadPackets === 0
-        && wire.relayDownloadCopies === 0, "TCP-only gateway reported UDP packet or fanout counters");
+    const credited = metered.diagnostics.routes.find(route => route.pathId === firstPath.pathId
+        && route.generation === firstPath.generation);
+    assert.equal(credited?.verifiedDownload, verifiedBytes, "Ingress verified credit differs from exact file bytes");
+    assert(metered.diagnostics.routes.every(route => route.pathId === firstPath.pathId || route.verifiedDownload === 0),
+        "Another path received credit for gateway ingress");
+    if (useUtp) {
+        assert(wire.carrierDownloadPackets > 0 && wire.carrierUploadPackets > 0,
+            "uTP ingress did not traverse the gateway datagram carrier");
+        assert(proxy.stats.uploadDatagramBytes > 0 && proxy.stats.downloadDatagramBytes > 0,
+            "Gateway datagrams did not traverse the selected SOCKS adapter");
+    }
+    else
+        assert(wire.carrierDownloadPackets === 0 && wire.carrierUploadPackets === 0
+            && wire.relayDownloadCopies === 0, "TCP-only gateway reported UDP packet or fanout counters");
     await lab.checkpoint({
         check: "real-gateway-trusted-ingress-and-renewal", protocol: PROTOCOL,
         qbuttNetCommit: sourceLock.qbuttNet.commit, pathId: firstPath.pathId, generation: firstPath.generation,
         publicEndpoint: firstEndpoint, firstExpiry, renewedExpiry: renewedPath.gateway.expiresUnixMilli,
         trustedPeer: { address: ingressPeer.peer, port: ingressPeer.port, payloadDownload: ingressPeer.payloadDownload },
-        verifiedBytes, seedUploadPayloadBytes: seedFinal.uploadPayloadBytes, wire,
+        verifiedBytes, engineVerifiedBytes: credited!.verifiedDownload, seedUploadPayloadBytes: seedFinal.uploadPayloadBytes, wire,
         controlledGatewayInboundProven: true, publicInternetInboundProven: false,
+        peerProtocol: useUtp ? "utp" : "tcp",
     });
 
     await lab.request("qbuttPaths/stop", { pathId: firstPath.pathId });
@@ -522,8 +545,9 @@ try {
     expectKeys(openResponse.keys, ["v", "id", "result"], "gateway.open response");
     expectKeys(openResponse.resultKeys, ["pathId", "generation", "publicEndpoint", "tcp", "udp", "expiresUnixMilli",
         "relayHost", "relayPort"], "gateway.open result");
-    assert(openResponse.publicEndpoint === firstEndpoint && openResponse.tcp === true && openResponse.udp === false,
-        "gateway.open result changed the requested TCP-only endpoint");
+    assert(openResponse.publicEndpoint === firstEndpoint
+        && openResponse.tcp === !useUtp && openResponse.udp === useUtp,
+        "gateway.open result changed the requested transport capability");
     const renewalRequest = trace.find(entry => entry.direction === "request" && entry.method === "gateway.renew"
         && entry.generation === firstPath.generation)!;
     expectKeys(renewalRequest.keys, ["v", "id", "method", "pathId", "generation"], "gateway.renew request");
@@ -533,11 +557,18 @@ try {
     expectKeys(renewal.resultKeys, openResponse.resultKeys!, "gateway.renew result");
     assert.equal(renewal.publicEndpoint, firstEndpoint);
     assert(renewal.expiresUnixMilli! > firstExpiry);
-    const incoming = trace.find(entry => entry.direction === "event" && entry.method === "incomingTcp"
-        && entry.generation === firstPath.generation)!;
-    expectKeys(incoming.keys, ["v", "id", "event", "pathId", "generation", "remote", "publicEndpoint",
-        "relayHost", "relayPort", "relayToken"], "incomingTcp event");
-    assert.equal(incoming.remote, originalPeer, "incomingTcp event changed the independent seed source endpoint");
+    const incoming = trace.filter(entry => entry.direction === "event" && entry.method === "incomingTcp"
+        && entry.generation === firstPath.generation);
+    if (useUtp)
+        assert.equal(incoming.length, 0, "UDP-only gateway accepted a TCP peer");
+    else {
+        assert(incoming.length > 0, "No trusted TCP ingress event");
+        for (const event of incoming)
+            expectKeys(event.keys, ["v", "id", "event", "pathId", "generation", "remote", "publicEndpoint",
+                "relayHost", "relayPort", "relayToken"], "incomingTcp event");
+        assert(incoming.some(event => event.remote === originalPeer && event.publicEndpoint === firstEndpoint),
+            "No incomingTcp event preserved the payload seed's source and public endpoint");
+    }
     const closeRequest = trace.find(entry => entry.direction === "request" && entry.method === "gateway.close"
         && entry.generation === firstPath.generation)!;
     expectKeys(closeRequest.keys, ["v", "id", "method", "pathId", "generation"], "gateway.close request");
@@ -562,11 +593,13 @@ try {
         && entry.generation === thirdPath.generation && entry.errorKeys)!;
     expectKeys(failedRollover.keys, ["v", "id", "error"], "failed rollover response");
     expectKeys(failedRollover.errorKeys, ["code", "message"], "failed rollover error");
-    assert(failedRollover.code === "gateway_connect_failed" && failedRollover.messageMatchesCode,
-        "Failed rollover did not return the canonical gateway connection error");
+    // Shutdown may race the next connection before or during its TLS handshake.
+    assert(["gateway_connect_failed", "gateway_authentication_failed"].includes(failedRollover.code!)
+        && failedRollover.messageMatchesCode, "Failed rollover did not return a canonical gateway startup error");
     await lab.checkpoint({ check: "exact-gateway-v4-frames", traceEntries: trace.length,
         openGeneration: firstPath.generation, renewalGeneration: firstPath.generation,
-        terminalEventGeneration: secondPath.generation, rolloverOpenGeneration: thirdPath.generation });
+        terminalEventGeneration: secondPath.generation, rolloverOpenGeneration: thirdPath.generation,
+        rolloverError: failedRollover.code });
 }
 catch (error) {
     failure = error;
@@ -591,6 +624,22 @@ finally {
         try { await addLoopbackAddress(false); }
         catch (error) { if (!failure) failure = error; }
     }
+    try {
+        assert(lab.exitCode !== null, "App must stop before fixture cleanup");
+        const resolvedRoot = await realpath(lab.root);
+        for (const path of [lab.fixtures, join(lab.root, "profile"), join(lab.root, "downloads"),
+            join(lab.root, "gateway-certificates"), join(lab.root, "controlled-gateway-node.json"),
+            join(lab.root, "gateway.json"), gatewayExecutable]) {
+            try {
+                assert.equal(dirname(await realpath(path)), resolvedRoot, "Fixture cleanup escaped its lab root");
+                await rm(path, { recursive: true, force: true });
+            }
+            catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        }
+        assert.equal(dirname(await realpath(bundle)), await realpath(tmpdir()), "Bundle cleanup escaped temp");
+        await rm(bundle, { recursive: true, force: true });
+    }
+    catch (error) { if (!failure) failure = error; }
 }
 await lab.finish(failure);
 if (failure) throw failure;
