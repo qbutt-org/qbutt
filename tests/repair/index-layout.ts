@@ -59,7 +59,7 @@ print(json.dumps({"name": "reordered", "file": "reordered.torrent",
         "size": storage.file_size(i), "offset": storage.file_offset(i), "pad": False}
         for i in range(storage.num_files())]}))
 `, JSON.stringify(targetPayload), hashInput, join(lab.fixtures, "reordered.torrent")],
-    { stdout: "pipe", stderr: "pipe", timeout: 30000 });
+    { stdout: "pipe", stderr: "pipe", timeout: 30000, windowsHide: true });
     const [code, stdout, stderr] = await Promise.all([generator.exited,
         new Response(generator.stdout).text(), new Response(generator.stderr).text()]);
     assert.equal(code, 0, stderr);
@@ -132,12 +132,13 @@ catch (error) { failure = error; }
 finally {
     try { await lab.shutdown(); }
     catch (error) { failure ??= error; }
-    await lab.finish(failure);
     for (const name of ["fixtures", "profile", "source", "destination", "hash-input"]) {
         const target = resolve(lab.root, name);
         assert(target.startsWith(`${resolve(lab.root)}${sep}`), "Cleanup escaped the owned fixture");
-        await rm(target, { recursive: true, force: true });
+        try { await rm(target, { recursive: true, force: true }); }
+        catch (error) { failure ??= error; }
     }
+    await lab.finish(failure);
 }
 if (failure)
     throw failure;

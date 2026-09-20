@@ -77,6 +77,7 @@ const CONTROL_SHA256 = "9393e0c523b35a437fb9b356b4c7c7402dbbd9d97b9c1ae519fd01f1
 const CONTROL_REVISION = "0b63c3d17373f6132ea211c9dcd4241284ccdfaf";
 
 const qbuttOnly = process.argv.includes("--qbutt-only");
+const diagnostic = process.argv.includes("--diagnostic");
 const controlExecutable = resolve(process.env.QBUTT_PUBLIC_SWARM_CONTROL_EXE ?? "");
 const qbuttExecutable = process.env.QBUTT_PUBLIC_SWARM_QBUTT_EXE
     ? resolve(process.env.QBUTT_PUBLIC_SWARM_QBUTT_EXE) : undefined;
@@ -86,7 +87,7 @@ const proxyNames = (process.env.QBUTT_PUBLIC_SWARM_PROXY_NAMES ?? "")
     .split("|").map(value => value.trim()).filter(Boolean);
 const nativeInterface = process.env.QBUTT_PUBLIC_SWARM_NATIVE_INTERFACE ?? "";
 const nativeAddress = process.env.QBUTT_PUBLIC_SWARM_NATIVE_ADDRESS ?? "";
-const rounds = Number(process.env.QBUTT_PUBLIC_SWARM_ROUNDS ?? (qbuttExecutable ? 4 : 3));
+const rounds = Number(process.env.QBUTT_PUBLIC_SWARM_ROUNDS ?? (diagnostic ? 1 : qbuttExecutable ? 4 : 3));
 const warmupRate = Number(process.env.QBUTT_PUBLIC_SWARM_WARMUP_RATE ?? 128 * 1024);
 const measuredRate = Number(process.env.QBUTT_PUBLIC_SWARM_RATE ?? 4 * 1024 * 1024);
 const measurementMilliseconds = Number(process.env.QBUTT_PUBLIC_SWARM_WINDOW_MS ?? 15000);
@@ -105,7 +106,9 @@ assert(nativeInterface && nativeAddress,
 assert(networkInterfaces()[nativeInterface]?.some(address => address.family === "IPv4"
     && address.address === nativeAddress && !address.internal),
 "The public-swarm Native address must belong to its selected non-loopback interface");
-assert(Number.isInteger(rounds) && rounds >= 3 && rounds <= 8, "QBUTT_PUBLIC_SWARM_ROUNDS must be 3..8");
+assert(Number.isInteger(rounds) && (diagnostic ? rounds === 1 : rounds >= 3 && rounds <= 8),
+    "QBUTT_PUBLIC_SWARM_ROUNDS must be 1 for diagnostics, otherwise 3..8");
+assert(!diagnostic || requestedModes.length === 1, "Diagnostics require exactly one selected mode");
 assert(Number.isInteger(warmupRate) && warmupRate >= 64 * 1024 && warmupRate <= 512 * 1024,
     "QBUTT_PUBLIC_SWARM_WARMUP_RATE must be 64..512 KiB/s");
 assert(Number.isInteger(measuredRate) && measuredRate >= 512 * 1024 && measuredRate <= 8 * 1024 * 1024,
@@ -503,7 +506,8 @@ const modes = availableModes.filter(mode => !requestedModes.length || requestedM
 assert(peerPort + rounds * modes.length * attemptsPerWindow <= 49151,
     "The deterministic peer-port range exceeds the non-ephemeral boundary");
 const evidence: Record<string, unknown> = {
-    schema: 1, suite: "public-swarm-benchmark", status: "running", startedAt: new Date().toISOString(),
+    schema: 1, suite: diagnostic ? "public-swarm-diagnostic" : "public-swarm-benchmark",
+    status: "running", startedAt: new Date().toISOString(),
     source: { url: SOURCE_URL, checksumUrl: CHECKSUM_URL, torrentSha256: SOURCE_SHA256,
         infoHashV1: INFO_HASH, payloadName: PAYLOAD_NAME,
         payloadBytes: PAYLOAD_BYTES, fullPayloadSha256Expected: PAYLOAD_SHA256, fullPayloadVerified: false,
@@ -519,6 +523,7 @@ const evidence: Record<string, unknown> = {
         nativeInterface, nativeAddress, configuredTunnelCount: proxyConfig ? proxyNames.length : 0,
         peerPortBase: peerPort, attemptsPerWindow },
     limits: [
+        ...(diagnostic ? ["One diagnostic window only; no repeated performance comparison"] : []),
         ...(qbuttOnly ? ["qbutt route comparison only; no unchanged-upstream performance claim"] : []),
         "Live public swarm membership, peer capacity and Internet path conditions change during the run",
         "Completed pieces are read from disk and checked against the torrent SHA-1 list;"

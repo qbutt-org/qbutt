@@ -40,6 +40,7 @@ bun run smoke:proxy
 bun run smoke:network
 bun run smoke:gateway
 bun run smoke:repair
+bun run smoke:repair-mappings
 bun run smoke:repair-product
 bun run smoke:staging
 bun run smoke:completion
@@ -174,6 +175,22 @@ including its absent parent directories, is created only after consent under the
 same exclusive guard used for apply; a target or mapped parent directory appearing
 after analysis is rejected.
 It drives the real session through standard recheck and download after apply.
+
+`smoke:repair-mappings` checks selected in-place repair with separate download/save
+directories and native `.!qB`/`.unwanted` mappings for v1/v2/hybrid. Analysis and
+cancel/restart preserve the data; apply/recheck leaves ignored tails and missing
+ignored empty files unchanged. Ordinary resumed download restores normal file
+names/location and verifies selected sizes/hashes after restart. Its usual v1
+boundary-piece writes are distinct from the selected-only repair operation.
+An AutoTMM variant also freezes shared default/category roots during ownership,
+preserves AutoTMM across cancel/restart and allows ordinary category relocation
+again after repair finishes.
+
+`smoke:repair-index` reuses five renamed source files after changing the target's
+names, order and piece length from 16 to 64 KiB. The production metadata index
+selects the sources, target-layout hashing verifies every piece, and staged
+prepare/commit/restart must preserve sources and unknown files while completing
+exact sizes/SHA-256 with zero downloaded payload. No peer or webseed is supplied.
 
 `smoke:repair-product` drives the standalone Smart Repair entry dialog through
 Qt's offscreen platform before any torrent exists. Build its process-level driver
@@ -465,6 +482,12 @@ received during warmup are not separable and this limit is recorded in evidence.
 Public results show external applicability and variability; release thresholds
 still come from the controlled benchmark.
 
+For one focused startup investigation, pass `--diagnostic` and select exactly
+one `QBUTT_PUBLIC_SWARM_MODES` value; leave `QBUTT_PUBLIC_SWARM_ROUNDS` unset
+or set it to `1`. The receipt is marked `public-swarm-diagnostic`, not a repeated
+comparison. Begin any capture before launching the app and restrict it to the
+fixture's chosen peer port on each selected interface.
+
 Run `bun run smoke:mixed-baseline` against the unchanged upstream control or
 alpha application to verify the negative control: each single proxy obtains
 exactly its available subset and cannot finish the target. A timeout is a failure;
@@ -557,6 +580,13 @@ with zero data or HTTP requests for eight seconds, preserving the retired path
 identity while the other route remains open. A public torrent then completes via
 the surviving route, proving it works while the private torrent stays blocked.
 That HTTP scenario does not test TLS or mid-transfer webseed reconnection.
+
+`smoke:webseed-reconnect` retires the active route during a rate-limited public
+download; the torrent must finish through the surviving path without restarting.
+`smoke:webseed-reconnect-private` instead checks eight seconds of no migration or
+direct fallback, then reopens the pinned path with a new generation. Both require
+old sockets to close, zero Native-canary requests and exact final sizes/hashes.
+
 `smoke:webseed-https` separately downloads the pinned 893-byte Ubuntu 24.04.5
 `SHA256SUMS` resource as a generated single-file torrent with an HTTPS URL seed
 and no peer or tracker sources. Supply `QBUTT_HTTPS_PROXY_CONFIG`,
