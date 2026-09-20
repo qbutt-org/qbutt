@@ -38,7 +38,8 @@ function queryBytes(url: string, name: string) {
 }
 const httpSources: string[] = [];
 const httpAnnounces: { source: string; phase: string; port: number; ip: string | null;
-    ipv4: string | null; peerId: string | null; key: string | null }[] = [];
+    ipv4: string | null; ipv6: string | null; peerId: string | null; key: string | null;
+    host: string | null; infoHash: string | null; event: string | null }[] = [];
 const webRequests: { path: string; range: string | null }[] = [];
 let releaseOldTracker!: () => void;
 let oldTrackerRequestAborted = false;
@@ -51,9 +52,11 @@ const tracker = Bun.serve({
         const requestUrl = request.url;
         const url = new URL(requestUrl);
         const announce = { source, phase: phase(), port: Number(url.searchParams.get("port")),
-            ip: url.searchParams.get("ip"), ipv4: url.searchParams.get("ipv4"),
+            ip: url.searchParams.get("ip"), ipv4: url.searchParams.get("ipv4"), ipv6: url.searchParams.get("ipv6"),
             peerId: queryBytes(requestUrl, "peer_id")?.toString("hex") ?? null,
-            key: url.searchParams.get("key") };
+            key: url.searchParams.get("key"), host: request.headers.get("host"),
+            infoHash: queryBytes(requestUrl, "info_hash")?.toString("hex") ?? null,
+            event: url.searchParams.get("event") };
         httpSources.push(source);
         if (source === "127.0.0.2") {
             httpAnnounces.push(announce);
@@ -66,10 +69,10 @@ const tracker = Bun.serve({
             await mark(announce.phase === "anonymous" ? "http-anonymous" : "http-b");
             releaseOldTracker();
         }
-        else if (source === "127.0.0.1"
-            && request.headers.get("host")?.startsWith("tracker.invalid:")) {
+        else if (source === "127.0.0.1" && announce.host?.startsWith("tracker.invalid:")) {
             httpAnnounces.push(announce);
-            await mark("http-socks");
+            if (announce.event === "stopped" && [1, 41004].includes(announce.port))
+                await mark(`http-socks-stopped-${announce.port}`);
         }
         else if (source === "127.0.0.4") {
             await mark("http-default");
@@ -114,6 +117,7 @@ const webseed = Bun.serve({
 
 const username = "route-user";
 const password = "route-password";
+// Deterministic hostname-to-IPv4 SOCKS mapping, not an A-only DNS wire test.
 const proxy = await startProxy({ username, password, targets: [
     { host: "webseed.invalid", port: webseed.port!, connectHost: "127.0.0.1", connectPort: webseed.port! },
     { host: "tracker.invalid", port: tracker.port!, connectHost: "127.0.0.1", connectPort: tracker.port! },
@@ -237,9 +241,28 @@ try {
         new Response(child.stdout!).text(), new Response(child.stderr!).text(),
     ]);
     assert.equal(exitCode, 0, `route policy client failed (${exitCode}): ${stderr}\n`
-        + JSON.stringify({ dhtQueries, dhtSources, dhtAnnounces }));
+        + JSON.stringify({ httpAnnounces, dhtQueries, dhtSources, dhtAnnounces }));
     const clientEvidence = JSON.parse(stdout);
     assert(clientEvidence.passed && clientEvidence.webSeedVerifiedBytes === payload.length);
+    assert.deepEqual(clientEvidence.hostnameTrackerEndpoints.sort((a: { pathId: number }, b: { pathId: number }) =>
+        a.pathId - b.pathId), [
+        { pathId: 2, generation: 1, listenerFamily: "ipv4" },
+        { pathId: 5, generation: 7, listenerFamily: "ipv4" },
+    ], "Hostname tracker endpoints lost a context or retained a duplicate family");
+    const hostnameAnnounces = httpAnnounces.filter(item => item.host === `tracker.invalid:${tracker.port}`);
+    for (const event of ["started", "stopped"]) {
+        const announces = hostnameAnnounces.filter(item => item.event === event).sort((a, b) => a.port - b.port);
+        assert.deepEqual(announces.map(item => ({ port: item.port, ip: item.ip, ipv4: item.ipv4, ipv6: item.ipv6 })), [
+            { port: 1, ip: null, ipv4: null, ipv6: null },
+            { port: 41004, ip: null, ipv4: publicAddress, ipv6: null },
+        ], `Expected one ${event} announce per SOCKS context with the leased listener preserved`);
+    }
+    assert(hostnameAnnounces.every(item => item.source === "127.0.0.1"
+        && item.ip === null && item.ipv6 === null
+        && (item.port === 41004 ? item.ipv4 === publicAddress : item.port === 1 && item.ipv4 === null)));
+    for (const field of ["infoHash", "peerId", "key"] as const)
+        assert(hostnameAnnounces[0]![field] && new Set(hostnameAnnounces.map(item => item[field])).size === 1,
+            `SOCKS tracker contexts used different ${field}`);
     assert.deepEqual(new Set(httpSources), new Set(["127.0.0.1", "127.0.0.2", "127.0.0.3", "127.0.0.4"]));
     assert.deepEqual(new Set(udpSources), new Set(["127.0.0.2", "127.0.0.3"]));
     assert.deepEqual(new Set(dhtSources), new Set(["127.0.0.2", "127.0.0.3", "127.0.0.7"]));
@@ -252,9 +275,6 @@ try {
         && item.port === 41001 && item.ip === null && item.ipv4 === publicAddress));
     assert(httpB.length > 0 && httpB.every(item => item.port === 41002
         && item.ip === null && item.ipv4 === publicAddress));
-    assert(httpAnnounces.some(item => item.source === "127.0.0.1"
-        && item.port === 1 && item.ip === null && item.ipv4 === null),
-        "Outgoing-only route claimed a public listener");
     assert(udpA.length > 0 && udpA.every(item => item.phase === "a"
         && item.port === 41001 && item.ipv4 === publicAddress));
     assert(udpB.length > 0 && udpB.every(item => item.port === 41002 && item.ipv4 === publicAddress));
@@ -283,6 +303,7 @@ try {
         "Tracker and web seed did not use the authenticated route SOCKS listener");
     assert(webRequests.every(request => request.path.endsWith("/payload.bin")));
     const evidence = { ...clientEvidence, publicIdentityAddress: publicAddress,
+        hostnameTrackerResolution: "deterministic-socks-mapping-to-ipv4",
         httpSources: [...new Set(httpSources)], udpSources: [...new Set(udpSources)],
         dhtSources: [...new Set(dhtSources)], dhtNodeIds: [...new Set(dhtIds)],
         httpAnnounces, udpAnnounces, dhtAnnounces,

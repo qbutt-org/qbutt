@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -13,6 +14,7 @@
 
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
+#include <libtorrent/announce_entry.hpp>
 #include <libtorrent/bencode.hpp>
 #include <libtorrent/create_torrent.hpp>
 #include <libtorrent/file_storage.hpp>
@@ -181,7 +183,15 @@ int main(const int argc, char **argv) try
     const lt::network_route routeB = nativeRoute(1, 2, "127.0.0.3", externalAddress, routeBPublicPort);
     const lt::network_route utpRoute = nativeRoute(3, 1, "127.0.0.6", externalAddress, utpPublicPort);
     const lt::network_route outgoingDhtRoute = nativeRoute(4, 1, "127.0.0.7", {}, 0);
-    const lt::network_route webRoute = socksRoute(proxyPort, username, password);
+    lt::network_route webRoute = socksRoute(proxyPort, username, password);
+    webRoute.public_endpoint = {externalAddress, 41004};
+    lt::network_route webRouteV6 = webRoute;
+    webRouteV6.family = lt::route_family::ipv6;
+    webRouteV6.public_endpoint = {};
+    lt::network_route otherWebRoute = socksRoute(proxyPort, username, password);
+    otherWebRoute.binding.context = {5, 7};
+    lt::network_route otherWebRouteV6 = otherWebRoute;
+    otherWebRouteV6.family = lt::route_family::ipv6;
     lt::torrent_route_policy policyA;
     policyA.mode = lt::torrent_route_policy::mode_t::managed;
     policyA.routes = {routeA};
@@ -191,7 +201,9 @@ int main(const int argc, char **argv) try
     policyB.pinned = routeB.binding.context;
     lt::torrent_route_policy webPolicy;
     webPolicy.mode = lt::torrent_route_policy::mode_t::managed;
-    webPolicy.routes = {webRoute};
+    // Lower-priority siblings come first. The separate context deliberately
+    // shares the SOCKS listener; only complete bindings may be deduplicated.
+    webPolicy.routes = {webRouteV6, otherWebRouteV6, webRoute, otherWebRoute};
     webPolicy.pinned = webRoute.binding.context;
     lt::torrent_route_policy utpPolicy;
     utpPolicy.mode = lt::torrent_route_policy::mode_t::managed;
@@ -351,9 +363,33 @@ int main(const int argc, char **argv) try
         std::this_thread::sleep_for(20ms);
     std::ifstream downloaded(root / "download" / "payload.bin", std::ios::binary);
     const std::vector<char> actual((std::istreambuf_iterator<char>(downloaded)), {});
-    if (!webTorrent.status().is_seeding || (actual != webPayload)
-        || !waitForFile(markers / "http-socks", 10s))
+    if (!webTorrent.status().is_seeding || (actual != webPayload))
         return 16;
+
+    std::vector<lt::announce_endpoint> hostnameEndpoints;
+    const auto hostnameDeadline = std::chrono::steady_clock::now() + 10s;
+    while (std::chrono::steady_clock::now() < hostnameDeadline)
+    {
+        const auto trackers = webTorrent.trackers();
+        if ((trackers.size() == 1) && (trackers.front().endpoints.size() == 2)
+            && std::all_of(trackers.front().endpoints.begin(), trackers.front().endpoints.end(),
+                [](const lt::announce_endpoint &endpoint)
+                {
+                    const auto &state = endpoint.info_hashes[lt::protocol_version::V1];
+                    return state.start_sent && !state.updating && !state.last_error;
+                }))
+        {
+            hostnameEndpoints = trackers.front().endpoints;
+            break;
+        }
+        std::this_thread::sleep_for(10ms);
+    }
+    if (hostnameEndpoints.size() != 2)
+        return 23;
+    webTorrent.pause();
+    if (!waitForFile(markers / "http-socks-stopped-41004", 10s)
+        || !waitForFile(markers / "http-socks-stopped-1", 10s))
+        return 24;
 
     lt::settings_pack defaultSettings;
     defaultSettings.set_str(lt::settings_pack::listen_interfaces, "127.0.0.4:0");
@@ -464,7 +500,17 @@ int main(const int argc, char **argv) try
         << ",\"httpTrackerThroughTcpOnlySocks\":true"
         << ",\"defaultHttpTrackerUnaffected\":true"
         << ",\"managedAutomaticUtp\":true"
-        << ",\"utpVerifiedBytes\":" << actualUtp.size() << "}\n";
+        << ",\"utpVerifiedBytes\":" << actualUtp.size()
+        << ",\"hostnameTrackerEndpoints\":[";
+    for (std::size_t index = 0; index < hostnameEndpoints.size(); ++index)
+    {
+        const auto &endpoint = hostnameEndpoints[index];
+        std::cout << (index == 0 ? "" : ",") << "{\"pathId\":" << endpoint.route.path_id
+            << ",\"generation\":" << endpoint.route.generation
+            << ",\"listenerFamily\":\"" << (endpoint.local_endpoint.address().is_v4() ? "ipv4" : "ipv6")
+            << "\"}";
+    }
+    std::cout << "]}\n";
     return 0;
 }
 catch (const std::exception &error)
