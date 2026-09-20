@@ -12,3 +12,7 @@ target_link_libraries(selector-integration PRIVATE LibtorrentRasterbar::torrent-
 add_executable(route-policy-integration route-policy.cpp)
 target_compile_features(route-policy-integration PRIVATE cxx_std_20)
 target_link_libraries(route-policy-integration PRIVATE LibtorrentRasterbar::torrent-rasterbar)
+
+add_executable(ssl-utp-integration ssl-utp.cpp)
+target_compile_features(ssl-utp-integration PRIVATE cxx_std_20)
+target_link_libraries(ssl-utp-integration PRIVATE LibtorrentRasterbar::torrent-rasterbar)

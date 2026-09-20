@@ -33,6 +33,7 @@
     "smoke:tunnels": "bun tests/network-lab/mixed.ts --tunnels",
     "smoke:native-route": "bun tests/network-lab/native-route.ts",
     "smoke:route-policy": "bun tests/network-lab/route-policy.ts",
+    "smoke:ssl-utp": "bun tests/network-lab/ssl-utp.ts",
     "smoke:policy-transition": "bun tests/network-lab/policy-transition.ts",
     "smoke:policy-transition-utp": "bun tests/network-lab/policy-transition.ts --utp",
     "smoke:direct-transition": "bun tests/network-lab/direct-transition.ts",

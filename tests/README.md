@@ -545,6 +545,16 @@ context for each start/stop, retaining the leased public listener and the separa
 outgoing-only context. The hostname maps deterministically to a loopback IPv4
 server in the SOCKS fixture; this does not measure DNS queries or Internet egress.
 
+`smoke:ssl-utp` uses the standalone `ssl-utp-integration` target from
+`tests/network-lab/CMakeLists.txt`. Set `QBUTT_SSL_UTP_EXE` to that executable;
+Go and OpenSSL must be on PATH or supplied through `QBUTT_GO` and
+`QBUTT_OPENSSL`. It generates a torrent-local CA and peer certificate, transfers
+512 KiB through authenticated SOCKS UDP, retires the first live generation,
+rejects that stale generation, and completes through its replacement. It checks
+`utp_ssl`, per-generation verified bytes, exact payload, and a direct UDP canary.
+This controlled IPv4 scenario covers outgoing SSL-uTP, not public inbound or WAN.
+Temporary keys and payload are removed; compact evidence stays in the lab folder.
+
 `benchmark:network` runs three or more interleaved rounds for the validated
 unchanged upstream executable, qbutt Native, one authenticated tunnel, and
 RouteSelector Mixed with two tunnels plus the selected physical Native route.
