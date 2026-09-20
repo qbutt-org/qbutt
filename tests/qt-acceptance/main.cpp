@@ -46,6 +46,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QScrollArea>
 #include <QSet>
 #include <QSignalBlocker>
 #include <QStyle>
@@ -347,10 +348,13 @@ namespace
         return {};
     }
 
-    void exercisePaths(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
+    void exercisePaths(Application &application, MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
-        PathsWidget widget(window);
-        widget.show();
+        OptionsDialog dialog {&application, window};
+        dialog.resize(1100, 900);
+        dialog.showConnectionTab();
+        dialog.show();
+        PathsWidget &widget = *requiredChild<PathsWidget>(&dialog, {});
         QCoreApplication::processEvents();
         auto *nodes = requiredChild<QComboBox>(&widget, u"mihomoNode"_s);
         auto *interfaces = requiredChild<QComboBox>(&widget, u"mihomoPhysicalInterface"_s);
@@ -451,11 +455,17 @@ namespace
             transitions.append(QJsonObject {{u"mode"_s, policy}, {u"latencyMs"_s, duration}});
         }
         require(status->text().contains(u"Pinned"_s, Qt::CaseInsensitive), u"Paths status did not explain the active policy"_s);
-        require(widget.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"paths.png"_s)),
+        auto *viewport = requiredChild<QScrollArea>(&dialog, u"scrollArea_3"_s)->viewport();
+        require(widget.isVisible() && viewport->rect().contains(QRect(widget.mapTo(viewport, QPoint {}), widget.size())),
+            u"Paths is clipped inside the production Connection page"_s);
+        for (int row = 0; row < paths->count(); ++row)
+            require(paths->viewport()->rect().contains(paths->visualItemRect(paths->item(row))), u"A Paths row is not visible"_s);
+        require(dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"paths.png"_s)),
             u"Cannot render Paths offscreen"_s);
         addCheck(evidence, {{u"name"_s, u"paths"_s}, {u"edges"_s, opened.size()}, {u"transitions"_s, transitions},
-            {u"queuedForegroundBusy"_s, true}, {u"unknownCapabilitiesPreserved"_s, true}});
-        widget.close();
+            {u"queuedForegroundBusy"_s, true}, {u"unknownCapabilitiesPreserved"_s, true},
+            {u"captureWidth"_s, dialog.width()}, {u"captureHeight"_s, dialog.height()}, {u"visiblePathRows"_s, paths->count()}});
+        dialog.reject();
     }
 
     RepairDialog *findRepairDialog()
@@ -1406,7 +1416,7 @@ namespace
             return;
         }
         window->hide();
-        exercisePaths(window, spec, evidence);
+        exercisePaths(application, window, spec, evidence);
         exerciseRepair(window, spec, evidence);
         exercisePolicies(window, spec, evidence);
         exerciseDiagnostics(window, spec, evidence);
