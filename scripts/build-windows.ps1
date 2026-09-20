@@ -3,6 +3,9 @@ param(
     [string] $SourceDir = (Split-Path $PSScriptRoot -Parent),
     [string] $BuildRoot = (Join-Path $env:LOCALAPPDATA 'qbutt/build'),
     [string] $DependencyRoot = (Join-Path $env:LOCALAPPDATA 'qbutt/dependencies'),
+    [string] $LibtorrentSourceDir,
+    [string] $LibtorrentBuildRoot,
+    [string] $NetSourceDir,
     [string] $CMakePath = (Join-Path $env:ProgramFiles 'CMake/bin/cmake.exe'),
     [ValidateRange(1, 64)] [int] $Parallel = 8
 )
@@ -160,18 +163,20 @@ $qtLicensePaths = @(foreach ($license in $pins.qt.licenseFiles) {
     $licensePath
 })
 
-$libtorrent = Join-Path $DependencyRoot 'qbutt-libtorrent'
+$libtorrent = if ($LibtorrentSourceDir) { [IO.Path]::GetFullPath($LibtorrentSourceDir) }
+    else { Join-Path $DependencyRoot 'qbutt-libtorrent' }
 Initialize-Source $libtorrent $pins.libtorrent
+$libtorrentBuild = if ($LibtorrentBuildRoot) { [IO.Path]::GetFullPath($LibtorrentBuildRoot) } else { $libtorrent }
 $common = @('-G', 'Ninja', '-DCMAKE_BUILD_TYPE=RelWithDebInfo', '-DCMAKE_CXX_COMPILER=cl',
     '-DCMAKE_EXPORT_COMPILE_COMMANDS=ON', "-DCMAKE_TOOLCHAIN_FILE=$vcpkg/scripts/buildsystems/vcpkg.cmake",
     "-DBOOST_ROOT=$boost/lib/cmake", '-DVCPKG_TARGET_TRIPLET=x64-windows-static-md-release')
-Invoke-Native $cmake (@('-S', $libtorrent, '-B', "$libtorrent/build") + $common + @(
-    '-DCMAKE_C_COMPILER=cl', '-DCMAKE_CXX_STANDARD=20', "-DCMAKE_INSTALL_PREFIX=$libtorrent/install",
+Invoke-Native $cmake (@('-S', $libtorrent, '-B', "$libtorrentBuild/build") + $common + @(
+    '-DCMAKE_C_COMPILER=cl', '-DCMAKE_CXX_STANDARD=20', "-DCMAKE_INSTALL_PREFIX=$libtorrentBuild/install",
     '-DBUILD_SHARED_LIBS=OFF', '-Ddeprecated-functions=OFF', '-Dstatic_runtime=OFF'))
-Invoke-Native $cmake @('--build', "$libtorrent/build", '--parallel', "$Parallel")
-Invoke-Native $cmake @('--install', "$libtorrent/build")
+Invoke-Native $cmake @('--build', "$libtorrentBuild/build", '--parallel', "$Parallel")
+Invoke-Native $cmake @('--install', "$libtorrentBuild/build")
 
-$net = Join-Path $DependencyRoot 'qbutt-net'
+$net = if ($NetSourceDir) { [IO.Path]::GetFullPath($NetSourceDir) } else { Join-Path $DependencyRoot 'qbutt-net' }
 Initialize-Source $net $lock.qbuttNet
 $goArchive = Join-Path $DependencyRoot "go$($pins.go.version).zip"
 Save-VerifiedDownload $goArchive $pins.go.url $pins.go.sha256
@@ -192,7 +197,7 @@ try {
 finally { Pop-Location }
 
 Invoke-Native $cmake (@('-S', $SourceDir, '-B', $BuildRoot) + $common + @(
-    "-DLibtorrentRasterbar_DIR=$libtorrent/install/lib/cmake/LibtorrentRasterbar", "-DCMAKE_PREFIX_PATH=$qtRoot",
+    "-DLibtorrentRasterbar_DIR=$libtorrentBuild/install/lib/cmake/LibtorrentRasterbar", "-DCMAKE_PREFIX_PATH=$qtRoot",
     '-DMSVC_RUNTIME_DYNAMIC=ON', '-DTESTING=OFF', '-DQBUTT_STAGING_FAULTS=OFF', '-DQBUTT_COMPLETION_FAULTS=OFF'))
 Invoke-Native $cmake @('--build', $BuildRoot, '--parallel', "$Parallel")
 
