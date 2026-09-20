@@ -30,6 +30,8 @@ namespace Net
         Q_OBJECT
         Q_DISABLE_COPY_MOVE(PathManager)
 
+        friend class PathManagerAcceptance;
+
         PathManager();
         ~PathManager() override;
 
@@ -82,6 +84,9 @@ namespace Net
         void fail(const QString &message);
         void reportError(const QString &message);
         bool shutdown();
+        QList<PeerRouteEndpoint> nativeEndpointsForInterface(const QString &interfaceName) const;
+        bool applyPolicy(const QString &mode, const QString &nativeInterface,
+            QList<PeerRouteEndpoint> nativeEndpoints);
         bool applyRoutes();
         bool applyTrustedInboundRoutes();
         void finishResolution(const QList<QHostAddress> &addresses, const QString &errorCode = {});

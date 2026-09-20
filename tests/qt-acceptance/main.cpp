@@ -40,6 +40,7 @@
 #include <QListWidget>
 #include <QMap>
 #include <QMessageBox>
+#include <QNetworkInterface>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -63,6 +64,7 @@
 #include "base/bittorrent/completionpolicy.h"
 #include "base/bittorrent/downloadpriority.h"
 #include "base/bittorrent/infohash.h"
+#include "base/bittorrent/peeraddress.h"
 #include "base/bittorrent/repairservice.h"
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/torrent.h"
@@ -87,6 +89,15 @@
 #include "gui/transferlistsortmodel.h"
 #include "gui/transferlistwidget.h"
 #include "gui/uithememanager.h"
+
+namespace Net
+{
+    class PathManagerAcceptance
+    {
+    public:
+        static void run(const QJsonObject &spec, QJsonObject &evidence);
+    };
+}
 
 namespace
 {
@@ -1378,6 +1389,12 @@ namespace
     {
         MainWindow *window = application.mainWindow();
         require(window && BitTorrent::Session::instance()->isRestored(), u"Production application did not finish startup"_s);
+        if (spec.value(u"mode"_s).toString() == u"native-address")
+        {
+            window->hide();
+            Net::PathManagerAcceptance::run(spec, evidence);
+            return;
+        }
         if (spec.value(u"mode"_s).toString() == u"profile-import")
         {
             exerciseProfileImport(window, spec, evidence);
@@ -1396,6 +1413,128 @@ namespace
         exerciseLargeTransferList(window, spec, evidence);
         restoreNative(window, evidence);
     }
+}
+
+void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evidence)
+{
+    auto *paths = PathManager::instance();
+    auto *session = BitTorrent::Session::instance();
+    quint32 loopbackIndex = 0;
+    for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces())
+    {
+        if (iface.flags().testFlag(QNetworkInterface::IsLoopBack))
+            loopbackIndex = static_cast<quint32>(iface.index());
+    }
+    require(loopbackIndex > 0, u"No loopback interface for isolated Native acceptance"_s);
+    const auto native = [loopbackIndex](const QString &address)
+    {
+        PeerRouteEndpoint endpoint;
+        endpoint.type = PeerRouteEndpoint::Type::Native;
+        endpoint.pathId = 1;
+        endpoint.localAddress = address;
+        endpoint.interfaceIndex = loopbackIndex;
+        endpoint.supportsIPv4 = true;
+        endpoint.supportsIPv6 = false;
+        endpoint.supportsUdp = true;
+        return QList<PeerRouteEndpoint> {endpoint};
+    };
+    const QString missingInterface = u"qbutt-acceptance-absent-interface"_s;
+    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.6"_s)),
+        u"Cannot admit controlled Native snapshot"_s);
+    require(paths->m_statusRefresh.isActive() && (paths->m_process.state() == QProcess::NotRunning),
+        u"Native-only Mixed does not poll without the child"_s);
+    waitFor(u"Native-only disappearance"_s, [&] { return paths->m_nativeEndpoints.isEmpty(); }, 5000);
+    require(paths->m_statusRefresh.isActive(), u"Missing Native address stopped recovery polling"_s);
+    require(paths->setPolicy(u"pinned"_s), u"Cannot select initial remote path"_s);
+    paths->openPath(spec.value(u"configPath"_s).toString(), u"remote"_s,
+        spec.value(u"interfaceName"_s).toString());
+    waitFor(u"Remote path"_s, [&]
+    {
+        return !paths->isBusy() && !paths->m_paths.isEmpty() && (paths->m_paths.front().endpoint.port > 0);
+    });
+
+    const auto descriptor = BitTorrent::TorrentDescriptor::loadFromFile(Path(spec.value(u"torrentPath"_s).toString()));
+    require(bool(descriptor), u"Cannot read Native address fixture torrent"_s);
+    BitTorrent::AddTorrentParams params;
+    params.savePath = Path(spec.value(u"destination"_s).toString());
+    params.useAutoTMM = false;
+    params.addStopped = false;
+    params.downloadLimit = 32768;
+    require(session->addTorrent(*descriptor, params), u"Cannot add Native address fixture"_s);
+    BitTorrent::Torrent *torrent = nullptr;
+    waitFor(u"Native address torrent"_s, [&]
+    {
+        torrent = session->findTorrent(descriptor->infoHash());
+        return torrent != nullptr;
+    });
+    require(torrent->connectPeer(BitTorrent::PeerAddress::parse(spec.value(u"remotePeer"_s).toString())),
+        u"Cannot enqueue remote fixture peer"_s);
+    const auto peer = [paths](const QString &pathId)
+    {
+        for (const QJsonValue &value : paths->statusData(true).value(u"peers"_s).toArray())
+        {
+            const QJsonObject entry = value.toObject();
+            if (entry.value(u"pathId"_s).toString() == pathId)
+                return entry;
+        }
+        return QJsonObject {};
+    };
+    const QString remotePath = QString::number(paths->m_paths.front().endpoint.pathId);
+    waitFor(u"Remote useful payload"_s, [&] { return peer(remotePath).value(u"payloadDownload"_s).toInteger() > 16384; });
+    const QJsonObject originalRemote = peer(remotePath);
+    const auto sameRemote = [&]
+    {
+        const QJsonObject current = peer(remotePath);
+        return !current.isEmpty() && (current.value(u"generation"_s) == originalRemote.value(u"generation"_s))
+            && (current.value(u"localPort"_s) == originalRemote.value(u"localPort"_s));
+    };
+    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.6"_s)),
+        u"Cannot add Native alongside remote path"_s);
+    paths->m_statusRefresh.stop(); // Controlled snapshots replace OS events only inside this process driver.
+    require(torrent->connectPeer(BitTorrent::PeerAddress::parse(spec.value(u"nativePeer"_s).toString())),
+        u"Cannot enqueue Native fixture peer"_s);
+    waitFor(u"Native useful payload"_s, [&] { return peer(u"1"_s).value(u"payloadDownload"_s).toInteger() > 16384; });
+    const quint64 oldGeneration = paths->m_nativeEndpoints.front().generation;
+    const QJsonValue oldNativePort = peer(u"1"_s).value(u"localPort"_s);
+    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.6"_s)),
+        u"Unchanged Native snapshot failed"_s);
+    paths->m_statusRefresh.stop();
+    require((paths->m_nativeEndpoints.front().generation == oldGeneration)
+        && (peer(u"1"_s).value(u"localPort"_s) == oldNativePort) && sameRemote(),
+        u"Unchanged snapshot disturbed an established connection"_s);
+
+    paths->m_statusRefresh.start();
+    waitFor(u"Active Native address disappearance"_s, [&]
+    {
+        return paths->m_nativeEndpoints.isEmpty() && peer(u"1"_s).isEmpty();
+    }, 5000);
+    require(sameRemote(), u"Native disappearance retired the remote connection"_s);
+    const qint64 before = peer(remotePath).value(u"payloadDownload"_s).toInteger();
+    waitFor(u"Remote continues after Native loss"_s, [&]
+    {
+        return sameRemote() && (peer(remotePath).value(u"payloadDownload"_s).toInteger() > before + 16384);
+    }, 15000);
+    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.7"_s)),
+        u"Replacement Native snapshot failed"_s);
+    paths->m_statusRefresh.stop();
+    const quint64 replacementGeneration = paths->m_nativeEndpoints.front().generation;
+    require(replacementGeneration > oldGeneration, u"Replacement reused the removed Native generation"_s);
+    waitFor(u"Automatic replacement Native connection"_s, [&]
+    {
+        const QJsonObject current = peer(u"1"_s);
+        return (current.value(u"generation"_s).toInteger() == static_cast<qint64>(replacementGeneration))
+            && (current.value(u"localAddress"_s).toString() == u"127.0.0.7")
+            && (current.value(u"payloadDownload"_s).toInteger() > 16384);
+    }, 90000);
+    require(sameRemote(), u"Native replacement retired the healthy remote connection"_s);
+    torrent->setDownloadLimit(0);
+    waitFor(u"Replacement Native completion"_s, [&] { return torrent->progress() == 1; }, 90000);
+    torrent->stop();
+    addCheck(evidence, {{u"name"_s, u"native-address-reconciliation"_s}, {u"oldGeneration"_s, static_cast<qint64>(oldGeneration)},
+        {u"replacementGeneration"_s, static_cast<qint64>(replacementGeneration)}, {u"remoteConnectionPreserved"_s, true},
+        {u"nativeOnlyTimer"_s, true}, {u"unchangedSnapshotPreserved"_s, true}, {u"automaticReconnect"_s, true},
+        {u"verifiedBytes"_s, torrent->completedSize()}, {u"physicalInterfaceChanged"_s, false}});
+    paths->stopPath();
 }
 
 int main(int argc, char **argv)

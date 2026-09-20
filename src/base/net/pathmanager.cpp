@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 #ifdef Q_OS_WIN
 #include <winsock2.h>
@@ -277,6 +278,11 @@ Net::PathManager::PathManager()
     });
     connect(&m_statusRefresh, &QTimer::timeout, this, [this]()
     {
+        if (ProxyConfigurationManager::instance()->hasRuntimeProxy() && (m_storePolicy.get() == u"mixed"))
+        {
+            const QString nativeInterface = m_storeNativeInterface;
+            applyPolicy(u"mixed"_s, nativeInterface, nativeEndpointsForInterface(nativeInterface));
+        }
         if ((m_process.state() == QProcess::Running) && (m_pendingId == 0) && !controlBusy()
             && std::ranges::any_of(m_paths, [](const ActivePath &path) { return path.endpoint.port > 0; }))
         {
@@ -863,12 +869,25 @@ bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInter
         reportError(tr("Choose a physical Native interface for Mixed mode."));
         return false;
     }
+    QList<PeerRouteEndpoint> nativeEndpoints = mixed ? nativeEndpointsForInterface(nativeInterface)
+        : QList<PeerRouteEndpoint> {};
+    if (mixed && nativeEndpoints.isEmpty()
+        && ((m_storePolicy.get() != mode) || (m_storeNativeInterface.get() != nativeInterface)))
+    {
+        reportError(tr("The selected physical Native interface has no usable address."));
+        return false;
+    }
+    return applyPolicy(mode, mixed ? nativeInterface : QString(), std::move(nativeEndpoints));
+}
+
+QList<Net::PeerRouteEndpoint> Net::PathManager::nativeEndpointsForInterface(const QString &interfaceName) const
+{
     QList<PeerRouteEndpoint> nativeEndpoints;
-    if (mixed && !nativeInterface.isEmpty())
+    if (!interfaceName.isEmpty())
     {
         for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces())
         {
-            if ((iface.name() != nativeInterface) && (iface.humanReadableName() != nativeInterface))
+            if ((iface.name() != interfaceName) && (iface.humanReadableName() != interfaceName))
                 continue;
             if (!iface.flags().testFlag(QNetworkInterface::IsUp)
                 || !iface.flags().testFlag(QNetworkInterface::IsRunning))
@@ -881,7 +900,18 @@ bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInter
 #endif
             bool haveIPv4 = false;
             bool haveIPv6 = false;
-            for (const QNetworkAddressEntry &entry : iface.addressEntries())
+            QList<QNetworkAddressEntry> addresses = iface.addressEntries();
+            // Keep the selected address while it remains usable, including
+            // when temporary IPv6 addresses or enumeration order change.
+            std::ranges::stable_sort(addresses, std::greater {}, [&](const QNetworkAddressEntry &entry)
+            {
+                return std::ranges::any_of(m_nativeEndpoints, [&](const PeerRouteEndpoint &endpoint)
+                {
+                    return (endpoint.interfaceIndex == static_cast<quint32>(iface.index()))
+                        && (QHostAddress(endpoint.localAddress) == entry.ip());
+                });
+            });
+            for (const QNetworkAddressEntry &entry : addresses)
             {
                 const QHostAddress address = entry.ip();
                 const bool ipv6 = address.protocol() == QAbstractSocket::IPv6Protocol;
@@ -891,7 +921,6 @@ bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInter
                 PeerRouteEndpoint endpoint;
                 endpoint.type = PeerRouteEndpoint::Type::Native;
                 endpoint.pathId = ipv6 ? 2 : 1;
-                endpoint.generation = m_nativeGeneration + 1;
                 endpoint.localAddress = address.toString();
                 endpoint.interfaceIndex = static_cast<quint32>(iface.index());
                 endpoint.supportsIPv4 = !ipv6;
@@ -902,16 +931,28 @@ bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInter
             }
             break;
         }
-        if (nativeEndpoints.isEmpty())
-        {
-            reportError(tr("The selected physical Native interface has no usable address."));
-            return false;
-        }
     }
+    std::ranges::sort(nativeEndpoints, {}, &PeerRouteEndpoint::pathId);
+    return nativeEndpoints;
+}
+
+bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInterface,
+    QList<PeerRouteEndpoint> nativeEndpoints)
+{
+    const auto sameNativeEndpoint = [](const PeerRouteEndpoint &left, const PeerRouteEndpoint &right)
+    {
+        return (left.pathId == right.pathId) && (left.localAddress == right.localAddress)
+            && (left.interfaceIndex == right.interfaceIndex);
+    };
     const QString currentMode = m_storePolicy.get(u"pinned"_s);
     const QString currentInterface = m_storeNativeInterface;
-    if ((currentMode == mode) && (currentInterface == (mixed ? nativeInterface : QString())))
+    if ((currentMode == mode) && (currentInterface == nativeInterface)
+        && std::ranges::equal(m_nativeEndpoints, nativeEndpoints, sameNativeEndpoint))
+    {
+        if ((mode == u"mixed") && !m_statusRefresh.isActive())
+            m_statusRefresh.start();
         return true;
+    }
     const QString previous = currentMode;
     const QString previousInterface = currentInterface;
     auto *proxyManager = ProxyConfigurationManager::instance();
@@ -924,7 +965,7 @@ bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInter
         }
     }
     m_storePolicy = mode;
-    m_storeNativeInterface = mixed ? nativeInterface : QString();
+    m_storeNativeInterface = nativeInterface;
     if (((previous != m_storePolicy) || (previousInterface != m_storeNativeInterface))
         && !SettingsStorage::instance()->save())
     {
@@ -934,22 +975,48 @@ bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInter
         return false;
     }
     const QList<PeerRouteEndpoint> oldNativeEndpoints = std::move(m_nativeEndpoints);
+    for (PeerRouteEndpoint &endpoint : nativeEndpoints)
+    {
+        const auto previousEndpoint = std::ranges::find_if(oldNativeEndpoints,
+            [&](const PeerRouteEndpoint &candidate) { return sameNativeEndpoint(candidate, endpoint); });
+        endpoint.generation = (previousEndpoint != oldNativeEndpoints.end())
+            ? previousEndpoint->generation : ++m_nativeGeneration;
+    }
     m_nativeEndpoints = std::move(nativeEndpoints);
-    ++m_nativeGeneration;
     if (!applyRoutes())
     {
-        m_nativeEndpoints = oldNativeEndpoints;
+        // A removed local address must not be restored after an apply failure.
+        // Retire Native while keeping the selected remote routes available.
+        m_nativeEndpoints.clear();
+        for (const PeerRouteEndpoint &endpoint : oldNativeEndpoints)
+            BitTorrent::Session::instance()->invalidateNetworkRoute(endpoint.pathId, endpoint.generation);
         m_storePolicy = previous;
         m_storeNativeInterface = previousInterface;
         SettingsStorage::instance()->save();
-        applyRoutes();
+        if (!applyRoutes())
+        {
+            fail(tr("Unable to retire unavailable Native routes safely."));
+            return false;
+        }
         reportError(tr("Unable to apply the network policy."));
         return false;
     }
     for (const PeerRouteEndpoint &endpoint : oldNativeEndpoints)
-        BitTorrent::Session::instance()->invalidateNetworkRoute(endpoint.pathId, endpoint.generation);
+    {
+        if (!std::ranges::any_of(m_nativeEndpoints, [&](const PeerRouteEndpoint &current)
+            { return (current.pathId == endpoint.pathId) && (current.generation == endpoint.generation); }))
+        {
+            BitTorrent::Session::instance()->invalidateNetworkRoute(endpoint.pathId, endpoint.generation);
+        }
+    }
     if (mode == u"mixed")
-        m_status = tr("Mixed: public torrents use selected edges and the chosen Native interface. Private torrents stay pinned.");
+    {
+        if (!m_statusRefresh.isActive())
+            m_statusRefresh.start();
+        m_status = m_nativeEndpoints.isEmpty()
+            ? tr("Mixed: the selected Native interface is unavailable. Remote paths remain active.")
+            : tr("Mixed: public torrents use selected edges and the chosen Native interface. Private torrents stay pinned.");
+    }
     else if (mode == u"tunnels")
         m_status = tr("Tunnels only: public torrents use selected remote edges. Private torrents stay pinned.");
     else
@@ -1569,7 +1636,8 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             fail(tr("qbutt-net returned an invalid path close response."));
             return;
         }
-        if (!std::ranges::any_of(m_paths, [](const ActivePath &path) { return path.endpoint.port > 0; }))
+        if ((m_storePolicy.get() != u"mixed")
+            && !std::ranges::any_of(m_paths, [](const ActivePath &path) { return path.endpoint.port > 0; }))
             m_statusRefresh.stop();
     }
     else
