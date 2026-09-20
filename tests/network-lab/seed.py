@@ -36,8 +36,6 @@ if neighbor is not None:
     if (not neighbor_address.is_loopback or neighbor_address == address
             or not 0 <= neighbor["port"] <= 65535):
         raise RuntimeError("Fixture neighbor must use a distinct loopback address")
-if transport == "utp" and (not neighbor or not neighbor["port"]):
-    raise RuntimeError("The uTP fixture must initiate its connection")
 # libtorrent opens UDP on the TCP listen port even with uTP and DHT disabled.
 # Windows may exclude a port for only one protocol; choose a port both can bind
 # instead of treating a disabled-transport bind failure as a healthy seed.
@@ -60,8 +58,8 @@ session = lt.session({
     "enable_lsd": False,
     "enable_upnp": False,
     "enable_natpmp": False,
-    "enable_incoming_utp": False,
-    "enable_outgoing_utp": transport == "utp",
+    "enable_incoming_utp": transport == "utp" and not (neighbor and neighbor["port"]),
+    "enable_outgoing_utp": transport == "utp" and bool(neighbor and neighbor["port"]),
     "enable_incoming_tcp": transport == "tcp",
     "enable_outgoing_tcp": transport == "tcp" and bool(neighbor and neighbor["port"]),
     "dht_bootstrap_nodes": "",
