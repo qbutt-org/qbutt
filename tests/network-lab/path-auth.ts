@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
@@ -13,7 +13,8 @@ const bundle = await mkdtemp(join(tmpdir(), "qbutt-auth-bundle-"));
 await cp(dirname(original), bundle, { recursive: true, filter: path => {
     if (["profile", ".git"].includes(basename(path)))
         return false;
-    return !extname(path) || [".exe", ".dll", ".qm"].includes(extname(path).toLowerCase());
+    return basename(path) === basename(original)
+        || !extname(path) || [".dll", ".qm"].includes(extname(path).toLowerCase());
 } });
 const childPath = join(bundle, "qbutt-net.exe");
 await allowLabNetwork([process.execPath]);
@@ -298,6 +299,16 @@ try {
         await lab.finish(failure);
         if (failure)
             failures.push(failure);
+        else {
+            assert(lab.exitCode !== null, "Stop the application before cleaning its fixture");
+            const root = await realpath(lab.root);
+            for (const name of ["fixtures", "profile", "download", "child-fixture.json"]) {
+                const target = join(lab.root, name);
+                try { assert.equal(dirname(await realpath(target)), root, "Cleanup escaped its generated fixture"); }
+                catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
+                await rm(target, { recursive: true, force: true });
+            }
+        }
     }
 }
 finally {
@@ -306,3 +317,5 @@ finally {
 }
 if (failures.length)
     throw new AggregateError(failures, "Native route authentication or child contract failed");
+assert.equal(dirname(await realpath(bundle)), await realpath(tmpdir()), "Runtime cleanup escaped temp");
+await rm(bundle, { recursive: true, force: true });
