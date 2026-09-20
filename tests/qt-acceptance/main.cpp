@@ -641,12 +641,15 @@ namespace
             const QString path = files->item(row, 0)->text();
             if (!wantedPaths.contains(path))
                 require(targetAfter.value(path) == targetBefore.value(path), u"Repair changed or created an ignored target file"_s);
+            require(tree->topLevelItem(row)->text(4).contains(u"Not selected for repair") == !wantedPaths.contains(path),
+                u"The managed repair table does not distinguish selected and ignored targets"_s);
         }
         require(repair->grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"repair-committed.png"_s)),
             u"Cannot render committed repair state"_s);
         addCheck(evidence, {{u"name"_s, u"repair-staging"_s}, {u"files"_s, files->rowCount()},
             {u"sourceReadOnly"_s, true}, {u"noWriteBeforeConsent"_s, true}, {u"unknownPreserved"_s, true},
             {u"selectedFiles"_s, wantedPaths.size()}, {u"nativePrioritiesPreserved"_s, true}, {u"ignoredPreserved"_s, true},
+            {u"ignoredRowsLabeled"_s, true},
             {u"stagingMaxGapMs"_s, stagingHeartbeat.maximumGap},
             {u"networkBytes"_s, network}, {u"verifiedBytes"_s, verified}});
         repair->close();

@@ -347,12 +347,15 @@ void RepairService::analyzeDrainedData()
                 return;
             m_staging = StagingOperation::plan(StagingOperation::journalPath(m_torrent->id().toString())
                 , m_torrent->id().toString(), *m_target, m_files, m_savePath, sources, m_selectedFiles, m_error, &m_cancelled);
-            if (m_staging)
-                m_analysis = m_staging->analysis();
-            return;
+            if (!m_staging)
+                return;
+            m_analysis = m_staging->analysis();
         }
-        const QSet<int> readableFiles = m_guard->existingFiles();
-        m_analysis = analyzeRepairData(*m_target, m_files, m_savePath, &m_cancelled, &readableFiles);
+        else
+        {
+            const QSet<int> readableFiles = m_guard->existingFiles();
+            m_analysis = analyzeRepairData(*m_target, m_files, m_savePath, &m_cancelled, &readableFiles);
+        }
         for (RepairFileAnalysis &file : m_analysis.files)
             file.selected = m_selectedFiles.contains(file.nativeIndex);
         m_error = m_analysis.error;
