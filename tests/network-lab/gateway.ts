@@ -107,6 +107,11 @@ interface UdpAnnounce {
     ip: string;
 }
 
+interface TrackerStatus {
+    url: string;
+    endpoints: { name: string; pathId: string; generation: number; status: number; msg: string }[];
+}
+
 async function run(command: string[], options: { cwd?: string; env?: Record<string, string>; timeout?: number } = {}) {
     const child = Bun.spawn(command, {
         cwd: options.cwd,
@@ -466,6 +471,7 @@ let trackerPhase: "leased" | "retired" = "leased";
 let trackerHash = "";
 const httpAnnounces: HttpAnnounce[] = [];
 const udpAnnounces: UdpAnnounce[] = [];
+let udpConnectRequests = 0;
 const trackerErrors: string[] = [];
 try {
     const certificates = join(lab.root, "gateway-certificates");
@@ -518,6 +524,7 @@ try {
                 reply.writeUInt32BE(transaction, 4);
                 if (action === 0) {
                     assert.equal(packet.readBigUInt64BE(0), 0x41727101980n);
+                    udpConnectRequests++;
                     reply.writeBigUInt64BE(0x123456789abcdef0n, 8);
                 }
                 else {
@@ -733,14 +740,27 @@ try {
     if (useTrackers) {
         assert(secondPath.gateway.publicEndpoint === firstEndpoint && secondPath.gateway.family === "ipv4",
             "Reopened gateway did not preserve the controlled public IPv4 endpoint");
+        const proxyBeforeTrackers = { ...proxy!.stats };
         await lab.request("torrents/addTrackers", { hash, urls:
             `http://127.0.0.11:${httpTracker!.port}/announce?lease=active\n`
             + `udp://127.0.0.12:${udpTracker!.address().port}/announce?lease=active` });
         await lab.request("torrents/start", { hashes: hash });
-        await waitFor("leased gateway HTTP and UDP tracker announces", async () => ({
-            http: httpAnnounces.filter(item => item.phase === "leased"),
-            udp: udpAnnounces.filter(item => item.phase === "leased"),
-        }), announces => announces.http.length > 0 && announces.udp.length > 0, 30000);
+        try {
+            await waitFor("leased gateway HTTP and UDP tracker announces", async () => ({
+                http: httpAnnounces.filter(item => item.phase === "leased"),
+                udp: udpAnnounces.filter(item => item.phase === "leased"),
+            }), announces => announces.http.length > 0 && announces.udp.length > 0, 30000);
+        }
+        catch (error) {
+            await lab.checkpoint({ check: "gateway-tracker-announce-diagnostic",
+                statusPath: { pathId: secondPath.pathId, generation: secondPath.generation,
+                    publicEndpoint: secondPath.gateway.publicEndpoint, family: secondPath.gateway.family },
+                trackers: await lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`),
+                http: httpAnnounces, udp: udpAnnounces, udpConnectRequests,
+                nativeHttpRequests, nativeUdpPackets, proxyBeforeTrackers,
+                proxyAfterTrackers: { ...proxy!.stats }, trackerErrors });
+            throw error;
+        }
         assert.deepEqual(trackerErrors, []);
         assert(httpAnnounces.filter(item => item.phase === "leased").every(item => item.port === publicPort
             && item.ip === null && item.ipv4 === PUBLIC_FIXTURE_ADDRESS && item.ipv6 === null),
@@ -755,7 +775,8 @@ try {
         await lab.checkpoint({ check: "leased-gateway-tracker-announces",
             statusPath: { pathId: secondPath.pathId, generation: secondPath.generation,
                 publicEndpoint: secondPath.gateway.publicEndpoint, family: secondPath.gateway.family },
-            http: httpAnnounces, udp: udpAnnounces,
+            trackers: await lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`),
+            http: httpAnnounces, udp: udpAnnounces, udpConnectRequests,
             nativeHttpRequests, nativeUdpPackets });
     }
 
