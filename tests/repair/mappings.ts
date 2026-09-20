@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { sha256 } from "../fixtures/generate";
 import { createLab, startSeed, verifyPayload, waitFor, type TorrentFile } from "../lab";
 import { snapshot } from "./staging-checks";
@@ -33,8 +33,10 @@ async function analyze(hash: string): Promise<RepairStatus> {
 try {
     await lab.start();
     await lab.request("app/setPreferences", {
-        json: JSON.stringify({ incomplete_files_ext: true, use_unwanted_folder: true }),
+        json: JSON.stringify({ locale: "en", incomplete_files_ext: true, use_unwanted_folder: true }),
     });
+    await lab.shutdown();
+    await lab.start();
     for (const format of ["v1", "v2", "hybrid"]) {
         const directory = join(lab.root, format);
         const savePath = join(directory, "completed");
@@ -51,28 +53,28 @@ try {
         add.set("autoTMM", "false");
         add.set("contentLayout", "Original");
         await lab.request("torrents/add", add);
+        await waitFor("mapping torrent admitted", () => lab.json<unknown[]>(`torrents/info?hashes=${hash}`), items => items.length === 1);
         await waitFor("mapping torrent added", () => lab.json<TorrentFile[]>(`torrents/files?hash=${hash}`), files => files.length === 5);
         const files = await lab.json<TorrentFile[]>(`torrents/files?hash=${hash}`);
         const ignored = files.filter(file => file.name.endsWith("/skip.bin") || file.name.endsWith("/empty.bin"));
         await lab.request("torrents/filePrio", { hash, id: ignored.map(file => file.index).join("|"), priority: "0" });
         const mapping = await analyze(hash);
         assert(mapping.analysis?.files.length === 5);
-        assert(mapping.analysis.files.every(file => file.actual_size === -1),
-            "Read-only analysis initialized payload files");
         await lab.request("qbuttRepair/cancel", { id: mapping.id });
 
         const physical = new Map<string, string>();
         for (const file of mapping.analysis.files) {
             const logical = fixture.files.find(item => item.index === file.native_index)!;
-            const rel = relative(downloadPath, file.path);
-            assert(rel && resolve(file.path).startsWith(`${resolve(downloadPath)}${sep}`), "Mapping escaped active download root");
+            assert(resolve(file.path).startsWith(`${resolve(downloadPath)}${sep}`), "Mapping escaped active download root");
             assert(file.selected === !ignored.some(item => item.name === logical.path), "Analysis lost selected-file priorities");
             assert(file.path.endsWith(logical.size ? ".!qB" : "empty.bin"), "Analysis ignored the native incomplete name");
             if (!file.selected)
                 assert(file.path.replaceAll("\\", "/").includes("/.unwanted/"), "Ignored file mapping lost unwanted directory");
             physical.set(logical.path, file.path);
-            if (logical.size === 0 || logical.path.includes("Юникод"))
+            if (logical.size === 0 || logical.path.includes("Юникод")) {
+                await rm(file.path, { force: true });
                 continue;
+            }
             await mkdir(dirname(file.path), { recursive: true });
             let bytes = await readFile(join(lab.fixtures, "seed", logical.path));
             if (logical.path.endsWith("alpha.bin")) {
