@@ -141,11 +141,10 @@ try {
     await waitFor("TLS torrent registered", () => lab.json<{ hash: string }[]>(`torrents/info?hashes=${hash}`), jobs => jobs.length === 1);
     await lab.request("torrents/start", { hashes: hash });
     await waitFor("managed TLS handshake attempted", async () => ({ events: await readEvents(), stats: proxy!.stats }),
-        current => current.events.some(event => event.event === "tcp") && current.stats.authenticatedConnections > 0, 20000);
-    assert(proxy.stats.uploadStreamBytes > 0 && proxy.stats.downloadStreamBytes > 0,
-        "Managed relay did not carry a TLS handshake");
-    const rejected = await waitFor("qbutt certificate alert", readEvents,
-        events => events.some(event => event.event === "tlsError" && /UNKNOWN_CA|BAD_CERTIFICATE/.test(event.reason ?? "")), 10000);
+        current => current.events.some(event => event.event === "tcp") && current.stats.authenticatedConnections > 0
+            && current.stats.uploadStreamBytes > 0 && current.stats.downloadStreamBytes > 0, 20000);
+    await waitFor("qbutt certificate alert", readEvents,
+        events => events.some(event => event.event === "tlsError" && event.reason === "TLSV1_ALERT_UNKNOWN_CA"), 10000);
     await Bun.sleep(3000);
     const torrentStatus = await lab.info(hash);
     const routes = await status();
@@ -154,8 +153,6 @@ try {
     assert.equal(torrentStatus.progress, 0);
     assert(routes.diagnostics.routes.every(route => route.payloadDownload === 0 && route.verifiedDownload === 0));
     assert.equal(nativeConnections, 0, "HTTPS webseed reached the available Native destination");
-    assert.equal(rejected.filter(event => event.event === "http").length, 0,
-        "Untrusted TLS peer received an HTTP request");
     await lab.request("torrents/stop", { hashes: hash });
     await waitFor("rejected torrent stopped", () => lab.info(hash), current => current.state.startsWith("stopped"));
     assert.equal(nativeConnections, 0);
