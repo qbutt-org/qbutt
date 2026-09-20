@@ -57,8 +57,9 @@ try {
         await cp(source.data, directory, { recursive: true });
         const db = new Database(join(directory, "torrents.db"));
         try {
-            db.run(kind === "schema" ? "UPDATE meta SET value = '999' WHERE name = 'version'"
+            const changed = db.run(kind === "schema" ? "UPDATE meta SET value = '999' WHERE name = 'version'"
                 : "UPDATE torrents SET metadata = NULL WHERE rowid = (SELECT min(rowid) FROM torrents)");
+            assert.equal(changed.changes, 1, `Failed to prepare the ${kind} refusal fixture`);
             db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
         }
         finally { db.close(); }
@@ -110,12 +111,19 @@ catch (error) {
 finally {
     if (child?.exitCode === null) { child.kill(); await child.exited; }
     // Keep only compact evidence and screenshots; never clean outside this lab.
-    for (const entry of await readdir(root, { withFileTypes: true })) {
-        if (!entry.isDirectory() || entry.name === "screenshots") continue;
-        const target = resolve(root, entry.name);
-        assert(!entry.isSymbolicLink() && dirname(target) === root && await realpath(target) === target,
-            "Cleanup escaped the generated profile fixture");
-        await rm(target, { recursive: true, force: true });
+    try {
+        for (const entry of await readdir(root, { withFileTypes: true })) {
+            if (!entry.isDirectory() || entry.name === "screenshots") continue;
+            const target = resolve(root, entry.name);
+            assert(!entry.isSymbolicLink() && dirname(target) === root && await realpath(target) === target,
+                "Cleanup escaped the generated profile fixture");
+            await rm(target, { recursive: true, force: true });
+        }
+    }
+    catch (error) {
+        evidence.status = "failed";
+        evidence.cleanupError = error instanceof Error ? error.message : String(error);
+        process.exitCode = 1;
     }
     await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n");
     console.log(JSON.stringify({ status: evidence.status, evidence: join(root, "evidence.json") }));
