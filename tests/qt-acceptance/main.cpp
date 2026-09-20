@@ -774,7 +774,7 @@ namespace
                         u"Unsupported import was not rejected: "_s + status->text());
                     require(dialog->grab().save(screenshots.filePath(u"refused-"_s + kind + u".png"_s)),
                         u"Cannot render rejected import"_s);
-                    addCheck(evidence, {{u"name"_s, u"refused-"_s + kind}, {u"error"_s, status->text()},
+                    addCheck(evidence, {{u"name"_s, u"refused-%1"_s.arg(kind)}, {u"error"_s, status->text()},
                         {u"rows"_s, 0}, {u"applyEnabled"_s, false}, {u"consentEnabled"_s, false}});
                 }
             }
@@ -890,7 +890,7 @@ namespace
         for (auto *torrent : session->torrents())
             require(torrent->isStopped() && torrent->isCompletionPolicyPreview(), u"Another imported task lost its preview barrier"_s);
         require(dialog.grab().save(screenshots.filePath(u"import-"_s + phase + u".png"_s)), u"Cannot render imported policy phase"_s);
-        addCheck(evidence, {{u"name"_s, u"import-"_s + phase}, {u"remaining"_s, session->torrents().size()},
+        addCheck(evidence, {{u"name"_s, u"import-%1"_s.arg(phase)}, {u"remaining"_s, session->torrents().size()},
             {u"preview"_s, policy->preview()}, {u"journal"_s, policy->journal()}});
         dialog.close();
     }
