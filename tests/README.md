@@ -310,6 +310,12 @@ Both remove their generated payload, credentials and copied runtime after stoppi
 owned processes; compact evidence remains. These local fixtures do not establish
 Internet UDP reachability or IPv6 support.
 
+`smoke:gateway-ipv6` and `smoke:gateway-ipv6-utp` exercise the same TCP and uTP
+checks with an owned temporary IPv6 /128 on Windows loopback and an `::1` seed.
+They assert bracketed endpoint preservation and IPv6 route family, then remove
+the address. The control/carrier sockets remain IPv4 loopback; these scenarios
+prove the IPv6 payload endpoint contract, not public Internet IPv6 reachability.
+
 `bun run smoke:gateway-wan` is a separate controlled TCP ingress probe. Set
 `QBUTT_WAN_OBSERVER`, `QBUTT_WAN_OBSERVER_IP`, `QBUTT_LAB_NATIVE_INTERFACE`,
 `QBUTT_LAB_GATEWAY_SOURCE` and `QBUTT_LAB_EXE`. The qbutt-net source must be
