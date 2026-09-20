@@ -518,6 +518,11 @@ concurrent payload through both paths and exact file sizes/hashes. The torrent
 is already active when DHT is enabled. The fixture checks read-only DHT messages,
 absence of `announce_peer`, separate node IDs and current peer path generations.
 Both relays allow all four seed endpoints; only discovery responses are route-local.
+`smoke:discovery-dedup` additionally advertises the same original peer endpoint
+through both DHT paths and the HTTP/UDP trackers. Four complementary seeds must
+remain exactly four active connections without duplicate endpoints across paths,
+then complete the same hash-checked payload. This observes outgoing connections;
+incoming handshakes and reconnect races require separate scenarios.
 Set `QBUTT_DISCOVERY_PROTOCOL=both` to check automatic uTP-to-TCP retry against the
 same TCP-only seeds; the default is explicit TCP.
 PEX, cross-generation DHT identity changes and real-network discovery remain

@@ -13,10 +13,13 @@ interface Status {
     mode: string;
     paths: { pathId: string; generation: number; edgeId: string; proxyName: string; open: boolean }[];
     peers: { infoHash: string; pathId: string; generation: number; peer: string; port: number; payloadDownload: number }[];
+    torrent?: { knownPeers: number };
 }
 const protocol = process.env.QBUTT_DISCOVERY_PROTOCOL ?? "tcp";
 assert(protocol === "tcp" || protocol === "both", "QBUTT_DISCOVERY_PROTOCOL must be tcp or both");
 const pexMode = process.argv.includes("--pex");
+const duplicates = process.argv.includes("--duplicates");
+assert(!pexMode || !duplicates, "Duplicate discovery mode requires DHT and trackers");
 const lab = await createLab("discovery", { pex: pexMode });
 const torrent = lab.manifest.torrents.find(item => item.name === "v1-public")!;
 const infoHash = Buffer.from(torrent.infoHashV1!, "hex");
@@ -80,7 +83,8 @@ try {
                         result.token = Buffer.from("fixture");
                         // Bootstrap liveness probes may use another target; only the
                         // fixture torrent can discover our bounded peer endpoints.
-                        if (matchingInfoHash) result.values = [compact(endpoints[side]!.host, endpoints[side]!.port)];
+                        if (matchingInfoHash) result.values = (duplicates ? [side, 2] : [side])
+                            .map(index => compact(endpoints[index]!.host, endpoints[index]!.port));
                         else result.nodes = Buffer.alloc(0);
                     }
                     else if (query === "find_node")
@@ -110,7 +114,7 @@ try {
             try {
                 assert(packet.length >= 16 && packet.length <= 1024);
                 const action = packet.readUInt32BE(8), transaction = packet.readUInt32BE(12);
-                const reply = Buffer.alloc(action === 0 ? 16 : action === 2 ? 20 : 26);
+                const reply = Buffer.alloc(action === 0 ? 16 : action === 2 ? 20 : duplicates ? 32 : 26);
                 reply.writeUInt32BE(action); reply.writeUInt32BE(transaction, 4);
                 if (action === 0) {
                     assert.equal(packet.readBigUInt64BE(0), 0x41727101980n);
@@ -126,6 +130,7 @@ try {
                     assert(packet.subarray(16, 36).equals(infoHash)); trackerQueries.udp++;
                     reply.writeUInt32BE(30, 8); reply.writeUInt32BE(1, 16);
                     compact(endpoints[3]!.host, endpoints[3]!.port).copy(reply, 20);
+                    if (duplicates) compact(endpoints[2]!.host, endpoints[2]!.port).copy(reply, 26);
                 }
                 udpTracker.send(reply, remote.port, remote.address);
             }
@@ -206,6 +211,10 @@ try {
         const destination = join(lab.root, "download");
         const hash = await lab.add(torrent.name, destination); assert.equal(hash, infoHash.toString("hex"));
         const status = () => lab.json<Status>(`qbuttPaths/status?hash=${hash}`);
+        const uniquePeers = (current: Status) => {
+            assert.equal(new Set(current.peers.map(peer => `${peer.infoHash}:${peer.peer}:${peer.port}`)).size,
+                current.peers.length, "Discovery sources created duplicate original peer connections");
+        };
         await lab.request("torrents/addTrackers", { hash, urls:
             `http://127.0.0.11:${tracker!.port}/announce\nudp://127.0.0.12:${udpTrackerPort}/announce` });
         await lab.request("torrents/start", { hashes: hash });
@@ -217,6 +226,7 @@ try {
         const simultaneous = await waitFor("DHT and tracker peer union in one active torrent", async () => {
             assert.deepEqual(errors, []);
             const current = await status();
+            uniquePeers(current);
             if (!diagnosticWritten && Date.now() >= diagnosticAt) {
                 diagnosticWritten = true;
                 const [info, trackers, peers] = await Promise.all([lab.info(hash),
@@ -240,6 +250,22 @@ try {
         const identities = [0, 1].map(side => new Set(dhtQueries.filter(query => query.side === side).map(query => query.nodeId)));
         assert([...identities[0]!].every(id => !identities[1]!.has(id)), "DHT paths reused a node ID");
         assert(trackerQueries.http > 0 && trackerQueries.udp > 0);
+        if (duplicates) {
+            assert.equal(simultaneous.peers.length, endpoints.length);
+            let samples = 0;
+            const deadline = Date.now() + 3000;
+            do {
+                const current = await status();
+                uniquePeers(current);
+                assert.equal(current.peers.length, endpoints.length);
+                assert.equal(current.torrent?.knownPeers, endpoints.length, "The shared peer pool contains duplicate candidates");
+                samples++;
+                await Bun.sleep(100);
+            } while (Date.now() < deadline);
+            await lab.checkpoint({ check: "overlapping-discovery-dedup", duplicateCandidate: endpoints[2],
+                sources: ["DHT path 0", "DHT path 1", "HTTP tracker", "UDP tracker"],
+                activeOriginalEndpoints: endpoints.length, knownPeers: endpoints.length, duplicateConnections: 0, samples });
+        }
         await lab.checkpoint({ check: "route-local-discovery-union", infoHash: hash, dhtQueries, trackerQueries,
             protocol, peerTransport: "TCP", paths: simultaneous.paths, peers: simultaneous.peers,
             manualPeerInjection: false, pex: "not-tested" });

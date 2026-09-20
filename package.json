@@ -34,6 +34,7 @@
     "smoke:path-dns": "bun tests/network-lab/path-dns.ts",
     "smoke:path-dns:native": "bun tests/network-lab/path-dns.ts --native",
     "smoke:discovery": "bun tests/network-lab/discovery.ts",
+    "smoke:discovery-dedup": "bun tests/network-lab/discovery.ts --duplicates",
     "smoke:discovery-policy": "bun tests/network-lab/discovery-policy.ts",
     "smoke:webseed": "bun tests/network-lab/webseed.ts",
     "smoke:webseed-https": "bun tests/network-lab/webseed-https.ts",
