@@ -838,6 +838,9 @@ bool SessionImpl::isUnwantedFolderEnabled() const
 
 void SessionImpl::setUnwantedFolderEnabled(const bool enabled)
 {
+    if (hasActiveRepair())
+        return;
+
     if (isUnwantedFolderEnabled() != enabled)
     {
         m_isUnwantedFolderEnabled = enabled;

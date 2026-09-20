@@ -65,7 +65,7 @@ try {
         for (const file of mapping.analysis.files) {
             const logical = fixture.files.find(item => item.index === file.native_index)!;
             const rel = relative(downloadPath, file.path);
-            assert(rel && !rel.startsWith(`..${sep}`) && !rel.startsWith(sep), "Mapping escaped active download root");
+            assert(rel && resolve(file.path).startsWith(`${resolve(downloadPath)}${sep}`), "Mapping escaped active download root");
             assert(file.selected === !ignored.some(item => item.name === logical.path), "Analysis lost selected-file priorities");
             assert(file.path.endsWith(logical.size ? ".!qB" : "empty.bin"), "Analysis ignored the native incomplete name");
             if (!file.selected)
@@ -97,13 +97,14 @@ try {
         await lab.request("torrents/filePrio", { hash, id: String(files[0]!.index), priority: "0" });
         await lab.request("torrents/setDownloadPath", { id: hash, path: savePath });
         await lab.request("torrents/renameFile", { hash, oldPath: "bundle/alpha.bin", newPath: "bundle/changed.bin" });
-        await lab.request("app/setPreferences", { json: JSON.stringify({ incomplete_files_ext: false }) });
+        await lab.request("app/setPreferences", { json: JSON.stringify({ incomplete_files_ext: false, use_unwanted_folder: false }) });
         const frozenFiles = await lab.json<TorrentFile[]>(`torrents/files?hash=${hash}`);
         assert.deepEqual(frozenFiles.map(file => [file.name, file.priority]),
             files.map(file => [file.name, ignored.some(item => item.index === file.index) ? 0 : file.priority]),
             "Repair admitted changed file priorities or names");
-        assert((await lab.json<{ incomplete_files_ext: boolean }>("app/preferences")).incomplete_files_ext,
-            "Repair admitted a global incomplete-name change");
+        const preferences = await lab.json<{ incomplete_files_ext: boolean; use_unwanted_folder: boolean }>("app/preferences");
+        assert(preferences.incomplete_files_ext && preferences.use_unwanted_folder,
+            "Repair admitted a global physical-name change");
         const properties = await lab.json<{ download_path: string; save_path: string }>(`torrents/properties?hash=${hash}`);
         assert.equal(resolve(properties.download_path), downloadPath, "Repair admitted a storage-root change");
         assert.equal(resolve(properties.save_path), savePath);
