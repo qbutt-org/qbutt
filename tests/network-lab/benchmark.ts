@@ -8,7 +8,7 @@ import { createLab, startSeed, verifyPayload, waitFor } from "../lab";
 import { startProxy, type ProxyStats } from "./proxy";
 import { prepareResourceSampler, type ResourceWindow } from "./process-resources";
 
-type Mode = "upstream-native" | "qbutt-native" | "qbutt-one-tunnel" | "qbutt-mixed";
+type Mode = "upstream-native" | "qbutt-native" | "qbutt-one-tunnel" | "qbutt-mixed" | "qbutt-static";
 
 interface PathsStatus {
     busy: boolean;
@@ -22,7 +22,7 @@ interface RouteResult {
     kind: "native" | "tunnel";
     pathId?: string;
     generation?: number;
-    sourcePayloadUploadBytes: number;
+    sourcePayloadUploadBytes?: number;
     enginePayloadDownload?: number;
     relay?: ProxyStats;
 }
@@ -44,7 +44,10 @@ interface RunResult {
     uiProbeMilliseconds: { count: number; median: number; p95: number; maximum: number };
     resources: ResourceWindow;
     routes: RouteResult[];
+    sourcePayloadBytes: number;
     redundantPayloadBytes: number;
+    sharedPeers?: { port: number; initialPathId: string; initialGeneration: number;
+        sourcePayloadUploadBytes: number }[];
     recovery?: { failedPathId: string; healthyPathId: string; milliseconds: number; nativeConnectionRetained: true };
     evidence: string;
 }
@@ -52,22 +55,29 @@ interface RunResult {
 const CONTROL_SHA256 = "9393e0c523b35a437fb9b356b4c7c7402dbbd9d97b9c1ae519fd01f1219c471e";
 const CONTROL_REVISION = "0b63c3d17373f6132ea211c9dcd4241284ccdfaf";
 const WARMUP_RATE = 1024;
+const STATIC_PEER_RATE = 8 * 1024;
 const TRANSFER_RATE = Number(process.env.QBUTT_BENCH_ROUTE_RATE ?? 96 * 1024);
 const scenario = process.env.QBUTT_BENCH_SCENARIO ?? "capacity";
-assert(["capacity", "shared-cap", "failed-path"].includes(scenario), "Unknown benchmark scenario");
-const SOURCE_RATE = scenario === "shared-cap" ? Math.min(TRANSFER_RATE * 4, 1024 * 1024) : TRANSFER_RATE;
+assert(["capacity", "shared-cap", "failed-path", "static-comparison"].includes(scenario), "Unknown benchmark scenario");
+const comparingStatic = scenario === "static-comparison";
+const SOURCE_RATE = comparingStatic ? STATIC_PEER_RATE
+    : scenario === "shared-cap" ? Math.min(TRANSFER_RATE * 4, 1024 * 1024) : TRANSFER_RATE;
 const ROUNDS = Number(process.env.QBUTT_BENCH_ROUNDS ?? (scenario === "failed-path" ? 1 : 4));
-const MODES: Mode[] = scenario === "shared-cap" ? ["qbutt-native", "qbutt-mixed"]
+const MODES: Mode[] = comparingStatic ? ["qbutt-static", "qbutt-mixed"]
+    : scenario === "shared-cap" ? ["qbutt-native", "qbutt-mixed"]
     : scenario === "failed-path" ? ["qbutt-mixed"]
     : ["upstream-native", "qbutt-native", "qbutt-one-tunnel", "qbutt-mixed"];
 const baselineExecutable = resolve(process.env.QBUTT_BENCH_BASELINE_EXE ?? "");
 const qbuttExecutable = resolve(process.env.QBUTT_BENCH_QBUTT_EXE ?? "");
+const staticExecutable = resolve(process.env.QBUTT_BENCH_STATIC_EXE ?? "");
 const python = resolve(process.env.QBUTT_LAB_PYTHON ?? "");
 const nativeInterface = process.env.QBUTT_LAB_NATIVE_INTERFACE ?? "";
 const nativeAddress = process.env.QBUTT_LAB_NATIVE_ADDRESS ?? "";
 
-assert(process.env.QBUTT_BENCH_BASELINE_EXE && process.env.QBUTT_BENCH_QBUTT_EXE && process.env.QBUTT_LAB_PYTHON,
-    "Set QBUTT_BENCH_BASELINE_EXE, QBUTT_BENCH_QBUTT_EXE and QBUTT_LAB_PYTHON");
+assert(process.env.QBUTT_BENCH_QBUTT_EXE && process.env.QBUTT_LAB_PYTHON
+    && (comparingStatic ? process.env.QBUTT_BENCH_STATIC_EXE && process.env.QBUTT_BENCH_STATIC_SHA256
+        : process.env.QBUTT_BENCH_BASELINE_EXE),
+"Set QBUTT_BENCH_QBUTT_EXE, QBUTT_LAB_PYTHON, and the scenario's baseline executable and SHA-256");
 assert(nativeInterface && nativeAddress, "Set QBUTT_LAB_NATIVE_INTERFACE and QBUTT_LAB_NATIVE_ADDRESS");
 assert(Number.isInteger(ROUNDS) && (scenario === "failed-path" ? ROUNDS === 1 : ROUNDS >= 3 && ROUNDS <= 9),
     "QBUTT_BENCH_ROUNDS must be 1 for failed-path, otherwise between 3 and 9");
@@ -76,14 +86,17 @@ assert(Number.isInteger(TRANSFER_RATE) && TRANSFER_RATE >= 32 * 1024 && TRANSFER
 assert(networkInterfaces()[nativeInterface]?.some(address => address.address === nativeAddress
     && address.family === "IPv4" && !address.internal),
 "Native benchmark address must belong to the selected non-loopback IPv4 interface");
-assert((await stat(baselineExecutable)).isFile() && (await stat(qbuttExecutable)).isFile()
-    && (await stat(python)).isFile(), "A benchmark executable is missing");
+assert((await stat(comparingStatic ? staticExecutable : baselineExecutable)).isFile()
+    && (await stat(qbuttExecutable)).isFile() && (await stat(python)).isFile(),
+"A benchmark executable is missing");
 const [baselineHash, qbuttHash] = await Promise.all([
-    readFile(baselineExecutable).then(sha256), readFile(qbuttExecutable).then(sha256),
+    readFile(comparingStatic ? staticExecutable : baselineExecutable).then(sha256),
+    readFile(qbuttExecutable).then(sha256),
 ]);
-assert(baselineHash === CONTROL_SHA256,
-    `The upstream control must be the validated ${CONTROL_REVISION} binary (${CONTROL_SHA256})`);
-assert(baselineHash !== qbuttHash, "The qbutt executable must be distinct from the upstream control");
+assert(comparingStatic ? baselineHash === process.env.QBUTT_BENCH_STATIC_SHA256?.toLowerCase()
+    : baselineHash === CONTROL_SHA256,
+`The baseline binary SHA-256 differs from the pinned ${comparingStatic ? "static" : CONTROL_REVISION} control`);
+assert(baselineHash !== qbuttHash, "The qbutt executable must be distinct from the baseline");
 
 function quantile(values: number[], fraction: number): number {
     assert(values.length > 0, "Cannot summarize an empty sample");
@@ -104,6 +117,22 @@ function median(values: number[]): number {
     const sorted = [...values].sort((left, right) => left - right);
     const middle = Math.floor(sorted.length / 2);
     return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+}
+
+function staticBucket(torrent: TorrentFixture, peerAddress: string, port: number): number {
+    assert(torrent.infoHashV1 && !torrent.infoHashV2, "The static comparator requires a v1-only public torrent");
+    const infoHash = Buffer.from(torrent.infoHashV1, "hex");
+    assert(infoHash.length === 20 && Number.isInteger(port) && port > 0 && port <= 65535,
+        "The static comparator requires a valid v1 infohash and peer port");
+    const address = peerAddress.split(".").map(Number);
+    assert(address.length === 4 && address.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255),
+        "The static comparator requires a numeric IPv4 peer");
+    const bytes = [...infoHash, ...Buffer.alloc(32), 4,
+        ...address, port >> 8, port & 255];
+    let hash = 14695981039346656037n;
+    for (const byte of bytes)
+        hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 1099511628211n);
+    return Number(hash % 3n);
 }
 
 function orderForRound(round: number): Mode[] {
@@ -148,8 +177,10 @@ async function awaitCompletion(lab: Awaited<ReturnType<typeof createLab>>, hash:
 }
 
 async function run(mode: Mode, round: number): Promise<RunResult> {
-    const executable = mode === "upstream-native" ? baselineExecutable : qbuttExecutable;
-    assert(sha256(await readFile(executable)) === (mode === "upstream-native" ? baselineHash : qbuttHash),
+    const executable = mode === "upstream-native" ? baselineExecutable
+        : mode === "qbutt-static" ? staticExecutable : qbuttExecutable;
+    assert(sha256(await readFile(executable)) === (mode === "upstream-native" || mode === "qbutt-static"
+        ? baselineHash : qbuttHash),
         "Benchmark executable changed between windows");
     process.env.QBUTT_LAB_EXE = executable;
     process.env.QBUTT_LAB_PYTHON = python;
@@ -157,8 +188,9 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
     const lab = await createLab(`benchmark-${mode}-${round}`);
     const torrent = lab.manifest.torrents.find(item => item.name === "v1-public")!;
     const exactPayloadBytes = lab.manifest.payload.reduce((sum, file) => sum + file.size, 0);
-    const tunnelCount = mode === "qbutt-mixed" ? 2 : mode === "qbutt-one-tunnel" ? 1 : 0;
-    const routeCount = mode === "qbutt-mixed" ? 3 : 1;
+    const tunnelCount = (mode === "qbutt-mixed" || mode === "qbutt-static") ? 2
+        : mode === "qbutt-one-tunnel" ? 1 : 0;
+    const routeCount = tunnelCount === 2 ? 3 : 1;
     const seeds: Awaited<ReturnType<typeof startSeed>>[] = [];
     const proxies: Awaited<ReturnType<typeof startProxy>>[] = [];
     const subsetBytes: number[] = [];
@@ -166,6 +198,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         username: randomBytes(16).toString("hex"), password: randomBytes(24).toString("hex"),
     }));
     const assignedRoutes: { pathId: string; generation: number; edgeId: string; native: boolean }[] = [];
+    let sharedPeerAssignments: { port: number; initialPathId: string; initialGeneration: number }[] = [];
     let failure: unknown;
     let recovery: RunResult["recovery"];
     let resourceSampler: Awaited<ReturnType<typeof prepareResourceSampler>> | undefined;
@@ -180,34 +213,70 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             throw new AggregateError(failures.map(result => result.reason), "Benchmark process cleanup failed");
     })();
     try {
-        for (let side = 0; side < routeCount; ++side) {
-            const native = mode !== "qbutt-one-tunnel" && (mode !== "qbutt-mixed" || side === routeCount - 1);
-            const pieces = routeCount === 1 ? undefined
-                : Array.from({ length: torrent.pieceCount }, (_, piece) => piece).filter(piece => piece % routeCount === side);
-            const savePath = pieces ? join(lab.root, `partial-${side}`) : undefined;
-            subsetBytes.push(pieces ? await makePartialSeed(torrent, lab.fixtures, savePath!, pieces) : exactPayloadBytes);
-            const seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root, {
-                savePath, pieces, label: `${mode}-${side}`,
-                listenAddress: native ? nativeAddress : undefined, uploadRate: WARMUP_RATE,
-            });
-            seeds.push(seed);
-            assert(seed.verifiedPayloadBytes === subsetBytes[side], "Seed verified-byte count differs from its physical data");
-            if (!native) {
-                const syntheticHost = `127.0.0.${side + 2}`;
-                const targets = [{
-                    host: syntheticHost, port: seed.port, connectHost: seed.host, connectPort: seed.port,
-                }];
-                if (scenario === "failed-path" && side === 1)
-                    targets.push({ host: "127.0.0.2", port: seeds[0]!.port,
-                        connectHost: seeds[0]!.host, connectPort: seeds[0]!.port });
-                proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`, targets }));
+        if (comparingStatic) {
+            const accepted = [0, 0, 0];
+            for (let candidate = 0; accepted.some(count => count < 2) && candidate < 24; ++candidate) {
+                const seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root, {
+                    label: `${mode}-candidate-${candidate}`, listenAddress: nativeAddress,
+                    uploadRate: WARMUP_RATE,
+                });
+                const bucket = staticBucket(torrent, nativeAddress, seed.port);
+                if (accepted[bucket]! >= 2) {
+                    await seed.stop();
+                    continue;
+                }
+                seeds.push(seed);
+                assert(seed.verifiedPayloadBytes === exactPayloadBytes,
+                    "Shared comparator seed failed full payload verification");
+                accepted[bucket] = accepted[bucket]! + 1;
+            }
+            assert(seeds.length === 6, `Could not select two full peers per static hash bucket: ${accepted}`);
+            for (let side = 0; side < tunnelCount; ++side) {
+                proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`,
+                    remoteAddress: nativeAddress,
+                    targets: seeds.map(seed => ({ host: nativeAddress, port: seed.port })),
+                }));
             }
         }
-        assert(subsetBytes.reduce((sum, bytes) => sum + bytes, 0) === exactPayloadBytes,
-            "Complementary benchmark seeds do not cover the exact payload once");
+        else {
+            for (let side = 0; side < routeCount; ++side) {
+                const native = mode !== "qbutt-one-tunnel" && (mode !== "qbutt-mixed" || side === routeCount - 1);
+                const pieces = routeCount === 1 ? undefined
+                    : Array.from({ length: torrent.pieceCount }, (_, piece) => piece).filter(piece => piece % routeCount === side);
+                const savePath = pieces ? join(lab.root, `partial-${side}`) : undefined;
+                subsetBytes.push(pieces ? await makePartialSeed(torrent, lab.fixtures, savePath!, pieces) : exactPayloadBytes);
+                const seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root, {
+                    savePath, pieces, label: `${mode}-${side}`,
+                    listenAddress: native ? nativeAddress : undefined, uploadRate: WARMUP_RATE,
+                });
+                seeds.push(seed);
+                assert(seed.verifiedPayloadBytes === subsetBytes[side], "Seed verified-byte count differs from its physical data");
+                if (!native) {
+                    const syntheticHost = `127.0.0.${side + 2}`;
+                    const targets = [{
+                        host: syntheticHost, port: seed.port, connectHost: seed.host, connectPort: seed.port,
+                    }];
+                    if (scenario === "failed-path" && side === 1)
+                        targets.push({ host: "127.0.0.2", port: seeds[0]!.port,
+                            connectHost: seeds[0]!.host, connectPort: seeds[0]!.port });
+                    proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`, targets }));
+                }
+            }
+        }
+        if (!comparingStatic)
+            assert(subsetBytes.reduce((sum, bytes) => sum + bytes, 0) === exactPayloadBytes,
+                "Complementary benchmark seeds do not cover the exact payload once");
 
         await lab.start();
         const appVersion = await (await lab.request("app/version")).text();
+        if (comparingStatic) {
+            await lab.request("app/setPreferences", { json: JSON.stringify({
+                enable_multi_connections_from_same_ip: true,
+            }) });
+            await waitFor("six peers on one fixture address are permitted",
+                () => lab.json<Record<string, unknown>>("app/preferences"),
+                preferences => preferences.enable_multi_connections_from_same_ip === true);
+        }
         if (mode === "upstream-native" || mode === "qbutt-native") {
             await lab.request("app/setPreferences", { json: JSON.stringify({
                 current_network_interface: "", current_interface_address: nativeAddress, bittorrent_protocol: 1,
@@ -227,7 +296,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 await waitFor("benchmark tunnel open", () => lab.json<PathsStatus>("qbuttPaths/status"),
                     status => !status.busy && status.paths.filter(path => path.open).length === side + 1);
             }
-            await lab.request("qbuttPaths/policy", mode === "qbutt-mixed"
+            await lab.request("qbuttPaths/policy", (mode === "qbutt-mixed" || mode === "qbutt-static")
                 ? { mode: "mixed", nativeInterface } : { mode: "pinned" });
         }
 
@@ -246,7 +315,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         const torrentStarted = performance.now();
         await lab.request("torrents/start", { hashes: hash });
         const setupStarted = performance.now();
-        const endpoints = seeds.map((seed, side) => mode === "qbutt-mixed" && side === routeCount - 1
+        const endpoints = seeds.map((seed, side) => comparingStatic ? `${nativeAddress}:${seed.port}`
+            : mode === "qbutt-mixed" && side === routeCount - 1
             ? `${nativeAddress}:${seed.port}` : mode === "upstream-native" || mode === "qbutt-native"
                 ? `${nativeAddress}:${seed.port}` : `127.0.0.${side + 2}:${seed.port}`);
         if (mode === "upstream-native" || mode === "qbutt-native") {
@@ -258,22 +328,54 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         }
         else {
             const paths = await lab.json<PathsStatus>("qbuttPaths/status");
-            const expected = endpoints.map((endpoint, side) => {
-                const [peer, port] = endpoint.split(":");
-                const path = paths.paths.find(candidate => mode === "qbutt-mixed" && side === routeCount - 1
-                    ? candidate.edgeId === "native" && candidate.localAddress === nativeAddress
-                    : candidate.proxyName === `benchmark-${side}`);
-                assert(path, `No route owns benchmark endpoint ${endpoint}`);
-                assignedRoutes.push({ pathId: path.pathId, generation: path.generation,
-                    edgeId: path.edgeId, native: path.edgeId === "native" });
-                return { peer: peer!, port: Number(port), path };
-            });
-            for (const route of expected) {
-                await lab.request("torrents/addPeers", { hashes: hash, peers: `${route.peer}:${route.port}` });
-                await waitFor("exact benchmark peer route warmup", () => lab.json<PathsStatus>("qbuttPaths/status"), status =>
-                    status.peers.some(peer => peer.peer === route.peer && peer.port === route.port
-                        && peer.pathId === route.path.pathId && peer.generation === route.path.generation
-                        && peer.payloadDownload > 0), 120000);
+            if (comparingStatic) {
+                for (let side = 0; side < routeCount; ++side) {
+                    const path = paths.paths.find(candidate => side === routeCount - 1
+                        ? candidate.edgeId === "native" && candidate.localAddress === nativeAddress
+                        : candidate.proxyName === `benchmark-${side}`);
+                    assert(path, `Static comparator route ${side} did not open`);
+                    assignedRoutes.push({ pathId: path.pathId, generation: path.generation,
+                        edgeId: path.edgeId, native: path.edgeId === "native" });
+                }
+                for (const endpoint of endpoints)
+                    await lab.request("torrents/addPeers", { hashes: hash, peers: endpoint });
+                const connected = await waitFor("six full peers connected over shared reachable routes",
+                    () => lab.json<PathsStatus>("qbuttPaths/status"), status =>
+                        seeds.every(seed => status.peers.some(peer => peer.peer === nativeAddress
+                            && peer.port === seed.port && assignedRoutes.some(route => route.pathId === peer.pathId
+                                && route.generation === peer.generation))), 120000);
+                sharedPeerAssignments = seeds.map(seed => {
+                    const peer = connected.peers.find(candidate => candidate.peer === nativeAddress
+                        && candidate.port === seed.port)!;
+                    return { port: seed.port, initialPathId: peer.pathId, initialGeneration: peer.generation };
+                });
+                if (mode === "qbutt-static") {
+                    for (const route of assignedRoutes)
+                        assert(sharedPeerAssignments.filter(peer => peer.initialPathId === route.pathId
+                            && peer.initialGeneration === route.generation).length === 2,
+                        `Static hash did not place two peers on path ${route.pathId}`);
+                }
+                await lab.checkpoint({ check: "shared-peers-route-admission", mode,
+                    exactTargetsWhitelistedOnBothProxies: true, sharedPeerAssignments, paths: assignedRoutes });
+            }
+            else {
+                const expected = endpoints.map((endpoint, side) => {
+                    const [peer, port] = endpoint.split(":");
+                    const path = paths.paths.find(candidate => mode === "qbutt-mixed" && side === routeCount - 1
+                        ? candidate.edgeId === "native" && candidate.localAddress === nativeAddress
+                        : candidate.proxyName === `benchmark-${side}`);
+                    assert(path, `No route owns benchmark endpoint ${endpoint}`);
+                    assignedRoutes.push({ pathId: path.pathId, generation: path.generation,
+                        edgeId: path.edgeId, native: path.edgeId === "native" });
+                    return { peer: peer!, port: Number(port), path };
+                });
+                for (const route of expected) {
+                    await lab.request("torrents/addPeers", { hashes: hash, peers: `${route.peer}:${route.port}` });
+                    await waitFor("exact benchmark peer route warmup", () => lab.json<PathsStatus>("qbuttPaths/status"), status =>
+                        status.peers.some(peer => peer.peer === route.peer && peer.port === route.port
+                            && peer.pathId === route.path.pathId && peer.generation === route.path.generation
+                            && peer.payloadDownload > 0), 120000);
+                }
             }
         }
         if (scenario === "failed-path") {
@@ -327,7 +429,10 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
 
         const status = tunnelCount > 0
             ? await waitFor("closed tunnel payload attribution", () => lab.json<PathsStatus>("qbuttPaths/status"),
-                current => scenario === "failed-path" ? assignedRoutes.filter(route => !route.native).reduce((sum, route) =>
+                current => comparingStatic ? assignedRoutes.every(assigned => current.paths.some(path =>
+                    path.pathId === assigned.pathId && path.generation === assigned.generation))
+                    && seeds.every(seed => !current.peers.some(peer => peer.peer === nativeAddress && peer.port === seed.port))
+                    : scenario === "failed-path" ? assignedRoutes.filter(route => !route.native).reduce((sum, route) =>
                     sum + (current.paths.find(path => path.pathId === route.pathId
                         && path.generation === route.generation)?.closedPayloadDownload ?? 0), 0) >= subsetBytes[0]! + subsetBytes[1]!
                     : assignedRoutes.every((assigned, side) => assigned.native
@@ -340,7 +445,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 const path = status.paths.find(candidate => candidate.pathId === assigned.pathId
                     && candidate.generation === assigned.generation && candidate.edgeId === assigned.edgeId);
                 assert(path, "Managed route telemetry disappeared before result capture");
-                if (!assigned.native && scenario !== "failed-path")
+                if (!assigned.native && scenario !== "failed-path" && !comparingStatic)
                     assert((path.closedPayloadDownload ?? 0) >= subsetBytes[side]!,
                         "Tunnel engine payload attribution omits part of its complementary subset");
             }
@@ -353,7 +458,13 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         await lab.shutdown();
         const stoppedSeeds = await Promise.all(seeds.map(seed => seed.stop()));
         await Promise.all(proxies.map(proxy => proxy.close()));
-        const routes: RouteResult[] = stoppedSeeds.map((seed, side) => {
+        const routes: RouteResult[] = comparingStatic ? assignedRoutes.map((assigned, side) => {
+            const path = status?.paths.find(candidate => candidate.pathId === assigned.pathId
+                && candidate.generation === assigned.generation);
+            return { kind: assigned.native ? "native" : "tunnel", pathId: assigned.pathId,
+                generation: assigned.generation, enginePayloadDownload: path?.closedPayloadDownload,
+                ...(!assigned.native ? { relay: { ...proxies[side]!.stats } } : {}) };
+        }) : stoppedSeeds.map((seed, side) => {
             const native = mode !== "qbutt-one-tunnel" && (mode !== "qbutt-mixed" || side === routeCount - 1);
             const assigned = assignedRoutes[side];
             const path = status?.paths.find(candidate => candidate.pathId === assigned?.pathId
@@ -368,18 +479,22 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             };
         });
         assert(stoppedSeeds.every((seed, side) => seed.peerAddresses.length === 1
-            && seed.peerAddresses[0] === (routes[side]!.kind === "native" ? nativeAddress : "127.0.0.1")),
+            && seed.peerAddresses[0] === (comparingStatic || routes[side]!.kind === "native"
+                ? nativeAddress : "127.0.0.1")),
         "A seed observed an unexpected source address");
-        const sourcePayloadBytes = routes.reduce((sum, route) => sum + route.sourcePayloadUploadBytes, 0);
+        const sourcePayloadBytes = stoppedSeeds.reduce((sum, seed) => sum + seed.uploadPayloadBytes, 0);
         assert(sourcePayloadBytes >= exactPayloadBytes,
             "The only controlled sources uploaded fewer payload bytes than the exact verified target");
         const redundantPayloadBytes = sourcePayloadBytes - exactPayloadBytes;
         const result: RunResult = {
-            mode, round, executableSha256: mode === "upstream-native" ? baselineHash : qbuttHash,
+            mode, round, executableSha256: mode === "upstream-native" || mode === "qbutt-static"
+                ? baselineHash : qbuttHash,
             appVersion, exactPayloadBytes, warmupVerifiedBytes, measuredVerifiedBytes,
             preparationMilliseconds, connectionSetupMilliseconds, measurementMilliseconds,
             endToEndCompletionMilliseconds, verifiedBytesPerSecond, endToEndVerifiedBytesPerSecond,
-            uiProbeMilliseconds: summarizeLatencies(uiLatencies), resources, routes,
+            uiProbeMilliseconds: summarizeLatencies(uiLatencies), resources, routes, sourcePayloadBytes,
+            ...(comparingStatic ? { sharedPeers: sharedPeerAssignments.map((peer, side) => ({ ...peer,
+                sourcePayloadUploadBytes: stoppedSeeds[side]!.uploadPayloadBytes })) } : {}),
             redundantPayloadBytes, recovery, evidence: join(lab.root, "evidence.json"),
         };
         await lab.checkpoint({ check: "comparative-network-window", ...result });
@@ -424,13 +539,18 @@ const evidence: Record<string, unknown> = {
     suite: "comparative-network-benchmark",
     status: "running",
     startedAt: new Date().toISOString(),
-    control: { revision: CONTROL_REVISION, executable: baselineExecutable, executableSha256: baselineHash },
+    control: comparingStatic
+        ? { kind: "experimental-static-selector", executable: staticExecutable, executableSha256: baselineHash }
+        : { revision: CONTROL_REVISION, executable: baselineExecutable, executableSha256: baselineHash },
     qbutt: { executable: qbuttExecutable, executableSha256: qbuttHash },
     topology: {
         scenario,
         rounds: ROUNDS,
         orderByRound: Array.from({ length: ROUNDS }, (_, round) => orderForRound(round + 1)),
-        routeUploadLimitBytesPerSecond: SOURCE_RATE,
+        ...(comparingStatic ? { peerUploadLimitBytesPerSecond: SOURCE_RATE }
+            : { routeUploadLimitBytesPerSecond: SOURCE_RATE }),
+        ...(comparingStatic ? { sixFullPeersWithCommonExactTargets: true,
+            selectedStaticHashBuckets: [2, 2, 2], multiConnectionsPerIp: true } : {}),
         sharedApplicationDownloadLimit: scenario === "shared-cap" ? TRANSFER_RATE : undefined,
         warmupUploadLimitBytesPerSecond: WARMUP_RATE,
         nativeInterface,
@@ -439,13 +559,20 @@ const evidence: Record<string, unknown> = {
     },
     limits: [
         "Generated deterministic v1 payload and controlled TCP peers on one Windows host",
-        "Each timed window begins after every required peer supplies payload at a 1 KiB/s warmup cap and acknowledges the measured cap",
-        scenario === "shared-cap"
+        comparingStatic
+            ? "Each timed window begins after all six peers connect at a 1 KiB/s warmup cap, then all acknowledge the same measured per-peer cap"
+            : "Each timed window begins after every required peer supplies payload at a 1 KiB/s warmup cap and acknowledges the measured cap",
+        comparingStatic
+            ? "Six full public TCP peers per run, each exact native endpoint whitelisted on both authenticated SOCKS routes; source cap is per peer, not per path"
+            : scenario === "shared-cap"
             ? "One torrent-wide application download cap is shared by every path; sources can exceed it. This models an aggregate bottleneck, not a physical last-mile limiter"
             : "Each route has the same source payload cap; Mixed has additional complementary reachability and aggregate capacity",
         "Verified bytes are exact-size and SHA-256 checked; relay stream bytes include protocol data and are not wire bytes",
         "Resource counters cover the transfer window with explicit command/acknowledgement boundary bounds; CPU is per-core, memory peaks are sampled, process I/O is not disk-only",
         "Only the exact app and qbutt-net process handles are measured; runner, controlled peers and relays are excluded",
+        ...(comparingStatic ? ["Static uses an unmerged source patch and separately pinned executable; peers, port hash buckets, path assignments and source payload are recorded per run",
+            "Both proxies whitelist all six exact peer targets; only selected peer/path connections are observed, not all 18 possible pairs",
+            "Equal reachable paths and per-peer caps do not model unequal route throughput or imply RouteSelector should outperform static distribution"] : []),
         "No public swarm, public egress, UDP/uTP/QUIC, inbound, packet capture, netem, disk throttle or physical last-mile claim",
     ],
     runs: [],
@@ -478,6 +605,12 @@ try {
         assert(mixedGainPercent > 0, `Mixed median did not exceed one tunnel (${mixedGainPercent.toFixed(2)}%)`);
         comparison = { nativeRegressionPercent, mixedGainPercent,
             gates: { nativeRegressionAtMostFivePercent: true, mixedExceedsOneTunnel: true } };
+    }
+    else if (scenario === "static-comparison") {
+        const staticMedian = medians["qbutt-static"];
+        const selectorMedian = medians["qbutt-mixed"];
+        comparison = { selectorVersusStaticPercent: 100 * (selectorMedian / staticMedian - 1),
+            gate: "neutral-comparison-only", unequalPathQuality: "not-tested" };
     }
     else if (scenario === "shared-cap") {
         const mixedGainPercent = 100 * (medians["qbutt-mixed"] / medians["qbutt-native"] - 1);
