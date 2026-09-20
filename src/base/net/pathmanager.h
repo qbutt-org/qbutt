@@ -53,7 +53,7 @@ namespace Net
         void refreshSubscription(const QString &url);
         void inspectConfiguration(const QString &configPath);
         void openPath(const QString &configPath, const QString &proxyName,
-            const QString &interfaceName, const QString &edgeId = {});
+            const QString &interfaceName);
         bool setPolicy(const QString &mode, const QString &nativeInterface = {});
         void useNative();
         void stopPath(const QString &pathId = {});
@@ -72,6 +72,8 @@ namespace Net
         struct PathRollover;
 
         void request(QJsonObject message);
+        void openIdentifiedPath(const QString &configPath, const QString &proxyName,
+            const QString &interfaceName, const QString &configuredServerId);
         bool controlBusy() const;
         void send(QJsonObject message);
         void readOutput();

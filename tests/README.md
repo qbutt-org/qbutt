@@ -49,6 +49,7 @@ bun run smoke:tunnels
 bun run smoke:native-route
 bun run smoke:route-policy
 bun run smoke:path-auth
+bun run smoke:server-identity
 bun run smoke:path-dns
 ```
 
@@ -121,6 +122,15 @@ session transition guards, termination of the owned child PID, blocked-path
 retention, a new generation on retry, and explicit stop/return to Native. The
 adapter connects only to the lab SOCKS server through the Windows loopback
 interface; this is lifecycle evidence, not a VPS egress probe.
+
+`smoke:server-identity` uses the real child to list and open three subscription
+entries on two configured loopback addresses. Names and ports on one address
+must share an Edge: duplicate active admission is rejected without restarting
+the child; stopping and selecting the alias preserves Path ID and advances its
+generation. The replacement downloads a hash-verified payload. Caller-supplied
+`edgeId` is rejected. Different configured hostnames still do not prove distinct
+physical servers or public exits. The component integration suite covers DNS
+case/IDNA, IPv4-mapped/IPv6 normalization and configuration changes before open.
 
 `smoke:wan` uses an explicitly selected SSH observer (`QBUTT_WAN_OBSERVER`,
 `QBUTT_WAN_OBSERVER_IP`), three standalone subscription nodes
@@ -282,7 +292,7 @@ and exact-size checks count verified payload separately.
 whose exact `HEAD` equals `upstream-lock.json.qbuttNet.commit`. The driver builds
 the real qbutt-net and qbutt-gateway executables from that checkout, copies the
 portable application to a fresh runtime, and places a transparent recorder in
-front of the real child. The recorder verifies exact protocol 4 request, result,
+front of the real child. The recorder verifies exact protocol 5 request, result,
 error, `incomingTcp` and terminal `gatewayClosed` shapes without storing relay tokens, certificate paths or
 proxy credentials. A generated mTLS identity, controlled SOCKS route and local
 gateway use an ActiveStore `/32` on the Windows loopback interface; the address is
@@ -463,7 +473,7 @@ the negative result requires a checked native piece bitmap and matching bytes.
 compiles a small fake child there. It verifies that the application does not install
 a session-wide SOCKS proxy, then tests managed peer-socket negotiation against
 no-auth downgrade and rejected credentials and checks incompatible child hello.
-DNS cases use the exact protocol 4 handshake and exercise
+DNS cases use the exact protocol 5 handshake and exercise
 numeric/family/bounds checks, request errors with retry, child timeout/crash,
 generation admission, authentication and redacted public results. It also rejects
 the wrong pinned upstream revision, extra handshake/envelope/method fields and

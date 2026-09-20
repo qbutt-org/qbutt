@@ -420,7 +420,7 @@ await run([process.execPath, "build", "--compile", wrapperFile, "--outfile", wra
 process.env.QBUTT_LAB_EXE = join(bundle, basename(originalExecutable));
 
 const lab = await createLab(`gateway${useIPv6 ? "-ipv6" : ""}${useUtp ? "-utp" : ""}${useDht ? "-dht" : ""}`);
-const tracePath = join(lab.root, "gateway-v4-trace.jsonl");
+const tracePath = join(lab.root, "gateway-control-trace.jsonl");
 process.env.QBUTT_REAL_NET = realNet;
 process.env.QBUTT_GATEWAY_TRACE = tracePath;
 const gatewayExecutable = join(lab.root, "qbutt-gateway.exe");

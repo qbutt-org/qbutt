@@ -39,7 +39,7 @@ namespace
 {
     constexpr int MAX_FRAME_BYTES = 65536;
     constexpr int MAX_SUBSCRIPTION_BYTES = 2 * 1024 * 1024;
-    constexpr int PROTOCOL_VERSION = 4;
+    constexpr int PROTOCOL_VERSION = 5;
     constexpr auto QBT_NET_UPSTREAM_REVISION = u"d3ec342d441b086ec4318332f59dd05d8a2b5697";
     constexpr qint64 MAX_CONTROL_ID = 9007199254740991;
     constexpr qint64 GATEWAY_TTL_SECONDS = 90;
@@ -764,7 +764,7 @@ void Net::PathManager::inspectConfiguration(const QString &configPath)
 }
 
 void Net::PathManager::openPath(const QString &configPath, const QString &proxyName,
-    const QString &interfaceName, const QString &edgeId)
+    const QString &interfaceName)
 {
     if (controlBusy())
     {
@@ -773,7 +773,6 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
     }
 
     auto *session = BitTorrent::Session::instance();
-    auto *proxyManager = ProxyConfigurationManager::instance();
     if (!session->isRestored())
     {
         reportError(tr("The torrent session is not ready for a network policy transition."));
@@ -784,6 +783,18 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
         reportError(tr("Select a proxy node and choose its physical interface."));
         return;
     }
+    // qbutt-net owns subscription parsing. Resolve identity again for each open,
+    // including API calls that never loaded the UI's node list.
+    m_status = tr("Checking the selected node's server identity.");
+    request({{u"method"_s, u"list"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
+        {u"proxyName"_s, proxyName}, {u"openInterfaceName"_s, interfaceName}});
+}
+
+void Net::PathManager::openIdentifiedPath(const QString &configPath, const QString &proxyName,
+    const QString &interfaceName, const QString &configuredServerId)
+{
+    auto *session = BitTorrent::Session::instance();
+    auto *proxyManager = ProxyConfigurationManager::instance();
     const QJsonObject dns = dnsPolicy();
     if (canonicalDnsServer(dns.value(u"server"_s).toString()).isEmpty()
         || canonicalDnsServer(dns.value(u"bootstrapServer"_s).toString()).isEmpty()
@@ -792,11 +803,10 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
         reportError(tr("Correct the saved DNS settings before connecting a node."));
         return;
     }
-    const QString selectedEdge = edgeId.isEmpty() ? proxyName : edgeId;
     quint64 pathId = 0;
     for (const ActivePath &path : m_paths)
     {
-        if (path.edgeId == selectedEdge)
+        if (path.edgeId == configuredServerId)
         {
             if (path.endpoint.port > 0)
             {
@@ -810,11 +820,6 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
     if ((pathId == 0) && (m_paths.size() >= 8))
     {
         reportError(tr("Eight edges are already selected. Reset the selection before adding another edge."));
-        return;
-    }
-    if (selectedEdge.toUtf8().size() > 128)
-    {
-        reportError(tr("The edge name must fit within 128 UTF-8 bytes."));
         return;
     }
     const bool enableManagedRoutes = !proxyManager->hasRuntimeProxy();
@@ -840,7 +845,7 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
     request({{u"method"_s, u"open"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
         {u"proxyName"_s, proxyName}, {u"pathId"_s, QString::number(pathId)},
         {u"generation"_s, m_generation}, {u"interfaceName"_s, interfaceName},
-        {u"edgeId"_s, selectedEdge}, {u"dns"_s, dns}});
+        {u"configuredServerId"_s, configuredServerId}, {u"dns"_s, dns}});
 }
 
 bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInterface)
@@ -1041,8 +1046,8 @@ void Net::PathManager::send(QJsonObject message)
         }
         m_pendingRequest.insert(u"expectedPaths"_s, expectedPaths);
     }
-    // Edge grouping belongs to the application, not to the transport process.
-    message.remove(u"edgeId"_s);
+    // Retain the continuation in the pending request, never in child IPC.
+    message.remove(u"openInterfaceName"_s);
     QByteArray frame = QJsonDocument(message).toJson(QJsonDocument::Compact);
     frame.append('\n');
     if ((frame.size() > MAX_FRAME_BYTES) || (m_process.write(frame) != frame.size()))
@@ -1197,6 +1202,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
     }
     if (method == u"list")
     {
+        static const QRegularExpression serverIdPattern {u"^[0-9a-f]{64}$"_s};
         const QJsonArray entries = result.value(u"proxies"_s).toArray();
         if ((result.size() != 1) || !result.value(u"proxies"_s).isArray() || (entries.size() > 1024))
         {
@@ -1209,18 +1215,37 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             const QJsonObject entry = value.toObject();
             const QString name = entry.value(u"name"_s).toString();
             const QString type = entry.value(u"type"_s).toString();
-            if (!value.isObject() || (entry.size() != 2) || !entry.value(u"name"_s).isString()
-                || !entry.value(u"type"_s).isString() || name.isEmpty() || type.isEmpty())
+            const QString serverId = entry.value(u"configuredServerId"_s).toString();
+            if (!value.isObject() || (entry.size() != 3) || !entry.value(u"name"_s).isString()
+                || !entry.value(u"type"_s).isString() || name.isEmpty() || type.isEmpty()
+                || !entry.value(u"configuredServerId"_s).isString()
+                || (!serverId.isEmpty() && !serverIdPattern.match(serverId).hasMatch()))
             {
                 fail(tr("qbutt-net returned an invalid node description."));
                 return;
             }
             // Only display-safe fields cross into UI/API diagnostics.
-            proxies.append(QJsonObject {{u"name"_s, name}, {u"type"_s, type}});
+            proxies.append(QJsonObject {{u"name"_s, name}, {u"type"_s, type}, {u"configuredServerId"_s, serverId}});
         }
-        m_storeConfigurationPath = request.value(u"configPath"_s).toString();
-        m_proxies = proxies;
-        emit proxiesLoaded(proxies);
+        if (request.contains(u"openInterfaceName"_s))
+        {
+            if ((proxies.size() != 1)
+                || (proxies.first().toObject().value(u"name"_s) != request.value(u"proxyName"_s))
+                || proxies.first().toObject().value(u"configuredServerId"_s).toString().isEmpty())
+            {
+                fail(tr("qbutt-net returned an unexpected selected node."));
+                return;
+            }
+            openIdentifiedPath(request.value(u"configPath"_s).toString(), request.value(u"proxyName"_s).toString(),
+                request.value(u"openInterfaceName"_s).toString(),
+                proxies.first().toObject().value(u"configuredServerId"_s).toString());
+        }
+        else
+        {
+            m_storeConfigurationPath = request.value(u"configPath"_s).toString();
+            m_proxies = proxies;
+            emit proxiesLoaded(proxies);
+        }
     }
     else if (method == u"open")
     {
@@ -1229,7 +1254,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         const QString password = result.value(u"socksPassword"_s).toString();
         const QJsonObject capabilities = result.value(u"capabilities"_s).toObject();
         const QString udp = capabilities.value(u"udp"_s).toString();
-        if ((result.size() != 8) || (capabilities.size() != 6)
+        if ((result.size() != 9) || (capabilities.size() != 6)
             || !isSafeUnsignedInteger(result.value(u"port"_s)) || !result.value(u"pathId"_s).isString()
             || !isSafeUnsignedInteger(result.value(u"generation"_s)) || !result.value(u"interfaceName"_s).isString()
             || !result.value(u"socksUsername"_s).isString() || !result.value(u"socksPassword"_s).isString()
@@ -1239,6 +1264,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             || (password.toUtf8().size() > 255) || (result.value(u"pathId"_s) != request.value(u"pathId"_s))
             || (result.value(u"generation"_s) != request.value(u"generation"_s))
             || (result.value(u"interfaceName"_s) != request.value(u"interfaceName"_s))
+            || (result.value(u"configuredServerId"_s) != request.value(u"configuredServerId"_s))
             || (capabilities.value(u"tcp"_s) != u"supported"_s)
             || ((udp != u"source-supported") && (udp != u"source-unsupported"))
             || (capabilities.value(u"dns"_s) != u"path-tcp"_s)
@@ -1263,7 +1289,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         path.endpoint.supportsIPv6 = family != u"ipv4";
         path.endpoint.supportsUdp = udp == u"source-supported";
         path.configurationPath = request.value(u"configPath"_s).toString();
-        path.edgeId = request.value(u"edgeId"_s).toString();
+        path.edgeId = result.value(u"configuredServerId"_s).toString();
         path.proxyName = request.value(u"proxyName"_s).toString();
         path.interfaceName = request.value(u"interfaceName"_s).toString();
         path.capabilities = {{u"tcp"_s, u"supported"_s}, {u"udp"_s, udp}, {u"dns"_s, u"path-tcp"_s},
@@ -1722,7 +1748,7 @@ QList<Net::PathManager::PathRollover> Net::PathManager::activePathRollover() con
             return;
         append({request.value(u"pathId"_s).toString().toULongLong(),
             request.value(u"configPath"_s).toString(), request.value(u"proxyName"_s).toString(),
-            request.value(u"interfaceName"_s).toString(), request.value(u"edgeId"_s).toString(),
+            request.value(u"interfaceName"_s).toString(), request.value(u"configuredServerId"_s).toString(),
             request.value(u"dns"_s).toObject()});
     };
     appendOpenRequest(m_pendingRequest);
@@ -1763,7 +1789,7 @@ void Net::PathManager::startNextPathRollover()
     request({{u"method"_s, u"open"_s}, {u"configPath"_s, path.configurationPath},
         {u"proxyName"_s, path.proxyName}, {u"pathId"_s, QString::number(path.pathId)},
         {u"generation"_s, ++m_generation}, {u"interfaceName"_s, path.interfaceName},
-        {u"edgeId"_s, path.edgeId}, {u"dns"_s, path.dnsPolicy}});
+        {u"configuredServerId"_s, path.edgeId}, {u"dns"_s, path.dnsPolicy}});
 }
 
 void Net::PathManager::handleGatewayFailure(const QJsonObject &request)

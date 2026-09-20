@@ -14,6 +14,7 @@
     "smoke:profile": "bun tests/profile-lab/smoke.ts",
     "smoke:proxy": "bun tests/network-lab/probe.ts",
     "smoke:network": "bun tests/network-lab/smoke.ts",
+    "smoke:server-identity": "bun tests/network-lab/server-identity.ts",
     "smoke:gateway": "bun tests/network-lab/gateway.ts",
     "smoke:gateway-utp": "bun tests/network-lab/gateway.ts --utp",
     "smoke:gateway-ipv6": "bun tests/network-lab/gateway.ts --ipv6",

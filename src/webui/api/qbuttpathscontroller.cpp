@@ -58,9 +58,11 @@ void QbuttPathsController::refreshAction()
 void QbuttPathsController::openAction()
 {
     requireParams({u"configPath"_s, u"proxyName"_s, u"interfaceName"_s});
+    if (params().contains(u"edgeId"_s))
+        throw APIError(APIErrorType::BadParams, tr("Server identity is determined by the selected subscription node."));
     requireIdle();
     Net::PathManager::instance()->openPath(params().value(u"configPath"_s),
-        params().value(u"proxyName"_s), params().value(u"interfaceName"_s), params().value(u"edgeId"_s));
+        params().value(u"proxyName"_s), params().value(u"interfaceName"_s));
     statusAction();
 }
 
