@@ -115,8 +115,8 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
         std::tuple {tr("Selected verified bytes reusable:"), u"repairPreviewVerified"_s, m_verifiedBytes},
         std::tuple {tr("Selected payload required from network:"), u"repairPreviewNetwork"_s, m_networkBytes},
         std::tuple {tr("Temporary space for safe staging:"), u"repairPreviewTemporary"_s, m_temporaryBytes},
-        std::tuple {tr("Target files needing data or size repair:"), u"repairPreviewChanged"_s, m_changedFiles},
-        std::tuple {tr("Files with extra tails:"), u"repairPreviewOversized"_s, m_oversizedFiles}})
+        std::tuple {tr("Selected files needing data or size repair:"), u"repairPreviewChanged"_s, m_changedFiles},
+        std::tuple {tr("Selected files with extra tails:"), u"repairPreviewOversized"_s, m_oversizedFiles}})
     {
         value->setObjectName(name);
         value->setTextInteractionFlags(Qt::TextSelectableByMouse);
