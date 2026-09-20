@@ -15,8 +15,9 @@ const bundle = resolve(process.env.QBUTT_QT_ACCEPTANCE_BUNDLE ?? dirname(executa
 const root = await mkdtemp(join(await realpath(tmpdir()), "qbutt-profile-qt-"));
 const profile = join(root, "profile");
 const screenshots = join(root, "screenshots");
+const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") ?? "PATH";
 const environment = { ...process.env, QT_QPA_PLATFORM: "offscreen", QT_SCALE_FACTOR: "1", QT_PLUGIN_PATH: bundle,
-    PATH: `${bundle};${process.env.PATH ?? ""}` };
+    [pathKey]: `${bundle};${process.env[pathKey] ?? ""}` };
 let child: ReturnType<typeof Bun.spawn> | undefined;
 const evidence: Record<string, unknown> = { suite: "profile-import-qt", status: "running", checks: [] };
 
@@ -43,7 +44,7 @@ try {
     evidence.serviceSha256 = sha256(await readFile(service));
     const fixtures = await generateFixtures(python, join(root, "fixtures"));
     child = Bun.spawn([service, "seed-profile", root, "source", "db", fixtures, "v1,v2,hybrid"], {
-        env: environment, windowsHide: true, stdout: "pipe", stderr: "pipe", timeout: 90000,
+        cwd: bundle, env: environment, windowsHide: true, stdout: "pipe", stderr: "pipe", timeout: 90000,
     });
     const [code, output, error] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     await writeFile(join(root, "source-generation.log"), output + error);
