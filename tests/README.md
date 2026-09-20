@@ -255,6 +255,10 @@ names, order and piece length from 16 to 64 KiB. The production metadata index
 selects the sources, target-layout hashing verifies every piece, and staged
 prepare/commit/restart must preserve sources and unknown files while completing
 exact sizes/SHA-256 with zero downloaded payload. No peer or webseed is supplied.
+`bun tests/repair/index-layout.ts --v2` runs the same lifecycle with a pure v2
+target. Unchanged file roots are preserved while target piece layers are rebuilt
+for 64 KiB pieces. Preview verifies whole-file roots; native staging recheck
+verifies the target pieces. This does not claim v1-style cross-file piece reuse.
 
 `smoke:repair-product` drives the standalone Smart Repair entry dialog through
 Qt's offscreen platform before any torrent exists. Build its process-level driver
@@ -517,7 +521,8 @@ to observe the selected source address.
 
 `smoke:route-policy` drives the standalone libtorrent integration executable.
 Set `QBUTT_POLICY_EXE` to the built `route-policy-integration.exe` and
-`QBUTT_PUBLIC_IPV4` to the currently observed public IPv4. It proves live policy
+`QBUTT_PUBLIC_IPV4` to the public IPv4 identity to advertise; this local fixture
+does not contact that address. It proves live policy
 replacement for HTTP/UDP trackers and DHT generations, an authenticated SOCKS
 webseed, an unaffected default session, and automatic managed uTP with exact
 payload bytes and source binding. HTTP and UDP tracker captures require the
@@ -528,6 +533,10 @@ listener port; an outgoing-only route performs `get_peers` without
 peer port. The local DHT packet source is loopback, so this proves route-local
 node identity and announced port behavior. Public address correctness and
 reachability require the external gateway scenario.
+Two dual-family SOCKS contexts also announce a hostname tracker exactly once per
+context for each start/stop, retaining the leased public listener and the separate
+outgoing-only context. The hostname maps deterministically to a loopback IPv4
+server in the SOCKS fixture; this does not measure DNS queries or Internet egress.
 
 `benchmark:network` runs three or more interleaved rounds for the validated
 unchanged upstream executable, qbutt Native, one authenticated tunnel, and
@@ -568,12 +577,14 @@ recorded `QBUTT_BENCH_STATIC_SHA256`, plus the usual qbutt/Python/Native setting
 The experimental binary replaces only public route selection with FNV-1a over
 both infohash slots and the numeric peer endpoint, modulo eligible routes; keep
 that patch and build provenance with the local receipt, outside production code.
-Six full peers use the same exact endpoints through Native and both SOCKS paths.
+Within each window, six full peers use the same endpoints through Native and both
+SOCKS paths; the fixture allocates new endpoint ports for each window.
 The fixture chooses two endpoints per static bucket and waits for useful payload
 from every peer before applying an equal 8 KiB/s per-peer limit. Four rounds
 alternate mode order; actual assignments, verified goodput, resource counters and
-redundant payload are recorded. Equal path quality is a neutral comparison with
-no expected adaptive speedup; it does not test all 18 possible peer/path pairs.
+redundant payload are recorded. Equal peer limits make this a neutral comparison
+with no expected adaptive speedup; latency and loss are not controlled, and the
+fixture does not test all 18 possible peer/path pairs.
 
 `benchmark:public-swarm` uses the pinned official Ubuntu 24.04.5 live-server
 torrent and a separate empty profile for every bounded window. Set
