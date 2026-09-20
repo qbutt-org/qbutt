@@ -24,8 +24,10 @@ const protocol = process.env.QBUTT_DISCOVERY_PROTOCOL ?? "tcp";
 assert(protocol === "tcp" || protocol === "both", "QBUTT_DISCOVERY_PROTOCOL must be tcp or both");
 const pexMode = process.argv.includes("--pex");
 const duplicates = process.argv.includes("--duplicates");
+const magnetMode = process.argv.includes("--magnet");
 assert(!pexMode || !duplicates, "Duplicate discovery mode requires DHT and trackers");
-const lab = await createLab("discovery", { pex: pexMode });
+assert(!magnetMode || (!pexMode && !duplicates && protocol === "tcp"), "Magnet mode uses the ordinary TCP discovery fixture");
+const lab = await createLab(magnetMode ? "discovery-magnet" : "discovery", { pex: pexMode });
 const torrent = lab.manifest.torrents.find(item => item.name === "v1-public")!;
 const infoHash = Buffer.from(torrent.infoHashV1!, "hex");
 const loopback = Object.entries(networkInterfaces()).find(([, addresses]) =>
@@ -38,6 +40,8 @@ const errors: string[] = [];
 const dhtQueries: { side: number; query: string; nodeId: string; readOnly: boolean; matchingInfoHash: boolean }[] = [];
 const trackerQueries = { http: 0, udp: 0 };
 let tracker: ReturnType<typeof Bun.serve> | undefined;
+let releaseMagnetPeers!: () => void;
+const magnetPeersReady = new Promise<void>(accept => { releaseMagnetPeers = accept; });
 let failure: unknown;
 try {
     const source = new Map(await Promise.all(torrent.files.map(async file =>
@@ -71,7 +75,7 @@ try {
         for (let side = 0; side < 2; side++) {
             const node = createSocket("udp4"); datagrams.push(node);
             const nodeId = randomBytes(20);
-            node.on("message", (packet, remote) => {
+            node.on("message", async (packet, remote) => {
                 try {
                     assert(dhtQueries.length < 4096, "DHT fixture query limit");
                     const message = decode(packet);
@@ -83,6 +87,7 @@ try {
                     dhtQueries.push({ side, query, nodeId: args.id.toString("hex"), readOnly: message.ro === 1, matchingInfoHash });
                     assert(message.ro === 1, "Managed outgoing DHT must set ro=1");
                     assert(query !== "announce_peer", "Outgoing-only DHT must never publish a public endpoint");
+                    if (magnetMode && matchingInfoHash) await magnetPeersReady;
                     const result: Record<string, Value> = { id: nodeId };
                     if (query === "get_peers") {
                         result.token = Buffer.from("fixture");
@@ -102,12 +107,13 @@ try {
             await new Promise<void>(accept => node.bind(0, "127.0.0.1", accept));
             if (side === 0) bootstrapPort = node.address().port;
         }
-        tracker = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+        tracker = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
             try {
                 const encodedHash = /[?&]info_hash=([^&]*)/.exec(request.url)?.[1]; assert(encodedHash);
                 const hash = Buffer.from(encodedHash.replace(/%([0-9a-f]{2})/gi, (_, byte) =>
                     String.fromCharCode(Number.parseInt(byte, 16))), "latin1");
                 assert(hash.equals(infoHash)); trackerQueries.http++;
+                if (magnetMode) await magnetPeersReady;
                 return new Response(encode({ interval: 30, "min interval": 1, complete: 1, incomplete: 0,
                     peers: compact(endpoints[2]!.host, endpoints[2]!.port) }));
             }
@@ -214,18 +220,67 @@ try {
         await lab.request("app/setPreferences", { json: JSON.stringify({ dht_bootstrap_nodes: `127.0.0.10:${bootstrapPort}`,
             dht: false, pex: false, lsd: false, announce_to_all_trackers: true, announce_to_all_tiers: true }) });
         const destination = join(lab.root, "download");
-        const hash = await lab.add(torrent.name, destination); assert.equal(hash, infoHash.toString("hex"));
+        const hash = infoHash.toString("hex");
+        const httpTrackerURL = `http://127.0.0.11:${tracker!.port}/announce`;
+        const udpTrackerURL = `udp://127.0.0.12:${udpTrackerPort}/announce`;
+        if (magnetMode) {
+            await mkdir(destination);
+            await lab.request("torrents/add", { urls: `magnet:?xt=urn:btih:${hash}&tr=${encodeURIComponent(httpTrackerURL)}`,
+                savepath: destination, stopped: "true", autoTMM: "false", contentLayout: "Original" });
+            await waitFor("magnet registered without local metadata", () => lab.json<{ has_metadata: boolean }[]>(
+                `torrents/info?hashes=${hash}`), jobs => jobs.length === 1 && !jobs[0]!.has_metadata);
+        }
+        else assert.equal(await lab.add(torrent.name, destination), hash);
         const status = () => lab.json<Status>(`qbuttPaths/status?hash=${hash}`);
         const uniquePeers = (current: Status) => {
             assert.equal(new Set(current.peers.map(peer => `${peer.infoHash}:${peer.peer}:${peer.port}`)).size,
                 current.peers.length, "Discovery sources created duplicate original peer connections");
         };
-        await lab.request("torrents/addTrackers", { hash, urls:
-            `http://127.0.0.11:${tracker!.port}/announce\nudp://127.0.0.12:${udpTrackerPort}/announce` });
+        if (!magnetMode) await lab.request("torrents/addTrackers", { hash, urls: `${httpTrackerURL}\n${udpTrackerURL}` });
         await lab.request("torrents/start", { hashes: hash });
         await waitFor("fixture torrent active before DHT bootstrap", () => lab.info(hash), info =>
-            info.state === "downloading" || info.state === "stalledDL");
+            magnetMode ? !info.state.startsWith("stopped") : info.state === "downloading" || info.state === "stalledDL");
         await lab.request("app/setPreferences", { json: JSON.stringify({ dht: true }) });
+        if (magnetMode) {
+            await waitFor("unknown magnet performs pinned discovery", async () => {
+                assert.deepEqual(errors, []);
+                return dhtQueries.some(query => query.side === 0 && query.matchingInfoHash)
+                    && dhtQueries.some(query => query.side === 1) && trackerQueries.http > 0;
+            }, Boolean, 45000);
+            // Both paths are live, but no responder has released a peer capable
+            // of providing metadata. This makes the pre-metadata scope observable.
+            await Bun.sleep(1500);
+            const unknown = await lab.json<{ has_metadata: boolean }[]>(`torrents/info?hashes=${hash}`);
+            assert.equal(unknown.length, 1);
+            assert.equal(unknown[0]!.has_metadata, false);
+            assert.equal((await status()).peers.length, 0);
+            assert(dhtQueries.filter(query => query.matchingInfoHash).every(query => query.side === 0),
+                "Unknown magnet sent its infohash outside the pinned path");
+            assert(proxies[0]!.stats.uploadStreamBytes > 0, "Pinned tracker request did not traverse its controlled relay");
+            assert.equal(proxies[1]!.stats.uploadStreamBytes, 0, "Unknown magnet contacted the unpinned tracker path");
+            await lab.checkpoint({ check: "magnet-before-metadata-pinned", hash, observationMs: 1500,
+                dhtQueries: [...dhtQueries], trackerQueries: { ...trackerQueries },
+                proxies: proxies.map(proxy => ({ ...proxy.stats })), metadataImport: false });
+            // The unchanged public libtorrent seeds provide their standard
+            // ut_metadata extension, independently of their partial piece sets.
+            releaseMagnetPeers();
+            await waitFor("public metadata received through a discovered peer", () => lab.json<{
+                has_metadata: boolean; private: boolean | null }[]>(`torrents/info?hashes=${hash}`),
+            jobs => jobs.length === 1 && jobs[0]!.has_metadata && jobs[0]!.private === false, 45000);
+            await lab.checkpoint({ check: "magnet-public-metadata-received", hash, routes: await status(),
+                metadataImport: false, manualPeerInjection: false, torrentRestart: false });
+            // Require automatic widening before adding the UDP tracker used by
+            // the common discovery checks; that API mutation must not trigger it.
+            const widened = await waitFor("public magnet automatically widens discovery and peer routes", async () => {
+                assert.deepEqual(errors, []);
+                return status();
+            }, current => dhtQueries.some(query => query.side === 1 && query.matchingInfoHash)
+                && new Set(current.peers.filter(peer => peer.infoHash === hash && peer.payloadDownload > 0)
+                    .map(peer => peer.pathId)).size === 2, 45000);
+            await lab.checkpoint({ check: "magnet-public-scope-widened", hash, peers: widened.peers,
+                paths: widened.paths, dhtQueries: [...dhtQueries], explicitReannounce: false });
+            await lab.request("torrents/addTrackers", { hash, urls: udpTrackerURL });
+        }
         const diagnosticAt = Date.now() + 10000;
         let diagnosticWritten = false;
         const simultaneous = await waitFor("DHT and tracker peer union in one active torrent", async () => {
@@ -255,8 +310,6 @@ try {
         const identities = [0, 1].map(side => new Set(dhtQueries.filter(query => query.side === side).map(query => query.nodeId)));
         assert([...identities[0]!].every(id => !identities[1]!.has(id)), "DHT paths reused a node ID");
         assert(trackerQueries.http > 0 && trackerQueries.udp > 0);
-        const httpTrackerURL = `http://127.0.0.11:${tracker!.port}/announce`;
-        const udpTrackerURL = `udp://127.0.0.12:${udpTrackerPort}/announce`;
         const activePaths = simultaneous.paths.filter(path => path.open);
         const readTrackers = () => lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`);
         const routeStatuses = await waitFor("distinct HTTP tracker replies on both paths", readTrackers, entries => {
@@ -310,7 +363,7 @@ try {
         }
         await lab.checkpoint({ check: "route-local-discovery-union", infoHash: hash, dhtQueries, trackerQueries,
             protocol, peerTransport: "TCP", paths: simultaneous.paths, peers: simultaneous.peers,
-            manualPeerInjection: false, pex: "not-tested" });
+            metadataSource: magnetMode ? "peer-ut_metadata" : "torrent-file", manualPeerInjection: false, pex: "not-tested" });
         await Promise.all(seeds.map(seed => seed.setUploadRate(256 * 1024)));
         await waitFor("discovered peers complete complementary pieces", () => lab.info(hash), info => info.progress === 1, 45000);
         await lab.request("torrents/stop", { hashes: hash });
@@ -321,6 +374,7 @@ try {
 }
 catch (error) { failure = error; }
 finally {
+    releaseMagnetPeers();
     try {
         await lab.checkpoint({ check: "discovery-final-paths", paths:
             await lab.json(`qbuttPaths/status?hash=${infoHash.toString("hex")}`) });
@@ -348,7 +402,9 @@ finally {
     await Promise.all(datagrams.map(socket => new Promise<void>(accept => socket.close(accept))));
     await lab.checkpoint({ check: "discovery-observations", dhtQueries, trackerQueries, errors,
         proxy: proxies.map(proxy => proxy.stats) });
-    for (const name of ["fixtures", "profile", "download", "nodes.json", "partial-0", "partial-1", "partial-2", "partial-3"]) {
+    if (!failure && errors.length) failure = new Error(`Discovery fixture errors: ${errors.join("; ")}`);
+    for (const name of ["fixtures", "download", "nodes.json", "partial-0", "partial-1", "partial-2", "partial-3", "profile"]) {
+        if (name === "profile" && failure) continue;
         const path = resolve(lab.root, name); assert(path.startsWith(resolve(lab.root) + "\\") || path.startsWith(resolve(lab.root) + "/"));
         try { await rm(path, { recursive: true, force: true }); }
         catch (error) { failure ??= error; }
