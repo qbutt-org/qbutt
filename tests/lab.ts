@@ -290,12 +290,12 @@ export async function verifyPayload(root: string, expected: PayloadFile[]): Prom
 
 export async function startSeed(python: string, fixtures: string, name: string, logs: string,
     options: { savePath?: string; pieces?: number[]; label?: string; listenAddress?: string; uploadRate?: number;
-        neighbor?: { host: string; port: number }; transport?: "tcp" | "utp" } = {}) {
+        neighbor?: { host: string; port: number }; transport?: "tcp" | "utp"; allowedPeerAddresses?: string[] } = {}) {
     const label = options.label ?? name;
     const child = Bun.spawn([python, join(import.meta.dir, "network-lab", "seed.py"), join(fixtures, `${name}.torrent`),
         options.savePath ?? join(fixtures, "seed"), JSON.stringify(options.pieces ?? null),
         options.listenAddress ?? "127.0.0.1", String(options.uploadRate ?? 256 * 1024),
-        JSON.stringify(options.neighbor ?? null), options.transport ?? "tcp"], {
+        JSON.stringify(options.neighbor ?? null), options.transport ?? "tcp", JSON.stringify(options.allowedPeerAddresses ?? [])], {
         stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(logs, `seed-${label}.stderr.log`)),
     });
     const reader = child.stdout.getReader();

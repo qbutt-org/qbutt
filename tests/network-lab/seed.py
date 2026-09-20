@@ -21,6 +21,13 @@ listen_address = sys.argv[4] if len(sys.argv) > 4 else "127.0.0.1"
 upload_rate = int(sys.argv[5]) if len(sys.argv) > 5 else 256 * 1024
 neighbor = json.loads(sys.argv[6]) if len(sys.argv) > 6 else None
 transport = sys.argv[7] if len(sys.argv) > 7 else "tcp"
+allowed_peer_addresses = json.loads(sys.argv[8]) if len(sys.argv) > 8 else []
+if (not isinstance(allowed_peer_addresses, list) or len(allowed_peer_addresses) > 16
+        or any(type(item) is not str for item in allowed_peer_addresses)):
+    raise RuntimeError("Expected at most 16 numeric fixture peer addresses")
+allowed_peer_addresses = [ipaddress.IPv4Address(item) for item in allowed_peer_addresses]
+if any(not item.is_private or item.is_unspecified or item.is_multicast for item in allowed_peer_addresses):
+    raise RuntimeError("Fixture peer addresses must be explicit private IPv4 addresses")
 if transport not in ("tcp", "utp"):
     raise RuntimeError("Unsupported fixture transport")
 address = ipaddress.IPv4Address(listen_address)
@@ -73,6 +80,8 @@ peer_filter = lt.ip_filter()
 peer_filter.add_rule("0.0.0.0", "255.255.255.255", 1)
 peer_filter.add_rule("::", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", 1)
 peer_filter.add_rule(listen_address, listen_address, 0)
+for peer_address in allowed_peer_addresses:
+    peer_filter.add_rule(str(peer_address), str(peer_address), 0)
 if neighbor is not None:
     # The exact-target SOCKS relay connects from the default loopback address.
     peer_filter.add_rule("127.0.0.1", "127.0.0.1", 0)
@@ -122,6 +131,7 @@ if neighbor is not None and neighbor["port"]:
         time.sleep(0.05)
 print(json.dumps({"ready": True, "host": listen_address, "port": session.listen_port(),
                   "libtorrent": lt.__version__, "pieces": pieces,
+                  "allowedPeerAddresses": [str(item) for item in allowed_peer_addresses],
                   "verifiedPayloadBytes": status.total_done}), flush=True)
 finished = threading.Event()
 command_errors = []

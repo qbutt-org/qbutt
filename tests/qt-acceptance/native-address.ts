@@ -72,7 +72,8 @@ try {
             await writeFile(join(savePath, file.path), data);
         }
         seeds.push(await startSeed(lab.python, lab.fixtures, torrent.name, lab.root, {savePath, pieces,
-            label: `address-${side}`, listenAddress: side === 0 ? "127.0.0.1" : "127.0.0.5"}));
+            label: `address-${side}`, listenAddress: side === 0 ? "127.0.0.1" : "127.0.0.5",
+            allowedPeerAddresses: side === 0 ? [] : ["127.0.0.6", "127.0.0.7"]}));
     }
     const credentials = {username: randomBytes(12).toString("hex"), password: randomBytes(24).toString("hex")};
     proxy = await startProxy({...credentials, listenAddress: "127.0.0.20", targets: [{host: "127.0.0.9",
