@@ -35,6 +35,10 @@ const sourceName = process.env.QBUTT_GATEWAY_WAN_PROXY_NAME ?? "";
 const independentSource = sourceConfig !== "" || sourceName !== "";
 const useUtp = process.argv.includes("--utp");
 const useDht = process.argv.includes("--dht");
+if (process.argv.includes("--source-preflight")) {
+    await sourcePreflight();
+    process.exit(0);
+}
 assert(!useDht || useUtp, "Inbound DHT requires the UDP lease (--utp)");
 assert(!useUtp || independentSource, "WAN UDP acceptance requires an independent selected VPN source");
 assert(!independentSource || (sourceConfig !== "" && sourceName !== ""),
@@ -75,6 +79,115 @@ function responses(child: ReturnType<typeof Bun.spawn>) {
     };
 }
 
+async function generatePayload(python: string, root: string) {
+    const payload = randomBytes(512 * 1024);
+    const source = join(root, "source");
+    const torrent = join(root, "wan.torrent");
+    await mkdir(source);
+    await writeFile(join(source, "wan.bin"), payload);
+    const hash = await run([python, "-c", `
+import libtorrent as lt, pathlib, sys
+assert lt.__version__ == "2.0.14.0"
+files = lt.file_storage()
+files.add_file("wan.bin", 524288)
+creator = lt.create_torrent(files, 65536, lt.create_torrent.v1_only)
+creator.set_comment("Generated legal qbutt gateway WAN fixture; no discovery")
+lt.set_piece_hashes(creator, sys.argv[1])
+encoded = lt.bencode(creator.generate())
+pathlib.Path(sys.argv[2]).write_bytes(encoded)
+print(lt.torrent_info(encoded).info_hashes().v1)
+`, source, torrent]);
+    assert.match(hash, /^[0-9a-f]{40}$/);
+    return { payload, source, torrent, hash };
+}
+
+async function sourcePreflight() {
+    const python = process.env.QBUTT_LAB_PYTHON;
+    assert(python, "Set QBUTT_LAB_PYTHON to the pinned fixture interpreter");
+    await allowLabNetwork([process.execPath, python]);
+    const root = await mkdtemp(join(tmpdir(), "qbutt-wan-source-preflight-"));
+    const children: ReturnType<typeof Bun.spawn>[] = [];
+    const readers: ReturnType<typeof responses>[] = [];
+    let relay: Awaited<ReturnType<typeof startProxy>> | undefined;
+    let failure: unknown;
+    let result: Record<string, unknown> = {};
+    try {
+        const { payload, source, torrent, hash } = await generatePayload(python, root);
+        const spawnPeer = (receiver = false) => {
+            const child = Bun.spawn([python, "-u", join(import.meta.dir, "wan-udp-peer.py"),
+                ...(receiver ? ["--receive"] : [])], { stdin: "pipe", stdout: "pipe",
+                stderr: Bun.file(join(root, receiver ? "receiver.stderr.log" : "source.stderr.log")), windowsHide: true });
+            children.push(child);
+            const replies = responses(child);
+            readers.push(replies);
+            return { child, replies };
+        };
+        const receiver = spawnPeer(true);
+        receiver.child.stdin.write(JSON.stringify({ torrent, infoHash: hash, savePath: join(root, "download") }) + "\n");
+        await receiver.child.stdin.flush();
+        const ready = await receiver.replies.next("Local uTP receiver readiness");
+        assert(ready.ready && ready.protocol === "utp" && Number.isInteger(ready.port), JSON.stringify(ready));
+        // This synthetic destination is reachable only through the exact SOCKS
+        // mapping. The receiver and authenticated SOCKS listener use loopback;
+        // the source requires SOCKS for all peer traffic, with discovery disabled.
+        const target = { host: "198.18.0.1", port: ready.port };
+        const credentials = { username: "wan-preflight", password: randomBytes(24).toString("hex") };
+        relay = await startProxy({ ...credentials, udp: true,
+            targets: [{ ...target, connectHost: "127.0.0.1" }] });
+        const seed = spawnPeer();
+        seed.child.stdin.write(JSON.stringify({ torrent, infoHash: hash, savePath: source,
+            connectTarget: target, connectProxy: { port: relay.port, ...credentials } }) + "\n");
+        await seed.child.stdin.flush();
+        const seedReady = await seed.replies.next("Local uTP source readiness");
+        assert(seedReady.ready && seedReady.protocol === "utp" && seedReady.verifiedPayloadBytes === payload.length,
+            JSON.stringify(seedReady));
+        seed.child.stdin.write('{"command":"start"}\n');
+        await seed.child.stdin.flush();
+        assert((await seed.replies.next("Local uTP source start")).started);
+        const received = await receiver.replies.next("Local proxied uTP payload", 45000);
+        assert(received.complete && received.protocol === "utp" && received.verifiedPayloadBytes === payload.length
+            && received.sha256 === sha256(payload) && received.incomingUtpPeerSeen, JSON.stringify(received));
+        seed.child.stdin.write('{"command":"stop"}\n');
+        await seed.child.stdin.flush();
+        const sent = await seed.replies.next("Local uTP source final report");
+        assert(sent.stopped && sent.protocol === "utp" && sent.uploadPayloadBytes >= payload.length
+            && sent.downloadPayloadBytes === 0, JSON.stringify(sent));
+        assert.deepEqual(sent.remoteEndpoints, [`${target.host}:${target.port}`]);
+        assert(relay.stats.authenticatedConnections > 0 && relay.stats.deniedConnections === 0);
+        for (const child of children) {
+            child.stdin.end();
+            assert.equal(await child.exited, 0, "Local uTP helper did not exit cleanly");
+        }
+        result = { verifiedBytes: payload.length, sha256: received.sha256, source: sent, receiver: received, target };
+    }
+    catch (error) { failure = error; }
+    finally {
+        for (const child of children) {
+            if (child.exitCode === null) {
+                child.stdin.end();
+                const timer = setTimeout(() => child.kill(), 3000);
+                try { await child.exited; } catch (error) { failure ??= error; }
+                finally { clearTimeout(timer); }
+            }
+        }
+        for (const reader of readers) reader.close();
+        if (relay) result.proxy = { ...relay.stats };
+        try { await relay?.close(); } catch (error) { failure ??= error; }
+        try {
+            const owned = await realpath(root);
+            assert(dirname(owned) === await realpath(tmpdir()) && basename(owned).startsWith("qbutt-wan-source-preflight-"));
+            for (const name of ["source", "download", "wan.torrent"])
+                await rm(join(owned, name), { recursive: true, force: true });
+        }
+        catch (error) { failure ??= error; }
+    }
+    await writeFile(join(root, "evidence.json"), JSON.stringify({ suite: "wan-source-preflight",
+        status: failure ? "failed" : "passed", ...result,
+        error: failure ? String(failure) : undefined }, null, 2) + "\n");
+    console.log(`WAN source preflight ${failure ? "failed" : "passed"}: ${root}`);
+    if (failure) throw failure;
+}
+
 function observedLeasePeer(line: string, port: number, udp = false): string | undefined {
     const syn = (udp
         ? /\bIn\s+IP\s+([0-9.]+)\.([0-9]+)\s+>\s+([0-9.]+)\.([0-9]+): UDP, length/
@@ -85,20 +198,37 @@ function observedLeasePeer(line: string, port: number, udp = false): string | un
     return (sourcePort > 0 && sourcePort <= 65535) ? `${syn[1]}:${sourcePort}` : undefined;
 }
 
-async function captureOwnedPort(port: number, protocol: "tcp" | "utp-syn" | "udp" = "tcp") {
+async function captureOwnedPort(port: number, protocol: "tcp" | "utp" | "udp" = "tcp") {
     assert(Number.isInteger(port) && port >= 49152 && port <= 65535);
     const lines: string[] = [];
-    // BEP 29: the first uTP payload byte is (ST_SYN << 4) | version = 0x41.
-    // The lease port differs from the carrier port; its inbound SYN identifies
-    // the original peer, not the home's authenticated gateway carrier.
+    // Fixed SLL2 (20) + IPv4 without options (20) + UDP (8) + uTP (20).
+    // The snapshot cannot contain any BitTorrent payload beyond the uTP header.
     const filter = `host ${observerIP} and ${protocol === "tcp"
         ? `tcp port ${port} and (tcp[13] & 7 != 0)`
-        : `udp port ${port}${protocol === "utp-syn" ? " and udp[8] = 0x41" : ""}`}`;
-    const child = Bun.spawn([...ssh, `timeout --signal=TERM --kill-after=2s 35s sudo -n tcpdump -i any -nn -tt -l -s 96 -c 16 '${filter}'`], {
+        : `udp port ${port}${protocol === "utp"
+            ? " and ip[0] = 0x45 and ((ip[6:2] & 16383) = 0) and ((udp[8] & 15) = 1) and ((udp[8] & 240) <= 64)" : ""}`}`;
+    const captureOptions = protocol === "utp" ? "-y LINUX_SLL2 -s 68 -xx -c 32" : "-s 96 -c 16";
+    const child = Bun.spawn([...ssh, `timeout --signal=TERM --kill-after=2s 35s sudo -n tcpdump -i any -nn -tt -l ${captureOptions} '${filter}'`], {
         stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true });
     const pump = (async () => {
+        let summary = "";
+        let hex = "";
         for await (const line of createInterface({ input: Readable.fromWeb(child.stdout as never) })) {
-            if (lines.length < 16) lines.push(line);
+            if (protocol !== "utp") {
+                if (lines.length < 16) lines.push(line);
+                continue;
+            }
+            const bytes = /^\s+0x[0-9a-f]+:\s+([0-9a-f ]+)$/i.exec(line);
+            if (!bytes) {
+                summary = line;
+                hex = "";
+                continue;
+            }
+            hex += bytes[1]!.replaceAll(" ", "");
+            if (hex.length !== 136 || lines.length >= 32) continue;
+            const header = Buffer.from(hex, "hex").subarray(48);
+            lines.push(`${summary} uTP type=${["DATA", "FIN", "STATE", "RESET", "SYN"][header[0]! >> 4]}`
+                + ` connectionId=${header.readUInt16BE(2)} seq=${header.readUInt16BE(16)} ack=${header.readUInt16BE(18)}`);
         }
     })();
     const diagnostics: string[] = [];
@@ -352,25 +482,8 @@ try {
             "Inbound DHT fixture fell back to public bootstrap routers");
     }
 
-    const payload = randomBytes(512 * 1024);
-    const source = join(lab.root, "source");
+    const { payload, source, torrent, hash } = await generatePayload(lab.python, lab.root);
     const destination = join(lab.root, "download");
-    await mkdir(source);
-    await writeFile(join(source, "wan.bin"), payload);
-    const torrent = join(lab.root, "wan.torrent");
-    const hash = await run([lab.python, "-c", `
-import libtorrent as lt, pathlib, sys
-assert lt.__version__ == "2.0.14.0"
-files = lt.file_storage()
-files.add_file("wan.bin", ${payload.length})
-creator = lt.create_torrent(files, 65536, lt.create_torrent.v1_only)
-creator.set_comment("Generated legal qbutt gateway WAN fixture; no discovery")
-lt.set_piece_hashes(creator, sys.argv[1])
-encoded = lt.bencode(creator.generate())
-pathlib.Path(sys.argv[2]).write_bytes(encoded)
-print(lt.torrent_info(encoded).info_hashes().v1)
-`, source, torrent]);
-    assert.match(hash, /^[0-9a-f]{40}$/);
     const form = new FormData();
     form.set("torrents", Bun.file(torrent));
     form.set("savepath", destination);
@@ -408,7 +521,8 @@ print(lt.torrent_info(encoded).info_hashes().v1)
     let observedSource = "";
     const observeSource = async (capture: Awaited<ReturnType<typeof captureOwnedPort>>) => {
         const endpoint = await waitFor("independent VPN source at public lease", async () => {
-            const endpoints = [...new Set(capture.lines.map(line => observedLeasePeer(line, ports.listener,
+            const endpoints = [...new Set(capture.lines.filter(line => capture.protocol !== "utp" || line.includes("uTP type=SYN "))
+                .map(line => observedLeasePeer(line, ports.listener,
                 capture.protocol !== "tcp")).filter(Boolean))];
             assert(endpoints.length <= 1, "More than one source reached the owned public lease");
             return endpoints[0] ?? "";
@@ -435,7 +549,7 @@ print(lt.torrent_info(encoded).info_hashes().v1)
             pathId: path.pathId, generation: path.generation, dhtSource, homeSSHOrigin, packets, ...reply.dht });
     }
     if (useUtp)
-        packetCapture = await captureOwnedPort(ports.listener, "utp-syn");
+        packetCapture = await captureOwnedPort(ports.listener, "utp");
     if (independentSource && !useUtp) {
         const connected = await peerReplies.next("VPN SOCKS connection", 25000);
         assert(connected.connected === true,

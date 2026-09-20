@@ -1,4 +1,5 @@
 """One checked uTP seed and bounded inbound DHT probes through an owned SOCKS path."""
+import hashlib
 import ipaddress
 import json
 import os
@@ -101,10 +102,70 @@ def probe_dht(proxy, target, info_hash):
             return results
 
 
+def free_peer_port():
+    for attempt in range(32):
+        port = 49152 + secrets.randbelow(16384)
+        with socket.socket() as tcp, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+            try:
+                tcp.bind(("127.0.0.1", port))
+                udp.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                if attempt == 31:
+                    raise
+
+
+def torrent_parameters(config):
+    params = lt.add_torrent_params()
+    params.ti = lt.torrent_info(str(pathlib.Path(config["torrent"])))
+    if list(params.ti.trackers()) or params.ti.num_files() != 1 or params.ti.total_size() != 524288:
+        raise ValueError("Expected the generated trackerless 512 KiB fixture")
+    if str(params.ti.info_hashes().v1) != config["infoHash"]:
+        raise ValueError("Generated torrent infohash differs")
+    params.save_path = str(pathlib.Path(config["savePath"]))
+    params.flags &= ~lt.torrent_flags.auto_managed
+    params.flags &= ~lt.torrent_flags.paused
+    return params
+
+
+def receive_preflight(config):
+    port = free_peer_port()
+    session = lt.session({
+        "listen_interfaces": f"127.0.0.1:{port}", "outgoing_interfaces": "127.0.0.1",
+        "enable_incoming_tcp": False, "enable_outgoing_tcp": False,
+        "enable_incoming_utp": True, "enable_outgoing_utp": False,
+        "enable_dht": False, "enable_lsd": False, "enable_upnp": False, "enable_natpmp": False,
+        "dht_bootstrap_nodes": "", "connections_limit": 2,
+        "alert_mask": lt.alert.category_t.error_notification | lt.alert.category_t.peer_notification,
+    })
+    handle = session.add_torrent(torrent_parameters(config))
+    incoming = False
+    deadline = time.monotonic() + 40
+    emit({"ready": True, "protocol": "utp", "port": port})
+    while time.monotonic() < deadline:
+        for peer in handle.get_peer_info():
+            if not peer.flags & UTP_SOCKET or peer.flags & lt.peer_info.local_connection or peer.ip[0] != "127.0.0.1":
+                raise RuntimeError("Local preflight receiver used an unexpected connection")
+            incoming = True
+        for alert in session.pop_alerts():
+            if isinstance(alert, (lt.torrent_error_alert, lt.listen_failed_alert)):
+                raise RuntimeError(alert.message())
+        if handle.status().is_seeding:
+            payload = (pathlib.Path(config["savePath"]) / "wan.bin").read_bytes()
+            emit({"complete": True, "protocol": "utp", "incomingUtpPeerSeen": incoming,
+                  "verifiedPayloadBytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()})
+            return
+        time.sleep(.05)
+    raise RuntimeError("Local preflight uTP receiver timed out")
+
+
 def main():
     if lt.__version__ != "2.0.14.0":
         raise RuntimeError("Unexpected pinned libtorrent fixture binding")
     config = json.loads(line())
+    if sys.argv[1:] == ["--receive"]:
+        receive_preflight(config)
+        return
     proxy = config["connectProxy"]
     if type(proxy["port"]) is not int or not 1 <= proxy["port"] <= 65535:
         raise ValueError("Invalid loopback SOCKS port")
@@ -115,18 +176,11 @@ def main():
     target = (str(ipaddress.IPv4Address(target["host"])), target["port"])
     if type(target[1]) is not int or not 49152 <= target[1] <= 65535:
         raise ValueError("Target must use an owned high UDP port")
-    for attempt in range(32):
-        port = 49152 + secrets.randbelow(16384)
-        with socket.socket() as tcp, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-            try:
-                tcp.bind(("127.0.0.1", port))
-                udp.bind(("127.0.0.1", port))
-                break
-            except OSError:
-                if attempt == 31:
-                    raise
+    port = free_peer_port()
     session = lt.session({
-        "listen_interfaces": f"127.0.0.1:{port}", "outgoing_interfaces": "127.0.0.1",
+        # SOCKS owns the outgoing UDP socket. Binding outgoing_interfaces here
+        # makes stock libtorrent reject its proxy socket with no_such_device.
+        "listen_interfaces": f"127.0.0.1:{port}",
         "enable_incoming_tcp": False, "enable_outgoing_tcp": False,
         "enable_incoming_utp": False, "enable_outgoing_utp": True,
         "enable_dht": False, "enable_lsd": False, "enable_upnp": False, "enable_natpmp": False,
@@ -135,23 +189,15 @@ def main():
         "proxy_hostname": "127.0.0.1", "proxy_port": proxy["port"],
         "proxy_username": proxy["username"], "proxy_password": proxy["password"],
         "proxy_peer_connections": True, "proxy_hostnames": True,
-        "alert_mask": lt.alert.category_t.error_notification | lt.alert.category_t.peer_notification,
+        "alert_mask": lt.alert.category_t.error_notification | lt.alert.category_t.peer_notification
+        | lt.alert.category_t.connect_notification,
     })
     ip_filter = lt.ip_filter()
     ip_filter.add_rule("0.0.0.0", "255.255.255.255", 1)
     ip_filter.add_rule("::", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", 1)
     ip_filter.add_rule(target[0], target[0], 0)
     session.set_ip_filter(ip_filter)
-    params = lt.add_torrent_params()
-    params.ti = lt.torrent_info(str(pathlib.Path(config["torrent"])))
-    if list(params.ti.trackers()) or params.ti.num_files() != 1 or params.ti.total_size() != 524288:
-        raise ValueError("Expected the generated trackerless 512 KiB fixture")
-    if str(params.ti.info_hashes().v1) != config["infoHash"]:
-        raise ValueError("Generated torrent infohash differs")
-    params.save_path = str(pathlib.Path(config["savePath"]))
-    params.flags &= ~lt.torrent_flags.auto_managed
-    params.flags &= ~lt.torrent_flags.paused
-    handle = session.add_torrent(params)
+    handle = session.add_torrent(torrent_parameters(config))
     deadline = time.monotonic() + 30
     while not handle.status().is_seeding:
         for alert in session.pop_alerts():
