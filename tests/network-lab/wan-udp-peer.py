@@ -18,7 +18,11 @@ UTP_SOCKET = 1 << 17
 
 
 def emit(value):
-    print(json.dumps(value, separators=(",", ":")), flush=True)
+    report = json.dumps(value, separators=(",", ":"))
+    print(report, flush=True)
+    # Retain the final native peer errors even when the parent times out before
+    # reading its stop response. Input credentials are never part of a report.
+    print(report, file=sys.stderr, flush=True)
 
 
 def line():
