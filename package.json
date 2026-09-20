@@ -42,6 +42,7 @@
     "smoke:path-dns:native": "bun tests/network-lab/path-dns.ts --native",
     "smoke:discovery": "bun tests/network-lab/discovery.ts",
     "smoke:discovery-dedup": "bun tests/network-lab/discovery.ts --duplicates",
+    "smoke:discovery-magnet": "bun tests/network-lab/discovery.ts --magnet",
     "smoke:discovery-policy": "bun tests/network-lab/discovery-policy.ts",
     "smoke:discovery-transition": "bun tests/network-lab/discovery-transition.ts",
     "smoke:webseed": "bun tests/network-lab/webseed.ts",
