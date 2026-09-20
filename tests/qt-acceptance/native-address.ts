@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { createSocket } from "node:dgram";
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { createLab, startSeed, verifyPayload } from "../lab";
@@ -26,6 +26,7 @@ const dhtErrors: string[] = [];
 const dhtEvidence = join(lab.root, "dht-observer.json");
 let observationWrite = Promise.resolve();
 try {
+    dht.on("error", error => dhtErrors.push(String(error)));
     dht.on("message", (packet, remote) => {
         try {
             assert(dhtQueries.length < 512, "DHT observer request limit");
@@ -39,7 +40,10 @@ try {
             assert(["127.0.0.6", "127.0.0.7"].includes(remote.address), "Unexpected Native DHT source");
             dhtQueries.push({source: remote.address, query, nodeId: args.id.toString("hex"), at: Date.now()});
             const snapshot = JSON.stringify({queries: dhtQueries});
-            observationWrite = observationWrite.then(() => writeFile(dhtEvidence, snapshot))
+            observationWrite = observationWrite.then(async () => {
+                await writeFile(`${dhtEvidence}.tmp`, snapshot);
+                await rename(`${dhtEvidence}.tmp`, dhtEvidence);
+            })
                 .catch(error => { dhtErrors.push(String(error)); });
             const response: Record<string, Value> = {id: Buffer.alloc(20, 7)};
             if (query !== "ping") response.nodes = Buffer.alloc(0);
