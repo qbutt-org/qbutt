@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { createSocket } from "node:dgram";
 import { cp, mkdtemp, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
+import { createServer, isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { sha256 } from "../fixtures/generate";
@@ -12,7 +12,12 @@ import { startProxy } from "./proxy";
 
 const PROTOCOL = 4;
 const GATEWAY_PROTOCOL = 2;
-const PUBLIC_FIXTURE_ADDRESS = "1.0.0.2";
+const useIPv6 = process.argv.includes("--ipv6");
+const PUBLIC_FIXTURE_ADDRESS = useIPv6
+    ? `2a00:${Array.from({ length: 7 }, () => (randomBytes(2).readUInt16BE(0) || 1).toString(16)).join(":")}`
+    : "1.0.0.2";
+const PUBLIC_FIXTURE_FAMILY = useIPv6 ? "ipv6" : "ipv4";
+const SEED_ADDRESS = useIPv6 ? "::1" : "127.0.0.1";
 const LOOPBACK_INTERFACE = 1;
 const useUtp = process.argv.includes("--utp");
 
@@ -101,15 +106,14 @@ async function addLoopbackAddress(add: boolean): Promise<void> {
     assert(powershell, "PowerShell 7 is required for the gateway lab");
     const script = add ? String.raw`
 $ErrorActionPreference = 'Stop'
-$interface = Get-NetIPInterface -InterfaceIndex $env:QBUTT_GATEWAY_LAB_INTERFACE -AddressFamily IPv4 -ErrorAction Stop
+$interface = Get-NetIPInterface -InterfaceIndex $env:QBUTT_GATEWAY_LAB_INTERFACE -AddressFamily $env:QBUTT_GATEWAY_LAB_FAMILY -ErrorAction Stop
 if ($interface.InterfaceAlias -notlike '*Loopback*') { throw 'Controlled public fixture interface is not the Windows loopback.' }
-$existing = Get-NetIPAddress -AddressFamily IPv4 -IPAddress $env:QBUTT_GATEWAY_LAB_ADDRESS -ErrorAction SilentlyContinue
+$existing = Get-NetIPAddress -AddressFamily $env:QBUTT_GATEWAY_LAB_FAMILY -IPAddress $env:QBUTT_GATEWAY_LAB_ADDRESS -ErrorAction SilentlyContinue
 if ($existing) { throw 'The controlled public fixture address is already assigned; refusing to borrow it.' }
 try {
-New-NetIPAddress -InterfaceIndex $env:QBUTT_GATEWAY_LAB_INTERFACE -IPAddress $env:QBUTT_GATEWAY_LAB_ADDRESS ` +
-        String.raw`-PrefixLength 32 -AddressFamily IPv4 -PolicyStore ActiveStore -SkipAsSource $true | Out-Null
+New-NetIPAddress -InterfaceIndex $env:QBUTT_GATEWAY_LAB_INTERFACE -IPAddress $env:QBUTT_GATEWAY_LAB_ADDRESS -PrefixLength $env:QBUTT_GATEWAY_LAB_PREFIX -AddressFamily $env:QBUTT_GATEWAY_LAB_FAMILY -PolicyStore ActiveStore -SkipAsSource $true | Out-Null
 $active = Get-NetIPAddress -InterfaceIndex $env:QBUTT_GATEWAY_LAB_INTERFACE -IPAddress $env:QBUTT_GATEWAY_LAB_ADDRESS -ErrorAction Stop
-if ($active.PrefixLength -ne 32) { throw 'Controlled public fixture address validation failed.' }
+if ($active.PrefixLength -ne [int]$env:QBUTT_GATEWAY_LAB_PREFIX) { throw 'Controlled public fixture address validation failed.' }
 }
 catch {
     Get-NetIPAddress -InterfaceIndex $env:QBUTT_GATEWAY_LAB_INTERFACE -IPAddress $env:QBUTT_GATEWAY_LAB_ADDRESS -ErrorAction SilentlyContinue |
@@ -123,6 +127,8 @@ Get-NetIPAddress -InterfaceIndex $env:QBUTT_GATEWAY_LAB_INTERFACE -IPAddress $en
 `;
     await run([powershell, "-NoProfile", "-NonInteractive", "-Command", script], { env: {
         QBUTT_GATEWAY_LAB_ADDRESS: PUBLIC_FIXTURE_ADDRESS,
+        QBUTT_GATEWAY_LAB_FAMILY: useIPv6 ? "IPv6" : "IPv4",
+        QBUTT_GATEWAY_LAB_PREFIX: useIPv6 ? "128" : "32",
         QBUTT_GATEWAY_LAB_INTERFACE: String(LOOPBACK_INTERFACE),
     } });
 }
@@ -131,7 +137,7 @@ async function probeTcpUdpPort(host: string): Promise<number> {
     for (let attempt = 0; attempt < 128; ++attempt) {
         const port = 49152 + (randomBytes(2).readUInt16BE(0) % 16384);
         const tcp = createServer();
-        const udp = createSocket("udp4");
+        const udp = createSocket(useIPv6 ? "udp6" : "udp4");
         try {
             await new Promise<void>((accept, reject) => {
                 tcp.once("error", reject);
@@ -223,7 +229,9 @@ import libtorrent as lt
 if lt.__version__ != "2.0.14.0": raise RuntimeError("Unexpected libtorrent fixture binding")
 torrent, save_path, host, port, listen_port = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
 utp = sys.argv[6] == "utp"
-session = lt.session({"listen_interfaces":f"127.0.0.1:{listen_port}", "outgoing_interfaces":"127.0.0.1",
+source_host = sys.argv[7]
+source_endpoint = lambda address, port: f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
+session = lt.session({"listen_interfaces":source_endpoint(source_host,listen_port), "outgoing_interfaces":source_host,
  "enable_dht":False,"enable_lsd":False,"enable_upnp":False,"enable_natpmp":False,
  "enable_incoming_utp":utp,"enable_outgoing_utp":utp,"enable_incoming_tcp":False,"enable_outgoing_tcp":not utp,
  "alert_mask":lt.alert.category_t.error_notification | lt.alert.category_t.peer_notification | lt.alert.category_t.connect_notification,
@@ -238,13 +246,13 @@ while not handle.status().is_seeding:
   if isinstance(alert,(lt.torrent_error_alert,lt.listen_failed_alert)): raise RuntimeError(alert.message())
  time.sleep(.05)
 handle.connect_peer((host,port))
-print(json.dumps({"ready":True,"target":f"{host}:{port}","verifiedPayloadBytes":handle.status().total_done}),flush=True)
+print(json.dumps({"ready":True,"target":source_endpoint(host,port),"verifiedPayloadBytes":handle.status().total_done}),flush=True)
 done=threading.Event(); threading.Thread(target=lambda:(sys.stdin.read(),done.set()),daemon=True).start()
 peers=set(); local_endpoints=set(); peer_errors=[]
 while not done.wait(.05):
  info=handle.get_peer_info()
  peers.update(peer.ip[0] for peer in info)
- local_endpoints.update(f"{peer.local_endpoint[0]}:{peer.local_endpoint[1]}" for peer in info)
+ local_endpoints.update(source_endpoint(peer.local_endpoint[0],peer.local_endpoint[1]) for peer in info)
  for alert in session.pop_alerts():
   if isinstance(alert,lt.torrent_error_alert): raise RuntimeError(alert.message())
   if isinstance(alert,(lt.peer_error_alert,lt.peer_disconnected_alert)) and len(peer_errors)<32: peer_errors.append(alert.message())
@@ -277,11 +285,15 @@ async function firstLine(reader: ReadableStreamDefaultReader<Uint8Array>, label:
 async function startInboundSeed(python: string, root: string, fixtures: string, endpoint: string) {
     const separator = endpoint.lastIndexOf(":");
     assert(separator > 0, "Gateway returned an invalid public endpoint");
+    const address = endpoint.slice(0, separator);
+    const host = useIPv6 ? address.slice(1, -1) : address;
+    assert.equal(isIP(host), useIPv6 ? 6 : 4, "Gateway returned a public endpoint with the wrong family");
+    assert(!useIPv6 || (address.startsWith("[") && address.endsWith("]")), "IPv6 endpoint is not bracketed");
     const source = join(root, "inbound-seed.py");
     await writeFile(source, inboundSeedSource);
-    const listenPort = await probeTcpUdpPort("127.0.0.1");
+    const listenPort = await probeTcpUdpPort(SEED_ADDRESS);
     const child = Bun.spawn([python, source, join(fixtures, "v1.torrent"), join(fixtures, "seed"),
-        endpoint.slice(0, separator), endpoint.slice(separator + 1), String(listenPort), useUtp ? "utp" : "tcp"], {
+        host, endpoint.slice(separator + 1), String(listenPort), useUtp ? "utp" : "tcp", SEED_ADDRESS], {
         stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(root, "inbound-seed.stderr.log")), windowsHide: true,
     });
     const reader = child.stdout.getReader();
@@ -358,7 +370,7 @@ await allowLabNetwork([process.execPath]);
 await run([process.execPath, "build", "--compile", wrapperFile, "--outfile", wrapper]);
 process.env.QBUTT_LAB_EXE = join(bundle, basename(originalExecutable));
 
-const lab = await createLab(useUtp ? "gateway-utp" : "gateway");
+const lab = await createLab(`gateway${useIPv6 ? "-ipv6" : ""}${useUtp ? "-utp" : ""}`);
 const tracePath = join(lab.root, "gateway-v4-trace.jsonl");
 process.env.QBUTT_REAL_NET = realNet;
 process.env.QBUTT_GATEWAY_TRACE = tracePath;
@@ -435,10 +447,11 @@ try {
     const firstPath = opened.paths[0]!;
     assert(opened.open && opened.pinned && firstPath.open
         && firstPath.gateway.tcp === !useUtp && firstPath.gateway.udp === useUtp
-        && firstPath.gateway.family === "ipv4");
+        && firstPath.gateway.family === PUBLIC_FIXTURE_FAMILY);
     const firstEndpoint = firstPath.gateway.publicEndpoint!;
     const firstExpiry = firstPath.gateway.expiresUnixMilli!;
-    assert(firstEndpoint === `${PUBLIC_FIXTURE_ADDRESS}:${publicPort}` && firstExpiry > Date.now());
+    assert(firstEndpoint === `${useIPv6 ? `[${PUBLIC_FIXTURE_ADDRESS}]` : PUBLIC_FIXTURE_ADDRESS}:${publicPort}`
+        && firstExpiry > Date.now());
 
     const destination = join(lab.root, "downloads");
     const hash = await lab.add("v1", destination);
@@ -463,7 +476,7 @@ try {
     seed = undefined;
     assert(seedFinal.uploadPayloadBytes >= verifiedBytes && seedFinal.downloadPayloadBytes === 0,
         "Independent inbound seed did not account for the verified payload");
-    const originalPeer = `${ingressPeer.peer}:${ingressPeer.port}`;
+    const originalPeer = `${useIPv6 ? `[${ingressPeer.peer}]` : ingressPeer.peer}:${ingressPeer.port}`;
     assert(seedFinal.localEndpoints.includes(originalPeer),
         "qbutt peer telemetry did not preserve the independent seed's exact source endpoint");
     const metered = await waitFor("real gateway wire counters", readStatus, status => {
@@ -489,6 +502,7 @@ try {
     await lab.checkpoint({
         check: "real-gateway-trusted-ingress-and-renewal", protocol: PROTOCOL,
         qbuttNetCommit: sourceLock.qbuttNet.commit, pathId: firstPath.pathId, generation: firstPath.generation,
+        publicFamily: PUBLIC_FIXTURE_FAMILY,
         publicEndpoint: firstEndpoint, firstExpiry, renewedExpiry: renewedPath.gateway.expiresUnixMilli,
         trustedPeer: { address: ingressPeer.peer, port: ingressPeer.port, payloadDownload: ingressPeer.payloadDownload },
         verifiedBytes, engineVerifiedBytes: credited!.verifiedDownload, seedUploadPayloadBytes: seedFinal.uploadPayloadBytes, wire,
