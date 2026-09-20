@@ -140,7 +140,7 @@ def main():
     session.set_ip_filter(ip_filter)
     params = lt.add_torrent_params()
     params.ti = lt.torrent_info(str(pathlib.Path(config["torrent"])))
-    if params.ti.trackers() or params.ti.num_files() != 1 or params.ti.total_size() != 524288:
+    if list(params.ti.trackers()) or params.ti.num_files() != 1 or params.ti.total_size() != 524288:
         raise ValueError("Expected the generated trackerless 512 KiB fixture")
     if str(params.ti.info_hashes().v1) != config["infoHash"]:
         raise ValueError("Generated torrent infohash differs")
