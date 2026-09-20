@@ -6819,16 +6819,17 @@ void SessionImpl::handleTrackerAlert(const lt::tracker_alert *alert)
     [[maybe_unused]] const QMutexLocker updatedTrackerStatusesLocker {&m_updatedTrackerStatusesMutex};
 
     const auto prevSize = m_updatedTrackerStatuses.size();
-    QMap<int, int> &updateInfo = m_updatedTrackerStatuses[torrent->nativeHandle()][std::string(alert->tracker_url())][alert->local_endpoint];
-    if (prevSize < m_updatedTrackerStatuses.size())
-        updateTrackerEntryStatuses(torrent->nativeHandle());
+    QHash<TrackerEndpointID, int> &updateInfo = m_updatedTrackerStatuses[torrent->nativeHandle()][std::string(alert->tracker_url())];
 
     if (alert->type() == lt::tracker_reply_alert::alert_type)
     {
-        const int numPeers = static_cast<const lt::tracker_reply_alert *>(alert)->num_peers;
-        const int protocolVersionNum = (static_cast<const lt::tracker_reply_alert *>(alert)->version == lt::protocol_version::V1) ? 1 : 2;
-        updateInfo.insert(protocolVersionNum, numPeers);
+        const auto *reply = static_cast<const lt::tracker_reply_alert *>(alert);
+        const int protocolVersion = (reply->version == lt::protocol_version::V1) ? 1 : 2;
+        updateInfo.insert(trackerEndpointID(reply->local_endpoint, reply->route, protocolVersion), reply->num_peers);
     }
+
+    if (prevSize < m_updatedTrackerStatuses.size())
+        updateTrackerEntryStatuses(torrent->nativeHandle());
 }
 
 void SessionImpl::handleTorrentConflictAlert(const lt::torrent_conflict_alert *alert)
@@ -7013,7 +7014,7 @@ void SessionImpl::updateTrackerEntryStatuses(lt::torrent_handle torrentHandle)
             std::vector<lt::announce_entry> nativeTrackers = torrentHandle.trackers();
 
             QMutexLocker updatedTrackerStatusesLocker {&m_updatedTrackerStatusesMutex};
-            QHash<std::string, QHash<lt::tcp::endpoint, QMap<int, int>>> updatedTrackers = m_updatedTrackerStatuses.take(torrentHandle);
+            QHash<std::string, QHash<TrackerEndpointID, int>> updatedTrackers = m_updatedTrackerStatuses.take(torrentHandle);
             updatedTrackerStatusesLocker.unlock();
 
             invoke([this, infoHash = torrentHandle.info_hash(), nativeTrackers = std::move(nativeTrackers), updatedTrackers = std::move(updatedTrackers)]

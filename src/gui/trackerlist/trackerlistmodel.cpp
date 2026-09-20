@@ -117,6 +117,8 @@ struct TrackerListModel::Item final
     QString name {};
     int tier = -1;
     int btVersion = -1;
+    quint64 pathId = 0;
+    quint64 generation = 0;
     bool isUpdating = false;
     BitTorrent::TrackerEndpointState status = BitTorrent::TrackerEndpointState::NotContacted;
     QString message {};
@@ -140,7 +142,9 @@ struct TrackerListModel::Item final
             hashed_unique<tag<struct ByID>, composite_key<
                     Item,
                     member<Item, QString, &Item::name>,
-                    member<Item, int, &Item::btVersion>
+                    member<Item, int, &Item::btVersion>,
+                    member<Item, quint64, &Item::pathId>,
+                    member<Item, quint64, &Item::generation>
             >>
     >> childItems {};
 
@@ -177,6 +181,8 @@ TrackerListModel::Item::Item(const BitTorrent::TrackerEntryStatus &trackerEntryS
 TrackerListModel::Item::Item(const std::shared_ptr<Item> &parentItem, const BitTorrent::TrackerEndpointStatus &endpointStatus)
     : name {endpointStatus.name}
     , btVersion {endpointStatus.btVersion}
+    , pathId {endpointStatus.pathId}
+    , generation {endpointStatus.generation}
     , parentItem {parentItem}
 {
     fillFrom(endpointStatus);
@@ -207,6 +213,8 @@ void TrackerListModel::Item::fillFrom(const BitTorrent::TrackerEndpointStatus &e
     Q_ASSERT(!parentItem.expired());
     Q_ASSERT(endpointStatus.name == name);
     Q_ASSERT(endpointStatus.btVersion == btVersion);
+    Q_ASSERT(endpointStatus.pathId == pathId);
+    Q_ASSERT(endpointStatus.generation == generation);
 
     isUpdating = endpointStatus.isUpdating;
     status = endpointStatus.state;
@@ -401,14 +409,14 @@ void TrackerListModel::addTrackerItem(const BitTorrent::TrackerEntryStatus &trac
 
 void TrackerListModel::updateTrackerItem(const std::shared_ptr<Item> &item, const BitTorrent::TrackerEntryStatus &trackerEntryStatus)
 {
-    QSet<std::pair<QString, int>> endpointItemIDs;
+    QSet<BitTorrent::TrackerEndpointID> endpointItemIDs;
     QList<std::shared_ptr<Item>> newEndpointItems;
     for (const auto &[id, endpointStatus] : trackerEntryStatus.endpoints.asKeyValueRange())
     {
         endpointItemIDs.insert(id);
 
         auto &itemsByID = item->childItems.get<ByID>();
-        if (const auto &iter = itemsByID.find(std::make_tuple(id.first, id.second)); iter != itemsByID.end())
+        if (const auto &iter = itemsByID.find(std::make_tuple(id.localEndpoint, id.btVersion, id.pathId, id.generation)); iter != itemsByID.end())
         {
             (*iter)->fillFrom(endpointStatus);
         }
@@ -425,7 +433,7 @@ void TrackerListModel::updateTrackerItem(const std::shared_ptr<Item> &item, cons
     auto it = item->childItems.begin();
     while (it != item->childItems.end())
     {
-        if (const auto endpointItemID = std::make_pair((*it)->name, (*it)->btVersion)
+        if (const BitTorrent::TrackerEndpointID endpointItemID {(*it)->name, (*it)->pathId, (*it)->generation, (*it)->btVersion}
                 ; endpointItemIDs.contains(endpointItemID))
         {
             ++it;
@@ -597,7 +605,9 @@ QVariant TrackerListModel::data(const QModelIndex &index, const int role) const
         switch (index.column())
         {
         case COL_URL:
-            return itemPtr->name;
+            return (isEndpoint && (itemPtr->pathId != 0))
+                ? tr("%1 (path %2, generation %3)").arg(itemPtr->name, QString::number(itemPtr->pathId)
+                    , QString::number(itemPtr->generation)) : itemPtr->name;
         case COL_TIER:
             return (isEndpoint || (index.row() < STICKY_ROW_COUNT)) ? QString() : QString::number(itemPtr->tier);
         case COL_PROTOCOL:

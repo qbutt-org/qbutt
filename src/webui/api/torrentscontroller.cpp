@@ -78,6 +78,8 @@ const QString KEY_TRACKER_STATUS = u"status"_s;
 const QString KEY_TRACKER_TIER = u"tier"_s;
 const QString KEY_TRACKER_MSG = u"msg"_s;
 const QString KEY_TRACKER_BT_VERSION = u"bt_version"_s;
+const QString KEY_TRACKER_PATH_ID = u"pathId"_s;
+const QString KEY_TRACKER_GENERATION = u"generation"_s;
 const QString KEY_TRACKER_PEERS_COUNT = u"num_peers"_s;
 const QString KEY_TRACKER_SEEDS_COUNT = u"num_seeds"_s;
 const QString KEY_TRACKER_LEECHES_COUNT = u"num_leeches"_s;
@@ -302,6 +304,8 @@ namespace
                     {KEY_TRACKER_STATUS, static_cast<int>(endpoint.state)},
                     {KEY_TRACKER_MSG, endpoint.message},
                     {KEY_TRACKER_BT_VERSION, static_cast<int>(endpoint.btVersion)},
+                    {KEY_TRACKER_PATH_ID, QString::number(endpoint.pathId)},
+                    {KEY_TRACKER_GENERATION, static_cast<qint64>(endpoint.generation)},
                     {KEY_TRACKER_PEERS_COUNT, endpoint.numPeers},
                     {KEY_TRACKER_SEEDS_COUNT, endpoint.numSeeds},
                     {KEY_TRACKER_LEECHES_COUNT, endpoint.numLeeches},

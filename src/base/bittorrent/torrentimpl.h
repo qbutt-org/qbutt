@@ -308,7 +308,7 @@ namespace BitTorrent
         void requestResumeData(lt::resume_data_flags_t flags = {});
         void deferredRequestResumeData();
         void handleMoveStorageJobFinished(const Path &path, MoveStorageContext context, bool hasOutstandingJob);
-        TrackerEntryStatus updateTrackerEntryStatus(const lt::announce_entry &announceEntry, const QHash<lt::tcp::endpoint, QMap<int, int>> &updateInfo);
+        TrackerEntryStatus updateTrackerEntryStatus(const lt::announce_entry &announceEntry, const QHash<TrackerEndpointID, int> &updateInfo);
         void resetTrackerEntryStatuses();
 
     signals:

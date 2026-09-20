@@ -31,12 +31,28 @@
 #include <QHash>
 #include <QString>
 
+#include <libtorrent/fwd.hpp>
+#include <libtorrent/peer_route.hpp>
+
 #include "announcetimepoint.h"
 
 class QStringView;
 
 namespace BitTorrent
 {
+    struct TrackerEndpointID
+    {
+        QString localEndpoint;
+        quint64 pathId = 0;
+        quint64 generation = 0;
+        int btVersion = 1;
+
+        bool operator==(const TrackerEndpointID &) const = default;
+    };
+
+    TrackerEndpointID trackerEndpointID(const lt::tcp::endpoint &localEndpoint, lt::peer_route_context route, int btVersion);
+    std::size_t qHash(const TrackerEndpointID &key, std::size_t seed = 0);
+
     enum class TrackerEndpointState
     {
         NotContacted = 1,
@@ -50,6 +66,8 @@ namespace BitTorrent
     {
         QString name {};
         int btVersion = 1;
+        quint64 pathId = 0;
+        quint64 generation = 0;
 
         bool isUpdating = false;
         TrackerEndpointState state = TrackerEndpointState::NotContacted;
@@ -81,7 +99,7 @@ namespace BitTorrent
         AnnounceTimePoint nextAnnounceTime {};
         AnnounceTimePoint minAnnounceTime {};
 
-        QHash<std::pair<QString, int>, TrackerEndpointStatus> endpoints {};
+        QHash<TrackerEndpointID, TrackerEndpointStatus> endpoints {};
 
         void clear();
     };

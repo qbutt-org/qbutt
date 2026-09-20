@@ -28,6 +28,22 @@
 
 #include "trackerentrystatus.h"
 
+#include <sstream>
+
+#include "base/utils/string.h"
+
+BitTorrent::TrackerEndpointID BitTorrent::trackerEndpointID(const lt::tcp::endpoint &localEndpoint
+        , const lt::peer_route_context route, const int btVersion)
+{
+    return {Utils::String::fromLatin1((std::ostringstream() << localEndpoint).str())
+        , route.path_id, route.generation, btVersion};
+}
+
+std::size_t BitTorrent::qHash(const TrackerEndpointID &key, const std::size_t seed)
+{
+    return qHashMulti(seed, key.localEndpoint, key.pathId, key.generation, key.btVersion);
+}
+
 void BitTorrent::TrackerEntryStatus::clear()
 {
     url.clear();

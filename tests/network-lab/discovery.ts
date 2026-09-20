@@ -250,6 +250,22 @@ try {
         const identities = [0, 1].map(side => new Set(dhtQueries.filter(query => query.side === side).map(query => query.nodeId)));
         assert([...identities[0]!].every(id => !identities[1]!.has(id)), "DHT paths reused a node ID");
         assert(trackerQueries.http > 0 && trackerQueries.udp > 0);
+        const httpTrackerURL = `http://127.0.0.11:${tracker!.port}/announce`;
+        const activePaths = simultaneous.paths.filter(path => path.open);
+        const routeStatuses = await waitFor("distinct HTTP tracker replies on both paths", () =>
+            lab.json<{ url: string; endpoints: { name: string; bt_version: number; pathId: string;
+                generation: number; num_peers: number }[] }[]>(`torrents/trackers?hash=${hash}`),
+        entries => {
+            const endpoints = entries.find(entry => entry.url === httpTrackerURL)?.endpoints
+                .filter(endpoint => endpoint.bt_version === 1) ?? [];
+            return endpoints.length === 2 && endpoints[0]!.name === endpoints[1]!.name
+                && endpoints.every(endpoint => endpoint.num_peers === 1)
+                && activePaths.length === 2 && activePaths.every(path => endpoints.some(endpoint =>
+                    endpoint.pathId === path.pathId && endpoint.generation === path.generation));
+        }, 30000);
+        await lab.checkpoint({ check: "multipath-tracker-endpoint-identity", url: httpTrackerURL,
+            endpoints: routeStatuses.find(entry => entry.url === httpTrackerURL)?.endpoints,
+            responderQueries: trackerQueries.http });
         if (duplicates) {
             assert.equal(simultaneous.peers.length, endpoints.length);
             let samples = 0;

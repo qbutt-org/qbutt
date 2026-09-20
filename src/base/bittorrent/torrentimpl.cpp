@@ -47,7 +47,6 @@
 
 #include <QtSystemDetection>
 #include <QByteArray>
-#include <QCache>
 #include <QDebug>
 #include <QFileInfo>
 #include <QFuture>
@@ -101,20 +100,8 @@ namespace
         return entry;
     }
 
-    QString toString(const lt::tcp::endpoint &ltTCPEndpoint)
-    {
-        static QCache<lt::tcp::endpoint, QString> cache;
-
-        if (const QString *endpointName = cache.object(ltTCPEndpoint))
-            return *endpointName;
-
-        const auto endpointName = Utils::String::fromLatin1((std::ostringstream() << ltTCPEndpoint).str());
-        cache.insert(ltTCPEndpoint, new QString(endpointName));
-        return endpointName;
-    }
-
     void updateTrackerEntryStatus(TrackerEntryStatus &trackerEntryStatus, const lt::announce_entry &nativeEntry
-            , const QSet<int> &btProtocols, const QHash<lt::tcp::endpoint, QMap<int, int>> &updateInfo)
+            , const QSet<int> &btProtocols, const QHash<TrackerEndpointID, int> &updateInfo)
     {
         Q_ASSERT(trackerEntryStatus.url == QString::fromStdString(nativeEntry.url));
 
@@ -127,22 +114,29 @@ namespace
         int numNotWorking = 0;
         int numTrackerError = 0;
         int numUnreachable = 0;
+        QHash<TrackerEndpointID, TrackerEndpointStatus> updatedEndpoints;
+        updatedEndpoints.reserve(numEndpoints);
 
         for (const lt::announce_endpoint &ltAnnounceEndpoint : nativeEntry.endpoints)
         {
-            const auto endpointName = toString(ltAnnounceEndpoint.local_endpoint);
+            const lt::peer_route_context route = ltAnnounceEndpoint.route
+                ? ltAnnounceEndpoint.route->binding.context : ltAnnounceEndpoint.socket.route_context();
 
             for (const auto protocolVersion : btProtocols)
             {
                 Q_ASSERT((protocolVersion == 1) || (protocolVersion == 2));
                 const auto ltProtocolVersion = (protocolVersion == 1) ? lt::protocol_version::V1 : lt::protocol_version::V2;
                 const lt::announce_infohash &ltAnnounceInfo = ltAnnounceEndpoint.info_hashes[ltProtocolVersion];
-                const QMap<int, int> &endpointUpdateInfo = updateInfo[ltAnnounceEndpoint.local_endpoint];
-                TrackerEndpointStatus &trackerEndpointStatus = trackerEntryStatus.endpoints[std::make_pair(endpointName, protocolVersion)];
+                const TrackerEndpointID endpointID = trackerEndpointID(ltAnnounceEndpoint.local_endpoint, route, protocolVersion);
+                TrackerEndpointStatus &trackerEndpointStatus = updatedEndpoints[endpointID];
+                trackerEndpointStatus = trackerEntryStatus.endpoints.value(endpointID);
 
-                trackerEndpointStatus.name = endpointName;
+                trackerEndpointStatus.name = endpointID.localEndpoint;
                 trackerEndpointStatus.btVersion = protocolVersion;
-                trackerEndpointStatus.numPeers = endpointUpdateInfo.value(protocolVersion, trackerEndpointStatus.numPeers);
+                trackerEndpointStatus.pathId = endpointID.pathId;
+                trackerEndpointStatus.generation = endpointID.generation;
+                if (const int numPeers = updateInfo.value(endpointID, -1); numPeers >= 0)
+                    trackerEndpointStatus.numPeers = numPeers;
                 trackerEndpointStatus.numSeeds = ltAnnounceInfo.scrape_complete;
                 trackerEndpointStatus.numLeeches = ltAnnounceInfo.scrape_incomplete;
                 trackerEndpointStatus.numDownloaded = ltAnnounceInfo.scrape_downloaded;
@@ -202,18 +196,7 @@ namespace
             }
         }
 
-        if (trackerEntryStatus.endpoints.size() > numEndpoints)
-        {
-            // remove outdated endpoints
-            trackerEntryStatus.endpoints.removeIf([&nativeEntry](const QHash<std::pair<QString, int>, TrackerEndpointStatus>::iterator &iter)
-            {
-                return std::ranges::none_of(nativeEntry.endpoints
-                        , [&endpointName = std::get<0>(iter.key())](const auto &existingEndpoint)
-                {
-                    return (endpointName == toString(existingEndpoint.local_endpoint));
-                });
-            });
-        }
+        trackerEntryStatus.endpoints = std::move(updatedEndpoints);
 
         if (numEndpoints > 0)
         {
@@ -1884,7 +1867,7 @@ void TorrentImpl::applyFirstLastPiecePriority(const bool enabled)
     m_nativeHandle.prioritize_pieces(piecePriorities);
 }
 
-TrackerEntryStatus TorrentImpl::updateTrackerEntryStatus(const lt::announce_entry &announceEntry, const QHash<lt::tcp::endpoint, QMap<int, int>> &updateInfo)
+TrackerEntryStatus TorrentImpl::updateTrackerEntryStatus(const lt::announce_entry &announceEntry, const QHash<TrackerEndpointID, int> &updateInfo)
 {
     const auto it = std::ranges::find_if(m_trackerEntryStatuses
             , [&announceEntry](const TrackerEntryStatus &trackerEntryStatus)
