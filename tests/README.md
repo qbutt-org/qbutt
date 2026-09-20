@@ -375,6 +375,19 @@ live profile. Windows external SQLite import supports schema 9 and snapshots
 the source DB/WAL under write-excluding handles; unsupported schemas fail before
 installation. Torrents must have complete metadata before importing them.
 
+`smoke:profile-qt` joins these boundaries in four real application processes:
+the Tools import action rejects unsupported SQLite schema and incomplete torrent
+metadata, then prepares three generated native tasks; restart imports them stopped
+with manual management; native recheck and another restart preserve their policy
+preview requirement; the real Policies dialog acknowledges exactly one task.
+Its matching Remove torrent rule keeps payload files, the other tasks remain held,
+and a final restart must retain the same action receipt without replay. Qt property
+checks and offscreen Light/Fusion PNGs accompany byte/size/mtime checks of every
+source profile and payload. Set `QBUTT_QT_ACCEPTANCE_EXE` to the current
+`qbutt-qt-acceptance` build, `QBUTT_QT_ACCEPTANCE_BUNDLE` to its deployed Qt runtime,
+`QBUTT_PROFILE_DRIVER` to the service driver above, and `QBUTT_LAB_PYTHON` to the
+fixture interpreter. Run `bun run smoke:profile-qt`; no live profile is used.
+
 `smoke:proxy` exercises the bounded authenticated TCP fixture relay using real
 sockets. `smoke:network` drives the native client through that relay to a seed and
 HTTP tracker whose synthetic endpoints have no direct listener, kills the relay

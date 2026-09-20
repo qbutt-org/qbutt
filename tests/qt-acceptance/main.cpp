@@ -49,6 +49,7 @@
 #include <QSignalBlocker>
 #include <QStyle>
 #include <QTableWidget>
+#include <QTabWidget>
 #include <QThread>
 #include <QTimer>
 #include <QTreeWidget>
@@ -77,6 +78,7 @@
 #include "gui/optionsdialog.h"
 #include "gui/pathswidget.h"
 #include "gui/policiesdialog.h"
+#include "gui/profileimportdialog.h"
 #include "gui/properties/propertieswidget.h"
 #include "gui/properties/proptabbar.h"
 #include "gui/repairdialog.h"
@@ -732,6 +734,167 @@ namespace
         dialog.close();
     }
 
+    void exerciseProfileImport(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
+    {
+        const QString phase = spec.value(u"phase"_s).toString();
+        const QDir screenshots {spec.value(u"screenshots"_s).toString()};
+        auto *session = BitTorrent::Session::instance();
+        auto *policy = session->completionPolicy();
+        require((QApplication::palette().color(QPalette::Base).lightness() > 127)
+            && (QApplication::style()->name().compare(u"Fusion", Qt::CaseInsensitive) == 0)
+            && !Preferences::instance()->useCustomUITheme(), u"Import visual checks require Light/Fusion without a custom theme"_s);
+        window->hide();
+        if (phase == u"prepare")
+        {
+            require(session->torrents().isEmpty(), u"Import acceptance requires an empty isolated profile"_s);
+            requiredChild<QAction>(window, u"actionImportProfile"_s)->trigger();
+            auto *dialog = requiredChild<ProfileImportDialog>(window, u"ProfileImportDialog"_s);
+            auto *settings = requiredChild<FileSystemPathEdit>(dialog, u"profileSettingsFile"_s);
+            auto *data = requiredChild<FileSystemPathEdit>(dialog, u"profileDataDirectory"_s);
+            auto *base = requiredChild<FileSystemPathEdit>(dialog, u"profileSourceBase"_s);
+            auto *preview = requiredChild<QPushButton>(dialog, u"profileImportPreview"_s);
+            auto *apply = requiredChild<QPushButton>(dialog, u"profileImportApply"_s);
+            auto *ownership = requiredChild<QCheckBox>(dialog, u"profileImportOwnership"_s);
+            auto *rows = requiredChild<QTableWidget>(dialog, u"profileImportTorrents"_s);
+            auto *status = requiredChild<QLabel>(dialog, u"profileImportStatus"_s);
+            settings->setSelectedPath(Path(spec.value(u"sourceSettings"_s).toString()));
+            base->setSelectedPath(Path(spec.value(u"fixtureRoot"_s).toString()));
+            for (const QString &kind : {u"schema"_s, u"metadata"_s, u"valid"_s})
+            {
+                data->setSelectedPath(Path(spec.value(kind + u"Data"_s).toString()));
+                require(preview->isEnabled(), u"Generated import input did not enable preview"_s);
+                preview->click();
+                waitFor(u"Profile preview"_s, [=] { return preview->isEnabled(); });
+                require(!apply->isEnabled() && !ownership->isChecked(), u"Preview bypassed ownership consent"_s);
+                if (kind != u"valid")
+                {
+                    require(rows->rowCount() == 0 && !ownership->isEnabled()
+                        && status->text().startsWith(u"Cannot preview this profile:"_s)
+                        && status->text().contains(kind == u"schema" ? u"schema is unsupported"_s : u"metadata-incomplete"_s),
+                        u"Unsupported import was not rejected: "_s + status->text());
+                    require(dialog->grab().save(screenshots.filePath(u"refused-"_s + kind + u".png"_s)),
+                        u"Cannot render rejected import"_s);
+                    addCheck(evidence, {{u"name"_s, u"refused-"_s + kind}, {u"error"_s, status->text()},
+                        {u"rows"_s, 0}, {u"applyEnabled"_s, false}, {u"consentEnabled"_s, false}});
+                }
+            }
+            require(rows->rowCount() == 3, u"Valid native source did not preview three torrents"_s);
+            for (int row = 0; row < rows->rowCount(); ++row)
+                require(rows->item(row, 0)->checkState() == Qt::Checked, u"Unexpected import selection"_s);
+            ownership->setChecked(true);
+            require(apply->isEnabled(), u"Explicit ownership did not enable import"_s);
+            require(dialog->grab().save(screenshots.filePath(u"import-preview.png"_s)), u"Cannot render import preview"_s);
+            apply->click();
+            waitFor(u"Import preparation"_s, [=] { return dialog->findChild<QMessageBox *>() || apply->isEnabled(); });
+            auto *notice = dialog->findChild<QMessageBox *>();
+            require(notice && notice->text().contains(u"Restart qbutt"_s), status->text());
+            require(notice->grab().save(screenshots.filePath(u"import-prepared.png"_s)), u"Cannot render restart requirement"_s);
+            require(session->torrents().isEmpty(), u"Import bypassed its next-start boundary"_s);
+            notice->button(QMessageBox::Ok)->click();
+            addCheck(evidence, {{u"name"_s, u"import-prepared"_s}, {u"selected"_s, 3}, {u"liveTorrents"_s, 0}});
+            return;
+        }
+        require((phase == u"recheck") || (phase == u"acknowledge") || (phase == u"replay"), u"Unknown import phase"_s);
+        const int expectedCount = (phase == u"replay") ? 2 : 3;
+        require(session->torrents().size() == expectedCount, u"Imported torrent count differs after restart"_s);
+        for (auto *torrent : session->torrents())
+            require(torrent->isStopped() && !torrent->isAutoTMMEnabled() && torrent->isCompletionPolicyPreview(),
+                u"Imported torrent lost stopped/manual/preview state"_s);
+        PoliciesDialog dialog {window};
+        dialog.show();
+        auto *rows = requiredChild<QTableWidget>(&dialog, u"completionPoliciesPreview"_s);
+        if (phase == u"recheck")
+        {
+            requiredChild<QPushButton>(&dialog, u"completionPoliciesAdd"_s)->click();
+            auto *rules = requiredChild<QTableWidget>(&dialog, u"completionPoliciesRules"_s);
+            require(rules->rowCount() == 1, u"Import policy fixture requires one rule"_s);
+            rules->item(0, 0)->setText(u"import-ui-remove"_s);
+            auto *action = qobject_cast<QComboBox *>(rules->cellWidget(0, 6));
+            auto *notify = qobject_cast<QCheckBox *>(rules->cellWidget(0, 7));
+            require(action && notify && (action->findData(u"remove_torrent"_s) >= 0), u"Missing completion action editor"_s);
+            action->setCurrentIndex(action->findData(u"remove_torrent"_s));
+            notify->setChecked(false);
+            requiredChild<QCheckBox>(&dialog, u"completionPoliciesEnabled"_s)->setChecked(true);
+            answerMessageBox(&dialog, QMessageBox::Yes);
+            requiredChild<QPushButton>(&dialog, u"completionPoliciesSave"_s)->click();
+            require(policy->configuration().value(u"enabled"_s).toBool(), u"Policy UI did not save the rule"_s);
+            for (auto *torrent : session->torrents())
+                torrent->forceRecheck();
+        }
+        require(!policy->configuration().value(u"allow_delete_data"_s).toBool(), u"Import acceptance enabled payload deletion"_s);
+        waitFor(u"Imported native verification"_s, [=]
+        {
+            return std::ranges::all_of(session->torrents(), [](const BitTorrent::Torrent *torrent)
+            {
+                return torrent->isStopped() && !torrent->isChecking() && (torrent->progress() == 1);
+            });
+        });
+        if (phase != u"recheck")
+        {
+            waitFor(u"Imported completion barriers after restart"_s, [=]
+            {
+                const QJsonArray previews = policy->preview();
+                return (previews.size() == expectedCount) && std::ranges::all_of(previews, [](const QJsonValue &value)
+                {
+                    const QJsonObject item = value.toObject();
+                    const QJsonArray rules = item.value(u"rules"_s).toArray();
+                    return item.value(u"ready"_s).toBool() && item.value(u"preview_required"_s).toBool()
+                        && (rules.size() == 1) && (rules.first().toObject().value(u"rule"_s).toString() == u"import-ui-remove");
+                });
+            });
+            QElapsedTimer engineWindow;
+            engineWindow.start();
+            waitFor(u"Two completion timer ticks"_s, [&] { return engineWindow.elapsed() >= 2100; });
+            require(session->torrents().size() == expectedCount, u"Imported policy bypassed acknowledgement"_s);
+        }
+        requiredChild<QPushButton>(&dialog, u"completionPoliciesRefresh"_s)->click();
+        auto *tabs = dialog.findChild<QTabWidget *>();
+        require(tabs && (rows->rowCount() == expectedCount), u"Policy preview did not show imported tasks"_s);
+        tabs->setCurrentIndex(1);
+        for (int row = 0; row < rows->rowCount(); ++row)
+            require(rows->item(row, 4)->text() == u"Required", u"UI omitted imported preview requirement"_s);
+        if (phase != u"replay")
+            require(policy->journal().isEmpty(), u"Imported completion action ran before acknowledgement"_s);
+        if (phase == u"acknowledge")
+        {
+            rows->selectRow(0);
+            const QString selected = rows->item(0, 0)->data(Qt::UserRole).toString();
+            QPushButton *accept = nullptr;
+            for (auto *button : dialog.findChildren<QPushButton *>())
+            {
+                if (button->text() == u"Enable saved policies for selected imported torrent…")
+                    accept = button;
+            }
+            require(accept, u"Missing imported policy acknowledgement button"_s);
+            require(dialog.grab().save(screenshots.filePath(u"import-policy-held.png"_s)), u"Cannot render held imported policies"_s);
+            answerMessageBox(&dialog, QMessageBox::No);
+            accept->click();
+            require(policy->journal().isEmpty() && session->torrents().size() == 3, u"Declined acknowledgement ran a policy"_s);
+            answerMessageBox(&dialog, QMessageBox::Yes);
+            accept->click();
+            waitFor(u"Acknowledged imported task removal"_s, [=]
+            {
+                const QJsonArray journal = policy->journal();
+                return (session->torrents().size() == 2) && (journal.size() == 1)
+                    && (journal.first().toObject().value(u"status"_s).toString() == u"dispatched");
+            });
+            require(!session->getTorrent(BitTorrent::TorrentID::fromString(selected)), u"Policy removed a different imported task"_s);
+            writeObject(spec.value(u"receipt"_s).toString(), {{u"removed"_s, selected}, {u"journal"_s, policy->journal()}});
+        }
+        if (phase == u"replay")
+        {
+            const QJsonObject receipt = readObject(spec.value(u"receipt"_s).toString());
+            require(!session->getTorrent(BitTorrent::TorrentID::fromString(receipt.value(u"removed"_s).toString()))
+                && (policy->journal() == receipt.value(u"journal"_s).toArray()), u"Imported action replayed or changed after restart"_s);
+        }
+        for (auto *torrent : session->torrents())
+            require(torrent->isStopped() && torrent->isCompletionPolicyPreview(), u"Another imported task lost its preview barrier"_s);
+        require(dialog.grab().save(screenshots.filePath(u"import-"_s + phase + u".png"_s)), u"Cannot render imported policy phase"_s);
+        addCheck(evidence, {{u"name"_s, u"import-"_s + phase}, {u"remaining"_s, session->torrents().size()},
+            {u"preview"_s, policy->preview()}, {u"journal"_s, policy->journal()}});
+        dialog.close();
+    }
+
     void requireRedacted(const QByteArray &data, const QStringList &needles)
     {
         for (const QString &needle : needles)
@@ -1215,6 +1378,11 @@ namespace
     {
         MainWindow *window = application.mainWindow();
         require(window && BitTorrent::Session::instance()->isRestored(), u"Production application did not finish startup"_s);
+        if (spec.value(u"mode"_s).toString() == u"profile-import")
+        {
+            exerciseProfileImport(window, spec, evidence);
+            return;
+        }
         if (spec.value(u"mode"_s).toString() == u"appearance")
         {
             exerciseAppearance(application, window, spec, evidence);

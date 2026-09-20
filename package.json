@@ -15,6 +15,7 @@
     "smoke:storage-faults": "bun tests/repair/storage-faults.ts",
     "smoke:completion": "bun tests/completion-smoke.ts",
     "smoke:profile": "bun tests/profile-lab/smoke.ts",
+    "smoke:profile-qt": "bun tests/profile-lab/qt.ts",
     "smoke:proxy": "bun tests/network-lab/probe.ts",
     "smoke:network": "bun tests/network-lab/smoke.ts",
     "smoke:server-identity": "bun tests/network-lab/server-identity.ts",
