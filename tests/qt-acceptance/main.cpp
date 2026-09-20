@@ -1428,21 +1428,27 @@ void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evide
     require(loopbackIndex > 0, u"No loopback interface for isolated Native acceptance"_s);
     const auto native = [loopbackIndex](const QString &address)
     {
+        const bool ipv6 = QHostAddress(address).protocol() == QAbstractSocket::IPv6Protocol;
         PeerRouteEndpoint endpoint;
         endpoint.type = PeerRouteEndpoint::Type::Native;
-        endpoint.pathId = 1;
+        endpoint.pathId = ipv6 ? 2 : 1;
         endpoint.localAddress = address;
         endpoint.interfaceIndex = loopbackIndex;
-        endpoint.supportsIPv4 = true;
-        endpoint.supportsIPv6 = false;
+        endpoint.supportsIPv4 = !ipv6;
+        endpoint.supportsIPv6 = ipv6;
         endpoint.supportsUdp = true;
         return QList<PeerRouteEndpoint> {endpoint};
     };
     const QString missingInterface = u"qbutt-acceptance-absent-interface"_s;
-    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.6"_s)),
+    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.6"_s) + native(u"::1"_s)),
         u"Cannot admit controlled Native snapshot"_s);
     require(paths->m_statusRefresh.isActive() && (paths->m_process.state() == QProcess::NotRunning),
         u"Native-only Mixed does not poll without the child"_s);
+    const quint64 retainedIPv6Generation = paths->m_nativeEndpoints.back().generation;
+    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"::1"_s))
+        && (paths->m_nativeEndpoints.size() == 1)
+        && (paths->m_nativeEndpoints.front().generation == retainedIPv6Generation),
+        u"Removing IPv4 changed the unaffected IPv6 generation"_s);
     waitFor(u"Native-only disappearance"_s, [&] { return paths->m_nativeEndpoints.isEmpty(); }, 5000);
     require(paths->m_statusRefresh.isActive(), u"Missing Native address stopped recovery polling"_s);
     require(paths->setPolicy(u"pinned"_s), u"Cannot select initial remote path"_s);
@@ -1532,7 +1538,8 @@ void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evide
     torrent->stop();
     addCheck(evidence, {{u"name"_s, u"native-address-reconciliation"_s}, {u"oldGeneration"_s, static_cast<qint64>(oldGeneration)},
         {u"replacementGeneration"_s, static_cast<qint64>(replacementGeneration)}, {u"remoteConnectionPreserved"_s, true},
-        {u"nativeOnlyTimer"_s, true}, {u"unchangedSnapshotPreserved"_s, true}, {u"automaticReconnect"_s, true},
+        {u"nativeOnlyTimer"_s, true}, {u"unchangedFamilyPreserved"_s, true},
+        {u"unchangedSnapshotPreserved"_s, true}, {u"automaticReconnect"_s, true},
         {u"verifiedBytes"_s, torrent->completedSize()}, {u"physicalInterfaceChanged"_s, false}});
     paths->stopPath();
 }
