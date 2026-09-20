@@ -264,6 +264,13 @@ hash-verified, target-network and staging-storage summaries, a responsive cancel
 scan, and visible refusal for missing roots, hardlinks and reparse points. Every
 source and target tree is hashed before and after; the driver never clicks Apply,
 so no torrent, resume record, journal or payload write is created.
+Target checkboxes are available before analysis. The subset cases reject an empty
+selection, invalidate analysis and consent when selection changes, discard a
+cancelled worker result, and count only selected bytes. Hashing still includes
+adjacent ignored bytes required by v1 pieces; an incomplete boundary cannot be
+credited as verified. The full `smoke:qt` separately carries these priorities into
+the native job and commits only selected files, preserving an ignored extra tail
+and an absent ignored empty file.
 
 `smoke:staging` uses independent copies and the same native downloader for full
 and selected v1/v2/hybrid targets. It checks a read-only plan, renamed-source
