@@ -1499,7 +1499,25 @@ void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evide
     paths->m_statusRefresh.stop(); // Controlled snapshots replace OS events only inside this process driver.
     require(torrent->connectPeer(BitTorrent::PeerAddress::parse(spec.value(u"nativePeer"_s).toString())),
         u"Cannot enqueue Native fixture peer"_s);
-    waitFor(u"Native useful payload"_s, [&] { return peer(u"1"_s).value(u"payloadDownload"_s).toInteger() > 16384; });
+    const auto recordNativeAdmission = [&](const QString &phase)
+    {
+        const QJsonObject status = paths->statusData(true);
+        addCheck(evidence, {{u"name"_s, u"native-address-admission"_s}, {u"phase"_s, phase},
+            {u"publicTorrent"_s, !torrent->isPrivate()}, {u"mode"_s, status.value(u"mode"_s)},
+            {u"paths"_s, status.value(u"paths"_s)}, {u"peers"_s, status.value(u"peers"_s)},
+            {u"selector"_s, session->peerRouteDiagnostics()}, {u"polling"_s, paths->m_statusRefresh.isActive()}});
+    };
+    recordNativeAdmission(u"enqueued"_s);
+    try
+    {
+        waitFor(u"Native useful payload"_s, [&] { return peer(u"1"_s).value(u"payloadDownload"_s).toInteger() > 16384; });
+    }
+    catch (...)
+    {
+        recordNativeAdmission(u"failed"_s);
+        throw;
+    }
+    recordNativeAdmission(u"receiving"_s);
     const quint64 oldGeneration = paths->m_nativeEndpoints.front().generation;
     const QJsonValue oldNativePort = peer(u"1"_s).value(u"localPort"_s);
     const auto dhtQueries = [&](const QString &source)
