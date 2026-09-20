@@ -255,7 +255,11 @@ export async function startProxy(options: ProxyOptions) {
                             stats.uploadDatagramBytes += packet.length - 10;
                             relay.send(packet.subarray(10), target.port, target.host);
                         });
-                        relay.bind(0, "127.0.0.1", () => {
+                        // WAN targets require a routable source; only the owned
+                        // client tuple and exact target replies are accepted.
+                        // This fixture carrier follows the OS route, not an
+                        // explicitly selected physical interface.
+                        relay.bind(0, options.remoteAddress ? "0.0.0.0" : "127.0.0.1", () => {
                             if (client.destroyed) {
                                 relay.close();
                                 return;
