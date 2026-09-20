@@ -531,6 +531,7 @@ namespace
             if (wanted)
                 wantedPaths.insert(item->text());
         }
+        require(wantedPaths.size() == 3, u"The subset fixture did not select exactly three payload files"_s);
         requiredChild<QPushButton>(&preview, u"repairPreviewAnalyze"_s)->click();
         waitFor(u"Repair preview"_s, [&] { return (files->rowCount() > 0) && reviewed->isEnabled(); });
         require(snapshot(source) == sourceBefore && snapshot(destination) == targetBefore,

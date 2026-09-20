@@ -281,7 +281,7 @@ void RepairPreviewDialog::loadTarget()
         for (int column = 0; column < m_files->columnCount(); ++column)
             m_files->setItem(row, column, new QTableWidgetItem);
         auto *target = m_files->item(row, 0);
-        target->setText(info.filePath(row).toString());
+        target->setText(QDir::fromNativeSeparators(info.filePath(row).toString()));
         target->setData(Qt::UserRole, int(indexes.at(row)));
         target->setFlags(target->flags() | Qt::ItemIsUserCheckable);
         target->setCheckState(Qt::Checked);
