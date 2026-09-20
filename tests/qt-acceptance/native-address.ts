@@ -71,8 +71,10 @@ try {
             await mkdir(dirname(join(savePath, file.path)), {recursive: true});
             await writeFile(join(savePath, file.path), data);
         }
+        // Keep remote's partial payload available through the Native reconnect window.
         seeds.push(await startSeed(lab.python, lab.fixtures, torrent.name, lab.root, {savePath, pieces,
             label: `address-${side}`, listenAddress: side === 0 ? "127.0.0.1" : "127.0.0.5",
+            uploadRate: side === 0 ? 8 * 1024 : undefined,
             allowedPeerAddresses: side === 0 ? [] : ["127.0.0.6", "127.0.0.7"]}));
     }
     const credentials = {username: randomBytes(12).toString("hex"), password: randomBytes(24).toString("hex")};
