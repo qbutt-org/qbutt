@@ -1473,6 +1473,11 @@ void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evide
         torrent = session->findTorrent(descriptor->infoHash());
         return torrent != nullptr;
     });
+    // Admit both peers against one catalog so the first dial explores remote
+    // and the next explores the unused Native route.
+    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.6"_s)),
+        u"Cannot add Native alongside remote path"_s);
+    paths->m_statusRefresh.stop(); // Controlled snapshots replace OS events only inside this process driver.
     require(torrent->connectPeer(BitTorrent::PeerAddress::parse(spec.value(u"remotePeer"_s).toString())),
         u"Cannot enqueue remote fixture peer"_s);
     const auto peer = [paths](const QString &pathId)
@@ -1494,9 +1499,6 @@ void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evide
         return !current.isEmpty() && (current.value(u"generation"_s) == originalRemote.value(u"generation"_s))
             && (current.value(u"localPort"_s) == originalRemote.value(u"localPort"_s));
     };
-    require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.6"_s)),
-        u"Cannot add Native alongside remote path"_s);
-    paths->m_statusRefresh.stop(); // Controlled snapshots replace OS events only inside this process driver.
     require(torrent->connectPeer(BitTorrent::PeerAddress::parse(spec.value(u"nativePeer"_s).toString())),
         u"Cannot enqueue Native fixture peer"_s);
     const auto recordNativeAdmission = [&](const QString &phase)
