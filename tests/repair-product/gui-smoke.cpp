@@ -46,7 +46,7 @@ namespace
 
     qint64 labelNumber(const QLabel *label)
     {
-        QString value = label->text().section(u" bytes", 0, 0);
+        QString value = label->text().section(u" bytes"_s, 0, 0);
         value.remove(QChar::Space);
         value.remove(QChar(0x00a0));
         bool ok = false;
