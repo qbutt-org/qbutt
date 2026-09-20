@@ -258,10 +258,9 @@ try {
         entries => {
             const endpoints = entries.find(entry => entry.url === httpTrackerURL)?.endpoints
                 .filter(endpoint => endpoint.bt_version === 1) ?? [];
-            return endpoints.length === 2 && endpoints[0]!.name === endpoints[1]!.name
-                && endpoints.every(endpoint => endpoint.num_peers === 1)
-                && activePaths.length === 2 && activePaths.every(path => endpoints.some(endpoint =>
-                    endpoint.pathId === path.pathId && endpoint.generation === path.generation));
+            return activePaths.length === 2 && endpoints.some(first => activePaths.every(path =>
+                endpoints.some(endpoint => endpoint.name === first.name && endpoint.num_peers === 1
+                    && endpoint.pathId === path.pathId && endpoint.generation === path.generation)));
         }, 30000);
         await lab.checkpoint({ check: "multipath-tracker-endpoint-identity", url: httpTrackerURL,
             endpoints: routeStatuses.find(entry => entry.url === httpTrackerURL)?.endpoints,

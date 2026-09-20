@@ -119,15 +119,12 @@ namespace
 
         for (const lt::announce_endpoint &ltAnnounceEndpoint : nativeEntry.endpoints)
         {
-            const lt::peer_route_context route = ltAnnounceEndpoint.route
-                ? ltAnnounceEndpoint.route->binding.context : ltAnnounceEndpoint.socket.route_context();
-
             for (const auto protocolVersion : btProtocols)
             {
                 Q_ASSERT((protocolVersion == 1) || (protocolVersion == 2));
                 const auto ltProtocolVersion = (protocolVersion == 1) ? lt::protocol_version::V1 : lt::protocol_version::V2;
                 const lt::announce_infohash &ltAnnounceInfo = ltAnnounceEndpoint.info_hashes[ltProtocolVersion];
-                const TrackerEndpointID endpointID = trackerEndpointID(ltAnnounceEndpoint.local_endpoint, route, protocolVersion);
+                const TrackerEndpointID endpointID = trackerEndpointID(ltAnnounceEndpoint.local_endpoint, ltAnnounceEndpoint.route, protocolVersion);
                 TrackerEndpointStatus &trackerEndpointStatus = updatedEndpoints[endpointID];
                 trackerEndpointStatus = trackerEntryStatus.endpoints.value(endpointID);
 
