@@ -503,8 +503,6 @@ const availableModes: Mode[] = [...(qbuttOnly ? [] : ["upstream-native" as const
     ...(proxyConfig ? ["qbutt-one-tunnel" as const, "qbutt-mixed" as const] : [])];
 assert(requestedModes.every(mode => availableModes.includes(mode as Mode)), "Requested public-swarm mode is unavailable");
 const modes = availableModes.filter(mode => !requestedModes.length || requestedModes.includes(mode));
-assert(peerPort + rounds * modes.length * attemptsPerWindow <= 49151,
-    "The deterministic peer-port range exceeds the non-ephemeral boundary");
 const evidence: Record<string, unknown> = {
     schema: 1, suite: diagnostic ? "public-swarm-diagnostic" : "public-swarm-benchmark",
     status: "running", startedAt: new Date().toISOString(),
@@ -521,11 +519,12 @@ const evidence: Record<string, unknown> = {
         warmupRateBytesPerSecond: warmupRate, measurementRateBytesPerSecond: measuredRate,
         requestedMeasurementMilliseconds: measurementMilliseconds, minimumWarmupPieces,
         nativeInterface, nativeAddress, configuredTunnelCount: proxyConfig ? proxyNames.length : 0,
-        peerPortBase: peerPort, attemptsPerWindow },
+        peerPort, attemptsPerWindow },
     limits: [
         ...(diagnostic ? ["One diagnostic window only; no repeated performance comparison"] : []),
         ...(qbuttOnly ? ["qbutt route comparison only; no unchanged-upstream performance claim"] : []),
         "Live public swarm membership, peer capacity and Internet path conditions change during the run",
+        "Every sequential run uses the same Native peer port to avoid changing port-dependent reachability",
         "Completed pieces are read from disk and checked against the torrent SHA-1 list;"
             + " the full ISO SHA-256 is not claimed",
         "Client transfer counters are recorded separately and are not packet-level wire-byte measurements",
@@ -544,15 +543,13 @@ try {
         for (const [ordinal, mode] of order.entries()) {
             let result: RunResult | undefined;
             for (let attempt = 1; attempt <= attemptsPerWindow && !result; ++attempt) {
-                const slot = ((round - 1) * modes.length + ordinal) * attemptsPerWindow + attempt - 1;
-                const runPort = peerPort + slot;
-                await assertPeerPortAvailable(runPort);
+                await assertPeerPortAvailable(peerPort);
                 try {
                     result = await run(mode, round, ordinal + 1, attempt,
-                        torrentPath, reportRoot, runPort, executableHashes);
+                        torrentPath, reportRoot, peerPort, executableHashes);
                 }
                 catch (error) {
-                    const rejected = { mode, round, ordinal: ordinal + 1, attempt, peerPort: runPort,
+                    const rejected = { mode, round, ordinal: ordinal + 1, attempt, peerPort,
                         error: error instanceof Error ? error.message : String(error),
                         evidenceRoot: join(reportRoot, `run-${round}-${ordinal + 1}-${mode}-attempt-${attempt}`) };
                     (evidence.rejectedAttempts as unknown[]).push(rejected);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { pbkdf2Sync, randomBytes } from "node:crypto";
+import { pbkdf2Sync, randomBytes, randomInt } from "node:crypto";
+import { createSocket } from "node:dgram";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -59,6 +60,38 @@ async function freePort(): Promise<number> {
     return address.port;
 }
 
+async function freePeerPort(webPort: number): Promise<number> {
+    for (let attempt = 0; attempt < 32; ++attempt) {
+        // Port 0 may repeatedly pick the other protocol's reserved range.
+        const port = randomInt(40000, 49152);
+        if (port === webPort)
+            continue;
+        const udp = createSocket("udp4");
+        const tcp = createServer();
+        try {
+            await new Promise<void>((resolve, reject) => {
+                udp.once("error", reject);
+                udp.bind(port, "127.0.0.1", resolve);
+            });
+            await new Promise<void>((resolve, reject) => {
+                tcp.once("error", reject);
+                tcp.listen(port, "127.0.0.1", resolve);
+            });
+            return port;
+        }
+        catch (error) {
+            if (!["EADDRINUSE", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? ""))
+                throw error;
+        }
+        finally {
+            await new Promise<void>(resolve => udp.close(resolve));
+            if (tcp.listening)
+                await new Promise<void>((resolve, reject) => tcp.close(error => error ? reject(error) : resolve()));
+        }
+    }
+    throw new Error("No local peer port available for both TCP and UDP");
+}
+
 export async function createLab(name: string, options: { pex?: boolean; protocol?: "TCP" | "UTP" } = {}) {
     const executable = process.env.QBUTT_LAB_EXE;
     const python = process.env.QBUTT_LAB_PYTHON;
@@ -74,7 +107,7 @@ export async function createLab(name: string, options: { pex?: boolean; protocol
     const fixtures = await generateFixtures(python, join(root, "fixtures"));
     const manifest = JSON.parse(await readFile(join(fixtures, "manifest.json"), "utf8")) as FixtureManifest;
     const port = await freePort();
-    const peerPort = await freePort();
+    const peerPort = await freePeerPort(port);
     const profile = join(root, "profile");
     const config = join(profile, appName, "config");
     await mkdir(config, { recursive: true });

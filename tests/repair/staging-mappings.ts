@@ -143,7 +143,8 @@ resume = lt.bdecode(path.read_bytes())
 resume[b"qBt-savePath"] = sys.argv[2].encode()
 resume[b"qBt-downloadPath"] = b""
 path.write_bytes(lt.bencode(resume))
-`, join(data, "BT_backup", `${hash}.fastresume`), ready.staging!.payload_path], { stdout: "pipe", stderr: "pipe" });
+`, join(data, "BT_backup", `${hash}.fastresume`), ready.staging!.payload_path], {
+                    stdout: "pipe", stderr: "pipe", windowsHide: true });
                 assert.equal(await migrate.exited, 0, await new Response(migrate.stderr).text());
             }
             await lab.start();
@@ -177,7 +178,8 @@ path.write_bytes(lt.bencode(resume))
         if (autoTMM) {
             lock = Bun.spawn([lab.python, join(import.meta.dir, "resume-lock.py"), "Legacy", lab.root,
                 join(data, "BT_backup", `${hash}.fastresume`)],
-            { stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(lab.root, "lock.stderr.log")), timeout: 90000 });
+            { stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(lab.root, "lock.stderr.log")),
+                timeout: 90000, windowsHide: true });
             const reader = lock.stdout.getReader();
             let output = "";
             try {
@@ -222,6 +224,7 @@ path.write_bytes(lt.bencode(resume))
         await lab.request("qbuttRepair/cancel", { id: operation.id });
         if (autoTMM || legacy)
             await lab.request("torrents/start", { hashes: hash });
+        await waitFor("committed data checked by the native engine", () => lab.info(hash), info => info.progress === 1);
         await waitFor("ordinary final layout", async () => Promise.all(lab.manifest.payload
             .map(file => Bun.file(join(savePath, file.path)).exists())), files => files.every(Boolean));
         const verifiedBytes = await verifyPayload(savePath, lab.manifest.payload);

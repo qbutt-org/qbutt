@@ -43,17 +43,38 @@ bun run smoke:repair
 bun run smoke:repair-mappings
 bun run smoke:repair-product
 bun run smoke:staging
+bun run smoke:staging-mappings
 bun run smoke:completion
 bun run smoke:mixed
 bun run smoke:mixed-baseline
 bun run smoke:tunnels
 bun run smoke:native-route
 bun run smoke:route-policy
+bun run smoke:policy-transition
 bun run smoke:path-auth
 bun run smoke:server-identity
 bun run smoke:connection-budget
 bun run smoke:path-dns
 ```
+
+`smoke:policy-transition` uses `QBUTT_LAB_PATHS=1` and the selected physical
+`QBUTT_LAB_NATIVE_INTERFACE` / `QBUTT_LAB_NATIVE_ADDRESS`. One active public
+torrent receives complementary data through Native and two controlled SOCKS
+paths, then switches Mixed → Tunnels only → Pinned. It checks OS socket closure,
+a reachable Native canary, frozen retired relay counters and exact final hashes
+without restarting the torrent. This fixture covers TCP peer transitions;
+uTP, discovery and webseed transitions require separate scenarios.
+
+The shared lab selects its peer port by checking both UDP and TCP binds:
+Windows can reserve different port ranges for each protocol.
+
+`smoke:staging-mappings` covers manual and AutoTMM staged repair with separate
+download/save directories and incomplete-file suffixes. It checks preview
+cancel/restart, commit and native final relocation, rollback, recovery after an
+actual resume-file write conflict, and migration of an older v2 journal whose
+resume data names temporary storage. Use the Legacy resume backend for this
+migration fixture. Sources and unknown files must survive; generated data is
+removed after the owned app and lock helper stop.
 
 `smoke:native-inbound` starts the app with uTP only and no managed paths or
 discovery. An independent checked libtorrent seed initiates the sole connection
@@ -468,6 +489,10 @@ exact files. Optional one-tunnel and Mixed windows require an ordinary Mihomo
 file in `QBUTT_PUBLIC_SWARM_PROXY_CONFIG` and pipe-separated node names in
 `QBUTT_PUBLIC_SWARM_PROXY_NAMES`; credentials and node names are not copied to
 the fixture JSON.
+
+All sequential windows use the same `QBUTT_PUBLIC_SWARM_PEER_PORT` (default
+45123), checking TCP/UDP availability before every launch. Changing the port
+between modes can change actual network reachability and invalidate a comparison.
 
 The default suite runs three upstream-only windows or four rotating comparative
 rounds. A logical window may make up to three attempts; a timeout or WebUI failure
