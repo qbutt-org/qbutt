@@ -467,6 +467,16 @@ no new DHT lookup is permitted, and the tracker response is released.
 Both torrents complete through real libtorrent seeds with exact sizes and hashes;
 no peer is injected through `addPeers`. This does not promise infohash privacy
 before the magnet's metadata is known.
+
+`smoke:webseed` supplies HTTP URL seeds through the ordinary WebUI API, without
+BitTorrent peers or trackers. Two authenticated SOCKS routes map the same numeric
+URL to separate controlled Range responders; a reachable direct HTTP canary fails
+any Native bypass. A private torrent completes exact sizes and hashes on its
+pinned route. After that route is retired, a second private torrent stays active
+with zero data or HTTP requests for eight seconds, preserving the retired path
+identity while the other route remains open. A public torrent then completes via
+the surviving route, proving it works while the private torrent stays blocked.
+HTTPS certificate validation and mid-transfer webseed reconnection are not tested.
 Generated payloads and profiles are removed after
 owned processes stop; compact evidence and logs remain.
 
