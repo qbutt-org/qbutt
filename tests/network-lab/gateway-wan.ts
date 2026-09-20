@@ -29,10 +29,11 @@ const observerIP = process.env.QBUTT_WAN_OBSERVER_IP ?? "";
 const nativeInterface = process.env.QBUTT_LAB_NATIVE_INTERFACE ?? "";
 const gatewaySource = process.env.QBUTT_LAB_GATEWAY_SOURCE ?? "";
 const executable = process.env.QBUTT_LAB_EXE ?? "";
-const sourceProxy = process.env.QBUTT_GATEWAY_WAN_SOCKS_PORT ?? "";
-const independentSource = sourceProxy !== "";
-assert(!independentSource || (/^[1-9][0-9]{0,4}$/.test(sourceProxy) && Number(sourceProxy) <= 65535),
-    "QBUTT_GATEWAY_WAN_SOCKS_PORT must be a local SOCKS5 no-authentication port");
+const sourceConfig = process.env.QBUTT_GATEWAY_WAN_PROXY_CONFIG ?? "";
+const sourceName = process.env.QBUTT_GATEWAY_WAN_PROXY_NAME ?? "";
+const independentSource = sourceConfig !== "" || sourceName !== "";
+assert(!independentSource || (sourceConfig !== "" && sourceName !== ""),
+    "Set both QBUTT_GATEWAY_WAN_PROXY_CONFIG and QBUTT_GATEWAY_WAN_PROXY_NAME for one selected source node");
 assert(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(observer) && isIPv4(observerIP),
     "Set QBUTT_WAN_OBSERVER and its numeric QBUTT_WAN_OBSERVER_IP");
 assert(networkInterfaces()[nativeInterface]?.some(address => address.family === "IPv4" && !address.internal),
@@ -69,18 +70,54 @@ function responses(child: ReturnType<typeof Bun.spawn>) {
     };
 }
 
-async function observedLeasePeer(port: number): Promise<string[]> {
-    const sockets = await run([...ssh, `ss -Htn state established '( sport = :${port} )'`], { timeout: 10000 });
-    if (!sockets) return [];
-    return sockets.split(/\r?\n/).map(line => {
-        const fields = line.trim().split(/\s+/);
-        assert.equal(fields.length, 4, "Unexpected observer socket format");
-        assert(fields[2]!.endsWith(`:${port}`), "Observer socket does not belong to the owned lease");
-        const remote = /^([0-9.]+):([0-9]+)$/.exec(fields[3]!);
-        assert(remote && isIPv4(remote[1]!) && Number(remote[2]) > 0 && Number(remote[2]) <= 65535,
-            "Observer did not report a numeric IPv4 source endpoint");
-        return fields[3]!;
-    });
+function observedLeasePeer(line: string, port: number): string | undefined {
+    const syn = /\bIn\s+IP\s+([0-9.]+)\.([0-9]+)\s+>\s+([0-9.]+)\.([0-9]+): Flags \[S\]/.exec(line);
+    if (!syn || !isIPv4(syn[1]!) || (syn[3] !== observerIP) || (Number(syn[4]) !== port))
+        return undefined;
+    const sourcePort = Number(syn[2]);
+    return (sourcePort > 0 && sourcePort <= 65535) ? `${syn[1]}:${sourcePort}` : undefined;
+}
+
+async function captureOwnedPort(port: number) {
+    assert(Number.isInteger(port) && port >= 49152 && port <= 65535);
+    const lines: string[] = [];
+    const filter = `host ${observerIP} and tcp port ${port} and (tcp[13] & 7 != 0)`;
+    const child = Bun.spawn([...ssh, `timeout --signal=TERM --kill-after=2s 35s sudo -n tcpdump -i any -nn -tt -l -s 96 -c 16 '${filter}'`], {
+        stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true });
+    const pump = (async () => {
+        for await (const line of createInterface({ input: Readable.fromWeb(child.stdout as never) })) {
+            if (lines.length < 16) lines.push(line);
+        }
+    })();
+    const diagnostics: string[] = [];
+    const ready = (async () => {
+        for await (const line of createInterface({ input: Readable.fromWeb(child.stderr as never) })) {
+            if (line.includes("listening on")) return;
+            if (diagnostics.length < 4) diagnostics.push(line);
+        }
+        throw new Error(`Scoped packet observer exited before readiness: ${diagnostics.join(" | ")}`);
+    })();
+    let timer: ReturnType<typeof setTimeout>;
+    try {
+        await Promise.race([ready, new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("Scoped packet observer readiness timed out")), 7000);
+        })]);
+    }
+    catch (error) {
+        if (child.exitCode === null) child.kill();
+        await child.exited;
+        await pump;
+        throw error;
+    }
+    finally { clearTimeout(timer!); }
+    return { port, child, lines, pump };
+}
+
+async function stopCapture(capture: Awaited<ReturnType<typeof captureOwnedPort>>) {
+    if (capture.child.exitCode === null) capture.child.kill();
+    await capture.child.exited;
+    await capture.pump;
+    return capture.lines;
 }
 
 const sourceLock = JSON.parse(await readFile(join(import.meta.dir, "../..", "upstream-lock.json"), "utf8")) as {
@@ -127,11 +164,96 @@ let gatewayReplies: ReturnType<typeof responses> | undefined;
 let peer: ReturnType<typeof Bun.spawn> | undefined;
 let peerReplies: ReturnType<typeof responses> | undefined;
 let proxy: Awaited<ReturnType<typeof startProxy>> | undefined;
+let sourceChild: ReturnType<typeof Bun.spawn> | undefined;
+let sourceReplies: ReturnType<typeof responses> | undefined;
+let sourceEndpoint: { host: string; port: number; socksUsername: string; socksPassword: string } | undefined;
+let sourceCheck: ReturnType<typeof Bun.spawn> | undefined;
+let sourceCheckReplies: ReturnType<typeof responses> | undefined;
+let packetCapture: Awaited<ReturnType<typeof captureOwnedPort>> | undefined;
+let sourcePacketCapture: Awaited<ReturnType<typeof captureOwnedPort>> | undefined;
 let failure: unknown;
 try {
     remoteRoot = await run([...ssh, "mktemp -d /tmp/qbutt-gateway-XXXXXXXX"]);
     assert(/^\/tmp\/qbutt-gateway-[a-zA-Z0-9]{8}$/.test(remoteRoot), "Unexpected observer temporary path");
     assert.equal(await run([...ssh, "uname -m"]), "x86_64", "Observer architecture is not the pinned Linux x64 target");
+    let homeSSHOrigin: string | undefined;
+    if (independentSource) {
+        let document: { proxies?: Record<string, unknown>[] };
+        try { document = Bun.YAML.parse(await readFile(sourceConfig, "utf8")) as typeof document; }
+        catch { throw new Error("Cannot parse selected source configuration; contents are intentionally omitted"); }
+        assert(Array.isArray(document.proxies), "Selected source configuration has no proxies");
+        const selected = document.proxies.filter(item => item.name === sourceName);
+        assert.equal(selected.length, 1, "Select exactly one named source adapter");
+        const selectedFile = join(lab.root, "source-node.json");
+        await writeFile(selectedFile, JSON.stringify({ proxies: [{ ...selected[0], name: "wan-source" }] }));
+        sourceChild = Bun.spawn([netExecutable, "--stdio"], { stdin: "pipe", stdout: "pipe",
+            stderr: Bun.file(join(lab.root, "source-child.stderr.log")), windowsHide: true });
+        sourceReplies = responses(sourceChild);
+        const requestSource = async (id: number, method: string, fields: object = {}) => {
+            sourceChild!.stdin.write(JSON.stringify({ v: 4, id, method, ...fields }) + "\n");
+            await sourceChild!.stdin.flush();
+            const reply = await sourceReplies!.next(`selected source ${method}`);
+            assert.equal(reply.id, id);
+            assert.equal(reply.v, 4);
+            assert(!reply.error, `Selected source ${method} failed: ${reply.error?.code}`);
+            return reply.result;
+        };
+        const hello = await requestSource(1, "hello");
+        assert.equal(hello.protocol, 4);
+        sourceEndpoint = await requestSource(2, "open", { configPath: selectedFile,
+            proxyName: "wan-source", pathId: "wan-source", generation: 1,
+            interfaceName: nativeInterface, dns: { server: "1.1.1.1:53",
+                bootstrapServer: "1.1.1.1:53", family: "ipv4" } });
+        assert(sourceEndpoint && sourceEndpoint.host === "127.0.0.1" && Number.isInteger(sourceEndpoint.port)
+            && sourceEndpoint.port > 0 && sourceEndpoint.port <= 65535
+            && typeof sourceEndpoint.socksUsername === "string"
+            && typeof sourceEndpoint.socksPassword === "string");
+
+        await run([...scp, join(import.meta.dir, "wan-source-check.py"), `${observer}:${remoteRoot}/`]);
+        sourceCheck = Bun.spawn([...ssh, `timeout --signal=TERM --kill-after=2s 45s python3 -u ${remoteRoot}/wan-source-check.py server`], {
+            stdin: "ignore", stdout: "pipe", stderr: Bun.file(join(lab.root, "source-check.stderr.log")), windowsHide: true });
+        sourceCheckReplies = responses(sourceCheck);
+        const checkReady = await sourceCheckReplies.next("observer source-check readiness", 15000) as {
+            ready: boolean; port: number };
+        assert(checkReady.ready && Number.isInteger(checkReady.port)
+            && checkReady.port >= 49152 && checkReady.port <= 65535);
+        sourcePacketCapture = await captureOwnedPort(checkReady.port);
+        const checkClient = Bun.spawn([lab.python, "-u", join(import.meta.dir, "wan-source-check.py"), "client"], {
+            stdin: "pipe", stdout: "pipe", stderr: "pipe", windowsHide: true });
+        checkClient.stdin.write(JSON.stringify({ port: sourceEndpoint.port,
+            username: sourceEndpoint.socksUsername, password: sourceEndpoint.socksPassword,
+            targetIP: observerIP, targetPort: checkReady.port }) + "\n");
+        checkClient.stdin.end();
+        const [clientExit, clientOut, clientErr] = await Promise.all([checkClient.exited,
+            new Response(checkClient.stdout).text(), new Response(checkClient.stderr).text()]);
+        const flags = await stopCapture(sourcePacketCapture);
+        sourcePacketCapture = undefined;
+        const sourceStatus = await requestSource(3, "status") as { paths: { pathId: string;
+            generation: number; wire: Record<string, number> }[] };
+        assert(sourceStatus.paths.length === 1 && sourceStatus.paths[0]!.pathId === "wan-source"
+            && sourceStatus.paths[0]!.generation === 1);
+        await lab.checkpoint({ check: "selected-source-probe-transport", publicEndpoint: `${observerIP}:${checkReady.port}`,
+            packets: flags, wire: sourceStatus.paths[0]!.wire });
+        const accepted = await sourceCheckReplies.next("observer source-check accept", 1000)
+            .catch(() => undefined) as { accepted: boolean; source: string } | undefined;
+        const served = accepted?.accepted ? await sourceCheckReplies.next("observer source-check serve", 1000)
+            .catch(() => undefined) as { served: boolean; source: string } | undefined : undefined;
+        assert.equal(clientExit, 0, `Selected source check failed (observer accepted: ${Boolean(accepted)}, served: ${Boolean(served)}): ${clientErr.slice(0, 500)}`);
+        assert(accepted?.accepted && served?.served && accepted.source === served.source,
+            "Observer did not serve selected source check");
+        assert.equal(await sourceCheck.exited, 0, "Observer source check did not exit cleanly");
+        sourceCheck = undefined;
+        sourceCheckReplies.close();
+        sourceCheckReplies = undefined;
+        const check = JSON.parse(clientOut) as { source: string };
+        assert.equal(check.source, served.source, "Selected adapter changed the source-check endpoint");
+        const sourceIP = /^([0-9.]+):[1-9][0-9]{0,4}$/.exec(check.source)?.[1];
+        homeSSHOrigin = (await run([...ssh, "printf '%s' \"$SSH_CONNECTION\""])).split(/\s+/)[0]!;
+        assert(sourceIP && isIPv4(sourceIP) && isIPv4(homeSSHOrigin));
+        assert(sourceIP !== homeSSHOrigin && sourceIP !== observerIP,
+            "Selected source adapter routed directly; independent VPN exit was not observed");
+        await lab.checkpoint({ check: "selected-source-exit", sourceIP, homeSSHOrigin });
+    }
     const certificates = join(lab.root, "certificates");
     await mkdir(certificates);
     const certificate = JSON.parse(await run(["go", "run", join(import.meta.dir, "gateway-certificates.go"),
@@ -220,6 +342,10 @@ print(lt.torrent_info(encoded).info_hashes().v1)
         torrents => torrents.length === 1 && torrents[0]!.hash === hash);
     await lab.request("torrents/start", { hashes: hash });
 
+    if (independentSource) {
+        packetCapture = await captureOwnedPort(ports.listener);
+    }
+
     const peerCommand = independentSource
         ? [lab.python, "-u", join(import.meta.dir, "wan-seed.py")]
         : [...ssh, `timeout --signal=TERM --kill-after=5s 240s python3 -u ${remoteRoot}/wan-seed.py`];
@@ -229,14 +355,14 @@ print(lt.torrent_info(encoded).info_hashes().v1)
     peer.stdin.write(JSON.stringify({ infoHash: hash, payload: payload.toString("base64"), pieceLength: 65536,
         count: 1, rate: 128 * 1024, duration: 240,
         connectTarget: { host: observerIP, port: ports.listener },
-        ...(independentSource ? { connectProxy: { port: Number(sourceProxy) } } : {}) }) + "\n");
+        ...(independentSource ? { connectProxy: { port: sourceEndpoint!.port,
+            username: sourceEndpoint!.socksUsername, password: sourceEndpoint!.socksPassword } } : {}) }) + "\n");
     await peer.stdin.flush();
     const peerReady = await peerReplies.next("source peer readiness", 30000);
     assert(peerReady.ready && Array.isArray(peerReady.ports) && peerReady.ports.length === 0
         && peerReady.pieceCount === payload.length / 65536);
     await lab.checkpoint({ check: "source-peer-ready", sourceProcess: independentSource ? "local" : "observer" });
     let observedSource = "";
-    let homeSSHOrigin: string | undefined;
     if (independentSource) {
         const connected = await peerReplies.next("VPN SOCKS connection", 25000);
         assert(connected.connected === true,
@@ -246,11 +372,11 @@ print(lt.torrent_info(encoded).info_hashes().v1)
         assert(handshake.peerHandshake === true,
             `Source peer did not reach qbutt through the public lease: ${JSON.stringify(handshake.errors)}`);
         await lab.checkpoint({ check: "public-peer-handshake", pathId: path.pathId, generation: path.generation });
-        const sockets = await waitFor("independent VPN peer at public lease", () => observedLeasePeer(ports.listener),
-            endpoints => endpoints.length === 1, 10000);
-        observedSource = sockets[0]!;
-        homeSSHOrigin = (await run([...ssh, "printf '%s' \"$SSH_CONNECTION\""])).split(/\s+/)[0]!;
-        assert(isIPv4(homeSSHOrigin), "Observer could not identify the home SSH source IP");
+        observedSource = await waitFor("independent VPN peer at public lease", async () => {
+            const endpoints = [...new Set(packetCapture!.lines.map(line => observedLeasePeer(line, ports.listener)).filter(Boolean))];
+            assert(endpoints.length <= 1, "More than one source reached the owned public lease");
+            return endpoints[0] ?? "";
+        }, endpoint => endpoint !== "", 10000);
         const exitIP = observedSource.slice(0, observedSource.lastIndexOf(":"));
         assert(exitIP !== homeSSHOrigin && exitIP !== observerIP,
             "SOCKS peer did not arrive from a VPN exit distinct from home and observer");
@@ -330,12 +456,35 @@ finally {
             finally { clearTimeout(timeout); }
         }
     }
+    if (packetCapture) {
+        try {
+            const packets = await stopCapture(packetCapture);
+            await lab.checkpoint({ check: "owned-lease-tcp-flags", publicEndpoint: `${observerIP}:${packetCapture.port}`,
+                packets });
+        }
+        catch (error) { failure ??= error; }
+    }
+    if (sourcePacketCapture) {
+        try { await stopCapture(sourcePacketCapture); } catch (error) { failure ??= error; }
+    }
+    if (sourceCheck) {
+        if (sourceCheck.exitCode === null) sourceCheck.kill();
+        try { await sourceCheck.exited; } catch (error) { failure ??= error; }
+    }
+    sourceCheckReplies?.close();
+    if (sourceChild) {
+        sourceChild.stdin.end();
+        const timeout = setTimeout(() => sourceChild?.kill(), 5000);
+        try { await sourceChild.exited; } catch (error) { failure ??= error; }
+        finally { clearTimeout(timeout); }
+    }
+    sourceReplies?.close();
     peerReplies?.close();
     gatewayReplies?.close();
     try { await proxy?.close(); } catch (error) { failure ??= error; }
     try { await lab.shutdown(); } catch (error) { failure ??= error; }
     if (/^\/tmp\/qbutt-gateway-[a-zA-Z0-9]{8}$/.test(remoteRoot)) {
-        const names = ["qbutt-gateway-linux", "gateway-wan-ports.py", "wan-seed.py", "ca.pem", "server.pem",
+        const names = ["qbutt-gateway-linux", "gateway-wan-ports.py", "wan-seed.py", "wan-source-check.py", "ca.pem", "server.pem",
             "server-key.pem", "client.pem", "client-key.pem", "gateway.json"];
         try { await run([...ssh, `rm -f -- ${names.map(name => `${remoteRoot}/${name}`).join(" ")} && rmdir -- ${remoteRoot}`]); }
         catch (error) { failure ??= error; }
@@ -343,7 +492,7 @@ finally {
     try {
         const root = await realpath(lab.root);
         for (const name of ["source", "download", "fixtures", "certificates",
-            "qbutt-gateway-linux", "gateway.json", "node.json", "wan.torrent"]) {
+            "qbutt-gateway-linux", "gateway.json", "node.json", "source-node.json", "wan.torrent"]) {
             const path = join(root, name);
             try {
                 const owned = await realpath(path);

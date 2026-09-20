@@ -304,11 +304,15 @@ and terminal lease retirement. Both gateway and peer run on the same remote
 host, so this proves remote-host ingress to home qbutt through its gateway
 carrier, not reachability from an independent third-party Internet host.
 Blocked remote high ports fail explicitly; the fixture does not open them.
-Set `QBUTT_GATEWAY_WAN_SOCKS_PORT` to an existing local Mihomo SOCKS5
-no-authentication listener to run the same bounded peer on the home machine
-through its selected VPN exit. The fixture does not change Mihomo's configuration.
-Before uploading, it reads the exact accepted source IP and port from the
-observer kernel's `ss` for the owned lease, requires that source IP to differ
+Set `QBUTT_GATEWAY_WAN_PROXY_CONFIG` to a local ordinary Mihomo YAML and
+`QBUTT_GATEWAY_WAN_PROXY_NAME` to one node in it to run the same bounded peer
+on the home machine through a separate, authenticated qbutt-net path. The
+fixture imports only that node into an ephemeral configuration and does not
+change the running Mihomo or its routing. An owned one-request HTTP listener
+on the observer first checks that the selected node's public source IP differs
+from home and observer. Only then does the gateway probe start. Before
+uploading, it reads the exact accepted source IP and port from a scoped
+observer TCP SYN capture for the owned lease, requiring that source IP to differ
 from the observer and the home SSH origin, and checks that qbutt reports the
 same endpoint on the active path generation. The peer exchanges BitTorrent
 handshakes first to trigger lazy VPN dialing, but remains choked until the

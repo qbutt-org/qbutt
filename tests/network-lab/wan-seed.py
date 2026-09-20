@@ -69,9 +69,13 @@ async def main():
                   bounded_integer(target["port"], 49152, 65535, "target port"))
     proxy = config.get("connectProxy")
     if proxy is not None:
-        if target is None or not isinstance(proxy, dict) or set(proxy) != {"port"}:
-            raise ValueError("Outbound SOCKS proxy requires a numeric target and loopback port")
-        proxy = bounded_integer(proxy["port"], 1, 65535, "SOCKS port")
+        if (target is None or not isinstance(proxy, dict)
+                or set(proxy) != {"port", "username", "password"}):
+            raise ValueError("Outbound SOCKS proxy requires a numeric target and loopback endpoint")
+        proxy = {**proxy, "port": bounded_integer(proxy["port"], 1, 65535, "SOCKS port")}
+        for field in ("username", "password"):
+            if not isinstance(proxy[field], str) or not 1 <= len(proxy[field].encode("utf8")) <= 255:
+                raise ValueError("Invalid local SOCKS credentials")
     piece_count = math.ceil(len(payload) / piece_length)
     if piece_count < count:
         raise ValueError("Each side must own at least one piece")
@@ -225,12 +229,19 @@ async def main():
     async def connect_outbound():
         if proxy is None:
             return await asyncio.open_connection(*target)
-        reader, writer = await asyncio.open_connection("127.0.0.1", proxy)
+        reader, writer = await asyncio.open_connection("127.0.0.1", proxy["port"])
         try:
-            writer.write(b"\x05\x01\x00")
+            writer.write(b"\x05\x01\x02")
             await writer.drain()
-            if await reader.readexactly(2) != b"\x05\x00":
-                raise ValueError("Local SOCKS proxy rejected no-authentication method")
+            if await reader.readexactly(2) != b"\x05\x02":
+                raise ValueError("Local SOCKS proxy rejected authentication")
+            username = proxy["username"].encode("utf8")
+            password = proxy["password"].encode("utf8")
+            writer.write(b"\x01" + bytes([len(username)]) + username
+                         + bytes([len(password)]) + password)
+            await writer.drain()
+            if await reader.readexactly(2) != b"\x01\x00":
+                raise ValueError("Local SOCKS proxy rejected credentials")
             writer.write(b"\x05\x01\x00\x01" + ipaddress.IPv4Address(target[0]).packed
                          + struct.pack("!H", target[1]))
             await writer.drain()
