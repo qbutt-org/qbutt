@@ -17,6 +17,7 @@
     "smoke:gateway-utp": "bun tests/network-lab/gateway.ts --utp",
     "smoke:gateway-ipv6": "bun tests/network-lab/gateway.ts --ipv6",
     "smoke:gateway-ipv6-utp": "bun tests/network-lab/gateway.ts --ipv6 --utp",
+    "smoke:gateway-dht": "bun tests/network-lab/gateway.ts --utp --dht",
     "smoke:gateway-wan": "bun tests/network-lab/gateway-wan.ts",
     "smoke:mixed": "bun tests/network-lab/mixed.ts --native",
     "smoke:wan": "bun tests/network-lab/wan.ts",

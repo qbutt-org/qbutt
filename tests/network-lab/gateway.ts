@@ -8,6 +8,7 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { sha256 } from "../fixtures/generate";
 import { createLab, verifyPayload, waitFor } from "../lab";
 import { allowLabNetwork } from "../windows-firewall";
+import { decode, encode, type Value } from "./bencode";
 import { startProxy } from "./proxy";
 
 const PROTOCOL = 4;
@@ -20,6 +21,8 @@ const PUBLIC_FIXTURE_FAMILY = useIPv6 ? "ipv6" : "ipv4";
 const SEED_ADDRESS = useIPv6 ? "::1" : "127.0.0.1";
 const LOOPBACK_INTERFACE = 1;
 const useUtp = process.argv.includes("--utp");
+const useDht = process.argv.includes("--dht");
+assert(!useDht || useUtp, "Inbound DHT requires a public UDP gateway lease (--utp)");
 
 interface GatewayState {
     state: "leased" | "outgoing-only";
@@ -339,6 +342,52 @@ function expectKeys(actual: string[] | undefined, expected: string[], label: str
     assert.deepEqual(actual, [...expected].sort(), `${label} schema mismatch`);
 }
 
+function formatEndpoint(host: string, port: number): string {
+    return `${isIP(host) === 6 ? `[${host}]` : host}:${port}`;
+}
+
+async function queryDht(socket: ReturnType<typeof createSocket>, host: string, port: number,
+    name: "ping" | "get_peers", nodeId: Buffer, infoHash?: Buffer) {
+    const transaction = randomBytes(2);
+    const args: Record<string, Value> = { id: nodeId };
+    if (infoHash) args.info_hash = infoHash;
+    const packet = encode({ a: args, q: Buffer.from(name), ro: 1, t: transaction, y: Buffer.from("q") });
+    return new Promise<{ id: string; source: string; token: boolean }>((resolve, reject) => {
+        let settled = false;
+        const finish = (error?: Error, value?: { id: string; source: string; token: boolean }) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            clearInterval(retry);
+            socket.off("message", onMessage);
+            socket.off("error", onError);
+            if (error) reject(error);
+            else resolve(value!);
+        };
+        const onError = (error: Error) => finish(error);
+        const onMessage = (bytes: Buffer, remote: { address: string; port: number }) => {
+            try {
+                const reply = decode(bytes);
+                if (!Buffer.isBuffer(reply.t) || !reply.t.equals(transaction)) return;
+                assert.equal(remote.address, host, `${name} reply came from the wrong public address`);
+                assert.equal(remote.port, port, `${name} reply came from the wrong public port`);
+                assert(Buffer.isBuffer(reply.y) && reply.y.toString() === "r", `${name} was rejected by DHT`);
+                const result = reply.r as Record<string, Value>;
+                assert(result && Buffer.isBuffer(result.id) && result.id.length === 20, `${name} reply lacks node ID`);
+                finish(undefined, { id: result.id.toString("hex"), source: formatEndpoint(remote.address, remote.port),
+                    token: Buffer.isBuffer(result.token) });
+            }
+            catch (error) { finish(error as Error); }
+        };
+        const send = () => socket.send(packet, port, host, error => { if (error) finish(error); });
+        const timeout = setTimeout(() => finish(new Error(`${name} timed out through the public gateway lease`)), 12000);
+        const retry = setInterval(send, 2500);
+        socket.on("message", onMessage);
+        socket.on("error", onError);
+        send();
+    });
+}
+
 const originalExecutable = process.env.QBUTT_LAB_EXE;
 const gatewaySource = process.env.QBUTT_LAB_GATEWAY_SOURCE;
 assert(originalExecutable && gatewaySource, "Set QBUTT_LAB_EXE and QBUTT_LAB_GATEWAY_SOURCE");
@@ -370,7 +419,7 @@ await allowLabNetwork([process.execPath]);
 await run([process.execPath, "build", "--compile", wrapperFile, "--outfile", wrapper]);
 process.env.QBUTT_LAB_EXE = join(bundle, basename(originalExecutable));
 
-const lab = await createLab(`gateway${useIPv6 ? "-ipv6" : ""}${useUtp ? "-utp" : ""}`);
+const lab = await createLab(`gateway${useIPv6 ? "-ipv6" : ""}${useUtp ? "-utp" : ""}${useDht ? "-dht" : ""}`);
 const tracePath = join(lab.root, "gateway-v4-trace.jsonl");
 process.env.QBUTT_REAL_NET = realNet;
 process.env.QBUTT_GATEWAY_TRACE = tracePath;
@@ -389,6 +438,7 @@ let aliasAdded = false;
 let gateway: ReturnType<typeof Bun.spawn> | undefined;
 let proxy: Awaited<ReturnType<typeof startProxy>> | undefined;
 let seed: Awaited<ReturnType<typeof startInboundSeed>> | undefined;
+let bootstrap: ReturnType<typeof createSocket> | undefined;
 try {
     const certificates = join(lab.root, "gateway-certificates");
     await mkdir(certificates);
@@ -398,6 +448,13 @@ try {
 
     await addLoopbackAddress(true);
     aliasAdded = true;
+    if (useDht) {
+        bootstrap = createSocket("udp4");
+        await new Promise<void>((accept, reject) => {
+            bootstrap!.once("error", reject);
+            bootstrap!.bind(0, "127.0.0.1", accept);
+        });
+    }
     const publicPort = await probeTcpUdpPort(PUBLIC_FIXTURE_ADDRESS);
     const gatewayConfig = join(lab.root, "gateway.json");
     await writeFile(gatewayConfig, JSON.stringify({
@@ -424,7 +481,8 @@ try {
     const credentials = { username: randomBytes(16).toString("hex"), password: randomBytes(24).toString("hex") };
     proxy = await startProxy({ ...credentials, udp: useUtp, targets: [{
         host: controlHost, port: controlPort, connectHost: controlHost, connectPort: controlPort,
-    }, ...(useUtp ? [{ host: "127.0.0.1", port: Number(ready.datagrams.split(":").at(-1)) }] : [])] });
+    }, ...(useUtp ? [{ host: "127.0.0.1", port: Number(ready.datagrams.split(":").at(-1)) }] : []),
+    ...(bootstrap ? [{ host: "127.0.0.1", port: bootstrap.address().port }] : [])] });
     const nodeConfig = join(lab.root, "controlled-gateway-node.json");
     await writeFile(nodeConfig, JSON.stringify({ proxies: [{
         name: "gateway-fixture", type: "socks5", server: proxy.host, port: proxy.port,
@@ -439,6 +497,11 @@ try {
     });
     if (useUtp)
         await lab.request("app/setPreferences", { json: JSON.stringify({ bittorrent_protocol: 2 }) });
+    const bootstrapEndpoint = bootstrap ? formatEndpoint("127.0.0.1", bootstrap.address().port) : "";
+    if (bootstrap)
+        await lab.request("app/setPreferences", { json: JSON.stringify({
+            dht_bootstrap_nodes: bootstrapEndpoint, dht: false,
+        }) });
     const pathRequest = { configPath: nodeConfig, proxyName: "gateway-fixture", interfaceName: "Loopback Pseudo-Interface 1" };
     const readStatus = () => lab.json<PathStatus>("qbuttPaths/status");
     await lab.request("qbuttPaths/open", pathRequest);
@@ -450,12 +513,38 @@ try {
         && firstPath.gateway.family === PUBLIC_FIXTURE_FAMILY);
     const firstEndpoint = firstPath.gateway.publicEndpoint!;
     const firstExpiry = firstPath.gateway.expiresUnixMilli!;
-    assert(firstEndpoint === `${useIPv6 ? `[${PUBLIC_FIXTURE_ADDRESS}]` : PUBLIC_FIXTURE_ADDRESS}:${publicPort}`
+    assert(firstEndpoint === formatEndpoint(PUBLIC_FIXTURE_ADDRESS, publicPort)
         && firstExpiry > Date.now());
+    if (bootstrap) {
+        await lab.request("app/setPreferences", { json: JSON.stringify({ dht: true }) });
+        const preferences = await lab.json<{ dht: boolean; dht_bootstrap_nodes: string }>("app/preferences");
+        assert(preferences.dht && preferences.dht_bootstrap_nodes === bootstrapEndpoint,
+            "DHT configuration fell back to public bootstrap routers");
+    }
 
     const destination = join(lab.root, "downloads");
     const hash = await lab.add("v1", destination);
     await lab.request("torrents/start", { hashes: hash });
+    if (bootstrap) {
+        const probe = createSocket(useIPv6 ? "udp6" : "udp4");
+        try {
+            await new Promise<void>((accept, reject) => {
+                probe.once("error", reject);
+                probe.bind(0, SEED_ADDRESS, accept);
+            });
+            const nodeId = randomBytes(20);
+            const ping = await queryDht(probe, PUBLIC_FIXTURE_ADDRESS, publicPort, "ping", nodeId);
+            const peers = await queryDht(probe, PUBLIC_FIXTURE_ADDRESS, publicPort, "get_peers", nodeId,
+                Buffer.from(hash, "hex"));
+            assert.equal(peers.id, ping.id, "DHT public node ID changed between queries");
+            assert(peers.token, "DHT get_peers reply lacks a token");
+            await lab.checkpoint({ check: "incoming-dht-through-public-udp-lease", pathId: firstPath.pathId,
+                generation: firstPath.generation, publicEndpoint: firstEndpoint,
+                probeSource: formatEndpoint(SEED_ADDRESS, probe.address().port),
+                ping, getPeers: peers });
+        }
+        finally { await new Promise<void>(accept => probe.close(accept)); }
+    }
     seed = await startInboundSeed(lab.python, lab.root, lab.fixtures, firstEndpoint);
     const ingress = await waitFor("trusted libtorrent ingress", readStatus, status => status.peers.some(peer =>
         peer.pathId === firstPath.pathId && peer.generation === firstPath.generation
@@ -476,7 +565,7 @@ try {
     seed = undefined;
     assert(seedFinal.uploadPayloadBytes >= verifiedBytes && seedFinal.downloadPayloadBytes === 0,
         "Independent inbound seed did not account for the verified payload");
-    const originalPeer = `${useIPv6 ? `[${ingressPeer.peer}]` : ingressPeer.peer}:${ingressPeer.port}`;
+    const originalPeer = formatEndpoint(ingressPeer.peer, ingressPeer.port);
     assert(seedFinal.localEndpoints.includes(originalPeer),
         "qbutt peer telemetry did not preserve the independent seed's exact source endpoint");
     const metered = await waitFor("real gateway wire counters", readStatus, status => {
@@ -622,6 +711,8 @@ catch (error) {
 }
 finally {
     try { if (seed) await seed.stop(); }
+    catch (error) { if (!failure) failure = error; }
+    try { if (bootstrap) await new Promise<void>(accept => bootstrap!.close(accept)); }
     catch (error) { if (!failure) failure = error; }
     try { await proxy?.close(); }
     catch (error) { if (!failure) failure = error; }
