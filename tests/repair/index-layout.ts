@@ -75,12 +75,13 @@ print(json.dumps({"name": "reordered", "file": "reordered.torrent",
     await mkdir(destination);
     await writeFile(join(destination, "user-notes.txt"), "Preserve unknown user data.\n");
     const sourceBefore = await snapshot(source);
-    const targetBefore = await snapshot(destination);
     const expectedBytes = targetPayload.reduce((sum, file) => sum + file.size, 0);
 
     await lab.start();
     const hash = await lab.add(target.name, destination);
     await waitFor("reordered target stopped", () => lab.info(hash), status => status.state.startsWith("stopped"));
+    // Torrent initialization may create empty files before repair owns it.
+    const targetBefore = await snapshot(destination);
     const operation = await (await lab.request("qbuttRepair/analyze", {
         hash, mode: "staged", sources: JSON.stringify([source]),
     })).json() as StagedStatus;
@@ -98,7 +99,7 @@ print(json.dumps({"name": "reordered", "file": "reordered.torrent",
     await assert.rejects(stat(planned.staging!.payload_path), { code: "ENOENT" }, "Planning created staging before consent");
     await lab.checkpoint({ check: "renamed-index-verifies-changed-target-layout", sourcePieceLength: oldTorrent.pieceLength,
         targetPieceLength: target.pieceLength, targetPieceCount: target.pieceCount, verifiedBytes: expectedBytes,
-        mappings: planned.staging!.files, sourceInfoHash: oldTorrent.infoHashV1, targetInfoHash: target.infoHashV1 });
+        mappedFiles: planned.staging!.files.length, sourceInfoHash: oldTorrent.infoHashV1, targetInfoHash: target.infoHashV1 });
 
     await lab.request("qbuttRepair/prepare", { id: operation.id, consent: "true" });
     const ready = await waitFor("target reconstructed without peer or webseed", () => lab.json<StagedStatus>("qbuttRepair/status"),
