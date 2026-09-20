@@ -14,7 +14,7 @@ interface PathStatus {
     generation: number;
     mode: "pinned" | "mixed" | "tunnels";
     nodes: { name: string; type: string }[];
-    paths: { pathId: string; generation: number; edgeId: string; open: boolean }[];
+    paths: { pathId: string; generation: number; proxyName: string; open: boolean }[];
 }
 
 const pathsMode = process.env.QBUTT_LAB_PATHS === "1";
@@ -55,7 +55,7 @@ try {
     const configure = async () => {
         if (pathsMode) {
             const current = await readPath();
-            if (current.paths.some(path => path.edgeId === "fixture" && path.open))
+            if (current.paths.some(path => path.proxyName === pathRequest.proxyName && path.open))
                 return;
             await lab.request("qbuttPaths/open", pathRequest);
             const opened = await waitFor("qbutt-net open", readPath, status => !status.busy);
@@ -94,7 +94,7 @@ try {
         await lab.request("qbuttPaths/open", pathRequest);
         const opened = await waitFor("path added to retained session", readPath, status => !status.busy);
         assert(opened.pinned && opened.open && opened.mode === "pinned"
-            && opened.paths.some(path => path.edgeId === "fixture" && path.open),
+            && opened.paths.some(path => path.proxyName === "fixture" && path.open),
             "A retained torrent did not accept the new managed route");
         const retained = await lab.json<{ hash: string }[]>(`torrents/info?hashes=${admissionHash}`);
         assert(retained.length === 1 && retained[0]!.hash === admissionHash,

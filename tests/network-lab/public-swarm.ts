@@ -328,7 +328,7 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
             const selectedNames = mode === "qbutt-one-tunnel" ? proxyNames.slice(0, 1) : proxyNames;
             for (const [index, proxyName] of selectedNames.entries()) {
                 await request("qbuttPaths/open", { configPath: proxyConfig!, proxyName,
-                    edgeId: `public-swarm-${index + 1}`, interfaceName: nativeInterface });
+                    interfaceName: nativeInterface });
                 await waitFor("public path open", () => json<PathsStatus>("qbuttPaths/status"),
                     status => !status.busy && status.paths.filter(path => path.open).length === index + 1, 60000);
             }

@@ -9,7 +9,7 @@ import { startProxy } from "./proxy";
 interface Status {
     busy: boolean;
     mode: string;
-    paths: { pathId: string; generation: number; edgeId: string; open: boolean }[];
+    paths: { pathId: string; generation: number; edgeId: string; proxyName: string; open: boolean }[];
     peers: { infoHash: string }[];
 }
 const lab = await createLab("webseed");
@@ -59,7 +59,7 @@ try {
         catch (error) { errors.push(String(error)); return new Response("Invalid controlled request", { status: 400 }); }
     } }));
     const credentials = [0, 1].map(() => ({ username: randomBytes(8).toString("hex"), password: randomBytes(16).toString("hex") }));
-    for (const side of [0, 1]) proxies.push(await startProxy({ ...credentials[side]!, targets: [
+    for (const side of [0, 1]) proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`, targets: [
         { host: "127.0.0.12", port: canary.port!, connectHost: "127.0.0.1", connectPort: servers[side]!.port! },
     ] }));
     const configPath = join(lab.root, "nodes.json");
@@ -68,12 +68,12 @@ try {
     await lab.start();
     const status = () => lab.json<Status>("qbuttPaths/status");
     for (const side of [0, 1]) {
-        await lab.request("qbuttPaths/open", { configPath, proxyName: `webseed-${side}`, edgeId: `webseed-${side}`, interfaceName: loopback });
+        await lab.request("qbuttPaths/open", { configPath, proxyName: `webseed-${side}`, interfaceName: loopback });
         await waitFor("webseed path ready", status, current => !current.busy && current.paths.filter(path => path.open).length === side + 1);
     }
     await lab.request("qbuttPaths/policy", { mode: "tunnels" });
     const pinned = (await status()).paths[0]!;
-    assert(pinned.open && pinned.edgeId === "webseed-0");
+    assert(pinned.open && pinned.proxyName === "webseed-0");
     async function download(name: string, destination: string) {
         const hash = await lab.add(name, destination);
         await lab.request("torrents/addWebSeeds", { hash, urls: url });

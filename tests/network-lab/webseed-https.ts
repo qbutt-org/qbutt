@@ -47,7 +47,7 @@ try {
     const preferences = await lab.json<{ validate_https_tracker_certificate: boolean }>("app/preferences");
     assert.equal(preferences.validate_https_tracker_certificate, true, "Certificate validation must remain enabled");
     const status = () => lab.json<Status>("qbuttPaths/status");
-    await lab.request("qbuttPaths/open", { configPath, proxyName, interfaceName, edgeId: "https-fixture" });
+    await lab.request("qbuttPaths/open", { configPath, proxyName, interfaceName });
     const opened = await waitFor("HTTPS path ready", status, current => !current.busy && current.paths.length === 1 && current.paths[0]!.open);
     const { pathId, generation } = opened.paths[0]!;
     await lab.request("qbuttPaths/policy", { mode: "tunnels" });

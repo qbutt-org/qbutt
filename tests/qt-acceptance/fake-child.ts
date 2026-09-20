@@ -1,6 +1,7 @@
 // Deterministic transport process for the Qt acceptance scenario. It owns real
 // loopback listeners but never forwards user traffic or reads a subscription.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { createServer, isIP, type Server } from "node:net";
 import { isAbsolute } from "node:path";
@@ -10,7 +11,14 @@ assert(evidencePath, "QBUTT_QT_CHILD_EVIDENCE is required");
 const servers = new Map<string, { server: Server; pathId: string; generation: number }>();
 const username = "acceptance-user";
 const password = "QBUTT_ACCEPTANCE_SECRET";
-const evidence = { protocol: 4, hello: 0, listed: 0, status: 0, authenticated: 0, rejectedCredentials: 0,
+const protocolVersion = 5;
+const names = ["Alpha", "Beta", "https://user:pass@example.invalid/sub?token=QBUTT_ACCEPTANCE_SECRET#publicEndpoint=198.51.100.44,[2001:db8::44]"];
+const configuredServerId = (name: string) => {
+    const index = names.indexOf(name);
+    assert(index >= 0, "Unknown acceptance proxy name");
+    return createHash("sha256").update("qbutt-configured-server-v1\0" + `127.0.0.${index + 20}`).digest("hex");
+};
+const evidence = { protocol: protocolVersion, hello: 0, listed: 0, status: 0, authenticated: 0, rejectedCredentials: 0,
     payloadBoundaries: 0, delayedStatus: 0, statusPending: false, eofObserved: false,
     opened: [] as object[], closed: [] as object[], retiredOnEof: [] as object[] };
 const save = () => writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + "\n");
@@ -134,30 +142,30 @@ for await (const chunk of Bun.stdin.stream()) {
             break;
         const request = JSON.parse(input.slice(0, newline)) as Record<string, unknown>;
         input = input.slice(newline + 1);
-        assert.equal(request.v, 4);
+        assert.equal(request.v, protocolVersion);
         assert(Number.isSafeInteger(request.id) && Number(request.id) > 0, "Control request id must be a positive safe integer");
         assert.equal(typeof request.method, "string");
         let result: Record<string, unknown> = {};
         if (request.method === "hello") {
             requireKeys(request, ["id", "method", "v"]);
             evidence.hello++;
-            result = { protocol: 4, name: "qbutt-net", upstreamRevision: "d3ec342d441b086ec4318332f59dd05d8a2b5697",
+            result = { protocol: protocolVersion, name: "qbutt-net", upstreamRevision: "d3ec342d441b086ec4318332f59dd05d8a2b5697",
                 maxFrameBytes: 65536 };
         }
         else if (request.method === "list") {
-            requireKeys(request, ["configPath", "id", "method", "v"]);
+            requireKeys(request, request.proxyName === undefined ? ["configPath", "id", "method", "v"]
+                : ["configPath", "id", "method", "proxyName", "v"]);
             assert.equal(typeof request.configPath, "string");
             assert(isAbsolute(String(request.configPath)));
             evidence.listed++;
-            result = { proxies: [
-                { name: "Alpha", type: "acceptance" },
-                { name: "Beta", type: "acceptance" },
-                { name: "https://user:pass@example.invalid/sub?token=QBUTT_ACCEPTANCE_SECRET#publicEndpoint=198.51.100.44,[2001:db8::44]", type: "malicious-name" },
-            ] };
+            result = { proxies: names.filter(name => request.proxyName === undefined || request.proxyName === name)
+                .map(name => ({ name, type: name === names[2] ? "malicious-name" : "acceptance",
+                    configuredServerId: configuredServerId(name) })) };
+            assert(request.proxyName === undefined || names.includes(String(request.proxyName)));
         }
         else if (request.method === "open") {
             requireKeys(request,
-                ["configPath", "dns", "generation", "id", "interfaceName", "method", "pathId", "proxyName", "v"]);
+                ["configPath", "configuredServerId", "dns", "generation", "id", "interfaceName", "method", "pathId", "proxyName", "v"]);
             requirePathGeneration(request);
             requireDns(request.dns);
             assert.equal(typeof request.configPath, "string");
@@ -165,6 +173,7 @@ for await (const chunk of Bun.stdin.stream()) {
             assert.equal(typeof request.proxyName, "string");
             assert.equal(typeof request.interfaceName, "string");
             assert(String(request.proxyName).length > 0 && String(request.interfaceName).length > 0);
+            assert.equal(request.configuredServerId, configuredServerId(String(request.proxyName)));
             const pathId = String(request.pathId);
             const generation = Number(request.generation);
             const key = `${pathId}:${generation}`;
@@ -180,6 +189,7 @@ for await (const chunk of Bun.stdin.stream()) {
             evidence.opened.push({ pathId, generation, proxyName: request.proxyName, port: address.port });
             result = {
                 pathId, generation, interfaceName: String(request.interfaceName), host: "127.0.0.1", port: address.port,
+                configuredServerId: request.configuredServerId,
                 socksUsername: username, socksPassword: password,
                 capabilities: { tcp: "supported", udp: "source-supported", dns: "path-tcp",
                     publicTcp: "unknown", publicUdp: "unknown", measurement: "not-probed" },
@@ -224,7 +234,7 @@ for await (const chunk of Bun.stdin.stream()) {
             throw new Error(`Unexpected control method: ${request.method}`);
         }
         save();
-        process.stdout.write(JSON.stringify({ v: 4, id: request.id, result }) + "\n");
+        process.stdout.write(JSON.stringify({ v: protocolVersion, id: request.id, result }) + "\n");
     }
 }
 

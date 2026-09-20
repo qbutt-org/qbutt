@@ -303,7 +303,7 @@ try {
             closed: { pathId: string; generation: number }[];
             retiredOnEof: { pathId: string; generation: number }[];
         };
-        assert.equal(transport.protocol, 4, "The Qt acceptance transport did not use the pinned v4 contract");
+        assert.equal(transport.protocol, 5, "The Qt acceptance transport did not use the pinned v5 contract");
         assert.equal(transport.eofObserved, true, "The transport child did not observe parent EOF and finish cleanup");
         assert(transport.hello >= 1 && transport.listed >= 1, "The production app did not negotiate and list the transport child");
         assert(transport.status >= 1, "The production app did not poll bounded transport counters");

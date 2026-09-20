@@ -11,7 +11,7 @@ type Mode = "upstream-native" | "qbutt-native" | "qbutt-one-tunnel" | "qbutt-mix
 
 interface PathsStatus {
     busy: boolean;
-    paths: { pathId: string; generation: number; edgeId: string; open: boolean; localAddress?: string;
+    paths: { pathId: string; generation: number; edgeId: string; proxyName: string; open: boolean; localAddress?: string;
         closedPayloadDownload?: number }[];
     peers: { pathId: string; generation: number; peer: string; port: number; localPort: number; payloadDownload: number }[];
 }
@@ -195,7 +195,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 if (scenario === "failed-path" && side === 1)
                     targets.push({ host: "127.0.0.2", port: seeds[0]!.port,
                         connectHost: seeds[0]!.host, connectPort: seeds[0]!.port });
-                proxies.push(await startProxy({ ...credentials[side]!, targets }));
+                proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`, targets }));
             }
         }
         assert(subsetBytes.reduce((sum, bytes) => sum + bytes, 0) === exactPayloadBytes,
@@ -218,7 +218,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             })) }));
             for (let side = 0; side < tunnelCount; ++side) {
                 await lab.request("qbuttPaths/open", { configPath, proxyName: `benchmark-${side}`,
-                    edgeId: `benchmark-edge-${side}`, interfaceName: "Loopback Pseudo-Interface 1" });
+                    interfaceName: "Loopback Pseudo-Interface 1" });
                 await waitFor("benchmark tunnel open", () => lab.json<PathsStatus>("qbuttPaths/status"),
                     status => !status.busy && status.paths.filter(path => path.open).length === side + 1);
             }
@@ -249,7 +249,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 const [peer, port] = endpoint.split(":");
                 const path = paths.paths.find(candidate => mode === "qbutt-mixed" && side === routeCount - 1
                     ? candidate.edgeId === "native" && candidate.localAddress === nativeAddress
-                    : candidate.edgeId === `benchmark-edge-${side}`);
+                    : candidate.proxyName === `benchmark-${side}`);
                 assert(path, `No route owns benchmark endpoint ${endpoint}`);
                 assignedRoutes.push({ pathId: path.pathId, generation: path.generation,
                     edgeId: path.edgeId, native: path.edgeId === "native" });

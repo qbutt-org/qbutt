@@ -108,7 +108,7 @@ const resolve = async (path: Path, host: string, family = "ipv4") => {
 };
 const open = async (side: number) => {
     await lab.request("qbuttPaths/dns", { ...policies[side]! });
-    await lab.request("qbuttPaths/open", { configPath, proxyName: `node-${side}`, interfaceName, edgeId: `edge-${side}` });
+    await lab.request("qbuttPaths/open", { configPath, proxyName: `node-${side}`, interfaceName });
     const status = await idle();
     const path = status.paths.find(path => path.proxyName === `node-${side}` && path.open);
     assert(path, `Real transport path did not open: ${JSON.stringify(status)}`);
@@ -121,11 +121,11 @@ try {
     for (const side of [0, 1]) {
         const dns = await startDns(side);
         dnsServers.push(dns);
-        proxies.push(await startProxy({ ...credentials[side]!, targets: [{ host: `127.0.0.${side + 8}`,
+        proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`, targets: [{ host: `127.0.0.${side + 8}`,
             port: 53, connectHost: "127.0.0.1", connectPort: dns.port }] }));
     }
     await writeFile(configPath, JSON.stringify({ proxies: proxies.map((proxy, side) => ({
-        name: `node-${side}`, type: "socks5", server: "127.0.0.1", port: proxy.port, ...credentials[side], udp: true,
+        name: `node-${side}`, type: "socks5", server: proxy.host, port: proxy.port, ...credentials[side], udp: true,
     })) }));
     await lab.start();
     await lab.request("qbuttPaths/list", { configPath });

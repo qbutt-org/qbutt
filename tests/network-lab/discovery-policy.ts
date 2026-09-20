@@ -11,7 +11,7 @@ import { startProxy } from "./proxy";
 
 interface Status {
     busy: boolean;
-    paths: { pathId: string; generation: number; edgeId: string; open: boolean }[];
+    paths: { pathId: string; generation: number; edgeId: string; proxyName: string; open: boolean }[];
     peers: { infoHash: string; pathId: string; generation: number; peer: string; port: number; payloadDownload: number }[];
 }
 interface Info { has_metadata: boolean; private: boolean | null }
@@ -129,7 +129,7 @@ try {
         if (side === 0) trackerPort = trackers[side]!.port!;
     }
     const credentials = [0, 1].map(() => ({ username: randomBytes(8).toString("hex"), password: randomBytes(16).toString("hex") }));
-    for (const side of [0, 1]) proxies.push(await startProxy({ ...credentials[side]!, udp: true, targets: [
+    for (const side of [0, 1]) proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`, udp: true, targets: [
         { host: "127.0.0.10", port: bootstrapPort, connectHost: "127.0.0.1", connectPort: dht[side]!.address().port },
         { host: "127.0.0.11", port: trackerPort, connectHost: "127.0.0.1", connectPort: trackers[side]!.port! },
         ...seeds.map((seed, index) => ({ host: `127.0.0.${index + 2}`, port: seed.port, connectHost: seed.host })),
@@ -141,11 +141,11 @@ try {
     await lab.start();
     const status = (hash?: string) => lab.json<Status>(`qbuttPaths/status${hash ? `?hash=${hash}` : ""}`);
     for (const side of [0, 1]) {
-        await lab.request("qbuttPaths/open", { configPath, proxyName: `policy-${side}`, edgeId: `policy-${side}`, interfaceName: loopback });
+        await lab.request("qbuttPaths/open", { configPath, proxyName: `policy-${side}`, interfaceName: loopback });
         await waitFor("policy path ready", status, current => !current.busy && current.paths.filter(path => path.open).length === side + 1);
     }
     await lab.request("qbuttPaths/policy", { mode: "tunnels" });
-    const pinned = (await status()).paths.find(path => path.edgeId === "policy-0")!;
+    const pinned = (await status()).paths.find(path => path.proxyName === "policy-0")!;
     assert(pinned?.open);
     await lab.request("app/setPreferences", { json: JSON.stringify({ dht: true, pex: true, lsd: false,
         dht_bootstrap_nodes: `127.0.0.10:${bootstrapPort}` }) });

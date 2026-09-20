@@ -166,7 +166,8 @@ let peerReplies: ReturnType<typeof responses> | undefined;
 let proxy: Awaited<ReturnType<typeof startProxy>> | undefined;
 let sourceChild: ReturnType<typeof Bun.spawn> | undefined;
 let sourceReplies: ReturnType<typeof responses> | undefined;
-let sourceEndpoint: { host: string; port: number; socksUsername: string; socksPassword: string } | undefined;
+let sourceEndpoint: { host: string; port: number; configuredServerId: string;
+    socksUsername: string; socksPassword: string } | undefined;
 let sourceCheck: ReturnType<typeof Bun.spawn> | undefined;
 let sourceCheckReplies: ReturnType<typeof responses> | undefined;
 let packetCapture: Awaited<ReturnType<typeof captureOwnedPort>> | undefined;
@@ -190,21 +191,28 @@ try {
             stderr: Bun.file(join(lab.root, "source-child.stderr.log")), windowsHide: true });
         sourceReplies = responses(sourceChild);
         const requestSource = async (id: number, method: string, fields: object = {}) => {
-            sourceChild!.stdin.write(JSON.stringify({ v: 4, id, method, ...fields }) + "\n");
+            sourceChild!.stdin.write(JSON.stringify({ v: 5, id, method, ...fields }) + "\n");
             await sourceChild!.stdin.flush();
             const reply = await sourceReplies!.next(`selected source ${method}`);
             assert.equal(reply.id, id);
-            assert.equal(reply.v, 4);
+            assert.equal(reply.v, 5);
             assert(!reply.error, `Selected source ${method} failed: ${reply.error?.code}`);
             return reply.result;
         };
         const hello = await requestSource(1, "hello");
-        assert.equal(hello.protocol, 4);
-        sourceEndpoint = await requestSource(2, "open", { configPath: selectedFile,
-            proxyName: "wan-source", pathId: "wan-source", generation: 1,
+        assert.equal(hello.protocol, 5);
+        const listed = await requestSource(2, "list", { configPath: selectedFile, proxyName: "wan-source" });
+        assert(Array.isArray(listed?.proxies) && listed.proxies.length === 1
+            && listed.proxies[0]?.name === "wan-source"
+            && /^[0-9a-f]{64}$/.test(listed.proxies[0]?.configuredServerId),
+            "Selected WAN source did not expose one configured server identity");
+        const configuredServerId = listed.proxies[0].configuredServerId;
+        sourceEndpoint = await requestSource(3, "open", { configPath: selectedFile,
+            proxyName: "wan-source", configuredServerId, pathId: "wan-source", generation: 1,
             interfaceName: nativeInterface, dns: { server: "1.1.1.1:53",
                 bootstrapServer: "1.1.1.1:53", family: "ipv4" } });
-        assert(sourceEndpoint && sourceEndpoint.host === "127.0.0.1" && Number.isInteger(sourceEndpoint.port)
+        assert(sourceEndpoint && sourceEndpoint.configuredServerId === configuredServerId
+            && sourceEndpoint.host === "127.0.0.1" && Number.isInteger(sourceEndpoint.port)
             && sourceEndpoint.port > 0 && sourceEndpoint.port <= 65535
             && typeof sourceEndpoint.socksUsername === "string"
             && typeof sourceEndpoint.socksPassword === "string");
@@ -228,7 +236,7 @@ try {
             new Response(checkClient.stdout).text(), new Response(checkClient.stderr).text()]);
         const flags = await stopCapture(sourcePacketCapture);
         sourcePacketCapture = undefined;
-        const sourceStatus = await requestSource(3, "status") as { paths: { pathId: string;
+        const sourceStatus = await requestSource(4, "status") as { paths: { pathId: string;
             generation: number; wire: Record<string, number> }[] };
         assert(sourceStatus.paths.length === 1 && sourceStatus.paths[0]!.pathId === "wan-source"
             && sourceStatus.paths[0]!.generation === 1);
@@ -302,7 +310,7 @@ try {
         certificatePath: join(certificates, "client.pem"), privateKeyPath: join(certificates, "client-key.pem"),
         port: String(ports.listener), tcp: "true", udp: "false" });
     await lab.request("qbuttPaths/open", { configPath: nodeConfig, proxyName: "wan-gateway",
-        edgeId: "wan-gateway", interfaceName: nativeInterface });
+        interfaceName: nativeInterface });
     const readStatus = () => lab.json<Status>("qbuttPaths/status");
     const leased = await waitFor("remote public gateway lease", readStatus, status => !status.busy
         && status.pinned && status.paths.length === 1 && status.paths[0]!.gateway.state === "leased", 30000);

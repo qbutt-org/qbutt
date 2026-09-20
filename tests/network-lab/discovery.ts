@@ -11,7 +11,7 @@ import { startProxy } from "./proxy";
 interface Status {
     busy: boolean;
     mode: string;
-    paths: { pathId: string; generation: number; edgeId: string; open: boolean }[];
+    paths: { pathId: string; generation: number; edgeId: string; proxyName: string; open: boolean }[];
     peers: { infoHash: string; pathId: string; generation: number; peer: string; port: number; payloadDownload: number }[];
 }
 const protocol = process.env.QBUTT_DISCOVERY_PROTOCOL ?? "tcp";
@@ -142,7 +142,7 @@ try {
             { host: "127.0.0.12", port: udpTrackerPort, connectHost: "127.0.0.1" },
             ...endpoints.map((endpoint, index) => ({ ...endpoint, connectHost: seeds[index]!.host })),
         ];
-        proxies.push(await startProxy({ ...credentials[side]!, udp: !pexMode, targets }));
+        proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`, udp: !pexMode, targets }));
     }
     const configPath = join(lab.root, "nodes.json");
     await writeFile(configPath, JSON.stringify({ proxies: proxies.map((proxy, side) => ({
@@ -158,7 +158,7 @@ try {
     }
     await lab.checkpoint({ check: "discovery-transport", protocol });
     for (let side = 0; side < 2; side++) {
-        await lab.request("qbuttPaths/open", { configPath, proxyName: `discovery-${side}`, edgeId: `discovery-${side}`, interfaceName: loopback });
+        await lab.request("qbuttPaths/open", { configPath, proxyName: `discovery-${side}`, interfaceName: loopback });
         await waitFor("discovery path open", () => lab.json<Status>("qbuttPaths/status"),
             current => !current.busy && current.paths.filter(path => path.open).length === side + 1);
     }
@@ -168,9 +168,9 @@ try {
         const hash = await lab.add(torrent.name, destination); assert.equal(hash, infoHash.toString("hex"));
         const pathStatus = () => lab.json<Status>(`qbuttPaths/status?hash=${hash}`);
         const paths = (await pathStatus()).paths;
-        const pathA = paths.find(path => path.edgeId === "discovery-0");
-        const pathB = paths.find(path => path.edgeId === "discovery-1");
-        assert(pathA?.open && pathB?.open && pathA.pathId !== pathB.pathId);
+        const pathA = paths.find(path => path.proxyName === "discovery-0");
+        const pathB = paths.find(path => path.proxyName === "discovery-1");
+        assert(pathA?.open && pathB?.open && pathA.pathId !== pathB.pathId && pathA.edgeId !== pathB.edgeId);
         await lab.request("torrents/start", { hashes: hash });
         await lab.request("torrents/addPeers", { hashes: hash, peers: `${endpoints[0]!.host}:${endpoints[0]!.port}` });
         const observations = await waitFor("PEX peer B over its separate path", async () => {

@@ -15,7 +15,7 @@ interface Peer {
 }
 interface Status {
     busy: boolean; mode: string; peers: Peer[];
-    paths: { pathId: string; generation: number; edgeId: string; open: boolean; localAddress?: string }[];
+    paths: { pathId: string; generation: number; edgeId: string; proxyName: string; open: boolean; localAddress?: string }[];
     diagnostics: { routes: { pathId: string; generation: number; payloadDownload: number; verifiedDownload: number }[] };
 }
 interface Connection {
@@ -120,14 +120,14 @@ print(lt.torrent_info(encoded).info_hashes().v1)
         enable_multi_connections_from_same_ip: true }) });
     for (let side = 0; side < 3; ++side) {
         await lab.request("qbuttPaths/open", { configPath: nodes, proxyName: `wan-${side}`,
-            edgeId: `wan-${side}`, interfaceName: nativeInterface });
+            interfaceName: nativeInterface });
         await waitFor("WAN path open", readStatus,
             status => !status.busy && status.paths.filter(path => path.open).length === side + 1);
     }
     await lab.request("qbuttPaths/policy", { mode: "mixed", nativeInterface: physical[0]!.value });
     const status = await readStatus();
     const paths = [0, 1, 2, 3].map(side => status.paths.find(path => side === 3
-        ? path.edgeId === "native" && path.localAddress === nativeAddress : path.edgeId === `wan-${side}`));
+        ? path.edgeId === "native" && path.localAddress === nativeAddress : path.proxyName === `wan-${side}`));
     assert(status.mode === "mixed" && paths.every(path => path?.open));
     const data = new FormData();
     data.set("torrents", Bun.file(torrentPath));

@@ -11,7 +11,7 @@ import { startProxy } from "./proxy";
 interface PathsStatus {
     busy: boolean;
     mode: string;
-    paths: { pathId: string; generation: number; edgeId: string; open: boolean; localAddress?: string;
+    paths: { pathId: string; generation: number; edgeId: string; proxyName: string; open: boolean; localAddress?: string;
         closedPayloadDownload?: number }[];
     peers: { pathId: string; generation: number; peer: string; port: number; localAddress: string; localPort: number;
         infoHash: string; payloadDownload: number; payloadUpload: number }[];
@@ -90,7 +90,7 @@ try {
             });
         });
         assert(!directlyReachable, "Complementary peer unexpectedly accepts a direct connection");
-        proxies.push(await startProxy({ ...credentials[side]!, targets: [2, 4].map(offset => ({
+        proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`, targets: [2, 4].map(offset => ({
             host: `127.0.0.${side + offset}`, port: seed.port, connectHost: seed.host, connectPort: seed.port,
         })) }));
     }
@@ -170,7 +170,7 @@ try {
         const readPaths = () => lab.json<PathsStatus>("qbuttPaths/status");
         for (const side of tunnelSides) {
             await lab.request("qbuttPaths/open", { configPath, proxyName: `partial-${side}`,
-                edgeId: `edge-${side}`, interfaceName: "Loopback Pseudo-Interface 1" });
+                interfaceName: "Loopback Pseudo-Interface 1" });
             const status = await waitFor("open independent path", readPaths, status => !status.busy);
             assert(status.paths?.filter(path => path.open).length === side + 1, "Expected independent active paths");
         }
@@ -198,9 +198,10 @@ try {
         await lab.request("qbuttPaths/policy", { mode: managedMode, ...(native ? { nativeInterface: nativeInterface! } : {}) });
         const selected = await readPaths();
         const expectedPaths = sides.map(side => selected.paths.find(path => native && side === 3
-            ? path.edgeId === "native" && path.localAddress === nativeAddress : path.edgeId === `edge-${side}`));
+            ? path.edgeId === "native" && path.localAddress === nativeAddress : path.proxyName === `partial-${side}`));
         assert(selected.mode === managedMode && expectedPaths.every(path => path?.open)
-            && new Set(expectedPaths.map(path => path!.pathId)).size === sides.length,
+            && new Set(expectedPaths.map(path => path!.pathId)).size === sides.length
+            && new Set(expectedPaths.map(path => path!.edgeId)).size === sides.length,
             `${managedMode} policy did not retain the distinct fixture paths`);
         const destination = join(lab.root, "mixed-target");
         const hash = await lab.add(torrent.name, destination);
@@ -295,11 +296,11 @@ try {
                 "Rejected route delivered torrent payload before the allowed alternative existed");
 
             await lab.request("qbuttPaths/open", { configPath, proxyName: `partial-${correctSide}`,
-                edgeId: `edge-${correctSide}`, interfaceName: "Loopback Pseudo-Interface 1" });
+                interfaceName: "Loopback Pseudo-Interface 1" });
             const reopened = await waitFor("allowed alternative reopens with a new generation", readPaths, status => !status.busy
-                && status.paths.some(path => path.edgeId === `edge-${correctSide}` && path.open
+                && status.paths.some(path => path.proxyName === `partial-${correctSide}` && path.open
                     && path.generation > originalPath.generation));
-            const alternative = reopened.paths.find(path => path.edgeId === `edge-${correctSide}`)!;
+            const alternative = reopened.paths.find(path => path.proxyName === `partial-${correctSide}`)!;
             expectedPaths[correctSide] = alternative;
             const alternativeHost = `127.0.0.${correctSide + 2}`;
             await lab.request("torrents/addPeers", { hashes: retryHash,

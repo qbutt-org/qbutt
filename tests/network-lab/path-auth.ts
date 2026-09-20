@@ -67,14 +67,14 @@ async function assertListenerClosed(port: number) {
 
 const failures: unknown[] = [];
 try {
-    for (const mode of ["no-auth", "wrong-credentials", "incompatible", "legacy-v3", "hello-extra", "hello-wrong-upstream",
+    for (const mode of ["no-auth", "wrong-credentials", "incompatible", "legacy-v4", "hello-extra", "hello-wrong-upstream",
         "open-envelope-extra", "open-result-extra", "status-result-extra", "dns-success", "dns-request-error",
         "dns-malformed", "dns-nonnumeric", "dns-wrong-family", "dns-too-many", "dns-timeout", "dns-crash",
         "dns-result-extra", "dns-error-message-extra", "status-delay", "status-delay-extra", "status-decrease",
         "gateway-rollover", "close-error"] as const) {
         const dnsMode = mode.startsWith("dns-");
         const gatewayRollover = mode === "gateway-rollover";
-        const handshakeFailure = ["incompatible", "legacy-v3", "hello-extra", "hello-wrong-upstream"].includes(mode);
+        const handshakeFailure = ["incompatible", "legacy-v4", "hello-extra", "hello-wrong-upstream"].includes(mode);
         const responseFailure = ["open-envelope-extra", "open-result-extra", "status-result-extra"].includes(mode);
         const lab = await createLab(`path-${mode}`);
         let failure: unknown;
@@ -112,7 +112,7 @@ try {
             if (gatewayRollover)
                 await lab.request("qbuttPaths/gateway", gatewaySettings(45000));
             await lab.request("qbuttPaths/open", { configPath, proxyName: "fault-fixture",
-                edgeId: "fault-edge", interfaceName: "Loopback Pseudo-Interface 1" });
+                interfaceName: "Loopback Pseudo-Interface 1" });
             const status = await waitFor("fault child response", readStatus, status =>
                 (handshakeFailure || responseFailure) ? (!status.open && status.processId === 0) : !status.busy, 15000);
             if (handshakeFailure || responseFailure) {
@@ -129,7 +129,7 @@ try {
                 assert(status.open && status.processId > 0 && status.paths.length === 1
                     && status.paths[0]!.gateway.state === "leased", "First gateway path was not leased");
                 await lab.request("qbuttPaths/open", { configPath, proxyName: "fault-fixture-2",
-                    edgeId: "fault-edge-2", interfaceName: "Loopback Pseudo-Interface 1" });
+                    interfaceName: "Loopback Pseudo-Interface 1" });
                 const beforeRollover = await waitFor("two leased paths", readStatus, state => !state.busy
                     && state.paths.filter(path => path.open && path.gateway.state === "leased").length === 2);
                 const malformedPathId = `0${beforeRollover.paths.find(path => path.open)!.pathId}`;
@@ -261,8 +261,8 @@ try {
             }
             await lab.shutdown();
             const observed = JSON.parse(await readFile(evidencePath, "utf8")) as FaultEvidence;
-            assert.equal(observed.protocol, 4, "Fixture evidence did not record protocol v4");
-            assert(observed.methods.every(method => ["hello", "open", "resolve", "status", "close",
+            assert.equal(observed.protocol, 5, "Fixture evidence did not record protocol v5");
+            assert(observed.methods.every(method => ["hello", "list", "open", "resolve", "status", "close",
                 "gateway.open", "gateway.renew", "gateway.close"].includes(method)),
                 "Path-only fixture received a gateway or unrelated control request");
             assert(observed.hello === (gatewayRollover ? observed.processStarts : 1),

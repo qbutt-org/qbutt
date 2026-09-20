@@ -14,6 +14,7 @@ export interface ProxyOptions {
     username: string;
     password: string;
     targets: ProxyTarget[];
+    listenAddress?: string;
     handshakeTimeoutMs?: number;
     maxConnections?: number;
     udp?: boolean;
@@ -60,6 +61,9 @@ export async function startProxy(options: ProxyOptions) {
         throw new Error("Handshake timeout must be between 1 and 30000 ms");
     if (!Number.isInteger(maxConnections) || maxConnections < 1 || maxConnections > 256)
         throw new Error("Connection limit must be between 1 and 256");
+    const listenAddress = options.listenAddress ?? "127.0.0.1";
+    if (!isLoopback(listenAddress))
+        throw new Error("SOCKS listener must bind to a numeric loopback address");
 
     const targets = new Map<string, { host: string; port: number }>();
     if (options.remoteAddress && isIP(options.remoteAddress) !== 4)
@@ -237,7 +241,7 @@ export async function startProxy(options: ProxyOptions) {
                                 relay.send(Buffer.concat([Buffer.alloc(3), fromTarget, packet]), clientPort, "127.0.0.1");
                                 return;
                             }
-                            if (source.address !== "127.0.0.1" || (clientPort && source.port !== clientPort)
+                            if (source.address !== client.remoteAddress || (clientPort && source.port !== clientPort)
                                 || packet.length < 10 || packet.length > 65507 || packet.readUInt32BE(0) !== 1)
                                 return;
                             const targetHost = [...packet.subarray(4, 8)].join(".");
@@ -317,7 +321,7 @@ export async function startProxy(options: ProxyOptions) {
 
     await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => {
+        server.listen(0, listenAddress, () => {
             server.removeListener("error", reject);
             resolve();
         });
@@ -328,7 +332,7 @@ export async function startProxy(options: ProxyOptions) {
 
     let closePromise: Promise<void> | undefined;
     return {
-        host: "127.0.0.1",
+        host: listenAddress,
         port: address.port,
         stats,
         close(): Promise<void> {
