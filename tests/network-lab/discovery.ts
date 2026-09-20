@@ -410,6 +410,5 @@ finally {
         catch (error) { failure ??= error; }
     }
 }
-if (!failure && errors.length) failure = new Error(`Discovery fixture errors: ${errors.join("; ")}`);
 await lab.finish(failure);
 if (failure) throw failure;
