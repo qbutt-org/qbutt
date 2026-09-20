@@ -30,6 +30,8 @@ Use Windows x64, Visual Studio 2022 with the C++ desktop workload and Windows SD
 
 The script retrieves pinned Qt, Boost, libtorrent, OpenSSL, zlib, Go, Ninja and qbutt-net dependencies, then writes the portable ZIP and build manifest under `%LOCALAPPDATA%/qbutt/build`. The manifest identifies the source revision and whether the application checkout was dirty.
 
+Use `-ArtifactRoot` to place the portable directory, ZIP and checksums outside a reusable `-BuildRoot`, preserving an earlier release without duplicating compiled objects or dependencies.
+
 [The integration lab](tests/README.md) uses Bun, generated legal v1/v2/hybrid torrents and isolated application profiles for its default local scenarios. Explicit WAN and public-swarm scenarios can contact external hosts; the WAN fixture reads a separately supplied Mihomo configuration without modifying that source. [Transport capabilities](docs/capabilities.md) distinguish available adapters from measured behavior.
 
 ## Development

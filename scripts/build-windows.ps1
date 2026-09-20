@@ -2,6 +2,7 @@
 param(
     [string] $SourceDir = (Split-Path $PSScriptRoot -Parent),
     [string] $BuildRoot = (Join-Path $env:LOCALAPPDATA 'qbutt/build'),
+    [string] $ArtifactRoot,
     [string] $DependencyRoot = (Join-Path $env:LOCALAPPDATA 'qbutt/dependencies'),
     [string] $LibtorrentSourceDir,
     [string] $LibtorrentBuildRoot,
@@ -71,8 +72,9 @@ function Initialize-Source([string] $Path, $Pin) {
 if ($env:OS -ne 'Windows_NT') { throw 'This build requires Windows x64 and Visual Studio 2022 C++ tools.' }
 $SourceDir = (Resolve-Path -LiteralPath $SourceDir).Path
 $BuildRoot = [IO.Path]::GetFullPath($BuildRoot)
+$ArtifactRoot = if ($ArtifactRoot) { [IO.Path]::GetFullPath($ArtifactRoot) } else { $BuildRoot }
 $DependencyRoot = [IO.Path]::GetFullPath($DependencyRoot)
-New-Item -ItemType Directory -Force $BuildRoot, $DependencyRoot | Out-Null
+New-Item -ItemType Directory -Force $BuildRoot, $DependencyRoot, $ArtifactRoot | Out-Null
 $lockPath = Join-Path $SourceDir 'upstream-lock.json'
 $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
 $pins = $lock.windows
@@ -201,13 +203,13 @@ Invoke-Native $cmake (@('-S', $SourceDir, '-B', $BuildRoot) + $common + @(
     '-DMSVC_RUNTIME_DYNAMIC=ON', '-DTESTING=OFF', '-DQBUTT_STAGING_FAULTS=OFF', '-DQBUTT_COMPLETION_FAULTS=OFF'))
 Invoke-Native $cmake @('--build', $BuildRoot, '--parallel', "$Parallel")
 
-$portable = Join-Path $BuildRoot 'portable'
+$portable = Join-Path $ArtifactRoot 'portable'
 if (Test-Path -LiteralPath $portable) {
     $resolvedPortable = (Resolve-Path -LiteralPath $portable).Path
     if ($resolvedPortable -ne [IO.Path]::GetFullPath($portable) -or
-        (Split-Path $resolvedPortable -Parent) -ne (Resolve-Path -LiteralPath $BuildRoot).Path -or
+        (Split-Path $resolvedPortable -Parent) -ne (Resolve-Path -LiteralPath $ArtifactRoot).Path -or
         ((Get-Item -LiteralPath $portable).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-        throw 'Portable output must be a regular directory directly inside BuildRoot.'
+        throw 'Portable output must be a regular directory directly inside ArtifactRoot.'
     }
     Remove-Item -LiteralPath $resolvedPortable -Recurse -Force
 }
@@ -287,10 +289,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
     qt = $pins.qt.version
     dependencyLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
 } | ConvertTo-Json | Set-Content (Join-Path $portable 'build-manifest.json')
-$archive = Join-Path $BuildRoot "qbutt-$releaseVersion-windows-x64.zip"
+$archive = Join-Path $ArtifactRoot "qbutt-$releaseVersion-windows-x64.zip"
 Compress-Archive -Path "$portable/*" -DestinationPath $archive -Force
 $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 $manifestDigest = (Get-FileHash -LiteralPath (Join-Path $portable 'build-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant()
 @("$digest  $(Split-Path $archive -Leaf)", "$manifestDigest  build-manifest.json") |
-    Set-Content (Join-Path $BuildRoot 'SHA256SUMS.txt') -Encoding ascii
+    Set-Content (Join-Path $ArtifactRoot 'SHA256SUMS.txt') -Encoding ascii
 Write-Output "Portable build: $portable"
