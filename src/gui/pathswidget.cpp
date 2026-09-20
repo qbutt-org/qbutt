@@ -234,8 +234,8 @@ PathsWidget::PathsWidget(QWidget *parent)
     actions->addWidget(m_native);
     actions->addStretch();
     layout->addLayout(actions);
-    auto *description = new QLabel(tr("All policies share one torrent session. Supported UDP routes carry uTP and UDP trackers. "
-        "Public announces use active gateway leases, and DHT starts only with a gateway UDP lease. "
+    auto *description = new QLabel(tr("All policies share one torrent session. Supported UDP routes carry uTP, UDP trackers and DHT. "
+        "Public announces use active gateway leases. "
         "Including Native exposes its address to public torrent peers; private torrents stay on the first remote edge."), this);
     description->setWordWrap(true);
     layout->addWidget(description);
