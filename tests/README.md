@@ -52,10 +52,13 @@ bun run smoke:tunnels
 bun run smoke:native-route
 bun run smoke:route-policy
 bun run smoke:policy-transition
+bun run smoke:policy-transition-utp
 bun run smoke:direct-transition
+bun run smoke:discovery-transition
 bun run smoke:path-auth
 bun run smoke:server-identity
 bun run smoke:connection-budget
+bun run smoke:idle-peers
 bun run smoke:path-dns
 ```
 
@@ -64,8 +67,25 @@ bun run smoke:path-dns
 torrent receives complementary data through Native and two controlled SOCKS
 paths, then switches Mixed → Tunnels only → Pinned. It checks OS socket closure,
 a reachable Native canary, frozen retired relay counters and exact final hashes
-without restarting the torrent. This fixture covers TCP peer transitions;
-uTP, discovery and webseed transitions require separate scenarios.
+without restarting the torrent. `smoke:policy-transition-utp` exercises the same
+transitions with uTP-only peers, a positive UDP canary, retirement of the exact
+native UDP endpoint, and frozen retired relay datagrams. A selected SOCKS UDP
+association may remain alive for other traffic; it is not a peer connection.
+
+`smoke:discovery-transition` uses the same interface settings and three controlled
+IPv4 DHT/HTTP/UDP tracker responders. It observes positive discovery traffic on
+all three paths, then requires the retained paths to stay active while retired
+responders receive no more packets through Mixed → Tunnels only → Pinned. UDP
+phases use fresh tracker URLs with wire-visible markers; they do not establish
+response acceptance or reannounce completion for an earlier pending request.
+The same torrent finishes with exact hashes. Webseed transitions remain separate.
+
+`smoke:idle-peers` holds two real TCP peers through separate managed paths for
+12 seconds: one advertises wanted pieces but stays choked, the other is unchoked
+with an empty bitfield. Neither may cause connection churn, route failures,
+payload demand time or verified credit. Only the choked peer accrues choke time.
+Releasing it must complete the exact payload over the original connection. This
+bounded fixture does not establish idle-timeout or long-term stability behavior.
 
 `smoke:direct-transition` uses the same physical-interface settings. One active
 torrent starts with ordinary Direct networking and no child, switches to
