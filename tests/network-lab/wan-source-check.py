@@ -76,7 +76,9 @@ def client(proxy_port, username, password, target_ip, target_port):
         else:
             raise ConnectionError("Unknown SOCKS reply address family")
         exact(connection, address_length + 2)
-        connection.sendall(b"GET /source HTTP/1.1\r\nHost: observer\r\nConnection: close\r\n\r\n")
+        # A proxy may route by the HTTP host instead of the SOCKS destination.
+        connection.sendall((f"GET /source HTTP/1.1\r\nHost: {target}:{target_port}\r\n"
+                            "Connection: close\r\n\r\n").encode("ascii"))
         response = bytearray()
         while len(response) < 4096:
             chunk = connection.recv(4096 - len(response))
