@@ -276,7 +276,7 @@ QList<std::shared_ptr<BitTorrent::RepairFileGuard>> BitTorrent::RepairFileGuard:
 
 std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
     const lt::file_storage &files, const QString &savePath, const bool writable, QString &error
-    , const std::atomic_bool *cancelled, const bool renameChildren)
+    , const std::atomic_bool *cancelled, const bool renameChildren, const QSet<int> *writableFiles)
 {
 #ifndef Q_OS_WIN
     Q_UNUSED(files)
@@ -284,6 +284,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
     Q_UNUSED(writable)
     Q_UNUSED(cancelled)
     Q_UNUSED(renameChildren)
+    Q_UNUSED(writableFiles)
     error = QStringLiteral("Managed repair currently requires Windows file ownership checks.");
     return {};
 #else
@@ -465,6 +466,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             continue;
         const QString relative = QDir::fromNativeSeparators(QString::fromStdString(files.file_path(index)));
         const QString path = QDir(root).filePath(relative);
+        const bool fileWritable = writable && (!writableFiles || writableFiles->contains(int(index)));
         const DirectoryState directoryState = lockDirectories(path.section(u'/', 0, -2));
         if (directoryState == DirectoryState::Invalid)
             return {};
@@ -472,7 +474,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
         if (directoryState == DirectoryState::Missing)
         {
             identity << false;
-            if (files.file_size(index) == 0)
+            if (fileWritable && (files.file_size(index) == 0))
                 guard->m_missingEmptyFiles.push_back({int(index), path});
             continue;
         }
@@ -484,15 +486,15 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
 
         const QString native = windowsPath(path);
         HANDLE handle = CreateFileW(reinterpret_cast<LPCWSTR>(native.utf16())
-            , writable ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_READ
-            , writable ? 0 : FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+            , fileWritable ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_READ
+            , fileWritable ? 0 : FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (handle == INVALID_HANDLE_VALUE)
         {
             const DWORD code = GetLastError();
             if ((code == ERROR_FILE_NOT_FOUND) || (code == ERROR_PATH_NOT_FOUND))
             {
                 identity << false;
-                if (files.file_size(index) == 0)
+                if (fileWritable && (files.file_size(index) == 0))
                     guard->m_missingEmptyFiles.push_back({int(index), path});
                 continue;
             }
@@ -501,7 +503,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
         }
 
         auto closeHandle = qScopeGuard([handle] { CloseHandle(handle); });
-        guard->m_files.push_back({handle, int(index), path, files.file_size(index), 0});
+        guard->m_files.push_back({handle, int(index), path, files.file_size(index), 0, fileWritable});
         closeHandle.dismiss();
         BY_HANDLE_FILE_INFORMATION info {};
         if (!GetFileInformationByHandle(handle, &info)
@@ -657,7 +659,7 @@ bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::
             error = QStringLiteral("The newly created empty target is not an exclusive regular file: %1").arg(file.path);
             return false;
         }
-        m_files.push_back({handle, file.nativeIndex, file.path, 0, 0});
+        m_files.push_back({handle, file.nativeIndex, file.path, 0, 0, true});
         closeHandle.dismiss();
     }
     m_missingEmptyFiles.clear();
@@ -684,7 +686,7 @@ bool BitTorrent::RepairFileGuard::truncateOversized(QString &error, const std::a
     {
         if (checkCancellation(error, cancelled, true))
             return false;
-        if (file.actualSize <= file.expectedSize)
+        if (!file.writable || (file.actualSize <= file.expectedSize))
             continue;
         LARGE_INTEGER end {};
         end.QuadPart = file.expectedSize;

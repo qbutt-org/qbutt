@@ -325,6 +325,11 @@ void RepairDialog::showAnalysis(const BitTorrent::RepairAnalysis &analysis, cons
             , locale().toString(file.verifiedBytes), file.problems.join(u'\n')}};
         item->setToolTip(0, Qt::convertFromPlainText(m_staged ? tr("Source: %1").arg(file.path) : file.path));
         item->setToolTip(4, Qt::convertFromPlainText(file.problems.join(u'\n')));
+        if (!file.selected)
+        {
+            item->setText(4, tr("Not selected for repair."));
+            item->setToolTip(4, tr("Managed repair does not create or truncate this file. Normal downloading may use shared pieces at file boundaries."));
+        }
         for (int column = 1; column <= 3; ++column)
             item->setTextAlignment(column, Qt::AlignRight | Qt::AlignVCenter);
     }

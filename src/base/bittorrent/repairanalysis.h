@@ -29,6 +29,7 @@ namespace BitTorrent
         qint64 expectedSize = 0;
         qint64 actualSize = -1;
         qint64 verifiedBytes = 0;
+        bool selected = true;
         QStringList problems;
     };
 

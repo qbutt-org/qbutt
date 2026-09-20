@@ -103,6 +103,7 @@ void RepairController::analyzeAction()
                 {u"expected_size"_s, file.expectedSize},
                 {u"actual_size"_s, file.actualSize},
                 {u"verified_bytes"_s, file.verifiedBytes},
+                {u"selected"_s, file.selected},
                 {u"problems"_s, QJsonArray::fromStringList(file.problems)}
             });
         }

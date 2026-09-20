@@ -2072,6 +2072,14 @@ void TorrentImpl::start(const TorrentOperatingMode mode)
     if (hasExclusiveFileOperation())
         return;
 
+    // Repair rechecks keep the physical layout frozen, including incomplete
+    // suffixes and the active download directory. Reconcile it on explicit Start
+    // through the ordinary rename/move lifecycle, never on analysis or cancel.
+    if (hasMetadata() && !m_hasMissingFiles)
+    {
+        adjustStorageLocation();
+        manageActualFilePaths();
+    }
     doStart(mode);
 }
 

@@ -31,9 +31,11 @@ namespace BitTorrent
         // renameChildren permits modification through retained directory handles
         // during commit. Directory replacement is still denied; callers must
         // use handle-relative renames, never traverse these paths again.
+        // writableFiles restricts creation/truncation while other mapped files
+        // remain read-locked for boundary-piece verification and identity checks.
         static std::shared_ptr<RepairFileGuard> open(const lt::file_storage &files
             , const QString &savePath, bool writable, QString &error, const std::atomic_bool *cancelled = nullptr
-            , bool renameChildren = false);
+            , bool renameChildren = false, const QSet<int> *writableFiles = nullptr);
         static QList<std::shared_ptr<RepairFileGuard>> openSources(const lt::file_storage &targetFiles
             , const QMap<int, QString> &sources, QString &error, const std::atomic_bool *cancelled = nullptr);
         ~RepairFileGuard();
@@ -57,6 +59,7 @@ namespace BitTorrent
             QString path;
             qint64 expectedSize = 0;
             qint64 actualSize = 0;
+            bool writable = false;
         };
 
         struct MissingEmptyFile

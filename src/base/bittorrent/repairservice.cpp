@@ -210,46 +210,28 @@ void RepairService::analyze()
         fail(tr("Recover the pending staged operation before starting a new analysis."));
         return;
     }
-    if (m_torrent->isAutoTMMEnabled() || !m_torrent->downloadPath().isEmpty())
+    if (m_torrent->isAutoTMMEnabled())
     {
-        fail(tr("This repair slice requires manual torrent management and a single save directory."));
+        fail(tr("Repair currently requires manual torrent management."));
         return;
     }
     auto *session = static_cast<SessionImpl *>(m_torrent->session());
-    if (session->isAppendExtensionEnabled())
+    if (m_staged && (!m_torrent->downloadPath().isEmpty() || session->isAppendExtensionEnabled()))
     {
-        fail(tr("Disable the incomplete-file extension before using this repair slice."));
+        fail(tr("Staged update currently requires a single save directory and the incomplete-file extension disabled."));
         return;
     }
-    const QList<DownloadPriority> priorities = m_torrent->filePriorities();
-    for (int i = 0; i < m_torrent->filesCount(); ++i)
+    if (m_staged)
     {
-        if ((!m_staged && (priorities.at(i) == DownloadPriority::Ignored))
-            || (!m_staged && (m_torrent->actualFilePath(i) != m_torrent->filePath(i)))
-            || m_torrent->filePath(i).hasExtension(QB_EXT))
+        for (const Path &path : m_torrent->filePaths())
         {
-            fail(tr("This repair slice requires all files selected and no temporary filename or unwanted-folder mappings. Explicit torrent file renames are supported."));
-            return;
+            if (path.hasExtension(QB_EXT))
+            {
+                fail(tr("Staged update requires target names without an incomplete-file extension."));
+                return;
+            }
         }
     }
-
-    m_savePath = m_torrent->actualStorageLocation().toString();
-    m_target = m_torrent->info().nativeInfo();
-    m_files = m_target->files();
-    const QList<lt::file_index_t> indexes = m_torrent->info().nativeIndexes();
-    for (int i = 0; i < m_torrent->filesCount(); ++i)
-    {
-        m_files.rename_file(indexes.at(i), m_torrent->actualFilePath(i).toString().toStdString());
-        if (priorities.at(i) != DownloadPriority::Ignored)
-            m_selectedFiles.insert(int(indexes.at(i)));
-    }
-    if (m_staged && m_selectedFiles.isEmpty())
-    {
-        fail(tr("Select at least one target file before preparing a staged update."));
-        return;
-    }
-
-    snapshotOtherFiles();
     if (const auto result = m_torrent->beginRepair(m_recovering); !result)
     {
         fail(result.error());
@@ -334,6 +316,25 @@ void RepairService::analyzeDrainedData()
     if (m_state != State::Draining)
         return;
     m_drainTimeout.stop();
+    // Capture the engine's physical layout only after ownership prevents changes
+    // to priorities, names and storage location, and pending disk I/O has drained.
+    m_savePath = m_torrent->actualStorageLocation().toString();
+    m_target = m_torrent->info().nativeInfo();
+    m_files = m_target->files();
+    const QList<DownloadPriority> priorities = m_torrent->filePriorities();
+    const QList<lt::file_index_t> indexes = m_torrent->info().nativeIndexes();
+    for (int i = 0; i < m_torrent->filesCount(); ++i)
+    {
+        m_files.rename_file(indexes.at(i), m_torrent->actualFilePath(i).toString().toStdString());
+        if (priorities.at(i) != DownloadPriority::Ignored)
+            m_selectedFiles.insert(int(indexes.at(i)));
+    }
+    if (m_selectedFiles.isEmpty())
+    {
+        fail(tr("Select at least one target file before repairing its data."));
+        return;
+    }
+    snapshotOtherFiles();
     m_state = State::Analyzing;
     runWorker([this]
     {
@@ -365,6 +366,8 @@ void RepairService::analyzeDrainedData()
         }
         const QSet<int> readableFiles = m_guard->existingFiles();
         m_analysis = analyzeRepairData(*m_target, m_files, m_savePath, &m_cancelled, &readableFiles);
+        for (RepairFileAnalysis &file : m_analysis.files)
+            file.selected = m_selectedFiles.contains(file.nativeIndex);
         m_error = m_analysis.error;
     });
 }
@@ -409,7 +412,7 @@ void RepairService::apply()
             return;
         const QByteArray analyzedIdentity = m_guard->identity();
         m_guard.reset();
-        m_guard = RepairFileGuard::open(m_files, m_savePath, true, m_error, &m_cancelled);
+        m_guard = RepairFileGuard::open(m_files, m_savePath, true, m_error, &m_cancelled, false, &m_selectedFiles);
         if (!m_guard)
             return;
         if (m_guard->identity() != analyzedIdentity)
