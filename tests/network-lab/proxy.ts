@@ -238,7 +238,7 @@ export async function startProxy(options: ProxyOptions) {
                             const fromTarget = replies.get(endpoint);
                             if (fromTarget) {
                                 stats.downloadDatagramBytes += packet.length;
-                                relay.send(Buffer.concat([Buffer.alloc(3), fromTarget, packet]), clientPort, "127.0.0.1");
+                                relay.send(Buffer.concat([Buffer.alloc(3), fromTarget, packet]), clientPort, client.remoteAddress!);
                                 return;
                             }
                             if (source.address !== client.remoteAddress || (clientPort && source.port !== clientPort)
