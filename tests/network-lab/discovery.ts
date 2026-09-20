@@ -15,6 +15,11 @@ interface Status {
     peers: { infoHash: string; pathId: string; generation: number; peer: string; port: number; payloadDownload: number }[];
     torrent?: { knownPeers: number };
 }
+interface TrackerStatus {
+    url: string;
+    endpoints: { name: string; bt_version: number; pathId: string; generation: number;
+        num_peers: number; updating: boolean; status: number }[];
+}
 const protocol = process.env.QBUTT_DISCOVERY_PROTOCOL ?? "tcp";
 assert(protocol === "tcp" || protocol === "both", "QBUTT_DISCOVERY_PROTOCOL must be tcp or both");
 const pexMode = process.argv.includes("--pex");
@@ -251,11 +256,10 @@ try {
         assert([...identities[0]!].every(id => !identities[1]!.has(id)), "DHT paths reused a node ID");
         assert(trackerQueries.http > 0 && trackerQueries.udp > 0);
         const httpTrackerURL = `http://127.0.0.11:${tracker!.port}/announce`;
+        const udpTrackerURL = `udp://127.0.0.12:${udpTrackerPort}/announce`;
         const activePaths = simultaneous.paths.filter(path => path.open);
-        const routeStatuses = await waitFor("distinct HTTP tracker replies on both paths", () =>
-            lab.json<{ url: string; endpoints: { name: string; bt_version: number; pathId: string;
-                generation: number; num_peers: number }[] }[]>(`torrents/trackers?hash=${hash}`),
-        entries => {
+        const readTrackers = () => lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`);
+        const routeStatuses = await waitFor("distinct HTTP tracker replies on both paths", readTrackers, entries => {
             const endpoints = entries.find(entry => entry.url === httpTrackerURL)?.endpoints
                 .filter(endpoint => endpoint.bt_version === 1) ?? [];
             return activePaths.length === 2 && endpoints.some(first => activePaths.every(path =>
@@ -265,6 +269,29 @@ try {
         await lab.checkpoint({ check: "multipath-tracker-endpoint-identity", url: httpTrackerURL,
             endpoints: routeStatuses.find(entry => entry.url === httpTrackerURL)?.endpoints,
             responderQueries: trackerQueries.http });
+        const expectedUDPPeers = duplicates ? 2 : 1;
+        let lastTrackerStatuses: TrackerStatus[] = [];
+        let udpRouteStatuses: TrackerStatus[];
+        try {
+            udpRouteStatuses = await waitFor("accepted UDP tracker replies on both paths", async () => {
+                lastTrackerStatuses = await readTrackers(); return lastTrackerStatuses;
+            }, entries => {
+                const endpoints = entries.find(entry => entry.url === udpTrackerURL)?.endpoints ?? [];
+                return activePaths.every(path => endpoints.some(endpoint => endpoint.bt_version === 1
+                    && endpoint.pathId === path.pathId && endpoint.generation === path.generation
+                    && endpoint.num_peers === expectedUDPPeers && !endpoint.updating && endpoint.status === 2));
+            }, 20000);
+        }
+        catch (error) {
+            await lab.checkpoint({ check: "routed-udp-tracker-replies-failed", url: udpTrackerURL,
+                endpoints: lastTrackerStatuses.find(entry => entry.url === udpTrackerURL)?.endpoints,
+                activePaths, expectedUDPPeers, responderQueries: trackerQueries.udp,
+                proxy: proxies.map(proxy => proxy.stats) });
+            throw error;
+        }
+        await lab.checkpoint({ check: "routed-udp-tracker-replies", url: udpTrackerURL,
+            endpoints: udpRouteStatuses.find(entry => entry.url === udpTrackerURL)?.endpoints,
+            activePaths, expectedUDPPeers, responderQueries: trackerQueries.udp });
         if (duplicates) {
             assert.equal(simultaneous.peers.length, endpoints.length);
             let samples = 0;
