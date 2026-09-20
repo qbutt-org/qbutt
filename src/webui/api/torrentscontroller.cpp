@@ -1918,8 +1918,11 @@ void TorrentsController::editCategoryAction()
         categoryOptions.downloadPath = {useDownloadPath.value(), downloadPath};
     }
 
-    if (!BitTorrent::Session::instance()->setCategoryOptions(category, categoryOptions))
+    auto *session = BitTorrent::Session::instance();
+    if (!session->categories().contains(category))
         throw APIError(APIErrorType::NotFound, tr("Category does not exist"));
+    if (!session->setCategoryOptions(category, categoryOptions))
+        throw APIError(APIErrorType::Conflict, tr("Finish the repair using this category before changing its storage paths."));
 
     setResult(QString());
 }

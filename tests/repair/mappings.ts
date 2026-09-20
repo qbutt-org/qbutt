@@ -37,20 +37,35 @@ try {
     });
     await lab.shutdown();
     await lab.start();
-    for (const format of ["v1", "v2", "hybrid"]) {
-        const directory = join(lab.root, format);
-        const savePath = join(directory, "completed");
-        const downloadPath = join(directory, "incomplete");
+    for (const scenario of ["v1", "v2", "hybrid", "v1-autotmm"]) {
+        const format = scenario.split("-")[0]!;
+        const autoTMM = scenario.endsWith("-autotmm");
+        const directory = join(lab.root, scenario);
+        const category = "repair/child";
+        const saveBase = join(directory, "completed");
+        const downloadBase = join(directory, "incomplete");
+        const savePath = autoTMM ? join(saveBase, category) : saveBase;
+        const downloadPath = autoTMM ? join(downloadBase, category) : downloadBase;
         await mkdir(savePath, { recursive: true });
         await mkdir(downloadPath, { recursive: true });
+        if (autoTMM) {
+            await lab.request("app/setPreferences", { json: JSON.stringify({ save_path: saveBase,
+                temp_path: downloadBase, temp_path_enabled: true,
+                save_path_changed_tmm_enabled: true, category_changed_tmm_enabled: true }) });
+            await lab.request("torrents/createCategory", { category });
+        }
         const fixture = lab.manifest.torrents.find(item => item.name === format)!;
         const hash = fixture.infoHashV2?.slice(0, 40) ?? fixture.infoHashV1!;
         const add = new FormData();
         add.set("torrents", Bun.file(join(lab.fixtures, fixture.file)));
-        add.set("savepath", savePath);
-        add.set("downloadPath", downloadPath);
+        if (autoTMM)
+            add.set("category", category);
+        else {
+            add.set("savepath", savePath);
+            add.set("downloadPath", downloadPath);
+        }
         add.set("stopped", "true");
-        add.set("autoTMM", "false");
+        add.set("autoTMM", String(autoTMM));
         add.set("contentLayout", "Original");
         await lab.request("torrents/add", add);
         await waitFor("mapping torrent admitted", () => lab.json<unknown[]>(`torrents/info?hashes=${hash}`), items => items.length === 1);
@@ -96,6 +111,24 @@ try {
 
         const preview = await analyze(hash);
         assert.deepEqual(await snapshot(directory), before, "Analysis wrote candidate files");
+        if (autoTMM) {
+            const categoriesBefore = await lab.json<Record<string, unknown>>("torrents/categories");
+            for (const editedCategory of [category, "repair"]) {
+                await assert.rejects(lab.request("torrents/editCategory", {
+                    category: editedCategory, savePath: join(directory, "changed-category"),
+                }), /HTTP 409/, "Repair admitted a category or inherited parent-root change");
+            }
+            await assert.rejects(lab.request("torrents/setCategory", { hashes: hash, category: "repair" }), /HTTP 409/);
+            await lab.request("torrents/removeCategories", { categories: "repair" });
+            assert.deepEqual(await lab.json("torrents/categories"), categoriesBefore,
+                "Repair admitted deletion of the active category or its parent");
+            await lab.request("app/setPreferences", { json: JSON.stringify({ save_path: join(directory, "changed-default"),
+                temp_path: join(directory, "changed-temporary"), temp_path_enabled: false }) });
+            const preferences = await lab.json<{ save_path: string; temp_path: string; temp_path_enabled: boolean }>("app/preferences");
+            assert.equal(resolve(preferences.save_path), saveBase, "Repair admitted a default save-root change");
+            assert.equal(resolve(preferences.temp_path), downloadBase, "Repair admitted a default download-root change");
+            assert(preferences.temp_path_enabled, "Repair admitted disabling the default download root");
+        }
         await lab.request("torrents/filePrio", { hash, id: String(files[0]!.index), priority: "0" });
         await lab.request("torrents/setDownloadPath", { id: hash, path: savePath });
         await lab.request("torrents/renameFile", { hash, oldPath: "bundle/alpha.bin", newPath: "bundle/changed.bin" });
@@ -116,6 +149,10 @@ try {
         await lab.start();
         await waitFor("stopped mapping restored", () => lab.info(hash), info => info.state.startsWith("stopped"));
         assert.deepEqual(await snapshot(directory), before, "Preview cancellation/restart changed candidate files");
+        if (autoTMM) {
+            const [info] = await lab.json<{ auto_tmm: boolean; category: string }[]>(`torrents/info?hashes=${hash}`);
+            assert(info?.auto_tmm && info.category === category, "Repair cancellation or restart disabled AutoTMM");
+        }
 
         const operation = await analyze(hash);
         assert.deepEqual(operation.analysis!.files.map(file => [file.path, file.selected]),
@@ -130,27 +167,39 @@ try {
         await assert.rejects(stat(skippedEmpty), { code: "ENOENT" }, "Managed repair created ignored zero-length file");
         assert.equal((await readFile(unknown, "utf8")), "Unknown data must survive repair and normal storage moves.\n");
         await lab.request("qbuttRepair/cancel", { id: operation.id });
-        await lab.checkpoint({ check: "physical-selected-repair", format, temporaryNames: true, separateDirectories: true,
+        await lab.checkpoint({ check: "physical-selected-repair", format, autoTMM, temporaryNames: true, separateDirectories: true,
             cancelAndRestartReadOnly: true, frozenNamesPrioritiesRoot: true, ignoredFileAndTailUnchanged: true,
             ignoredEmptyAbsent: true });
 
-        seed = await startSeed(lab.python, lab.fixtures, format, lab.root);
+        let completedPath = savePath;
+        if (autoTMM) {
+            completedPath = join(directory, "completed-relocated");
+            await lab.request("torrents/editCategory", { category, savePath: completedPath,
+                downloadPathEnabled: "true", downloadPath });
+            const properties = await lab.json<{ save_path: string }>(`torrents/properties?hash=${hash}`);
+            assert.equal(resolve(properties.save_path), completedPath, "Category ownership was not released after repair");
+        }
+        seed = await startSeed(lab.python, lab.fixtures, format, lab.root, { label: scenario });
         await lab.request("torrents/start", { hashes: hash });
         await lab.request("torrents/addPeers", { hashes: hash, peers: `${seed.host}:${seed.port}` });
         await waitFor("selected download and final move", () => lab.info(hash), info => info.progress === 1 && info.state.endsWith("UP"));
         await lab.request("torrents/stop", { hashes: hash });
         await waitFor("selected download stopped", () => lab.info(hash), info => info.state === "stoppedUP");
         const selected = lab.manifest.payload.filter(file => !ignored.some(item => item.name === file.path));
-        const verifiedBytes = await verifyPayload(savePath, selected);
+        const verifiedBytes = await verifyPayload(completedPath, selected);
         assert.equal((await readFile(unknown, "utf8")), "Unknown data must survive repair and normal storage moves.\n",
             "Normal move deleted an unknown file");
         await lab.shutdown();
         await lab.start();
         await waitFor("completed mapping restored", () => lab.info(hash), info => info.state === "stoppedUP");
-        assert.equal(await verifyPayload(savePath, selected), verifiedBytes);
+        assert.equal(await verifyPayload(completedPath, selected), verifiedBytes);
+        if (autoTMM) {
+            const [info] = await lab.json<{ auto_tmm: boolean; category: string }[]>(`torrents/info?hashes=${hash}`);
+            assert(info?.auto_tmm && info.category === category, "Repair or native relocation disabled AutoTMM");
+        }
         const restoredFiles = await lab.json<TorrentFile[]>(`torrents/files?hash=${hash}`);
         assert(restoredFiles.filter(file => ignored.some(item => item.name === file.name)).every(file => file.priority === 0));
-        await lab.checkpoint({ check: "selected-resume-and-normal-layout", format, verifiedBytes, exactSizes: true,
+        await lab.checkpoint({ check: "selected-resume-and-normal-layout", format, autoTMM, verifiedBytes, exactSizes: true,
             completedSuffixRemoved: true, completedDirectory: true, restartVerified: true,
             ignoredDownloadScope: "Ordinary libtorrent may write shared v1 boundary bytes; managed apply above remains read-only for ignored files." });
         await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
@@ -169,7 +218,7 @@ finally {
         catch (error) { failure ??= error; }
     }
     await lab.finish(failure);
-    for (const name of ["fixtures", "profile", "v1", "v2", "hybrid"]) {
+    for (const name of ["fixtures", "profile", "v1", "v2", "hybrid", "v1-autotmm"]) {
         const target = resolve(lab.root, name);
         assert(target.startsWith(`${resolve(lab.root)}${sep}`), "Cleanup escaped owned fixture");
         await rm(target, { recursive: true, force: true });

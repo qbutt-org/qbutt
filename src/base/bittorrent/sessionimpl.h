@@ -589,6 +589,7 @@ namespace BitTorrent
 
         LoadTorrentParams initLoadTorrentParams(const AddTorrentParams &addTorrentParams);
         bool addTorrent_impl(const TorrentDescriptor &source, const AddTorrentParams &addTorrentParams);
+        bool hasActiveAutoTMMRepair(const QString &category = {}) const;
 
         void updateSeedingLimitTimer();
         void exportTorrentFile(const Torrent *torrent, const Path &folderPath);

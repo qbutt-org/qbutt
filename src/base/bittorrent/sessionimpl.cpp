@@ -803,6 +803,9 @@ bool SessionImpl::isDownloadPathEnabled() const
 
 void SessionImpl::setDownloadPathEnabled(const bool enabled)
 {
+    if (hasActiveAutoTMMRepair())
+        return;
+
     if (enabled != isDownloadPathEnabled())
     {
         m_isDownloadPathEnabled = enabled;
@@ -1075,6 +1078,10 @@ bool SessionImpl::setCategoryOptions(const QString &categoryName, const Category
     if (options == currentOptions)
         return true;
 
+    if (((options.savePath != currentOptions.savePath) || (options.downloadPath != currentOptions.downloadPath))
+        && hasActiveAutoTMMRepair(categoryName))
+        return false;
+
     if (isDisableAutoTMMWhenCategorySavePathChanged()
             && ((options.savePath != currentOptions.savePath) || (options.downloadPath != currentOptions.downloadPath)))
     {
@@ -1103,6 +1110,9 @@ bool SessionImpl::setCategoryOptions(const QString &categoryName, const Category
 
 bool SessionImpl::removeCategory(const QString &name)
 {
+    if (hasActiveAutoTMMRepair(name))
+        return false;
+
     const QString parentCategory = parentCategoryName(name);
     for (TorrentImpl *const torrent : asConst(m_torrents))
     {
@@ -3325,6 +3335,9 @@ void SessionImpl::removeTorrentsQueue()
 
 void SessionImpl::setSavePath(const Path &path)
 {
+    if (hasActiveAutoTMMRepair())
+        return;
+
     const auto newPath = (path.isAbsolute() ? path : (specialFolderLocation(SpecialFolder::Downloads) / path));
     if (newPath == m_savePath)
         return;
@@ -3365,6 +3378,9 @@ void SessionImpl::setSavePath(const Path &path)
 
 void SessionImpl::setDownloadPath(const Path &path)
 {
+    if (hasActiveAutoTMMRepair())
+        return;
+
     const Path newPath = (path.isAbsolute() ? path : (savePath() / Path(u"temp"_s) / path));
     if (newPath == m_downloadPath)
         return;
@@ -4661,6 +4677,17 @@ QJsonObject SessionImpl::peerRouteDiagnostics() const
 bool SessionImpl::hasActiveRepair() const
 {
     return std::ranges::any_of(asConst(m_torrents), [](const TorrentImpl *torrent) { return torrent->isRepairing(); });
+}
+
+bool SessionImpl::hasActiveAutoTMMRepair(const QString &category) const
+{
+    // AutoTMM derives its logical roots from shared settings. Keep them stable
+    // along with the native physical layout until repair releases ownership.
+    return std::ranges::any_of(asConst(m_torrents), [&category](const TorrentImpl *torrent)
+    {
+        return torrent->isRepairing() && torrent->isAutoTMMEnabled()
+            && (category.isEmpty() || torrent->belongsToCategory(category));
+    });
 }
 
 CompletionPolicy *SessionImpl::completionPolicy() const

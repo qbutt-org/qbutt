@@ -210,9 +210,9 @@ void RepairService::analyze()
         fail(tr("Recover the pending staged operation before starting a new analysis."));
         return;
     }
-    if (m_torrent->isAutoTMMEnabled())
+    if (m_staged && m_torrent->isAutoTMMEnabled())
     {
-        fail(tr("Repair currently requires manual torrent management."));
+        fail(tr("Staged update currently requires manual torrent management."));
         return;
     }
     auto *session = static_cast<SessionImpl *>(m_torrent->session());
