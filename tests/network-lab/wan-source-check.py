@@ -67,9 +67,14 @@ def client(proxy_port, username, password, target_ip, target_port):
         reply = exact(connection, 4)
         if reply[:3] != b"\x05\x00\x00":
             raise ConnectionError("Selected node could not reach observer source check")
-        address_length = {1: 4, 4: 16}.get(reply[3])
-        if address_length is None:
+        if reply[3] == 3:
             address_length = exact(connection, 1)[0]
+            if address_length == 0:
+                raise ConnectionError("Invalid SOCKS domain reply")
+        elif reply[3] in (1, 4):
+            address_length = 4 if reply[3] == 1 else 16
+        else:
+            raise ConnectionError("Unknown SOCKS reply address family")
         exact(connection, address_length + 2)
         connection.sendall(b"GET /source HTTP/1.1\r\nHost: observer\r\nConnection: close\r\n\r\n")
         response = bytearray()
