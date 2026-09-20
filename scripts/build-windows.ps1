@@ -9,6 +9,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$releaseVersion = (Get-Content -LiteralPath (Join-Path $SourceDir 'qbutt-version.txt') -Raw).Trim()
+if ($releaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
+    throw 'Invalid qbutt release version.'
+}
 
 function Invoke-Native([string] $Program, [string[]] $CommandArguments) {
     & $Program @CommandArguments
@@ -264,6 +268,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source revision.' }
 $sourceChanges = & git -C $SourceDir status --porcelain
 if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
 [ordered]@{
+    product = 'qbutt'
+    version = $releaseVersion
+    platform = 'windows-x64'
     sourceRevision = $sourceRevision
     sourceWorktreeChanged = [bool] $sourceChanges
     configuration = 'RelWithDebInfo'
@@ -275,5 +282,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
     qt = $pins.qt.version
     dependencyLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
 } | ConvertTo-Json | Set-Content (Join-Path $portable 'build-manifest.json')
-Compress-Archive -Path "$portable/*" -DestinationPath (Join-Path $BuildRoot 'qbutt-windows-x64.zip') -Force
+$archive = Join-Path $BuildRoot "qbutt-$releaseVersion-windows-x64.zip"
+Compress-Archive -Path "$portable/*" -DestinationPath $archive -Force
+$digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+$manifestDigest = (Get-FileHash -LiteralPath (Join-Path $portable 'build-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+@("$digest  $(Split-Path $archive -Leaf)", "$manifestDigest  build-manifest.json") |
+    Set-Content (Join-Path $BuildRoot 'SHA256SUMS.txt') -Encoding ascii
 Write-Output "Portable build: $portable"

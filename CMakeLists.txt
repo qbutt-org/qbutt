@@ -60,6 +60,8 @@ include(CheckPackages)
 include(CommonConfig)
 
 # Generate version header
+file(STRINGS "qbutt-version.txt" QBUTT_VERSION LIMIT_COUNT 1)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/qbutt-version.txt")
 configure_file("src/base/version.h.in" "${CMAKE_CURRENT_SOURCE_DIR}/src/base/version.h" @ONLY)
 
 add_subdirectory(src)

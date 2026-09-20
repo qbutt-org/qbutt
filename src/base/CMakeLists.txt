@@ -102,6 +102,7 @@ add_library(qbt_base STATIC
     profile.h
     profileimport.h
     profile_p.h
+    releaseupdater.h
     rss/feed_serializer.h
     rss/rss_article.h
     rss/rss_autodownloader.h
@@ -211,6 +212,7 @@ add_library(qbt_base STATIC
     profile.cpp
     profileimport.cpp
     profile_p.cpp
+    releaseupdater.cpp
     rss/feed_serializer.cpp
     rss/rss_article.cpp
     rss/rss_autodownloader.cpp

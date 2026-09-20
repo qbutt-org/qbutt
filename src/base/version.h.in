@@ -28,6 +28,8 @@
 
 #pragma once
 
+#define QBUTT_VERSION "@QBUTT_VERSION@"
+
 #define QBT_VERSION_MAJOR 5
 #define QBT_VERSION_MINOR 2
 #define QBT_VERSION_BUGFIX 3

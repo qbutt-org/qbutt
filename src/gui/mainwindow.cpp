@@ -87,6 +87,7 @@
 #include "policiesdialog.h"
 #include "powermanagement/powermanagement.h"
 #include "profileimportdialog.h"
+#include "releaseupdatedialog.h"
 #include "repairpreviewdialog.h"
 #include "properties/peerlistwidget.h"
 #include "properties/propertieswidget.h"
@@ -326,10 +327,8 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 
     connect(m_ui->actionUpdateStatus, &QAction::triggered, this, [this]()
     {
-        QMessageBox::information(this, tr("qbutt update status")
-            , tr("Automatic updates are not available in this development build. "
-                 "Published qbutt releases are available at:") + u"<br/><br/>"
-                + u"<a href=\"https://github.com/qbutt-org/qbutt/releases\">github.com/qbutt-org/qbutt/releases</a>"_s);
+        auto *dialog = new ReleaseUpdateDialog(this);
+        dialog->open();
     });
 
     // Certain menu items should reside at specific places on macOS.
@@ -586,7 +585,7 @@ void MainWindow::setTitleSuffix(const QString &suffix)
 {
     const auto emDash = QChar(0x2014);
     const QString separator = u' ' + emDash + u' ';
-    m_windowTitle = u"qbutt"_s + separator + tr("based on qBittorrent %1").arg(QStringLiteral(QBT_VERSION))
+    m_windowTitle = u"qbutt " QBUTT_VERSION + separator + tr("based on qBittorrent %1").arg(QStringLiteral(QBT_VERSION))
         + (!suffix.isEmpty() ? (separator + suffix) : QString());
 
     refreshWindowTitle();

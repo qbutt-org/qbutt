@@ -94,6 +94,7 @@ add_library(qbt_gui STATIC
     properties/speedwidget.h
     raisedmessagebox.h
     policiesdialog.h
+    releaseupdatedialog.h
     repairdialog.h
     repairpreviewdialog.h
     rss/articlelistwidget.h
@@ -204,6 +205,7 @@ add_library(qbt_gui STATIC
     properties/speedwidget.cpp
     raisedmessagebox.cpp
     policiesdialog.cpp
+    releaseupdatedialog.cpp
     repairdialog.cpp
     repairpreviewdialog.cpp
     rss/articlelistwidget.cpp

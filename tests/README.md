@@ -73,6 +73,28 @@ in the printed temporary directory; successful profiles and the copied Qt
 runtime are removed. These configure/build/run commands still need validation
 against the shared Windows build before reporting the suite as passed.
 
+The `qbutt-update-acceptance` CMake target builds only the production release
+service/dialog and a Qt process driver. `tests/qt-acceptance/release-fixture.py`
+accepts the driver and OpenSSL executable paths. Put the existing Qt SDK's `bin`
+on `PATH` and set `QT_PLUGIN_PATH` to its `plugins` directory; register the driver
+and Python with `bun tests/windows-firewall.ts <driver> <python>` before running.
+The driver uses Light/Fusion offscreen and checks widget properties and text
+geometry as well as screenshots. Its localhost HTTPS fixture covers no update,
+alpha ordering, complete bundle download, cancellation during progress, corrupted
+archive/checksums, interrupted transfer, wrong asset identity, insecure redirect,
+HTTP failure and an untrusted certificate. Existing destination bytes must survive
+every failed/canceled download, with no partial file left. The generated CA is
+trusted only by the test process, never installed in Windows. Run this socket
+fixture separately from gateway/network labs. The runner removes its key, CA and
+payload; it prints the compact evidence/screenshot directory.
+
+With no fixture environment variables, `<driver> live <temporary-output-path>`
+checks the real GitHub API once without downloading. The product action is manual
+check/download of the complete portable ZIP, not self-installation. Release
+digests verify integrity and are not publisher signatures; no migration or
+rollback is performed. `qbutt-version.txt` is independent of the upstream version
+and controls release comparison, the UI and the versioned Windows archive name.
+
 `smoke:qt` launches the real application offscreen with a new profile. It drives
 repair preview, explicit mappings, staged commit, multiple Paths, completion
 policies, bounded diagnostics export, and a 2,000-row transfer list. The runner

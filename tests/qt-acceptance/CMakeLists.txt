@@ -40,3 +40,15 @@ endif()
 set_target_properties(qbutt-qt-acceptance PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
+
+find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Widgets Network)
+add_executable(qbutt-update-acceptance
+    release-updater.cpp
+    ${qBittorrent_SOURCE_DIR}/src/base/releaseupdater.cpp
+    ${qBittorrent_SOURCE_DIR}/src/base/releaseupdater.h
+    ${qBittorrent_SOURCE_DIR}/src/gui/releaseupdatedialog.cpp
+    ${qBittorrent_SOURCE_DIR}/src/gui/releaseupdatedialog.h
+)
+target_include_directories(qbutt-update-acceptance PRIVATE ${qBittorrent_SOURCE_DIR}/src)
+target_link_libraries(qbutt-update-acceptance PRIVATE qbt_common_cfg Qt6::Widgets Qt6::Network)
+set_target_properties(qbutt-update-acceptance PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
