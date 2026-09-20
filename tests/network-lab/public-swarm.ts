@@ -3,7 +3,7 @@ import { createHash, pbkdf2Sync, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createSocket } from "node:dgram";
-import { createServer } from "node:net";
+import { createServer, isIPv4 } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { allowLabNetwork } from "../windows-firewall";
@@ -41,6 +41,13 @@ interface PathCounters {
     verifiedDownload: number;
 }
 
+interface PublicPeer {
+    ip: string;
+    port: number;
+    flags: string;
+    progress: number;
+}
+
 interface RunResult {
     mode: Mode;
     round: number;
@@ -60,6 +67,7 @@ interface RunResult {
     torrentDownloadedSessionDelta: number;
     uiProbeMilliseconds: { count: number; median: number; p95: number; maximum: number };
     publicPeers: { connectedAtWarmup: number; seedsReported: number; leechesReported: number; dhtNodes: number };
+    explicitPeerCandidates?: { offered: number; webuiAccepted: number };
     pathMeasurements?: (PathCounters & { verifiedBytesPerSecond: number })[];
     evidenceRoot: string;
 }
@@ -78,6 +86,7 @@ const CONTROL_REVISION = "0b63c3d17373f6132ea211c9dcd4241284ccdfaf";
 
 const qbuttOnly = process.argv.includes("--qbutt-only");
 const diagnostic = process.argv.includes("--diagnostic");
+const sharedPeers = process.argv.includes("--shared-peers");
 const controlExecutable = resolve(process.env.QBUTT_PUBLIC_SWARM_CONTROL_EXE ?? "");
 const qbuttExecutable = process.env.QBUTT_PUBLIC_SWARM_QBUTT_EXE
     ? resolve(process.env.QBUTT_PUBLIC_SWARM_QBUTT_EXE) : undefined;
@@ -125,9 +134,32 @@ assert(Number.isInteger(attemptsPerWindow) && attemptsPerWindow >= 1 && attempts
 assert(!proxyConfig || qbuttExecutable, "A path config requires QBUTT_PUBLIC_SWARM_QBUTT_EXE");
 assert(!proxyConfig || proxyNames.length > 0, "Path modes require QBUTT_PUBLIC_SWARM_PROXY_NAMES");
 assert(proxyConfig || proxyNames.length === 0, "Proxy names require QBUTT_PUBLIC_SWARM_PROXY_CONFIG");
+assert(!sharedPeers || (!qbuttOnly && !diagnostic),
+    "--shared-peers requires the upstream comparison, not --qbutt-only or --diagnostic");
 
 function sha256(bytes: Uint8Array): string {
     return createHash("sha256").update(bytes).digest("hex");
+}
+
+function isPublicIPv4(address: string): boolean {
+    if (!isIPv4(address)) return false;
+    const [a = 0, b = 0, c = 0] = address.split(".").map(Number);
+    return a > 0 && a < 224 && a !== 10 && a !== 127
+        && !(a === 100 && b >= 64 && b <= 127)
+        && !(a === 169 && b === 254)
+        && !(a === 172 && b >= 16 && b <= 31)
+        && !(a === 192 && ((b === 0 && (c === 0 || c === 2)) || b === 168))
+        && !(a === 198 && ((b === 18 || b === 19) || (b === 51 && c === 100)))
+        && !(a === 203 && b === 0 && c === 113);
+}
+
+function selectSharedPeers(peers: Record<string, PublicPeer>): string[] {
+    return [...new Set(Object.values(peers)
+        .filter(peer => isPublicIPv4(peer.ip) && Number.isInteger(peer.port)
+            && peer.port >= 1024 && peer.port <= 65535 && peer.progress === 1
+            && !peer.flags.split(" ").includes("I"))
+        .map(peer => `${peer.ip}:${peer.port}`))]
+        .sort().slice(0, 64);
 }
 
 function quantile(values: number[], fraction: number): number {
@@ -235,7 +267,8 @@ async function verifyCompletedPieces(payloadPath: string, states: number[], hash
 }
 
 async function run(mode: Mode, round: number, ordinal: number, attempt: number, torrentPath: string, reportRoot: string,
-    peerPort: number, executableHashes: Map<string, string>): Promise<RunResult> {
+    peerPort: number, executableHashes: Map<string, string>, sharedPeerPool?: string[],
+    capturePool?: (peers: string[]) => void): Promise<RunResult> {
     const executable = mode === "upstream-native" ? controlExecutable : qbuttExecutable!;
     const appName = mode === "upstream-native" ? "qBittorrent" : "qbutt";
     const root = join(reportRoot, `run-${round}-${ordinal}-${mode}-attempt-${attempt}`);
@@ -356,6 +389,15 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
         assert(hashes.length === PIECE_COUNT && hashes.every(hash => /^[0-9a-f]{40}$/.test(hash)),
             "Public torrent returned an invalid piece-hash set");
 
+        let explicitPeerCandidates: RunResult["explicitPeerCandidates"];
+        if (sharedPeerPool) {
+            const response = await request("torrents/addPeers", { hashes: INFO_HASH, peers: sharedPeerPool.join("|") });
+            const added = (await response.json() as Record<string, { added: number; failed: number }>)[INFO_HASH];
+            assert(added?.added === sharedPeerPool.length && added.failed === 0,
+                "The client did not accept the complete shared peer candidate pool");
+            explicitPeerCandidates = { offered: sharedPeerPool.length, webuiAccepted: added.added };
+        }
+
         const setupStarted = performance.now();
         await request("torrents/start", { hashes: INFO_HASH });
         const warmup = await waitFor("public swarm warmup", async () => {
@@ -378,6 +420,14 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
         }, observation => observation.completePieces >= minimumWarmupPieces
             && (observation.connectedSeeds + observation.connectedLeeches) > 0, 120000);
         const connectionSetupMilliseconds = performance.now() - setupStarted;
+        if (capturePool) {
+            const snapshot = await json<{ peers: Record<string, PublicPeer> }>(
+                `sync/torrentPeers?hash=${INFO_HASH}&rid=0`);
+            assert(snapshot.peers && typeof snapshot.peers === "object", "Upstream peer snapshot is missing");
+            const peers = selectSharedPeers(snapshot.peers);
+            assert(peers.length > 0, "Upstream warmup yielded no outgoing full-seed public IPv4 candidates");
+            capturePool(peers);
+        }
         const beforeStates = await json<number[]>("torrents/pieceStates?hash=" + INFO_HASH);
         const verifiedBytesBeforeWindow = verifiedBytes(beforeStates);
         const beforeInfo = await info();
@@ -448,6 +498,7 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
                 seedsReported: warmup.seedsReported, leechesReported: warmup.leechesReported,
                 dhtNodes: warmup.dhtNodes,
             },
+            ...(explicitPeerCandidates ? { explicitPeerCandidates } : {}),
             ...(pathMeasurements === undefined ? {} : { pathMeasurements }), evidenceRoot: root,
         };
         return result;
@@ -503,8 +554,11 @@ const availableModes: Mode[] = [...(qbuttOnly ? [] : ["upstream-native" as const
     ...(proxyConfig ? ["qbutt-one-tunnel" as const, "qbutt-mixed" as const] : [])];
 assert(requestedModes.every(mode => availableModes.includes(mode as Mode)), "Requested public-swarm mode is unavailable");
 const modes = availableModes.filter(mode => !requestedModes.length || requestedModes.includes(mode));
+assert(!sharedPeers || modes[0] === "upstream-native",
+    "--shared-peers requires upstream Native as the first window");
 const evidence: Record<string, unknown> = {
-    schema: 1, suite: diagnostic ? "public-swarm-diagnostic" : "public-swarm-benchmark",
+    schema: 1, suite: diagnostic ? "public-swarm-diagnostic"
+        : (sharedPeers ? "public-swarm-shared-peers" : "public-swarm-benchmark"),
     status: "running", startedAt: new Date().toISOString(),
     source: { url: SOURCE_URL, checksumUrl: CHECKSUM_URL, torrentSha256: SOURCE_SHA256,
         infoHashV1: INFO_HASH, payloadName: PAYLOAD_NAME,
@@ -523,6 +577,13 @@ const evidence: Record<string, unknown> = {
     limits: [
         ...(diagnostic ? ["One diagnostic window only; no repeated performance comparison"] : []),
         ...(qbuttOnly ? ["qbutt route comparison only; no unchanged-upstream performance claim"] : []),
+        ...(sharedPeers ? [
+            "The first upstream window discovers peers naturally; later windows receive its fixed candidate pool before start",
+            "The common public IPv4 candidates do not make live peers equally available across paths;"
+                + " trackers and DHT remain active and may add other peers",
+            "WebUI addPeers acceptance proves the pool was offered, not that peers stayed reachable or connected",
+            "This is a public throughput comparison with shared candidates, not proof of multipath discovery",
+        ] : []),
         "Live public swarm membership, peer capacity and Internet path conditions change during the run",
         "Every sequential run uses the same Native peer port to avoid changing port-dependent reachability",
         "Completed pieces are read from disk and checked against the torrent SHA-1 list;"
@@ -536,17 +597,21 @@ const evidence: Record<string, unknown> = {
     ], runs: [], rejectedAttempts: [],
 };
 await writeFile(reportPath, JSON.stringify(evidence, null, 2) + "\n");
+let sharedPeerPool: string[] | undefined;
 try {
     const runs: RunResult[] = [];
     for (let round = 1; round <= rounds; ++round) {
         const order = orderForRound(modes, round);
         for (const [ordinal, mode] of order.entries()) {
             let result: RunResult | undefined;
+            let capturedPool: string[] | undefined;
             for (let attempt = 1; attempt <= attemptsPerWindow && !result; ++attempt) {
                 await assertPeerPortAvailable(peerPort);
+                capturedPool = undefined;
                 try {
                     result = await run(mode, round, ordinal + 1, attempt,
-                        torrentPath, reportRoot, peerPort, executableHashes);
+                        torrentPath, reportRoot, peerPort, executableHashes, sharedPeerPool,
+                        sharedPeers && !sharedPeerPool ? peers => { capturedPool = peers; } : undefined);
                 }
                 catch (error) {
                     const rejected = { mode, round, ordinal: ordinal + 1, attempt, peerPort,
@@ -559,6 +624,21 @@ try {
                 }
             }
             assert(result, "Public swarm window did not produce a result");
+            if (sharedPeers && !sharedPeerPool) {
+                assert(mode === "upstream-native" && round === 1 && capturedPool?.length,
+                    "The first upstream window did not establish a shared peer candidate pool");
+                sharedPeerPool = capturedPool;
+                await writeFile(join(reportRoot, "shared-peers.private.json"),
+                    JSON.stringify({ peers: sharedPeerPool }, null, 2) + "\n");
+                evidence.peerPool = {
+                    count: sharedPeerPool.length,
+                    sha256: sha256(Buffer.from(sharedPeerPool.join("\n") + "\n")),
+                    selectionRule: "First upstream warmup: outgoing connected full seeds on public numeric IPv4"
+                        + " with unprivileged ports; distinct endpoints sorted lexicographically, first 64",
+                    source: "first accepted upstream Native window",
+                    privateEvidence: "shared-peers.private.json",
+                };
+            }
             runs.push(result);
             evidence.runs = runs;
             await writeFile(reportPath, JSON.stringify(evidence, null, 2) + "\n");
