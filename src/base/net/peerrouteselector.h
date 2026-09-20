@@ -19,7 +19,7 @@
 namespace Net
 {
     // Selection and observation run on libtorrent's network thread. Diagnostics
-    // take a bounded snapshot for the application thread under the same lock.
+    // take a bounded snapshot for the application thread under their own lock.
     // The catalog contains one current transport per edge; libtorrent retains
     // peer deduplication and session limits.
     class PeerRouteSelector
@@ -116,7 +116,8 @@ namespace Net
         };
 
         PeerRouteSelector(std::vector<libtorrent::peer_route> routes, bool mixed,
-            std::shared_ptr<DiagnosticHistory> diagnostics = {});
+            std::shared_ptr<DiagnosticHistory> diagnostics = {},
+            const std::shared_ptr<PeerRouteSelector> &previous = {});
 
         libtorrent::peer_route select(const libtorrent::peer_route_request &request);
         void observe(const libtorrent::peer_route_observation &observation);
@@ -149,14 +150,20 @@ namespace Net
             std::uint64_t attempts = 0;
         };
 
+        struct History
+        {
+            std::map<PeerKey, PeerHistory> peers;
+            std::map<RouteKey, RouteHistory> routes;
+            Clock::time_point nextMaintenance;
+            std::uint64_t attempts = 0;
+        };
+
         void maintain(Clock::time_point now);
 
         const std::vector<libtorrent::peer_route> m_routes;
         const bool m_mixed;
-        std::map<PeerKey, PeerHistory> m_peers;
-        std::map<RouteKey, RouteHistory> m_history;
+        const std::shared_ptr<History> m_history;
         const std::shared_ptr<DiagnosticHistory> m_diagnosticHistory;
-        Clock::time_point m_nextMaintenance;
-        std::uint64_t m_attempts = 0;
+        bool m_catalogApplied = false;
     };
 }

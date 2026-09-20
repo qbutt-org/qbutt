@@ -200,20 +200,19 @@ void Net::PeerRouteSelector::DiagnosticHistory::prune(const Clock::time_point no
 }
 
 Net::PeerRouteSelector::PeerRouteSelector(std::vector<libtorrent::peer_route> routes, const bool mixed,
-    std::shared_ptr<DiagnosticHistory> diagnostics)
+    std::shared_ptr<DiagnosticHistory> diagnostics, const std::shared_ptr<PeerRouteSelector> &previous)
     : m_routes {std::move(routes)}
     , m_mixed {mixed}
+    , m_history {previous ? previous->m_history : std::make_shared<History>()}
     , m_diagnosticHistory {diagnostics ? std::move(diagnostics) : std::make_shared<DiagnosticHistory>()}
 {
-    const Clock::time_point now = Clock::now();
-    for (const libtorrent::peer_route &route : m_routes)
-        m_history[{route.context.path_id, route.context.generation}].updated = now;
     m_diagnosticHistory->configure(m_routes);
-    m_nextMaintenance = now + std::chrono::minutes {1};
 }
 
 libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_route_request &request)
 {
+    const Clock::time_point now = Clock::now();
+    maintain(now);
     libtorrent::peer_route blocked;
     blocked.type = libtorrent::peer_route::type_t::blocked;
     if (m_routes.empty())
@@ -230,8 +229,6 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
                 || (route.local_endpoint.address().is_v6() == request.peer.address().is_v6()));
     };
 
-    const Clock::time_point now = Clock::now();
-    maintain(now);
     // Metadata-less magnets are not known public torrents. Their discovery and
     // first peers keep the same pinned identity until metadata says otherwise.
     if (!m_mixed || request.private_torrent || !request.has_metadata)
@@ -242,21 +239,21 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
             return blocked;
         }
         const RouteKey key {m_routes.front().context.path_id, m_routes.front().context.generation};
-        ++m_history.at(key).attempts;
+        ++m_history->routes.at(key).attempts;
         m_diagnosticHistory->selected(m_routes.front().context, Decision::Pinned);
         return m_routes.front();
     }
     const PeerKey key {request.info_hashes, request.peer};
-    auto peer = m_peers.find(key);
-    if (peer == m_peers.end())
+    auto peer = m_history->peers.find(key);
+    if (peer == m_history->peers.end())
     {
-        if (m_peers.size() >= MAX_PEER_HISTORY)
+        if (m_history->peers.size() >= MAX_PEER_HISTORY)
         {
-            const auto oldest = std::min_element(m_peers.begin(), m_peers.end(),
+            const auto oldest = std::min_element(m_history->peers.begin(), m_history->peers.end(),
                 [](const auto &left, const auto &right) { return left.second.touched < right.second.touched; });
-            m_peers.erase(oldest);
+            m_history->peers.erase(oldest);
         }
-        peer = m_peers.try_emplace(key).first;
+        peer = m_history->peers.try_emplace(key).first;
     }
     peer->second.touched = now;
 
@@ -274,7 +271,7 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
             continue;
         const unsigned int failures = (failure == peer->second.failures.end()) ? 0 : failure->second.count;
 
-        RouteHistory &history = m_history.at(routeKey);
+        RouteHistory &history = m_history->routes.at(routeKey);
         // Verified bytes and unchoked demand occupancy share a decaying window.
         // Zero-demand and choked peers receive no negative throughput reward.
         history.decay(now);
@@ -293,14 +290,14 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
         // cooldown and repeatedly select the same unreachable route.
         if (!selected || (failures < fewestFailures)
             || ((failures == fewestFailures) && ((score > bestScore)
-                || ((score == bestScore) && (history.attempts < m_history.at(
+                || ((score == bestScore) && (history.attempts < m_history->routes.at(
                     {selected->context.path_id, selected->context.generation}).attempts)))))
         {
             selected = &route;
             bestScore = score;
             fewestFailures = failures;
         }
-        if (!leastTried || (history.attempts < m_history.at(
+        if (!leastTried || (history.attempts < m_history->routes.at(
             {leastTried->context.path_id, leastTried->context.generation}).attempts))
             leastTried = &route;
     }
@@ -313,15 +310,15 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
     // Cover a new catalog once before throughput rewards can make an already
     // productive route dominate every new peer. Later, one in ten admitted
     // public dials explores. All attempts still share libtorrent's limits.
-    ++m_attempts;
+    ++m_history->attempts;
     const RouteKey leastTriedKey {leastTried->context.path_id, leastTried->context.generation};
     Decision decision = Decision::BestScore;
-    if ((m_history.at(leastTriedKey).attempts == 0) || ((m_attempts % 10) == 0))
+    if ((m_history->routes.at(leastTriedKey).attempts == 0) || ((m_history->attempts % 10) == 0))
     {
         selected = leastTried;
         decision = Decision::Exploration;
     }
-    RouteHistory &selectedHistory = m_history.at({selected->context.path_id, selected->context.generation});
+    RouteHistory &selectedHistory = m_history->routes.at({selected->context.path_id, selected->context.generation});
     ++selectedHistory.attempts;
     m_diagnosticHistory->selected(selected->context, decision);
     return *selected;
@@ -331,6 +328,7 @@ void Net::PeerRouteSelector::observe(const libtorrent::peer_route_observation &o
 {
     const RouteKey routeKey {observation.route.path_id, observation.route.generation};
     const Clock::time_point now = Clock::now();
+    maintain(now);
     m_diagnosticHistory->observe(observation);
     const bool closed = observation.event == libtorrent::peer_route_observation::event_t::closed;
     const bool networkFailure = closed && isNetworkFailure(observation.error, observation.operation);
@@ -343,15 +341,15 @@ void Net::PeerRouteSelector::observe(const libtorrent::peer_route_observation &o
             || (observation.operation == libtorrent::operation_t::sock_bind)
             || (observation.operation == libtorrent::operation_t::get_interface));
     const bool handshakeTimeout = closed && (observation.error == libtorrent::errors::timed_out_no_handshake);
-    const auto route = m_history.find(routeKey);
-    if (route == m_history.end())
+    const auto route = m_history->routes.find(routeKey);
+    if (route == m_history->routes.end())
         return;
     RouteHistory &history = route->second;
     history.decay(now);
     history.verifiedBytes += observation.verified_download;
     history.demandMilliseconds += observation.demand_duration_ms;
 
-    const auto peer = m_peers.find({observation.info_hashes, observation.peer});
+    const auto peer = m_history->peers.find({observation.info_hashes, observation.peer});
     // TCP establishment may only acknowledge a local relay. Clear peer-local
     // failures once the BitTorrent connection produces post-handshake evidence.
     if ((observation.event == libtorrent::peer_route_observation::event_t::activity)
@@ -359,7 +357,7 @@ void Net::PeerRouteSelector::observe(const libtorrent::peer_route_observation &o
             || (observation.demand_duration_ms > 0) || (observation.choked_duration_ms > 0)))
     {
         history.failurePressure *= 0.8;
-        if (peer != m_peers.end())
+        if (peer != m_history->peers.end())
             peer->second.failures.erase(routeKey);
     }
     else if (closed)
@@ -372,7 +370,7 @@ void Net::PeerRouteSelector::observe(const libtorrent::peer_route_observation &o
             return;
         if (networkFailure)
             history.failurePressure = 0.8 * history.failurePressure + 0.2;
-        if (peer != m_peers.end())
+        if (peer != m_history->peers.end())
         {
             Failure &failure = peer->second.failures[routeKey];
             failure.count = std::min(4U, failure.count + 1);
@@ -384,10 +382,35 @@ void Net::PeerRouteSelector::observe(const libtorrent::peer_route_observation &o
 
 void Net::PeerRouteSelector::maintain(const Clock::time_point now)
 {
-    if (now < m_nextMaintenance)
+    if (!m_catalogApplied)
+    {
+        // Constructors may run on the application thread. Only the installed
+        // selector's callbacks reconcile shared history on libtorrent's thread.
+        std::erase_if(m_history->routes, [this](const auto &entry)
+        {
+            return std::ranges::none_of(m_routes, [&](const libtorrent::peer_route &route)
+            {
+                return entry.first == RouteKey {route.context.path_id, route.context.generation};
+            });
+        });
+        for (const libtorrent::peer_route &route : m_routes)
+        {
+            const auto [entry, inserted] = m_history->routes.try_emplace(
+                RouteKey {route.context.path_id, route.context.generation});
+            if (inserted)
+                entry->second.updated = now;
+        }
+        for (auto &entry : m_history->peers)
+        {
+            std::erase_if(entry.second.failures,
+                [this](const auto &failure) { return !m_history->routes.contains(failure.first); });
+        }
+        m_catalogApplied = true;
+    }
+    if (now < m_history->nextMaintenance)
         return;
-    std::erase_if(m_peers, [now](const auto &peer) { return (now - peer.second.touched) > HISTORY_TTL; });
-    m_nextMaintenance = now + std::chrono::minutes {1};
+    std::erase_if(m_history->peers, [now](const auto &peer) { return (now - peer.second.touched) > HISTORY_TTL; });
+    m_history->nextMaintenance = now + std::chrono::minutes {1};
 }
 
 void Net::PeerRouteSelector::RouteHistory::decay(const Clock::time_point now)

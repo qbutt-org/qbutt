@@ -864,6 +864,7 @@ namespace BitTorrent
         std::vector<lt::alert *> m_alerts;  // make it a class variable so it can preserve its allocated `capacity`
         std::vector<lt::udp_route> m_managedUdpRoutes;
         std::shared_ptr<Net::PeerRouteSelector::DiagnosticHistory> m_peerRouteDiagnosticHistory;
+        std::shared_ptr<Net::PeerRouteSelector> m_peerRouteSelector;
         qsizetype m_receivedAddTorrentAlertsCount = 0;
         QList<Torrent *> m_loadedTorrents;
 

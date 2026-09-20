@@ -4442,10 +4442,11 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
     if (!m_peerRouteDiagnosticHistory)
         m_peerRouteDiagnosticHistory = std::make_shared<Net::PeerRouteSelector::DiagnosticHistory>();
     const auto selector = std::make_shared<Net::PeerRouteSelector>(
-        std::move(peerRoutes), multipleRoutes, m_peerRouteDiagnosticHistory);
+        std::move(peerRoutes), multipleRoutes, m_peerRouteDiagnosticHistory, m_peerRouteSelector);
     m_nativeSession->set_peer_route_selector(
         [selector](const lt::peer_route_request &request) { return selector->select(request); },
         [selector](const lt::peer_route_observation &observation) { selector->observe(observation); });
+    m_peerRouteSelector = selector;
 
     error = m_nativeSession->set_udp_routes(udpRoutes);
     if (error)
@@ -4467,6 +4468,7 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
                 return result;
             },
             [diagnostics](const lt::peer_route_observation &observation) { diagnostics->observe(observation); });
+        m_peerRouteSelector.reset();
         m_nativeSession->set_udp_routes({});
         m_managedUdpRoutes.clear();
         LogMsg(tr("Failed to retire superseded managed UDP routes. Reason: \"%1\".")
@@ -4529,6 +4531,7 @@ bool SessionImpl::resetNetworkRoutes()
     }
     else
         m_nativeSession->set_peer_route_selector({});
+    m_peerRouteSelector.reset();
     m_managedUdpRoutes.clear();
     return true;
 }
