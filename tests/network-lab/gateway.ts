@@ -699,7 +699,7 @@ try {
     // Shutdown may race the next connection before or during its TLS handshake.
     assert(["gateway_connect_failed", "gateway_authentication_failed"].includes(failedRollover.code!)
         && failedRollover.messageMatchesCode, "Failed rollover did not return a canonical gateway startup error");
-    await lab.checkpoint({ check: "exact-gateway-v4-frames", traceEntries: trace.length,
+    await lab.checkpoint({ check: "exact-gateway-control-frames", traceEntries: trace.length,
         openGeneration: firstPath.generation, renewalGeneration: firstPath.generation,
         terminalEventGeneration: secondPath.generation, rolloverOpenGeneration: thirdPath.generation,
         rolloverError: failedRollover.code });
