@@ -51,6 +51,7 @@ bun run smoke:tunnels
 bun run smoke:native-route
 bun run smoke:route-policy
 bun run smoke:policy-transition
+bun run smoke:direct-transition
 bun run smoke:path-auth
 bun run smoke:server-identity
 bun run smoke:connection-budget
@@ -65,6 +66,13 @@ a reachable Native canary, frozen retired relay counters and exact final hashes
 without restarting the torrent. This fixture covers TCP peer transitions;
 uTP, discovery and webseed transitions require separate scenarios.
 
+`smoke:direct-transition` uses the same physical-interface settings. One active
+torrent starts with ordinary Direct networking and no child, switches to
+fail-closed Tunnels only, then returns to Direct. It verifies useful TCP payload
+in each mode, closure of the original native socket, a reachable native canary
+that receives no managed-mode connection, child/listener retirement, and exact
+final hashes. There is no torrent stop/start between policy changes.
+
 The shared lab selects its peer port by checking both UDP and TCP binds:
 Windows can reserve different port ranges for each protocol.
 
@@ -75,6 +83,11 @@ actual resume-file write conflict, and migration of an older v2 journal whose
 resume data names temporary storage. Use the Legacy resume backend for this
 migration fixture. Sources and unknown files must survive; generated data is
 removed after the owned app and lock helper stop.
+Matching completion rules must remain held before commit, after rollback, and
+while native resume persistence fails; after recovery they use the final native
+destination and do not replay after restart. To repeat only one case, set
+`QBUTT_STAGING_MAPPING_CASE` to `v1-manual`, `v2-autotmm-recovery`,
+`hybrid-autotmm-rollback` or `v1-legacy`.
 
 `smoke:native-inbound` starts the app with uTP only and no managed paths or
 discovery. An independent checked libtorrent seed initiates the sole connection
@@ -239,7 +252,9 @@ the actual app after journal publication and before, during and after each file
 rename. The 68 restart cases and 34 forward-recovery cases use the normal
 profile, keep ordinary writers suspended, and verify hashes, exact
 sizes, original files and unknown files. Four additional cases cover absent
-targets and v2/hybrid restart.
+targets and v2/hybrid restart. After each successful case, the stopped fixture's
+generated target is removed; compact checks remain in the lab evidence.
+A failed case retains its profile and payload for diagnosis.
 Writer rejection is observed across more than two native info-cache refreshes.
 `QBUTT_STAGING_CASE` selects a single
 checkpoint, for example `committing:0:backed_up:renamed` or
@@ -307,7 +322,11 @@ profile lab covers Bencode/SQLite source and destination combinations, portable
 paths, incomplete filename mappings, writer exclusion, native recheck/restart,
 and a forced process exit during installation. An incomplete rollback backup
 must fail before removing current metadata. Source bytes and modification times
-must remain unchanged. Use ordinary physical temporary paths for payloads;
+must remain unchanged. The same imported records exercise matching completion
+rules across native recheck and restart: only an explicitly acknowledged task
+may be removed, its data must remain, and the action must not replay. Successful
+fixtures remove their generated profiles and payloads while retaining compact
+evidence. Use ordinary physical temporary paths for payloads;
 repair ownership guards deliberately reject paths through junctions or symlinks.
 
 The optional `gui-smoke` argument to the driver builder produces a real Qt
@@ -407,6 +426,16 @@ handshakes first to trigger lazy VPN dialing, but remains choked until the
 kernel observation succeeds. This proves TCP ingress from an
 independent VPN exit, with the peer process still physically local; it does not
 prove a physically separate third-party host or UDP ingress.
+
+With the independent source configured, `bun tests/network-lab/gateway-wan.ts
+--utp --dht` uses an owned UDP lease and a pinned native uTP source. It requires
+the exact source endpoint observed at the public port, a hash-checked 512 KiB
+download, and correlated inbound DHT `ping/get_peers` replies. The bounded
+uTP capture retains only fixed headers in both directions. Before using a real
+VPN, `bun tests/network-lab/gateway-wan.ts --source-preflight` isolates the same
+source behind authenticated loopback SOCKS and checks exact uTP delivery.
+These probes do not establish physical carrier bypass around a system VPN or
+BEP42 node-ID enforcement.
 
 The final JSON line points to `evidence.json`, containing exit outcome and checked
 observations; native and seed logs remain beside it. Failed and unsupported

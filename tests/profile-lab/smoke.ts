@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { cp, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createLab, verifyPayload, waitFor, type TorrentStatus } from "../lab";
 import { sha256 } from "../fixtures/generate";
 import { allowLabNetwork } from "../windows-firewall";
@@ -12,7 +12,7 @@ await allowLabNetwork([driver]);
 const lab = await createLab("profile-import");
 
 async function run(mode: string, target: string, args: string[] = [], expected = 0) {
-    const child = Bun.spawn([driver!, mode, lab.root, target, ...args], { stdout: "pipe", stderr: "pipe", timeout: 90000 });
+    const child = Bun.spawn([driver!, mode, lab.root, target, ...args], { stdout: "pipe", stderr: "pipe", timeout: 90000, windowsHide: true });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     await writeFile(join(lab.root, `${target}-${mode}.log`), stdout + stderr);
     assert.equal(code, expected, `${target}/${mode}: ${stdout} ${stderr}`);
@@ -136,6 +136,7 @@ try {
     const manifestPath = join(crashData, "profile-import", "transaction.json");
     const crashing = Bun.spawn([driver, "recover", lab.root, crashTarget], {
         stdout: Bun.file(join(lab.root, "crash-process.stdout.log")), stderr: Bun.file(join(lab.root, "crash-process.stderr.log")),
+        windowsHide: true,
     });
     let interrupted: Record<string, any> | undefined;
     const deadline = Date.now() + 90000;
@@ -181,6 +182,12 @@ try {
     const all = await lab.json<TorrentStatus[]>("torrents/info");
     assert.equal(all.length, 4);
     assert(all.every(item => item.state.startsWith("stopped") || item.state.startsWith("checking")), "Imported job started without user action");
+    const importedHashes = all.filter(item => item.hash !== existingHash).map(item => item.hash);
+    await lab.request("torrents/addTags", { hashes: importedHashes.join("|"), tags: "import-policy" });
+    await lab.request("qbuttPolicies/configure", { configuration: JSON.stringify({
+        enabled: true, allow_delete_data: false,
+        rules: [{ id: "import-completed", enabled: true, match: { tags: ["import-policy"] }, actions: ["remove_torrent"] }],
+    }) });
     for (const torrent of all.filter(item => item.hash !== existingHash)) {
         await lab.request("torrents/recheck", { hashes: torrent.hash });
         await waitFor("imported native hash check", () => lab.info(torrent.hash), value => value.progress === 1 && value.state === "stoppedUP");
@@ -192,8 +199,33 @@ try {
     assert.equal(afterNative.torrents.filter((item: any) => item.preview).length, 3, "Native resume lost first-import preview policy");
     await lab.start();
     assert.equal((await lab.json<TorrentStatus[]>("torrents/info")).length, 4, "Restart lost imported or original jobs");
+    const previews = await waitFor("imported completion barriers ready", () => lab.json<{
+        hash: string; ready: boolean; preview_required: boolean; rules: { rule: string }[];
+    }[]>("qbuttPolicies/preview"), items => importedHashes.every(hash => items.some(item => item.hash === hash && item.ready)));
+    for (const hash of importedHashes) {
+        const preview = previews.find(item => item.hash === hash)!;
+        assert(preview.preview_required && preview.rules.some(rule => rule.rule === "import-completed"),
+            "Real imported resume did not hold a matching completion policy for review");
+    }
+    await Bun.sleep(1800);
+    assert.equal((await lab.json<TorrentStatus[]>("torrents/info")).length, 4,
+        "Completion policy removed an imported torrent without acknowledgement");
+    assert.deepEqual(await lab.json<unknown[]>("qbuttPolicies/journal"), []);
+    await lab.request("qbuttPolicies/acknowledge", { hash: importedHashes[0]!, consent: "true" });
+    await waitFor("only the acknowledged imported torrent removed", () => lab.json<TorrentStatus[]>("torrents/info"),
+        items => items.length === 3 && !items.some(item => item.hash === importedHashes[0]));
+    const journal = await waitFor("imported completion claim persisted", () => lab.json<{ rule: string; status: string }[]>("qbuttPolicies/journal"),
+        items => items.length === 1 && items[0]!.status === "dispatched");
+    assert.equal(journal[0]!.rule, "import-completed");
     await lab.shutdown();
     await lab.checkpoint({ check: "real-native-startup-recheck-restart", existingHash, imported: 3, nativePiecesVerified: true, previewSurvivesNativeResume: true });
+    await lab.start();
+    await Bun.sleep(1800);
+    assert.equal((await lab.json<TorrentStatus[]>("torrents/info")).length, 3);
+    assert.deepEqual(await lab.json<unknown[]>("qbuttPolicies/journal"), journal, "Imported completion action replayed after restart");
+    await lab.shutdown();
+    await lab.checkpoint({ check: "actual-profile-import-completion-policy", imported: 3,
+        matchingRulesHeldAcrossRestart: true, explicitlyAcknowledged: 1, remainingImported: 2, actionNotReplayed: true });
 
     assert.deepEqual(await snapshot(join(lab.root, "source-legacy")), beforeSources.legacy);
     assert.deepEqual(await snapshot(join(lab.root, "source-db")), beforeSources.db);
@@ -203,6 +235,12 @@ try {
         for (const kind of ["v1", "v2", "hybrid"])
             await verifyPayload(join(lab.root, `${source}-payload`, kind), lab.manifest.payload);
     await lab.checkpoint({ check: "source-immutability", nativeProfilesAndPayloads: true, bytesAndModifiedTimesUnchanged: true });
+    for (const entry of await readdir(lab.root, { withFileTypes: true })) {
+        if (!entry.isDirectory() && entry.name !== "backup-padding-preserved.bin") continue;
+        const target = resolve(lab.root, entry.name);
+        assert(!entry.isSymbolicLink() && dirname(target) === resolve(lab.root), "Cleanup escaped the owned profile fixture");
+        await rm(target, { recursive: true, force: true });
+    }
     await lab.finish();
 }
 catch (error) {

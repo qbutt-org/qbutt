@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { createLab, startSeed, verifyPayload, waitFor } from "./lab";
 
 interface Claim { key: string; status: string }
@@ -62,6 +62,14 @@ for (const point of ["before_claim", "claimed", "dispatched", "acknowledged"].fi
         delete process.env.QBUTT_COMPLETION_FAULT;
         try { await lab.shutdown(); }
         catch (error) { failure ??= error; }
+        if (!failure) {
+            for (const name of ["fixtures", "profile", "target"]) {
+                const target = resolve(lab.root, name);
+                assert.equal(dirname(target), resolve(lab.root), "Cleanup escaped the owned policy fixture");
+                try { await rm(target, { recursive: true, force: true }); }
+                catch (error) { failure ??= error; }
+            }
+        }
         await lab.finish(failure);
     }
     if (failure)
@@ -118,6 +126,14 @@ for (const point of ["queued", "modal"].filter(point => !selected || point === s
         delete process.env.QBUTT_COMPLETION_GATE_POINT;
         try { await lab.shutdown(); }
         catch (error) { failure ??= error; }
+        if (!failure) {
+            for (const name of ["fixtures", "profile", "download", "candidate"]) {
+                const target = resolve(lab.root, name);
+                assert.equal(dirname(target), resolve(lab.root), "Cleanup escaped the owned policy fixture");
+                try { await rm(target, { recursive: true, force: true }); }
+                catch (error) { failure ??= error; }
+            }
+        }
         await lab.finish(failure);
     }
     if (failure)
@@ -142,7 +158,7 @@ if (!selected || selected === "journal_write") {
         const journalPath = join(journalDirectory, "journal.json");
         await writeFile(journalPath, "[]");
         holder = Bun.spawn([lab.python, join(import.meta.dir, "fixtures", "hold-file.py"), journalPath],
-            { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+            { stdin: "pipe", stdout: "pipe", stderr: "pipe", windowsHide: true });
         const first = await holder.stdout.getReader().read();
         assert(new TextDecoder().decode(first.value).trim() === "held", "Native replacement guard did not open");
         await lab.start();
@@ -186,6 +202,14 @@ if (!selected || selected === "journal_write") {
         }
         try { await lab.shutdown(); }
         catch (error) { failure ??= error; }
+        if (!failure) {
+            for (const name of ["fixtures", "profile", "target", "later-target"]) {
+                const target = resolve(lab.root, name);
+                assert.equal(dirname(target), resolve(lab.root), "Cleanup escaped the owned policy fixture");
+                try { await rm(target, { recursive: true, force: true }); }
+                catch (error) { failure ??= error; }
+            }
+        }
         await lab.finish(failure);
     }
     if (failure)

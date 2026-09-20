@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { snapshot, assertRecoverySuspended } from "./staging-checks";
 import { createLab, verifyPayload, waitFor } from "../lab";
 
@@ -154,6 +154,8 @@ try {
         assert.deepEqual(await snapshot(transactionRoot), finalTransaction, "Removal/shutdown changed retained staging/backup files");
         await verifyPayload(join(lab.fixtures, "seed"), lab.manifest.payload);
         await lab.checkpoint({ point: name, check: "crash-restart-idempotent-recovery-preserves-original-source-unknown", afterShutdown: true });
+        assert.equal(dirname(resolve(destination)), resolve(lab.root), "Cleanup escaped the owned fault fixture");
+        await rm(destination, { recursive: true, force: true });
     }
 }
 catch (error) { failure = error; }
@@ -161,6 +163,14 @@ finally {
     delete process.env.QBUTT_STAGING_FAULT;
     try { await lab.shutdown(); }
     catch (error) { failure ??= error; }
+    if (!failure) {
+        for (const name of ["fixtures", "profile"]) {
+            const target = resolve(lab.root, name);
+            assert.equal(dirname(target), resolve(lab.root), "Cleanup escaped the owned fault fixture");
+            try { await rm(target, { recursive: true, force: true }); }
+            catch (error) { failure ??= error; }
+        }
+    }
 }
 await lab.finish(failure);
 if (failure)

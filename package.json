@@ -32,6 +32,7 @@
     "smoke:native-route": "bun tests/network-lab/native-route.ts",
     "smoke:route-policy": "bun tests/network-lab/route-policy.ts",
     "smoke:policy-transition": "bun tests/network-lab/policy-transition.ts",
+    "smoke:direct-transition": "bun tests/network-lab/direct-transition.ts",
     "benchmark:network": "bun tests/network-lab/benchmark.ts",
     "benchmark:public-swarm": "bun tests/network-lab/public-swarm.ts",
     "smoke:path-auth": "bun tests/network-lab/path-auth.ts",

@@ -16,7 +16,10 @@ interface Status {
 assert(!process.env.QBUTT_LAB_RESUME_BACKEND || process.env.QBUTT_LAB_RESUME_BACKEND === "Legacy",
     "This fixture includes a legacy bencoded resume migration; use the Legacy resume backend.");
 const lab = await createLab("staging-receipt-mappings");
-const scenarios = ["v1-manual", "v2-autotmm-recovery", "hybrid-autotmm-rollback", "v1-legacy"];
+const requested = process.env.QBUTT_STAGING_MAPPING_CASE;
+const scenarios = ["v1-manual", "v2-autotmm-recovery", "hybrid-autotmm-rollback", "v1-legacy"]
+    .filter(scenario => !requested || scenario === requested);
+assert(scenarios.length, "Unknown staged mapping scenario");
 let lock: Bun.Subprocess<"pipe", "pipe", Bun.BunFile> | undefined;
 let failure: unknown;
 
@@ -46,6 +49,8 @@ try {
     await lab.shutdown();
     await lab.start();
     for (const scenario of scenarios) {
+        await lab.request("qbuttPolicies/configure", { configuration: JSON.stringify({ enabled: false,
+            allow_delete_data: false, rules: [] }) });
         const format = scenario.split("-")[0]!;
         const autoTMM = scenario.includes("autotmm");
         const legacy = scenario.endsWith("legacy");
@@ -118,6 +123,11 @@ try {
         assert.deepEqual(await snapshot(directory), original, "Preview cancel/restart changed original data");
 
         operation = await analyze(hash, "staged", mappings);
+        const completionRule = `staged-${scenario}`;
+        await lab.request("qbuttPolicies/configure", { configuration: JSON.stringify({ enabled: true,
+            allow_delete_data: false,
+            rules: [{ id: completionRule, enabled: true, match: {}, actions: ["stop"] }],
+        }) });
         const transaction = dirname(operation.staging!.payload_path);
         await lab.request("qbuttRepair/prepare", { id: operation.id, consent: "true" });
         const ready = await status(["ready_to_commit"]);
@@ -127,6 +137,8 @@ try {
         const stagedPayload = lab.manifest.payload.map(file => ({ ...file,
             path: ready.staging!.files.find(entry => fixture.files.find(item => item.index === entry.index)!.path === file.path)!.path }));
         await verifyPayload(ready.staging!.payload_path, stagedPayload);
+        assert(!(await lab.json<{ rule: string }[]>("qbuttPolicies/journal"))
+            .some(entry => entry.rule === completionRule), "Staged bytes triggered completion before commit");
 
         if (autoTMM || legacy) {
             await lab.request("qbuttRepair/cancel", { id: operation.id });
@@ -170,6 +182,8 @@ path.write_bytes(lt.bencode(resume))
             await waitFor("rolled-back layout restarted", () => lab.info(hash), info => info.state.startsWith("stopped"));
             await assertSettings();
             assert.deepEqual(await snapshot(directory, transaction), original, "Rollback restart changed original data");
+            assert(!(await lab.json<{ rule: string }[]>("qbuttPolicies/journal"))
+                .some(entry => entry.rule === completionRule), "Rolled-back staging triggered completion");
             await lab.checkpoint({ scenario, check: "staged-layout-rollback-preserves-original-and-logical-settings" });
             await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
             await waitFor("rolled-back torrent removed", () => lab.json<unknown[]>("torrents/info"), items => items.length === 0);
@@ -203,6 +217,8 @@ path.write_bytes(lt.bencode(resume))
             await assertSettings();
             await verifyPayload(destination, stagedPayload);
             await assertRecoverySuspended(lab, hash);
+            assert(!(await lab.json<{ rule: string }[]>("qbuttPolicies/journal"))
+                .some(entry => entry.rule === completionRule), "Failed resume persistence triggered completion");
             lock!.stdin.end();
             assert.equal(await lock!.exited, 0, "Resume storage lock did not release cleanly");
             lock = undefined;
@@ -228,6 +244,14 @@ path.write_bytes(lt.bencode(resume))
         await waitFor("ordinary final layout", async () => Promise.all(lab.manifest.payload
             .map(file => Bun.file(join(savePath, file.path)).exists())), files => files.every(Boolean));
         const verifiedBytes = await verifyPayload(savePath, lab.manifest.payload);
+        const completion = await waitFor("mapped staged completion persisted", () => lab.json<{
+            rule: string; status: string; reason: { destination: string };
+        }[]>("qbuttPolicies/journal"), entries => entries.some(entry =>
+            entry.rule === completionRule && entry.status === "dispatched"));
+        const claimed = completion.filter(entry => entry.rule === completionRule);
+        assert.equal(claimed.length, 1);
+        assert.equal(resolve(claimed[0]!.reason.destination), savePath,
+            "Completion used temporary staging storage instead of the final native destination");
         await lab.request("torrents/stop", { hashes: hash });
         await waitFor("committed torrent stopped", () => lab.info(hash), info => info.state === "stoppedUP");
         assert.equal(await readFile(join(destination, "unknown-save.dat"), "utf8"),
@@ -238,9 +262,12 @@ path.write_bytes(lt.bencode(resume))
         await waitFor("final layout restarted", () => lab.info(hash), info => info.state === "stoppedUP");
         await assertSettings();
         assert.equal(await verifyPayload(savePath, lab.manifest.payload), verifiedBytes);
+        assert.deepEqual((await lab.json<{ rule: string }[]>("qbuttPolicies/journal"))
+            .filter(entry => entry.rule === completionRule), claimed, "Mapped completion replayed after restart");
         await lab.checkpoint({ scenario, check: "staged-native-layout-and-persisted-logical-settings", verifiedBytes,
             exactSizes: true, originalUnchangedUntilCommit: true, cancelRestart: true,
-            failedResumeReceiptRecovery: autoTMM, legacyVersion2Recovery: legacy, completedNamesAndDirectory: true });
+            failedResumeReceiptRecovery: autoTMM, legacyVersion2Recovery: legacy, completedNamesAndDirectory: true,
+            completionUsesFinalDestination: true, completionNotReplayed: true });
         await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
         await waitFor("mapped staged torrent removed", () => lab.json<unknown[]>("torrents/info"), items => items.length === 0);
     }
