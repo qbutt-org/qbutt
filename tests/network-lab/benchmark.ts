@@ -6,11 +6,13 @@ import { dirname, join, resolve } from "node:path";
 import { sha256, type TorrentFixture } from "../fixtures/generate";
 import { createLab, startSeed, verifyPayload, waitFor } from "../lab";
 import { startProxy, type ProxyStats } from "./proxy";
+import { prepareResourceSampler, type ResourceWindow } from "./process-resources";
 
 type Mode = "upstream-native" | "qbutt-native" | "qbutt-one-tunnel" | "qbutt-mixed";
 
 interface PathsStatus {
     busy: boolean;
+    processId: number;
     paths: { pathId: string; generation: number; edgeId: string; proxyName: string; open: boolean; localAddress?: string;
         closedPayloadDownload?: number }[];
     peers: { pathId: string; generation: number; peer: string; port: number; localPort: number; payloadDownload: number }[];
@@ -40,6 +42,7 @@ interface RunResult {
     verifiedBytesPerSecond: number;
     endToEndVerifiedBytesPerSecond: number;
     uiProbeMilliseconds: { count: number; median: number; p95: number; maximum: number };
+    resources: ResourceWindow;
     routes: RouteResult[];
     redundantPayloadBytes: number;
     recovery?: { failedPathId: string; healthyPathId: string; milliseconds: number; nativeConnectionRetained: true };
@@ -165,9 +168,11 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
     const assignedRoutes: { pathId: string; generation: number; edgeId: string; native: boolean }[] = [];
     let failure: unknown;
     let recovery: RunResult["recovery"];
+    let resourceSampler: Awaited<ReturnType<typeof prepareResourceSampler>> | undefined;
     let cleanupPromise: Promise<void> | undefined;
     const cleanup = () => cleanupPromise ??= (async () => {
         const results = await Promise.allSettled([
+            resourceSampler?.close(),
             lab.shutdown(), ...proxies.map(proxy => proxy.close()), ...seeds.map(seed => seed.stop()),
         ]);
         const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
@@ -225,6 +230,14 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             await lab.request("qbuttPaths/policy", mode === "qbutt-mixed"
                 ? { mode: "mixed", nativeInterface } : { mode: "pinned" });
         }
+
+        assert(lab.pid, "Benchmark app has no owned process ID");
+        resourceSampler = await prepareResourceSampler(python, [
+            { role: "app", pid: lab.pid, executable },
+            ...(tunnelCount > 0 ? [{ role: "qbutt-net" as const,
+                pid: (await lab.json<PathsStatus>("qbuttPaths/status")).processId,
+                executable: join(dirname(executable), "qbutt-net.exe") }] : []),
+        ], lab.root);
 
         const destination = join(lab.root, "target");
         const preparationStarted = performance.now();
@@ -291,9 +304,17 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 `torrents/info?hashes=${hash}`), torrents => torrents[0]?.dl_limit === TRANSFER_RATE);
         }
         await Promise.all(seeds.map(seed => seed.setUploadRate(SOURCE_RATE)));
+        await resourceSampler.start();
         const completionStarted = performance.now();
         const uiLatencies = await awaitCompletion(lab, hash);
         const completed = performance.now();
+        const resources = await resourceSampler.stop();
+        // Resource snapshots bracket this same transfer. Report the actual
+        // command/acknowledgement bounds in milliseconds from its start.
+        for (const boundary of Object.values(resources.boundaryBounds)) {
+            boundary.sent -= completionStarted;
+            boundary.acknowledged -= completionStarted;
+        }
         const measurementMilliseconds = completed - completionStarted;
         const endToEndCompletionMilliseconds = completed - torrentStarted;
         const measuredVerifiedBytes = exactPayloadBytes - warmupVerifiedBytes;
@@ -358,7 +379,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             appVersion, exactPayloadBytes, warmupVerifiedBytes, measuredVerifiedBytes,
             preparationMilliseconds, connectionSetupMilliseconds, measurementMilliseconds,
             endToEndCompletionMilliseconds, verifiedBytesPerSecond, endToEndVerifiedBytesPerSecond,
-            uiProbeMilliseconds: summarizeLatencies(uiLatencies), routes,
+            uiProbeMilliseconds: summarizeLatencies(uiLatencies), resources, routes,
             redundantPayloadBytes, recovery, evidence: join(lab.root, "evidence.json"),
         };
         await lab.checkpoint({ check: "comparative-network-window", ...result });
@@ -375,7 +396,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         try { await cleanup(); }
         catch (error) { cleanupError = error; }
         if (!cleanupError) {
-            for (const name of ["fixtures", "profile", "target", "partial-0", "partial-1", "partial-2", "benchmark-nodes.json"]) {
+            for (const name of ["fixtures", "target", "partial-0", "partial-1", "partial-2", "benchmark-nodes.json", "profile"]) {
+                if (name === "profile" && (failure || cleanupError)) continue;
                 const target = resolve(lab.root, name);
                 assert(dirname(target) === resolve(lab.root), "Cleanup escaped the newly created fixture");
                 try { await rm(target, { recursive: true, force: true }); }
@@ -422,7 +444,9 @@ const evidence: Record<string, unknown> = {
             ? "One torrent-wide application download cap is shared by every path; sources can exceed it. This models an aggregate bottleneck, not a physical last-mile limiter"
             : "Each route has the same source payload cap; Mixed has additional complementary reachability and aggregate capacity",
         "Verified bytes are exact-size and SHA-256 checked; relay stream bytes include protocol data and are not wire bytes",
-        "No public swarm, public egress, UDP/uTP/QUIC, inbound, packet capture, netem, disk throttle, CPU/RAM/I/O or physical last-mile claim",
+        "Resource counters cover the transfer window with explicit command/acknowledgement boundary bounds; CPU is per-core, memory peaks are sampled, process I/O is not disk-only",
+        "Only the exact app and qbutt-net process handles are measured; runner, controlled peers and relays are excluded",
+        "No public swarm, public egress, UDP/uTP/QUIC, inbound, packet capture, netem, disk throttle or physical last-mile claim",
     ],
     runs: [],
 };

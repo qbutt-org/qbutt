@@ -273,6 +273,7 @@ else:
         console.log(JSON.stringify({ status: evidence.status, evidence: join(root, "evidence.json") }));
     }
     return { root, fixtures, manifest, python, origin, request, json, info, add, start, shutdown, markCompletionPreview, checkpoint, finish,
+        get pid() { return processHandle?.pid; },
         get exitCode() { return processHandle?.exitCode; } };
 }
 
