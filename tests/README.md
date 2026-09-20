@@ -454,6 +454,19 @@ deliver payload through the other path generation, and complete exact file
 sizes and SHA-256 hashes with A. Both seeds must retain their original piece
 subsets and report zero payload download from one another. This proves local
 PEX admission and cross-path selection, not Internet peer discovery.
+`smoke:discovery-policy` enables DHT and PEX globally with two allowed paths.
+Route-local tracker responders and peer accounting must keep a private torrent
+on its pinned path, with no private infohash in either live DHT responder.
+A controlled peer inspects the extended handshake and requires that `ut_pex`
+is absent; this checks private PEX negotiation, not forged PEX-message handling.
+A second private torrent is added as a magnet while its tracker response is held:
+before metadata, its DHT lookup and tracker announce must use only the pinned
+path. Importing the matching `.torrent` into this existing magnet supplies private
+metadata (private seeds intentionally do not offer `ut_metadata`). Thereafter
+no new DHT lookup is permitted, and the tracker response is released.
+Both torrents complete through real libtorrent seeds with exact sizes and hashes;
+no peer is injected through `addPeers`. This does not promise infohash privacy
+before the magnet's metadata is known.
 Generated payloads and profiles are removed after
 owned processes stop; compact evidence and logs remain.
 
