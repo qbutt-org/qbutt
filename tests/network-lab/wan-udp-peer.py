@@ -13,6 +13,9 @@ import time
 
 import libtorrent as lt
 
+# peer_info::utp_socket in the pinned 2.0.14 header; its Python enum omits it.
+UTP_SOCKET = 1 << 17
+
 
 def emit(value):
     print(json.dumps(value, separators=(",", ":")), flush=True)
@@ -175,7 +178,7 @@ def main():
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
         for peer in handle.get_peer_info():
-            if not peer.flags & lt.peer_info.utp_socket or not peer.flags & lt.peer_info.local_connection:
+            if not peer.flags & UTP_SOCKET or not peer.flags & lt.peer_info.local_connection:
                 raise RuntimeError("WAN source used a non-outgoing-uTP peer")
             if peer.ip != target:
                 raise RuntimeError("WAN source connected outside the owned lease")

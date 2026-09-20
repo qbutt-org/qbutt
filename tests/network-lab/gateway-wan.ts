@@ -402,7 +402,8 @@ print(lt.torrent_info(encoded).info_hashes().v1)
     const peerReady = await peerReplies.next("source peer readiness", 30000);
     assert(peerReady.ready && (useUtp
         ? peerReady.protocol === "utp" && peerReady.verifiedPayloadBytes === payload.length
-        : Array.isArray(peerReady.ports) && peerReady.ports.length === 0 && peerReady.pieceCount === payload.length / 65536));
+        : Array.isArray(peerReady.ports) && peerReady.ports.length === 0 && peerReady.pieceCount === payload.length / 65536),
+    `WAN source did not become ready: ${JSON.stringify(peerReady)}`);
     await lab.checkpoint({ check: "source-peer-ready", sourceProcess: independentSource ? "local" : "observer" });
     let observedSource = "";
     const observeSource = async (capture: Awaited<ReturnType<typeof captureOwnedPort>>) => {
