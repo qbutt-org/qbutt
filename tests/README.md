@@ -444,10 +444,17 @@ owned processes; compact evidence remains. These local fixtures do not establish
 Internet UDP reachability or IPv6 support.
 
 `smoke:gateway-ipv6` and `smoke:gateway-ipv6-utp` exercise the same TCP and uTP
-checks with an owned temporary IPv6 /128 on Windows loopback and an `::1` seed.
-They assert bracketed endpoint preservation and IPv6 route family, then remove
-the address. The control/carrier sockets remain IPv4 loopback; these scenarios
+checks with owned temporary IPv6 /128 aliases for gateway and seed on Windows
+loopback. They assert bracketed endpoint preservation and IPv6 route family,
+then remove both addresses. The control/carrier sockets remain IPv4 loopback; these scenarios
 prove the IPv6 payload endpoint contract, not public Internet IPv6 reachability.
+
+`bun tests/network-lab/gateway.ts --utp --trackers` additionally checks HTTP and
+UDP announces against the actual leased public socket. A numeric IPv4 HTTP
+tracker retains only its matching family even with dual-family policy. The first
+UDP connect/announce must leave the leased socket without prior inbound contact.
+After lease retirement, both tracker protocols advertise outgoing-only port 1
+without a public address; a preflighted Native UDP canary must remain untouched.
 
 `bun run smoke:gateway-wan` is a separate controlled TCP ingress probe. Set
 `QBUTT_WAN_OBSERVER`, `QBUTT_WAN_OBSERVER_IP`, `QBUTT_LAB_NATIVE_INTERFACE`,
@@ -614,6 +621,14 @@ received during warmup are not separable and this limit is recorded in evidence.
 Public results show external applicability and variability; release thresholds
 still come from the controlled benchmark.
 
+`--shared-peers` captures up to 64 connected public IPv4 seeds from the first
+accepted upstream window and offers that same candidate list before starting
+each later window. DHT and trackers remain active and can discover more peers.
+The receipt records the selection rule, count, hash and accepted candidate count;
+raw endpoints stay in a separate private local artifact. This compares transfer
+with shared candidates, not discovery: the first upstream window discovers them
+naturally, and peer availability can still change between sequential windows.
+
 For one focused startup investigation, pass `--diagnostic` and select exactly
 one `QBUTT_PUBLIC_SWARM_MODES` value; leave `QBUTT_PUBLIC_SWARM_ROUNDS` unset
 or set it to `1`. The receipt is marked `public-swarm-diagnostic`, not a repeated
@@ -738,6 +753,17 @@ changing system roots; rejection of invalid certificates and independent packet
 capture of Native exclusion are not covered by this positive acceptance test.
 Generated payloads and profiles are removed after
 owned processes stop; compact evidence and logs remain.
+
+`bun tests/network-lab/webseed-https.ts --reconnect` retires the active path after
+a verified piece, then completes over a second real path. Add `--private` to
+require eight seconds without progress on the surviving route and continuation
+only after reopening the original path with a new generation. Also set
+`QBUTT_HTTPS_PROXY_NAME_2` and `QBUTT_HTTPS_SOURCE_FILE` to the locally cached
+`ninja-win.zip` pinned in `upstream-lock.json`; it supplies metadata hashes only.
+qbutt downloads its own 275253-byte copy through public HTTPS and redirects, with
+normal certificate validation. Exact final size/hash and both generations'
+verified contributions are checked. Native exclusion uses engine accounting;
+this scenario does not capture TLS-decrypted Range headers or Native packets.
 
 `smoke:webseed-tls-rejection` checks the negative certificate case locally through
 the real app and qbutt-net. It uses Go (`QBUTT_LAB_GO`, otherwise `go`) to generate
