@@ -520,10 +520,14 @@ Set `QBUTT_BENCH_BASELINE_EXE`, `QBUTT_BENCH_QBUTT_EXE`,
 uses the same acknowledged `QBUTT_BENCH_ROUTE_RATE` cap (32–512 KiB/s).
 Evidence records connection setup and end-to-end completion separately from timed
 goodput, exact verified bytes, per-route seed and relay counters, redundant
-payload, and WebUI response latency.
+payload, and WebUI response latency. The transfer window also records CPU time,
+sampled working-set/private-memory peaks, and process I/O for the exact app and
+qbutt-net process handles. CPU percentages use one core as 100%; memory samples
+are taken every 250 ms and I/O includes network operations, not only disk. The
+receipt includes sampler boundary skew and gaps; fixture processes are excluded.
 Relay stream bytes include protocol data and are not wire bytes. The local
 single-host TCP topology proves only the stated controlled comparison; its
-evidence lists the untested public, UDP, inbound, resource and last-mile cases.
+evidence lists the untested public, UDP, inbound and physical last-mile cases.
 
 `QBUTT_BENCH_SCENARIO=shared-cap` runs only qbutt Native and Mixed, with a single
 torrent-wide application download limit shared across every path and faster
