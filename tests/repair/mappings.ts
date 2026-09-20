@@ -217,12 +217,18 @@ finally {
         try { await seed.stop(); }
         catch (error) { failure ??= error; }
     }
-    await lab.finish(failure);
     for (const name of ["fixtures", "profile", "v1", "v2", "hybrid", "v1-autotmm"]) {
-        const target = resolve(lab.root, name);
-        assert(target.startsWith(`${resolve(lab.root)}${sep}`), "Cleanup escaped owned fixture");
-        await rm(target, { recursive: true, force: true });
+        try {
+            const target = resolve(lab.root, name);
+            assert(target.startsWith(`${resolve(lab.root)}${sep}`), "Cleanup escaped owned fixture");
+            await rm(target, { recursive: true, force: true });
+        }
+        catch (error) {
+            console.error(String(error));
+            failure ??= error;
+        }
     }
+    await lab.finish(failure);
 }
 if (failure)
     throw failure;
