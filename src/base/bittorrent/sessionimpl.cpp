@@ -1582,6 +1582,7 @@ void SessionImpl::processNextResumeData(ResumeSessionContext *context)
     if (needStore)
         m_resumeDataStorage->store(torrentID, resumeData);
 
+    const bool hasPendingStaging = QFileInfo::exists(StagingOperation::journalPath(torrentID.toString()));
     const QString category = resumeData.category;
     bool isCategoryRecovered = context->recoveredCategories.contains(category);
     if (!category.isEmpty() && (isCategoryRecovered || !m_categories.contains(category)))
@@ -1606,7 +1607,7 @@ void SessionImpl::processNextResumeData(ResumeSessionContext *context)
 
         // We should check isCategoryRecovered again since the category
         // can be just recovered by the code above
-        if (isCategoryRecovered && resumeData.useAutoTMM)
+        if (isCategoryRecovered && resumeData.useAutoTMM && !hasPendingStaging)
         {
             const Path storageLocation {resumeData.ltAddTorrentParams.save_path};
             if ((storageLocation != categorySavePath(resumeData.category)) && (storageLocation != categoryDownloadPath(resumeData.category)))
@@ -1641,16 +1642,14 @@ void SessionImpl::processNextResumeData(ResumeSessionContext *context)
 
     resumeData.ltAddTorrentParams.userdata = lt::client_data_t(new ExtensionData);
 
-    if (QFileInfo::exists(StagingOperation::journalPath(torrentID.toString())))
+    if (hasPendingStaging)
     {
         // A durable journal precedes every staging write. Even if resume data
         // still names the old installation, startup must never open it as a
-        // writer while a file-level commit may be half complete.
+        // writer while a file-level commit may be half complete. Keep logical
+        // save/download paths and AutoTMM; only native storage belongs in hold.
         const Path holdPath = specialFolderLocation(SpecialFolder::Data) / Path(u"staging/hold/" + torrentID.toString());
         resumeData.stopped = true;
-        resumeData.useAutoTMM = false;
-        resumeData.savePath = holdPath;
-        resumeData.downloadPath = {};
         resumeData.ltAddTorrentParams.save_path = holdPath.toString().toStdString();
         resumeData.ltAddTorrentParams.flags |= lt::torrent_flags::paused;
         resumeData.ltAddTorrentParams.flags &= ~lt::torrent_flags::auto_managed;
@@ -5755,7 +5754,9 @@ void SessionImpl::handleTorrentResumeDataReady(TorrentImpl *const torrent, LoadT
     auto pending = m_stoppedResumeWrites.find(torrent->id());
     if ((pending != m_stoppedResumeWrites.end()) && (pending->revision == 0) && data.stopped
         && (data.completionPolicyPreview == pending->completionPolicyPreview)
-        && ((data.savePath == pending->destination) || (data.useAutoTMM && data.savePath.isEmpty()))
+        && (data.useAutoTMM == torrent->isAutoTMMEnabled()) && (data.category == torrent->category())
+        && (data.savePath == (data.useAutoTMM ? Path() : torrent->savePath()))
+        && (data.downloadPath == (data.useAutoTMM ? Path() : torrent->downloadPath()))
         && (Path(data.ltAddTorrentParams.save_path) == pending->destination))
     {
         revision = ++m_resumeWriteRevision;

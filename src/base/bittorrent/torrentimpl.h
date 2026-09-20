@@ -276,10 +276,10 @@ namespace BitTorrent
 
         nonstd::expected<void, QString> beginRepair(bool recover = false);
         void startRepairRecheck();
-        void switchRepairStorage(const Path &path, bool invalidatePieces = false);
+        void switchRepairStorage(const Path &path, bool invalidatePieces = false, bool restoreSavePath = false);
         bool handleRepairStorageMoved(const Path &path, const QString &error = {});
         void startStagedDownload();
-        void endRepair();
+        void endRepair(bool committed = false);
         bool isRepairing() const;
         bool hasExclusiveFileOperation() const;
         bool isReadyForCompletion() const;

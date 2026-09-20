@@ -270,7 +270,7 @@ std::unique_ptr<StagingOperation> StagingOperation::plan(const QString &journalP
     auto operation = std::unique_ptr<StagingOperation>(new StagingOperation);
     operation->m_journalPath = journalPath;
     operation->m_files = files;
-    operation->m_journal = {{QStringLiteral("version"), 2}, {QStringLiteral("torrent"), torrentId}
+    operation->m_journal = {{QStringLiteral("version"), 3}, {QStringLiteral("torrent"), torrentId}
         , {QStringLiteral("operation"), QUuid::createUuid().toString(QUuid::WithoutBraces)}
         , {QStringLiteral("destination"), destination}
         , {QStringLiteral("destination_identity"), QString::fromLatin1(destinationGuard->identity().toBase64())}
@@ -354,8 +354,8 @@ std::unique_ptr<StagingOperation> StagingOperation::load(const QString &journalP
     const QString destinationDirectoriesText = journal.value(QStringLiteral("destination_directories")).toString();
     const QByteArray destinationIdentity = QByteArray::fromBase64(destinationIdentityText.toLatin1());
     const QByteArray destinationDirectories = QByteArray::fromBase64(destinationDirectoriesText.toLatin1());
-    if (((version != 1) && (version != 2))
-        || ((version == 2) && (destinationIdentity.isEmpty() || destinationDirectories.isEmpty()
+    if (((version != 1) && (version != 2) && (version != 3))
+        || ((version >= 2) && (destinationIdentity.isEmpty() || destinationDirectories.isEmpty()
             || (QString::fromLatin1(destinationIdentity.toBase64()) != destinationIdentityText)
             || (QString::fromLatin1(destinationDirectories.toBase64()) != destinationDirectoriesText)))
         || (journal.value(QStringLiteral("torrent")).toString() != torrentId)
@@ -887,6 +887,13 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
     m_journal.insert(QStringLiteral("state"), rollback ? QStringLiteral("rolled_back") : QStringLiteral("committed"));
     return save(error);
 #endif
+}
+
+bool StagingOperation::requiresSavePathRestore() const
+{
+    // Older operations required manual management and a single directory, but
+    // stored the temporary payload/hold path as the torrent's logical save path.
+    return m_journal.value(QStringLiteral("version")).toInt() < 3;
 }
 
 QString StagingOperation::destination() const

@@ -150,6 +150,13 @@ RepairService::RepairService(Torrent *torrent, QObject *parent)
         }
         if (m_state == State::Analyzing)
         {
+            if (m_recovering && m_staging->requiresSavePathRestore()
+                && (m_torrent->isAutoTMMEnabled() || !m_torrent->downloadPath().isEmpty()))
+            {
+                fail(tr("The older staging journal requires manual management and a single save directory."
+                    " Its saved torrent settings are inconsistent; recovery cannot safely restore them."));
+                return;
+            }
             m_state = State::Ready;
             emit analyzed(m_analysis);
             if (m_staged)
@@ -170,7 +177,8 @@ RepairService::RepairService(Torrent *torrent, QObject *parent)
         {
             m_state = State::SwitchingDestination;
             m_torrent->switchRepairStorage(Path(m_staging->destination())
-                , m_rollingBack || m_recovering || (m_selectedFiles.size() != m_torrent->filesCount()));
+                , m_rollingBack || m_recovering || (m_selectedFiles.size() != m_torrent->filesCount())
+                , m_staging->requiresSavePathRestore());
         }
         else if (m_state == State::Applying)
         {
@@ -210,28 +218,7 @@ void RepairService::analyze()
         fail(tr("Recover the pending staged operation before starting a new analysis."));
         return;
     }
-    if (m_staged && m_torrent->isAutoTMMEnabled())
-    {
-        fail(tr("Staged update currently requires manual torrent management."));
-        return;
-    }
     auto *session = static_cast<SessionImpl *>(m_torrent->session());
-    if (m_staged && (!m_torrent->downloadPath().isEmpty() || session->isAppendExtensionEnabled()))
-    {
-        fail(tr("Staged update currently requires a single save directory and the incomplete-file extension disabled."));
-        return;
-    }
-    if (m_staged)
-    {
-        for (const Path &path : m_torrent->filePaths())
-        {
-            if (path.hasExtension(QB_EXT))
-            {
-                fail(tr("Staged update requires target names without an incomplete-file extension."));
-                return;
-            }
-        }
-    }
     if (const auto result = m_torrent->beginRepair(m_recovering); !result)
     {
         fail(result.error());
@@ -438,7 +425,7 @@ void RepairService::releaseOwnership()
     }
     m_guard.reset();
     if (m_ownsTorrent && m_torrent)
-        m_torrent->endRepair();
+        m_torrent->endRepair(m_staged && (m_state == State::Finished) && !m_rollingBack);
     m_ownsTorrent = false;
 }
 

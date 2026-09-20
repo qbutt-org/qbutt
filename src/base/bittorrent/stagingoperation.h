@@ -52,6 +52,7 @@ namespace BitTorrent
         bool rollback(QString &error, const std::atomic_bool *cancelled = nullptr);
         bool finish(QString &error);
 
+        bool requiresSavePathRestore() const;
         QString destination() const;
         QString payloadPath() const;
         QString state() const;

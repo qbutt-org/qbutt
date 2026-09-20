@@ -2631,16 +2631,29 @@ nonstd::expected<void, QString> TorrentImpl::beginRepair(const bool recover)
     return {};
 }
 
-void TorrentImpl::endRepair()
+void TorrentImpl::endRepair(const bool committed)
 {
     if (isRepairing())
         m_maintenanceJob = QFileInfo::exists(StagingOperation::journalPath(id().toString()))
             ? MaintenanceJob::StagingRecovery : MaintenanceJob::None;
+
+    // Only a retired commit may reconcile the frozen physical layout. Recovery
+    // with invalidated pieces remains paused until the ordinary Start/recheck.
+    if (committed && !hasExclusiveFileOperation() && !isChecking() && !m_hasMissingFiles)
+    {
+        adjustStorageLocation();
+        manageActualFilePaths();
+    }
 }
 
-void TorrentImpl::switchRepairStorage(const Path &path, const bool invalidatePieces)
+void TorrentImpl::switchRepairStorage(const Path &path, const bool invalidatePieces, const bool restoreSavePath)
 {
     Q_ASSERT(isRepairing() && isStopped() && m_repairStorageTarget.isEmpty());
+    if (restoreSavePath)
+    {
+        Q_ASSERT(!isAutoTMMEnabled() && downloadPath().isEmpty());
+        m_savePath = path;
+    }
     m_maintenanceJob = MaintenanceJob::Repair;
     m_repairStorageTarget = path;
     m_repairInvalidatePieces = invalidatePieces;
@@ -2654,7 +2667,7 @@ bool TorrentImpl::handleRepairStorageMoved(const Path &path, const QString &erro
     if (error.isEmpty())
     {
         Q_ASSERT(path == m_repairStorageTarget);
-        m_savePath = path;
+        // Staging changes physical storage, not the user's destination policy.
         m_nativeStatus.save_path = path.toString().toStdString();
         m_ltAddTorrentParams.save_path = m_nativeStatus.save_path;
         m_hasMissingFiles = false;
