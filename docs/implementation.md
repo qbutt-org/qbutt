@@ -376,6 +376,8 @@ Native address recovery: `native-address-RQREmK` — passed на Qt driver `5737
 
 ### 9.2. Обязательные условия по направлениям
 
+Публичное сравнение `public-swarm-JVAF4k` — passed: четыре rotating rounds, 16/16 окон без retries на app `f4309533`, libtorrent `c5b3ed402`, child `82e34f19`. Upstream/qbutt Native/one VPN/Mixed median useful rates: 3 583 464 / 3 530 333 / 3 563 074 / 3 558 821 bytes/s; Native −1,48%. В каждом Mixed окне положительный verified вклад Native и всех трёх VPN, суммарно 460 062 720 bytes в четырёх Mixed окнах; завершённые pieces независимо проверены с диска. Во всех режимах одинаковый fixed peer port и 4 MiB/s application cap. Первый upstream получил peers через discovery; остальные окна получили одинаковые 41 public seed candidates, discovery продолжал работать. Это сравнение передачи с общими кандидатами, не доказательство равного discovery или ускорения на публичном swarm; полный ISO не скачивался. Предыдущий cold-discovery `ksX7eC` остался failed: upstream передал данные, qbutt Native дважды не прошёл warmup. Generated payloads очищены; raw peer endpoints сохранены только в private local artifact.
+
 Статусы: **закрыто** — выполнен весь указанный результат; **частично** — есть конкретная реализация/проверка, но условие справа остаётся; **открыто** — сквозной результат не реализован или не подтверждён. Статус меняется только вместе с проверенными revision, результатом процесса и evidence. Будущие API в этой таблице не объявляются существующими.
 
 | Условие / статус | Реализация и имеющиеся доказательства | Что необходимо для закрытия |
