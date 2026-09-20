@@ -50,6 +50,7 @@ bun run smoke:native-route
 bun run smoke:route-policy
 bun run smoke:path-auth
 bun run smoke:server-identity
+bun run smoke:connection-budget
 bun run smoke:path-dns
 ```
 
@@ -571,6 +572,14 @@ useful/verified payload and connections to a reachable Native canary remain zero
 A separate client with the explicit fixture CA must retrieve the exact body.
 No certificate is installed in the system trust store. Certificate expiration,
 name mismatch and mid-transfer reconnection remain separate scenarios.
+
+`smoke:connection-budget` runs two infohashes against four rate-limited seeds
+through two managed paths. Repeated explicit peer candidates must not create
+duplicate original endpoints. It observes a shared session limit of three with
+two peers per torrent, then lowers the torrent limit to one and requires two
+remaining connections. Both downloads must finish with exact sizes and hashes.
+This covers established outgoing TCP peers, not discovery-source deduplication,
+incoming connection slack, pending gateway handshakes or all OS sockets.
 
 This local lab does not prove physical VPS egress, throughput gain, complete DNS
 isolation, Koala coexistence or public-Internet inbound. It also does not implement network
