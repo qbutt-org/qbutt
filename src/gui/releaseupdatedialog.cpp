@@ -32,6 +32,10 @@ ReleaseUpdateDialog::ReleaseUpdateDialog(QWidget *parent)
     auto *source = new QLabel(tr("Source: <a href=\"https://github.com/qbutt-org/qbutt/releases\">qbutt GitHub Releases</a>"), this);
     source->setOpenExternalLinks(true);
     layout->addWidget(source);
+    auto *network = new QLabel(tr("Update checks and downloads use this computer's normal network connection, "
+        "independently of torrent paths."), this);
+    network->setWordWrap(true);
+    layout->addWidget(network);
     m_status = new QLabel(this);
     m_status->setObjectName(u"releaseStatus"_s);
     m_status->setTextFormat(Qt::PlainText);
