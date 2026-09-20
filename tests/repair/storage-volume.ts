@@ -27,7 +27,7 @@ function quotePowerShell(value: string) {
 }
 
 async function invoke(command: string, args: string[], timeout = 60000) {
-    const child = Bun.spawn([command, ...args], { stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([command, ...args], { stdout: "pipe", stderr: "pipe", windowsHide: true });
     let timer: ReturnType<typeof setTimeout>;
     const exited = Promise.race([child.exited, new Promise<never>((_, reject) => {
         timer = setTimeout(() => {

@@ -44,6 +44,7 @@ bun run smoke:repair-mappings
 bun run smoke:repair-product
 bun run smoke:staging
 bun run smoke:staging-mappings
+bun run smoke:storage-faults
 bun run smoke:completion
 bun run smoke:mixed
 bun run smoke:mixed-baseline
@@ -88,6 +89,15 @@ while native resume persistence fails; after recovery they use the final native
 destination and do not replay after restart. To repeat only one case, set
 `QBUTT_STAGING_MAPPING_CASE` to `v1-manual`, `v2-autotmm-recovery`,
 `hybrid-autotmm-rollback` or `v1-legacy`.
+
+`smoke:storage-faults` creates owned 96 MiB expandable VHDX files and mounts them
+under its temporary directory without drive letters. It verifies full storage,
+missing/replaced volumes, long case-sensitive paths, third-party file handles,
+and cleanup after a killed volume owner. Successful runs detach volumes and
+remove generated data. `QBUTT_STORAGE_CASE` can select comma-separated cases:
+`orphan`, `disk-full`, `detached-volume`, `replaced-volume`, `long-case`,
+`sharing-conflict`. Case sensitivity is proved by distinct file contents, not
+localized command output.
 
 `smoke:native-inbound` starts the app with uTP only and no managed paths or
 discovery. An independent checked libtorrent seed initiates the sole connection

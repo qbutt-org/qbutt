@@ -27,7 +27,7 @@ const batch = ["@echo off", `call "${resolve(environmentArgument)}" >nul`, "if e
     "exit /b %errorlevel%", ""].join("\r\n");
 const batchPath = join(output, "build-gui-smoke.cmd");
 await writeFile(batchPath, batch);
-const child = Bun.spawn(["cmd.exe", "/d", "/c", batchPath], { cwd: build, stdout: "pipe", stderr: "pipe" });
+const child = Bun.spawn(["cmd.exe", "/d", "/c", batchPath], { cwd: build, stdout: "pipe", stderr: "pipe", windowsHide: true });
 const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
 await writeFile(join(output, "build-gui-smoke.log"), stdout + stderr);
 assert.equal(code, 0, `Repair preview driver failed to build; see ${join(output, "build-gui-smoke.log")}`);

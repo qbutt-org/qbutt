@@ -21,6 +21,9 @@ interface Status {
     };
 }
 
+const cases = ["orphan", "disk-full", "detached-volume", "replaced-volume", "long-case", "sharing-conflict"];
+const selected = new Set(process.env.QBUTT_STORAGE_CASE?.split(",") ?? cases);
+assert([...selected].every(name => cases.includes(name)), "Unknown storage fault case");
 await cleanupMarkedLabs();
 const lab = await createLab("storage-faults");
 assert(process.platform === "win32", "Storage fault acceptance requires Windows");
@@ -28,7 +31,7 @@ assert(resolve(lab.root).startsWith(resolve(process.env.TEMP!) + "\\qbutt-storag
     "Storage fault resources must stay in the owned temporary lab");
 
 async function run(command: string, args: string[], timeout = 30000) {
-    const child = Bun.spawn([command, ...args], { stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([command, ...args], { stdout: "pipe", stderr: "pipe", windowsHide: true });
     let timer: ReturnType<typeof setTimeout>;
     const exited = Promise.race([child.exited, new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
@@ -52,7 +55,7 @@ async function run(command: string, args: string[], timeout = 30000) {
 async function forceDismount(path: string) {
     let diagnostic = "";
     for (let attempt = 0; attempt < 10; ++attempt) {
-        const child = Bun.spawn(["mountvol.exe", path, "/P"], { stdout: "pipe", stderr: "pipe" });
+        const child = Bun.spawn(["mountvol.exe", path, "/P"], { stdout: "pipe", stderr: "pipe", windowsHide: true });
         const [exitCode, stdout, stderr] = await Promise.all([
             child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
         ]);
@@ -65,7 +68,7 @@ async function forceDismount(path: string) {
 }
 
 async function mountedVolume(path: string) {
-    const child = Bun.spawn(["mountvol.exe", path, "/L"], { stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn(["mountvol.exe", path, "/L"], { stdout: "pipe", stderr: "pipe", windowsHide: true });
     const [exitCode, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
     return exitCode === 0 ? stdout.trim() : undefined;
 }
@@ -120,7 +123,7 @@ async function killedOrphanIsCleanedByNextProcess() {
     const helper = join(import.meta.dir, "storage-volume.ts");
     const stderr = join(root, "orphan.stderr.log");
     const child = Bun.spawn([process.execPath, helper, "--create-orphan", root], {
-        stdout: "pipe", stderr: Bun.file(stderr),
+        stdout: "pipe", stderr: Bun.file(stderr), windowsHide: true,
     });
     const reader = child.stdout.getReader();
     let output = "";
@@ -321,8 +324,10 @@ const disks: VirtualDisk[] = [];
 let fileLock: ReturnType<typeof Bun.spawn> | undefined;
 let failure: unknown;
 try {
-    await killedOrphanIsCleanedByNextProcess();
-    await lab.checkpoint({ check: "fault-killed-volume-owner-cleaned-by-next-process" });
+    if (selected.has("orphan")) {
+        await killedOrphanIsCleanedByNextProcess();
+        await lab.checkpoint({ check: "fault-killed-volume-owner-cleaned-by-next-process" });
+    }
     const mount = join(lab.root, "mounted-volume");
     const primary = new VirtualDisk("primary", mount);
     const replacement = new VirtualDisk("replacement", mount);
@@ -331,7 +336,7 @@ try {
     await primary.create();
     await lab.start();
 
-    {
+    if (selected.has("disk-full")) {
         const destination = join(primary.root, "disk-full-target");
         await createCandidate(destination, "preserve through disk-full rejection");
         const before = await snapshot(destination);
@@ -350,7 +355,7 @@ try {
             requiredBytes: required, availableBytes: filled.after });
     }
 
-    {
+    if (selected.has("detached-volume")) {
         const destination = join(primary.root, "disappearing-volume-target");
         await createCandidate(destination, "preserve across disappearing volume");
         const before = await snapshot(destination);
@@ -394,7 +399,7 @@ try {
         await lab.checkpoint({ check: "detached-volume-recovery-fails-closed-and-remount-rolls-back" });
     }
 
-    {
+    if (selected.has("replaced-volume")) {
         const relativeDestination = "same-path-volume-target";
         let replacementBefore: Awaited<ReturnType<typeof snapshot>>;
         await lab.shutdown();
@@ -465,7 +470,7 @@ try {
         await lab.checkpoint({ check: "same-path-different-volume-identity-rejected-before-write" });
     }
 
-    {
+    if (selected.has("long-case")) {
         let destination = join(primary.root, "long-case-layout");
         let index = 0;
         while (join(destination, "bundle", "nested", "beta.bin").length <= 260)
@@ -475,8 +480,6 @@ try {
             "Long-path fixture did not cross the legacy Windows path boundary");
         await mkdir(destination, { recursive: true });
         await run("fsutil.exe", ["file", "setCaseSensitiveInfo", destination, "enable"]);
-        const caseState = await run("fsutil.exe", ["file", "queryCaseSensitiveInfo", destination]);
-        assert.match(caseState, /enabled/i, "Directory did not become case-sensitive");
         await cp(join(lab.fixtures, "variants", "grow"), destination, { recursive: true });
         await writeFile(join(destination, "Save.dat"), "uppercase unknown");
         await writeFile(join(destination, "save.dat"), "lowercase unknown");
@@ -505,7 +508,7 @@ try {
             longestTargetPath: join(destination, "bundle", "nested", "beta.bin").length });
     }
 
-    {
+    if (selected.has("sharing-conflict")) {
         const destination = join(lab.root, "third-party-handle-target");
         await createCandidate(destination, "preserve through sharing conflict");
         const original = await snapshot(destination);
@@ -518,7 +521,7 @@ try {
         assert.equal(ready.state, "ready_to_commit", ready.error);
         const lockedPath = join(destination, "bundle", "alpha.bin");
         fileLock = Bun.spawn([lab.python, join(import.meta.dir, "file-lock.py"), lab.root, lockedPath],
-            { stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(lab.root, "file-lock.stderr.log")) });
+            { stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(lab.root, "file-lock.stderr.log")), windowsHide: true });
         const reader = fileLock.stdout.getReader();
         let output = "";
         try {
@@ -576,6 +579,14 @@ finally {
     if (storageClean && existsSync(ownershipMarker(lab.root))) {
         try { await cleanupOwnedMarker(ownershipMarker(lab.root)); }
         catch (error) { failure ??= error; }
+    }
+    if (!failure) {
+        for (const name of ["fixtures", "profile", "mounted-volume", "third-party-handle-target"]) {
+            const target = resolve(lab.root, name);
+            assert.equal(dirname(target), resolve(lab.root), "Cleanup escaped the owned storage fixture");
+            try { await rm(target, { recursive: true, force: true }); }
+            catch (error) { failure ??= error; }
+        }
     }
 }
 await lab.finish(failure);

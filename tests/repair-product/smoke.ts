@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { generateFixtures } from "../fixtures/generate";
 
@@ -41,7 +41,7 @@ async function run(name: string, destination: string, roots: string, mode: "norm
     const output = join(root, `${name}.json`);
     const screenshot = join(root, `${name}.png`);
     const child = Bun.spawn([driver!, join(fixtures, "v1.torrent"), destination, roots, mode, screenshot, output, explicitSource], {
-        cwd: root, stdout: "pipe", stderr: "pipe", timeout: 40000,
+        cwd: root, stdout: "pipe", stderr: "pipe", timeout: 40000, windowsHide: true,
         env: { ...process.env, QT_PLUGIN_PATH: process.env.QT_PLUGIN_PATH ?? dirname(driver!) },
     });
     const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -126,5 +126,11 @@ assert(!(await snapshot(join(root, "profile"))).some(entry => entry.type !== "di
 const evidence = { outcome: "PASS", checks: 6, normal: normalEvidence, inPlace: inPlaceEvidence, cancel: cancelEvidence,
     hardlink: hardlinkEvidence.status, reparse: reparseEvidence.status, missingRoot: missingRootEvidence.status,
     screenshot: join(root, "normal.png") };
+for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const target = resolve(root, entry.name);
+    assert(!entry.isSymbolicLink() && dirname(target) === resolve(root), "Cleanup escaped the owned preview fixture");
+    await rm(target, { recursive: true, force: true });
+}
 await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2) + "\n");
 console.log(JSON.stringify({ evidence: join(root, "evidence.json") }));
