@@ -13,12 +13,14 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QStyleHints>
 #include <QTableWidget>
 #include <QTimer>
 
@@ -44,7 +46,7 @@ namespace
 
     qint64 labelNumber(const QLabel *label)
     {
-        QString value = label->text();
+        QString value = label->text().section(u" bytes", 0, 0);
         value.remove(QChar::Space);
         value.remove(QChar(0x00a0));
         bool ok = false;
@@ -58,6 +60,8 @@ int main(int argc, char **argv)
     qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("offscreen"));
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication application(argc, argv);
+    application.setStyle(u"Fusion"_s);
+    application.styleHints()->setColorScheme(Qt::ColorScheme::Light);
     application.setApplicationName(u"qbutt"_s);
     application.setOrganizationName(u"qBittorrent"_s);
     application.setQuitOnLastWindowClosed(false);
@@ -88,7 +92,8 @@ int main(int argc, char **argv)
         auto *sourceRoots = required<QPlainTextEdit>(dialog, u"repairPreviewRoots"_s);
         sourceRoots->setPlainText(roots);
         auto *operation = required<QComboBox>(dialog, u"repairPreviewMode"_s);
-        if (mode == u"inplace")
+        const bool subset = mode.startsWith(u"subset");
+        if ((mode == u"inplace") || (mode == u"subset-inplace"))
             operation->setCurrentIndex(1);
         auto *status = required<QLabel>(dialog, u"repairPreviewStatus"_s);
         auto *progress = required<QProgressBar>(dialog, u"repairPreviewProgress"_s);
@@ -97,10 +102,38 @@ int main(int argc, char **argv)
         auto *chooseSource = required<QPushButton>(dialog, u"repairPreviewChooseSource"_s);
         auto *reviewed = required<QCheckBox>(dialog, u"repairPreviewReviewed"_s);
         auto *files = required<QTableWidget>(dialog, u"repairPreviewFiles"_s);
+        QJsonObject evidence {{u"mode"_s, mode}};
+        if (subset)
+        {
+            if (files->rowCount() != 5)
+                throw std::runtime_error("Target files are unavailable before analysis");
+            for (int row = 0; row < files->rowCount(); ++row)
+            {
+                if (!(files->item(row, 0)->flags() & Qt::ItemIsUserCheckable)
+                    || (files->item(row, 0)->checkState() != Qt::Checked))
+                    throw std::runtime_error("Target selection does not use checked Qt items");
+                files->item(row, 0)->setCheckState(Qt::Unchecked);
+            }
+            evidence.insert(u"emptySelectionBlocked"_s,
+                !analyze->isEnabled() && !reviewed->isEnabled() && !apply->isEnabled());
+            files->item(0, 0)->setCheckState(Qt::Checked);
+        }
         int heartbeats = 0;
         QTimer heartbeat;
         heartbeat.setInterval(1);
-        QObject::connect(&heartbeat, &QTimer::timeout, &dialog, [&] { ++heartbeats; });
+        QObject::connect(&heartbeat, &QTimer::timeout, &dialog, [&]
+        {
+            ++heartbeats;
+            if ((mode == u"subset-cancel") && (heartbeats >= 2) && !analyze->isEnabled()
+                && !evidence.contains(u"selectionChangedDuringAnalysis"_s))
+            {
+                // Exercise invalidation even if an event changes check state while
+                // the view is disabled and the worker is still reading the tree.
+                files->item(0, 0)->setCheckState(Qt::Unchecked);
+                files->item(0, 0)->setCheckState(Qt::Checked);
+                evidence.insert(u"selectionChangedDuringAnalysis"_s, true);
+            }
+        });
         heartbeat.start();
 
         QTimer filePicker;
@@ -119,7 +152,6 @@ int main(int argc, char **argv)
             }
         });
 
-        QJsonObject evidence {{u"mode"_s, mode}};
         bool mappingChosen = false;
         constexpr int MappingRow = 2;
         QTimer observe;
@@ -130,7 +162,15 @@ int main(int argc, char **argv)
             const bool refused = status->text().startsWith(u"Preview refused:"_s)
                 || status->text().startsWith(u"Every source directory"_s)
                 || status->text().startsWith(u"Choose an existing"_s);
-            if (((mode == u"normal") || (mode == u"inplace")) && complete)
+            if ((mode == u"subset-cancel") && evidence.contains(u"selectionChangedDuringAnalysis"_s)
+                && !evidence.contains(u"cancelledResultDiscarded"_s) && analyze->isEnabled())
+            {
+                evidence.insert(u"cancelledResultDiscarded"_s,
+                    !complete && !reviewed->isEnabled() && !apply->isEnabled());
+                analyze->click();
+                return;
+            }
+            if (((mode == u"normal") || (mode == u"inplace") || subset) && complete)
             {
                 if ((mode == u"normal") && !mappingChosen && (explicitSource != u"-"))
                 {
@@ -143,6 +183,15 @@ int main(int argc, char **argv)
                     return;
                 }
                 reviewed->setChecked(true);
+                if (subset && !evidence.contains(u"selectionChangeInvalidatesPlan"_s))
+                {
+                    files->item(0, 0)->setCheckState(Qt::Unchecked);
+                    evidence.insert(u"selectionChangeInvalidatesPlan"_s, !analyze->isEnabled()
+                        && !reviewed->isChecked() && !reviewed->isEnabled() && !apply->isEnabled());
+                    files->item(0, 0)->setCheckState(Qt::Checked);
+                    analyze->click();
+                    return;
+                }
                 evidence.insert(u"rows"_s, files->rowCount());
                 evidence.insert(u"heartbeats"_s, heartbeats);
                 evidence.insert(u"progressVisible"_s, progress->isVisible());
@@ -152,6 +201,16 @@ int main(int argc, char **argv)
                 evidence.insert(u"verifiedText"_s, required<QLabel>(dialog, u"repairPreviewVerified"_s)->text());
                 evidence.insert(u"networkText"_s, required<QLabel>(dialog, u"repairPreviewNetwork"_s)->text());
                 evidence.insert(u"temporaryText"_s, required<QLabel>(dialog, u"repairPreviewTemporary"_s)->text());
+                if (subset)
+                {
+                    QJsonArray states;
+                    for (int row = 0; row < files->rowCount(); ++row)
+                        states.append(static_cast<int>(files->item(row, 0)->checkState()));
+                    evidence.insert(u"checkStates"_s, states);
+                    evidence.insert(u"candidateBytes"_s, labelNumber(required<QLabel>(dialog, u"repairPreviewCandidates"_s)));
+                    evidence.insert(u"verifiedBytes"_s, labelNumber(required<QLabel>(dialog, u"repairPreviewVerified"_s)));
+                    evidence.insert(u"networkBytes"_s, labelNumber(required<QLabel>(dialog, u"repairPreviewNetwork"_s)));
+                }
                 evidence.insert(u"changed"_s, labelNumber(required<QLabel>(dialog, u"repairPreviewChanged"_s)));
                 evidence.insert(u"oversized"_s, labelNumber(required<QLabel>(dialog, u"repairPreviewOversized"_s)));
                 evidence.insert(u"explicitMapping"_s, (explicitSource == u"-")

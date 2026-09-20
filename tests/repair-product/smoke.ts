@@ -36,7 +36,8 @@ async function snapshot(directory: string): Promise<SnapshotEntry[]> {
     return result.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-async function run(name: string, destination: string, roots: string, mode: "normal" | "inplace" | "cancel" | "refusal",
+async function run(name: string, destination: string, roots: string,
+    mode: "normal" | "inplace" | "cancel" | "refusal" | "subset" | "subset-inplace" | "subset-cancel",
     explicitSource = "-") {
     const output = join(root, `${name}.json`);
     const screenshot = join(root, `${name}.png`);
@@ -81,8 +82,26 @@ assert(inPlaceEvidence.firstSource.startsWith(normal.replaceAll("\\", "/")),
 assert.deepEqual(await snapshot(normal), beforeNormal, "in-place preview changed target data");
 assert.deepEqual(await snapshot(explicitRoot), beforeExplicit, "in-place preview read or changed an external source");
 
+function assertSubset(evidence: any) {
+    assert(!evidence.timeout && !evidence.unexpectedRefusal);
+    assert.equal(evidence.emptySelectionBlocked, true);
+    assert.equal(evidence.selectionChangeInvalidatesPlan, true);
+    assert.deepEqual(evidence.checkStates, [2, 0, 0, 0, 0]);
+    assert.equal(evidence.candidateBytes, 16384 + 123);
+    // alpha is complete, but its last 123 bytes share a v1 piece with the
+    // corrupted first byte of ignored beta. They cannot be credited as verified.
+    assert.equal(evidence.verifiedBytes, 16384);
+    assert.equal(evidence.networkBytes, 123);
+    assert.equal(evidence.applyEnabled, true);
+}
+const subsetEvidence = await run("subset", normal, normal, "subset");
+const subsetInPlaceEvidence = await run("subset-inplace", normal, explicitRoot, "subset-inplace");
+for (const evidence of [subsetEvidence, subsetInPlaceEvidence]) assertSubset(evidence);
+assert.deepEqual(await snapshot(normal), beforeNormal, "selected preview changed selected or ignored files");
+assert.deepEqual(await snapshot(explicitRoot), beforeExplicit, "selected preview changed the external source");
+
 const cancelRoot = join(root, "cancel-source");
-await cp(join(fixtures, "seed"), cancelRoot, { recursive: true });
+await cp(normal, cancelRoot, { recursive: true });
 for (let index = 0; index < 4000; ++index) {
     const path = join(cancelRoot, "noise", String(Math.floor(index / 100)), `${index}.bin`);
     await mkdir(dirname(path), { recursive: true });
@@ -95,6 +114,11 @@ assert(cancelEvidence.heartbeats > 0, "event loop did not remain responsive whil
 assert.match(cancelEvidence.status, /Cancelling the read-only preview/i, "large-tree preview completed before cancellation");
 assert(!cancelEvidence.timeout);
 assert.deepEqual(await snapshot(cancelRoot), beforeCancel, "cancelled preview changed source data");
+const subsetCancelEvidence = await run("subset-cancel", cancelRoot, cancelRoot, "subset-cancel");
+assertSubset(subsetCancelEvidence);
+assert.equal(subsetCancelEvidence.selectionChangedDuringAnalysis, true);
+assert.equal(subsetCancelEvidence.cancelledResultDiscarded, true);
+assert.deepEqual(await snapshot(cancelRoot), beforeCancel, "changing selection during analysis changed source data");
 
 const hardlink = join(fixtures, "variants", "hardlink");
 const hardlinkTarget = join(root, "hardlink-target");
@@ -123,7 +147,8 @@ assert.equal(missingRootEvidence.applyEnabled, false);
 assert(!(await snapshot(join(root, "profile"))).some(entry => entry.type !== "directory"),
     "preview created a profile, resume or journal file before consent");
 
-const evidence = { outcome: "PASS", checks: 6, normal: normalEvidence, inPlace: inPlaceEvidence, cancel: cancelEvidence,
+const evidence = { outcome: "PASS", checks: 9, normal: normalEvidence, inPlace: inPlaceEvidence, cancel: cancelEvidence,
+    subset: subsetEvidence, subsetInPlace: subsetInPlaceEvidence, subsetCancel: subsetCancelEvidence,
     hardlink: hardlinkEvidence.status, reparse: reparseEvidence.status, missingRoot: missingRootEvidence.status,
     screenshot: join(root, "normal.png") };
 for (const entry of await readdir(root, { withFileTypes: true })) {

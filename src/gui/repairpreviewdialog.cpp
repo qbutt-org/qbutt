@@ -27,6 +27,7 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <QtConcurrentRun>
@@ -70,7 +71,7 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
 
     auto *layout = new QVBoxLayout {this};
     auto *introduction = new QLabel {tr("Select a .torrent and the parent directory where its paths belong. "
-        "Preview reads only the chosen locations and includes every target file. "
+        "Select the files to repair before running the preview. Adjacent files may be read to verify shared pieces. "
         "It does not add a torrent, create resume data, truncate files or start a download."), this};
     introduction->setWordWrap(true);
     layout->addWidget(introduction);
@@ -110,9 +111,9 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
     layout->addWidget(m_progress);
 
     for (auto [label, name, value] : {
-        std::tuple {tr("Candidate bytes found:"), u"repairPreviewCandidates"_s, m_candidateBytes},
-        std::tuple {tr("Verified bytes reusable:"), u"repairPreviewVerified"_s, m_verifiedBytes},
-        std::tuple {tr("Target payload required from network:"), u"repairPreviewNetwork"_s, m_networkBytes},
+        std::tuple {tr("Selected candidate bytes found:"), u"repairPreviewCandidates"_s, m_candidateBytes},
+        std::tuple {tr("Selected verified bytes reusable:"), u"repairPreviewVerified"_s, m_verifiedBytes},
+        std::tuple {tr("Selected payload required from network:"), u"repairPreviewNetwork"_s, m_networkBytes},
         std::tuple {tr("Temporary space for safe staging:"), u"repairPreviewTemporary"_s, m_temporaryBytes},
         std::tuple {tr("Target files needing data or size repair:"), u"repairPreviewChanged"_s, m_changedFiles},
         std::tuple {tr("Files with extra tails:"), u"repairPreviewOversized"_s, m_oversizedFiles}})
@@ -141,7 +142,8 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
 
     auto *mappingNotice = new QLabel {tr("Every chosen source is shown above before any write. Candidate bytes are only data found for checking; "
         "only hash-verified bytes count as reusable. Network bytes are target payload and exclude protocol or duplicate traffic. "
-        "Files outside the torrent manifest are preserved."), this};
+        "Staging space includes the full layout needed for shared pieces. Ignored files are not committed or repaired; "
+        "a later download may store shared boundary bytes in them. Files outside the torrent manifest are preserved."), this};
     mappingNotice->setWordWrap(true);
     layout->addWidget(mappingNotice);
     m_reviewed->setObjectName(u"repairPreviewReviewed"_s);
@@ -158,11 +160,7 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
     m_closeButton = buttons->button(QDialogButtonBox::Close);
     layout->addWidget(buttons);
 
-    connect(m_torrentFile, &FileSystemPathEdit::selectedPathChanged, this, [this]
-    {
-        m_explicitMappings.clear();
-        clearPreview();
-    });
+    connect(m_torrentFile, &FileSystemPathEdit::selectedPathChanged, this, &RepairPreviewDialog::loadTarget);
     connect(m_destination, &FileSystemPathEdit::selectedPathChanged, this, &RepairPreviewDialog::clearPreview);
     connect(m_sourceDirectories, &QPlainTextEdit::textChanged, this, &RepairPreviewDialog::clearPreview);
     connect(m_addSourceDirectory, &QPushButton::clicked, this, [this]
@@ -174,6 +172,11 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
     connect(m_mode, &QComboBox::currentIndexChanged, this, &RepairPreviewDialog::clearPreview);
     connect(m_reviewed, &QCheckBox::toggled, this, &RepairPreviewDialog::updateControls);
     connect(m_files, &QTableWidget::itemSelectionChanged, this, &RepairPreviewDialog::updateControls);
+    connect(m_files, &QTableWidget::itemChanged, this, [this](const QTableWidgetItem *item)
+    {
+        if (item->column() == 0)
+            clearPreview();
+    });
     connect(m_chooseSource, &QPushButton::clicked, this, &RepairPreviewDialog::chooseSource);
     connect(m_previewButton, &QPushButton::clicked, this, &RepairPreviewDialog::preview);
     connect(m_applyButton, &QPushButton::clicked, this, &RepairPreviewDialog::startRepair);
@@ -182,7 +185,12 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
     {
         m_operation = Operation::Idle;
         RepairPlan plan = m_previewWatcher.future().takeResult();
-        if (plan.error.isEmpty())
+        if (m_cancelled->load(std::memory_order_relaxed))
+        {
+            if (!m_closePending)
+                clearPreview();
+        }
+        else if (plan.error.isEmpty())
         {
             m_plan = std::move(plan);
             showPreview();
@@ -231,35 +239,78 @@ QStringList RepairPreviewDialog::sourceRoots() const
 
 void RepairPreviewDialog::clearPreview()
 {
-    if (m_operation != Operation::Idle)
-        return;
-    m_descriptor.reset();
+    if (m_operation == Operation::Preview)
+        m_cancelled->store(true, std::memory_order_relaxed);
     m_plan.reset();
     m_reviewed->setChecked(false);
-    m_files->setRowCount(0);
+    const QSignalBlocker blocker {m_files};
+    for (int row = 0; row < m_files->rowCount(); ++row)
+    {
+        for (const int column : {1, 3, 4, 5})
+            m_files->item(row, column)->setText(tr("Not analyzed"));
+    }
     for (QLabel *value : {m_candidateBytes, m_verifiedBytes, m_networkBytes, m_temporaryBytes, m_changedFiles, m_oversizedFiles})
         value->setText(tr("Not analyzed"));
-    m_status->setText(tr("Choose the target torrent and directory, then run a read-only preview."));
+    m_status->setText(selectedFiles().isEmpty() ? tr("Select at least one file to analyze and repair.")
+        : tr("Choose the target directory, review the selected files, then run a read-only preview."));
     updateControls();
 }
 
-void RepairPreviewDialog::preview()
+void RepairPreviewDialog::loadTarget()
 {
-    if (m_operation != Operation::Idle)
-        return;
+    m_descriptor.reset();
+    m_explicitMappings.clear();
+    const QSignalBlocker blocker {m_files};
+    m_files->setRowCount(0);
     clearPreview();
     const Path torrentPath = m_torrentFile->selectedPath();
-    const QString destination = QDir::cleanPath(QDir::fromNativeSeparators(m_destination->selectedPath().toString()));
-    if (!torrentPath.isAbsolute() || !QFileInfo(torrentPath.toString()).isFile()
-        || !QDir::isAbsolutePath(destination) || !QFileInfo(destination).isDir())
-    {
-        m_status->setText(tr("Choose an existing .torrent file and an ordinary target parent directory."));
+    if (!torrentPath.isAbsolute() || !QFileInfo(torrentPath.toString()).isFile())
         return;
-    }
     const auto descriptor = TorrentDescriptor::loadFromFile(torrentPath);
     if (!descriptor || !descriptor->info())
     {
         m_status->setText(tr("Cannot load target torrent metadata: %1").arg(descriptor ? tr("metadata is missing") : descriptor.error()));
+        return;
+    }
+    m_descriptor = *descriptor;
+    const TorrentInfo &info = *descriptor->info();
+    const auto indexes = info.nativeIndexes();
+    m_files->setRowCount(info.filesCount());
+    for (int row = 0; row < info.filesCount(); ++row)
+    {
+        for (int column = 0; column < m_files->columnCount(); ++column)
+            m_files->setItem(row, column, new QTableWidgetItem);
+        auto *target = m_files->item(row, 0);
+        target->setText(info.filePath(row).toString());
+        target->setData(Qt::UserRole, int(indexes.at(row)));
+        target->setFlags(target->flags() | Qt::ItemIsUserCheckable);
+        target->setCheckState(Qt::Checked);
+        m_files->item(row, 2)->setText(locale().toString(info.fileSize(row)));
+    }
+    clearPreview();
+}
+
+QSet<int> RepairPreviewDialog::selectedFiles() const
+{
+    QSet<int> selected;
+    for (int row = 0; row < m_files->rowCount(); ++row)
+    {
+        const auto *item = m_files->item(row, 0);
+        if (item->checkState() == Qt::Checked)
+            selected.insert(item->data(Qt::UserRole).toInt());
+    }
+    return selected;
+}
+
+void RepairPreviewDialog::preview()
+{
+    if ((m_operation != Operation::Idle) || !m_descriptor || selectedFiles().isEmpty())
+        return;
+    clearPreview();
+    const QString destination = QDir::cleanPath(QDir::fromNativeSeparators(m_destination->selectedPath().toString()));
+    if (!QDir::isAbsolutePath(destination) || !QFileInfo(destination).isDir())
+    {
+        m_status->setText(tr("Choose an existing ordinary target parent directory."));
         return;
     }
     const QStringList roots = (m_mode->currentIndex() == 0) ? sourceRoots() : QStringList {};
@@ -272,8 +323,7 @@ void RepairPreviewDialog::preview()
         }
     }
 
-    m_descriptor = *descriptor;
-    const auto target = descriptor->info()->nativeInfo();
+    const auto target = m_descriptor->info()->nativeInfo();
     const lt::file_storage files = target->files();
     m_operation = Operation::Preview;
     m_cancelled = std::make_shared<std::atomic_bool>(false);
@@ -281,9 +331,9 @@ void RepairPreviewDialog::preview()
     updateControls();
     const QMap<int, QString> mappings = (m_mode->currentIndex() == 0) ? m_explicitMappings : QMap<int, QString> {};
     m_previewWatcher.setFuture(QtConcurrent::run(&m_worker, [target, files, destination, roots
-        , mappings, cancelled = m_cancelled]
+        , mappings, selected = selectedFiles(), cancelled = m_cancelled]
     {
-        return planRepairData(*target, files, destination, roots, mappings, cancelled.get());
+        return planRepairData(*target, files, destination, roots, mappings, selected, cancelled.get());
     }));
 }
 
@@ -307,7 +357,7 @@ void RepairPreviewDialog::showPreview()
     {
         return tr("%L1 bytes (%2)").arg(bytes).arg(locale().formattedDataSize(bytes));
     };
-    m_files->setRowCount(m_plan->files.size());
+    const QSignalBlocker blocker {m_files};
     for (int row = 0; row < m_plan->files.size(); ++row)
     {
         const RepairPlanFile &file = m_plan->files.at(row);
@@ -316,11 +366,11 @@ void RepairPreviewDialog::showPreview()
             , locale().toString(file.verifiedBytes), file.problems.join(u'\n')};
         for (int column = 0; column < values.size(); ++column)
         {
-            auto *item = new QTableWidgetItem {values.at(column)};
+            auto *item = m_files->item(row, column);
+            item->setText(values.at(column));
             item->setToolTip(values.at(column));
             if ((column >= 2) && (column <= 4))
                 item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            m_files->setItem(row, column, item);
         }
         m_files->item(row, 0)->setData(Qt::UserRole, file.nativeIndex);
     }
@@ -340,7 +390,8 @@ void RepairPreviewDialog::showPreview()
 
 void RepairPreviewDialog::startRepair()
 {
-    if ((m_operation != Operation::Idle) || !m_plan || !m_descriptor || !m_reviewed->isChecked())
+    if ((m_operation != Operation::Idle) || !m_plan || !m_descriptor || !m_reviewed->isChecked()
+        || selectedFiles().isEmpty())
         return;
     if ((m_mode->currentIndex() == 0) && (m_plan->temporaryStorageBytes > m_plan->availableStorageBytes))
     {
@@ -361,10 +412,13 @@ void RepairPreviewDialog::startRepair()
     params.addStopped = true;
     params.contentLayout = TorrentContentLayout::Original;
     params.filePaths = m_descriptor->info()->filePaths();
-    params.filePriorities.fill(DownloadPriority::Normal, params.filePaths.size());
+    const QSet<int> selected = selectedFiles();
+    for (const lt::file_index_t index : m_descriptor->info()->nativeIndexes())
+        params.filePriorities.append(selected.contains(int(index)) ? DownloadPriority::Normal : DownloadPriority::Ignored);
     const InfoHash expectedHash = m_descriptor->infoHash();
     const Path expectedSavePath = params.savePath;
     const PathList expectedFilePaths = params.filePaths;
+    const QList<DownloadPriority> expectedPriorities = params.filePriorities;
     const bool staged = (m_mode->currentIndex() == 0);
     const QStringList roots = staged ? sourceRoots() : QStringList {};
     const QMap<int, QString> mappings = staged ? m_plan->mappings : QMap<int, QString> {};
@@ -372,11 +426,11 @@ void RepairPreviewDialog::startRepair()
     disconnect(m_torrentAddedConnection);
     disconnect(m_addTorrentFailedConnection);
     m_torrentAddedConnection = connect(session, &Session::torrentAdded, this
-        , [this, expectedHash, expectedSavePath, expectedFilePaths, roots, mappings, mode](Torrent *torrent)
+        , [this, expectedHash, expectedSavePath, expectedFilePaths, expectedPriorities, roots, mappings, mode](Torrent *torrent)
     {
         if ((torrent->infoHash() != expectedHash) || !torrent->isStopped() || torrent->isAutoTMMEnabled()
             || !torrent->downloadPath().isEmpty() || (torrent->savePath() != expectedSavePath)
-            || (torrent->filePaths() != expectedFilePaths))
+            || (torrent->filePaths() != expectedFilePaths) || (torrent->filePriorities() != expectedPriorities))
             return;
         disconnect(m_torrentAddedConnection);
         disconnect(m_addTorrentFailedConnection);
@@ -422,8 +476,9 @@ void RepairPreviewDialog::updateControls()
     m_mode->setEnabled(idle);
     m_files->setEnabled(idle);
     m_progress->setVisible(!idle);
-    m_previewButton->setEnabled(idle && m_torrentFile->selectedPath().isAbsolute() && m_destination->selectedPath().isAbsolute());
-    m_chooseSource->setEnabled(planned && staged && (m_files->currentRow() >= 0));
+    m_previewButton->setEnabled(idle && m_descriptor.has_value() && !selectedFiles().isEmpty()
+        && m_destination->selectedPath().isAbsolute());
+    m_chooseSource->setEnabled(idle && staged && (m_files->currentRow() >= 0));
     m_reviewed->setEnabled(planned);
     m_applyButton->setEnabled(planned && m_reviewed->isChecked());
     m_closeButton->setEnabled(idle || (m_operation == Operation::Preview));

@@ -11,6 +11,7 @@
 
 #include <QList>
 #include <QMap>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -47,5 +48,5 @@ namespace BitTorrent
 
     RepairPlan planRepairData(const lt::torrent_info &target, const lt::file_storage &files
         , const QString &destination, const QStringList &roots, const QMap<int, QString> &explicitMappings
-        , const std::atomic_bool *cancelled = nullptr);
+        , const QSet<int> &selected, const std::atomic_bool *cancelled = nullptr);
 }

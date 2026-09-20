@@ -45,6 +45,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QStyle>
 #include <QTableWidget>
@@ -59,6 +60,7 @@
 #include "app/application.h"
 #include "base/bittorrent/addtorrentparams.h"
 #include "base/bittorrent/completionpolicy.h"
+#include "base/bittorrent/downloadpriority.h"
 #include "base/bittorrent/infohash.h"
 #include "base/bittorrent/repairservice.h"
 #include "base/bittorrent/session.h"
@@ -514,10 +516,22 @@ namespace
         chooseFile(requiredChild<QPushButton>(&preview, u"repairPreviewAddRoot"_s), source);
         require(requiredChild<QPlainTextEdit>(&preview, u"repairPreviewRoots"_s)->toPlainText() == QDir::fromNativeSeparators(source),
             u"Repair source-directory picker did not update the production form"_s);
-        requiredChild<QPushButton>(&preview, u"repairPreviewAnalyze"_s)->click();
         auto *files = requiredChild<QTableWidget>(&preview, u"repairPreviewFiles"_s);
         auto *reviewed = requiredChild<QCheckBox>(&preview, u"repairPreviewReviewed"_s);
         auto *apply = requiredChild<QPushButton>(&preview, u"repairPreviewApply"_s);
+        require(files->rowCount() == 5, u"Target files are not selectable before preview"_s);
+        QSet<QString> wantedPaths;
+        QList<BitTorrent::DownloadPriority> wantedPriorities;
+        for (int row = 0; row < files->rowCount(); ++row)
+        {
+            auto *item = files->item(row, 0);
+            const bool wanted = !item->text().endsWith(u"/skip.bin") && !item->text().endsWith(u"/empty.bin");
+            item->setCheckState(wanted ? Qt::Checked : Qt::Unchecked);
+            wantedPriorities.append(wanted ? BitTorrent::DownloadPriority::Normal : BitTorrent::DownloadPriority::Ignored);
+            if (wanted)
+                wantedPaths.insert(item->text());
+        }
+        requiredChild<QPushButton>(&preview, u"repairPreviewAnalyze"_s)->click();
         waitFor(u"Repair preview"_s, [&] { return (files->rowCount() > 0) && reviewed->isEnabled(); });
         require(snapshot(source) == sourceBefore && snapshot(destination) == targetBefore,
             u"Repair preview changed source or target data before consent"_s);
@@ -533,7 +547,12 @@ namespace
         waitFor(u"Explicit source mapping action"_s, [=] { return chooseSource->isEnabled(); });
         const QString mappedSource = QDir(source).filePath(files->item(0, 0)->text());
         chooseFile(chooseSource, mappedSource);
-        require(files->rowCount() == 0, u"Explicit mapping did not invalidate the stale repair preview"_s);
+        require((files->rowCount() == 5) && !reviewed->isEnabled() && !reviewed->isChecked() && !apply->isEnabled()
+            && requiredChild<QLabel>(&preview, u"repairPreviewVerified"_s)->text().contains(u"Not analyzed"),
+            u"Explicit mapping did not invalidate analysis and consent while retaining target selection"_s);
+        for (int row = 0; row < files->rowCount(); ++row)
+            require((files->item(row, 0)->checkState() == Qt::Checked) == wantedPaths.contains(files->item(row, 0)->text()),
+                u"Explicit mapping changed target selection"_s);
         require(snapshot(source) == sourceBefore && snapshot(destination) == targetBefore,
             u"Choosing an explicit mapping changed source or target data"_s);
         requiredChild<QPushButton>(&preview, u"repairPreviewAnalyze"_s)->click();
@@ -549,7 +568,7 @@ namespace
         auto initializedTarget = targetBefore;
         for (auto it = sourceBefore.cbegin(); it != sourceBefore.cend(); ++it)
         {
-            if (!it.value().endsWith(u":0"))
+            if (!wantedPaths.contains(it.key()) || !it.value().endsWith(u":0"))
                 continue;
             if (!initializedTarget.contains(it.key()))
                 initializedTarget.insert(it.key(), it.value());
@@ -566,6 +585,9 @@ namespace
         waitFor(u"Managed repair dialog"_s, [] { return findRepairDialog() != nullptr; });
         RepairDialog *repair = findRepairDialog();
         require(repair, u"Stopped repair job did not open its production dialog"_s);
+        const auto torrents = BitTorrent::Session::instance()->torrents();
+        require((torrents.size() == 1) && (torrents.constFirst()->filePriorities() == wantedPriorities),
+            u"The new native repair job lost the reviewed wanted priorities"_s);
         require(requiredChild<QComboBox>(repair, u"repairMode"_s)->currentIndex() == 0,
             u"Repair flow silently fell back from staging to in-place"_s);
         auto *consent = requiredChild<QCheckBox>(repair, u"repairConsent"_s);
@@ -611,12 +633,19 @@ namespace
         const auto targetAfter = snapshot(destination);
         require(targetAfter.size() > targetBefore.size() && targetAfter.contains(u"unknown.keep"_s),
             u"Staged commit did not install payload while preserving the unknown file"_s);
-        for (auto iterator = sourceBefore.cbegin(); iterator != sourceBefore.cend(); ++iterator)
-            require(targetAfter.value(iterator.key()) == iterator.value(), u"Committed target bytes differ from the verified source"_s);
+        for (const QString &path : wantedPaths)
+            require(targetAfter.value(path) == sourceBefore.value(path), u"Committed selected bytes differ from the verified source"_s);
+        for (int row = 0; row < files->rowCount(); ++row)
+        {
+            const QString path = files->item(row, 0)->text();
+            if (!wantedPaths.contains(path))
+                require(targetAfter.value(path) == targetBefore.value(path), u"Repair changed or created an ignored target file"_s);
+        }
         require(repair->grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"repair-committed.png"_s)),
             u"Cannot render committed repair state"_s);
         addCheck(evidence, {{u"name"_s, u"repair-staging"_s}, {u"files"_s, files->rowCount()},
             {u"sourceReadOnly"_s, true}, {u"noWriteBeforeConsent"_s, true}, {u"unknownPreserved"_s, true},
+            {u"selectedFiles"_s, wantedPaths.size()}, {u"nativePrioritiesPreserved"_s, true}, {u"ignoredPreserved"_s, true},
             {u"stagingMaxGapMs"_s, stagingHeartbeat.maximumGap},
             {u"networkBytes"_s, network}, {u"verifiedBytes"_s, verified}});
         repair->close();

@@ -139,12 +139,18 @@ QMap<int, QString> BitTorrent::findRepairSources(const lt::file_storage &files, 
 
 RepairPlan BitTorrent::planRepairData(const lt::torrent_info &target, const lt::file_storage &files
     , const QString &destination, const QStringList &roots, const QMap<int, QString> &explicitMappings
-    , const std::atomic_bool *cancelled)
+    , const QSet<int> &selected, const std::atomic_bool *cancelled)
 {
     RepairPlan result;
     if (!target.is_valid())
     {
         result.error = QStringLiteral("Select valid torrent metadata.");
+        return result;
+    }
+    if (selected.isEmpty() || std::any_of(selected.cbegin(), selected.cend(), [&files](const int index)
+        { return (index < 0) || (index >= files.num_files()) || files.pad_file_at(lt::file_index_t(index)); }))
+    {
+        result.error = QStringLiteral("Select at least one valid target file for repair.");
         return result;
     }
 
@@ -166,6 +172,8 @@ RepairPlan BitTorrent::planRepairData(const lt::torrent_info &target, const lt::
         if (QFileInfo::exists(it.value()))
             readable.insert(it.key());
     }
+    // Keep the complete logical layout: a selected v1 boundary can only be
+    // verified when its bytes in adjacent ignored files also match the hash.
     const RepairAnalysis analysis = analyzeRepairData(target, sourceLayout, destination, cancelled, &readable);
     if (!analysis.error.isEmpty())
     {
@@ -182,6 +190,7 @@ RepairPlan BitTorrent::planRepairData(const lt::torrent_info &target, const lt::
     result.temporaryStorageBytes = storage->requiredBytes;
     result.availableStorageBytes = storage->availableBytes;
 
+    qint64 targetBytes = 0;
     for (const RepairFileAnalysis &analysisFile : analysis.files)
     {
         RepairPlanFile file;
@@ -195,6 +204,9 @@ RepairPlan BitTorrent::planRepairData(const lt::torrent_info &target, const lt::
         file.verifiedBytes = analysisFile.verifiedBytes;
         file.problems = analysisFile.problems;
         result.files.append(file);
+        if (!selected.contains(file.nativeIndex))
+            continue;
+        targetBytes += file.expectedBytes;
         result.candidateBytes += file.candidateBytes;
         result.verifiedBytes += file.verifiedBytes;
         if ((analysisFile.actualSize != analysisFile.expectedSize) || (analysisFile.verifiedBytes != analysisFile.expectedSize))
@@ -202,9 +214,6 @@ RepairPlan BitTorrent::planRepairData(const lt::torrent_info &target, const lt::
         if (analysisFile.actualSize > analysisFile.expectedSize)
             ++result.oversizedFiles;
     }
-    qint64 targetBytes = 0;
-    for (const RepairPlanFile &file : result.files)
-        targetBytes += file.expectedBytes;
     result.requiredNetworkBytes = std::max<qint64>(0, targetBytes - result.verifiedBytes);
     return result;
 }

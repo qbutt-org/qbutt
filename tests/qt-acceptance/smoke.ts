@@ -263,6 +263,10 @@ try {
         const destination = join(root, "destination");
         await mkdir(destination);
         await writeFile(join(destination, "unknown.keep"), "must survive repair");
+        await mkdir(join(destination, "bundle"));
+        await writeFile(join(destination, "bundle", "skip.bin"), Buffer.concat([
+            await readFile(join(fixtures, "seed", "bundle", "skip.bin")), Buffer.from("ignored tail must survive"),
+        ]));
         const subscription = join(root, "subscription.yaml");
         await writeFile(subscription, "proxies: []\n");
         const evidencePath = join(root, "evidence.json");

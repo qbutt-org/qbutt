@@ -52,12 +52,14 @@ private:
     };
 
     void clearPreview();
+    void loadTarget();
     void preview();
     void chooseSource();
     void startRepair();
     void showPreview();
     void updateControls();
     QStringList sourceRoots() const;
+    QSet<int> selectedFiles() const;
 
     Operation m_operation = Operation::Idle;
     std::optional<BitTorrent::TorrentDescriptor> m_descriptor;
