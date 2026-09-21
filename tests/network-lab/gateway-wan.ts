@@ -346,7 +346,7 @@ try {
             stderr: Bun.file(join(lab.root, "source-child.stderr.log")), windowsHide: true });
         sourceReplies = responses(sourceChild);
         const requestSource = async (id: number, method: string, fields: object = {}) => {
-            sourceChild!.stdin.write(JSON.stringify({ v: 6, id, method, ...fields }) + "\n");
+            sourceChild!.stdin.write(JSON.stringify({ v: 7, id, method, ...fields }) + "\n");
             await sourceChild!.stdin.flush();
             const reply = await sourceReplies!.next(`selected source ${method}`);
             assert.equal(reply.id, id);
@@ -355,7 +355,7 @@ try {
             return reply.result;
         };
         const hello = await requestSource(1, "hello");
-        assert.equal(hello.protocol, 6);
+        assert.equal(hello.protocol, 7);
         const listed = await requestSource(2, "list", { configPath: selectedFile, proxyName: "wan-source" });
         assert(Array.isArray(listed?.proxies) && listed.proxies.length === 1
             && listed.proxies[0]?.name === "wan-source"

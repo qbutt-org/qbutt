@@ -131,7 +131,7 @@ const releaseRuntimeLock = () => {
 };
 process.once("exit", releaseRuntimeLock);
 let application: ReturnType<typeof Bun.spawn> | undefined;
-let compiler: ReturnType<typeof Bun.spawn> | undefined;
+let compiler: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
 let authenticationAbort: AbortController | undefined;
 let authentication: Promise<void> | undefined;
 let failure: unknown;
@@ -223,7 +223,7 @@ try {
     else {
         const child = join(bundle, "qbutt-net.exe");
         compiler = Bun.spawn([process.execPath, "build", "--compile", join(import.meta.dir, "fake-child.ts"), "--outfile", child],
-            { stdout: "pipe", stderr: "pipe", windowsHide: true });
+            { stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true });
         const [compileCode, compileOut, compileErr] = await Promise.all([
             compiler.exited, new Response(compiler.stdout).text(), new Response(compiler.stderr).text(),
         ]);
@@ -307,7 +307,7 @@ try {
             closed: { pathId: string; generation: number }[];
             retiredOnEof: { pathId: string; generation: number }[];
         };
-        assert.equal(transport.protocol, 6, "The Qt acceptance transport did not use the pinned v6 contract");
+        assert.equal(transport.protocol, 7, "The Qt acceptance transport did not use the pinned v7 contract");
         assert.equal(transport.eofObserved, true, "The transport child did not observe parent EOF and finish cleanup");
         assert(transport.hello >= 1 && transport.listed >= 1, "The production app did not negotiate and list the transport child");
         assert(transport.status >= 1, "The production app did not poll bounded transport counters");

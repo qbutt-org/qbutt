@@ -358,6 +358,9 @@ namespace
         QCoreApplication::processEvents();
         auto *nodes = requiredChild<QComboBox>(&widget, u"mihomoNode"_s);
         auto *reserves = requiredChild<QListWidget>(&widget, u"mihomoReserveTransports"_s);
+        auto *sameServer = requiredChild<QComboBox>(&widget, u"mihomoSameServer"_s);
+        auto *groupServers = requiredChild<QPushButton>(&widget, u"mihomoGroupServers"_s);
+        auto *resetGroups = requiredChild<QPushButton>(&widget, u"mihomoResetServerGroups"_s);
         auto *switchTransport = requiredChild<QPushButton>(&widget, u"mihomoSwitchTransport"_s);
         auto *interfaces = requiredChild<QComboBox>(&widget, u"mihomoPhysicalInterface"_s);
         auto *mode = requiredChild<QComboBox>(&widget, u"mihomoPeerPolicy"_s);
@@ -368,6 +371,20 @@ namespace
         require(!interfaceName.isEmpty(), u"No physical interface is available to exercise Paths"_s);
         chooseFile(localFile, spec.value(u"subscription"_s).toString());
         waitFor(u"Path node list"_s, [&] { return !Net::PathManager::instance()->isBusy() && (nodes->count() == 4); });
+        nodes->setCurrentIndex(nodes->findData(u"Alpha"_s));
+        require(reserves->count() == 0, u"Different configured servers were automatically grouped"_s);
+        for (int attempt = 0; attempt < 2; ++attempt)
+        {
+            sameServer->setCurrentIndex(sameServer->findData(u"Alpha reserve"_s));
+            require(groupServers->isEnabled(), u"Explicit server grouping control was disabled without live paths"_s);
+            groupServers->click();
+            require(reserves->count() == 1 && resetGroups->isEnabled(), u"Explicit alias grouping did not update the reserve list"_s);
+            if (attempt == 0)
+            {
+                resetGroups->click();
+                require(reserves->count() == 0 && !resetGroups->isEnabled(), u"Reset did not remove only user grouping"_s);
+            }
+        }
         auto *start = requiredChild<QPushButton>(&widget, u"mihomoStart"_s);
         int expectedPaths = 0;
         for (const QString &node : {u"Alpha"_s, u"Beta"_s, QString {MALICIOUS_PROXY_NAME}})
@@ -394,6 +411,13 @@ namespace
         }
         QJsonArray opened = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
         require(opened.size() == 3 && paths->count() == 3, u"Paths UI did not retain three independent edges"_s);
+        require(!sameServer->isEnabled() && !groupServers->isEnabled() && !resetGroups->isEnabled(),
+            u"Server grouping controls remained enabled with live managed paths"_s);
+        const QJsonObject groups = Net::PathManager::instance()->statusData().value(u"serverGroups"_s).toObject();
+        require(!Net::PathManager::instance()->groupServers(u"Alpha"_s, u"Beta"_s)
+                && !Net::PathManager::instance()->resetServerGroups()
+                && Net::PathManager::instance()->statusData().value(u"serverGroups"_s).toObject() == groups,
+            u"Server grouping changed underneath active transports"_s);
         require(std::ranges::all_of(opened, [](const QJsonValue &value)
         {
             const QJsonObject capabilities = value.toObject().value(u"capabilities"_s).toObject();
@@ -448,6 +472,7 @@ namespace
         const QJsonArray afterSwitch = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
         require(afterSwitch.first().toObject().value(u"generation"_s).toInteger() > beforeSwitch.value(u"generation"_s).toInteger()
                 && afterSwitch.first().toObject().value(u"edgeId"_s) == beforeSwitch.value(u"edgeId"_s)
+                && afterSwitch.first().toObject().value(u"configuredServerId"_s) != beforeSwitch.value(u"configuredServerId"_s)
                 && afterSwitch.at(1).toObject().value(u"generation"_s) == opened.at(1).toObject().value(u"generation"_s)
                 && afterSwitch.at(2).toObject().value(u"generation"_s) == opened.at(2).toObject().value(u"generation"_s),
             u"Manual transport replacement changed another edge or retained its old generation"_s);
@@ -506,6 +531,7 @@ namespace
         addCheck(evidence, {{u"name"_s, u"paths"_s}, {u"edges"_s, opened.size()}, {u"transitions"_s, transitions},
             {u"queuedForegroundBusy"_s, true}, {u"unknownCapabilitiesPreserved"_s, true},
             {u"explicitReserveInteraction"_s, true},
+            {u"explicitAliasGrouping"_s, true},
             {u"captureWidth"_s, dialog.width()}, {u"captureHeight"_s, dialog.height()}, {u"visiblePathRows"_s, paths->count()}});
         dialog.reject();
     }

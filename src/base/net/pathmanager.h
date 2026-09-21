@@ -14,6 +14,7 @@
 #include <QProcess>
 #include <QStringList>
 #include <QTimer>
+#include <QVariantMap>
 
 #include <optional>
 
@@ -48,6 +49,9 @@ namespace Net
         QString configurationPath() const;
         QString proxyName() const;
         QStringList reserveNames(const QString &proxyName) const;
+        QString edgeIdForServer(const QString &configuredServerId) const;
+        bool groupServers(const QString &proxyName, const QString &sameAsProxyName);
+        bool resetServerGroups();
         QString interfaceName() const;
         QJsonObject dnsPolicy() const;
         QJsonObject gatewayConfiguration() const;
@@ -78,7 +82,9 @@ namespace Net
 
         void request(QJsonObject message);
         void openIdentifiedPath(const QString &configPath, const QString &proxyName,
-            const QString &interfaceName, const QString &configuredServerId, const QStringList &reserveNames);
+            const QString &interfaceName, const QString &configuredServerId, const QStringList &reserveNames,
+            const QJsonObject &reserveServerIds);
+        bool saveServerGroups(const QVariantMap &groups);
         bool controlBusy() const;
         void send(QJsonObject message);
         void readOutput();
@@ -132,8 +138,10 @@ namespace Net
             PeerRouteEndpoint endpoint;
             QString configurationPath;
             QString edgeId;
+            QString configuredServerId;
             QString proxyName;
             QStringList reserveNames;
+            QJsonObject reserveServerIds;
             QJsonObject transport;
             QString interfaceName;
             QJsonObject capabilities;
@@ -150,8 +158,9 @@ namespace Net
             QString configurationPath;
             QString proxyName;
             QStringList reserveNames;
+            QJsonObject reserveServerIds;
             QString interfaceName;
-            QString edgeId;
+            QString configuredServerId;
             QJsonObject dnsPolicy;
         };
 
@@ -184,6 +193,7 @@ namespace Net
         SettingValue<QString> m_storeConfigurationPath;
         SettingValue<QString> m_storeProxyName;
         SettingValue<QStringList> m_storeReserveNames;
+        SettingValue<QVariantMap> m_storeServerGroups;
         SettingValue<QString> m_storeInterfaceName;
         SettingValue<QString> m_storePolicy;
         SettingValue<QString> m_storeNativeInterface;

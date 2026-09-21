@@ -68,14 +68,14 @@ async function assertListenerClosed(port: number) {
 
 const failures: unknown[] = [];
 try {
-    for (const mode of ["no-auth", "wrong-credentials", "incompatible", "legacy-v4", "legacy-v5", "hello-extra", "hello-wrong-upstream",
+    for (const mode of ["no-auth", "wrong-credentials", "incompatible", "legacy-v4", "legacy-v5", "legacy-v6", "hello-extra", "hello-wrong-upstream",
         "open-envelope-extra", "open-result-extra", "status-result-extra", "dns-success", "dns-request-error",
         "dns-malformed", "dns-nonnumeric", "dns-wrong-family", "dns-too-many", "dns-timeout", "dns-crash",
         "dns-result-extra", "dns-error-message-extra", "status-delay", "status-delay-extra", "status-decrease",
         "gateway-rollover", "close-error"] as const) {
         const dnsMode = mode.startsWith("dns-");
         const gatewayRollover = mode === "gateway-rollover";
-        const handshakeFailure = ["incompatible", "legacy-v4", "legacy-v5", "hello-extra", "hello-wrong-upstream"].includes(mode);
+        const handshakeFailure = ["incompatible", "legacy-v4", "legacy-v5", "legacy-v6", "hello-extra", "hello-wrong-upstream"].includes(mode);
         const responseFailure = ["open-envelope-extra", "open-result-extra", "status-result-extra"].includes(mode);
         const lab = await createLab(`path-${mode}`);
         let failure: unknown;
@@ -262,7 +262,7 @@ try {
             }
             await lab.shutdown();
             const observed = JSON.parse(await readFile(evidencePath, "utf8")) as FaultEvidence;
-            assert.equal(observed.protocol, 6, "Fixture evidence did not record protocol v6");
+            assert.equal(observed.protocol, 7, "Fixture evidence did not record protocol v7");
             assert(observed.methods.every(method => ["hello", "list", "open", "resolve", "status", "close",
                 "gateway.open", "gateway.renew", "gateway.close"].includes(method)),
                 "Path-only fixture received a gateway or unrelated control request");

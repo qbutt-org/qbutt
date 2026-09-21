@@ -35,6 +35,9 @@ PathsWidget::PathsWidget(QWidget *parent)
     , m_manager {Net::PathManager::instance()}
     , m_url {new QLineEdit(this)}
     , m_nodes {new QComboBox(this)}
+    , m_sameServer {new QComboBox(this)}
+    , m_groupServers {new QPushButton(tr("Group servers"), this)}
+    , m_resetServerGroups {new QPushButton(tr("Reset grouping"), this)}
     , m_reserves {new QListWidget(this)}
     , m_interfaces {new QComboBox(this)}
     , m_mode {new QComboBox(this)}
@@ -76,6 +79,16 @@ PathsWidget::PathsWidget(QWidget *parent)
     form->addRow(tr("Subscription:"), subscription);
     m_nodes->setObjectName(u"mihomoNode"_s);
     form->addRow(tr("Node:"), m_nodes);
+    auto *serverGrouping = new QHBoxLayout;
+    m_sameServer->setObjectName(u"mihomoSameServer"_s);
+    m_groupServers->setObjectName(u"mihomoGroupServers"_s);
+    m_resetServerGroups->setObjectName(u"mihomoResetServerGroups"_s);
+    m_groupServers->setToolTip(tr("Use only when you know both nodes reach the same server. Disconnect all managed paths first."));
+    m_resetServerGroups->setToolTip(tr("Remove your explicit grouping. Variants with the same configured server remain together."));
+    serverGrouping->addWidget(m_sameServer, 1);
+    serverGrouping->addWidget(m_groupServers);
+    serverGrouping->addWidget(m_resetServerGroups);
+    form->addRow(tr("Same server as:"), serverGrouping);
     m_reserves->setObjectName(u"mihomoReserveTransports"_s);
     m_reserves->setMaximumHeight(75);
     m_reserves->setToolTip(tr("Optional: choose up to three alternatives on this server. Only checked nodes may replace the selected transport."));
@@ -275,6 +288,12 @@ PathsWidget::PathsWidget(QWidget *parent)
         m_manager->openPath(m_manager->configurationPath(), m_nodes->currentData().toString(),
             m_interfaces->currentData().toString(), reserves);
     });
+    connect(m_groupServers, &QPushButton::clicked, this, [this]()
+    {
+        m_manager->groupServers(m_nodes->currentData().toString(), m_sameServer->currentData().toString());
+    });
+    connect(m_resetServerGroups, &QPushButton::clicked, m_manager, &Net::PathManager::resetServerGroups);
+    connect(m_sameServer, &QComboBox::currentIndexChanged, this, &PathsWidget::refreshState);
     connect(m_switch, &QPushButton::clicked, this, [this]()
     {
         if (m_paths->currentItem() && m_reserves->currentItem())
@@ -334,6 +353,15 @@ void PathsWidget::refreshState()
 {
     const bool busy = m_manager->isBusy();
     const QJsonObject state = m_manager->statusData();
+    bool managedOpen = false;
+    for (const QJsonValue &value : state.value(u"paths"_s).toArray())
+    {
+        const QJsonObject path = value.toObject();
+        managedOpen = managedOpen || ((path.value(u"edgeId"_s) != u"native") && path.value(u"open"_s).toBool());
+    }
+    m_sameServer->setEnabled(!busy && !managedOpen);
+    m_groupServers->setEnabled(!busy && !managedOpen && !m_sameServer->currentData().toString().isEmpty());
+    m_resetServerGroups->setEnabled(!busy && !managedOpen && !state.value(u"serverGroups"_s).toObject().isEmpty());
     m_mode->setCurrentIndex(m_mode->findData(state.value(u"mode"_s).toString()));
     m_mode->setEnabled(!busy);
     const QSignalBlocker pathsBlocker(m_paths);
@@ -423,17 +451,37 @@ void PathsWidget::refreshReserves()
     }
     m_reserveNode = node;
     m_reserves->clear();
-    const QString edge = m_nodes->currentData(Qt::UserRole + 1).toString();
-    if (edge.isEmpty())
+    const QSignalBlocker groupingBlocker(m_sameServer);
+    const QString previousTarget = m_sameServer->currentData().toString();
+    m_sameServer->clear();
+    m_sameServer->addItem(tr("Choose only a known alias"), QString());
+    const QString serverId = m_nodes->currentData(Qt::UserRole + 1).toString();
+    if (serverId.isEmpty())
+    {
+        refreshState();
         return;
+    }
+    const QString edge = m_manager->edgeIdForServer(serverId);
     for (int index = 0; index < m_nodes->count(); ++index)
     {
-        if ((index == m_nodes->currentIndex()) || (m_nodes->itemData(index, Qt::UserRole + 1).toString() != edge))
+        if (index == m_nodes->currentIndex())
             continue;
         const QString name = m_nodes->itemData(index).toString();
+        const QString candidateId = m_nodes->itemData(index, Qt::UserRole + 1).toString();
+        if (candidateId.isEmpty())
+            continue;
+        if (m_manager->edgeIdForServer(candidateId) != edge)
+        {
+            m_sameServer->addItem(m_nodes->itemText(index), name);
+            continue;
+        }
         auto *item = new QListWidgetItem(m_nodes->itemText(index), m_reserves);
         item->setData(Qt::UserRole, name);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setCheckState(selected.contains(name) ? Qt::Checked : Qt::Unchecked);
     }
+    const int previousIndex = m_sameServer->findData(previousTarget);
+    if (previousIndex >= 0)
+        m_sameServer->setCurrentIndex(previousIndex);
+    refreshState();
 }

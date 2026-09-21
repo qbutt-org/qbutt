@@ -11,10 +11,10 @@ assert(evidencePath, "QBUTT_QT_CHILD_EVIDENCE is required");
 const servers = new Map<string, { server: Server; pathId: string; generation: number; reserveNames: string[] }>();
 const username = "acceptance-user";
 const password = "QBUTT_ACCEPTANCE_SECRET";
-const protocolVersion = 6;
+const protocolVersion = 7;
 const names = ["Alpha", "Beta", "https://user:pass@example.invalid/sub?token=QBUTT_ACCEPTANCE_SECRET#publicEndpoint=198.51.100.44,[2001:db8::44]", "Alpha reserve"];
 const configuredServerId = (name: string) => {
-    const index = name === "Alpha reserve" ? 0 : names.indexOf(name);
+    const index = names.indexOf(name);
     assert(index >= 0, "Unknown acceptance proxy name");
     return createHash("sha256").update("qbutt-configured-server-v1\0" + `127.0.0.${index + 20}`).digest("hex");
 };
@@ -48,7 +48,7 @@ function authenticatedServer(): Server {
         let input = Buffer.alloc(0);
         let stage: "methods" | "credentials" | "request" | "payload" = "methods";
         socket.on("error", () => {});
-        socket.on("data", chunk => {
+        socket.on("data", (chunk: Buffer) => {
             input = Buffer.concat([input, chunk]);
             for (;;) {
                 if (stage === "methods") {
@@ -153,19 +153,20 @@ for await (const chunk of Bun.stdin.stream()) {
                 maxFrameBytes: 65536 };
         }
         else if (request.method === "list") {
-            requireKeys(request, request.proxyName === undefined ? ["configPath", "id", "method", "v"]
-                : ["configPath", "id", "method", "proxyName", "v"]);
+            requireKeys(request, request.proxyNames === undefined ? ["configPath", "id", "method", "v"]
+                : ["configPath", "id", "method", "proxyNames", "v"]);
             assert.equal(typeof request.configPath, "string");
             assert(isAbsolute(String(request.configPath)));
             evidence.listed++;
-            result = { proxies: names.filter(name => request.proxyName === undefined || request.proxyName === name)
+            const selected = request.proxyNames as string[] | undefined;
+            assert(!selected || (selected.length > 0 && selected.length <= 4 && selected.every(name => names.includes(name))));
+            result = { proxies: names.filter(name => !selected || selected.includes(name))
                 .map(name => ({ name, type: name === names[2] ? "malicious-name" : "acceptance",
                     configuredServerId: configuredServerId(name) })) };
-            assert(request.proxyName === undefined || names.includes(String(request.proxyName)));
         }
         else if (request.method === "open" || request.method === "transport.replace") {
             requireKeys(request,
-                ["configPath", "configuredServerId", "dns", "generation", "id", "interfaceName", "method", "pathId", "proxyName", "reserveNames", "v",
+                ["configPath", "configuredServerId", "dns", "generation", "id", "interfaceName", "method", "pathId", "proxyName", "reserveNames", "reserveServerIds", "v",
                     ...(request.method === "transport.replace" ? ["nextGeneration"] : [])]);
             requirePathGeneration(request);
             requireDns(request.dns);
@@ -193,7 +194,10 @@ for await (const chunk of Bun.stdin.stream()) {
             }
             const generation = Number(request.nextGeneration ?? request.generation);
             const reserveNames = request.reserveNames as string[];
-            assert(Array.isArray(reserveNames) && reserveNames.every(name => configuredServerId(name) === request.configuredServerId));
+            const reserveServerIds = request.reserveServerIds as Record<string, string>;
+            assert(Array.isArray(reserveNames));
+            assert.deepEqual(Object.keys(reserveServerIds).sort(), [...reserveNames].sort());
+            assert(reserveNames.every(name => configuredServerId(name) === reserveServerIds[name]));
             const key = `${pathId}:${generation}`;
             assert(!servers.has(key), "The parent attempted to open a duplicate path generation");
             const server = authenticatedServer();

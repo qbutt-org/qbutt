@@ -36,6 +36,9 @@ private:
     QString m_reserveNode;
     QLineEdit *m_url;
     QComboBox *m_nodes;
+    QComboBox *m_sameServer;
+    QPushButton *m_groupServers;
+    QPushButton *m_resetServerGroups;
     QListWidget *m_reserves;
     QComboBox *m_interfaces;
     QComboBox *m_mode;

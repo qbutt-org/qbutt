@@ -19,6 +19,8 @@ private slots:
     void listAction();
     void refreshAction();
     void openAction();
+    void groupServersAction();
+    void resetServerGroupsAction();
     void transportAction();
     void policyAction();
     void dnsAction();

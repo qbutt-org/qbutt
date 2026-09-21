@@ -84,6 +84,23 @@ void QbuttPathsController::openAction()
     statusAction();
 }
 
+void QbuttPathsController::groupServersAction()
+{
+    requireParams({u"proxyName"_s, u"sameAsProxyName"_s});
+    requireIdle();
+    if (!Net::PathManager::instance()->groupServers(params().value(u"proxyName"_s), params().value(u"sameAsProxyName"_s)))
+        throw APIError(APIErrorType::BadParams, Net::PathManager::instance()->status());
+    statusAction();
+}
+
+void QbuttPathsController::resetServerGroupsAction()
+{
+    requireIdle();
+    if (!Net::PathManager::instance()->resetServerGroups())
+        throw APIError(APIErrorType::BadParams, Net::PathManager::instance()->status());
+    statusAction();
+}
+
 void QbuttPathsController::transportAction()
 {
     requireParams({u"pathId"_s, u"proxyName"_s});

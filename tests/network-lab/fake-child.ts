@@ -7,7 +7,7 @@ import { createServer, type Server, type Socket } from "node:net";
 const specification = JSON.parse(readFileSync(process.env.QBUTT_LAB_CHILD_FIXTURE!, "utf8")) as {
     mode: string; evidencePath: string; dns: Record<string, string>; lookupHost: string;
 };
-const protocolVersion = 6;
+const protocolVersion = 7;
 const upstreamRevision = "d3ec342d441b086ec4318332f59dd05d8a2b5697";
 const configuredServerId = (name: string) => createHash("sha256")
     .update(`qbutt-configured-server-v1\0${name === "fault-fixture-2" ? "127.0.0.21" : "127.0.0.20"}`)
@@ -15,7 +15,7 @@ const configuredServerId = (name: string) => createHash("sha256")
 assert(["no-auth", "wrong-credentials", "incompatible", "dns-success", "dns-request-error", "dns-malformed",
     "dns-nonnumeric", "dns-wrong-family", "dns-too-many", "dns-timeout", "dns-crash", "dns-result-extra",
     "dns-error-message-extra", "status-delay", "status-delay-extra", "status-decrease", "gateway-rollover",
-    "close-error", "legacy-v4", "legacy-v5",
+    "close-error", "legacy-v4", "legacy-v5", "legacy-v6",
     "hello-extra", "hello-wrong-upstream", "open-envelope-extra", "open-result-extra", "status-result-extra"]
     .includes(specification.mode));
 const dnsMode = specification.mode.startsWith("dns-");
@@ -52,7 +52,7 @@ for await (const chunk of Bun.stdin.stream()) {
             break;
         const request = JSON.parse(buffered.slice(0, newline));
         buffered = buffered.slice(newline + 1);
-        assert.equal(request.v, protocolVersion, "Parent must use protocol v6");
+        assert.equal(request.v, protocolVersion, "Parent must use protocol v7");
         assert(Number.isSafeInteger(request.id) && request.id > 0, "Parent sent an invalid request identity");
         assert.equal(typeof request.method, "string", "Parent omitted the control method");
         evidence.methods.push(request.method);
@@ -68,16 +68,17 @@ for await (const chunk of Bun.stdin.stream()) {
         }
         else if (request.method === "list") {
             assert.deepEqual(Object.keys(request).sort(),
-                request.proxyName === undefined ? ["configPath", "id", "method", "v"]
-                    : ["configPath", "id", "method", "proxyName", "v"]);
+                request.proxyNames === undefined ? ["configPath", "id", "method", "v"]
+                    : ["configPath", "id", "method", "proxyNames", "v"]);
             const names = ["fault-fixture", "fault-fixture-2"];
-            assert(request.proxyName === undefined || names.includes(request.proxyName));
-            result = { proxies: names.filter(name => request.proxyName === undefined || request.proxyName === name)
+            const selected = request.proxyNames as string[] | undefined;
+            assert(!selected || (selected.length > 0 && selected.length <= 4 && selected.every(name => names.includes(name))));
+            result = { proxies: names.filter(name => !selected || selected.includes(name))
                 .map(name => ({ name, type: "socks5", configuredServerId: configuredServerId(name) })) };
         }
         else if (request.method === "open") {
             assert.deepEqual(Object.keys(request).sort(),
-                ["configPath", "configuredServerId", "dns", "generation", "id", "interfaceName", "method", "pathId", "proxyName", "reserveNames", "v"]);
+                ["configPath", "configuredServerId", "dns", "generation", "id", "interfaceName", "method", "pathId", "proxyName", "reserveNames", "reserveServerIds", "v"]);
             assert.equal(request.configuredServerId, configuredServerId(request.proxyName));
             assert.deepEqual(request.dns, specification.dns, "Open must carry the configured DNS policy");
             const server = createServer(socket => {
@@ -86,7 +87,7 @@ for await (const chunk of Bun.stdin.stream()) {
                 socket.on("close", () => { sockets.delete(socket); evidence.closed++; saveEvidence(); });
                 let phase: "greeting" | "auth" | "command" | "rejected" = "greeting";
                 let input = Buffer.alloc(0);
-                socket.on("data", chunk => {
+                socket.on("data", (chunk: Buffer) => {
                     if (phase === "command") {
                         // DNS control fixtures do not implement payload forwarding.
                         socket.end(Buffer.from([5, 7, 0, 1, 127, 0, 0, 1, 0, 0]));
@@ -270,7 +271,7 @@ for await (const chunk of Bun.stdin.stream()) {
         }
         saveEvidence();
         const response: Record<string, unknown> = { v: specification.mode === "legacy-v4" ? 4
-            : specification.mode === "legacy-v5" ? 5 : protocolVersion,
+            : specification.mode === "legacy-v5" ? 5 : specification.mode === "legacy-v6" ? 6 : protocolVersion,
             id: request.id, result };
         if ((specification.mode === "open-envelope-extra") && (request.method === "open"))
             response.unexpected = true;
