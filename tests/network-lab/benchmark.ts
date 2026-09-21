@@ -538,6 +538,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                         assignments: trainingAssignments.map(item => ({ endpointPort: item.peer.endpointPort,
                             staticBucket: item.peer.bucket, pathId: item.pathId, generation: item.generation })) });
 
+                    unequalLimiterStarted = performance.now();
+                    unequalMeasurementStart = unequalBottlenecks.map(item => item.snapshot());
                     for (const peer of measurementPeers)
                         await lab.request("torrents/addPeers", { hashes: hash,
                             peers: `${nativeAddress}:${peer.endpointPort}` });
@@ -560,7 +562,9 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                             `Static hash did not place three measured peers on path ${route.pathId}`);
                     }
                     await lab.checkpoint({ check: "unequal-fresh-dial-admission", mode,
-                        trainingConnectionsClosed: true, sharedPeerAssignments, paths: assignedRoutes });
+                        phase: "after-fresh-dial-admission-before-rate-change",
+                        trainingConnectionsClosed: true, sharedPeerAssignments,
+                        diagnostics: measuredConnected.diagnostics, paths: assignedRoutes });
                 }
                 else {
                     for (const endpoint of endpoints)
@@ -626,10 +630,6 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 peer: "127.0.0.2", port: seeds[0]!.port, manualIntervention: false, peers: recovered.peers });
         }
         const connectionSetupMilliseconds = performance.now() - setupStarted;
-        if (unequalStatic) {
-            unequalLimiterStarted = performance.now();
-            unequalMeasurementStart = unequalBottlenecks.map(item => item.snapshot());
-        }
         const warmupVerifiedBytes = (await lab.info(hash)).completed;
         assert(warmupVerifiedBytes < exactPayloadBytes, "Warmup completed the benchmark payload before measurement");
         if (scenario === "shared-cap") {
