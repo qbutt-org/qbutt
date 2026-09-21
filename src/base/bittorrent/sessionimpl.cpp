@@ -6255,6 +6255,12 @@ void SessionImpl::handleAlert(lt::alert *alert)
         case lt::peer_route_alert::alert_type:
             {
                 const auto *route = static_cast<const lt::peer_route_alert *>(alert);
+                if (route->error == lt::errors::self_connection)
+                {
+                    LogMsg(tr("Self-connection rejected. Peer IP: %1. Port: %2. Path: %3. Generation: %4.")
+                        .arg(toString(route->endpoint.address())).arg(route->endpoint.port())
+                        .arg(route->route.path_id).arg(route->route.generation), Log::INFO);
+                }
                 emit peerRouteClosed(route->route.path_id, route->route.generation,
                     route->route_payload_download, route->route_payload_upload);
             }
