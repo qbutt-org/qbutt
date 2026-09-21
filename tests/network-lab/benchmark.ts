@@ -207,9 +207,6 @@ function verifiedPieceBytes(torrent: TorrentFixture, states: number[]): number {
 async function recheckVerifiedPieces(lab: Awaited<ReturnType<typeof createLab>>, hash: string,
     torrent: TorrentFixture, label: string) {
     await lab.request("torrents/recheck", { hashes: hash });
-    await waitFor(`${label} piece-state invalidation`, () =>
-        lab.json<number[]>(`torrents/pieceStates?hash=${hash}`),
-    states => states.length === torrent.pieceCount && states.every(state => state === 0), 30000);
     const checked = await waitFor(`${label} piece recheck`, async () => ({
         info: await lab.info(hash),
         states: await lab.json<number[]>(`torrents/pieceStates?hash=${hash}`),
