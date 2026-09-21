@@ -298,7 +298,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     uploadRate: WARMUP_RATE, pieces, savePath,
                 });
                 seeds.push(seed);
-                const nativeListener = await (async () => {
+                const endpointPort = await (async () => {
                     const firstPort = 20000 + (seed.port % 20000);
                     for (let candidate = 0; candidate < 96; ++candidate) {
                         const endpointPort = 20000 + ((firstPort - 20000 + candidate) % 20000);
@@ -316,7 +316,6 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     }
                     throw new Error(`Could not bind a ${phase} endpoint in static bucket ${bucket}`);
                 })();
-                const endpointPort = nativeListener.port;
                 for (let side = 0; side < 2; ++side) {
                     await unequalBottlenecks[side]!.listen(`127.0.0.${side + 40}`, seed.host, seed.port, {
                         port: endpointPort, clientAddress: "127.0.0.1", upstreamLocalAddress: nativeAddress,
@@ -384,7 +383,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 seeds.push(seed);
                 assert(seed.verifiedPayloadBytes === subsetBytes[side], "Seed verified-byte count differs from its physical data");
                 const peerPort = bottleneck
-                    ? (await bottleneck.listen(native ? nativeAddress : "127.0.0.1", seed.host, seed.port)).port
+                    ? await bottleneck.listen(native ? nativeAddress : "127.0.0.1", seed.host, seed.port)
                     : seed.port;
                 peerPorts.push(peerPort);
                 if (!native) {
