@@ -301,7 +301,7 @@ async function firstLine(reader: ReadableStreamDefaultReader<Uint8Array>, label:
     while (!text.includes("\n")) {
         assert(Date.now() < deadline, `${label} readiness timed out`);
         let timer: ReturnType<typeof setTimeout>;
-        let result: ReadableStreamReadResult<Uint8Array>;
+        let result: Awaited<ReturnType<typeof reader.read>>;
         try {
             result = await Promise.race([reader.read(), new Promise<never>((_, reject) => {
                 timer = setTimeout(() => reject(new Error(`${label} readiness timed out`)), deadline - Date.now());
@@ -473,7 +473,7 @@ await lab.checkpoint({
 let failure: unknown;
 let publicAliasAdded = false;
 let seedAliasAdded = false;
-let gateway: ReturnType<typeof Bun.spawn> | undefined;
+let gateway: Bun.Subprocess<"pipe", "pipe"> | undefined;
 let proxy: Awaited<ReturnType<typeof startProxy>> | undefined;
 let seed: Awaited<ReturnType<typeof startInboundSeed>> | undefined;
 let bootstrap: ReturnType<typeof createSocket> | undefined;
@@ -527,7 +527,7 @@ try {
                 httpAnnounces.push({ phase: url.searchParams.get("lease") ?? "", port: Number(url.searchParams.get("port")),
                     ip: url.searchParams.get("ip"), ipv4: url.searchParams.get("ipv4"),
                     ipv6: url.searchParams.get("ipv6") });
-                return new Response(encode({ interval: 30, "min interval": 1, peers: Buffer.alloc(0) }));
+                return new Response(Uint8Array.from(encode({ interval: 30, "min interval": 1, peers: Buffer.alloc(0) })));
             }
             catch (error) {
                 trackerErrors.push(String(error));
@@ -605,9 +605,10 @@ try {
         nativeUdpCanary = createSocket(useIPv6 ? "udp6" : "udp4");
         nativeUdpCanary.on("error", error => trackerErrors.push(String(error)));
         nativeUdpCanary.on("message", () => nativeUdpPackets++);
+        const nativeCanaryPort = udpTracker.address().port;
         await new Promise<void>((accept, reject) => {
             nativeUdpCanary!.once("error", reject);
-            nativeUdpCanary!.bind(udpTracker.address().port, RETIRED_UDP_HOST, accept);
+            nativeUdpCanary!.bind(nativeCanaryPort, RETIRED_UDP_HOST, accept);
         });
         const nativeProbe = createSocket(useIPv6 ? "udp6" : "udp4");
         try {
@@ -616,7 +617,7 @@ try {
                 nativeProbe.bind(0, TRACKER_REAL_HOST, accept);
             });
             await new Promise<void>((accept, reject) => nativeProbe.send(
-                Buffer.from("canary-preflight"), udpTracker.address().port, RETIRED_UDP_HOST,
+                Buffer.from("canary-preflight"), nativeCanaryPort, RETIRED_UDP_HOST,
                 error => error ? reject(error) : accept()));
             await waitFor("Native UDP canary reachability", async () => nativeUdpPackets,
                 count => count === 1, 2000);
