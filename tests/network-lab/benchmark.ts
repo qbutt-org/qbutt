@@ -17,8 +17,13 @@ interface PathsStatus {
     paths: { pathId: string; generation: number; edgeId: string; proxyName: string; open: boolean; localAddress?: string;
         closedPayloadDownload?: number }[];
     peers: { pathId: string; generation: number; peer: string; port: number; localPort: number; payloadDownload: number }[];
-    diagnostics: { routes: { pathId: string; generation: number; attempts: number; verifiedDownload: number;
-        demandMilliseconds: number }[] };
+    diagnostics: { v: number; scope: string; blockedSelections: number; eventsTruncated: boolean;
+        routes: { pathId: string; generation: number; type: string; attempts: number; connected: number;
+            closed: number; connectionFailures: number; timeouts: number; payloadDownload: number;
+            payloadUpload: number; verifiedDownload: number; demandMilliseconds: number;
+            chokedMilliseconds: number }[];
+        events: { ageMilliseconds: number; pathId: string; generation: number; event: string;
+            decision: string }[] };
 }
 
 interface RouteResult {
@@ -489,7 +494,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                                 && after.verifiedDownload - before.verifiedDownload >= UNEQUAL_TRAINING_SAMPLE);
                         }), 120000);
                     await Promise.all(trainingPeers.map(peer => peer.seed.stop()));
-                    await waitFor("training peers disconnected before measured dials", () =>
+                    const drainedTraining = await waitFor("training peers disconnected before measured dials", () =>
                         lab.json<PathsStatus>("qbuttPaths/status"), status => trainingPeers.every(peer =>
                             !status.peers.some(candidate => candidate.peer === nativeAddress
                                 && candidate.port === peer.endpointPort)), 30000);
@@ -519,7 +524,9 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                             >= unequalTraining[2]!.verifiedBytesPerDemandSecond * 1.4,
                     `Training did not establish ordered route quality: ${JSON.stringify(unequalTraining)}`);
                     await lab.checkpoint({ check: "unequal-route-training", mode,
+                        phase: "after-training-stop-and-drain-before-measured-dials",
                         exactTargetsWhitelistedOnBothProxies: true, training: unequalTraining,
+                        diagnostics: drainedTraining.diagnostics,
                         assignments: trainingAssignments.map(item => ({ endpointPort: item.peer.endpointPort,
                             staticBucket: item.peer.bucket, pathId: item.pathId, generation: item.generation })) });
 
