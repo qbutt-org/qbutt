@@ -919,3 +919,13 @@ isolation, Koala coexistence or public-Internet inbound. It also does not implem
 namespaces/netem or physical source-volume/power failure; those require separate
 integration environments. Staging crash tests cover abrupt process termination on
 the local Windows filesystem.
+
+`bun tests/network-lab/transport-capabilities.ts` probes selected adapters against
+public HTTPS and DNS endpoints. Set `QBUTT_PROBE_EXE`, `QBUTT_PROBE_CONFIG` (a local
+Mihomo YAML file), `QBUTT_PROBE_INDICES` (up to eight distinct zero-based indices)
+and `QBUTT_LAB_NATIVE_INTERFACE`. It requires HTTPS 200 with an egress address
+different from the interface-bound Native reference, a correlated SOCKS UDP DNS
+answer, and path DNS over TCP. The source profile remains read-only; ephemeral
+selected-node credentials are removed when the child stops. Evidence excludes
+credentials and public addresses. These are point-in-time adapter checks, not
+throughput, independent-edge, inbound or physical system-VPN bypass proof.

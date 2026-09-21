@@ -16,7 +16,31 @@ The first child reports source-supported TCP/UDP independently of measured publi
 
 Mihomo subscriptions can contain complete client profiles. Their node definitions can be reused, but routing groups, DNS settings, provisioning and server lifecycle remain outside this application. Multiple aliases or protocols for one server do not create independent network edges.
 
-## Runtime evidence, 12 September 2026
+## Current adapter verification, 21 September 2026
+
+The pinned qbutt-net revision `678b2caedba68cde52a31d62346ace173e5280e9`
+fixes SOCKS replies from adapters that expose no local bound address. Hysteria2
+returned an empty domain (`05 00 00 03 00 00 00`), so a standard HTTPS client
+waited before sending TLS. The reply now uses an unspecified IPv4 address;
+valid bound addresses and adapter implementations are unchanged.
+
+The pre-release binary `98da7cc3034007f4c20e281091877c2400bb0de3e9126a42ccdf322aedccb997`
+passed `transport-capabilities-9vdUZU`: Hysteria2 Gecko, Hysteria2 Salamander,
+ShadowQUIC and VLESS/gRPC each returned HTTPS 200 with an egress address different
+from the interface-bound Native reference, a correlated UDP DNS answer and path
+DNS over TCP. The child stopped cleanly, diagnostics were empty, the source
+profile was unchanged, and ephemeral credentials were removed. Hysteria2's
+previous failure was reproduced on alpha.4; wire observations before and after
+the fix confirm the corrected SOCKS address type. These point-in-time results
+do not establish throughput, independent edges or physical Koala bypass.
+
+The same binary passed the local TCP/UDP/auth/lifecycle integration (21 checks),
+DNS/SNI integration (17 checks) and transport replacement/failure integration
+(`transport-reserves-qqjm7h`, nine checks). The reusable live probe is
+`tests/network-lab/transport-capabilities.ts`; see `tests/README.md` for inputs.
+Final alpha.5 build and delivery verification are recorded with the release.
+
+## Historical runtime evidence, 12 September 2026
 
 qbutt-net commit `a268eef9753311478f664fd8b1229e2f40fca686`, built with Go 1.27.1, passed 16 local TCP/UDP and fault scenarios. The binary SHA-256 was `011f1d8ba41f676960cd03cb3a06585887a23e0779cc7ad5394ff3ef351554f7`. TCP payload (98,304 bytes), a 1,024-byte UDP datagram, half-close, SOCKS authentication, generation checks and parent EOF were exercised with controlled local endpoints.
 
