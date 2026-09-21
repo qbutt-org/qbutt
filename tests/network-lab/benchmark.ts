@@ -290,29 +290,36 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         if (unequalStatic) {
             const addPeer = async (phase: StaticPeerFixture["phase"], bucket: number,
                 pieces?: number[], savePath?: string) => {
-                for (let candidate = 0; candidate < 32; ++candidate) {
-                    const seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root, {
-                        label: `${mode}-${phase}-${bucket}-${candidate}`, listenAddress: nativeAddress,
-                        uploadRate: WARMUP_RATE, pieces, savePath,
+                const seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root, {
+                    label: `${mode}-${phase}-${bucket}`, listenAddress: nativeAddress,
+                    uploadRate: WARMUP_RATE, pieces, savePath,
+                });
+                seeds.push(seed);
+                const nativeListener = await (async () => {
+                    const firstPort = 20000 + (seed.port % 20000);
+                    for (let candidate = 0; candidate < 96; ++candidate) {
+                        const endpointPort = 20000 + ((firstPort - 20000 + candidate) % 20000);
+                        if (staticBucket(torrent, nativeAddress, endpointPort) !== bucket)
+                            continue;
+                        try {
+                            return await unequalBottlenecks[2]!.listen(nativeAddress, seed.host, seed.port,
+                                { port: endpointPort });
+                        }
+                        catch (error) {
+                            const code = (error as NodeJS.ErrnoException).code;
+                            if (code !== "EADDRINUSE" && code !== "EACCES")
+                                throw error;
+                        }
+                    }
+                    throw new Error(`Could not bind a ${phase} endpoint in static bucket ${bucket}`);
+                })();
+                const endpointPort = nativeListener.port;
+                for (let side = 0; side < 2; ++side) {
+                    await unequalBottlenecks[side]!.listen(`127.0.0.${side + 40}`, seed.host, seed.port, {
+                        port: endpointPort, clientAddress: "127.0.0.1", upstreamLocalAddress: nativeAddress,
                     });
-                    seeds.push(seed);
-                    const nativeListener = await unequalBottlenecks[2]!.listen(nativeAddress, seed.host, seed.port);
-                    const endpointPort = nativeListener.port;
-                    if (staticBucket(torrent, nativeAddress, endpointPort) !== bucket) {
-                        await nativeListener.discard();
-                        await seed.stop();
-                        assert(seeds.pop() === seed, "Rejected endpoint seed cleanup lost its stack position");
-                        continue;
-                    }
-                    for (let side = 0; side < 2; ++side) {
-                        await unequalBottlenecks[side]!.listen(`127.0.0.${side + 40}`, seed.host, seed.port, {
-                            port: endpointPort, clientAddress: "127.0.0.1", upstreamLocalAddress: nativeAddress,
-                        });
-                    }
-                    staticPeers.push({ seed, endpointPort, bucket, phase });
-                    return;
                 }
-                throw new Error(`Could not allocate a ${phase} endpoint in static bucket ${bucket}`);
+                staticPeers.push({ seed, endpointPort, bucket, phase });
             };
 
             for (let bucket = 0; bucket < 3; ++bucket) {

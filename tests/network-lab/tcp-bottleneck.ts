@@ -37,7 +37,6 @@ export function createTcpBottleneck(bytesPerSecond: number) {
             && (options.port === undefined || (Number.isInteger(options.port) && options.port > 0 && options.port <= 65535)),
         "The bottleneck may only forward to an exact endpoint on this fixture host");
         const listenerStats = { address, port: 0, acceptedConnections: 0, downstreamStreamBytes: 0 };
-        listeners.push(listenerStats);
         const server = createServer({ allowHalfOpen: true, highWaterMark: 16 * 1024 }, client => {
             if (closed || client.remoteAddress !== clientAddress || sockets.size >= 32) {
                 client.destroy();
@@ -93,7 +92,6 @@ export function createTcpBottleneck(bytesPerSecond: number) {
             client.pipe(upstream);
             upstream.pipe(shaped).pipe(client);
         });
-        servers.push(server);
         await new Promise<void>((resolve, reject) => {
             server.once("error", reject);
             server.listen(options.port ?? 0, address, () => {
@@ -104,6 +102,8 @@ export function createTcpBottleneck(bytesPerSecond: number) {
         const endpoint = server.address();
         assert(endpoint && typeof endpoint !== "string");
         listenerStats.port = endpoint.port;
+        servers.push(server);
+        listeners.push(listenerStats);
         return {
             port: endpoint.port,
             stats: listenerStats,
