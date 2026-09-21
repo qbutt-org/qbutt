@@ -158,8 +158,16 @@ functional Light/Fusion profile. Header order, hidden state, logical widths,
 Files tab, sidebar action, palette and options controls are asserted; the
 stretched last Files column adapts to its viewport. PNGs and JSON evidence stay
 in the printed temporary directory; successful profiles and the copied Qt
-runtime are removed. These configure/build/run commands still need validation
-against the shared Windows build before reporting the suite as passed.
+runtime are removed.
+
+`bun run smoke:diagnostics` uses the same Qt executable and
+`QBUTT_LAB_PYTHON` on Windows x64. It holds a generated file with a Windows
+oplock to block a real asynchronous disk write, and separately applies a real
+per-torrent bandwidth limit. Production counters and Qt reasons must identify
+each wait, clear after release, remain responsive, and finish with exact file
+sizes and hashes over one peer connection. It keeps screenshots and compact
+evidence, then releases the lock and removes the owned profile and payload.
+This is process-level Light/Fusion acceptance, not physical desktop interaction.
 
 The `qbutt-update-acceptance` CMake target builds only the production release
 service/dialog and a Qt process driver. `tests/qt-acceptance/release-fixture.py`

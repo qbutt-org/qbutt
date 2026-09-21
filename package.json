@@ -57,6 +57,7 @@
     "smoke:policies": "bun tests/policies-smoke.ts",
     "smoke:policies-faults": "bun tests/policies-faults.ts",
     "smoke:qt": "bun tests/qt-acceptance/smoke.ts",
+    "smoke:diagnostics": "bun tests/qt-acceptance/diagnostic-waits.ts",
     "smoke:appearance": "bun tests/qt-acceptance/smoke.ts --appearance-only"
   }
 }
