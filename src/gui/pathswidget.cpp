@@ -357,7 +357,7 @@ void PathsWidget::refreshState()
     for (const QJsonValue &value : state.value(u"paths"_s).toArray())
     {
         const QJsonObject path = value.toObject();
-        managedOpen = managedOpen || ((path.value(u"edgeId"_s) != u"native") && path.value(u"open"_s).toBool());
+        managedOpen = managedOpen || ((path.value(u"edgeId"_s) != u"native"_s) && path.value(u"open"_s).toBool());
     }
     m_sameServer->setEnabled(!busy && !managedOpen);
     m_groupServers->setEnabled(!busy && !managedOpen && !m_sameServer->currentData().toString().isEmpty());
