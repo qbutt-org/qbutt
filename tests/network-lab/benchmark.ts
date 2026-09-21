@@ -462,6 +462,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 if (unequalStatic) {
                     const trainingPeers = staticPeers.filter(peer => peer.phase === "training");
                     const measurementPeers = staticPeers.filter(peer => peer.phase === "measurement");
+                    const limiterBefore = unequalBottlenecks.map(item => item.snapshot());
                     for (const peer of trainingPeers)
                         await lab.request("torrents/addPeers", { hashes: hash,
                             peers: `${nativeAddress}:${peer.endpointPort}` });
@@ -477,7 +478,6 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     assert(new Set(trainingAssignments.map(item => `${item.pathId}:${item.generation}`)).size === 3,
                         "Training did not cover each eligible route exactly once");
                     const sampleStart = trainingConnected.diagnostics.routes;
-                    const limiterBefore = unequalBottlenecks.map(item => item.snapshot());
                     await Promise.all(trainingPeers.map(peer => peer.seed.setUploadRate(UNEQUAL_TRAINING_RATE)));
                     const trained = await waitFor("unequal route training sample", () =>
                         lab.json<PathsStatus>("qbuttPaths/status"), status => trainingAssignments.every(assignment => {
