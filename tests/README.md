@@ -575,6 +575,12 @@ Relay stream bytes include protocol data and are not wire bytes. The local
 single-host TCP topology proves only the stated controlled comparison; its
 evidence lists the untested public, UDP, inbound and physical last-mile cases.
 
+`QBUTT_BENCH_SCENARIO=shared-network-cap` sends every controlled Native and SOCKS
+peer through one shared downstream TCP byte budget outside the application.
+qbutt's application download limits must remain disabled, and the same rotating
+Native/Mixed windows verify exact payload and source/relay counters. This emulates
+a common downstream bottleneck; it does not modify a physical router or Koala.
+
 `QBUTT_BENCH_SCENARIO=shared-cap` runs only qbutt Native and Mixed, with a single
 torrent-wide application download limit shared across every path and faster
 fixture sources. Three or more rounds require both median useful rates to reach

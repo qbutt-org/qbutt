@@ -7,6 +7,7 @@ import { sha256, type TorrentFixture } from "../fixtures/generate";
 import { createLab, startSeed, verifyPayload, waitFor } from "../lab";
 import { startProxy, type ProxyStats } from "./proxy";
 import { prepareResourceSampler, type ResourceWindow } from "./process-resources";
+import { createTcpBottleneck } from "./tcp-bottleneck";
 
 type Mode = "upstream-native" | "qbutt-native" | "qbutt-one-tunnel" | "qbutt-mixed" | "qbutt-static";
 
@@ -46,6 +47,7 @@ interface RunResult {
     routes: RouteResult[];
     sourcePayloadBytes: number;
     redundantPayloadBytes: number;
+    bottleneck?: { capBytesPerSecond: number } & ReturnType<typeof createTcpBottleneck>["stats"];
     sharedPeers?: { port: number; initialPathId: string; initialGeneration: number;
         sourcePayloadUploadBytes: number }[];
     recovery?: { failedPathId: string; healthyPathId: string; milliseconds: number; nativeConnectionRetained: true };
@@ -58,13 +60,15 @@ const WARMUP_RATE = 1024;
 const STATIC_PEER_RATE = 8 * 1024;
 const TRANSFER_RATE = Number(process.env.QBUTT_BENCH_ROUTE_RATE ?? 96 * 1024);
 const scenario = process.env.QBUTT_BENCH_SCENARIO ?? "capacity";
-assert(["capacity", "shared-cap", "failed-path", "static-comparison"].includes(scenario), "Unknown benchmark scenario");
+assert(["capacity", "shared-cap", "shared-network-cap", "failed-path", "static-comparison"].includes(scenario), "Unknown benchmark scenario");
 const comparingStatic = scenario === "static-comparison";
+const sharedNetworkCap = scenario === "shared-network-cap";
+const sharedCap = scenario === "shared-cap" || sharedNetworkCap;
 const SOURCE_RATE = comparingStatic ? STATIC_PEER_RATE
-    : scenario === "shared-cap" ? Math.min(TRANSFER_RATE * 4, 1024 * 1024) : TRANSFER_RATE;
+    : sharedCap ? Math.min(TRANSFER_RATE * 4, 1024 * 1024) : TRANSFER_RATE;
 const ROUNDS = Number(process.env.QBUTT_BENCH_ROUNDS ?? (scenario === "failed-path" ? 1 : 4));
 const MODES: Mode[] = comparingStatic ? ["qbutt-static", "qbutt-mixed"]
-    : scenario === "shared-cap" ? ["qbutt-native", "qbutt-mixed"]
+    : sharedCap ? ["qbutt-native", "qbutt-mixed"]
     : scenario === "failed-path" ? ["qbutt-mixed"]
     : ["upstream-native", "qbutt-native", "qbutt-one-tunnel", "qbutt-mixed"];
 const baselineExecutable = resolve(process.env.QBUTT_BENCH_BASELINE_EXE ?? "");
@@ -193,6 +197,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
     const routeCount = tunnelCount === 2 ? 3 : 1;
     const seeds: Awaited<ReturnType<typeof startSeed>>[] = [];
     const proxies: Awaited<ReturnType<typeof startProxy>>[] = [];
+    const bottleneck = sharedNetworkCap ? createTcpBottleneck(TRANSFER_RATE) : undefined;
+    const peerPorts: number[] = [];
     const subsetBytes: number[] = [];
     const credentials = Array.from({ length: tunnelCount }, () => ({
         username: randomBytes(16).toString("hex"), password: randomBytes(24).toString("hex"),
@@ -206,7 +212,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
     const cleanup = () => cleanupPromise ??= (async () => {
         const results = await Promise.allSettled([
             resourceSampler?.close(),
-            lab.shutdown(), ...proxies.map(proxy => proxy.close()), ...seeds.map(seed => seed.stop()),
+            lab.shutdown(), bottleneck?.close(), ...proxies.map(proxy => proxy.close()), ...seeds.map(seed => seed.stop()),
         ]);
         const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
         if (failures.length)
@@ -251,10 +257,14 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 });
                 seeds.push(seed);
                 assert(seed.verifiedPayloadBytes === subsetBytes[side], "Seed verified-byte count differs from its physical data");
+                const peerPort = bottleneck
+                    ? await bottleneck.listen(native ? nativeAddress : "127.0.0.1", seed.host, seed.port)
+                    : seed.port;
+                peerPorts.push(peerPort);
                 if (!native) {
                     const syntheticHost = `127.0.0.${side + 2}`;
                     const targets = [{
-                        host: syntheticHost, port: seed.port, connectHost: seed.host, connectPort: seed.port,
+                        host: syntheticHost, port: peerPort, connectHost: seed.host, connectPort: peerPort,
                     }];
                     if (scenario === "failed-path" && side === 1)
                         targets.push({ host: "127.0.0.2", port: seeds[0]!.port,
@@ -317,14 +327,14 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         const setupStarted = performance.now();
         const endpoints = seeds.map((seed, side) => comparingStatic ? `${nativeAddress}:${seed.port}`
             : mode === "qbutt-mixed" && side === routeCount - 1
-            ? `${nativeAddress}:${seed.port}` : mode === "upstream-native" || mode === "qbutt-native"
-                ? `${nativeAddress}:${seed.port}` : `127.0.0.${side + 2}:${seed.port}`);
+            ? `${nativeAddress}:${peerPorts[side]}` : mode === "upstream-native" || mode === "qbutt-native"
+                ? `${nativeAddress}:${peerPorts[side]}` : `127.0.0.${side + 2}:${peerPorts[side]}`);
         if (mode === "upstream-native" || mode === "qbutt-native") {
             await lab.request("torrents/addPeers", { hashes: hash, peers: endpoints[0]! });
             await waitFor("direct Native peer warmup", () => lab.json<{
                 peers: Record<string, { downloaded: number; ip: string; port: number }>;
             }>(`sync/torrentPeers?hash=${hash}&rid=0`), status => Object.values(status.peers).some(peer =>
-                peer.downloaded > 0 && peer.ip === nativeAddress && peer.port === seeds[0]!.port), 60000);
+                peer.downloaded > 0 && peer.ip === nativeAddress && peer.port === peerPorts[0]), 60000);
         }
         else {
             const paths = await lab.json<PathsStatus>("qbuttPaths/status");
@@ -405,6 +415,13 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             await lab.request("torrents/setDownloadLimit", { hashes: hash, limit: String(TRANSFER_RATE) });
             await waitFor("shared torrent application limit", () => lab.json<{ dl_limit: number }[]>(
                 `torrents/info?hashes=${hash}`), torrents => torrents[0]?.dl_limit === TRANSFER_RATE);
+        }
+        if (sharedNetworkCap) {
+            const preferences = await lab.json<{ dl_limit: number }>("app/preferences");
+            const torrents = await lab.json<{ dl_limit: number }[]>(`torrents/info?hashes=${hash}`);
+            assert(preferences.dl_limit <= 0 && torrents[0]!.dl_limit <= 0
+                && await (await lab.request("transfer/speedLimitsMode")).text() === "0",
+            "The external bottleneck requires application download limits to be disabled");
         }
         await Promise.all(seeds.map(seed => seed.setUploadRate(SOURCE_RATE)));
         await resourceSampler.start();
@@ -487,6 +504,16 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         assert(sourcePayloadBytes >= exactPayloadBytes,
             "The only controlled sources uploaded fewer payload bytes than the exact verified target");
         const redundantPayloadBytes = sourcePayloadBytes - exactPayloadBytes;
+        if (bottleneck) {
+            await lab.checkpoint({ check: "shared-downstream-limiter", expectedListeners: routeCount,
+                expectedPayloadBytes: exactPayloadBytes, subsetBytes, ...bottleneck.stats });
+            // A peer may reconnect. Require every complementary source's data
+            // to cross its limiter, rather than assuming one lifetime socket.
+            assert(bottleneck.stats.listeners.length === routeCount
+                && bottleneck.stats.listeners.every((listener, side) => listener.acceptedConnections >= 1
+                    && listener.downstreamStreamBytes >= subsetBytes[side]!),
+            `Shared downstream limiter proof failed: ${JSON.stringify(bottleneck.stats)}`);
+        }
         const result: RunResult = {
             mode, round, executableSha256: mode === "upstream-native" || mode === "qbutt-static"
                 ? baselineHash : qbuttHash,
@@ -497,6 +524,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             ...(comparingStatic ? { sharedPeers: sharedPeerAssignments.map((peer, side) => ({ ...peer,
                 sourcePayloadUploadBytes: stoppedSeeds[side]!.uploadPayloadBytes })) } : {}),
             redundantPayloadBytes, recovery, evidence: join(lab.root, "evidence.json"),
+            ...(bottleneck ? { bottleneck: { capBytesPerSecond: TRANSFER_RATE, ...bottleneck.stats } } : {}),
         };
         await lab.checkpoint({ check: "comparative-network-window", ...result });
         await lab.finish();
@@ -553,6 +581,7 @@ const evidence: Record<string, unknown> = {
         ...(comparingStatic ? { sixFullPeersWithCommonExactTargets: true,
             selectedStaticHashBuckets: [2, 2, 2], multiConnectionsPerIp: true } : {}),
         sharedApplicationDownloadLimit: scenario === "shared-cap" ? TRANSFER_RATE : undefined,
+        sharedDownstreamRelayLimit: sharedNetworkCap ? TRANSFER_RATE : undefined,
         warmupUploadLimitBytesPerSecond: WARMUP_RATE,
         nativeInterface,
         nativeAddress,
@@ -565,6 +594,8 @@ const evidence: Record<string, unknown> = {
             : "Each timed window begins after every required peer supplies payload at a 1 KiB/s warmup cap and acknowledges the measured cap",
         comparingStatic
             ? "Six full public TCP peers per run, each exact native endpoint whitelisted on both authenticated SOCKS routes; source cap is per peer, not per path"
+            : sharedNetworkCap
+            ? "Native and both SOCKS paths cross one shared downstream TCP stream limiter outside qbutt; application download limits are disabled. This emulates a shared network bottleneck, not a physical router"
             : scenario === "shared-cap"
             ? "One torrent-wide application download cap is shared by every path; sources can exceed it. This models an aggregate bottleneck, not a physical last-mile limiter"
             : "Each route has the same source payload cap; Mixed has additional complementary reachability and aggregate capacity",
@@ -613,13 +644,15 @@ try {
         comparison = { selectorVersusStaticPercent: 100 * (selectorMedian / staticMedian - 1),
             gate: "neutral-comparison-only", unequalPathQuality: "not-tested" };
     }
-    else if (scenario === "shared-cap") {
+    else if (sharedCap) {
         const mixedGainPercent = 100 * (medians["qbutt-mixed"] / medians["qbutt-native"] - 1);
         for (const mode of MODES) assert(medians[mode] >= TRANSFER_RATE * 0.7 && medians[mode] <= TRANSFER_RATE * 1.1,
-            `${mode} useful throughput did not reach 70–110% of the shared application cap`);
+            `${mode} useful throughput did not reach 70–110% of the shared cap`);
         assert(mixedGainPercent <= 10, `Mixed exceeded the shared-cap Native rate by ${mixedGainPercent.toFixed(2)}%`);
         comparison = { mixedGainPercent, capBytesPerSecond: TRANSFER_RATE,
-            gates: { bothUseSharedCapacity: true, noMaterialRemoteBenefit: true }, physicalLastMile: "not-tested" };
+            gates: { bothUseSharedCapacity: true, noMaterialRemoteBenefit: true },
+            limiter: sharedNetworkCap ? "shared-downstream-tcp-relay" : "torrent-application-limit",
+            physicalLastMile: "not-tested" };
     }
     else {
         assert(runs.length === 1 && runs[0]!.recovery?.nativeConnectionRetained,
