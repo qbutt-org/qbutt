@@ -84,7 +84,8 @@ int main(int argc, char *argv[])
             const QByteArray json = QJsonDocument(result).toJson(QJsonDocument::Compact);
             std::puts(json.constData());
             dialog->grab().save(target + u".png");
-            app.exit(controls && fits ? 0 : 5);
+            const bool downloaded = (mode != u"live-download") || (state == ReleaseUpdater::State::Ready);
+            app.exit(controls && fits && downloaded ? 0 : 5);
         });
     };
     QObject::connect(updater, &ReleaseUpdater::changed, &app, complete);

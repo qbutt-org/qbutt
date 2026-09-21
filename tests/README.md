@@ -181,7 +181,14 @@ fixture separately from gateway/network labs. The runner removes its key, CA and
 payload; it prints the compact evidence/screenshot directory.
 
 With no fixture environment variables, `<driver> live <temporary-output-path>`
-checks the real GitHub API once without downloading. The product action is manual
+checks the real GitHub API once without downloading. For a real signed download,
+build the separate `qbutt-update-live-acceptance` target before increasing
+`qbutt-version.txt`; it uses the production trust anchor, with no fixture key.
+After publishing a newer signed release, run that retained executable with
+`live-download <temporary-zip-path>` and no fixture environment variables. This
+mode requires the `Ready` state for exit zero; compare the saved ZIP's SHA-256
+with the locally built archive. Neither driver is shipped in the portable bundle.
+The product action is manual
 check/download of the complete portable ZIP, not self-installation. The product
 requires an Ed25519 signature of the exact `SHA256SUMS.txt` bytes, verified against
 `src/base/releasepublickey.h`, as well as matching archive and GitHub digests. The
