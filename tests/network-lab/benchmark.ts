@@ -553,6 +553,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     const activeTorrents = await lab.json<{ hash: string }[]>("torrents/info");
                     assert(activeTorrents.length === 1 && activeTorrents[0]!.hash === hash,
                         "Phase isolation did not leave exactly one torrent instance");
+                    await lab.request("torrents/recheck", { hashes: hash });
                     const restored = await waitFor("re-added torrent restores verified training pieces",
                         () => lab.info(hash), info => info.state === "stoppedDL"
                             && info.completed === retainedVerifiedBytes, 30000);
