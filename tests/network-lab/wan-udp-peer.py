@@ -1,5 +1,4 @@
-"""One checked uTP seed and bounded DHT probes via SOCKS or explicit system IPv6."""
-from contextlib import ExitStack
+"""One checked uTP seed and bounded inbound DHT probes through an owned SOCKS path."""
 import hashlib
 import ipaddress
 import json
@@ -52,77 +51,71 @@ def endpoint(address, port):
 
 
 def probe_dht(proxy, target, info_hash):
-    with ExitStack() as owned:
-        header = b""
-        remote = target
-        if proxy is not None:
-            # The authenticated association owns both replies; this mode never
-            # opens a direct public UDP socket.
-            control = owned.enter_context(socket.create_connection(("127.0.0.1", proxy["port"]), timeout=15))
-            control.sendall(b"\x05\x01\x02")
-            if exact(control, 2) != b"\x05\x02":
-                raise RuntimeError("DHT SOCKS authentication negotiation rejected")
-            user, password = proxy["username"].encode(), proxy["password"].encode()
-            control.sendall(b"\x01" + bytes([len(user)]) + user + bytes([len(password)]) + password)
-            if exact(control, 2) != b"\x01\x00":
-                raise RuntimeError("DHT SOCKS authentication rejected")
-            control.sendall(b"\x05\x03\x00\x01" + bytes(6))
-            if exact(control, 4) != b"\x05\x00\x00\x01":
-                raise RuntimeError("DHT SOCKS UDP association rejected")
-            remote = (socket.inet_ntoa(exact(control, 4)), int.from_bytes(exact(control, 2), "big"))
-            if not ipaddress.IPv4Address(remote[0]).is_loopback or not remote[1]:
-                raise RuntimeError("DHT relay is not the owned loopback endpoint")
-            header = b"\x00\x00\x00\x01" + socket.inet_aton(target[0]) + struct.pack("!H", target[1])
-        udp = owned.enter_context(socket.socket(socket.AF_INET if proxy is not None else socket.AF_INET6,
-                                               socket.SOCK_DGRAM))
-        udp.bind(("127.0.0.1" if proxy is not None else "::", 0))
-        udp.connect(remote)
-        udp.settimeout(3)
-        node = secrets.token_bytes(20)
-        results = {}
-        for name in ("ping", "get_peers"):
-            transaction = secrets.token_bytes(4)
-            args = {b"id": node}
-            if name == "get_peers":
-                args[b"info_hash"] = info_hash
-            packet = header + lt.bencode({b"a": args, b"q": name.encode(), b"ro": 1,
-                                         b"t": transaction, b"y": b"q"})
-            deadline = time.monotonic() + 12
-            while time.monotonic() < deadline:
-                udp.send(packet)
-                try:
-                    received, source = udp.recvfrom(len(header) + 4097)
-                except socket.timeout:
-                    continue
-                if ((str(ipaddress.ip_address(source[0])), source[1]) != remote
-                        or not len(header) < len(received) <= len(header) + 4096
-                        or not received.startswith(header)):
-                    raise RuntimeError("DHT reply did not preserve the public lease endpoint")
-                response = lt.bdecode(received[len(header):])
-                if response.get(b"t") != transaction:
-                    continue
-                result = response.get(b"r", {})
-                if response.get(b"y") != b"r" or len(result.get(b"id", b"")) != 20:
-                    raise RuntimeError("DHT response is not a successful node reply")
-                results[name] = {"id": result[b"id"].hex(), "source": endpoint(*target),
-                                 "token": bool(result.get(b"token"))}
-                break
-            else:
-                raise RuntimeError(f"Inbound WAN DHT {name} timed out")
-        if results["ping"]["id"] != results["get_peers"]["id"] or not results["get_peers"]["token"]:
-            raise RuntimeError("DHT node changed identity or omitted get_peers token")
-        return results
+    # Keep TCP association alive until both replies. This source has no direct
+    # public UDP socket: only the selected authenticated loopback relay is used.
+    with socket.create_connection(("127.0.0.1", proxy["port"]), timeout=15) as control:
+        control.sendall(b"\x05\x01\x02")
+        if exact(control, 2) != b"\x05\x02":
+            raise RuntimeError("DHT SOCKS authentication negotiation rejected")
+        user, password = proxy["username"].encode(), proxy["password"].encode()
+        control.sendall(b"\x01" + bytes([len(user)]) + user + bytes([len(password)]) + password)
+        if exact(control, 2) != b"\x01\x00":
+            raise RuntimeError("DHT SOCKS authentication rejected")
+        control.sendall(b"\x05\x03\x00\x01" + bytes(6))
+        if exact(control, 4) != b"\x05\x00\x00\x01":
+            raise RuntimeError("DHT SOCKS UDP association rejected")
+        relay = (socket.inet_ntoa(exact(control, 4)), int.from_bytes(exact(control, 2), "big"))
+        if not ipaddress.IPv4Address(relay[0]).is_loopback or not relay[1]:
+            raise RuntimeError("DHT relay is not the owned loopback endpoint")
+        address = ipaddress.ip_address(target[0])
+        header = (b"\x00\x00\x00" + bytes([1 if address.version == 4 else 4])
+                  + address.packed + struct.pack("!H", target[1]))
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+            udp.bind(("127.0.0.1", 0))
+            udp.connect(relay)
+            udp.settimeout(3)
+            node = secrets.token_bytes(20)
+            results = {}
+            for name in ("ping", "get_peers"):
+                transaction = secrets.token_bytes(4)
+                args = {b"id": node}
+                if name == "get_peers":
+                    args[b"info_hash"] = info_hash
+                packet = header + lt.bencode({b"a": args, b"q": name.encode(), b"ro": 1,
+                                             b"t": transaction, b"y": b"q"})
+                deadline = time.monotonic() + 12
+                while time.monotonic() < deadline:
+                    udp.send(packet)
+                    try:
+                        received, source = udp.recvfrom(len(header) + 4097)
+                    except socket.timeout:
+                        continue
+                    if (source != relay or not len(header) < len(received) <= len(header) + 4096
+                            or not received.startswith(header)):
+                        raise RuntimeError("DHT reply did not preserve the public lease endpoint")
+                    response = lt.bdecode(received[len(header):])
+                    if response.get(b"t") != transaction:
+                        continue
+                    result = response.get(b"r", {})
+                    if response.get(b"y") != b"r" or len(result.get(b"id", b"")) != 20:
+                        raise RuntimeError("DHT response is not a successful node reply")
+                    results[name] = {"id": result[b"id"].hex(), "source": endpoint(*target),
+                                     "token": bool(result.get(b"token"))}
+                    break
+                else:
+                    raise RuntimeError(f"Inbound WAN DHT {name} timed out")
+            if results["ping"]["id"] != results["get_peers"]["id"] or not results["get_peers"]["token"]:
+                raise RuntimeError("DHT node changed identity or omitted get_peers token")
+            return results
 
 
-def free_peer_port(system=False):
-    family = socket.AF_INET6 if system else socket.AF_INET
-    host = "::" if system else "127.0.0.1"
+def free_peer_port():
     for attempt in range(32):
         port = 49152 + secrets.randbelow(16384)
-        with socket.socket(family) as tcp, socket.socket(family, socket.SOCK_DGRAM) as udp:
+        with socket.socket() as tcp, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
             try:
-                tcp.bind((host, port))
-                udp.bind((host, port))
+                tcp.bind(("127.0.0.1", port))
+                udp.bind(("127.0.0.1", port))
                 return port
             except OSError:
                 if attempt == 31:
@@ -180,46 +173,35 @@ def main():
     if sys.argv[1:] == ["--receive"]:
         receive_preflight(config)
         return
-    system = config.get("connectSystem") is True
-    if "connectSystem" in config and (not system or "connectProxy" in config):
-        raise ValueError("Explicit system IPv6 and SOCKS modes are mutually exclusive")
-    proxy = None if system else config["connectProxy"]
-    if not system:
-        if not isinstance(proxy, dict) or set(proxy) != {"port", "username", "password"}:
-            raise ValueError("SOCKS mode requires explicit loopback credentials")
-        if type(proxy["port"]) is not int or not 1 <= proxy["port"] <= 65535:
-            raise ValueError("Invalid loopback SOCKS port")
-        for field in ("username", "password"):
-            if not isinstance(proxy[field], str) or not 1 <= len(proxy[field].encode()) <= 255:
-                raise ValueError("Invalid loopback SOCKS credentials")
+    proxy = config["connectProxy"]
+    if type(proxy["port"]) is not int or not 1 <= proxy["port"] <= 65535:
+        raise ValueError("Invalid loopback SOCKS port")
+    for field in ("username", "password"):
+        if not isinstance(proxy[field], str) or not 1 <= len(proxy[field].encode()) <= 255:
+            raise ValueError("Invalid loopback SOCKS credentials")
     target = config["connectTarget"]
-    if not isinstance(target, dict) or set(target) != {"host", "port"} or not isinstance(target["host"], str):
-        raise ValueError("Expected one numeric target and port")
-    address = ipaddress.IPv6Address(target["host"]) if system else ipaddress.IPv4Address(target["host"])
-    if system and address.scope_id is not None:
-        raise ValueError("System IPv6 target must not contain an interface scope")
+    address = ipaddress.ip_address(target["host"])
+    if address.version == 6 and address.scope_id is not None:
+        raise ValueError("SOCKS target must not contain an interface scope")
     target = (str(address), target["port"])
     if type(target[1]) is not int or not 49152 <= target[1] <= 65535:
         raise ValueError("Target must use an owned high UDP port")
-    port = free_peer_port(system)
-    settings = {
-        # System mode follows the existing IPv6 route. SOCKS mode retains its
-        # loopback socket; outgoing_interfaces would reject the proxy socket.
-        "listen_interfaces": endpoint("::" if system else "127.0.0.1", port),
+    port = free_peer_port()
+    session = lt.session({
+        # SOCKS owns the outgoing UDP socket. Binding outgoing_interfaces here
+        # makes stock libtorrent reject its proxy socket with no_such_device.
+        "listen_interfaces": f"127.0.0.1:{port}",
         "enable_incoming_tcp": False, "enable_outgoing_tcp": False,
         "enable_incoming_utp": False, "enable_outgoing_utp": True,
         "enable_dht": False, "enable_lsd": False, "enable_upnp": False, "enable_natpmp": False,
         "dht_bootstrap_nodes": "", "connections_limit": 2, "upload_rate_limit": 131072,
-        "ignore_limits_on_local_network": False,
+        "ignore_limits_on_local_network": False, "proxy_type": int(lt.proxy_type_t.socks5_pw),
+        "proxy_hostname": "127.0.0.1", "proxy_port": proxy["port"],
+        "proxy_username": proxy["username"], "proxy_password": proxy["password"],
+        "proxy_peer_connections": True, "proxy_hostnames": True,
         "alert_mask": lt.alert.category_t.error_notification | lt.alert.category_t.peer_notification
         | lt.alert.category_t.connect_notification,
-    }
-    if proxy is not None:
-        settings.update({"proxy_type": int(lt.proxy_type_t.socks5_pw),
-                         "proxy_hostname": "127.0.0.1", "proxy_port": proxy["port"],
-                         "proxy_username": proxy["username"], "proxy_password": proxy["password"],
-                         "proxy_peer_connections": True, "proxy_hostnames": True})
-    session = lt.session(settings)
+    })
     ip_filter = lt.ip_filter()
     ip_filter.add_rule("0.0.0.0", "255.255.255.255", 1)
     ip_filter.add_rule("::", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", 1)
