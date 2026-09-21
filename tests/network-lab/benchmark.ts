@@ -196,6 +196,28 @@ function bottleneckDelta(before: BottleneckSnapshot, after: BottleneckSnapshot) 
         downstreamStreamBytes: after.downstreamStreamBytes - before.downstreamStreamBytes };
 }
 
+function verifiedPieceBytes(torrent: TorrentFixture, states: number[]): number {
+    assert(states.length === torrent.pieceCount && torrent.files.every(file => !file.pad),
+        "Verified-byte accounting requires the complete no-pad piece map");
+    const totalBytes = torrent.files.reduce((sum, file) => sum + file.size, 0);
+    return states.reduce((sum, state, piece) => sum + (state === 2
+        ? Math.min(torrent.pieceLength, totalBytes - piece * torrent.pieceLength) : 0), 0);
+}
+
+async function recheckVerifiedPieces(lab: Awaited<ReturnType<typeof createLab>>, hash: string,
+    torrent: TorrentFixture, label: string) {
+    await lab.request("torrents/recheck", { hashes: hash });
+    await waitFor(`${label} piece-state invalidation`, () =>
+        lab.json<number[]>(`torrents/pieceStates?hash=${hash}`),
+    states => states.length === torrent.pieceCount && states.every(state => state === 0), 30000);
+    const checked = await waitFor(`${label} piece recheck`, async () => ({
+        info: await lab.info(hash),
+        states: await lab.json<number[]>(`torrents/pieceStates?hash=${hash}`),
+    }), result => result.info.state === "stoppedDL" && result.states.some(state => state === 2)
+        && result.states.every(state => state !== 1), 30000);
+    return { states: checked.states, bytes: verifiedPieceBytes(torrent, checked.states) };
+}
+
 function orderForRound(round: number): Mode[] {
     const offset = (round - 1) % MODES.length;
     return [...MODES.slice(offset), ...MODES.slice(0, offset)];
@@ -234,7 +256,7 @@ async function awaitCompletion(lab: Awaited<ReturnType<typeof createLab>>, hash:
         if (info.progress === 1)
             return latencies;
         if (Date.now() >= deadline)
-            throw new Error(`Timed transfer did not complete; last verified count ${info.completed}`);
+            throw new Error(`Timed transfer did not complete; last completed counter ${info.completed}`);
         await Bun.sleep(100);
     }
 }
@@ -254,6 +276,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
     const lab = await createLab(`benchmark-${mode}-${round}`);
     const torrent = lab.manifest.torrents.find(item => item.name === "v1-public")!;
     const exactPayloadBytes = lab.manifest.payload.reduce((sum, file) => sum + file.size, 0);
+    assert(torrent.files.reduce((sum, file) => sum + file.size, 0) === exactPayloadBytes,
+        "Benchmark torrent size differs from its exact payload manifest");
     const tunnelCount = (mode === "qbutt-mixed" || mode === "qbutt-static") ? 2
         : mode === "qbutt-one-tunnel" ? 1 : 0;
     const routeCount = tunnelCount === 2 ? 3 : 1;
@@ -540,10 +564,10 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                         assignments: trainingAssignments.map(item => ({ endpointPort: item.peer.endpointPort,
                             staticBucket: item.peer.bucket, pathId: item.pathId, generation: item.generation })) });
 
-                    const retainedVerifiedBytes = (await lab.info(hash)).completed;
-                    await Bun.sleep(400);
-                    assert((await lab.info(hash)).completed === retainedVerifiedBytes,
-                        "Training pieces were still completing at the phase boundary");
+                    await lab.request("torrents/stop", { hashes: hash });
+                    await waitFor("training torrent stopped before replacement",
+                        () => lab.info(hash), info => info.state === "stoppedDL", 30000);
+                    const retainedPieces = await recheckVerifiedPieces(lab, hash, torrent, "training storage");
                     await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
                     await waitFor("training torrent instance removal", () =>
                         lab.json<{ hash: string }[]>(`torrents/info?hashes=${hash}`), items => items.length === 0);
@@ -552,11 +576,10 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     const activeTorrents = await lab.json<{ hash: string }[]>("torrents/info");
                     assert(activeTorrents.length === 1 && activeTorrents[0]!.hash === hash,
                         "Phase isolation did not leave exactly one torrent instance");
-                    await lab.request("torrents/recheck", { hashes: hash });
-                    const restored = await waitFor("re-added torrent restores verified training pieces",
-                        () => lab.info(hash), info => info.state === "stoppedDL"
-                            && info.completed === retainedVerifiedBytes, 30000);
-                    assert(restored.completed > 0 && restored.completed < exactPayloadBytes,
+                    const restoredPieces = await recheckVerifiedPieces(lab, hash, torrent, "re-added storage");
+                    assert.deepEqual(restoredPieces.states, retainedPieces.states,
+                        "Phase isolation changed the hash-verified piece set");
+                    assert(restoredPieces.bytes > 0 && restoredPieces.bytes < exactPayloadBytes,
                         "Phase isolation did not retain the partial verified payload");
                     await lab.request("torrents/start", { hashes: hash });
                     const isolated = await lab.json<PathsStatus>("qbuttPaths/status");
@@ -586,7 +609,9 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     }), "The replacement torrent retained a training peer retry candidate");
                     await lab.checkpoint({ check: "unequal-phase-isolation", mode,
                         phase: "after-torrent-readd-before-measured-dials", torrentInstanceRecreated: true,
-                        sameInfoHash: true, retainedVerifiedBytes, activeTorrentInstances: activeTorrents.length,
+                        sameInfoHash: true, retainedVerifiedBytes: restoredPieces.bytes,
+                        retainedVerifiedPieces: restoredPieces.states.flatMap((state, piece) => state === 2 ? [piece] : []),
+                        activeTorrentInstances: activeTorrents.length,
                         onePickerAndStorageOwnerDuringMeasurement: true,
                         sessionProcessId, networkProcessId: isolatedStable.processId,
                         paths: assignedRoutes, diagnostics: isolatedStable.diagnostics });
@@ -683,7 +708,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 peer: "127.0.0.2", port: seeds[0]!.port, manualIntervention: false, peers: recovered.peers });
         }
         const connectionSetupMilliseconds = performance.now() - setupStarted;
-        const warmupVerifiedBytes = (await lab.info(hash)).completed;
+        const warmupVerifiedBytes = verifiedPieceBytes(torrent,
+            await lab.json<number[]>(`torrents/pieceStates?hash=${hash}`));
         assert(warmupVerifiedBytes < exactPayloadBytes, "Warmup completed the benchmark payload before measurement");
         if (scenario === "shared-cap") {
             await lab.request("torrents/setDownloadLimit", { hashes: hash, limit: String(TRANSFER_RATE) });
@@ -764,6 +790,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         }
         await lab.request("torrents/stop", { hashes: hash });
         await waitFor("benchmark target stopped", () => lab.info(hash), info => info.state === "stoppedUP");
+        assert(verifiedPieceBytes(torrent, await lab.json<number[]>(`torrents/pieceStates?hash=${hash}`))
+            === exactPayloadBytes, "Final hash-verified piece map is incomplete");
         assert(await verifyPayload(destination, lab.manifest.payload) === exactPayloadBytes,
             "Benchmark target failed exact size or SHA-256 verification");
 
@@ -942,7 +970,9 @@ const evidence: Record<string, unknown> = {
             : scenario === "shared-cap"
             ? "One torrent-wide application download cap is shared by every path; sources can exceed it. This models an aggregate bottleneck, not a physical last-mile limiter"
             : "Each route has the same source payload cap; Mixed has additional complementary reachability and aggregate capacity",
-        "Verified bytes are exact-size and SHA-256 checked; relay stream bytes include protocol data and are not wire bytes",
+        "Warmup and final verified bytes use the state-2 piece map with the exact last-piece length; final payload bytes are exact-size and SHA-256 checked",
+        "A piece verified during the timed window may include blocks received during 1 KiB/s connection warmup; the unequal limiter interval starts before measured dials and bounds that traffic separately",
+        "Relay stream bytes include protocol data and are not wire bytes",
         "Resource counters cover the transfer window with explicit command/acknowledgement boundary bounds; CPU is per-core, memory peaks are sampled, process I/O is not disk-only",
         "Only the exact app and qbutt-net process handles are measured; runner, controlled peers and relays are excluded",
         ...(comparingStatic ? ["Static uses an unmerged source patch and separately pinned executable; peers, port hash buckets, path assignments and source payload are recorded per run",
