@@ -230,45 +230,70 @@ export async function startProxy(options: ProxyOptions) {
                         const relay = createSocket("udp4");
                         datagrams.add(relay);
                         relay.once("close", () => datagrams.delete(relay));
+                        const ipv6Relay = [...targets.values()].some(target => isIP(target.host) === 6)
+                            ? createSocket("udp6") : undefined;
+                        if (ipv6Relay) {
+                            datagrams.add(ipv6Relay);
+                            ipv6Relay.once("close", () => datagrams.delete(ipv6Relay));
+                            ipv6Relay.on("error", () => client.destroy());
+                        }
                         const replies = new Map<string, Buffer>();
                         let clientPort = port;
                         relay.on("error", () => client.destroy());
+                        const forwardReply = (packet: Buffer, address: string, port: number) => {
+                            const fromTarget = replies.get(`${address}\0${port}`);
+                            if (!fromTarget) return false;
+                            stats.downloadDatagramBytes += packet.length;
+                            relay.send(Buffer.concat([Buffer.alloc(3), fromTarget, packet]), clientPort, client.remoteAddress!);
+                            return true;
+                        };
+                        ipv6Relay?.on("message", (packet, source) => {
+                            forwardReply(packet, normalizedHost(source.address), source.port);
+                        });
                         relay.on("message", (packet, source) => {
-                            const endpoint = `${source.address}\0${source.port}`;
-                            const fromTarget = replies.get(endpoint);
-                            if (fromTarget) {
-                                stats.downloadDatagramBytes += packet.length;
-                                relay.send(Buffer.concat([Buffer.alloc(3), fromTarget, packet]), clientPort, client.remoteAddress!);
+                            if (forwardReply(packet, source.address, source.port)) return;
+                            if (source.address !== client.remoteAddress || (clientPort && source.port !== clientPort)
+                                || packet.length < 10 || packet.length > 65507
+                                || packet.readUInt16BE(0) !== 0 || packet[2] !== 0)
+                                return;
+                            const addressLength = packet[3] === 1 ? 4 : packet[3] === 4 ? 16 : 0;
+                            const dataOffset = 4 + addressLength + 2;
+                            if (!addressLength || packet.length < dataOffset) {
+                                stats.deniedConnections++;
                                 return;
                             }
-                            if (source.address !== client.remoteAddress || (clientPort && source.port !== clientPort)
-                                || packet.length < 10 || packet.length > 65507 || packet.readUInt32BE(0) !== 1)
-                                return;
-                            const targetHost = [...packet.subarray(4, 8)].join(".");
-                            const target = targets.get(`${targetHost}\0${packet.readUInt16BE(8)}`);
-                            if (!target || isIP(target.host) !== 4) {
+                            const address = packet.subarray(4, 4 + addressLength);
+                            const targetHost = addressLength === 4 ? [...address].join(".")
+                                : normalizedHost(Array.from({ length: 8 }, (_, i) =>
+                                    address.readUInt16BE(i * 2).toString(16)).join(":"));
+                            const target = targets.get(`${targetHost}\0${packet.readUInt16BE(4 + addressLength)}`);
+                            const targetSocket = target && (isIP(target.host) === 4 ? relay : ipv6Relay);
+                            if (!target || !targetSocket) {
                                 stats.deniedConnections++;
                                 return;
                             }
                             clientPort = source.port;
-                            replies.set(`${target.host}\0${target.port}`, Buffer.from(packet.subarray(3, 10)));
-                            stats.uploadDatagramBytes += packet.length - 10;
-                            relay.send(packet.subarray(10), target.port, target.host);
+                            replies.set(`${target.host}\0${target.port}`, Buffer.from(packet.subarray(3, dataOffset)));
+                            stats.uploadDatagramBytes += packet.length - dataOffset;
+                            targetSocket.send(packet.subarray(dataOffset), target.port, target.host);
                         });
                         // WAN targets require a routable source; only the owned
                         // client tuple and exact target replies are accepted.
                         // This fixture carrier follows the OS route, not an
                         // explicitly selected physical interface.
-                        relay.bind(0, options.remoteAddress ? "0.0.0.0" : "127.0.0.1", () => {
+                        const ready = () => relay.bind(0, options.remoteAddress ? "0.0.0.0" : "127.0.0.1", () => {
                             if (client.destroyed) {
                                 relay.close();
+                                ipv6Relay?.close();
                                 return;
                             }
-                            client.once("close", () => relay.close());
+                            client.once("close", () => { relay.close(); ipv6Relay?.close(); });
                             const response = Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]);
                             response.writeUInt16BE(relay.address().port, 8);
                             client.write(response);
                         });
+                        if (ipv6Relay) ipv6Relay.bind(0, "::1", ready);
+                        else ready();
                         return;
                     }
                     const target = targets.get(`${normalizedHost(host)}\0${port}`);

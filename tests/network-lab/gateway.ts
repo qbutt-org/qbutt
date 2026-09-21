@@ -27,8 +27,11 @@ const useUtp = process.argv.includes("--utp");
 const useDht = process.argv.includes("--dht");
 const useTrackers = process.argv.includes("--trackers");
 assert(!useDht || useUtp, "Inbound DHT requires a public UDP gateway lease (--utp)");
-assert(!useTrackers || (useUtp && !useIPv6),
-    "Gateway tracker announce fixture requires IPv4 UDP lease (--utp without --ipv6)");
+assert(!useTrackers || useUtp, "Gateway tracker announce fixture requires a public UDP lease (--utp)");
+const TRACKER_HOST = useIPv6 ? SEED_ADDRESS : "127.0.0.11";
+const RETIRED_UDP_HOST = useIPv6 ? SEED_ADDRESS : "127.0.0.12";
+const TRACKER_REAL_HOST = useIPv6 ? "::1" : "127.0.0.1";
+const TRACKER_ENDPOINT_NAME = useIPv6 ? "[::]:0" : "0.0.0.0:0";
 
 interface GatewayState {
     state: "leased" | "outgoing-only";
@@ -372,6 +375,13 @@ function formatEndpoint(host: string, port: number): string {
     return `${isIP(host) === 6 ? `[${host}]` : host}:${port}`;
 }
 
+function requestTarget(rawUrl: string): string | undefined {
+    const schemeEnd = rawUrl.indexOf("://");
+    const pathStart = schemeEnd >= 0 ? rawUrl.indexOf("/", schemeEnd + 3)
+        : rawUrl.startsWith("/") ? 0 : -1;
+    return pathStart >= 0 ? rawUrl.slice(pathStart) : undefined;
+}
+
 async function queryDht(socket: ReturnType<typeof createSocket>, host: string, port: number,
     name: "ping" | "get_peers", nodeId: Buffer, infoHash?: Buffer) {
     const transaction = randomBytes(2);
@@ -476,6 +486,7 @@ let nativeUdpPackets = 0;
 let publicPort = 0;
 let trackerHash = "";
 const httpAnnounces: HttpAnnounce[] = [];
+const httpAuthorities: string[] = [];
 const udpAnnounces: UdpAnnounce[] = [];
 let udpConnectRequests = 0;
 const trackerErrors: string[] = [];
@@ -498,9 +509,13 @@ try {
         });
     }
     if (useTrackers) {
-        httpTracker = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+        httpTracker = Bun.serve({ hostname: TRACKER_REAL_HOST, port: 0, fetch(request) {
             try {
                 assert(httpAnnounces.length < 128, "HTTP tracker announce limit");
+                const authority = request.headers.get("host") ?? "";
+                httpAuthorities.push(authority);
+                assert.equal(authority, formatEndpoint(TRACKER_HOST, httpTracker!.port!),
+                    "HTTP tracker received an invalid Host authority");
                 const url = new URL(request.url);
                 assert.equal(url.pathname, "/announce");
                 const encodedHash = /[?&]info_hash=([^&]*)/.exec(request.url)?.[1];
@@ -522,7 +537,7 @@ try {
             (packet: Buffer, remote: { address: string; port: number }) => {
                 try {
                     if (leased && packet.equals(Buffer.from("canary-preflight"))) {
-                        assert.equal(remote.address, "127.0.0.1");
+                        assert.equal(remote.address, TRACKER_REAL_HOST);
                         nativeUdpPackets++;
                         return;
                     }
@@ -548,7 +563,7 @@ try {
                         assert.equal(packet.subarray(16, 36).toString("hex"), trackerHash);
                         udpAnnounces.push({ phase: leased ? "leased" : "retired", port: packet.readUInt16BE(96),
                             ip: [...packet.subarray(84, 88)].join("."),
-                            source: `${remote.address}:${remote.port}` });
+                            source: formatEndpoint(remote.address, remote.port) });
                         reply.writeUInt32BE(30, 8);
                         reply.writeUInt32BE(1, 12);
                     }
@@ -558,14 +573,14 @@ try {
                 }
                 catch (error) { trackerErrors.push(String(error)); }
             };
-        udpTracker = createSocket("udp4");
+        udpTracker = createSocket(useIPv6 ? "udp6" : "udp4");
         udpTracker.on("error", error => trackerErrors.push(String(error)));
         udpTracker.on("message", handleUdpTracker(udpTracker, false));
         await new Promise<void>((accept, reject) => {
             udpTracker!.once("error", reject);
-            udpTracker!.bind(0, "127.0.0.1", accept);
+            udpTracker!.bind(0, TRACKER_REAL_HOST, accept);
         });
-        leasedUdpTracker = createSocket("udp4");
+        leasedUdpTracker = createSocket(useIPv6 ? "udp6" : "udp4");
         leasedUdpTracker.on("error", error => trackerErrors.push(String(error)));
         leasedUdpTracker.on("message", handleUdpTracker(leasedUdpTracker, true));
         await new Promise<void>((accept, reject) => {
@@ -574,28 +589,33 @@ try {
         });
         // The retired URL needs SOCKS remapping; the leased URL targets the
         // second controlled public alias directly through the gateway socket.
-        nativeHttpCanary = Bun.serve({ hostname: "127.0.0.11", port: httpTracker.port!, fetch(request) {
-            if (new URL(request.url).pathname === "/ready") return new Response("ready");
+        nativeHttpCanary = Bun.serve({ hostname: TRACKER_HOST, port: httpTracker.port!, fetch(request) {
+            if (requestTarget(request.url) === "/ready") return new Response("ready");
             nativeHttpRequests++;
             return new Response("Native tracker bypass", { status: 403 });
         } });
-        assert.equal(await (await fetch(`http://127.0.0.11:${httpTracker.port}/ready`,
+        const nativeHttpUrl = `http://${formatEndpoint(TRACKER_HOST, httpTracker.port!)}`;
+        assert.equal(await (await fetch(`${nativeHttpUrl}/ready`,
             { signal: AbortSignal.timeout(5000) })).text(), "ready");
-        nativeUdpCanary = createSocket("udp4");
+        assert.equal((await fetch(`${nativeHttpUrl}/announce`,
+            { signal: AbortSignal.timeout(5000) })).status, 403);
+        assert.equal(nativeHttpRequests, 1, "Native HTTP canary did not observe its positive probe");
+        nativeHttpRequests = 0;
+        nativeUdpCanary = createSocket(useIPv6 ? "udp6" : "udp4");
         nativeUdpCanary.on("error", error => trackerErrors.push(String(error)));
         nativeUdpCanary.on("message", () => nativeUdpPackets++);
         await new Promise<void>((accept, reject) => {
             nativeUdpCanary!.once("error", reject);
-            nativeUdpCanary!.bind(udpTracker.address().port, "127.0.0.12", accept);
+            nativeUdpCanary!.bind(udpTracker.address().port, RETIRED_UDP_HOST, accept);
         });
-        const nativeProbe = createSocket("udp4");
+        const nativeProbe = createSocket(useIPv6 ? "udp6" : "udp4");
         try {
             await new Promise<void>((accept, reject) => {
                 nativeProbe.once("error", reject);
-                nativeProbe.bind(0, "127.0.0.1", accept);
+                nativeProbe.bind(0, TRACKER_REAL_HOST, accept);
             });
             await new Promise<void>((accept, reject) => nativeProbe.send(
-                Buffer.from("canary-preflight"), udpTracker.address().port, "127.0.0.12",
+                Buffer.from("canary-preflight"), udpTracker.address().port, RETIRED_UDP_HOST,
                 error => error ? reject(error) : accept()));
             await waitFor("Native UDP canary reachability", async () => nativeUdpPackets,
                 count => count === 1, 2000);
@@ -635,10 +655,10 @@ try {
     proxy = await startProxy({ ...credentials, udp: useUtp, targets: [{
         host: controlHost, port: controlPort, connectHost: controlHost, connectPort: controlPort,
     }, ...(useUtp ? [{ host: "127.0.0.1", port: Number(ready.datagrams.split(":").at(-1)) }] : []),
-    ...(httpTracker ? [{ host: "127.0.0.11", port: httpTracker.port!, connectHost: "127.0.0.1",
+    ...(httpTracker ? [{ host: TRACKER_HOST, port: httpTracker.port!, connectHost: TRACKER_REAL_HOST,
         connectPort: httpTracker.port! }] : []),
-    ...(udpTracker ? [{ host: "127.0.0.12", port: udpTracker.address().port,
-        connectHost: "127.0.0.1", connectPort: udpTracker.address().port }] : [])] });
+    ...(udpTracker ? [{ host: RETIRED_UDP_HOST, port: udpTracker.address().port,
+        connectHost: TRACKER_REAL_HOST, connectPort: udpTracker.address().port }] : [])] });
     const nodeConfig = join(lab.root, "controlled-gateway-node.json");
     await writeFile(nodeConfig, JSON.stringify({ proxies: [{
         name: "gateway-fixture", type: "socks5", server: proxy.host, port: proxy.port,
@@ -766,35 +786,56 @@ try {
 
     if (useTrackers) {
         const httpBeforeDual = httpAnnounces.length;
+        const authoritiesBeforeDual = httpAuthorities.length;
         await lab.request("torrents/start", { hashes: hash });
+        const dualPhaseStart = {
+            torrent: await lab.info(hash),
+            trackers: await lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`),
+            proxy: { ...proxy!.stats },
+        };
         await lab.request("torrents/addTrackers", { hash,
-            urls: `http://127.0.0.11:${httpTracker!.port}/announce?lease=dual` });
+            urls: `http://${formatEndpoint(TRACKER_HOST, httpTracker!.port!)}/announce?lease=dual` });
         await lab.request("torrents/reannounce", { hashes: hash });
-        await waitFor("IPv4 literal HTTP tracker on a dual-family path", async () =>
-            httpAnnounces.filter(item => item.phase === "dual"),
-        announces => announces.some(item => item.port === publicPort && item.ipv4 === PUBLIC_FIXTURE_ADDRESS), 30000);
-        const tracker = await waitFor("numeric IPv4 typed tracker status", async () =>
+        try {
+            await waitFor(`${PUBLIC_FIXTURE_FAMILY} literal HTTP tracker on a dual-family path`, async () =>
+                httpAnnounces.filter(item => item.phase === "dual"),
+            announces => announces.some(item => item.port === publicPort
+                && (useIPv6 ? item.ipv6 : item.ipv4) === PUBLIC_FIXTURE_ADDRESS), 30000);
+        }
+        catch (error) {
+            await lab.checkpoint({ check: "gateway-dual-family-http-tracker-diagnostic",
+                statusPath: { pathId: firstPath.pathId, generation: firstPath.generation,
+                    publicEndpoint: firstPath.gateway.publicEndpoint, family: firstPath.gateway.family },
+                phaseStart: dualPhaseStart, torrent: await lab.info(hash),
+                trackers: await lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`),
+                http: httpAnnounces, authorities: httpAuthorities.slice(authoritiesBeforeDual),
+                nativeHttpRequests, proxy: { ...proxy!.stats }, trackerErrors });
+            throw error;
+        }
+        const tracker = await waitFor(`numeric ${PUBLIC_FIXTURE_FAMILY} typed tracker status`, async () =>
             (await lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`))
                 .find(item => item.url.includes("lease=dual")),
-        item => !!item && item.endpoints.length === 1 && item.endpoints[0]!.name === "0.0.0.0:0"
+        item => !!item && item.endpoints.length === 1 && item.endpoints[0]!.name === TRACKER_ENDPOINT_NAME
             && item.endpoints[0]!.pathId === firstPath.pathId
             && item.endpoints[0]!.generation === firstPath.generation, 10000);
         assert(tracker);
         await Bun.sleep(2000);
         assert(httpAnnounces.slice(httpBeforeDual).every(item => item.port === publicPort
-            && item.ip === null && item.ipv4 === PUBLIC_FIXTURE_ADDRESS && item.ipv6 === null),
-        "Numeric IPv4 tracker received a mismatched IPv6 route announce");
+            && item.ip === null && item.ipv4 === (useIPv6 ? null : PUBLIC_FIXTURE_ADDRESS)
+            && item.ipv6 === (useIPv6 ? PUBLIC_FIXTURE_ADDRESS : null)),
+        `Numeric ${PUBLIC_FIXTURE_FAMILY} tracker received a mismatched route announce`);
         const stableTracker = (await lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`))
             .find(item => item.url.includes("lease=dual"));
         assert(stableTracker && stableTracker.endpoints.length === 1
-            && stableTracker.endpoints[0]!.name === "0.0.0.0:0"
+            && stableTracker.endpoints[0]!.name === TRACKER_ENDPOINT_NAME
             && stableTracker.endpoints[0]!.pathId === firstPath.pathId
             && stableTracker.endpoints[0]!.generation === firstPath.generation,
-        "Numeric IPv4 tracker gained an IPv6 typed endpoint");
+        `Numeric ${PUBLIC_FIXTURE_FAMILY} tracker gained a mismatched typed endpoint`);
         assert.deepEqual(trackerErrors, []);
-        await lab.checkpoint({ check: "dual-policy-ipv4-literal-http-tracker", pathId: firstPath.pathId,
+        await lab.checkpoint({ check: `dual-policy-${PUBLIC_FIXTURE_FAMILY}-literal-http-tracker`, pathId: firstPath.pathId,
             generation: firstPath.generation, publicEndpoint: firstEndpoint,
-            announces: httpAnnounces.slice(httpBeforeDual), endpoints: stableTracker.endpoints });
+            announces: httpAnnounces.slice(httpBeforeDual), authorities: httpAuthorities.slice(authoritiesBeforeDual),
+            endpoints: stableTracker.endpoints });
         await lab.request("torrents/stop", { hashes: hash });
         await waitFor("dual-family tracker torrent stopped", () => lab.info(hash), info => info.state === "stoppedUP");
     }
@@ -807,7 +848,7 @@ try {
         "Selected-edge stop changed ownership of the reusable transport child");
     if (useTrackers)
         await lab.request("qbuttPaths/dns", {
-            server: "127.0.0.1:53", bootstrapServer: "127.0.0.1:53", family: "ipv4",
+            server: "127.0.0.1:53", bootstrapServer: "127.0.0.1:53", family: PUBLIC_FIXTURE_FAMILY,
         });
     await lab.request("qbuttPaths/open", pathRequest);
     const reopened = await waitFor("gateway reopen", readStatus, status => !status.busy
@@ -816,13 +857,14 @@ try {
     assert(secondPath.pathId === firstPath.pathId && secondPath.generation > firstPath.generation,
         "Explicit reopen changed path identity or reused a retired generation");
     if (useTrackers) {
-        assert(secondPath.gateway.publicEndpoint === firstEndpoint && secondPath.gateway.family === "ipv4",
-            "Reopened gateway did not preserve the controlled public IPv4 endpoint");
+        assert(secondPath.gateway.publicEndpoint === firstEndpoint && secondPath.gateway.family === PUBLIC_FIXTURE_FAMILY,
+            "Reopened gateway did not preserve the controlled public endpoint");
         const proxyBeforeTrackers = { ...proxy!.stats };
         const httpBeforeLeased = httpAnnounces.length;
+        const authoritiesBeforeLeased = httpAuthorities.length;
         await lab.request("torrents/addTrackers", { hash, urls:
-            `http://127.0.0.11:${httpTracker!.port}/announce?lease=leased\n`
-            + `udp://${SEED_ADDRESS}:${leasedUdpTracker!.address().port}/announce?lease=active` });
+            `http://${formatEndpoint(TRACKER_HOST, httpTracker!.port!)}/announce?lease=leased\n`
+            + `udp://${formatEndpoint(SEED_ADDRESS, leasedUdpTracker!.address().port)}/announce?lease=active` });
         await lab.request("torrents/start", { hashes: hash });
         try {
             await waitFor("leased gateway HTTP and UDP tracker announces", async () => ({
@@ -835,19 +877,32 @@ try {
                 statusPath: { pathId: secondPath.pathId, generation: secondPath.generation,
                     publicEndpoint: secondPath.gateway.publicEndpoint, family: secondPath.gateway.family },
                 trackers: await lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`),
-                http: httpAnnounces, udp: udpAnnounces, udpConnectRequests,
+                http: httpAnnounces, authorities: httpAuthorities.slice(authoritiesBeforeLeased),
+                udp: udpAnnounces, udpConnectRequests,
                 nativeHttpRequests, nativeUdpPackets, proxyBeforeTrackers,
                 proxyAfterTrackers: { ...proxy!.stats }, trackerErrors });
             throw error;
         }
         assert.deepEqual(trackerErrors, []);
         assert(httpAnnounces.slice(httpBeforeLeased).every(item => item.port === publicPort
-            && item.ip === null && item.ipv4 === PUBLIC_FIXTURE_ADDRESS && item.ipv6 === null),
-        "HTTP tracker did not advertise the leased IPv4 endpoint and port");
+            && item.ip === null && item.ipv4 === (useIPv6 ? null : PUBLIC_FIXTURE_ADDRESS)
+            && item.ipv6 === (useIPv6 ? PUBLIC_FIXTURE_ADDRESS : null)),
+        "HTTP tracker did not advertise the leased endpoint and port");
         assert(udpAnnounces.filter(item => item.phase === "leased").every(item => item.port === publicPort
-            && item.ip === PUBLIC_FIXTURE_ADDRESS
+            && item.ip === (useIPv6 ? "0.0.0.0" : PUBLIC_FIXTURE_ADDRESS)
             && item.source === formatEndpoint(PUBLIC_FIXTURE_ADDRESS, publicPort)),
-        "UDP tracker did not advertise the leased IPv4 endpoint and port");
+        "UDP tracker did not originate at the leased endpoint and port");
+        const leasedTrackers = await waitFor("leased HTTP and UDP typed endpoints", async () =>
+            (await lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`))
+                .filter(item => item.url.includes("lease=leased") || item.url.includes("lease=active")),
+        items => items.length === 2 && items.every(item => item.endpoints.some(endpoint =>
+            endpoint.pathId === secondPath.pathId && endpoint.generation === secondPath.generation)), 10000);
+        assert.equal(leasedTrackers.length, 2, "Leased tracker status omitted HTTP or UDP");
+        assert(leasedTrackers.every(item => item.endpoints.length === 1
+            && item.endpoints[0]!.name === TRACKER_ENDPOINT_NAME
+            && item.endpoints[0]!.pathId === secondPath.pathId
+            && item.endpoints[0]!.generation === secondPath.generation),
+        "Leased tracker status used another family or path generation");
         assert(nativeHttpRequests === 0 && nativeUdpPackets === 0,
             "Leased tracker announce bypassed the managed path");
         // Tracker wire requests carry no path ID or generation. Correlate their
@@ -855,8 +910,9 @@ try {
         await lab.checkpoint({ check: "leased-gateway-tracker-announces",
             statusPath: { pathId: secondPath.pathId, generation: secondPath.generation,
                 publicEndpoint: secondPath.gateway.publicEndpoint, family: secondPath.gateway.family },
-            trackers: await lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`),
-            http: httpAnnounces.slice(httpBeforeLeased), udp: udpAnnounces, udpConnectRequests,
+            trackers: leasedTrackers,
+            http: httpAnnounces.slice(httpBeforeLeased), authorities: httpAuthorities.slice(authoritiesBeforeLeased),
+            udp: udpAnnounces, udpConnectRequests,
             nativeHttpRequests, nativeUdpPackets });
     }
 
@@ -874,9 +930,10 @@ try {
             && thirdPath.pathId === secondPath.pathId && thirdPath.generation > secondPath.generation,
             "Retired gateway endpoint survived the path generation rollover");
         const httpBeforeRetired = httpAnnounces.length;
+        const authoritiesBeforeRetired = httpAuthorities.length;
         await lab.request("torrents/addTrackers", { hash, urls:
-            `http://127.0.0.11:${httpTracker!.port}/announce?lease=retired\n`
-            + `udp://127.0.0.12:${udpTracker!.address().port}/announce?lease=retired` });
+            `http://${formatEndpoint(TRACKER_HOST, httpTracker!.port!)}/announce?lease=retired\n`
+            + `udp://${formatEndpoint(RETIRED_UDP_HOST, udpTracker!.address().port)}/announce?lease=retired` });
         await lab.request("torrents/reannounce", { hashes: hash });
         await waitFor("retired gateway HTTP and UDP tracker announces", async () => ({
             http: httpAnnounces.filter(item => item.phase === "retired"),
@@ -888,13 +945,25 @@ try {
         "HTTP tracker retained the revoked public endpoint");
         assert(udpAnnounces.filter(item => item.phase === "retired").every(item => item.port === 1
             && item.ip === "0.0.0.0"), "UDP tracker retained the revoked public endpoint");
+        const retiredTrackers = await waitFor("retired HTTP and UDP typed endpoints", async () =>
+            (await lab.json<TrackerStatus[]>(`torrents/trackers?hash=${hash}`))
+                .filter(item => item.url.includes("lease=retired")),
+        items => items.length === 2 && items.every(item => item.endpoints.some(endpoint =>
+            endpoint.pathId === thirdPath.pathId && endpoint.generation === thirdPath.generation)), 10000);
+        assert.equal(retiredTrackers.length, 2, "Retired tracker status omitted HTTP or UDP");
+        assert(retiredTrackers.every(item => item.endpoints.length === 1
+            && item.endpoints[0]!.name === TRACKER_ENDPOINT_NAME
+            && item.endpoints[0]!.pathId === thirdPath.pathId
+            && item.endpoints[0]!.generation === thirdPath.generation),
+        "Retired tracker status retained the leased generation or wrong family");
         assert(nativeHttpRequests === 0 && nativeUdpPackets === 0,
             "Tracker traffic used Native during gateway retirement");
         await lab.checkpoint({ check: "retired-gateway-tracker-announces",
             statusPath: { pathId: thirdPath.pathId, generation: thirdPath.generation,
                 gateway: thirdPath.gateway }, retiredGeneration: secondPath.generation,
-            http: httpAnnounces.slice(httpBeforeRetired),
-            udp: udpAnnounces.filter(item => item.phase === "retired"), nativeHttpRequests, nativeUdpPackets });
+            http: httpAnnounces.slice(httpBeforeRetired), authorities: httpAuthorities.slice(authoritiesBeforeRetired),
+            udp: udpAnnounces.filter(item => item.phase === "retired"), retiredTrackers,
+            nativeHttpRequests, nativeUdpPackets });
         await lab.request("torrents/stop", { hashes: hash });
         await waitFor("tracker fixture torrent stopped", () => lab.info(hash), info => info.state === "stoppedUP");
     }
