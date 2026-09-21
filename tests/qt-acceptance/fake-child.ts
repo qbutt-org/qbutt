@@ -8,18 +8,18 @@ import { isAbsolute } from "node:path";
 
 const evidencePath = process.env.QBUTT_QT_CHILD_EVIDENCE;
 assert(evidencePath, "QBUTT_QT_CHILD_EVIDENCE is required");
-const servers = new Map<string, { server: Server; pathId: string; generation: number }>();
+const servers = new Map<string, { server: Server; pathId: string; generation: number; reserveNames: string[] }>();
 const username = "acceptance-user";
 const password = "QBUTT_ACCEPTANCE_SECRET";
-const protocolVersion = 5;
-const names = ["Alpha", "Beta", "https://user:pass@example.invalid/sub?token=QBUTT_ACCEPTANCE_SECRET#publicEndpoint=198.51.100.44,[2001:db8::44]"];
+const protocolVersion = 6;
+const names = ["Alpha", "Beta", "https://user:pass@example.invalid/sub?token=QBUTT_ACCEPTANCE_SECRET#publicEndpoint=198.51.100.44,[2001:db8::44]", "Alpha reserve"];
 const configuredServerId = (name: string) => {
-    const index = names.indexOf(name);
+    const index = name === "Alpha reserve" ? 0 : names.indexOf(name);
     assert(index >= 0, "Unknown acceptance proxy name");
     return createHash("sha256").update("qbutt-configured-server-v1\0" + `127.0.0.${index + 20}`).digest("hex");
 };
 const evidence = { protocol: protocolVersion, hello: 0, listed: 0, status: 0, authenticated: 0, rejectedCredentials: 0,
-    payloadBoundaries: 0, delayedStatus: 0, statusPending: false, eofObserved: false,
+    payloadBoundaries: 0, delayedStatus: 0, retiredIngress: 0, statusPending: false, eofObserved: false,
     opened: [] as object[], closed: [] as object[], retiredOnEof: [] as object[] };
 const save = () => writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + "\n");
 const requireKeys = (request: Record<string, unknown>, keys: string[]) =>
@@ -163,9 +163,10 @@ for await (const chunk of Bun.stdin.stream()) {
                     configuredServerId: configuredServerId(name) })) };
             assert(request.proxyName === undefined || names.includes(String(request.proxyName)));
         }
-        else if (request.method === "open") {
+        else if (request.method === "open" || request.method === "transport.replace") {
             requireKeys(request,
-                ["configPath", "configuredServerId", "dns", "generation", "id", "interfaceName", "method", "pathId", "proxyName", "v"]);
+                ["configPath", "configuredServerId", "dns", "generation", "id", "interfaceName", "method", "pathId", "proxyName", "reserveNames", "v",
+                    ...(request.method === "transport.replace" ? ["nextGeneration"] : [])]);
             requirePathGeneration(request);
             requireDns(request.dns);
             assert.equal(typeof request.configPath, "string");
@@ -175,7 +176,24 @@ for await (const chunk of Bun.stdin.stream()) {
             assert(String(request.proxyName).length > 0 && String(request.interfaceName).length > 0);
             assert.equal(request.configuredServerId, configuredServerId(String(request.proxyName)));
             const pathId = String(request.pathId);
-            const generation = Number(request.generation);
+            if (request.method === "transport.replace") {
+                const oldKey = `${pathId}:${request.generation}`;
+                const old = servers.get(oldKey);
+                assert(old && old.reserveNames.includes(String(request.proxyName)));
+                assert(Number(request.nextGeneration) > old.generation);
+                // Serialize old-generation ingress before the replacement
+                // response, after the parent has already revoked this path.
+                process.stdout.write(JSON.stringify({ v: protocolVersion, id: 0, event: "incomingTcp",
+                    pathId, generation: old.generation, remote: "198.51.100.17:2345", publicEndpoint: "127.0.0.1:40000",
+                    relayHost: "127.0.0.1", relayPort: 40001, relayToken: "ab".repeat(32) }) + "\n");
+                evidence.retiredIngress++;
+                await new Promise<void>(resolve => old.server.close(() => resolve()));
+                servers.delete(oldKey);
+                evidence.closed.push({ pathId, generation: old.generation });
+            }
+            const generation = Number(request.nextGeneration ?? request.generation);
+            const reserveNames = request.reserveNames as string[];
+            assert(Array.isArray(reserveNames) && reserveNames.every(name => configuredServerId(name) === request.configuredServerId));
             const key = `${pathId}:${generation}`;
             assert(!servers.has(key), "The parent attempted to open a duplicate path generation");
             const server = authenticatedServer();
@@ -183,7 +201,7 @@ for await (const chunk of Bun.stdin.stream()) {
                 server.once("error", reject);
                 server.listen(0, "127.0.0.1", resolve);
             });
-            servers.set(key, { server, pathId, generation });
+            servers.set(key, { server, pathId, generation, reserveNames });
             const address = server.address();
             assert(address && typeof address !== "string");
             evidence.opened.push({ pathId, generation, proxyName: request.proxyName, port: address.port });
@@ -215,6 +233,7 @@ for await (const chunk of Bun.stdin.stream()) {
             }
             result = { paths: [...servers.values()].map(path => ({
                 pathId: path.pathId, generation: path.generation,
+                transport: { state: path.reserveNames.length ? "unknown" : "disabled", recommended: "" },
                 wire: { relayDownloadBytes: 0, relayUploadBytes: 0, carrierDownloadBytes: 0,
                     carrierUploadBytes: 0, carrierDownloadPackets: 0, carrierUploadPackets: 0,
                     relayDownloadCopies: 0 },

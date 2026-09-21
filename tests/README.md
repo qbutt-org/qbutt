@@ -57,6 +57,7 @@ bun run smoke:direct-transition
 bun run smoke:discovery-transition
 bun run smoke:path-auth
 bun run smoke:server-identity
+bun run smoke:transport-reserves
 bun run smoke:connection-budget
 bun run smoke:idle-peers
 bun run smoke:path-dns
@@ -71,6 +72,15 @@ without restarting the torrent. `smoke:policy-transition-utp` exercises the same
 transitions with uTP-only peers, a positive UDP canary, retirement of the exact
 native UDP endpoint, and frozen retired relay datagrams. A selected SOCKS UDP
 association may remain alive for other traffic; it is not a peer connection.
+
+`smoke:transport-reserves` requires `QBUTT_LAB_PATHS=1` and the protocol-6 child.
+It is a new, not yet executed app fixture: one generated private torrent starts
+on a primary transport, that endpoint closes, and an explicitly selected
+same-server reserve must continue under a new generation with exact final hashes.
+The child process remains active, and a slow public peer on an independent path
+must retain its local port and generation while receiving payload. Private peers
+must retain their original edge. The separate component fixture covers TCP/UDP health and
+cancellation. These are local fixtures, without public outage or egress claims.
 
 `smoke:discovery-transition` uses the same interface settings and three controlled
 IPv4 DHT/HTTP/UDP tracker responders. It observes positive discovery traffic on
@@ -404,7 +414,7 @@ and exact-size checks count verified payload separately.
 whose exact `HEAD` equals `upstream-lock.json.qbuttNet.commit`. The driver builds
 the real qbutt-net and qbutt-gateway executables from that checkout, copies the
 portable application to a fresh runtime, and places a transparent recorder in
-front of the real child. The recorder verifies exact protocol 5 request, result,
+front of the real child. The recorder verifies exact protocol 6 request, result,
 error, `incomingTcp` and terminal `gatewayClosed` shapes without storing relay tokens, certificate paths or
 proxy credentials. A generated mTLS identity, controlled SOCKS route and local
 gateway use an ActiveStore `/32` on the Windows loopback interface; the address is
@@ -660,7 +670,7 @@ the negative result requires a checked native piece bitmap and matching bytes.
 compiles a small fake child there. It verifies that the application does not install
 a session-wide SOCKS proxy, then tests managed peer-socket negotiation against
 no-auth downgrade and rejected credentials and checks incompatible child hello.
-DNS cases use the exact protocol 5 handshake and exercise
+DNS cases use the exact protocol 6 handshake and exercise
 numeric/family/bounds checks, request errors with retry, child timeout/crash,
 generation admission, authentication and redacted public results. It also rejects
 the wrong pinned upstream revision, extra handshake/envelope/method fields and

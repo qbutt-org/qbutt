@@ -12,6 +12,7 @@
 #include <QObject>
 #include <QPointer>
 #include <QProcess>
+#include <QStringList>
 #include <QTimer>
 
 #include <optional>
@@ -46,6 +47,7 @@ namespace Net
         QString subscriptionUrl() const;
         QString configurationPath() const;
         QString proxyName() const;
+        QStringList reserveNames(const QString &proxyName) const;
         QString interfaceName() const;
         QJsonObject dnsPolicy() const;
         QJsonObject gatewayConfiguration() const;
@@ -55,7 +57,8 @@ namespace Net
         void refreshSubscription(const QString &url);
         void inspectConfiguration(const QString &configPath);
         void openPath(const QString &configPath, const QString &proxyName,
-            const QString &interfaceName);
+            const QString &interfaceName, const QStringList &reserveNames = {});
+        void switchTransport(const QString &pathId, const QString &proxyName);
         bool setPolicy(const QString &mode, const QString &nativeInterface = {});
         void useNative();
         void stopPath(const QString &pathId = {});
@@ -75,7 +78,7 @@ namespace Net
 
         void request(QJsonObject message);
         void openIdentifiedPath(const QString &configPath, const QString &proxyName,
-            const QString &interfaceName, const QString &configuredServerId);
+            const QString &interfaceName, const QString &configuredServerId, const QStringList &reserveNames);
         bool controlBusy() const;
         void send(QJsonObject message);
         void readOutput();
@@ -100,6 +103,7 @@ namespace Net
         void handleGatewayFailure(const QJsonObject &request);
         void startNextPathRollover();
         bool finishStopPath(const QString &pathId);
+        bool revokePath(ActivePath &path);
         const PeerRouteEndpoint *findEndpoint(quint64 pathId, quint64 generation) const;
         void queueDhtBootstrap(quint64 pathId, quint64 generation, bool ipv6);
         void processDhtBootstrap();
@@ -129,6 +133,8 @@ namespace Net
             QString configurationPath;
             QString edgeId;
             QString proxyName;
+            QStringList reserveNames;
+            QJsonObject transport;
             QString interfaceName;
             QJsonObject capabilities;
             QJsonObject dnsPolicy;
@@ -143,6 +149,7 @@ namespace Net
             quint64 pathId = 0;
             QString configurationPath;
             QString proxyName;
+            QStringList reserveNames;
             QString interfaceName;
             QString edgeId;
             QJsonObject dnsPolicy;
@@ -165,7 +172,7 @@ namespace Net
         qint64 m_bootstrapRequestId = 0;
         qint64 m_nextId = 0;
         qint64 m_pendingId = 0;
-        int m_generation = 0;
+        qint64 m_generation = 0;
         quint64 m_nextPathId = 2;
         quint64 m_nativeGeneration = 0;
         QString m_pendingStopPath;
@@ -176,6 +183,7 @@ namespace Net
         SettingValue<QString> m_storeSubscriptionUrl;
         SettingValue<QString> m_storeConfigurationPath;
         SettingValue<QString> m_storeProxyName;
+        SettingValue<QStringList> m_storeReserveNames;
         SettingValue<QString> m_storeInterfaceName;
         SettingValue<QString> m_storePolicy;
         SettingValue<QString> m_storeNativeInterface;

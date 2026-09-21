@@ -300,18 +300,19 @@ try {
         const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as Record<string, unknown>;
         assert.equal(evidence.status, "passed", `Qt acceptance failed; inspect ${root}`);
         const transport = JSON.parse(await readFile(childEvidence, "utf8")) as {
-            protocol: number; hello: number; listed: number; status: number; authenticated: number; rejectedCredentials: number;
+            protocol: number; hello: number; listed: number; status: number; authenticated: number; rejectedCredentials: number; retiredIngress: number;
             payloadBoundaries: number; delayedStatus: number; statusPending: boolean;
             eofObserved: boolean;
             opened: { pathId: string; generation: number; proxyName: string; port: number }[];
             closed: { pathId: string; generation: number }[];
             retiredOnEof: { pathId: string; generation: number }[];
         };
-        assert.equal(transport.protocol, 5, "The Qt acceptance transport did not use the pinned v5 contract");
+        assert.equal(transport.protocol, 6, "The Qt acceptance transport did not use the pinned v6 contract");
         assert.equal(transport.eofObserved, true, "The transport child did not observe parent EOF and finish cleanup");
         assert(transport.hello >= 1 && transport.listed >= 1, "The production app did not negotiate and list the transport child");
         assert(transport.status >= 1, "The production app did not poll bounded transport counters");
-        assert.equal(transport.opened.length, 3, "The production app did not open exactly three acceptance paths");
+        assert.equal(transport.opened.length, 4, "The production app did not open three paths plus one reserve generation");
+        assert.equal(transport.retiredIngress, 1, "Queued retired-generation ingress was not exercised");
         const opened = new Set(transport.opened.map(path => `${path.pathId}:${path.generation}`));
         assert.equal(opened.size, transport.opened.length, "Acceptance paths did not have independent id/generation pairs");
         const retired = [...transport.closed, ...transport.retiredOnEof].map(path => `${path.pathId}:${path.generation}`);
@@ -325,7 +326,7 @@ try {
         const bytes = await readFile(executable);
         result = { status: "passed", evidence: evidencePath, executable: resolve(sourceExecutable),
             executableSha256: createHash("sha256").update(bytes).digest("hex"),
-            transport: { protocol: transport.protocol, opened: 3, retired: retired.length,
+            transport: { protocol: transport.protocol, opened: 4, retired: retired.length,
                 authenticated: transport.authenticated, payloadBoundaries: transport.payloadBoundaries } };
     }
 }

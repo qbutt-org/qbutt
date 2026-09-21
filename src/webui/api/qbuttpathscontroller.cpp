@@ -5,6 +5,10 @@
 
 #include "qbuttpathscontroller.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonParseError>
+
 #include "base/bittorrent/infohash.h"
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/torrent.h"
@@ -61,8 +65,30 @@ void QbuttPathsController::openAction()
     if (params().contains(u"edgeId"_s))
         throw APIError(APIErrorType::BadParams, tr("Server identity is determined by the selected subscription node."));
     requireIdle();
+    QStringList reserves;
+    if (params().contains(u"reserveNames"_s))
+    {
+        QJsonParseError error;
+        const QJsonDocument document = QJsonDocument::fromJson(params().value(u"reserveNames"_s).toUtf8(), &error);
+        if ((error.error != QJsonParseError::NoError) || !document.isArray() || (document.array().size() > 3))
+            throw APIError(APIErrorType::BadParams, tr("Reserve transports must be an array of at most three node names."));
+        for (const QJsonValue &value : document.array())
+        {
+            if (!value.isString() || value.toString().isEmpty() || reserves.contains(value.toString()))
+                throw APIError(APIErrorType::BadParams, tr("Reserve node names must be nonempty and distinct."));
+            reserves.append(value.toString());
+        }
+    }
     Net::PathManager::instance()->openPath(params().value(u"configPath"_s),
-        params().value(u"proxyName"_s), params().value(u"interfaceName"_s));
+        params().value(u"proxyName"_s), params().value(u"interfaceName"_s), reserves);
+    statusAction();
+}
+
+void QbuttPathsController::transportAction()
+{
+    requireParams({u"pathId"_s, u"proxyName"_s});
+    requireIdle();
+    Net::PathManager::instance()->switchTransport(params().value(u"pathId"_s), params().value(u"proxyName"_s));
     statusAction();
 }
 

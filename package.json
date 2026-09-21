@@ -19,6 +19,7 @@
     "smoke:proxy": "bun tests/network-lab/probe.ts",
     "smoke:network": "bun tests/network-lab/smoke.ts",
     "smoke:server-identity": "bun tests/network-lab/server-identity.ts",
+    "smoke:transport-reserves": "bun tests/network-lab/transport-reserves.ts",
     "smoke:connection-budget": "bun tests/network-lab/connection-budget.ts",
     "smoke:idle-peers": "bun tests/network-lab/idle-peers.ts",
     "smoke:gateway": "bun tests/network-lab/gateway.ts",

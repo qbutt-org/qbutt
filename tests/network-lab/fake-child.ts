@@ -7,7 +7,7 @@ import { createServer, type Server, type Socket } from "node:net";
 const specification = JSON.parse(readFileSync(process.env.QBUTT_LAB_CHILD_FIXTURE!, "utf8")) as {
     mode: string; evidencePath: string; dns: Record<string, string>; lookupHost: string;
 };
-const protocolVersion = 5;
+const protocolVersion = 6;
 const upstreamRevision = "d3ec342d441b086ec4318332f59dd05d8a2b5697";
 const configuredServerId = (name: string) => createHash("sha256")
     .update(`qbutt-configured-server-v1\0${name === "fault-fixture-2" ? "127.0.0.21" : "127.0.0.20"}`)
@@ -15,7 +15,7 @@ const configuredServerId = (name: string) => createHash("sha256")
 assert(["no-auth", "wrong-credentials", "incompatible", "dns-success", "dns-request-error", "dns-malformed",
     "dns-nonnumeric", "dns-wrong-family", "dns-too-many", "dns-timeout", "dns-crash", "dns-result-extra",
     "dns-error-message-extra", "status-delay", "status-delay-extra", "status-decrease", "gateway-rollover",
-    "close-error", "legacy-v4",
+    "close-error", "legacy-v4", "legacy-v5",
     "hello-extra", "hello-wrong-upstream", "open-envelope-extra", "open-result-extra", "status-result-extra"]
     .includes(specification.mode));
 const dnsMode = specification.mode.startsWith("dns-");
@@ -52,7 +52,7 @@ for await (const chunk of Bun.stdin.stream()) {
             break;
         const request = JSON.parse(buffered.slice(0, newline));
         buffered = buffered.slice(newline + 1);
-        assert.equal(request.v, protocolVersion, "Parent must use protocol v5");
+        assert.equal(request.v, protocolVersion, "Parent must use protocol v6");
         assert(Number.isSafeInteger(request.id) && request.id > 0, "Parent sent an invalid request identity");
         assert.equal(typeof request.method, "string", "Parent omitted the control method");
         evidence.methods.push(request.method);
@@ -77,7 +77,7 @@ for await (const chunk of Bun.stdin.stream()) {
         }
         else if (request.method === "open") {
             assert.deepEqual(Object.keys(request).sort(),
-                ["configPath", "configuredServerId", "dns", "generation", "id", "interfaceName", "method", "pathId", "proxyName", "v"]);
+                ["configPath", "configuredServerId", "dns", "generation", "id", "interfaceName", "method", "pathId", "proxyName", "reserveNames", "v"]);
             assert.equal(request.configuredServerId, configuredServerId(request.proxyName));
             assert.deepEqual(request.dns, specification.dns, "Open must carry the configured DNS policy");
             const server = createServer(socket => {
@@ -195,7 +195,8 @@ for await (const chunk of Bun.stdin.stream()) {
             assert.deepEqual(Object.keys(request).sort(), ["id", "method", "v"]);
             evidence.status++;
             const decreasing = (specification.mode === "status-decrease") && (evidence.status > 1);
-            result = { paths: [...openedPaths.values()].map(openedPath => ({ ...openedPath, wire: {
+            result = { paths: [...openedPaths.values()].map(openedPath => ({ ...openedPath,
+                transport: { state: "disabled", recommended: "" }, wire: {
                 relayDownloadBytes: decreasing ? 1 : 11, relayUploadBytes: decreasing ? 2 : 12,
                 carrierDownloadBytes: decreasing ? 3 : 13, carrierUploadBytes: decreasing ? 4 : 14,
                 carrierDownloadPackets: decreasing ? 5 : 15, carrierUploadPackets: decreasing ? 6 : 16,
@@ -268,7 +269,8 @@ for await (const chunk of Bun.stdin.stream()) {
             throw new Error(`Path-only fixture received unexpected method ${request.method}`);
         }
         saveEvidence();
-        const response: Record<string, unknown> = { v: (specification.mode === "legacy-v4") ? 4 : protocolVersion,
+        const response: Record<string, unknown> = { v: specification.mode === "legacy-v4" ? 4
+            : specification.mode === "legacy-v5" ? 5 : protocolVersion,
             id: request.id, result };
         if ((specification.mode === "open-envelope-extra") && (request.method === "open"))
             response.unexpected = true;

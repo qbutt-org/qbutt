@@ -40,7 +40,7 @@ namespace
 {
     constexpr int MAX_FRAME_BYTES = 65536;
     constexpr int MAX_SUBSCRIPTION_BYTES = 2 * 1024 * 1024;
-    constexpr int PROTOCOL_VERSION = 5;
+    constexpr int PROTOCOL_VERSION = 6;
     constexpr auto QBT_NET_UPSTREAM_REVISION = u"d3ec342d441b086ec4318332f59dd05d8a2b5697";
     constexpr qint64 MAX_CONTROL_ID = 9007199254740991;
     constexpr qint64 GATEWAY_TTL_SECONDS = 90;
@@ -199,6 +199,7 @@ Net::PathManager::PathManager()
     , m_storeSubscriptionUrl {u"Network/Paths/SubscriptionUrl"_s}
     , m_storeConfigurationPath {u"Network/Paths/ConfigurationPath"_s}
     , m_storeProxyName {u"Network/Paths/ProxyName"_s}
+    , m_storeReserveNames {u"Network/Paths/ReserveNames"_s}
     , m_storeInterfaceName {u"Network/Paths/InterfaceName"_s}
     , m_storePolicy {u"Network/Paths/Policy"_s}
     , m_storeNativeInterface {u"Network/Paths/NativeInterface"_s}
@@ -408,6 +409,7 @@ QJsonObject Net::PathManager::statusData(const bool includePeers) const
         QJsonObject data {{u"pathId"_s, QString::number(path.endpoint.pathId)},
             {u"generation"_s, static_cast<qint64>(path.endpoint.generation)},
             {u"edgeId"_s, path.edgeId}, {u"proxyName"_s, path.proxyName},
+            {u"reserveNames"_s, QJsonArray::fromStringList(path.reserveNames)}, {u"transport"_s, path.transport},
             {u"open"_s, path.endpoint.port > 0},
             {u"interfaceName"_s, path.interfaceName}, {u"capabilities"_s, path.capabilities},
             {u"dns"_s, path.dnsPolicy}, {u"gateway"_s, gateway},
@@ -449,6 +451,16 @@ QString Net::PathManager::configurationPath() const
 QString Net::PathManager::proxyName() const
 {
     return m_storeProxyName;
+}
+
+QStringList Net::PathManager::reserveNames(const QString &proxyName) const
+{
+    for (const ActivePath &path : m_paths)
+    {
+        if ((path.configurationPath == m_storeConfigurationPath.get()) && (path.proxyName == proxyName))
+            return path.reserveNames;
+    }
+    return (proxyName == m_storeProxyName.get()) ? m_storeReserveNames.get() : QStringList {};
 }
 
 QString Net::PathManager::interfaceName() const
@@ -770,7 +782,7 @@ void Net::PathManager::inspectConfiguration(const QString &configPath)
 }
 
 void Net::PathManager::openPath(const QString &configPath, const QString &proxyName,
-    const QString &interfaceName)
+    const QString &interfaceName, const QStringList &reserveNames)
 {
     if (controlBusy())
     {
@@ -789,15 +801,23 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
         reportError(tr("Select a proxy node and choose its physical interface."));
         return;
     }
+    QStringList uniqueReserves = reserveNames;
+    if ((reserveNames.size() > 3) || reserveNames.contains(proxyName) || reserveNames.contains(QString())
+        || (uniqueReserves.removeDuplicates() != 0))
+    {
+        reportError(tr("Choose at most three distinct reserve transports for the selected server."));
+        return;
+    }
     // qbutt-net owns subscription parsing. Resolve identity again for each open,
     // including API calls that never loaded the UI's node list.
     m_status = tr("Checking the selected node's server identity.");
     request({{u"method"_s, u"list"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
-        {u"proxyName"_s, proxyName}, {u"openInterfaceName"_s, interfaceName}});
+        {u"proxyName"_s, proxyName}, {u"openInterfaceName"_s, interfaceName},
+        {u"reserveNames"_s, QJsonArray::fromStringList(reserveNames)}});
 }
 
 void Net::PathManager::openIdentifiedPath(const QString &configPath, const QString &proxyName,
-    const QString &interfaceName, const QString &configuredServerId)
+    const QString &interfaceName, const QString &configuredServerId, const QStringList &reserveNames)
 {
     auto *session = BitTorrent::Session::instance();
     auto *proxyManager = ProxyConfigurationManager::instance();
@@ -851,7 +871,8 @@ void Net::PathManager::openIdentifiedPath(const QString &configPath, const QStri
     request({{u"method"_s, u"open"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
         {u"proxyName"_s, proxyName}, {u"pathId"_s, QString::number(pathId)},
         {u"generation"_s, m_generation}, {u"interfaceName"_s, interfaceName},
-        {u"configuredServerId"_s, configuredServerId}, {u"dns"_s, dns}});
+        {u"configuredServerId"_s, configuredServerId}, {u"dns"_s, dns},
+        {u"reserveNames"_s, QJsonArray::fromStringList(reserveNames)}});
 }
 
 bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInterface)
@@ -1115,6 +1136,8 @@ void Net::PathManager::send(QJsonObject message)
     }
     // Retain the continuation in the pending request, never in child IPC.
     message.remove(u"openInterfaceName"_s);
+    if (message.value(u"method"_s) == u"list")
+        message.remove(u"reserveNames"_s);
     QByteArray frame = QJsonDocument(message).toJson(QJsonDocument::Compact);
     frame.append('\n');
     if ((frame.size() > MAX_FRAME_BYTES) || (m_process.write(frame) != frame.size()))
@@ -1185,7 +1208,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         fail(tr("qbutt-net returned an invalid control response envelope."));
         return;
     }
-    const QJsonObject request = m_pendingRequest;
+    QJsonObject request = m_pendingRequest;
     m_pendingRequest = {};
     m_pendingId = 0;
     m_timeout.stop();
@@ -1229,6 +1252,17 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         {
             fail(tr("qbutt-net could not retire a stopped path generation."));
         }
+        else if (method == u"transport.replace")
+        {
+            if ((errorCode != u"transport_config_changed") && (errorCode != u"transport_open_failed")
+                && (errorCode != u"invalid_transport_selection"))
+            {
+                fail(tr("qbutt-net rejected a transport replacement invariant."));
+                return;
+            }
+            reportError(tr("The reserve transport could not start. This path remains stopped; other paths are unchanged."));
+            sendQueuedRequest();
+        }
         else
         {
             const bool bootstrapRequest = request.value(u"id"_s).toInteger() == m_bootstrapRequestId;
@@ -1253,6 +1287,8 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         return;
     }
     const QJsonObject result = message.value(u"result"_s).toObject();
+    if (method == u"transport.replace")
+        request.insert(u"generation"_s, request.value(u"nextGeneration"_s));
     if (method == u"hello")
     {
         if ((result.size() != 4) || (result.value(u"protocol"_s) != QJsonValue(PROTOCOL_VERSION))
@@ -1305,16 +1341,19 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             }
             openIdentifiedPath(request.value(u"configPath"_s).toString(), request.value(u"proxyName"_s).toString(),
                 request.value(u"openInterfaceName"_s).toString(),
-                proxies.first().toObject().value(u"configuredServerId"_s).toString());
+                proxies.first().toObject().value(u"configuredServerId"_s).toString(),
+                request.value(u"reserveNames"_s).toVariant().toStringList());
         }
         else
         {
+            if (m_storeConfigurationPath.get() != request.value(u"configPath"_s).toString())
+                m_storeReserveNames = QStringList {};
             m_storeConfigurationPath = request.value(u"configPath"_s).toString();
             m_proxies = proxies;
             emit proxiesLoaded(proxies);
         }
     }
-    else if (method == u"open")
+    else if ((method == u"open") || (method == u"transport.replace"))
     {
         const int port = result.value(u"port"_s).toInt();
         const QString username = result.value(u"socksUsername"_s).toString();
@@ -1342,7 +1381,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             fail(tr("qbutt-net returned an invalid authenticated loopback endpoint."));
             return;
         }
-        const bool replacePrimary = !m_rolloverOpening
+        const bool replacePrimary = (method == u"open") && !m_rolloverOpening
             && (m_storePolicy.get(u"pinned"_s) == u"pinned") && !isOpen();
         ActivePath path;
         path.endpoint.type = PeerRouteEndpoint::Type::Socks5;
@@ -1358,6 +1397,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         path.configurationPath = request.value(u"configPath"_s).toString();
         path.edgeId = result.value(u"configuredServerId"_s).toString();
         path.proxyName = request.value(u"proxyName"_s).toString();
+        path.reserveNames = request.value(u"reserveNames"_s).toVariant().toStringList();
         path.interfaceName = request.value(u"interfaceName"_s).toString();
         path.capabilities = {{u"tcp"_s, u"supported"_s}, {u"udp"_s, udp}, {u"dns"_s, u"path-tcp"_s},
             {u"publicTcp"_s, u"unknown"_s}, {u"publicUdp"_s, u"unknown"_s}, {u"measurement"_s, u"not-probed"_s}};
@@ -1395,6 +1435,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         }
         m_storeConfigurationPath = request.value(u"configPath"_s).toString();
         m_storeProxyName = request.value(u"proxyName"_s).toString();
+        m_storeReserveNames = request.value(u"reserveNames"_s).toVariant().toStringList();
         m_storeInterfaceName = request.value(u"interfaceName"_s).toString();
         const auto opened = std::ranges::find(m_paths, path.endpoint.pathId,
             [](const ActivePath &entry) { return entry.endpoint.pathId; });
@@ -1543,15 +1584,23 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             const quint64 pathId = pathIdText.toULongLong(&validPathId);
             const qint64 generation = entry.value(u"generation"_s).toInteger();
             const auto wire = wireCounters(entry.value(u"wire"_s));
+            const QJsonObject transport = entry.value(u"transport"_s).toObject();
+            const QString transportState = transport.value(u"state"_s).toString();
+            const QString recommended = transport.value(u"recommended"_s).toString();
+            static const QStringList transportStates {u"disabled"_s, u"unknown"_s, u"active"_s,
+                u"checking"_s, u"reachable"_s, u"unavailable"_s, u"ready"_s, u"config-changed"_s};
             const auto expected = std::ranges::find_if(expectedPaths, [&](const QJsonValue &candidate)
             {
                 const QJsonObject path = candidate.toObject();
                 return (path.value(u"pathId"_s) == entry.value(u"pathId"_s))
                     && (path.value(u"generation"_s) == entry.value(u"generation"_s));
             });
-            if (!value.isObject() || (entry.size() != 3) || !validPathId || (pathId == 0)
+            if (!value.isObject() || (entry.size() != 4) || !validPathId || (pathId == 0)
                 || (QString::number(pathId) != pathIdText) || !isSafeUnsignedInteger(entry.value(u"generation"_s))
-                || (generation <= 0) || !wire || seen.contains(pathId) || (expected == expectedPaths.end()))
+                || (generation <= 0) || !wire || seen.contains(pathId) || (expected == expectedPaths.end())
+                || !entry.value(u"transport"_s).isObject() || (transport.size() != 2)
+                || !transport.value(u"state"_s).isString() || !transportStates.contains(transportState)
+                || !transport.value(u"recommended"_s).isString() || ((transportState == u"ready") == recommended.isEmpty()))
             {
                 fail(tr("qbutt-net returned status for an invalid path generation."));
                 return;
@@ -1576,7 +1625,25 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
                 fail(tr("qbutt-net returned stale or decreasing transport counters."));
                 return;
             }
+            if ((!recommended.isEmpty() && !path->reserveNames.contains(recommended))
+                || ((transportState == u"disabled") != path->reserveNames.isEmpty()))
+            {
+                fail(tr("qbutt-net recommended an unselected reserve transport."));
+                return;
+            }
             path->wire = *wire;
+            path->transport = transport;
+        }
+        if (m_requestQueue.isEmpty())
+        {
+            for (const ActivePath &path : std::as_const(m_paths))
+            {
+                if ((path.endpoint.port > 0) && (path.transport.value(u"state"_s) == u"ready"))
+                {
+                    switchTransport(QString::number(path.endpoint.pathId), path.transport.value(u"recommended"_s).toString());
+                    break;
+                }
+            }
         }
     }
     else if ((method == u"resolve") || (method == u"resolveNative"))
@@ -1694,6 +1761,7 @@ void Net::PathManager::handleEvent(const QJsonObject &message)
     const auto path = std::ranges::find(m_paths, pathId,
         [](const ActivePath &entry) { return entry.endpoint.pathId; });
     const auto remote = numericEndpoint(message.value(u"remote"_s).toString());
+    const auto publicEndpoint = numericEndpoint(message.value(u"publicEndpoint"_s).toString());
     const QString tokenText = message.value(u"relayToken"_s).toString();
     const bool exactShape = (message.size() == 10) && isSafeUnsignedInteger(message.value(u"v"_s))
         && isSafeUnsignedInteger(message.value(u"id"_s)) && message.value(u"event"_s).isString()
@@ -1703,16 +1771,31 @@ void Net::PathManager::handleEvent(const QJsonObject &message)
         && message.value(u"relayToken"_s).isString();
     if (!exactShape || (message.value(u"event"_s).toString() != u"incomingTcp") || !validPathId
         || (pathId == 0) || (QString::number(pathId) != pathIdText) || (generationValue <= 0)
-        || (path == m_paths.end()) || !path->publicLease || !path->publicLease->tcp
-        || (path->endpoint.generation != static_cast<quint64>(generationValue))
-        || (path->publicLease->expiresUnixMilli <= QDateTime::currentMSecsSinceEpoch())
-        || (message.value(u"publicEndpoint"_s).toString() != path->publicLease->publicEndpoint)
         || (message.value(u"relayHost"_s).toString() != u"127.0.0.1")
-        || (message.value(u"relayPort"_s).toInt() != path->publicLease->route.relayPort)
+        || (message.value(u"relayPort"_s).toInt() <= 0) || (message.value(u"relayPort"_s).toInt() > 65535)
         || !remote || (remote->text != message.value(u"remote"_s).toString())
+        || !publicEndpoint || (publicEndpoint->text != message.value(u"publicEndpoint"_s).toString())
         || !QRegularExpression(u"^[0-9a-f]{64}$"_s).match(tokenText).hasMatch())
     {
         fail(tr("qbutt-net returned invalid trusted incoming metadata."));
+        return;
+    }
+    if ((path == m_paths.end()) || (path->endpoint.generation < static_cast<quint64>(generationValue)))
+    {
+        fail(tr("qbutt-net returned incoming metadata for an unknown path generation."));
+        return;
+    }
+    // A queued event can precede the child's replacement response even after
+    // the parent has withdrawn the old generation. Never admit that connection
+    // or turn its expected retirement into a failure of the other paths.
+    if ((path->endpoint.generation > static_cast<quint64>(generationValue)) || (path->endpoint.port == 0))
+        return;
+    if (!path->publicLease || !path->publicLease->tcp
+        || (path->publicLease->expiresUnixMilli <= QDateTime::currentMSecsSinceEpoch())
+        || (message.value(u"publicEndpoint"_s).toString() != path->publicLease->publicEndpoint)
+        || (message.value(u"relayPort"_s).toInt() != path->publicLease->route.relayPort))
+    {
+        fail(tr("qbutt-net returned incoming metadata outside the active gateway lease."));
         return;
     }
     QByteArray token = QByteArray::fromHex(tokenText.toLatin1());
@@ -1806,16 +1889,17 @@ QList<Net::PathManager::PathRollover> Net::PathManager::activePathRollover() con
     {
         if (path.endpoint.port > 0)
         {
-            append({path.endpoint.pathId, path.configurationPath, path.proxyName, path.interfaceName,
+            append({path.endpoint.pathId, path.configurationPath, path.proxyName, path.reserveNames, path.interfaceName,
                 path.edgeId, path.dnsPolicy});
         }
     }
     const auto appendOpenRequest = [&append](const QJsonObject &request)
     {
-        if (request.value(u"method"_s) != u"open"_s)
+        if ((request.value(u"method"_s) != u"open"_s) && (request.value(u"method"_s) != u"transport.replace"_s))
             return;
         append({request.value(u"pathId"_s).toString().toULongLong(),
             request.value(u"configPath"_s).toString(), request.value(u"proxyName"_s).toString(),
+            request.value(u"reserveNames"_s).toVariant().toStringList(),
             request.value(u"interfaceName"_s).toString(), request.value(u"configuredServerId"_s).toString(),
             request.value(u"dns"_s).toObject()});
     };
@@ -1857,7 +1941,8 @@ void Net::PathManager::startNextPathRollover()
     request({{u"method"_s, u"open"_s}, {u"configPath"_s, path.configurationPath},
         {u"proxyName"_s, path.proxyName}, {u"pathId"_s, QString::number(path.pathId)},
         {u"generation"_s, ++m_generation}, {u"interfaceName"_s, path.interfaceName},
-        {u"configuredServerId"_s, path.edgeId}, {u"dns"_s, path.dnsPolicy}});
+        {u"configuredServerId"_s, path.edgeId}, {u"dns"_s, path.dnsPolicy},
+        {u"reserveNames"_s, QJsonArray::fromStringList(path.reserveNames)}});
 }
 
 void Net::PathManager::handleGatewayFailure(const QJsonObject &request)
@@ -1932,6 +2017,34 @@ void Net::PathManager::reportError(const QString &message)
     emit changed();
 }
 
+void Net::PathManager::switchTransport(const QString &pathId, const QString &proxyName)
+{
+    if (controlBusy())
+        return;
+    auto path = std::ranges::find(m_paths, pathId.toULongLong(),
+        [](const ActivePath &entry) { return entry.endpoint.pathId; });
+    if ((path == m_paths.end()) || (QString::number(path->endpoint.pathId) != pathId)
+        || (path->endpoint.port == 0) || !path->reserveNames.contains(proxyName)
+        || (m_generation >= MAX_CONTROL_ID))
+    {
+        reportError(tr("Choose a configured reserve transport of the selected active path."));
+        return;
+    }
+    QStringList reserves = path->reserveNames;
+    reserves.removeAll(proxyName);
+    reserves.prepend(path->proxyName);
+    const quint64 generation = path->endpoint.generation;
+    const QJsonObject replacement {{u"method"_s, u"transport.replace"_s}, {u"pathId"_s, pathId},
+        {u"generation"_s, static_cast<qint64>(generation)}, {u"nextGeneration"_s, ++m_generation},
+        {u"configPath"_s, path->configurationPath}, {u"proxyName"_s, proxyName},
+        {u"reserveNames"_s, QJsonArray::fromStringList(reserves)},
+        {u"configuredServerId"_s, path->edgeId}, {u"interfaceName"_s, path->interfaceName}, {u"dns"_s, path->dnsPolicy}};
+    if (!revokePath(*path))
+        return;
+    m_status = tr("Switching to the selected reserve transport on the same server.");
+    request(replacement);
+}
+
 void Net::PathManager::stopPath(const QString &pathId)
 {
     const bool resolving = m_pendingRequest.value(u"method"_s).toString().startsWith(u"resolve");
@@ -1992,11 +2105,25 @@ bool Net::PathManager::finishStopPath(const QString &pathId)
     if ((path == m_paths.end()) || (path->endpoint.port == 0) || path->publicLease)
         return false;
     const quint64 generation = path->endpoint.generation;
-    path->endpoint.type = PeerRouteEndpoint::Type::Blocked;
-    path->endpoint.port = 0;
-    path->endpoint.username.clear();
-    path->endpoint.password.clear();
-    path->wire = {};
+    if (!revokePath(*path))
+        return false;
+    m_status = tr("Path disconnected. Its existing peer connections have been closed.");
+    request({{u"method"_s, u"close"_s}, {u"pathId"_s, pathId},
+        {u"generation"_s, static_cast<qint64>(generation)}});
+    return true;
+}
+
+bool Net::PathManager::revokePath(ActivePath &path)
+{
+    const quint64 generation = path.endpoint.generation;
+    const QString pathId = QString::number(path.endpoint.pathId);
+    clearGatewayLease(path);
+    path.endpoint.type = PeerRouteEndpoint::Type::Blocked;
+    path.endpoint.port = 0;
+    path.endpoint.username.clear();
+    path.endpoint.password.clear();
+    path.wire = {};
+    path.transport = {};
     if ((m_resolution.value(u"state"_s) == u"pending"_s)
         && (m_resolution.value(u"pathId"_s).toString() == pathId))
     {
@@ -2007,13 +2134,10 @@ bool Net::PathManager::finishStopPath(const QString &pathId)
         fail(tr("Unable to revoke the selected network path."));
         return false;
     }
-    BitTorrent::Session::instance()->invalidateNetworkRoute(path->endpoint.pathId, generation);
-    if (path == m_paths.begin())
+    BitTorrent::Session::instance()->invalidateNetworkRoute(path.endpoint.pathId, generation);
+    if (&path == &m_paths.front())
         ProxyConfigurationManager::instance()->setRuntimeProxy(blockedRuntimeProxy());
-    m_status = tr("Path disconnected. Its existing peer connections have been closed.");
     scheduleGatewayRenewal();
-    request({{u"method"_s, u"close"_s}, {u"pathId"_s, pathId},
-        {u"generation"_s, static_cast<qint64>(generation)}});
     return true;
 }
 
@@ -2033,6 +2157,7 @@ bool Net::PathManager::shutdown()
         path.endpoint.username.clear();
         path.endpoint.password.clear();
         path.wire = {};
+        path.transport = {};
     }
     bool routesRetired = session->setTrustedInboundRoutes({});
     if (ProxyConfigurationManager::instance()->hasRuntimeProxy())

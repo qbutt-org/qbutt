@@ -6,6 +6,7 @@
 #pragma once
 
 #include <QGroupBox>
+#include <QString>
 
 class QCheckBox;
 class QComboBox;
@@ -29,10 +30,13 @@ public:
 
 private:
     void refreshState();
+    void refreshReserves();
 
     Net::PathManager *m_manager;
+    QString m_reserveNode;
     QLineEdit *m_url;
     QComboBox *m_nodes;
+    QListWidget *m_reserves;
     QComboBox *m_interfaces;
     QComboBox *m_mode;
     QLineEdit *m_dnsServer;
@@ -54,6 +58,7 @@ private:
     QPushButton *m_localFile;
     QPushButton *m_start;
     QPushButton *m_disconnect;
+    QPushButton *m_switch;
     QPushButton *m_native;
     QLabel *m_status;
 };
