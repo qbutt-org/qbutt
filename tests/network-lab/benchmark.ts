@@ -355,7 +355,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             assert(seeds.length === 6, `Could not select two full peers per static hash bucket: ${accepted}`);
             for (let side = 0; side < tunnelCount; ++side) {
                 proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`,
-                    remoteAddress: nativeAddress,
+                    remoteAddresses: [nativeAddress],
                     targets: seeds.map(seed => ({ host: nativeAddress, port: seed.port })),
                 }));
             }

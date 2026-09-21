@@ -23,6 +23,7 @@ interface Status {
             carrierDownloadPackets: number; carrierUploadPackets: number; relayDownloadCopies: number } }[];
     peers: { pathId: string; generation: number; infoHash: string; peer: string; port: number;
         payloadDownload: number }[];
+    diagnostics: { routes: { pathId: string; generation: number; connectionFailures: number; timeouts: number }[] };
 }
 
 const observer = process.env.QBUTT_WAN_OBSERVER ?? "";
@@ -32,15 +33,21 @@ const gatewaySource = process.env.QBUTT_LAB_GATEWAY_SOURCE ?? "";
 const executable = process.env.QBUTT_LAB_EXE ?? "";
 const sourceConfig = process.env.QBUTT_GATEWAY_WAN_PROXY_CONFIG ?? "";
 const sourceName = process.env.QBUTT_GATEWAY_WAN_PROXY_NAME ?? "";
+const trackerObserver = process.env.QBUTT_WAN_TRACKER ?? "";
+const trackerIP = process.env.QBUTT_WAN_TRACKER_IP ?? "";
 const independentSource = sourceConfig !== "" || sourceName !== "";
 const useUtp = process.argv.includes("--utp");
 const useDht = process.argv.includes("--dht");
+const useTrackers = process.argv.includes("--trackers");
 if (process.argv.includes("--source-preflight")) {
     await sourcePreflight();
     process.exit(0);
 }
 assert(!useDht || useUtp, "Inbound DHT requires the UDP lease (--utp)");
 assert(!useUtp || independentSource, "WAN UDP acceptance requires an independent selected VPN source");
+assert(!useTrackers || (useUtp && /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(trackerObserver)
+    && isIPv4(trackerIP) && trackerIP !== observerIP && trackerObserver !== observer),
+"WAN tracker acceptance requires UDP and a separate QBUTT_WAN_TRACKER / QBUTT_WAN_TRACKER_IP host");
 assert(!independentSource || (sourceConfig !== "" && sourceName !== ""),
     "Set both QBUTT_GATEWAY_WAN_PROXY_CONFIG and QBUTT_GATEWAY_WAN_PROXY_NAME for one selected source node");
 assert(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(observer) && isIPv4(observerIP),
@@ -60,8 +67,8 @@ async function run(args: string[], options: { cwd?: string; env?: Record<string,
     return out.trim();
 }
 
-function responses(child: ReturnType<typeof Bun.spawn>) {
-    const lines = createInterface({ input: Readable.fromWeb(child.stdout as never) });
+function responses(child: Bun.Subprocess<Bun.SpawnOptions.Writable, "pipe">) {
+    const lines = createInterface({ input: Readable.from(child.stdout) });
     const iterator = lines[Symbol.asyncIterator]();
     return {
         close: () => lines.close(),
@@ -106,7 +113,7 @@ async function sourcePreflight() {
     assert(python, "Set QBUTT_LAB_PYTHON to the pinned fixture interpreter");
     await allowLabNetwork([process.execPath, python]);
     const root = await mkdtemp(join(tmpdir(), "qbutt-wan-source-preflight-"));
-    const children: ReturnType<typeof Bun.spawn>[] = [];
+    const children: Bun.Subprocess<"pipe", "pipe">[] = [];
     const readers: ReturnType<typeof responses>[] = [];
     let relay: Awaited<ReturnType<typeof startProxy>> | undefined;
     let failure: unknown;
@@ -299,20 +306,24 @@ catch (error) {
 const lab = preparedLab;
 const gatewayLinux = join(lab.root, "qbutt-gateway-linux");
 const ssh = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
-    "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3", observer];
-const scp = ["scp", "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"];
+    "-o", "StrictHostKeyChecking=yes", "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3", observer];
+const scp = ["scp", "-q", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10"];
+const trackerSsh = [...ssh.slice(0, -1), trackerObserver];
 let remoteRoot = "";
-let gateway: ReturnType<typeof Bun.spawn> | undefined;
+let trackerRoot = "";
+let tracker: Bun.Subprocess<"pipe", "pipe"> | undefined;
+let trackerReplies: ReturnType<typeof responses> | undefined;
+let gateway: Bun.Subprocess<"pipe", "pipe"> | undefined;
 let gatewayReplies: ReturnType<typeof responses> | undefined;
-let peer: ReturnType<typeof Bun.spawn> | undefined;
+let peer: Bun.Subprocess<"pipe", "pipe"> | undefined;
 let peerReplies: ReturnType<typeof responses> | undefined;
 let proxy: Awaited<ReturnType<typeof startProxy>> | undefined;
 let bootstrap: ReturnType<typeof createSocket> | undefined;
-let sourceChild: ReturnType<typeof Bun.spawn> | undefined;
+let sourceChild: Bun.Subprocess<"pipe", "pipe"> | undefined;
 let sourceReplies: ReturnType<typeof responses> | undefined;
 let sourceEndpoint: { host: string; port: number; configuredServerId: string;
     socksUsername: string; socksPassword: string } | undefined;
-let sourceCheck: ReturnType<typeof Bun.spawn> | undefined;
+let sourceCheck: Bun.Subprocess<"ignore", "pipe"> | undefined;
 let sourceCheckReplies: ReturnType<typeof responses> | undefined;
 let packetCapture: Awaited<ReturnType<typeof captureOwnedPort>> | undefined;
 let sourcePacketCapture: Awaited<ReturnType<typeof captureOwnedPort>> | undefined;
@@ -438,6 +449,25 @@ try {
         && ["0.0.0.0", "[::]"].some(host => ready.control === `${host}:${ports.control}`)
         && ["0.0.0.0", "[::]"].some(host => ready.datagrams === `${host}:${ports.datagrams}`),
     "Remote gateway did not bind the selected high control and datagram ports");
+    const { payload, source, torrent, hash } = await generatePayload(lab.python, lab.root);
+    const trackerToken = randomBytes(16).toString("hex");
+    let trackerPorts: { http: number; udp: number } | undefined;
+    if (useTrackers) {
+        trackerRoot = await run([...trackerSsh, "mktemp -d /tmp/qbutt-trackers-XXXXXXXX"]);
+        assert(/^\/tmp\/qbutt-trackers-[a-zA-Z0-9]{8}$/.test(trackerRoot));
+        await run([...scp, join(import.meta.dir, "wan-trackers.py"), `${trackerObserver}:${trackerRoot}/`]);
+        tracker = Bun.spawn([...trackerSsh, `timeout --signal=TERM --kill-after=2s 240s python3 -u ${trackerRoot}/wan-trackers.py`], {
+            stdin: "pipe", stdout: "pipe", stderr: Bun.file(join(lab.root, "tracker.stderr.log")), windowsHide: true });
+        trackerReplies = responses(tracker);
+        tracker.stdin.write(JSON.stringify({ address: trackerIP, infoHash: hash, token: trackerToken,
+            selfPeer: [observerIP, ports.listener] }) + "\n");
+        await tracker.stdin.flush();
+        const trackerReady = await trackerReplies.next("independent WAN trackers ready");
+        trackerPorts = trackerReady.ports;
+        assert(trackerReady.ready && trackerPorts && Object.keys(trackerPorts).sort().join(",") === "http,udp"
+            && new Set(Object.values(trackerPorts)).size === 2
+            && Object.values(trackerPorts).every(port => Number.isInteger(port) && port >= 49152 && port <= 65535));
+    }
     const credentials = { username: randomBytes(16).toString("hex"), password: randomBytes(24).toString("hex") };
     if (useDht) {
         bootstrap = createSocket("udp4");
@@ -447,15 +477,25 @@ try {
         });
     }
     const bootstrapEndpoint = bootstrap ? `127.0.0.1:${bootstrap.address().port}` : "";
-    proxy = await startProxy({ ...credentials, remoteAddress: observerIP, udp: useUtp,
+    proxy = await startProxy({ ...credentials, remoteAddresses: [observerIP, ...(useTrackers ? [trackerIP] : [])], udp: useUtp,
         targets: [{ host: observerIP, port: ports.control, connectHost: observerIP, connectPort: ports.control },
             ...(useUtp ? [{ host: observerIP, port: ports.datagrams }] : []),
+            ...(trackerPorts ? Object.values(trackerPorts).map(port => ({ host: trackerIP, port })) : []),
             ...(bootstrap ? [{ host: "127.0.0.1", port: bootstrap.address().port }] : [])] });
     const nodeConfig = join(lab.root, "node.json");
     await writeFile(nodeConfig, JSON.stringify({ proxies: [{ name: "wan-gateway", type: "socks5",
         server: proxy.host, port: proxy.port, username: credentials.username, password: credentials.password,
         udp: useUtp }] }));
     await lab.start();
+    if (useTrackers) {
+        await lab.request("app/setPreferences", { json: JSON.stringify({
+            announce_to_all_trackers: true, announce_to_all_tiers: true,
+        }) });
+        const preferences = await lab.json<{ announce_to_all_trackers: boolean;
+            announce_to_all_tiers: boolean }>("app/preferences");
+        assert(preferences.announce_to_all_trackers && preferences.announce_to_all_tiers,
+            "WAN fixture must announce both protocols in each tracker tier");
+    }
     const interfaces = await lab.json<{ name: string; value: string }[]>("app/networkInterfaceList");
     const physical = interfaces.filter(item => item.name === nativeInterface || item.value === nativeInterface);
     assert.equal(physical.length, 1, "Physical adapter has no unique application mapping");
@@ -475,6 +515,13 @@ try {
         && path.gateway.publicEndpoint === `${observerIP}:${ports.listener}`);
     await lab.checkpoint({ check: "public-gateway-lease-ready", publicEndpoint: path.gateway.publicEndpoint,
         pathId: path.pathId, generation: path.generation });
+    const trackerUrls = trackerPorts ? [`http://${trackerIP}:${trackerPorts.http}/announce?token=${trackerToken}`,
+        `udp://${trackerIP}:${trackerPorts.udp}/announce`] : [];
+    const readTrackers = async () => (await lab.json<{ url: string; status: number; num_peers: number;
+        endpoints: { pathId: string; generation: number }[] }[]>(`torrents/trackers?hash=${hash}`))
+        .filter(item => trackerUrls.includes(item.url))
+        .map(item => ({ protocol: item.url.split(":")[0], status: item.status,
+            numPeers: item.num_peers, endpoints: item.endpoints }));
     if (useDht) {
         await lab.request("app/setPreferences", { json: JSON.stringify({ dht: true }) });
         const preferences = await lab.json<{ dht: boolean; dht_bootstrap_nodes: string }>("app/preferences");
@@ -482,7 +529,6 @@ try {
             "Inbound DHT fixture fell back to public bootstrap routers");
     }
 
-    const { payload, source, torrent, hash } = await generatePayload(lab.python, lab.root);
     const destination = join(lab.root, "download");
     const form = new FormData();
     form.set("torrents", Bun.file(torrent));
@@ -493,7 +539,46 @@ try {
     await lab.request("torrents/add", form);
     await waitFor("gateway WAN torrent add", () => lab.json<{ hash: string }[]>("torrents/info"),
         torrents => torrents.length === 1 && torrents[0]!.hash === hash);
+    if (useTrackers) {
+        packetCapture = await captureOwnedPort(ports.listener, "utp");
+        await lab.request("torrents/addTrackers", { hash, urls: trackerUrls.join("\n") });
+    }
     await lab.request("torrents/start", { hashes: hash });
+    if (useTrackers) {
+        const trackers = await waitFor("WAN trackers returned the self endpoint", readTrackers,
+            items => items.length === 2 && items.every(item => item.status === 2 && item.numPeers === 1
+                && item.endpoints.length === 1 && item.endpoints[0]!.pathId === path.pathId
+                && item.endpoints[0]!.generation === path.generation), 35000);
+        const rejection = `Self-connection rejected. Peer IP: ${observerIP}. Port: ${ports.listener}. `
+            + `Path: ${path.pathId}. Generation: ${path.generation}.`;
+        const logs = await waitFor("WAN self-connection rejection", async () =>
+            (await lab.json<{ message: string }[]>("log/main?normal=false&info=true&warning=false&critical=false&last_known_id=-1"))
+                .filter(item => item.message === rejection), items => items.length > 0, 25000);
+        const status = await readStatus();
+        const info = await lab.info(hash);
+        const traffic = await lab.json<{ total_downloaded: number; total_uploaded: number }>(`torrents/properties?hash=${hash}`);
+        assert(info.completed === 0 && traffic.total_downloaded === 0 && traffic.total_uploaded === 0
+            && !status.peers.some(item => item.infoHash === hash),
+            "Rejected self connection retained a live peer or credited payload");
+        const before = leased.diagnostics.routes.find(item => item.pathId === path.pathId && item.generation === path.generation);
+        const after = status.diagnostics.routes.find(item => item.pathId === path.pathId && item.generation === path.generation);
+        assert(before && after && before.connectionFailures === after.connectionFailures && before.timeouts === after.timeouts,
+            "Self rejection penalized the healthy route");
+        await lab.checkpoint({ check: "independent-wan-tracker-self-connection-rejected",
+            publicEndpoint: path.gateway.publicEndpoint, pathId: path.pathId, generation: path.generation,
+            peerProtocol: "utp", trackers, rejectionCount: logs.length, verifiedBytes: info.completed,
+            payloadDownload: traffic.total_downloaded, payloadUpload: traffic.total_uploaded,
+            connectionFailures: after.connectionFailures, timeouts: after.timeouts });
+        await lab.checkpoint({ check: "owned-lease-self-peer-packets", publicEndpoint: path.gateway.publicEndpoint,
+            protocol: "utp", packets: await stopCapture(packetCapture!) });
+        packetCapture = undefined;
+        await lab.request("torrents/stop", { hashes: hash });
+        await waitFor("WAN self probe stopped", () => lab.info(hash), info => info.state === "stoppedDL");
+        tracker!.stdin.write('{"command":"clear-peers"}\n');
+        await tracker!.stdin.flush();
+        assert((await trackerReplies!.next("WAN tracker self peer cleared")).cleared === true);
+        await lab.request("torrents/start", { hashes: hash });
+    }
 
     if (independentSource && !useUtp) {
         packetCapture = await captureOwnedPort(ports.listener);
@@ -523,8 +608,9 @@ try {
         const endpoint = await waitFor("independent VPN source at public lease", async () => {
             const endpoints = [...new Set(capture.lines.filter(line => capture.protocol !== "utp" || line.includes("uTP type=SYN "))
                 .map(line => observedLeasePeer(line, ports.listener,
-                capture.protocol !== "tcp")).filter(Boolean))];
-            assert(endpoints.length <= 1, "More than one source reached the owned public lease");
+                capture.protocol !== "tcp")).filter(endpoint => endpoint
+                    && (!trackerPorts || endpoint !== `${trackerIP}:${trackerPorts.udp}`)))];
+            assert(endpoints.length <= 1, `More than one peer source reached the owned public lease: ${JSON.stringify(endpoints)}`);
             return endpoints[0] ?? "";
         }, endpoint => endpoint !== "", 10000);
         const exitIP = endpoint.slice(0, endpoint.lastIndexOf(":"));
@@ -617,6 +703,7 @@ try {
             && wire.relayDownloadCopies === 0, "TCP-only WAN fixture reported UDP traffic");
     await lab.checkpoint({ check: "public-gateway-ingress-to-home-libtorrent", observer,
         gatewayRevision: sourceLock.qbuttNet.commit, publicEndpoint: path.gateway.publicEndpoint,
+        qbuttNetSha256: sha256(await readFile(netExecutable)),
         originalRemoteEndpoint, pathId: path.pathId, generation: path.generation,
         verifiedBytes: downloaded.length, sha256: sha256(downloaded), wire,
         sourceProcess: independentSource ? "local-through-vpn-exit" : "observer-local",
@@ -629,6 +716,52 @@ try {
     peer = undefined;
     peerReplies.close();
     peerReplies = undefined;
+    interface Announce {
+        protocol: "http" | "udp"; source: string; port: number;
+        ip: string | null; ipv4?: string | null; ipv6?: string | null; peerId: string; key: number | string;
+        event: number | string | null;
+    }
+    const checkAnnounces = async (phase: "leased" | "retired", generation: number) => {
+        assert(tracker && trackerReplies && trackerPorts);
+        const readAnnounces = async () => {
+            tracker!.stdin.write('{"command":"snapshot"}\n');
+            await tracker!.stdin.flush();
+            const reply = await trackerReplies!.next("independent tracker snapshot", 5000);
+            assert(Array.isArray(reply.observations));
+            return reply.observations as Announce[];
+        };
+        const boundary = (await readAnnounces()).length;
+        await lab.request("torrents/start", { hashes: hash });
+        const observed = await waitFor(`independent WAN ${phase} tracker requests`, async () =>
+            (await readAnnounces()).slice(boundary).filter(item => item.event === "started" || item.event === 2),
+        announces => announces.some(item => item.protocol === "http") && announces.some(item => item.protocol === "udp"), 35000);
+        const http = observed.filter(item => item.protocol === "http");
+        const udp = observed.filter(item => item.protocol === "udp");
+        assert(http.every(item => item.port === (phase === "leased" ? ports.listener : 1)
+            && item.ip === null && item.ipv4 === (phase === "leased" ? observerIP : null) && item.ipv6 === null),
+        "WAN HTTP tracker received an incorrect public gateway identity");
+        assert(udp.every(item => item.port === (phase === "leased" ? ports.listener : 1)
+            && item.ip === (phase === "leased" ? observerIP : "0.0.0.0")
+            && (phase === "leased" ? item.source === path.gateway.publicEndpoint : !item.source.startsWith(`${observerIP}:`))),
+        "WAN UDP tracker source/announced endpoint does not match gateway lifetime");
+        assert(new Set(observed.map(item => item.peerId)).size === 1,
+            "HTTP and UDP trackers received different torrent peer identities");
+        assert(new Set(observed.map(item => typeof item.key === "number" ? item.key : Number.parseInt(item.key, 16) >>> 0)).size === 1,
+            "HTTP and UDP trackers received different torrent keys");
+        const trackers = await waitFor("WAN tracker response and generation", readTrackers,
+        items => items.length === 2 && items.every(item => item.status === 2 && item.numPeers === 0
+            && item.endpoints.length === 1 && item.endpoints[0]!.pathId === path.pathId
+            && item.endpoints[0]!.generation === generation), 15000);
+        await lab.checkpoint({ check: `independent-wan-${phase}-tracker-announces`,
+            observer: trackerObserver, trackerAddress: trackerIP, gatewayAddress: observerIP,
+            pathId: path.pathId, generation, publicEndpoint: phase === "leased" ? path.gateway.publicEndpoint : null,
+            announces: observed, protocolsAccepted: trackers.map(item => item.protocol), reusedTrackerUrls: true,
+            scope: "Tracker and gateway run on separate public hosts; this proves WAN source/announce fields, not physical system-VPN bypass" });
+        await lab.request("torrents/stop", { hashes: hash });
+        await waitFor("WAN announce torrent stopped", () => lab.info(hash), info => info.state === "stoppedUP");
+    };
+    if (useTrackers)
+        await checkAnnounces("leased", path.generation);
     gateway.stdin.end();
     assert.equal(await gateway.exited, 0, "Remote gateway did not stop cleanly");
     gateway = undefined;
@@ -638,6 +771,14 @@ try {
         && status.paths.length === 1 && status.paths[0]!.generation > path.generation
         && status.paths[0]!.gateway.state === "outgoing-only", 20000);
     assert(rolled.paths[0]!.open, "Terminal WAN rollover lost the managed outgoing path");
+    if (useTrackers) {
+        await checkAnnounces("retired", rolled.paths[0]!.generation);
+        tracker!.stdin.end();
+        assert.equal(await tracker!.exited, 0, "Independent WAN trackers did not stop cleanly");
+        tracker = undefined;
+        trackerReplies!.close();
+        trackerReplies = undefined;
+    }
     await lab.request("qbuttPaths/stop", { pathId: path.pathId });
     await waitFor("WAN path stopped", readStatus, status => !status.busy
         && status.paths.some(item => item.pathId === path.pathId && !item.open));
@@ -647,7 +788,7 @@ try {
 }
 catch (error) { failure = error; }
 finally {
-    for (const child of [peer, gateway]) {
+    for (const child of [peer, gateway, tracker]) {
         if (child?.exitCode === null) {
             child.stdin.end();
             const timeout = setTimeout(() => child.kill(), 5000);
@@ -664,7 +805,11 @@ finally {
         catch (error) { failure ??= error; }
     }
     if (sourcePacketCapture) {
-        try { await stopCapture(sourcePacketCapture); } catch (error) { failure ??= error; }
+        try {
+            await lab.checkpoint({ check: "owned-source-probe-packets", port: sourcePacketCapture.port,
+                protocol: sourcePacketCapture.protocol, packets: await stopCapture(sourcePacketCapture) });
+        }
+        catch (error) { failure ??= error; }
     }
     if (sourceCheck) {
         if (sourceCheck.exitCode === null) sourceCheck.kill();
@@ -680,6 +825,7 @@ finally {
     sourceReplies?.close();
     peerReplies?.close();
     gatewayReplies?.close();
+    trackerReplies?.close();
     try { await proxy?.close(); } catch (error) { failure ??= error; }
     try { if (bootstrap) await new Promise<void>(accept => bootstrap!.close(accept)); }
     catch (error) { failure ??= error; }
@@ -690,9 +836,13 @@ finally {
         try { await run([...ssh, `rm -f -- ${names.map(name => `${remoteRoot}/${name}`).join(" ")} && rmdir -- ${remoteRoot}`]); }
         catch (error) { failure ??= error; }
     }
+    if (/^\/tmp\/qbutt-trackers-[a-zA-Z0-9]{8}$/.test(trackerRoot)) {
+        try { await run([...trackerSsh, `rm -f -- ${trackerRoot}/wan-trackers.py && rmdir -- ${trackerRoot}`]); }
+        catch (error) { failure ??= error; }
+    }
     try {
         const root = await realpath(lab.root);
-        for (const name of ["source", "download", "fixtures", "certificates",
+        for (const name of ["source", "download", "fixtures", "profile", "certificates",
             "qbutt-gateway-linux", "gateway.json", "node.json", "source-node.json", "wan.torrent"]) {
             const path = join(root, name);
             try {

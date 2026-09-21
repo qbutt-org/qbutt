@@ -508,6 +508,22 @@ source behind authenticated loopback SOCKS and checks exact uTP delivery.
 These probes do not establish physical carrier bypass around a system VPN or
 BEP42 node-ID enforcement.
 
+Add `--trackers` with a different SSH host in `QBUTT_WAN_TRACKER` and its numeric
+IPv4 address in `QBUTT_WAN_TRACKER_IP` to verify announcements on an independent
+public tracker. A bounded temporary Python process serves HTTP and UDP on two
+random high ports. The same tracker URLs must advertise the active gateway
+endpoint, then clear it after gateway retirement and report the new generation.
+UDP's observed source must match the active lease exactly; the retired announce
+must use a different source and outgoing-only identity. Both protocols must agree
+on peer ID/key and have exactly one accepted endpoint in the current generation.
+Before the independent seed starts, both trackers return the client's own leased
+endpoint. The app must explicitly reject it without payload, live peer or route
+failure credit. The trackers then clear that peer, and the independent ingress
+must still deliver the complete hash-verified payload. DHT packet attribution
+excludes only replies from the fixture's exact UDP tracker endpoint.
+The fixture enables all-tracker announces explicitly and removes its profile,
+payload, temporary bundle and remote processes/files after either outcome.
+
 The final JSON line points to `evidence.json`, containing exit outcome and checked
 observations; native and seed logs remain beside it. Failed and unsupported
 filesystem scenarios are explicit. Credentials are never printed. Generated

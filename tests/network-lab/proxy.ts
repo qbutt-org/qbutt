@@ -18,8 +18,8 @@ export interface ProxyOptions {
     handshakeTimeoutMs?: number;
     maxConnections?: number;
     udp?: boolean;
-    // WAN fixtures may relay only to this one numeric remote IPv4 address.
-    remoteAddress?: string;
+    // WAN fixtures may relay only to these explicitly selected numeric IPv4 addresses.
+    remoteAddresses?: string[];
 }
 
 export interface ProxyStats {
@@ -66,14 +66,15 @@ export async function startProxy(options: ProxyOptions) {
         throw new Error("SOCKS listener must bind to a numeric loopback address");
 
     const targets = new Map<string, { host: string; port: number }>();
-    if (options.remoteAddress && isIP(options.remoteAddress) !== 4)
-        throw new Error("The controlled remote SOCKS destination must be numeric IPv4");
+    const remoteAddresses = options.remoteAddresses ?? [];
+    if (remoteAddresses.length > 4 || remoteAddresses.some(address => isIP(address) !== 4))
+        throw new Error("Choose at most four controlled numeric IPv4 destinations");
     for (const target of options.targets) {
         const host = normalizedHost(target.host);
         const connectHost = normalizedHost(target.connectHost ?? host);
         const connectPort = target.connectPort ?? target.port;
         if (!host || host.includes("\0") || !validPort(target.port)
-            || (!isLoopback(connectHost) && connectHost !== options.remoteAddress) || !validPort(connectPort))
+            || (!isLoopback(connectHost) && !remoteAddresses.includes(connectHost)) || !validPort(connectPort))
             throw new Error("Targets must name an exact host/port and an authorized numeric destination");
         const key = `${host}\0${target.port}`;
         if (targets.has(key))
@@ -281,7 +282,7 @@ export async function startProxy(options: ProxyOptions) {
                         // client tuple and exact target replies are accepted.
                         // This fixture carrier follows the OS route, not an
                         // explicitly selected physical interface.
-                        const ready = () => relay.bind(0, options.remoteAddress ? "0.0.0.0" : "127.0.0.1", () => {
+                        const ready = () => relay.bind(0, remoteAddresses.length ? "0.0.0.0" : "127.0.0.1", () => {
                             if (client.destroyed) {
                                 relay.close();
                                 ipv6Relay?.close();
