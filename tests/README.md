@@ -73,7 +73,7 @@ transitions with uTP-only peers, a positive UDP canary, retirement of the exact
 native UDP endpoint, and frozen retired relay datagrams. A selected SOCKS UDP
 association may remain alive for other traffic; it is not a peer connection.
 
-`smoke:transport-reserves` requires `QBUTT_LAB_PATHS=1` and the protocol-6 child.
+`smoke:transport-reserves` requires `QBUTT_LAB_PATHS=1` and the protocol-7 child.
 One generated private torrent starts
 on a primary transport, that endpoint closes, and an explicitly selected
 same-server reserve must continue under a new generation with exact final hashes.
@@ -220,8 +220,13 @@ entries on two configured loopback addresses. Names and ports on one address
 must share an Edge: duplicate active admission is rejected without restarting
 the child; stopping and selecting the alias preserves Path ID and advances its
 generation. The replacement downloads a hash-verified payload. Caller-supplied
-`edgeId` is rejected. Different configured hostnames still do not prove distinct
-physical servers or public exits. The component integration suite covers DNS
+`edgeId` is rejected. A second phase explicitly groups two distinct DNS aliases,
+preserves an unselected server sharing their IP, and checks closed path records,
+duplicate admission, profile restart, renamed nodes, reset and a reserve switch
+with exact payload hashes. Group changes must be rejected while a path is open.
+A 1,024-entry subscription exercises bounded selected-node opening, not full-list
+UI capacity. Different configured hostnames still do not prove distinct physical
+servers or public exits. The component integration suite covers DNS
 case/IDNA, IPv4-mapped/IPv6 normalization and configuration changes before open.
 
 `smoke:wan` uses an explicitly selected SSH observer (`QBUTT_WAN_OBSERVER`,
@@ -430,7 +435,7 @@ and exact-size checks count verified payload separately.
 whose exact `HEAD` equals `upstream-lock.json.qbuttNet.commit`. The driver builds
 the real qbutt-net and qbutt-gateway executables from that checkout, copies the
 portable application to a fresh runtime, and places a transparent recorder in
-front of the real child. The recorder verifies exact protocol 6 request, result,
+front of the real child. The recorder verifies exact protocol 7 request, result,
 error, `incomingTcp` and terminal `gatewayClosed` shapes without storing relay tokens, certificate paths or
 proxy credentials. A generated mTLS identity, controlled SOCKS route and local
 gateway use an ActiveStore `/32` on the Windows loopback interface; the address is
@@ -660,7 +665,12 @@ and compares only route choices for fresh dials after controlled training. Three
 partial peers first cover the three routes once. Independent downstream stream
 limiters at 48, 16 and 8 KiB/s then provide at least 64 KiB of the same
 verified-bytes/demand signal consumed by RouteSelector, after which those
-connections close. Nine fresh full peers, three from each static hash bucket,
+connections close. The fixture rechecks, removes the torrent without deleting
+data, re-adds it and rechecks again. It requires identical verified piece maps,
+one application session, unchanged path generations and exactly nine subsequent
+admissions. These successive torrent instances isolate fresh dials from training
+peer retries; they do not model disappearing peers in a live swarm. Nine fresh
+full peers, three from each static hash bucket,
 are reachable through every route and use independent 8 KiB/s source caps.
 Evidence records the training signal, per-route limiter deltas, initial path for
 every measured peer, assignment-derived throughput ceilings and paired goodput.
@@ -675,6 +685,12 @@ This scenario tests later connection selection, not migration of a live slow
 peer, UDP, WAN or a physical last mile. Preserve the static patch/build receipt
 with both executable hashes so unrelated application changes cannot be mistaken
 for selector performance.
+
+Warmup and final byte counts use verified pieces and the exact last-piece length;
+the Web API's completed counter can also include unverified partial pieces.
+Limiter accounting starts before measurement dials to include warmup blocks that
+may only become hash-verified during the timed window. A one-round diagnostic
+never sets `adaptiveSpeedupProven`, even when that pair meets the numeric gates.
 
 `benchmark:public-swarm` uses the pinned official Ubuntu 24.04.5 live-server
 torrent and a separate empty profile for every bounded window. Set
@@ -727,7 +743,7 @@ the negative result requires a checked native piece bitmap and matching bytes.
 compiles a small fake child there. It verifies that the application does not install
 a session-wide SOCKS proxy, then tests managed peer-socket negotiation against
 no-auth downgrade and rejected credentials and checks incompatible child hello.
-DNS cases use the exact protocol 6 handshake and exercise
+DNS cases use the exact protocol 7 handshake and exercise
 numeric/family/bounds checks, request errors with retry, child timeout/crash,
 generation admission, authentication and redacted public results. It also rejects
 the wrong pinned upstream revision, extra handshake/envelope/method fields and
