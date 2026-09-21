@@ -76,7 +76,8 @@ interface PathStatus {
     processId: number;
     paths: PathState[];
     peers: PeerState[];
-    diagnostics: { routes: { pathId: string; generation: number; verifiedDownload: number }[] };
+    diagnostics: { routes: { pathId: string; generation: number; verifiedDownload: number;
+        connectionFailures: number; timeouts: number }[] };
 }
 
 interface TraceEntry {
@@ -710,6 +711,31 @@ try {
     const hash = await lab.add("v1", destination);
     trackerHash = hash;
     await lab.request("torrents/start", { hashes: hash });
+    await lab.request("torrents/addPeers", { hashes: hash, peers: firstEndpoint });
+    const selfRejection = `Self-connection rejected. Peer IP: ${PUBLIC_FIXTURE_ADDRESS}. Port: ${publicPort}. `
+        + `Path: ${firstPath.pathId}. Generation: ${firstPath.generation}.`;
+    const selfLogs = await waitFor("leased self endpoint rejection", async () =>
+        (await lab.json<{ message: string }[]>("log/main?normal=false&info=true&warning=false&critical=false&last_known_id=-1"))
+            .filter(item => item.message === selfRejection), items => items.length > 0, 25000);
+    const afterSelf = await waitFor("rejected self endpoint drained", readStatus,
+        status => !status.busy && !status.peers.some(peer => peer.infoHash === hash));
+    const selfPath = afterSelf.paths.find(path => path.pathId === firstPath.pathId);
+    const selfRoute = afterSelf.diagnostics.routes.find(route => route.pathId === firstPath.pathId
+        && route.generation === firstPath.generation);
+    const selfInfo = await lab.info(hash);
+    const selfTraffic = await lab.json<{ total_downloaded: number; total_uploaded: number }>(`torrents/properties?hash=${hash}`);
+    assert(selfInfo.completed === 0 && selfTraffic.total_downloaded === 0 && selfTraffic.total_uploaded === 0,
+        "Rejected self endpoint credited useful payload");
+    assert(selfPath?.open && selfPath.generation === firstPath.generation && selfPath.gateway.state === "leased"
+        && selfPath.gateway.publicEndpoint === firstEndpoint && selfRoute?.connectionFailures === 0
+        && selfRoute.timeouts === 0 && selfRoute.verifiedDownload === 0,
+    "Self endpoint rejection penalized or retired a healthy leased path");
+    await lab.checkpoint({ check: "leased-self-endpoint-rejected", source: "api-addPeers",
+        publicEndpoint: firstEndpoint, family: PUBLIC_FIXTURE_FAMILY, peerProtocol: useUtp ? "utp" : "tcp",
+        pathId: firstPath.pathId, generation: firstPath.generation, rejectionCount: selfLogs.length,
+        verifiedBytes: selfInfo.completed, payloadDownload: selfTraffic.total_downloaded,
+        payloadUpload: selfTraffic.total_uploaded, connectionFailures: selfRoute.connectionFailures,
+        timeouts: selfRoute.timeouts });
     if (bootstrap) {
         const probe = createSocket(useIPv6 ? "udp6" : "udp4");
         try {
