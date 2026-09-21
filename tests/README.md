@@ -74,7 +74,7 @@ native UDP endpoint, and frozen retired relay datagrams. A selected SOCKS UDP
 association may remain alive for other traffic; it is not a peer connection.
 
 `smoke:transport-reserves` requires `QBUTT_LAB_PATHS=1` and the protocol-6 child.
-It is a new, not yet executed app fixture: one generated private torrent starts
+One generated private torrent starts
 on a primary transport, that endpoint closes, and an explicitly selected
 same-server reserve must continue under a new generation with exact final hashes.
 The child process remains active, and a slow public peer on an independent path
