@@ -107,16 +107,6 @@ export function createTcpBottleneck(bytesPerSecond: number) {
         return {
             port: endpoint.port,
             stats: listenerStats,
-            async discard() {
-                assert(listenerStats.acceptedConnections === 0 && listenerStats.downstreamStreamBytes === 0,
-                    "Only an unused bottleneck listener may be discarded");
-                if (server.listening)
-                    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-                const serverIndex = servers.indexOf(server);
-                if (serverIndex >= 0) servers.splice(serverIndex, 1);
-                const statsIndex = listeners.indexOf(listenerStats);
-                if (statsIndex >= 0) listeners.splice(statsIndex, 1);
-            },
         };
     }
 
