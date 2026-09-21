@@ -443,6 +443,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 pid: (await lab.json<PathsStatus>("qbuttPaths/status")).processId,
                 executable: join(dirname(executable), "qbutt-net.exe") }] : []),
         ], lab.root);
+        const sessionProcessId = lab.pid!;
 
         const destination = join(lab.root, "target");
         const preparationStarted = performance.now();
@@ -539,6 +540,56 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                         diagnostics: drainedTraining.diagnostics,
                         assignments: trainingAssignments.map(item => ({ endpointPort: item.peer.endpointPort,
                             staticBucket: item.peer.bucket, pathId: item.pathId, generation: item.generation })) });
+
+                    const retainedVerifiedBytes = (await lab.info(hash)).completed;
+                    await Bun.sleep(400);
+                    assert((await lab.info(hash)).completed === retainedVerifiedBytes,
+                        "Training pieces were still completing at the phase boundary");
+                    await lab.request("torrents/delete", { hashes: hash, deleteFiles: "false" });
+                    await waitFor("training torrent instance removal", () =>
+                        lab.json<{ hash: string }[]>(`torrents/info?hashes=${hash}`), items => items.length === 0);
+                    const replacementHash = await lab.add(torrent.name, destination);
+                    assert(replacementHash === hash, "Phase isolation changed the torrent infohash");
+                    const activeTorrents = await lab.json<{ hash: string }[]>("torrents/info");
+                    assert(activeTorrents.length === 1 && activeTorrents[0]!.hash === hash,
+                        "Phase isolation did not leave exactly one torrent instance");
+                    const restored = await waitFor("re-added torrent restores verified training pieces",
+                        () => lab.info(hash), info => info.state === "stoppedDL"
+                            && info.completed === retainedVerifiedBytes, 30000);
+                    assert(restored.completed > 0 && restored.completed < exactPayloadBytes,
+                        "Phase isolation did not retain the partial verified payload");
+                    await lab.request("torrents/start", { hashes: hash });
+                    const isolated = await lab.json<PathsStatus>("qbuttPaths/status");
+                    assert(lab.pid === sessionProcessId && isolated.processId === paths.processId,
+                        "Phase isolation replaced the application session or network child");
+                    assert(isolated.paths.filter(path => path.open).length === assignedRoutes.length
+                        && assignedRoutes.every(route => isolated.paths.some(path => path.open
+                            && path.pathId === route.pathId && path.generation === route.generation)),
+                    "Phase isolation changed the active path catalog");
+                    for (const route of assignedRoutes) {
+                        const before = drainedTraining.diagnostics.routes.find(item => item.pathId === route.pathId
+                            && item.generation === route.generation);
+                        const after = isolated.diagnostics.routes.find(item => item.pathId === route.pathId
+                            && item.generation === route.generation);
+                        assert(before && after && after.verifiedDownload >= before.verifiedDownload
+                            && after.demandMilliseconds >= before.demandMilliseconds,
+                        "Phase isolation lost trained route history");
+                    }
+                    await Bun.sleep(3500);
+                    const isolatedStable = await lab.json<PathsStatus>("qbuttPaths/status");
+                    assert(isolatedStable.peers.length === 0 && assignedRoutes.every(route => {
+                        const before = isolated.diagnostics.routes.find(item => item.pathId === route.pathId
+                            && item.generation === route.generation);
+                        const after = isolatedStable.diagnostics.routes.find(item => item.pathId === route.pathId
+                            && item.generation === route.generation);
+                        return before && after && after.attempts === before.attempts;
+                    }), "The replacement torrent retained a training peer retry candidate");
+                    await lab.checkpoint({ check: "unequal-phase-isolation", mode,
+                        phase: "after-torrent-readd-before-measured-dials", torrentInstanceRecreated: true,
+                        sameInfoHash: true, retainedVerifiedBytes, activeTorrentInstances: activeTorrents.length,
+                        onePickerAndStorageOwnerDuringMeasurement: true,
+                        sessionProcessId, networkProcessId: isolatedStable.processId,
+                        paths: assignedRoutes, diagnostics: isolatedStable.diagnostics });
 
                     unequalLimiterStarted = performance.now();
                     unequalMeasurementStart = unequalBottlenecks.map(item => item.snapshot());
@@ -900,7 +951,8 @@ const evidence: Record<string, unknown> = {
                 : "Both proxies whitelist all six exact peer targets; only selected peer/path connections are observed, not all 18 possible pairs",
             unequalStatic
                 ? "The selector chooses routes only for new connections; this fixture does not claim migration of already-live peers"
-                : "Equal reachable paths and per-peer caps do not model unequal route throughput or imply RouteSelector should outperform static distribution"] : []),
+                : "Equal reachable paths and per-peer caps do not model unequal route throughput or imply RouteSelector should outperform static distribution",
+            ...(unequalStatic ? ["Training and measurement use successive torrent instances with one infohash and storage path in one application session; this isolates fresh dials and does not model disappearing peers in a live swarm"] : [])] : []),
         "No public swarm, public egress, UDP/uTP/QUIC, inbound, packet capture, netem, disk throttle or physical last-mile claim",
     ],
     runs: [],
