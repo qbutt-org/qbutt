@@ -7,6 +7,7 @@ param(
     [string] $LibtorrentSourceDir,
     [string] $LibtorrentBuildRoot,
     [string] $NetSourceDir,
+    [string] $SigningKey = $env:QBUTT_RELEASE_SIGNING_KEY,
     [string] $CMakePath = (Join-Path $env:ProgramFiles 'CMake/bin/cmake.exe'),
     [ValidateRange(1, 64)] [int] $Parallel = 8
 )
@@ -290,9 +291,16 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
     dependencyLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
 } | ConvertTo-Json | Set-Content (Join-Path $portable 'build-manifest.json')
 $archive = Join-Path $ArtifactRoot "qbutt-$releaseVersion-windows-x64.zip"
+$signaturePath = Join-Path $ArtifactRoot 'SHA256SUMS.txt.sig'
+if (Test-Path -LiteralPath $signaturePath) {
+    Remove-Item -LiteralPath $signaturePath
+}
 Compress-Archive -Path "$portable/*" -DestinationPath $archive -Force
 $digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 $manifestDigest = (Get-FileHash -LiteralPath (Join-Path $portable 'build-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant()
 @("$digest  $(Split-Path $archive -Leaf)", "$manifestDigest  build-manifest.json") |
     Set-Content (Join-Path $ArtifactRoot 'SHA256SUMS.txt') -Encoding ascii
+if ($SigningKey) {
+    Invoke-Native $bun @((Join-Path $SourceDir 'scripts/sign-release.ts'), $ArtifactRoot, $SigningKey)
+}
 Write-Output "Portable build: $portable"

@@ -170,7 +170,11 @@ The driver uses Light/Fusion offscreen and checks widget properties and text
 geometry as well as screenshots. Its localhost HTTPS fixture covers no update,
 alpha ordering, complete bundle download, cancellation during progress, corrupted
 archive/checksums, interrupted transfer, wrong asset identity, insecure redirect,
-HTTP failure and an untrusted certificate. Existing destination bytes must survive
+HTTP failure and an untrusted certificate. Signature scenarios cover an unsigned
+release, a damaged/short/oversized signature, an unknown signing key, replay from
+another version and tampered metadata with internally consistent SHA-256 digests.
+The test driver alone uses the public RFC 8032 key; no runtime key override exists
+in the product. Existing destination bytes must survive
 every failed/canceled download, with no partial file left. The generated CA is
 trusted only by the test process, never installed in Windows. Run this socket
 fixture separately from gateway/network labs. The runner removes its key, CA and
@@ -178,10 +182,22 @@ payload; it prints the compact evidence/screenshot directory.
 
 With no fixture environment variables, `<driver> live <temporary-output-path>`
 checks the real GitHub API once without downloading. The product action is manual
-check/download of the complete portable ZIP, not self-installation. Release
-digests verify integrity and are not publisher signatures; no migration or
-rollback is performed. `qbutt-version.txt` is independent of the upstream version
+check/download of the complete portable ZIP, not self-installation. The product
+requires an Ed25519 signature of the exact `SHA256SUMS.txt` bytes, verified against
+`src/base/releasepublickey.h`, as well as matching archive and GitHub digests. The
+signed archive filename binds its version and platform. No migration or rollback
+is performed. `qbutt-version.txt` is independent of the upstream version
 and controls release comparison, the UI and the versioned Windows archive name.
+
+To sign a locally built clean release, pass `-SigningKey <private-key.pem>` to
+`scripts/build-windows.ps1` (or set `QBUTT_RELEASE_SIGNING_KEY`). The build invokes
+`bun scripts/sign-release.ts <artifact-directory> <private-key.pem>`; it rejects
+dirty build manifests, mismatched keys and changed artifacts. Publish the ZIP,
+`SHA256SUMS.txt` and `SHA256SUMS.txt.sig` together. Keep the private key outside
+source/build directories with access limited to the release operator; never
+upload it. Key replacement requires a release that users already trust. Existing
+unsigned releases remain available for manual download but cannot be offered as
+a new verified bundle by this updater.
 
 `smoke:qt` launches the real application offscreen with a new profile. It drives
 repair preview, explicit mappings, staged commit, multiple Paths, completion

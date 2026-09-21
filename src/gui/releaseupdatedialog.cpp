@@ -40,9 +40,10 @@ ReleaseUpdateDialog::ReleaseUpdateDialog(QWidget *parent)
     m_status->setObjectName(u"releaseStatus"_s);
     m_status->setTextFormat(Qt::PlainText);
     m_status->setWordWrap(true);
+    m_status->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
     layout->addWidget(m_status);
-    auto *integrity = new QLabel(tr("Downloads contain the complete portable bundle. SHA-256 verifies download integrity; "
-        "these archives do not have a publisher signature. Installation is manual."), this);
+    auto *integrity = new QLabel(tr("Downloads contain the complete portable bundle. Its release signature and SHA-256 "
+        "are verified before saving. Installation is manual."), this);
     integrity->setWordWrap(true);
     layout->addWidget(integrity);
     m_progress = new QProgressBar(this);

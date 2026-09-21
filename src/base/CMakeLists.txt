@@ -102,6 +102,7 @@ add_library(qbt_base STATIC
     profile.h
     profileimport.h
     profile_p.h
+    releasepublickey.h
     releaseupdater.h
     rss/feed_serializer.h
     rss/rss_article.h

@@ -50,5 +50,6 @@ add_executable(qbutt-update-acceptance
     ${qBittorrent_SOURCE_DIR}/src/gui/releaseupdatedialog.h
 )
 target_include_directories(qbutt-update-acceptance PRIVATE ${qBittorrent_SOURCE_DIR}/src)
-target_link_libraries(qbutt-update-acceptance PRIVATE qbt_common_cfg Qt6::Widgets Qt6::Network)
+target_compile_definitions(qbutt-update-acceptance PRIVATE QBUTT_UPDATE_ACCEPTANCE)
+target_link_libraries(qbutt-update-acceptance PRIVATE qbt_common_cfg Qt6::Widgets Qt6::Network OpenSSL::Crypto)
 set_target_properties(qbutt-update-acceptance PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
