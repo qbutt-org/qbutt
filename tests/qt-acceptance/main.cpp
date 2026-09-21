@@ -46,6 +46,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QScopeGuard>
 #include <QScrollArea>
 #include <QSet>
 #include <QSignalBlocker>
@@ -68,8 +69,10 @@
 #include "base/bittorrent/peeraddress.h"
 #include "base/bittorrent/repairservice.h"
 #include "base/bittorrent/session.h"
+#include "base/bittorrent/sessionimpl.h"
 #include "base/bittorrent/torrent.h"
 #include "base/bittorrent/torrentdescriptor.h"
+#include "base/bittorrent/torrentimpl.h"
 #include "base/global.h"
 #include "base/net/pathmanager.h"
 #include "base/path.h"
@@ -1116,6 +1119,142 @@ namespace
         dialog.close();
     }
 
+    void exerciseDiagnosticWaits(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
+    {
+        auto *session = static_cast<BitTorrent::SessionImpl *>(BitTorrent::Session::instance());
+        require(session->diskIOType() == BitTorrent::DiskIOType::Posix,
+            u"Diagnostic wait requires the real threaded Posix disk backend"_s);
+        require(session->diskQueueSize() == 16384, u"Diagnostic disk queue limit was not applied"_s);
+        const auto descriptor = BitTorrent::TorrentDescriptor::loadFromFile(Path(spec.value(u"torrentPath"_s).toString()));
+        require(bool(descriptor), u"Cannot read diagnostic fixture torrent"_s);
+        BitTorrent::AddTorrentParams params;
+        params.savePath = Path(spec.value(u"destination"_s).toString());
+        params.useAutoTMM = false;
+        params.addStopped = false;
+        params.sequential = true;
+        params.downloadLimit = 1024;
+        require(session->addTorrent(*descriptor, params), u"Cannot add diagnostic fixture"_s);
+        BitTorrent::Torrent *torrent = nullptr;
+        waitFor(u"Diagnostic torrent checked"_s, [&]
+        {
+            torrent = session->findTorrent(descriptor->infoHash());
+            return torrent && torrent->diagnosticStatus().expectsDownload && !torrent->isChecking();
+        });
+        torrent->stop();
+        auto drained = session->drainTorrentDisk(static_cast<BitTorrent::TorrentImpl *>(torrent));
+        waitFor(u"Diagnostic disk ownership drained"_s, [&] { return drained.isFinished(); });
+        require(drained.result() && torrent->isStopped(), u"Cannot lend the drained generated file to the oplock helper"_s);
+        const auto releaseDisk = qScopeGuard([&]
+        {
+            // This guard also runs on assertion failure, before Application drains I/O.
+            QFile marker {spec.value(u"diskRelease"_s).toString()};
+            if (marker.open(QIODevice::WriteOnly))
+                marker.write("{}\n");
+        });
+        const QString commandPath = spec.value(u"commandPath"_s).toString();
+        const QString diskEvidence = spec.value(u"diskEvidence"_s).toString();
+        writeObject(commandPath, {{u"phase"_s, u"disk-arm"_s}});
+        waitFor(u"External file oplock held"_s, [&]
+        {
+            return tryReadObject(diskEvidence).value(u"state"_s).toString() == u"held";
+        }, 10000);
+        torrent->start();
+        require(torrent->connectPeer(BitTorrent::PeerAddress::parse(spec.value(u"peer"_s).toString())),
+            u"Cannot enqueue diagnostic fixture peer"_s);
+        const auto readPeers = [torrent]
+        {
+            auto pending = torrent->fetchPeerDiagnosticStatus();
+            waitFor(u"Production peer diagnostic read"_s, [&] { return pending.isFinished(); }, 3000);
+            const BitTorrent::TorrentPeerDiagnosticStatus peers = pending.result();
+            require(peers.known && !torrent->hasError(), u"Production peer diagnostics failed"_s);
+            return peers;
+        };
+        waitFor(u"Diagnostic handshake before payload"_s, [&]
+        {
+            const auto peers = readPeers();
+            return (peers.peers == 1) && (peers.choked == 1)
+                && (peers.handshaking == 0) && (peers.connecting == 0);
+        }, 10000);
+        require(torrent->diagnosticStatus().payloadDownloadRate == 0, u"Fixture sent payload before rate setup"_s);
+        torrent->setDownloadLimit(1);
+        writeObject(commandPath, {{u"phase"_s, u"rate-release"_s}});
+
+        NetworkDiagnosticsDialog dialog {window, torrent};
+        Heartbeat heartbeat;
+        heartbeat.start();
+        dialog.show();
+        auto *refresh = requiredChild<QPushButton>(&dialog, u"diagnosticsRefresh"_s);
+        auto *summary = requiredChild<QTableWidget>(&dialog, u"diagnosticsSummary"_s);
+        auto *reasons = requiredChild<QListWidget>(&dialog, u"diagnosticsReasons"_s);
+        QElapsedTimer cadence;
+        cadence.start();
+        QJsonObject sample;
+        const auto sampleReady = [&](const QString &reason, const bool disk, const bool rate)
+        {
+            waitFor(u"Diagnostic sampling cadence"_s, [&] { return cadence.elapsed() >= 200; }, 1000);
+            cadence.restart();
+            const auto peers = readPeers();
+            if (refresh->isEnabled())
+                refresh->click();
+            waitFor(u"Diagnostic UI refresh"_s, [=] { return refresh->isEnabled(); }, 3000);
+            QStringList visibleReasons;
+            for (int index = 0; index < reasons->count(); ++index)
+                visibleReasons.append(reasons->item(index)->text());
+            QString waits;
+            for (int row = 0; row < summary->rowCount(); ++row)
+            {
+                if (summary->item(row, 0)->text() == u"Disk / bandwidth waits")
+                    waits = summary->item(row, 1)->text();
+            }
+            sample = {{u"diskQueued"_s, peers.diskQueued}, {u"rateLimited"_s, peers.rateLimited},
+                {u"choked"_s, peers.choked}, {u"noDemand"_s, peers.noDemand},
+                {u"payloadDownloadRate"_s, torrent->diagnosticStatus().payloadDownloadRate},
+                {u"uiWaits"_s, waits}, {u"uiReasons"_s, QJsonArray::fromStringList(visibleReasons)},
+                {u"diskState"_s, tryReadObject(diskEvidence).value(u"state"_s)}};
+            const QString expectedWaits = u"%1 / %2"_s.arg(disk ? 1 : 0).arg(rate ? 1 : 0);
+            return (peers.diskQueued == (disk ? 1 : 0)) && (peers.rateLimited == (rate ? 1 : 0))
+                && (!(disk || rate) || ((peers.choked == 0) && (peers.noDemand == 0)))
+                && (waits == expectedWaits) && visibleReasons.join(u'\n').contains(reason);
+        };
+        const auto retainWait = [&](const QString &name)
+        {
+            addCheck(evidence, {{u"name"_s, name}, {u"sample"_s, sample}});
+            require(dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(name + u".png"_s)),
+                u"Cannot render real diagnostic wait"_s);
+        };
+        waitFor(u"Real bandwidth wait and UI reason"_s, [&]
+        {
+            return sampleReady(u"waiting for bandwidth"_s, false, true);
+        }, 40000);
+        retainWait(u"bandwidth-wait"_s);
+        torrent->setDownloadLimit(0);
+        waitFor(u"Real blocked disk write and UI reason"_s, [&]
+        {
+            return sampleReady(u"waiting for disk I/O"_s, true, false)
+                && (sample.value(u"diskState"_s).toString() == u"blocked");
+        }, 60000);
+        retainWait(u"disk-wait"_s);
+        writeObject(spec.value(u"diskRelease"_s).toString(), {});
+        waitFor(u"Oplock released"_s, [&]
+        {
+            return tryReadObject(diskEvidence).value(u"state"_s).toString() == u"released";
+        }, 5000);
+        waitFor(u"Diagnostic payload completed"_s, [&] { return torrent->isFinished(); });
+        waitFor(u"Disk and bandwidth reasons cleared"_s, [&]
+        {
+            return sampleReady(u"wanted payload is complete"_s, false, false);
+        }, 10000);
+        retainWait(u"waits-released"_s);
+        heartbeat.stop();
+        require((heartbeat.ticks > 0) && (heartbeat.maximumGap <= RESPONSE_LIMIT_MS),
+            u"Native disk or bandwidth wait blocked the GUI"_s);
+        addCheck(evidence, {{u"name"_s, u"diagnostic-wait-responsiveness"_s},
+            {u"eventLoopMaxGapMs"_s, heartbeat.maximumGap}});
+        chooseFile(requiredChild<QPushButton>(&dialog, u"diagnosticsExport"_s),
+            QDir(spec.value(u"screenshots"_s).toString()).filePath(u"diagnostics.json"_s));
+        dialog.close();
+    }
+
     void exerciseLargeTransferList(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
         auto *sidebar = requiredChild<QAction>(window, u"actionShowFiltersSidebar"_s);
@@ -1471,6 +1610,12 @@ namespace
         {
             window->hide();
             Net::PathManagerAcceptance::run(spec, evidence);
+            return;
+        }
+        if (spec.value(u"mode"_s).toString() == u"diagnostic-waits")
+        {
+            window->hide();
+            exerciseDiagnosticWaits(window, spec, evidence);
             return;
         }
         if (spec.value(u"mode"_s).toString() == u"profile-import")
