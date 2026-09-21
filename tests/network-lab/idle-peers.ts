@@ -4,7 +4,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { createLab, verifyPayload, waitFor } from "../lab";
 import { startProxy } from "./proxy";
-import { startControlledPeer } from "./controlled-peer";
+import { startControlledPeer, type ControlledPeerError } from "./controlled-peer";
 
 interface Route {
     pathId: string; generation: number; attempts: number; connected: number; closed: number;
@@ -25,7 +25,7 @@ for (const file of torrent.files) {
     assert(!file.pad, "Idle peer fixture requires a v1 payload without padding");
     (await readFile(join(lab.fixtures, "seed", file.path))).copy(payload, file.offset);
 }
-const errors: string[] = [];
+const errors: ControlledPeerError[] = [];
 const credentials = [0, 1].map(() => ({ username: randomBytes(16).toString("hex"), password: randomBytes(24).toString("hex") }));
 const proxies: Awaited<ReturnType<typeof startProxy>>[] = [];
 const peers: Awaited<ReturnType<typeof startControlledPeer>>[] = [];

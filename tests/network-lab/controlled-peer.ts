@@ -3,9 +3,17 @@ import { randomBytes } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import type { TorrentFixture } from "../fixtures/generate";
 
+export interface ControlledPeerError {
+    kind: "transport" | "protocol";
+    message: string;
+    code?: string;
+    payloadBytes: number;
+}
+
 // A bounded plaintext peer whose initial choke can be released explicitly.
 // Payload requests always use the generated torrent's real piece layout.
-export async function startControlledPeer(torrent: TorrentFixture, payload: Buffer, errors: string[], hasPieces = true) {
+export async function startControlledPeer(torrent: TorrentFixture, payload: Buffer,
+    errors: ControlledPeerError[], hasPieces = true) {
     assert(torrent.infoHashV1, "Controlled peer requires a v1 infohash");
     const infoHash = Buffer.from(torrent.infoHashV1, "hex");
     const sockets = new Set<Socket>();
@@ -17,7 +25,8 @@ export async function startControlledPeer(torrent: TorrentFixture, payload: Buff
         counts.connections++;
         let pending = Buffer.alloc(0);
         let handshaken = false;
-        socket.on("error", error => errors.push(String(error)));
+        socket.on("error", error => errors.push({kind: "transport", message: String(error),
+            code: (error as NodeJS.ErrnoException).code, payloadBytes: counts.payloadBytes}));
         socket.on("close", () => sockets.delete(socket));
         socket.on("data", chunk => {
             try {
@@ -69,7 +78,10 @@ export async function startControlledPeer(torrent: TorrentFixture, payload: Buff
                     counts.payloadBytes += bytes;
                 }
             }
-            catch (error) { errors.push(String(error)); socket.destroy(); }
+            catch (error) {
+                errors.push({kind: "protocol", message: String(error), payloadBytes: counts.payloadBytes});
+                socket.destroy();
+            }
         });
     });
     await new Promise<void>((accept, reject) => {
