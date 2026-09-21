@@ -11,7 +11,7 @@ import { allowLabNetwork } from "../windows-firewall";
 import { decode, encode, type Value } from "./bencode";
 import { startProxy } from "./proxy";
 
-const PROTOCOL = 6;
+const PROTOCOL = 7;
 const GATEWAY_PROTOCOL = 2;
 const useIPv6 = process.argv.includes("--ipv6");
 const PUBLIC_FIXTURE_ADDRESS = useIPv6
@@ -1011,7 +1011,7 @@ try {
     assert.equal(await verifyPayload(destination, lab.manifest.payload), verifiedBytes, "Shutdown changed verified ingress payload");
 
     const trace = (await readFile(tracePath, "utf8")).trimEnd().split("\n").map(line => JSON.parse(line) as TraceEntry);
-    assert(trace.length > 0 && trace.every(entry => entry.version === PROTOCOL), "Gateway trace contains a non-v6 frame");
+    assert(trace.length > 0 && trace.every(entry => entry.version === PROTOCOL), "Gateway trace contains an incompatible IPC frame");
     const openRequest = trace.find(entry => entry.direction === "request" && entry.method === "gateway.open"
         && entry.generation === firstPath.generation)!;
     expectKeys(openRequest.keys, ["v", "id", "method", "pathId", "generation", "gateway"], "gateway.open request");
