@@ -18,7 +18,7 @@ export interface ProxyOptions {
     handshakeTimeoutMs?: number;
     maxConnections?: number;
     udp?: boolean;
-    // WAN fixtures may relay only to these explicitly selected numeric IPv4 addresses.
+    // WAN fixtures may relay only to these explicitly selected numeric addresses.
     remoteAddresses?: string[];
 }
 
@@ -67,14 +67,15 @@ export async function startProxy(options: ProxyOptions) {
 
     const targets = new Map<string, { host: string; port: number }>();
     const remoteAddresses = options.remoteAddresses ?? [];
-    if (remoteAddresses.length > 4 || remoteAddresses.some(address => isIP(address) !== 4))
-        throw new Error("Choose at most four controlled numeric IPv4 destinations");
+    if (remoteAddresses.length > 4 || remoteAddresses.some(address => !isIP(address) || address.includes("%")))
+        throw new Error("Choose at most four controlled numeric destinations without interface scopes");
+    const permittedRemote = remoteAddresses.map(normalizedHost);
     for (const target of options.targets) {
         const host = normalizedHost(target.host);
         const connectHost = normalizedHost(target.connectHost ?? host);
         const connectPort = target.connectPort ?? target.port;
         if (!host || host.includes("\0") || !validPort(target.port)
-            || (!isLoopback(connectHost) && !remoteAddresses.includes(connectHost)) || !validPort(connectPort))
+            || (!isLoopback(connectHost) && !permittedRemote.includes(connectHost)) || !validPort(connectPort))
             throw new Error("Targets must name an exact host/port and an authorized numeric destination");
         const key = `${host}\0${target.port}`;
         if (targets.has(key))
@@ -99,8 +100,12 @@ export async function startProxy(options: ProxyOptions) {
         const response = Buffer.alloc(ipv6 ? 22 : 10);
         response.set([5, code, 0, ipv6 ? 4 : 1]);
         if (socket) {
-            if (ipv6)
-                response[19] = 1; // The only allowed IPv6 destination is ::1.
+            if (ipv6) {
+                const halves = normalizedHost(socket.localAddress!).split("::").map(part => part ? part.split(":") : []);
+                const words = halves.length === 1 ? halves[0]!
+                    : [...halves[0]!, ...Array(8 - halves[0]!.length - halves[1]!.length).fill("0"), ...halves[1]!];
+                words.forEach((word, index) => response.writeUInt16BE(Number.parseInt(word, 16), 4 + index * 2));
+            }
             else
                 response.set(socket.localAddress!.split(".").map(Number), 4);
             response.writeUInt16BE(socket.localPort!, response.length - 2);
@@ -293,7 +298,7 @@ export async function startProxy(options: ProxyOptions) {
                             response.writeUInt16BE(relay.address().port, 8);
                             client.write(response);
                         });
-                        if (ipv6Relay) ipv6Relay.bind(0, "::1", ready);
+                        if (ipv6Relay) ipv6Relay.bind(0, permittedRemote.some(address => isIP(address) === 6) ? "::" : "::1", ready);
                         else ready();
                         return;
                     }

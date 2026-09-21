@@ -17,6 +17,10 @@ def emit(value):
     print(json.dumps(value, separators=(",", ":")), flush=True)
 
 
+def endpoint(address, port):
+    return f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
+
+
 def bounded_integer(value, minimum, maximum, name):
     if type(value) is not int or not minimum <= value <= maximum:
         raise ValueError("Invalid " + name)
@@ -65,7 +69,7 @@ async def main():
         if (count != 1 or not isinstance(target, dict) or set(target) != {"host", "port"}
                 or type(target["host"]) is not str):
             raise ValueError("Outbound peer requires one numeric target and one piece owner")
-        target = (str(ipaddress.IPv4Address(target["host"])),
+        target = (str(ipaddress.ip_address(target["host"])),
                   bounded_integer(target["port"], 49152, 65535, "target port"))
     proxy = config.get("connectProxy")
     if proxy is not None:
@@ -128,7 +132,7 @@ async def main():
                 return
             local = writer.get_extra_info("sockname")
             record = {"side": side, "remoteIP": writer.get_extra_info("peername")[0],
-                      "localEndpoint": f"{local[0]}:{local[1]}",
+                      "localEndpoint": endpoint(local[0], local[1]),
                       "peerId": None, "requestedPieces": [], "payloadBytes": 0,
                       "startMonotonic": time.monotonic(), "endMonotonic": None,
                       "firstPayloadMonotonic": None, "lastPayloadMonotonic": None}
@@ -242,7 +246,8 @@ async def main():
             await writer.drain()
             if await reader.readexactly(2) != b"\x01\x00":
                 raise ValueError("Local SOCKS proxy rejected credentials")
-            writer.write(b"\x05\x01\x00\x01" + ipaddress.IPv4Address(target[0]).packed
+            address = ipaddress.ip_address(target[0])
+            writer.write(b"\x05\x01\x00" + bytes([1 if address.version == 4 else 4]) + address.packed
                          + struct.pack("!H", target[1]))
             await writer.drain()
             reply = await reader.readexactly(4)

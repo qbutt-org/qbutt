@@ -544,6 +544,22 @@ source behind authenticated loopback SOCKS and checks exact uTP delivery.
 These probes do not establish physical carrier bypass around a system VPN or
 BEP42 node-ID enforcement.
 
+For public IPv6 ingress, also set `QBUTT_WAN_OBSERVER_IPV6` to the observer's
+numeric global IPv6 address and run `bun tests/network-lab/gateway-wan.ts --ipv6
+--system-source`, then the same command with `--utp --dht`. Keep the IPv4
+observer address for authenticated control/carrier sockets. The source peer
+uses an owned authenticated SOCKS relay restricted to that one IPv6 lease;
+the relay follows the existing OS route, including an already active VPN.
+This mode cannot be combined with a selected source adapter or `--trackers`.
+It does not change system interfaces, VPN configuration or routing.
+
+The IPv6 scenarios require a remote source in scoped packet evidence, original
+endpoint/path/generation in qbutt, exact 512 KiB payload and SHA-256, and terminal
+lease retirement. UDP also checks correlated DHT replies and uTP headers on the
+public interface. They establish public IPv6 ingress through the current route,
+not a physical system-VPN bypass, ISP CGNAT, IPv6 tracker announces or another
+self-rejection test. Those contracts have their own scenarios above.
+
 Add `--trackers` with a different SSH host in `QBUTT_WAN_TRACKER` and its numeric
 IPv4 address in `QBUTT_WAN_TRACKER_IP` to verify announcements on an independent
 public tracker. A bounded temporary Python process serves HTTP and UDP on two
