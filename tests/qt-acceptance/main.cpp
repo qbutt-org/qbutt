@@ -1254,6 +1254,12 @@ namespace
         chooseFile(requiredChild<QPushButton>(&dialog, u"diagnosticsExport"_s),
             QDir(spec.value(u"screenshots"_s).toString()).filePath(u"diagnostics.json"_s));
         dialog.close();
+        writeObject(commandPath, {{u"phase"_s, u"payload-complete"_s}});
+        // Keep the app alive for external hash verification and peer-owned socket close.
+        waitFor(u"Verified payload and closed fixture peer"_s, [&]
+        {
+            return tryReadObject(commandPath).value(u"phase"_s).toString() == u"peer-closed";
+        }, 10000);
     }
 
     void exerciseLargeTransferList(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)

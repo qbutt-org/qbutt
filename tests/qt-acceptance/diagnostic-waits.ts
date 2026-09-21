@@ -44,11 +44,11 @@ try {
         env: {...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: specPath},
         stdout: Bun.file(join(lab.root, "app.stdout.log")), stderr: Bun.file(join(lab.root, "app.stderr.log")),
     });
-    const waitCommand = (phase: string) => waitFor(phase, async () => {
+    const waitCommand = (phase: string, timeout = 30000) => waitFor(phase, async () => {
         assert.equal(application!.exitCode, null, "Qt diagnostic driver exited before its phase");
         assert.deepEqual(errors, []);
         return readFile(commandPath, "utf8").then(text => JSON.parse(text).phase).catch(() => "");
-    }, current => current === phase, 30000);
+    }, current => current === phase, timeout);
     await waitCommand("disk-arm");
     diskWait = Bun.spawn([lab.python, join(import.meta.dir, "disk-wait.py"),
         join(destination, "bundle", "skip.bin"), diskEvidence, diskRelease], {
@@ -57,7 +57,17 @@ try {
     });
     await waitCommand("rate-release");
     peer.release();
-    const timeout = setTimeout(() => application?.kill(), 150000);
+    await waitCommand("payload-complete", 150000);
+    assert.equal(peer.counts.connections, 1, "Diagnostic waits caused a peer reconnect");
+    assert(peer.counts.requests > 0 && peer.counts.payloadBytes >= payload.length);
+    const verifiedBytes = await verifyPayload(destination, lab.manifest.payload);
+    assert.deepEqual(errors, [], "Peer failed during payload transfer or verification");
+    await peer.close();
+    const peerCounts = {...peer.counts};
+    peer = undefined;
+    assert.deepEqual(errors, [], "Peer failed before orderly teardown completed");
+    await writeFile(commandPath, JSON.stringify({phase: "peer-closed"}));
+    const timeout = setTimeout(() => application?.kill(), 15000);
     let exit: number;
     try { exit = await application.exited; }
     finally { clearTimeout(timeout); }
@@ -67,11 +77,8 @@ try {
     assert.equal(await diskWait.exited, 0, "Oplock helper failed or reached its safety timeout");
     assert.equal(JSON.parse(await readFile(diskEvidence, "utf8")).state, "released");
     assert.deepEqual(errors, []);
-    assert.equal(peer.counts.connections, 1, "Diagnostic waits caused a peer reconnect");
-    assert(peer.counts.requests > 0 && peer.counts.payloadBytes >= payload.length);
-    const verifiedBytes = await verifyPayload(destination, lab.manifest.payload);
     await lab.checkpoint({check: "real-disk-and-bandwidth-diagnostics", verifiedBytes,
-        peer: peer.counts, qtEvidence: evidencePath, diskEvidence,
+        peer: peerCounts, qtEvidence: evidencePath, diskEvidence,
         scope: "One generated torrent, default asynchronous disk worker blocked by a Windows oplock, real per-torrent rate limit"});
 }
 catch (error) { failure = error; }
