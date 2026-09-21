@@ -21,11 +21,12 @@ namespace
     constexpr std::size_t MAX_DIAGNOSTIC_EVENTS = 512;
     constexpr std::size_t MAX_DIAGNOSTIC_ROUTES = 256;
     constexpr auto HISTORY_TTL = std::chrono::minutes {15};
+    constexpr double UNMEASURED_BYTES_PER_SECOND = 16 * 1024;
 
-    bool isNetworkFailure(const libtorrent::error_code &ec, const libtorrent::operation_t operation)
+    bool isConnectionFailure(const libtorrent::error_code &ec, const libtorrent::operation_t operation)
     {
         // Idle/choke/request timeouts, protocol rejection, cancellation, disk
-        // errors and normal EOF are not evidence that a network route failed.
+        // errors and normal EOF are not failed network connection attempts.
         // EOF while establishing a connection means this attempt never reached
         // the peer (including a proxy closing its handshake without a reply).
         using namespace boost::asio;
@@ -121,7 +122,7 @@ void Net::PeerRouteSelector::DiagnosticHistory::observe(
         ++route.value.connected;
     else if (observation.event == libtorrent::peer_route_observation::event_t::closed)
     {
-        const bool networkFailure = isNetworkFailure(observation.error, observation.operation);
+        const bool connectionFailure = isConnectionFailure(observation.error, observation.operation);
         const bool establishmentFailure = observation.error
             && (observation.error != boost::asio::error::operation_aborted)
             && ((observation.operation == libtorrent::operation_t::connect)
@@ -130,7 +131,7 @@ void Net::PeerRouteSelector::DiagnosticHistory::observe(
         const bool handshakeTimeout = observation.error == libtorrent::errors::timed_out_no_handshake;
         const bool timeout = isAttemptTimeout(observation.error, observation.operation);
         ++route.value.closed;
-        if (networkFailure || establishmentFailure || handshakeTimeout)
+        if (connectionFailure || establishmentFailure || handshakeTimeout)
         {
             ++route.value.connectionFailures;
             route.value.timeouts += timeout;
@@ -239,7 +240,9 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
             return blocked;
         }
         const RouteKey key {m_routes.front().context.path_id, m_routes.front().context.generation};
-        ++m_history->routes.at(key).attempts;
+        RouteHistory &history = m_history->routes.at(key);
+        history.decay(now);
+        ++history.recentAssignments;
         m_diagnosticHistory->selected(m_routes.front().context, Decision::Pinned);
         return m_routes.front();
     }
@@ -273,32 +276,31 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
 
         RouteHistory &history = m_history->routes.at(routeKey);
         // Verified bytes and unchoked demand occupancy share a decaying window.
-        // Zero-demand and choked peers receive no negative throughput reward.
+        // Zero-demand and choked peers do not lower the useful rate estimate.
         history.decay(now);
-        double usefulReward = 0;
+        double usefulRate = UNMEASURED_BYTES_PER_SECOND;
         if ((history.verifiedBytes > 0) && (history.demandMilliseconds > 0))
         {
             const double bytesPerSecond = history.verifiedBytes * 1000 / history.demandMilliseconds;
             // Age sparse samples smoothly; a single valid tick must not lose
-            // its entire reward as soon as it decays below one second.
-            usefulReward = std::min(1.0, std::log2(1 + bytesPerSecond / 16384) / 8)
-                * std::min(1.0, history.demandMilliseconds / 1000);
+            // its entire weight as soon as it decays below one second.
+            usefulRate += (bytesPerSecond - usefulRate) * std::min(1.0, history.demandMilliseconds / 1000);
         }
-        const double score = 1 - 0.75 * history.failurePressure + 0.25 * usefulReward;
+        // Allocate new dials in proportion to useful quality, accounting for
+        // recent admissions without mirroring libtorrent's live connections.
+        const double score = usefulRate * (1 - 0.75 * history.failurePressure) / (1 + history.recentAssignments);
         // After cooldown, a failed peer/route pair still loses to an unfailed
         // alternative. Otherwise the session's reconnect delay can outlast
         // cooldown and repeatedly select the same unreachable route.
         if (!selected || (failures < fewestFailures)
-            || ((failures == fewestFailures) && ((score > bestScore)
-                || ((score == bestScore) && (history.attempts < m_history->routes.at(
-                    {selected->context.path_id, selected->context.generation}).attempts)))))
+            || ((failures == fewestFailures) && (score > bestScore)))
         {
             selected = &route;
             bestScore = score;
             fewestFailures = failures;
         }
-        if (!leastTried || (history.attempts < m_history->routes.at(
-            {leastTried->context.path_id, leastTried->context.generation}).attempts))
+        if (!leastTried || (history.recentAssignments < m_history->routes.at(
+            {leastTried->context.path_id, leastTried->context.generation}).recentAssignments))
             leastTried = &route;
     }
     if (!selected)
@@ -313,13 +315,13 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
     ++m_history->attempts;
     const RouteKey leastTriedKey {leastTried->context.path_id, leastTried->context.generation};
     Decision decision = Decision::BestScore;
-    if ((m_history->routes.at(leastTriedKey).attempts == 0) || ((m_history->attempts % 10) == 0))
+    if ((m_history->routes.at(leastTriedKey).recentAssignments == 0) || ((m_history->attempts % 10) == 0))
     {
         selected = leastTried;
         decision = Decision::Exploration;
     }
     RouteHistory &selectedHistory = m_history->routes.at({selected->context.path_id, selected->context.generation});
-    ++selectedHistory.attempts;
+    ++selectedHistory.recentAssignments;
     m_diagnosticHistory->selected(selected->context, decision);
     return *selected;
 }
@@ -331,7 +333,7 @@ void Net::PeerRouteSelector::observe(const libtorrent::peer_route_observation &o
     maintain(now);
     m_diagnosticHistory->observe(observation);
     const bool closed = observation.event == libtorrent::peer_route_observation::event_t::closed;
-    const bool networkFailure = closed && isNetworkFailure(observation.error, observation.operation);
+    const bool connectionFailure = closed && isConnectionFailure(observation.error, observation.operation);
     // Establishment errors also include platform-specific address/interface
     // failures. They disqualify this peer/route attempt without implying
     // that other peers cannot use the route. Revocation is not a failure.
@@ -365,10 +367,16 @@ void Net::PeerRouteSelector::observe(const libtorrent::peer_route_observation &o
         // A relay may acknowledge TCP before its remote handshake completes.
         // EOF then warrants trying this peer elsewhere, but is not evidence
         // that the whole route is bad or that a choked peer had low goodput.
-        if (!networkFailure && !establishmentFailure && !handshakeTimeout
+        if (!connectionFailure && !establishmentFailure && !handshakeTimeout
             && (observation.error != boost::asio::error::eof))
             return;
-        if (networkFailure)
+        // A remote peer can reset an established, productive connection during
+        // shutdown. Retry that peer elsewhere without penalizing the whole path.
+        if (connectionFailure && ((observation.operation == libtorrent::operation_t::connect)
+            || (observation.error == boost::asio::error::network_down)
+            || (observation.error == boost::asio::error::network_reset)
+            || (observation.error == boost::asio::error::network_unreachable)
+            || (observation.error == boost::asio::error::host_unreachable)))
             history.failurePressure = 0.8 * history.failurePressure + 0.2;
         if (peer != m_history->peers.end())
         {
@@ -420,5 +428,6 @@ void Net::PeerRouteSelector::RouteHistory::decay(const Clock::time_point now)
     verifiedBytes *= factor;
     demandMilliseconds *= factor;
     failurePressure *= factor;
+    recentAssignments *= factor;
     updated = now;
 }

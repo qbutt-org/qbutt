@@ -147,7 +147,7 @@ namespace Net
             double verifiedBytes = 0;
             double demandMilliseconds = 0;
             double failurePressure = 0;
-            std::uint64_t attempts = 0;
+            double recentAssignments = 0;
         };
 
         struct History

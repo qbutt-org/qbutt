@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -249,7 +250,8 @@ int main(const int argc, char **argv)
         torrentPolicy.routes.push_back(std::move(networkRoute));
         routes.push_back(std::move(route));
     }
-    auto selector = std::make_shared<Net::PeerRouteSelector>(std::move(routes), true);
+    auto diagnostics = std::make_shared<Net::PeerRouteSelector::DiagnosticHistory>();
+    auto selector = std::make_shared<Net::PeerRouteSelector>(std::move(routes), true, diagnostics);
     std::array<std::atomic<std::int64_t>, 4> verified {};
     std::atomic<std::int64_t> chokedMilliseconds = 0;
     std::atomic<int> firstRoute = 0;
@@ -358,8 +360,8 @@ int main(const int argc, char **argv)
     }
 
     // New infohashes make real new dials through the same selector. It first
-    // covers the one route not exercised by failover, then the measured
-    // productive route wins except for the admitted 10% exploration budget.
+    // covers the one route not exercised by failover, then gives the measured
+    // productive route a larger share without monopolizing all new dials.
     const std::int64_t originalCredit = verified[1];
     const std::int64_t retryCredit = verified[2];
     auto invalidPolicy = torrentPolicy;
@@ -383,12 +385,22 @@ int main(const int argc, char **argv)
             return 8;
         client.remove_torrent(next);
     }
-    const int coldCoverageAndExploration = firstPathAttempts + thirdPathAttempts - 1;
     const int publicAttempts = attempts;
-    if ((publicAttempts != 22) || (coldCoverageAndExploration != 1 + publicAttempts / 10))
+    const std::array<int, 3> newDials {firstPathAttempts - 1,
+        publicAttempts - firstPathAttempts - thirdPathAttempts - 1, thirdPathAttempts};
+    const auto publicDiagnostics = diagnostics->snapshot();
+    const auto explorationAdmissions = std::count_if(publicDiagnostics.events.begin(), publicDiagnostics.events.end(),
+        [](const Net::PeerRouteSelector::DiagnosticEvent &event)
+        {
+            return event.decision == Net::PeerRouteSelector::Decision::Exploration;
+        });
+    if ((publicAttempts != 22) || (explorationAdmissions != 3 + publicAttempts / 10)
+        || (newDials[0] == 0) || (newDials[2] == 0) || (newDials[1] >= 20)
+        || (newDials[1] <= newDials[0]) || (newDials[1] <= newDials[2]))
     {
         std::cerr << "publicAttempts=" << publicAttempts
-            << " coldCoverageAndExploration=" << coldCoverageAndExploration << '\n';
+            << " explorationAdmissions=" << explorationAdmissions
+            << " newDials=" << newDials[0] << ',' << newDials[1] << ',' << newDials[2] << '\n';
         return 9;
     }
 
@@ -423,8 +435,9 @@ int main(const int argc, char **argv)
         << ",\"retryRouteVerifiedBytes\":" << retryCredit
         << ",\"chokedMilliseconds\":" << chokedMilliseconds
         << ",\"publicAttempts\":" << publicAttempts
-        << ",\"coldCatalogCoverage\":1,\"explorationAttempts\":" << coldCoverageAndExploration - 1
+        << ",\"coldCatalogCoverage\":3,\"explorationAttempts\":" << explorationAdmissions - 3
+        << ",\"newDialShares\":[" << newDials[0] << ',' << newDials[1] << ',' << newDials[2] << ']'
         << ",\"privatePinned\":true,\"unknownMetadataPinned\":true"
-        << ",\"networkFailureRetry\":true,\"immutableBlockOrigin\":true"
+        << ",\"peerFailureRetry\":true,\"immutableBlockOrigin\":true"
         << ",\"torrentPolicyBarrier\":true}\n";
 }
