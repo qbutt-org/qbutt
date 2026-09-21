@@ -46,7 +46,7 @@ export function createTcpBottleneck(bytesPerSecond: number) {
             listenerStats.acceptedConnections++;
             const upstream = createConnection({
                 host: targetHost, port: targetPort, localAddress: upstreamLocalAddress,
-                allowHalfOpen: true, highWaterMark: 16 * 1024,
+                allowHalfOpen: true,
             });
             const controller = new AbortController();
             // Each stream has at most one transform in flight. Reservations are
