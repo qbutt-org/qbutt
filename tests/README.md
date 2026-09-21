@@ -606,7 +606,9 @@ and proxy config after its owned processes stop; compact evidence remains.
 
 `QBUTT_BENCH_SCENARIO=static-comparison` compares a separately built static
 selector with the normal Mixed selector. Set `QBUTT_BENCH_STATIC_EXE` and its
-recorded `QBUTT_BENCH_STATIC_SHA256`, plus the usual qbutt/Python/Native settings.
+`QBUTT_BENCH_STATIC_RECEIPT`, plus the usual qbutt/Python/Native settings. The
+receipt must identify the actual static and normal executable SHA-256 values and
+the static patch; both binaries are rejected unless they match that exact pair.
 The experimental binary replaces only public route selection with FNV-1a over
 both infohash slots and the numeric peer endpoint, modulo eligible routes; keep
 that patch and build provenance with the local receipt, outside production code.
@@ -618,6 +620,25 @@ alternate mode order; actual assignments, verified goodput, resource counters an
 redundant payload are recorded. Equal peer limits make this a neutral comparison
 with no expected adaptive speedup; latency and loss are not controlled, and the
 fixture does not test all 18 possible peer/path pairs.
+
+`QBUTT_BENCH_SCENARIO=static-unequal` reuses that pinned static-selector binary
+and compares only route choices for fresh dials after controlled training. Three
+partial peers first cover the three routes once. Independent downstream stream
+limiters at 48, 16 and 8 KiB/s then provide at least 64 KiB of the same
+verified-bytes/demand signal consumed by RouteSelector, after which those
+connections close. Nine fresh full peers, three from each static hash bucket,
+are reachable through every route and use independent 8 KiB/s source caps.
+Evidence records the training signal, per-route limiter deltas, initial path for
+every measured peer, assignment-derived throughput ceilings and paired goodput.
+The static control must keep a 3/3/3 assignment. A successful fixture receipt
+means the topology, counters, stable assignments, exact payload and hashes were
+valid; `adaptiveAssignmentObserved` and `adaptiveSpeedupProven` remain explicit
+summary results rather than pass conditions. The latter requires a higher
+assignment ceiling and positive selector goodput in every counterbalanced round.
+This scenario tests later connection selection, not migration of a live slow
+peer, UDP, WAN or a physical last mile. Preserve the static patch/build receipt
+with both executable hashes so unrelated application changes cannot be mistaken
+for selector performance.
 
 `benchmark:public-swarm` uses the pinned official Ubuntu 24.04.5 live-server
 torrent and a separate empty profile for every bounded window. Set

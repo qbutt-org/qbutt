@@ -17,6 +17,8 @@ interface PathsStatus {
     paths: { pathId: string; generation: number; edgeId: string; proxyName: string; open: boolean; localAddress?: string;
         closedPayloadDownload?: number }[];
     peers: { pathId: string; generation: number; peer: string; port: number; localPort: number; payloadDownload: number }[];
+    diagnostics: { routes: { pathId: string; generation: number; attempts: number; verifiedDownload: number;
+        demandMilliseconds: number }[] };
 }
 
 interface RouteResult {
@@ -48,20 +50,44 @@ interface RunResult {
     sourcePayloadBytes: number;
     redundantPayloadBytes: number;
     bottleneck?: { capBytesPerSecond: number } & ReturnType<typeof createTcpBottleneck>["stats"];
-    sharedPeers?: { port: number; initialPathId: string; initialGeneration: number;
+    sharedPeers?: { port: number; initialPathId: string; initialGeneration: number; staticBucket?: number;
         sourcePayloadUploadBytes: number }[];
     recovery?: { failedPathId: string; healthyPathId: string; milliseconds: number; nativeConnectionRetained: true };
+    unequalPaths?: {
+        training: { pathId: string; generation: number; capBytesPerSecond: number; verifiedDownload: number;
+            demandMilliseconds: number; verifiedBytesPerDemandSecond: number; limiterStreamBytes: number }[];
+        measured: { pathId: string; generation: number; capBytesPerSecond: number; assignedPeers: number;
+            limiterStreamBytes: number }[];
+        assignmentCeilingBytesPerSecond: number;
+        observedAssignmentStable: true;
+    };
     evidence: string;
+}
+
+type SeedHandle = Awaited<ReturnType<typeof startSeed>>;
+type Bottleneck = ReturnType<typeof createTcpBottleneck>;
+type BottleneckSnapshot = ReturnType<Bottleneck["snapshot"]>;
+
+interface StaticPeerFixture {
+    seed: SeedHandle;
+    endpointPort: number;
+    bucket: number;
+    phase: "training" | "measurement";
 }
 
 const CONTROL_SHA256 = "9393e0c523b35a437fb9b356b4c7c7402dbbd9d97b9c1ae519fd01f1219c471e";
 const CONTROL_REVISION = "0b63c3d17373f6132ea211c9dcd4241284ccdfaf";
 const WARMUP_RATE = 1024;
 const STATIC_PEER_RATE = 8 * 1024;
+const UNEQUAL_ROUTE_RATES = [48 * 1024, 16 * 1024, 8 * 1024] as const;
+const UNEQUAL_TRAINING_RATE = 96 * 1024;
+const UNEQUAL_TRAINING_SAMPLE = 64 * 1024;
+const UNEQUAL_MEASUREMENT_PEERS = 9;
 const TRANSFER_RATE = Number(process.env.QBUTT_BENCH_ROUTE_RATE ?? 96 * 1024);
 const scenario = process.env.QBUTT_BENCH_SCENARIO ?? "capacity";
-assert(["capacity", "shared-cap", "shared-network-cap", "failed-path", "static-comparison"].includes(scenario), "Unknown benchmark scenario");
-const comparingStatic = scenario === "static-comparison";
+assert(["capacity", "shared-cap", "shared-network-cap", "failed-path", "static-comparison", "static-unequal"].includes(scenario), "Unknown benchmark scenario");
+const unequalStatic = scenario === "static-unequal";
+const comparingStatic = scenario === "static-comparison" || unequalStatic;
 const sharedNetworkCap = scenario === "shared-network-cap";
 const sharedCap = scenario === "shared-cap" || sharedNetworkCap;
 const SOURCE_RATE = comparingStatic ? STATIC_PEER_RATE
@@ -74,14 +100,15 @@ const MODES: Mode[] = comparingStatic ? ["qbutt-static", "qbutt-mixed"]
 const baselineExecutable = resolve(process.env.QBUTT_BENCH_BASELINE_EXE ?? "");
 const qbuttExecutable = resolve(process.env.QBUTT_BENCH_QBUTT_EXE ?? "");
 const staticExecutable = resolve(process.env.QBUTT_BENCH_STATIC_EXE ?? "");
+const staticReceiptPath = resolve(process.env.QBUTT_BENCH_STATIC_RECEIPT ?? "");
 const python = resolve(process.env.QBUTT_LAB_PYTHON ?? "");
 const nativeInterface = process.env.QBUTT_LAB_NATIVE_INTERFACE ?? "";
 const nativeAddress = process.env.QBUTT_LAB_NATIVE_ADDRESS ?? "";
 
 assert(process.env.QBUTT_BENCH_QBUTT_EXE && process.env.QBUTT_LAB_PYTHON
-    && (comparingStatic ? process.env.QBUTT_BENCH_STATIC_EXE && process.env.QBUTT_BENCH_STATIC_SHA256
+    && (comparingStatic ? process.env.QBUTT_BENCH_STATIC_EXE && process.env.QBUTT_BENCH_STATIC_RECEIPT
         : process.env.QBUTT_BENCH_BASELINE_EXE),
-"Set QBUTT_BENCH_QBUTT_EXE, QBUTT_LAB_PYTHON, and the scenario's baseline executable and SHA-256");
+"Set QBUTT_BENCH_QBUTT_EXE, QBUTT_LAB_PYTHON, and the scenario's baseline executable and receipt");
 assert(nativeInterface && nativeAddress, "Set QBUTT_LAB_NATIVE_INTERFACE and QBUTT_LAB_NATIVE_ADDRESS");
 assert(Number.isInteger(ROUNDS) && (scenario === "failed-path" ? ROUNDS === 1 : ROUNDS >= 3 && ROUNDS <= 9),
     "QBUTT_BENCH_ROUNDS must be 1 for failed-path, otherwise between 3 and 9");
@@ -97,9 +124,14 @@ const [baselineHash, qbuttHash] = await Promise.all([
     readFile(comparingStatic ? staticExecutable : baselineExecutable).then(sha256),
     readFile(qbuttExecutable).then(sha256),
 ]);
-assert(comparingStatic ? baselineHash === process.env.QBUTT_BENCH_STATIC_SHA256?.toLowerCase()
+const staticReceipt = comparingStatic ? JSON.parse(await readFile(staticReceiptPath, "utf8")) as {
+    source: string; normalSource: string; patchSha256: string; staticSha256: string; normalSha256: string;
+} : undefined;
+assert(comparingStatic ? staticReceipt && /^[0-9a-f]{64}$/.test(staticReceipt.staticSha256)
+    && /^[0-9a-f]{64}$/.test(staticReceipt.normalSha256)
+    && baselineHash === staticReceipt.staticSha256 && qbuttHash === staticReceipt.normalSha256
     : baselineHash === CONTROL_SHA256,
-`The baseline binary SHA-256 differs from the pinned ${comparingStatic ? "static" : CONTROL_REVISION} control`);
+`A benchmark binary differs from the pinned ${comparingStatic ? "static/normal pair" : CONTROL_REVISION} control`);
 assert(baselineHash !== qbuttHash, "The qbutt executable must be distinct from the baseline");
 
 function quantile(values: number[], fraction: number): number {
@@ -139,6 +171,13 @@ function staticBucket(torrent: TorrentFixture, peerAddress: string, port: number
     return Number(hash % 3n);
 }
 
+function bottleneckDelta(before: BottleneckSnapshot, after: BottleneckSnapshot) {
+    assert(after.downstreamStreamBytes >= before.downstreamStreamBytes
+        && after.acceptedConnections >= before.acceptedConnections, "Bottleneck counters regressed");
+    return { acceptedConnections: after.acceptedConnections - before.acceptedConnections,
+        downstreamStreamBytes: after.downstreamStreamBytes - before.downstreamStreamBytes };
+}
+
 function orderForRound(round: number): Mode[] {
     const offset = (round - 1) % MODES.length;
     return [...MODES.slice(offset), ...MODES.slice(0, offset)];
@@ -165,13 +204,15 @@ async function makePartialSeed(torrent: TorrentFixture, fixtureRoot: string, des
     return bytes;
 }
 
-async function awaitCompletion(lab: Awaited<ReturnType<typeof createLab>>, hash: string) {
+async function awaitCompletion(lab: Awaited<ReturnType<typeof createLab>>, hash: string,
+    observe?: () => Promise<void>) {
     const latencies: number[] = [];
     const deadline = Date.now() + 120000;
     for (;;) {
         const started = performance.now();
         const info = await lab.info(hash);
         latencies.push(performance.now() - started);
+        await observe?.();
         if (info.progress === 1)
             return latencies;
         if (Date.now() >= deadline)
@@ -195,31 +236,86 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
     const tunnelCount = (mode === "qbutt-mixed" || mode === "qbutt-static") ? 2
         : mode === "qbutt-one-tunnel" ? 1 : 0;
     const routeCount = tunnelCount === 2 ? 3 : 1;
-    const seeds: Awaited<ReturnType<typeof startSeed>>[] = [];
+    const seeds: SeedHandle[] = [];
     const proxies: Awaited<ReturnType<typeof startProxy>>[] = [];
     const bottleneck = sharedNetworkCap ? createTcpBottleneck(TRANSFER_RATE) : undefined;
+    const unequalBottlenecks = unequalStatic ? UNEQUAL_ROUTE_RATES.map(rate => createTcpBottleneck(rate)) : [];
+    const staticPeers: StaticPeerFixture[] = [];
     const peerPorts: number[] = [];
     const subsetBytes: number[] = [];
     const credentials = Array.from({ length: tunnelCount }, () => ({
         username: randomBytes(16).toString("hex"), password: randomBytes(24).toString("hex"),
     }));
     const assignedRoutes: { pathId: string; generation: number; edgeId: string; native: boolean }[] = [];
-    let sharedPeerAssignments: { port: number; initialPathId: string; initialGeneration: number }[] = [];
+    let sharedPeerAssignments: { port: number; initialPathId: string; initialGeneration: number;
+        staticBucket?: number }[] = [];
+    let unequalTraining: NonNullable<RunResult["unequalPaths"]>["training"] = [];
+    let unequalMeasurement: { peer: StaticPeerFixture; pathId: string; generation: number }[] = [];
+    let unequalMeasurementStart: BottleneckSnapshot[] = [];
     let failure: unknown;
     let recovery: RunResult["recovery"];
+    let unequalPaths: RunResult["unequalPaths"];
     let resourceSampler: Awaited<ReturnType<typeof prepareResourceSampler>> | undefined;
     let cleanupPromise: Promise<void> | undefined;
     const cleanup = () => cleanupPromise ??= (async () => {
         const results = await Promise.allSettled([
             resourceSampler?.close(),
-            lab.shutdown(), bottleneck?.close(), ...proxies.map(proxy => proxy.close()), ...seeds.map(seed => seed.stop()),
+            lab.shutdown(), bottleneck?.close(), ...unequalBottlenecks.map(item => item.close()),
+            ...proxies.map(proxy => proxy.close()), ...seeds.map(seed => seed.stop()),
         ]);
         const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
         if (failures.length)
             throw new AggregateError(failures.map(result => result.reason), "Benchmark process cleanup failed");
     })();
     try {
-        if (comparingStatic) {
+        if (unequalStatic) {
+            const addPeer = async (phase: StaticPeerFixture["phase"], bucket: number,
+                pieces?: number[], savePath?: string) => {
+                for (let candidate = 0; candidate < 32; ++candidate) {
+                    const seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root, {
+                        label: `${mode}-${phase}-${bucket}-${candidate}`, listenAddress: nativeAddress,
+                        uploadRate: WARMUP_RATE, pieces, savePath,
+                    });
+                    const nativeListener = await unequalBottlenecks[2]!.listen(nativeAddress, seed.host, seed.port);
+                    const endpointPort = nativeListener.port;
+                    if (staticBucket(torrent, nativeAddress, endpointPort) !== bucket) {
+                        await nativeListener.discard();
+                        await seed.stop();
+                        continue;
+                    }
+                    for (let side = 0; side < 2; ++side) {
+                        await unequalBottlenecks[side]!.listen(`127.0.0.${side + 40}`, seed.host, seed.port, {
+                            port: endpointPort, clientAddress: "127.0.0.1", upstreamLocalAddress: nativeAddress,
+                        });
+                    }
+                    seeds.push(seed);
+                    staticPeers.push({ seed, endpointPort, bucket, phase });
+                    return;
+                }
+                throw new Error(`Could not allocate a ${phase} endpoint in static bucket ${bucket}`);
+            };
+
+            for (let bucket = 0; bucket < 3; ++bucket) {
+                const pieces = Array.from({ length: 8 }, (_, offset) => bucket * 8 + offset);
+                assert(pieces.at(-1)! < torrent.pieceCount, "The training corpus needs 24 distinct pieces");
+                const savePath = join(lab.root, `partial-${bucket}`);
+                const verifiedPayloadBytes = await makePartialSeed(torrent, lab.fixtures, savePath, pieces);
+                assert(verifiedPayloadBytes >= UNEQUAL_TRAINING_SAMPLE * 2,
+                    "The training peer needs enough distinct payload after route admission warmup");
+                await addPeer("training", bucket, pieces, savePath);
+            }
+            for (let bucket = 0; bucket < 3; ++bucket)
+                for (let peer = 0; peer < UNEQUAL_MEASUREMENT_PEERS / 3; ++peer)
+                    await addPeer("measurement", bucket);
+
+            for (let side = 0; side < tunnelCount; ++side) {
+                proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`,
+                    targets: staticPeers.map(peer => ({ host: nativeAddress, port: peer.endpointPort,
+                        connectHost: `127.0.0.${side + 40}`, connectPort: peer.endpointPort })),
+                }));
+            }
+        }
+        else if (comparingStatic) {
             const accepted = [0, 0, 0];
             for (let candidate = 0; accepted.some(count => count < 2) && candidate < 24; ++candidate) {
                 const seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root, {
@@ -258,7 +354,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 seeds.push(seed);
                 assert(seed.verifiedPayloadBytes === subsetBytes[side], "Seed verified-byte count differs from its physical data");
                 const peerPort = bottleneck
-                    ? await bottleneck.listen(native ? nativeAddress : "127.0.0.1", seed.host, seed.port)
+                    ? (await bottleneck.listen(native ? nativeAddress : "127.0.0.1", seed.host, seed.port)).port
                     : seed.port;
                 peerPorts.push(peerPort);
                 if (!native) {
@@ -283,7 +379,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             await lab.request("app/setPreferences", { json: JSON.stringify({
                 enable_multi_connections_from_same_ip: true,
             }) });
-            await waitFor("six peers on one fixture address are permitted",
+            await waitFor("benchmark peers on one fixture address are permitted",
                 () => lab.json<Record<string, unknown>>("app/preferences"),
                 preferences => preferences.enable_multi_connections_from_same_ip === true);
         }
@@ -325,7 +421,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         const torrentStarted = performance.now();
         await lab.request("torrents/start", { hashes: hash });
         const setupStarted = performance.now();
-        const endpoints = seeds.map((seed, side) => comparingStatic ? `${nativeAddress}:${seed.port}`
+        const endpoints = seeds.map((seed, side) => unequalStatic ? `${nativeAddress}:${staticPeers[side]!.endpointPort}`
+            : comparingStatic ? `${nativeAddress}:${seed.port}`
             : mode === "qbutt-mixed" && side === routeCount - 1
             ? `${nativeAddress}:${peerPorts[side]}` : mode === "upstream-native" || mode === "qbutt-native"
                 ? `${nativeAddress}:${peerPorts[side]}` : `127.0.0.${side + 2}:${peerPorts[side]}`);
@@ -347,27 +444,117 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     assignedRoutes.push({ pathId: path.pathId, generation: path.generation,
                         edgeId: path.edgeId, native: path.edgeId === "native" });
                 }
-                for (const endpoint of endpoints)
-                    await lab.request("torrents/addPeers", { hashes: hash, peers: endpoint });
-                const connected = await waitFor("six full peers transferring over shared reachable routes",
-                    () => lab.json<PathsStatus>("qbuttPaths/status"), status =>
-                        seeds.every(seed => status.peers.some(peer => peer.peer === nativeAddress
-                            && peer.port === seed.port && peer.payloadDownload > 0
-                            && assignedRoutes.some(route => route.pathId === peer.pathId
-                                && route.generation === peer.generation))), 120000);
-                sharedPeerAssignments = seeds.map(seed => {
-                    const peer = connected.peers.find(candidate => candidate.peer === nativeAddress
-                        && candidate.port === seed.port)!;
-                    return { port: seed.port, initialPathId: peer.pathId, initialGeneration: peer.generation };
-                });
-                if (mode === "qbutt-static") {
-                    for (const route of assignedRoutes)
-                        assert(sharedPeerAssignments.filter(peer => peer.initialPathId === route.pathId
-                            && peer.initialGeneration === route.generation).length === 2,
-                        `Static hash did not place two peers on path ${route.pathId}`);
+                if (unequalStatic) {
+                    const trainingPeers = staticPeers.filter(peer => peer.phase === "training");
+                    const measurementPeers = staticPeers.filter(peer => peer.phase === "measurement");
+                    for (const peer of trainingPeers)
+                        await lab.request("torrents/addPeers", { hashes: hash,
+                            peers: `${nativeAddress}:${peer.endpointPort}` });
+                    const trainingConnected = await waitFor("one training peer on every route",
+                        () => lab.json<PathsStatus>("qbuttPaths/status"), status => trainingPeers.every(peer =>
+                            status.peers.some(candidate => candidate.peer === nativeAddress
+                                && candidate.port === peer.endpointPort && candidate.payloadDownload > 0)), 120000);
+                    const trainingAssignments = trainingPeers.map(peer => {
+                        const connection = trainingConnected.peers.find(candidate => candidate.peer === nativeAddress
+                            && candidate.port === peer.endpointPort)!;
+                        return { peer, pathId: connection.pathId, generation: connection.generation };
+                    });
+                    assert(new Set(trainingAssignments.map(item => `${item.pathId}:${item.generation}`)).size === 3,
+                        "Training did not cover each eligible route exactly once");
+                    const sampleStart = trainingConnected.diagnostics.routes;
+                    const limiterBefore = unequalBottlenecks.map(item => item.snapshot());
+                    await Promise.all(trainingPeers.map(peer => peer.seed.setUploadRate(UNEQUAL_TRAINING_RATE)));
+                    const trained = await waitFor("unequal route training sample", () =>
+                        lab.json<PathsStatus>("qbuttPaths/status"), status => trainingAssignments.every(assignment => {
+                            const before = sampleStart.find(route => route.pathId === assignment.pathId
+                                && route.generation === assignment.generation);
+                            const after = status.diagnostics.routes.find(route => route.pathId === assignment.pathId
+                                && route.generation === assignment.generation);
+                            return Boolean(before && after
+                                && after.verifiedDownload - before.verifiedDownload >= UNEQUAL_TRAINING_SAMPLE);
+                        }), 120000);
+                    await Promise.all(trainingPeers.map(peer => peer.seed.stop()));
+                    await waitFor("training peers disconnected before measured dials", () =>
+                        lab.json<PathsStatus>("qbuttPaths/status"), status => trainingPeers.every(peer =>
+                            !status.peers.some(candidate => candidate.peer === nativeAddress
+                                && candidate.port === peer.endpointPort)), 30000);
+                    const limiterAfter = unequalBottlenecks.map(item => item.snapshot());
+                    unequalTraining = assignedRoutes.map((route, side) => {
+                        const before = sampleStart.find(candidate => candidate.pathId === route.pathId
+                            && candidate.generation === route.generation);
+                        const after = trained.diagnostics.routes.find(candidate => candidate.pathId === route.pathId
+                            && candidate.generation === route.generation);
+                        assert(before && after, "Route diagnostics disappeared during training");
+                        const verifiedDownload = after.verifiedDownload - before.verifiedDownload;
+                        const demandMilliseconds = after.demandMilliseconds - before.demandMilliseconds;
+                        assert(verifiedDownload >= UNEQUAL_TRAINING_SAMPLE && demandMilliseconds > 0,
+                            "Route training did not produce the selector's verified-demand signal");
+                        const limiterStreamBytes = bottleneckDelta(limiterBefore[side]!, limiterAfter[side]!)
+                            .downstreamStreamBytes;
+                        assert(limiterStreamBytes >= verifiedDownload,
+                            "Training verified bytes bypassed its path limiter");
+                        return { pathId: route.pathId, generation: route.generation,
+                            capBytesPerSecond: UNEQUAL_ROUTE_RATES[side]!, verifiedDownload, demandMilliseconds,
+                            verifiedBytesPerDemandSecond: verifiedDownload * 1000 / demandMilliseconds,
+                            limiterStreamBytes };
+                    });
+                    assert(unequalTraining[0]!.verifiedBytesPerDemandSecond
+                        >= unequalTraining[1]!.verifiedBytesPerDemandSecond * 1.8
+                        && unequalTraining[1]!.verifiedBytesPerDemandSecond
+                            >= unequalTraining[2]!.verifiedBytesPerDemandSecond * 1.4,
+                    `Training did not establish ordered route quality: ${JSON.stringify(unequalTraining)}`);
+                    await lab.checkpoint({ check: "unequal-route-training", mode,
+                        exactTargetsWhitelistedOnBothProxies: true, training: unequalTraining,
+                        assignments: trainingAssignments.map(item => ({ endpointPort: item.peer.endpointPort,
+                            staticBucket: item.peer.bucket, pathId: item.pathId, generation: item.generation })) });
+
+                    for (const peer of measurementPeers)
+                        await lab.request("torrents/addPeers", { hashes: hash,
+                            peers: `${nativeAddress}:${peer.endpointPort}` });
+                    const measuredConnected = await waitFor("fresh measured peers admitted after training",
+                        () => lab.json<PathsStatus>("qbuttPaths/status"), status => measurementPeers.every(peer =>
+                            status.peers.some(candidate => candidate.peer === nativeAddress
+                                && candidate.port === peer.endpointPort && candidate.payloadDownload > 0)), 120000);
+                    unequalMeasurement = measurementPeers.map(peer => {
+                        const connection = measuredConnected.peers.find(candidate => candidate.peer === nativeAddress
+                            && candidate.port === peer.endpointPort)!;
+                        return { peer, pathId: connection.pathId, generation: connection.generation };
+                    });
+                    sharedPeerAssignments = unequalMeasurement.map(item => ({ port: item.peer.endpointPort,
+                        initialPathId: item.pathId, initialGeneration: item.generation,
+                        staticBucket: item.peer.bucket }));
+                    if (mode === "qbutt-static") {
+                        for (const route of assignedRoutes)
+                            assert(unequalMeasurement.filter(peer => peer.pathId === route.pathId
+                                && peer.generation === route.generation).length === UNEQUAL_MEASUREMENT_PEERS / 3,
+                            `Static hash did not place three measured peers on path ${route.pathId}`);
+                    }
+                    await lab.checkpoint({ check: "unequal-fresh-dial-admission", mode,
+                        trainingConnectionsClosed: true, sharedPeerAssignments, paths: assignedRoutes });
                 }
-                await lab.checkpoint({ check: "shared-peers-route-admission", mode,
-                    exactTargetsWhitelistedOnBothProxies: true, sharedPeerAssignments, paths: assignedRoutes });
+                else {
+                    for (const endpoint of endpoints)
+                        await lab.request("torrents/addPeers", { hashes: hash, peers: endpoint });
+                    const connected = await waitFor("six full peers transferring over shared reachable routes",
+                        () => lab.json<PathsStatus>("qbuttPaths/status"), status =>
+                            seeds.every(seed => status.peers.some(peer => peer.peer === nativeAddress
+                                && peer.port === seed.port && peer.payloadDownload > 0
+                                && assignedRoutes.some(route => route.pathId === peer.pathId
+                                    && route.generation === peer.generation))), 120000);
+                    sharedPeerAssignments = seeds.map(seed => {
+                        const peer = connected.peers.find(candidate => candidate.peer === nativeAddress
+                            && candidate.port === seed.port)!;
+                        return { port: seed.port, initialPathId: peer.pathId, initialGeneration: peer.generation };
+                    });
+                    if (mode === "qbutt-static") {
+                        for (const route of assignedRoutes)
+                            assert(sharedPeerAssignments.filter(peer => peer.initialPathId === route.pathId
+                                && peer.initialGeneration === route.generation).length === 2,
+                            `Static hash did not place two peers on path ${route.pathId}`);
+                    }
+                    await lab.checkpoint({ check: "shared-peers-route-admission", mode,
+                        exactTargetsWhitelistedOnBothProxies: true, sharedPeerAssignments, paths: assignedRoutes });
+                }
             }
             else {
                 const expected = endpoints.map((endpoint, side) => {
@@ -423,10 +610,30 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 && await (await lab.request("transfer/speedLimitsMode")).text() === "0",
             "The external bottleneck requires application download limits to be disabled");
         }
-        await Promise.all(seeds.map(seed => seed.setUploadRate(SOURCE_RATE)));
+        await Promise.all((unequalStatic ? staticPeers.filter(peer => peer.phase === "measurement").map(peer => peer.seed)
+            : seeds).map(seed => seed.setUploadRate(SOURCE_RATE)));
+        if (unequalStatic)
+            unequalMeasurementStart = unequalBottlenecks.map(item => item.snapshot());
         await resourceSampler.start();
         const completionStarted = performance.now();
-        const uiLatencies = await awaitCompletion(lab, hash);
+        let lastAssignmentCheck = 0;
+        const checkAssignments = async () => {
+            const current = await lab.json<PathsStatus>("qbuttPaths/status");
+            for (const assignment of unequalMeasurement) {
+                const peer = current.peers.find(candidate => candidate.peer === nativeAddress
+                    && candidate.port === assignment.peer.endpointPort);
+                assert(!peer || (peer.pathId === assignment.pathId && peer.generation === assignment.generation),
+                    `Measured peer ${assignment.peer.endpointPort} moved between routes`);
+            }
+        };
+        const uiLatencies = await awaitCompletion(lab, hash, unequalStatic ? async () => {
+            if (performance.now() - lastAssignmentCheck < 500)
+                return;
+            lastAssignmentCheck = performance.now();
+            await checkAssignments();
+        } : undefined);
+        if (unequalStatic)
+            await checkAssignments();
         const completed = performance.now();
         const resources = await resourceSampler.stop();
         // Resource snapshots bracket this same transfer. Report the actual
@@ -440,6 +647,32 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         const measuredVerifiedBytes = exactPayloadBytes - warmupVerifiedBytes;
         const verifiedBytesPerSecond = measuredVerifiedBytes / (measurementMilliseconds / 1000);
         const endToEndVerifiedBytesPerSecond = exactPayloadBytes / (endToEndCompletionMilliseconds / 1000);
+        if (unequalStatic) {
+            const limiterAfter = unequalBottlenecks.map(item => item.snapshot());
+            const measured = assignedRoutes.map((route, side) => ({
+                pathId: route.pathId,
+                generation: route.generation,
+                capBytesPerSecond: UNEQUAL_ROUTE_RATES[side]!,
+                assignedPeers: unequalMeasurement.filter(peer => peer.pathId === route.pathId
+                    && peer.generation === route.generation).length,
+                limiterStreamBytes: bottleneckDelta(unequalMeasurementStart[side]!, limiterAfter[side]!)
+                    .downstreamStreamBytes,
+            }));
+            for (const [side, route] of measured.entries()) {
+                assert(route.assignedPeers === 0 || route.limiterStreamBytes > 0,
+                    "An assigned measured route has no limiter traffic");
+                const upperBound = route.capBytesPerSecond * measurementMilliseconds / 1000
+                    + unequalBottlenecks[side]!.stats.burstAllowanceBytes + 1024;
+                assert(route.limiterStreamBytes <= upperBound,
+                    `Route limiter exceeded its byte budget: ${JSON.stringify({ route, upperBound })}`);
+            }
+            assert(measured.reduce((sum, route) => sum + route.limiterStreamBytes, 0) >= measuredVerifiedBytes,
+                "Measured verified bytes bypassed the unequal path limiters");
+            const assignmentCeilingBytesPerSecond = measured.reduce((sum, route) =>
+                sum + Math.min(route.capBytesPerSecond, route.assignedPeers * STATIC_PEER_RATE), 0);
+            unequalPaths = { training: unequalTraining, measured, assignmentCeilingBytesPerSecond,
+                observedAssignmentStable: true };
+        }
         await lab.request("torrents/stop", { hashes: hash });
         await waitFor("benchmark target stopped", () => lab.info(hash), info => info.state === "stoppedUP");
         assert(await verifyPayload(destination, lab.manifest.payload) === exactPayloadBytes,
@@ -449,7 +682,10 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             ? await waitFor("closed tunnel payload attribution", () => lab.json<PathsStatus>("qbuttPaths/status"),
                 current => comparingStatic ? assignedRoutes.every(assigned => current.paths.some(path =>
                     path.pathId === assigned.pathId && path.generation === assigned.generation))
-                    && seeds.every(seed => !current.peers.some(peer => peer.peer === nativeAddress && peer.port === seed.port))
+                    && (unequalStatic ? staticPeers.every(peer => !current.peers.some(candidate =>
+                        candidate.peer === nativeAddress && candidate.port === peer.endpointPort))
+                        : seeds.every(seed => !current.peers.some(peer => peer.peer === nativeAddress
+                            && peer.port === seed.port)))
                     : scenario === "failed-path" ? assignedRoutes.filter(route => !route.native).reduce((sum, route) =>
                     sum + (current.paths.find(path => path.pathId === route.pathId
                         && path.generation === route.generation)?.closedPayloadDownload ?? 0), 0) >= subsetBytes[0]! + subsetBytes[1]!
@@ -460,7 +696,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         if (status) {
             assert(assignedRoutes.length === routeCount, "Managed benchmark routes were not fully assigned");
             for (const [side, assigned] of assignedRoutes.entries()) {
-                const path = status.paths.find(candidate => candidate.pathId === assigned.pathId
+                const path: PathsStatus["paths"][number] | undefined = status.paths.find(candidate => candidate.pathId === assigned.pathId
                     && candidate.generation === assigned.generation && candidate.edgeId === assigned.edgeId);
                 assert(path, "Managed route telemetry disappeared before result capture");
                 if (!assigned.native && scenario !== "failed-path" && !comparingStatic)
@@ -514,6 +750,12 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     && listener.downstreamStreamBytes >= subsetBytes[side]!),
             `Shared downstream limiter proof failed: ${JSON.stringify(bottleneck.stats)}`);
         }
+        const sharedPeers = comparingStatic ? sharedPeerAssignments.map((peer, side) => {
+            const seedIndex = unequalStatic
+                ? staticPeers.findIndex(candidate => candidate.endpointPort === peer.port) : side;
+            assert(seedIndex >= 0, "Measured peer lost its controlled source");
+            return { ...peer, sourcePayloadUploadBytes: stoppedSeeds[seedIndex]!.uploadPayloadBytes };
+        }) : undefined;
         const result: RunResult = {
             mode, round, executableSha256: mode === "upstream-native" || mode === "qbutt-static"
                 ? baselineHash : qbuttHash,
@@ -521,9 +763,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             preparationMilliseconds, connectionSetupMilliseconds, measurementMilliseconds,
             endToEndCompletionMilliseconds, verifiedBytesPerSecond, endToEndVerifiedBytesPerSecond,
             uiProbeMilliseconds: summarizeLatencies(uiLatencies), resources, routes, sourcePayloadBytes,
-            ...(comparingStatic ? { sharedPeers: sharedPeerAssignments.map((peer, side) => ({ ...peer,
-                sourcePayloadUploadBytes: stoppedSeeds[side]!.uploadPayloadBytes })) } : {}),
-            redundantPayloadBytes, recovery, evidence: join(lab.root, "evidence.json"),
+            ...(sharedPeers ? { sharedPeers } : {}),
+            redundantPayloadBytes, recovery, unequalPaths, evidence: join(lab.root, "evidence.json"),
             ...(bottleneck ? { bottleneck: { capBytesPerSecond: TRANSFER_RATE, ...bottleneck.stats } } : {}),
         };
         await lab.checkpoint({ check: "comparative-network-window", ...result });
@@ -569,7 +810,9 @@ const evidence: Record<string, unknown> = {
     status: "running",
     startedAt: new Date().toISOString(),
     control: comparingStatic
-        ? { kind: "experimental-static-selector", executable: staticExecutable, executableSha256: baselineHash }
+        ? { kind: "experimental-static-selector", executable: staticExecutable, executableSha256: baselineHash,
+            pairedExecutableSha256: qbuttHash, source: staticReceipt!.source,
+            pairedSource: staticReceipt!.normalSource, patchSha256: staticReceipt!.patchSha256 }
         : { revision: CONTROL_REVISION, executable: baselineExecutable, executableSha256: baselineHash },
     qbutt: { executable: qbuttExecutable, executableSha256: qbuttHash },
     topology: {
@@ -578,8 +821,13 @@ const evidence: Record<string, unknown> = {
         orderByRound: Array.from({ length: ROUNDS }, (_, round) => orderForRound(round + 1)),
         ...(comparingStatic ? { peerUploadLimitBytesPerSecond: SOURCE_RATE }
             : { routeUploadLimitBytesPerSecond: SOURCE_RATE }),
-        ...(comparingStatic ? { sixFullPeersWithCommonExactTargets: true,
-            selectedStaticHashBuckets: [2, 2, 2], multiConnectionsPerIp: true } : {}),
+        ...(unequalStatic ? { routeDownstreamLimitsBytesPerSecond: UNEQUAL_ROUTE_RATES,
+            trainingPeers: 3, trainingSampleBytesPerRoute: UNEQUAL_TRAINING_SAMPLE,
+            trainingSourceLimitBytesPerSecond: UNEQUAL_TRAINING_RATE,
+            measuredFullPeers: UNEQUAL_MEASUREMENT_PEERS, selectedStaticHashBuckets: [3, 3, 3],
+            multiConnectionsPerIp: true }
+            : comparingStatic ? { sixFullPeersWithCommonExactTargets: true,
+                selectedStaticHashBuckets: [2, 2, 2], multiConnectionsPerIp: true } : {}),
         sharedApplicationDownloadLimit: scenario === "shared-cap" ? TRANSFER_RATE : undefined,
         sharedDownstreamRelayLimit: sharedNetworkCap ? TRANSFER_RATE : undefined,
         warmupUploadLimitBytesPerSecond: WARMUP_RATE,
@@ -589,10 +837,14 @@ const evidence: Record<string, unknown> = {
     },
     limits: [
         "Generated deterministic v1 payload and controlled TCP peers on one Windows host",
-        comparingStatic
+        unequalStatic
+            ? "Three partial peers first train distinct paths above 64 KiB of verified-demand signal; nine fresh full peers are the only measured dials"
+            : comparingStatic
             ? "Each timed window begins after all six peers deliver payload at a 1 KiB/s warmup cap, then all acknowledge the same measured per-peer cap"
             : "Each timed window begins after every required peer supplies payload at a 1 KiB/s warmup cap and acknowledges the measured cap",
-        comparingStatic
+        unequalStatic
+            ? "Each path has its own 48/16/8 KiB/s downstream stream budget; measured sources have independent 8 KiB/s per-peer caps"
+            : comparingStatic
             ? "Six full public TCP peers per run, each exact native endpoint whitelisted on both authenticated SOCKS routes; source cap is per peer, not per path"
             : sharedNetworkCap
             ? "Native and both SOCKS paths cross one shared downstream TCP stream limiter outside qbutt; application download limits are disabled. This emulates a shared network bottleneck, not a physical router"
@@ -603,8 +855,12 @@ const evidence: Record<string, unknown> = {
         "Resource counters cover the transfer window with explicit command/acknowledgement boundary bounds; CPU is per-core, memory peaks are sampled, process I/O is not disk-only",
         "Only the exact app and qbutt-net process handles are measured; runner, controlled peers and relays are excluded",
         ...(comparingStatic ? ["Static uses an unmerged source patch and separately pinned executable; peers, port hash buckets, path assignments and source payload are recorded per run",
-            "Both proxies whitelist all six exact peer targets; only selected peer/path connections are observed, not all 18 possible pairs",
-            "Equal reachable paths and per-peer caps do not model unequal route throughput or imply RouteSelector should outperform static distribution"] : []),
+            unequalStatic
+                ? "All twelve exact endpoints exist behind each path-specific limiter; training connections close before nine fresh measured dials, whose path identity must remain stable"
+                : "Both proxies whitelist all six exact peer targets; only selected peer/path connections are observed, not all 18 possible pairs",
+            unequalStatic
+                ? "The selector chooses routes only for new connections; this fixture does not claim migration of already-live peers"
+                : "Equal reachable paths and per-peer caps do not model unequal route throughput or imply RouteSelector should outperform static distribution"] : []),
         "No public swarm, public egress, UDP/uTP/QUIC, inbound, packet capture, netem, disk throttle or physical last-mile claim",
     ],
     runs: [],
@@ -643,6 +899,42 @@ try {
         const selectorMedian = medians["qbutt-mixed"];
         comparison = { selectorVersusStaticPercent: 100 * (selectorMedian / staticMedian - 1),
             gate: "neutral-comparison-only", unequalPathQuality: "not-tested" };
+    }
+    else if (unequalStatic) {
+        const staticRuns = runs.filter(run => run.mode === "qbutt-static");
+        const selectorRuns = runs.filter(run => run.mode === "qbutt-mixed");
+        assert(staticRuns.every(run => run.unequalPaths?.measured.every(path => path.assignedPeers === 3)),
+            "Static unequal windows did not retain their three-peers-per-route control");
+        const paired = Array.from({ length: ROUNDS }, (_, offset) => {
+            const round = offset + 1;
+            const staticRun = staticRuns.find(run => run.round === round)!;
+            const selectorRun = selectorRuns.find(run => run.round === round)!;
+            const staticPaths = staticRun.unequalPaths;
+            const selectorPaths = selectorRun.unequalPaths;
+            assert(staticPaths && selectorPaths, "Unequal-path evidence is missing");
+            return { round,
+                staticVerifiedBytesPerSecond: staticRun.verifiedBytesPerSecond,
+                selectorVerifiedBytesPerSecond: selectorRun.verifiedBytesPerSecond,
+                selectorVersusStaticPercent: 100
+                    * (selectorRun.verifiedBytesPerSecond / staticRun.verifiedBytesPerSecond - 1),
+                staticAssignmentCeilingBytesPerSecond: staticPaths.assignmentCeilingBytesPerSecond,
+                selectorAssignmentCeilingBytesPerSecond: selectorPaths.assignmentCeilingBytesPerSecond,
+                selectorFastPathPeers: selectorPaths.measured[0]!.assignedPeers,
+            };
+        });
+        const staticMedian = medians["qbutt-static"];
+        const selectorMedian = medians["qbutt-mixed"];
+        const adaptiveAssignmentObserved = paired.every(item => item.selectorFastPathPeers > 3
+            && item.selectorAssignmentCeilingBytesPerSecond > item.staticAssignmentCeilingBytesPerSecond);
+        const repeatableUsefulThroughputGain = paired.every(item => item.selectorVersusStaticPercent > 0);
+        comparison = {
+            selectorVersusStaticPercent: 100 * (selectorMedian / staticMedian - 1),
+            adaptiveAssignmentObserved,
+            repeatableUsefulThroughputGain,
+            adaptiveSpeedupProven: adaptiveAssignmentObserved && repeatableUsefulThroughputGain,
+            paired,
+            interpretation: "New-dial adaptation under controlled unequal TCP path budgets; no live-peer migration, WAN or physical last-mile claim",
+        };
     }
     else if (sharedCap) {
         const mixedGainPercent = 100 * (medians["qbutt-mixed"] / medians["qbutt-native"] - 1);
