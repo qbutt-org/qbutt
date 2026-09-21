@@ -38,7 +38,16 @@ The same binary passed the local TCP/UDP/auth/lifecycle integration (21 checks),
 DNS/SNI integration (17 checks) and transport replacement/failure integration
 (`transport-reserves-qqjm7h`, nine checks). The reusable live probe is
 `tests/network-lab/transport-capabilities.ts`; see `tests/README.md` for inputs.
-Final alpha.5 build and delivery verification are recorded with the release.
+Clean [alpha.5](https://github.com/qbutt-org/qbutt/releases/tag/v0.1.0-alpha.5)
+uses app `6ccde49a` and net `d14c8889` from source `4921d247c`. Final adapter
+probe `qoCysY`, app Hysteria2 HTTPS webseed `8Ri1u0` (893 exact verified bytes,
+Native route credit zero), and Native v1/v2/hybrid resume/recheck `R9mseq` passed.
+The production-trust alpha.3 updater downloaded and verified the published
+62,692,085-byte ZIP; SHA-256 `bf5a651690168fb2aa7cc9d6b3ace96140e1886a6ed4b82f56d592095986bfdd`
+matches locally. GitHub confirmed the tag/source and all four asset digests.
+The release's `verification.json` distinguishes final-bundle checks from retained
+checks of unchanged code. Generated payloads, profiles and duplicate download
+were recycled after owned processes stopped.
 
 ## Historical runtime evidence, 12 September 2026
 
