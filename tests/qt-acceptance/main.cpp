@@ -443,7 +443,7 @@ namespace
         {
             const QJsonArray current = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
             return !Net::PathManager::instance()->isBusy() && current.size() == 3
-                && current.first().toObject().value(u"proxyName"_s) == u"Alpha reserve";
+                && current.first().toObject().value(u"proxyName"_s) == u"Alpha reserve"_s;
         });
         const QJsonArray afterSwitch = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
         require(afterSwitch.first().toObject().value(u"generation"_s).toInteger() > beforeSwitch.value(u"generation"_s).toInteger()

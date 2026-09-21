@@ -1136,7 +1136,7 @@ void Net::PathManager::send(QJsonObject message)
     }
     // Retain the continuation in the pending request, never in child IPC.
     message.remove(u"openInterfaceName"_s);
-    if (message.value(u"method"_s) == u"list")
+    if (message.value(u"method"_s) == u"list"_s)
         message.remove(u"reserveNames"_s);
     QByteArray frame = QJsonDocument(message).toJson(QJsonDocument::Compact);
     frame.append('\n');
@@ -1638,7 +1638,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         {
             for (const ActivePath &path : std::as_const(m_paths))
             {
-                if ((path.endpoint.port > 0) && (path.transport.value(u"state"_s) == u"ready"))
+                if ((path.endpoint.port > 0) && (path.transport.value(u"state"_s) == u"ready"_s))
                 {
                     switchTransport(QString::number(path.endpoint.pathId), path.transport.value(u"recommended"_s).toString());
                     break;
