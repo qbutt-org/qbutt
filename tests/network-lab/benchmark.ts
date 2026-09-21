@@ -271,6 +271,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
     let unequalTraining: NonNullable<RunResult["unequalPaths"]>["training"] = [];
     let unequalMeasurement: { peer: StaticPeerFixture; pathId: string; generation: number }[] = [];
     let unequalMeasurementStart: BottleneckSnapshot[] = [];
+    let unequalLimiterStarted = 0;
     let failure: unknown;
     let recovery: RunResult["recovery"];
     let unequalPaths: RunResult["unequalPaths"];
@@ -625,6 +626,10 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 peer: "127.0.0.2", port: seeds[0]!.port, manualIntervention: false, peers: recovered.peers });
         }
         const connectionSetupMilliseconds = performance.now() - setupStarted;
+        if (unequalStatic) {
+            unequalLimiterStarted = performance.now();
+            unequalMeasurementStart = unequalBottlenecks.map(item => item.snapshot());
+        }
         const warmupVerifiedBytes = (await lab.info(hash)).completed;
         assert(warmupVerifiedBytes < exactPayloadBytes, "Warmup completed the benchmark payload before measurement");
         if (scenario === "shared-cap") {
@@ -641,8 +646,6 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
         }
         await Promise.all((unequalStatic ? staticPeers.filter(peer => peer.phase === "measurement").map(peer => peer.seed)
             : seeds).map(seed => seed.setUploadRate(SOURCE_RATE)));
-        if (unequalStatic)
-            unequalMeasurementStart = unequalBottlenecks.map(item => item.snapshot());
         await resourceSampler.start();
         const completionStarted = performance.now();
         let lastAssignmentCheck = 0;
@@ -687,16 +690,20 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 limiterStreamBytes: bottleneckDelta(unequalMeasurementStart[side]!, limiterAfter[side]!)
                     .downstreamStreamBytes,
             }));
+            const limiterMeasurementMilliseconds = completed - unequalLimiterStarted;
             for (const [side, route] of measured.entries()) {
                 assert(route.assignedPeers === 0 || route.limiterStreamBytes > 0,
                     "An assigned measured route has no limiter traffic");
-                const upperBound = route.capBytesPerSecond * measurementMilliseconds / 1000
+                const upperBound = route.capBytesPerSecond * limiterMeasurementMilliseconds / 1000
                     + unequalBottlenecks[side]!.stats.burstAllowanceBytes + 1024;
                 assert(route.limiterStreamBytes <= upperBound,
                     `Route limiter exceeded its byte budget: ${JSON.stringify({ route, upperBound })}`);
             }
-            assert(measured.reduce((sum, route) => sum + route.limiterStreamBytes, 0) >= measuredVerifiedBytes,
-                "Measured verified bytes bypassed the unequal path limiters");
+            const measuredLimiterBytes = measured.reduce((sum, route) => sum + route.limiterStreamBytes, 0);
+            assert(measuredLimiterBytes >= measuredVerifiedBytes,
+                `Measured verified bytes bypassed the unequal path limiters: ${JSON.stringify({
+                    measuredLimiterBytes, measuredVerifiedBytes,
+                })}`);
             const assignmentCeilingBytesPerSecond = measured.reduce((sum, route) =>
                 sum + Math.min(route.capBytesPerSecond, route.assignedPeers * STATIC_PEER_RATE), 0);
             unequalPaths = { training: unequalTraining, measured, assignmentCeilingBytesPerSecond,
