@@ -166,7 +166,7 @@ try {
         if (["profile", ".git"].includes(basename(path)))
             return false;
         const extension = extname(path).toLowerCase();
-        return !extension || [".exe", ".dll", ".qm", ".conf"].includes(extension);
+        return !extension || [".dll", ".qm", ".conf"].includes(extension);
     } });
     const executable = join(bundle, basename(sourceExecutable));
     await cp(sourceExecutable, executable);

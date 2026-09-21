@@ -516,7 +516,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     });
                     assert(new Set(trainingAssignments.map(item => `${item.pathId}:${item.generation}`)).size === 3,
                         "Training did not cover each eligible route exactly once");
-                    const trained = await waitFor("unequal route training sample", () =>
+                    await waitFor("unequal route training sample", () =>
                         lab.json<PathsStatus>("qbuttPaths/status"), status => trainingAssignments.every(assignment => {
                             const before = trainingBaseline.find(route => route.pathId === assignment.pathId
                                 && route.generation === assignment.generation);
@@ -534,7 +534,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     unequalTraining = assignedRoutes.map((route, side) => {
                         const before = trainingBaseline.find(candidate => candidate.pathId === route.pathId
                             && candidate.generation === route.generation);
-                        const after = trained.diagnostics.routes.find(candidate => candidate.pathId === route.pathId
+                        const after = drainedTraining.diagnostics.routes.find(candidate => candidate.pathId === route.pathId
                             && candidate.generation === route.generation);
                         assert(before && after, "Route diagnostics disappeared during training");
                         const verifiedDownload = after.verifiedDownload - before.verifiedDownload;

@@ -107,6 +107,10 @@ try {
     }
     const closedAliases = (await status()).paths;
     assert.equal(closedAliases.length, 2, "Closed records for both alias identities were not retained");
+    await lab.request("qbuttPaths/open", { configPath, proxyName: aliasNames[0]!, reserveNames: JSON.stringify([aliasNames[1]]),
+        interfaceName: "Loopback Pseudo-Interface 1" });
+    const ungroupedReserve = await waitFor("ungrouped reserve rejected", status, value => !value.busy);
+    assert.deepEqual(ungroupedReserve.paths, closedAliases, "An ungrouped reserve opened a path or changed closed records");
     await lab.request("qbuttPaths/groupServers", { proxyName: aliasNames[1]!, sameAsProxyName: aliasNames[0]! });
     const grouped = await status();
     assert.equal(grouped.serverGroups[aliasIds[1]!], aliasIds[0]);
@@ -172,7 +176,7 @@ try {
     await waitFor("alias paths retired", status, value => !value.busy && value.paths.length === 0);
     await lab.request("qbuttPaths/resetServerGroups", {});
     assert.deepEqual((await status()).serverGroups, {});
-    await lab.checkpoint({ check: "explicit-dns-alias-grouping", duplicateRejected: true,
+    await lab.checkpoint({ check: "explicit-dns-alias-grouping", duplicateRejected: true, ungroupedReserveRejected: true,
         unselectedSharedIpIndependent: true, closedRecordsMerged: true, renameAndRestartPreserved: true, activeMutationRejected: true,
         originalGeneration: primary.generation, replacementGeneration: selected.generation,
         configuredIdentitiesDistinct: true, verifiedBytes: aliasVerifiedBytes, exactSizesAndHashes: true });

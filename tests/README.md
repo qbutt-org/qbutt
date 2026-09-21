@@ -662,7 +662,9 @@ fixture does not test all 18 possible peer/path pairs.
 
 `QBUTT_BENCH_SCENARIO=static-unequal` reuses that pinned static-selector binary
 and compares only route choices for fresh dials after controlled training. Three
-partial peers first cover the three routes once. Independent downstream stream
+partial peers start at 96 KiB/s from their first dial and cover the three routes
+once; the training counters span their full history through disconnect.
+Independent downstream stream
 limiters at 48, 16 and 8 KiB/s then provide at least 64 KiB of the same
 verified-bytes/demand signal consumed by RouteSelector, after which those
 connections close. The fixture rechecks, removes the torrent without deleting
