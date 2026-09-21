@@ -98,6 +98,7 @@ const sharedCap = scenario === "shared-cap" || sharedNetworkCap;
 const SOURCE_RATE = comparingStatic ? STATIC_PEER_RATE
     : sharedCap ? Math.min(TRANSFER_RATE * 4, 1024 * 1024) : TRANSFER_RATE;
 const ROUNDS = Number(process.env.QBUTT_BENCH_ROUNDS ?? (scenario === "failed-path" ? 1 : 4));
+const unequalDiagnostic = unequalStatic && ROUNDS === 1;
 const MODES: Mode[] = comparingStatic ? ["qbutt-static", "qbutt-mixed"]
     : sharedCap ? ["qbutt-native", "qbutt-mixed"]
     : scenario === "failed-path" ? ["qbutt-mixed"]
@@ -117,8 +118,9 @@ assert(process.env.QBUTT_BENCH_QBUTT_EXE && process.env.QBUTT_LAB_PYTHON
         : process.env.QBUTT_BENCH_BASELINE_EXE),
 "Set QBUTT_BENCH_QBUTT_EXE, QBUTT_LAB_PYTHON, and the scenario's baseline executable and receipt");
 assert(nativeInterface && nativeAddress, "Set QBUTT_LAB_NATIVE_INTERFACE and QBUTT_LAB_NATIVE_ADDRESS");
-assert(Number.isInteger(ROUNDS) && (scenario === "failed-path" ? ROUNDS === 1 : ROUNDS >= 3 && ROUNDS <= 9),
-    "QBUTT_BENCH_ROUNDS must be 1 for failed-path, otherwise between 3 and 9");
+assert(Number.isInteger(ROUNDS) && (scenario === "failed-path" ? ROUNDS === 1
+    : unequalStatic ? ROUNDS === 1 || (ROUNDS >= 3 && ROUNDS <= 9) : ROUNDS >= 3 && ROUNDS <= 9),
+    "QBUTT_BENCH_ROUNDS must be 1 for failed-path, 1 or 3-9 for static-unequal, otherwise 3-9");
 assert(Number.isInteger(TRANSFER_RATE) && TRANSFER_RATE >= 32 * 1024 && TRANSFER_RATE <= 512 * 1024,
     "QBUTT_BENCH_ROUTE_RATE must be between 32 and 512 KiB/s");
 assert(networkInterfaces()[nativeInterface]?.some(address => address.address === nativeAddress
@@ -855,6 +857,7 @@ const evidence: Record<string, unknown> = {
     topology: {
         scenario,
         rounds: ROUNDS,
+        diagnosticOnly: unequalDiagnostic,
         orderByRound: Array.from({ length: ROUNDS }, (_, round) => orderForRound(round + 1)),
         ...(comparingStatic ? { peerUploadLimitBytesPerSecond: SOURCE_RATE }
             : { routeUploadLimitBytesPerSecond: SOURCE_RATE }),
@@ -984,7 +987,7 @@ try {
             materialUsefulThroughputGain,
             usefulGainRounds,
             requiredUsefulGainRounds,
-            adaptiveSpeedupProven: adaptiveAssignmentObserved && limiterUtilizationSane
+            adaptiveSpeedupProven: ROUNDS >= 3 && adaptiveAssignmentObserved && limiterUtilizationSane
                 && materialUsefulThroughputGain,
             paired,
             interpretation: "New-dial adaptation under controlled unequal TCP path budgets; no live-peer migration, WAN or physical last-mile claim",
