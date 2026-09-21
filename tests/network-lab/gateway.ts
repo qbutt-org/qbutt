@@ -912,7 +912,7 @@ try {
                 publicEndpoint: secondPath.gateway.publicEndpoint, family: secondPath.gateway.family },
             trackers: leasedTrackers,
             http: httpAnnounces.slice(httpBeforeLeased), authorities: httpAuthorities.slice(authoritiesBeforeLeased),
-            udp: udpAnnounces, udpConnectRequests,
+            udp: udpAnnounces.filter(item => item.phase === "leased"), udpConnectRequests,
             nativeHttpRequests, nativeUdpPackets });
     }
 
