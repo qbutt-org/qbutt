@@ -608,7 +608,9 @@ and proxy config after its owned processes stop; compact evidence remains.
 selector with the normal Mixed selector. Set `QBUTT_BENCH_STATIC_EXE` and its
 `QBUTT_BENCH_STATIC_RECEIPT`, plus the usual qbutt/Python/Native settings. The
 receipt must identify the actual static and normal executable SHA-256 values and
-the static patch; both binaries are rejected unless they match that exact pair.
+the static patch, plus the shared compatible `qbutt-net.exe` SHA-256; both app
+binaries and both companion children are rejected unless they match that exact
+pair. Keep each app beside its pinned child instead of borrowing a newer runtime.
 The experimental binary replaces only public route selection with FNV-1a over
 both infohash slots and the numeric peer endpoint, modulo eligible routes; keep
 that patch and build provenance with the local receipt, outside production code.
@@ -633,8 +635,10 @@ every measured peer, assignment-derived throughput ceilings and paired goodput.
 The static control must keep a 3/3/3 assignment. A successful fixture receipt
 means the topology, counters, stable assignments, exact payload and hashes were
 valid; `adaptiveAssignmentObserved` and `adaptiveSpeedupProven` remain explicit
-summary results rather than pass conditions. The latter requires a higher
-assignment ceiling and positive selector goodput in every counterbalanced round.
+summary results rather than pass conditions. The latter requires at least six of
+nine peers on the fast path and a 1.2x assignment ceiling in every round, sane
+70–110% utilization of both assignment ceilings, at least 10% paired goodput gain
+in three of the four default rounds, and at least 15% median goodput gain.
 This scenario tests later connection selection, not migration of a live slow
 peer, UDP, WAN or a physical last mile. Preserve the static patch/build receipt
 with both executable hashes so unrelated application changes cannot be mistaken

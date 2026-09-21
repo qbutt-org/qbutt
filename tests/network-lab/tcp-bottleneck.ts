@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createConnection, createServer, isIPv4, type Server, type Socket } from "node:net";
+import { createConnection, createServer, isIPv4, type Server, type Socket, type TcpNetConnectOpts } from "node:net";
 import { networkInterfaces } from "node:os";
 import { Transform, type TransformCallback } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
@@ -45,8 +45,11 @@ export function createTcpBottleneck(bytesPerSecond: number) {
             }
             stats.acceptedConnections++;
             listenerStats.acceptedConnections++;
-            const upstream = createConnection({ host: targetHost, port: targetPort,
-                localAddress: upstreamLocalAddress });
+            const upstreamOptions: TcpNetConnectOpts & { allowHalfOpen: boolean; highWaterMark: number } = {
+                host: targetHost, port: targetPort, localAddress: upstreamLocalAddress,
+                allowHalfOpen: true, highWaterMark: 16 * 1024,
+            };
+            const upstream = createConnection(upstreamOptions);
             const controller = new AbortController();
             // Each stream has at most one transform in flight. Reservations are
             // global and limited to 1 KiB, so additional paths cannot multiply

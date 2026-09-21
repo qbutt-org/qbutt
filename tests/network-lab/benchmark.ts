@@ -101,6 +101,8 @@ const baselineExecutable = resolve(process.env.QBUTT_BENCH_BASELINE_EXE ?? "");
 const qbuttExecutable = resolve(process.env.QBUTT_BENCH_QBUTT_EXE ?? "");
 const staticExecutable = resolve(process.env.QBUTT_BENCH_STATIC_EXE ?? "");
 const staticReceiptPath = resolve(process.env.QBUTT_BENCH_STATIC_RECEIPT ?? "");
+const staticNetworkChild = comparingStatic ? join(dirname(staticExecutable), "qbutt-net.exe") : "";
+const qbuttNetworkChild = comparingStatic ? join(dirname(qbuttExecutable), "qbutt-net.exe") : "";
 const python = resolve(process.env.QBUTT_LAB_PYTHON ?? "");
 const nativeInterface = process.env.QBUTT_LAB_NATIVE_INTERFACE ?? "";
 const nativeAddress = process.env.QBUTT_LAB_NATIVE_ADDRESS ?? "";
@@ -118,18 +120,27 @@ assert(networkInterfaces()[nativeInterface]?.some(address => address.address ===
     && address.family === "IPv4" && !address.internal),
 "Native benchmark address must belong to the selected non-loopback IPv4 interface");
 assert((await stat(comparingStatic ? staticExecutable : baselineExecutable)).isFile()
-    && (await stat(qbuttExecutable)).isFile() && (await stat(python)).isFile(),
+    && (await stat(qbuttExecutable)).isFile() && (await stat(python)).isFile()
+    && (!comparingStatic || (await stat(staticNetworkChild)).isFile()
+        && (await stat(qbuttNetworkChild)).isFile()),
 "A benchmark executable is missing");
 const [baselineHash, qbuttHash] = await Promise.all([
     readFile(comparingStatic ? staticExecutable : baselineExecutable).then(sha256),
     readFile(qbuttExecutable).then(sha256),
 ]);
+const [staticNetworkChildHash, qbuttNetworkChildHash] = comparingStatic ? await Promise.all([
+    readFile(staticNetworkChild).then(sha256), readFile(qbuttNetworkChild).then(sha256),
+]) : [undefined, undefined];
 const staticReceipt = comparingStatic ? JSON.parse(await readFile(staticReceiptPath, "utf8")) as {
     source: string; normalSource: string; patchSha256: string; staticSha256: string; normalSha256: string;
+    qbuttNetSha256: string;
 } : undefined;
 assert(comparingStatic ? staticReceipt && /^[0-9a-f]{64}$/.test(staticReceipt.staticSha256)
     && /^[0-9a-f]{64}$/.test(staticReceipt.normalSha256)
+    && /^[0-9a-f]{64}$/.test(staticReceipt.qbuttNetSha256)
     && baselineHash === staticReceipt.staticSha256 && qbuttHash === staticReceipt.normalSha256
+    && staticNetworkChildHash === staticReceipt.qbuttNetSha256
+    && qbuttNetworkChildHash === staticReceipt.qbuttNetSha256
     : baselineHash === CONTROL_SHA256,
 `A benchmark binary differs from the pinned ${comparingStatic ? "static/normal pair" : CONTROL_REVISION} control`);
 assert(baselineHash !== qbuttHash, "The qbutt executable must be distinct from the baseline");
@@ -227,6 +238,9 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
     assert(sha256(await readFile(executable)) === (mode === "upstream-native" || mode === "qbutt-static"
         ? baselineHash : qbuttHash),
         "Benchmark executable changed between windows");
+    if (comparingStatic)
+        assert(sha256(await readFile(join(dirname(executable), "qbutt-net.exe"))) === staticReceipt!.qbuttNetSha256,
+            "Benchmark qbutt-net executable changed between windows");
     process.env.QBUTT_LAB_EXE = executable;
     process.env.QBUTT_LAB_PYTHON = python;
     process.env.QBUTT_LAB_APP_NAME = mode === "upstream-native" ? "qBittorrent" : "qbutt";
@@ -276,11 +290,13 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                         label: `${mode}-${phase}-${bucket}-${candidate}`, listenAddress: nativeAddress,
                         uploadRate: WARMUP_RATE, pieces, savePath,
                     });
+                    seeds.push(seed);
                     const nativeListener = await unequalBottlenecks[2]!.listen(nativeAddress, seed.host, seed.port);
                     const endpointPort = nativeListener.port;
                     if (staticBucket(torrent, nativeAddress, endpointPort) !== bucket) {
                         await nativeListener.discard();
                         await seed.stop();
+                        assert(seeds.pop() === seed, "Rejected endpoint seed cleanup lost its stack position");
                         continue;
                     }
                     for (let side = 0; side < 2; ++side) {
@@ -288,7 +304,6 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                             port: endpointPort, clientAddress: "127.0.0.1", upstreamLocalAddress: nativeAddress,
                         });
                     }
-                    seeds.push(seed);
                     staticPeers.push({ seed, endpointPort, bucket, phase });
                     return;
                 }
@@ -603,12 +618,12 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
             await waitFor("shared torrent application limit", () => lab.json<{ dl_limit: number }[]>(
                 `torrents/info?hashes=${hash}`), torrents => torrents[0]?.dl_limit === TRANSFER_RATE);
         }
-        if (sharedNetworkCap) {
+        if (sharedNetworkCap || unequalStatic) {
             const preferences = await lab.json<{ dl_limit: number }>("app/preferences");
             const torrents = await lab.json<{ dl_limit: number }[]>(`torrents/info?hashes=${hash}`);
             assert(preferences.dl_limit <= 0 && torrents[0]!.dl_limit <= 0
                 && await (await lab.request("transfer/speedLimitsMode")).text() === "0",
-            "The external bottleneck requires application download limits to be disabled");
+            "An external bottleneck requires application download limits to be disabled");
         }
         await Promise.all((unequalStatic ? staticPeers.filter(peer => peer.phase === "measurement").map(peer => peer.seed)
             : seeds).map(seed => seed.setUploadRate(SOURCE_RATE)));
@@ -812,7 +827,8 @@ const evidence: Record<string, unknown> = {
     control: comparingStatic
         ? { kind: "experimental-static-selector", executable: staticExecutable, executableSha256: baselineHash,
             pairedExecutableSha256: qbuttHash, source: staticReceipt!.source,
-            pairedSource: staticReceipt!.normalSource, patchSha256: staticReceipt!.patchSha256 }
+            pairedSource: staticReceipt!.normalSource, patchSha256: staticReceipt!.patchSha256,
+            qbuttNetSha256: staticReceipt!.qbuttNetSha256 }
         : { revision: CONTROL_REVISION, executable: baselineExecutable, executableSha256: baselineHash },
     qbutt: { executable: qbuttExecutable, executableSha256: qbuttHash },
     topology: {
@@ -919,19 +935,36 @@ try {
                     * (selectorRun.verifiedBytesPerSecond / staticRun.verifiedBytesPerSecond - 1),
                 staticAssignmentCeilingBytesPerSecond: staticPaths.assignmentCeilingBytesPerSecond,
                 selectorAssignmentCeilingBytesPerSecond: selectorPaths.assignmentCeilingBytesPerSecond,
+                assignmentCeilingRatio: selectorPaths.assignmentCeilingBytesPerSecond
+                    / staticPaths.assignmentCeilingBytesPerSecond,
+                staticCeilingUtilization: staticRun.verifiedBytesPerSecond
+                    / staticPaths.assignmentCeilingBytesPerSecond,
+                selectorCeilingUtilization: selectorRun.verifiedBytesPerSecond
+                    / selectorPaths.assignmentCeilingBytesPerSecond,
                 selectorFastPathPeers: selectorPaths.measured[0]!.assignedPeers,
             };
         });
         const staticMedian = medians["qbutt-static"];
         const selectorMedian = medians["qbutt-mixed"];
-        const adaptiveAssignmentObserved = paired.every(item => item.selectorFastPathPeers > 3
-            && item.selectorAssignmentCeilingBytesPerSecond > item.staticAssignmentCeilingBytesPerSecond);
-        const repeatableUsefulThroughputGain = paired.every(item => item.selectorVersusStaticPercent > 0);
+        const selectorVersusStaticPercent = 100 * (selectorMedian / staticMedian - 1);
+        const requiredUsefulGainRounds = Math.ceil(paired.length * 0.75);
+        const usefulGainRounds = paired.filter(item => item.selectorVersusStaticPercent >= 10).length;
+        const adaptiveAssignmentObserved = paired.every(item => item.selectorFastPathPeers >= 6
+            && item.assignmentCeilingRatio >= 1.2);
+        const limiterUtilizationSane = paired.every(item => item.staticCeilingUtilization >= 0.7
+            && item.staticCeilingUtilization <= 1.1 && item.selectorCeilingUtilization >= 0.7
+            && item.selectorCeilingUtilization <= 1.1);
+        const materialUsefulThroughputGain = selectorVersusStaticPercent >= 15
+            && usefulGainRounds >= requiredUsefulGainRounds;
         comparison = {
-            selectorVersusStaticPercent: 100 * (selectorMedian / staticMedian - 1),
+            selectorVersusStaticPercent,
             adaptiveAssignmentObserved,
-            repeatableUsefulThroughputGain,
-            adaptiveSpeedupProven: adaptiveAssignmentObserved && repeatableUsefulThroughputGain,
+            limiterUtilizationSane,
+            materialUsefulThroughputGain,
+            usefulGainRounds,
+            requiredUsefulGainRounds,
+            adaptiveSpeedupProven: adaptiveAssignmentObserved && limiterUtilizationSane
+                && materialUsefulThroughputGain,
             paired,
             interpretation: "New-dial adaptation under controlled unequal TCP path budgets; no live-peer migration, WAN or physical last-mile claim",
         };
