@@ -122,7 +122,7 @@ export async function createLab(name: string, options: { pex?: boolean; protocol
         "Session\\IgnoreLimitsOnLAN=false", "Session\\AddExtensionToIncompleteFiles=false",
         "Session\\UseUnwantedFolder=false", "Session\\QueueingSystemEnabled=false",
         "[Network]", "PortForwardingEnabled=false",
-        "[Preferences]", "General\\ExitConfirm=false",
+        "[Preferences]", "General\\ExitConfirm=false", "General\\Locale=en",
         "Advanced\\updateCheck=false", "Connection\\ResolvePeerCountries=false", "Connection\\ResolvePeerHostNames=false",
         "General\\CloseToTray=false", "General\\MinimizeToTray=false",
         "WebUI\\Enabled=true", "WebUI\\Address=127.0.0.1", `WebUI\\Port=${port}`,
