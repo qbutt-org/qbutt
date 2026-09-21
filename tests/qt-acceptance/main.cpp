@@ -1122,8 +1122,9 @@ namespace
     void exerciseDiagnosticWaits(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
         auto *session = static_cast<BitTorrent::SessionImpl *>(BitTorrent::Session::instance());
-        require(session->diskIOType() == BitTorrent::DiskIOType::Posix,
-            u"Diagnostic wait requires the real threaded Posix disk backend"_s);
+        require((sizeof(void *) == 8) && (session->diskIOType() == BitTorrent::DiskIOType::Default)
+                && (session->asyncIOThreads() > 0),
+            u"Diagnostic wait requires the default Windows x64 asynchronous disk backend"_s);
         require(session->diskQueueSize() == 16384, u"Diagnostic disk queue limit was not applied"_s);
         const auto descriptor = BitTorrent::TorrentDescriptor::loadFromFile(Path(spec.value(u"torrentPath"_s).toString()));
         require(bool(descriptor), u"Cannot read diagnostic fixture torrent"_s);

@@ -33,7 +33,7 @@ try {
     const iniPath = join(profile, "qbutt", "config", "qbutt.ini");
     const ini = await readFile(iniPath, "utf8");
     await writeFile(iniPath, ini.replace("[BitTorrent]", ["[BitTorrent]", "Session\\Encryption=2",
-        "Session\\DiskIOType=Posix", "Session\\DiskQueueSize=16384"].join("\n")));
+        "Session\\DiskQueueSize=16384"].join("\n")));
     peer = await startControlledPeer(torrent, payload, errors);
     const specPath = join(lab.root, "spec.json");
     await writeFile(specPath, JSON.stringify({mode: "diagnostic-waits", evidencePath, commandPath,
@@ -72,7 +72,7 @@ try {
     const verifiedBytes = await verifyPayload(destination, lab.manifest.payload);
     await lab.checkpoint({check: "real-disk-and-bandwidth-diagnostics", verifiedBytes,
         peer: peer.counts, qtEvidence: evidencePath, diskEvidence,
-        scope: "One generated torrent, native Posix disk worker blocked by a Windows oplock, real per-torrent rate limit"});
+        scope: "One generated torrent, default asynchronous disk worker blocked by a Windows oplock, real per-torrent rate limit"});
 }
 catch (error) { failure = error; }
 finally {
