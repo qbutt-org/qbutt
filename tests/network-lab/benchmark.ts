@@ -316,7 +316,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                 pieces?: number[], savePath?: string) => {
                 const seed = await startSeed(lab.python, lab.fixtures, torrent.name, lab.root, {
                     label: `${mode}-${phase}-${bucket}`, listenAddress: nativeAddress,
-                    uploadRate: WARMUP_RATE, pieces, savePath,
+                    uploadRate: phase === "training" ? UNEQUAL_TRAINING_RATE : WARMUP_RATE,
+                    pieces, savePath,
                 });
                 seeds.push(seed);
                 const endpointPort = await (async () => {
@@ -499,6 +500,8 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     const trainingPeers = staticPeers.filter(peer => peer.phase === "training");
                     const measurementPeers = staticPeers.filter(peer => peer.phase === "measurement");
                     const limiterBefore = unequalBottlenecks.map(item => item.snapshot());
+                    const trainingBaseline = (await lab.json<PathsStatus>("qbuttPaths/status"))
+                        .diagnostics.routes;
                     for (const peer of trainingPeers)
                         await lab.request("torrents/addPeers", { hashes: hash,
                             peers: `${nativeAddress}:${peer.endpointPort}` });
@@ -513,11 +516,9 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                     });
                     assert(new Set(trainingAssignments.map(item => `${item.pathId}:${item.generation}`)).size === 3,
                         "Training did not cover each eligible route exactly once");
-                    const sampleStart = trainingConnected.diagnostics.routes;
-                    await Promise.all(trainingPeers.map(peer => peer.seed.setUploadRate(UNEQUAL_TRAINING_RATE)));
                     const trained = await waitFor("unequal route training sample", () =>
                         lab.json<PathsStatus>("qbuttPaths/status"), status => trainingAssignments.every(assignment => {
-                            const before = sampleStart.find(route => route.pathId === assignment.pathId
+                            const before = trainingBaseline.find(route => route.pathId === assignment.pathId
                                 && route.generation === assignment.generation);
                             const after = status.diagnostics.routes.find(route => route.pathId === assignment.pathId
                                 && route.generation === assignment.generation);
@@ -531,7 +532,7 @@ async function run(mode: Mode, round: number): Promise<RunResult> {
                                 && candidate.port === peer.endpointPort)), 30000);
                     const limiterAfter = unequalBottlenecks.map(item => item.snapshot());
                     unequalTraining = assignedRoutes.map((route, side) => {
-                        const before = sampleStart.find(candidate => candidate.pathId === route.pathId
+                        const before = trainingBaseline.find(candidate => candidate.pathId === route.pathId
                             && candidate.generation === route.generation);
                         const after = trained.diagnostics.routes.find(candidate => candidate.pathId === route.pathId
                             && candidate.generation === route.generation);
@@ -946,7 +947,7 @@ const evidence: Record<string, unknown> = {
                 selectedStaticHashBuckets: [2, 2, 2], multiConnectionsPerIp: true } : {}),
         sharedApplicationDownloadLimit: scenario === "shared-cap" ? TRANSFER_RATE : undefined,
         sharedDownstreamRelayLimit: sharedNetworkCap ? TRANSFER_RATE : undefined,
-        warmupUploadLimitBytesPerSecond: WARMUP_RATE,
+        measuredPeerWarmupUploadLimitBytesPerSecond: WARMUP_RATE,
         nativeInterface,
         nativeAddress,
         modes: MODES,
@@ -954,7 +955,7 @@ const evidence: Record<string, unknown> = {
     limits: [
         "Generated deterministic v1 payload and controlled TCP peers on one Windows host",
         unequalStatic
-            ? "Three partial peers first train distinct paths above 64 KiB of verified-demand signal; nine fresh full peers are the only measured dials"
+            ? "Three partial peers train distinct paths from their first dial at the stated source cap; their full verified-demand history is recorded before nine fresh measured dials"
             : comparingStatic
             ? "Each timed window begins after all six peers deliver payload at a 1 KiB/s warmup cap, then all acknowledge the same measured per-peer cap"
             : "Each timed window begins after every required peer supplies payload at a 1 KiB/s warmup cap and acknowledges the measured cap",
