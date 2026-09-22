@@ -129,6 +129,26 @@
         <source>The free IP to Country Lite database by DB-IP is used for resolving the countries of peers. The database is licensed under the Creative Commons Attribution 4.0 International License</source>
         <translation>Для разрешения стран пиров используется бесплатная база данных IP to Country Lite от DB-IP. База лицензирована в соответствии со всемирной лицензией Creative Commons Attribution 4.0</translation>
     </message>
+    <message>
+        <location filename="../gui/aboutdialog.cpp" line="69"/>
+        <source>A ButtTorrent Client</source>
+        <translation>Клиент ButtTorrent</translation>
+    </message>
+    <message>
+        <location filename="../gui/aboutdialog.cpp" line="72"/>
+        <source>Upstream:</source>
+        <translation>Исходный проект:</translation>
+    </message>
+    <message>
+        <location filename="../gui/aboutdialog.ui" line="15"/>
+        <source>About qbutt</source>
+        <translation>О qbutt</translation>
+    </message>
+    <message>
+        <location filename="../gui/aboutdialog.ui" line="336"/>
+        <source>Libraries:</source>
+        <translation>Библиотеки:</translation>
+    </message>
 </context>
 <context>
     <name>AbstractFileStorage</name>
@@ -1390,6 +1410,11 @@
         <source>Embedded tracker port</source>
         <translation>Порт встроенного трекера</translation>
     </message>
+    <message>
+        <location filename="../gui/advancedsettings.cpp" line="451"/>
+        <source>SQLite database</source>
+        <translation>База данных SQLite</translation>
+    </message>
 </context>
 <context>
     <name>AppController</name>
@@ -1662,6 +1687,36 @@
         <location filename="../app/application.cpp" line="1436"/>
         <source>qBittorrent is now ready to exit</source>
         <translation>qBittorrent теперь готов к завершению работы</translation>
+    </message>
+    <message>
+        <location filename="../app/application.cpp" line="337"/>
+        <source>qbutt %1 started. Process ID: %2</source>
+        <translation>qbutt %1 запущен. Идентификатор процесса: %2</translation>
+    </message>
+    <message>
+        <location filename="../app/application.cpp" line="725"/>
+        <source>Thank you for using qbutt.</source>
+        <translation>Спасибо за использование qbutt.</translation>
+    </message>
+    <message>
+        <location filename="../app/application.cpp" line="1053"/>
+        <source>To control qbutt, access the WebUI at: %1</source>
+        <translation>Для управления qbutt откройте веб-интерфейс по адресу: %1</translation>
+    </message>
+    <message>
+        <location filename="../app/application.cpp" line="1427"/>
+        <source>qbutt termination initiated</source>
+        <translation>Начато завершение работы qbutt</translation>
+    </message>
+    <message>
+        <location filename="../app/application.cpp" line="1433"/>
+        <source>qbutt is shutting down...</source>
+        <translation>qbutt завершает работу…</translation>
+    </message>
+    <message>
+        <location filename="../app/application.cpp" line="1498"/>
+        <source>qbutt is now ready to exit</source>
+        <translation>qbutt готов к выходу</translation>
     </message>
 </context>
 <context>
@@ -2137,6 +2192,174 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <source>Couldn&apos;t save data to &apos;%1&apos;. Error: %2</source>
         <translation>Не удалось сохранить данные в «%1». Ошибка: %2</translation>
     </message>
+    <message>
+        <location filename="../base/bittorrent/bencoderesumedatastorage.cpp" line="184"/>
+        <source>Select the source profile base to resolve relative resume paths.</source>
+        <translation>Выберите корневую папку исходного профиля для определения относительных путей возобновления.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/bencoderesumedatastorage.cpp" line="195"/>
+        <source>The external profile exceeds the limit of %1 torrents.</source>
+        <translation>Внешний профиль превышает допустимое число торрентов: %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/bencoderesumedatastorage.cpp" line="203"/>
+        <source>An external resume file is not a regular file: %1</source>
+        <translation>Внешний файл возобновления не является обычным файлом: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/bencoderesumedatastorage.cpp" line="205"/>
+        <source>The external resume data exceeds the import size limit.</source>
+        <translation>Внешние данные возобновления превышают допустимый размер импорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/bencoderesumedatastorage.cpp" line="211"/>
+        <source>The external profile changed while it was read. Close the source client and try again.</source>
+        <translation>Внешний профиль изменился во время чтения. Закройте исходный клиент и повторите попытку.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/bencoderesumedatastorage.cpp" line="247"/>
+        <source>The resume filename or metadata does not match its torrent info-hash.</source>
+        <translation>Имя файла возобновления или метаданные не соответствуют инфо-хешу торрента.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/bencoderesumedatastorage.cpp" line="452"/>
+        <source>Couldn&apos;t store resume data for torrent &apos;%1&apos;. Error: %2</source>
+        <translation>Не удалось сохранить данные возобновления торрента «%1». Ошибка: %2</translation>
+    </message>
+</context>
+<context>
+    <name>BitTorrent::CompletionPolicy</name>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="62"/>
+        <source>Completion journal capacity reached; automatic actions are held.</source>
+        <translation>Журнал завершения заполнен; автоматические действия приостановлены.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="67"/>
+        <source>Cannot flush completion policy data to disk.</source>
+        <translation>Не удалось записать данные правил завершения на диск.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="79"/>
+        <source>Provide enabled, allow_delete_data and at most 64 rules.</source>
+        <translation>Укажите enabled, allow_delete_data и не более 64 правил.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="83"/>
+        <source>Unknown completion setting: %1</source>
+        <translation>Неизвестный параметр завершения: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="92"/>
+        <source>Every rule needs a unique ID, enabled flag, match object and actions.</source>
+        <translation>Каждому правилу нужны уникальный идентификатор, флаг enabled, объект match и действия.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="97"/>
+        <source>Unknown rule setting: %1</source>
+        <translation>Неизвестный параметр правила: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="100"/>
+        <source>Rules run on wanted_files_committed.</source>
+        <translation>Правила выполняются при событии wanted_files_committed.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="107"/>
+        <source>Category must be a string.</source>
+        <translation>Категория должна быть строкой.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="112"/>
+        <source>Tags must be an array of at most 64 names.</source>
+        <translation>Метки должны быть массивом не более чем из 64 имён.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="116"/>
+        <source>Tag names must be nonempty strings.</source>
+        <translation>Имена меток должны быть непустыми строками.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="124"/>
+        <source>Ratio and seeding time thresholds must be finite nonnegative numbers.</source>
+        <translation>Пороги рейтинга и времени раздачи должны быть конечными неотрицательными числами.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="127"/>
+        <source>Unknown rule condition: %1</source>
+        <translation>Неизвестное условие правила: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="135"/>
+        <source>Duplicate rule action.</source>
+        <translation>Действие правила повторяется.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="140"/>
+        <source>Unknown rule action: %1</source>
+        <translation>Неизвестное действие правила: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="142"/>
+        <source>Deleting payload requires the separate allow_delete_data setting.</source>
+        <translation>Для удаления данных требуется отдельное разрешение allow_delete_data.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="145"/>
+        <source>Choose actions with at most one of stop, remove_torrent or delete_data.</source>
+        <translation>Из действий stop, remove_torrent и delete_data можно выбрать только одно.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="164"/>
+        <source>Cannot read completion policy %1.</source>
+        <translation>Не удалось прочитать правило завершения %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="187"/>
+        <source>Invalid completion policy journal entry.</source>
+        <translation>Некорректная запись журнала правил завершения.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="192"/>
+        <source>Invalid completion policy journal.</source>
+        <translation>Некорректный журнал правил завершения.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="258"/>
+        <source>Wait for the current completion action to finish.</source>
+        <translation>Дождитесь выполнения текущего действия при завершении.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="340"/>
+        <source>This torrent does not require a completion policy preview.</source>
+        <translation>Для этого торрента не требуется предварительный просмотр правил завершения.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="342"/>
+        <source>Stop the torrent and wait for its file operations before accepting the preview.</source>
+        <translation>Перед подтверждением предварительного просмотра остановите торрент и дождитесь окончания его файловых операций.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="470"/>
+        <source>Completion policy %1 claimed for torrent %2. Key: %3</source>
+        <translation>Правило завершения %1 принято к выполнению для торрента %2. Ключ: %3</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="473"/>
+        <source>Completion policy</source>
+        <translation>Правило завершения</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="473"/>
+        <source>%1: %2</source>
+        <translation>%1: %2</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/completionpolicy.cpp" line="516"/>
+        <source>Completion action held: native disk or resume persistence failed. %1</source>
+        <translation>Действие при завершении приостановлено: ошибка дисковой операции или сохранения данных возобновления. %1</translation>
+    </message>
 </context>
 <context>
     <name>BitTorrent::DBResumeDataStorage</name>
@@ -2196,11 +2419,96 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     <message>
         <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="749"/>
         <source>Save resume data transaction failed. Error: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Ошибка транзакции сохранения данных возобновления: %1</translation>
     </message>
     <message>
         <source>Couldn&apos;t begin transaction. Error: %1</source>
         <translation type="vanished">Не удалось начать транзакцию. Ошибка: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="300"/>
+        <source>Cannot open the external resume database snapshot: %1</source>
+        <translation>Не удалось открыть снимок внешней базы данных возобновления: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="302"/>
+        <source>Cannot read a consistent external resume database snapshot: %1</source>
+        <translation>Не удалось прочитать согласованный снимок внешней базы данных возобновления: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="306"/>
+        <source>The external resume database failed its integrity check.</source>
+        <translation>Внешняя база данных возобновления не прошла проверку целостности.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="308"/>
+        <source>The external resume database has an unsupported schema: no version is available.</source>
+        <translation>Схема внешней базы данных возобновления не поддерживается: версия не указана.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="312"/>
+        <source>The external resume database schema is unsupported. Expected version %1; found %2.</source>
+        <translation>Схема внешней базы данных возобновления не поддерживается. Ожидается версия %1; найдена %2.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="327"/>
+        <source>The external resume database schema is missing column %1.</source>
+        <translation>В схеме внешней базы данных возобновления отсутствует столбец %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="331"/>
+        <source>Cannot read the external resume database: %1</source>
+        <translation>Не удалось прочитать внешнюю базу данных возобновления: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="335"/>
+        <source>Select the source profile base to resolve relative resume paths.</source>
+        <translation>Выберите корневую папку исходного профиля для определения относительных путей возобновления.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="344"/>
+        <source>The external profile exceeds the limit of %1 torrents.</source>
+        <translation>Внешний профиль превышает допустимое число торрентов: %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="347"/>
+        <source>The external resume database contains an invalid or duplicate torrent ID.</source>
+        <translation>Внешняя база данных возобновления содержит некорректный или повторяющийся идентификатор торрента.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="354"/>
+        <source>The external resume data exceeds the import size limit.</source>
+        <translation>Внешние данные возобновления превышают допустимый размер импорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="377"/>
+        <source>The database torrent ID or metadata does not match its resume info-hash.</source>
+        <translation>Идентификатор торрента в базе данных или метаданные не соответствуют инфо-хешу записи возобновления.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="383"/>
+        <source>Cannot finish reading the external resume database: %1</source>
+        <translation>Не удалось завершить чтение внешней базы данных возобновления: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="386"/>
+        <source>Cannot finish the external resume database snapshot: %1</source>
+        <translation>Не удалось завершить снимок внешней базы данных возобновления: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="834"/>
+        <source>Couldn&apos;t open resume data database. Error: %1</source>
+        <translation>Не удалось открыть базу данных возобновления. Ошибка: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="869"/>
+        <source>Couldn&apos;t store resume data. Error: %1</source>
+        <translation>Не удалось сохранить данные возобновления. Ошибка: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="882"/>
+        <source>Commit resume data transaction failed. Error: %1</source>
+        <translation>Ошибка фиксации транзакции данных возобновления: %1</translation>
     </message>
 </context>
 <context>
@@ -2290,6 +2598,41 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <source>The data changed after analysis. No repair changes were made; analyze it again.</source>
         <translation>После анализа данные изменились. Восстановление не внесло изменений; выполните анализ заново.</translation>
     </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="34"/>
+        <source>Staged repair timed out waiting for disk I/O or saved torrent location. The recovery journal is retained.</source>
+        <translation>Истекло время ожидания дисковых операций или сохранения расположения торрента при восстановлении через рабочую копию. Журнал восстановления сохранён.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="44"/>
+        <source>The final torrent location could not be saved. The recovery journal is retained.</source>
+        <translation>Не удалось сохранить окончательное расположение торрента. Журнал восстановления сохранён.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="156"/>
+        <source>The older staging journal requires manual management and a single save directory. Its saved torrent settings are inconsistent; recovery cannot safely restore them.</source>
+        <translation>Старый журнал рабочей копии требует ручного управления и единой папки сохранения. Сохранённые настройки торрента противоречивы, их нельзя безопасно восстановить.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="218"/>
+        <source>Recover the pending staged operation before starting a new analysis.</source>
+        <translation>Восстановите незавершённую операцию с рабочей копией перед новым анализом.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="321"/>
+        <source>Select at least one target file before repairing its data.</source>
+        <translation>Выберите хотя бы один файл назначения перед восстановлением данных.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="465"/>
+        <source>Staged files are missing. Roll back and prepare a new independent staging directory.</source>
+        <translation>Файлы рабочей копии отсутствуют. Выполните откат и подготовьте новую независимую рабочую папку.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairservice.cpp" line="475"/>
+        <source>Use commit recovery or rollback for this interrupted operation.</source>
+        <translation>Для этой прерванной операции используйте восстановление фиксации или откат.</translation>
+    </message>
 </context>
 <context>
     <name>BitTorrent::ResumeDataStorage</name>
@@ -2312,6 +2655,71 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <location filename="../base/bittorrent/dbresumedatastorage.cpp" line="998"/>
         <source>Couldn&apos;t store torrents queue positions. Error: %1</source>
         <translation>Не удалось сохранить очерёдность торрентов. Ошибка: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="72"/>
+        <source>Select an existing external data directory and, when needed, its absolute profile base.</source>
+        <translation>Выберите существующую внешнюю папку данных и при необходимости абсолютный путь к корневой папке её профиля.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="79"/>
+        <source>The selected data directory contains neither torrents.db nor BT_backup.</source>
+        <translation>Выбранная папка данных не содержит ни torrents.db, ни BT_backup.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="84"/>
+        <source>A write-excluding external SQLite snapshot is currently supported only on Windows.</source>
+        <translation>Снимок внешней базы SQLite с исключением записи пока поддерживается только в Windows.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="91"/>
+        <source>Cannot create a temporary directory for the external profile snapshot.</source>
+        <translation>Не удалось создать временную папку для снимка внешнего профиля.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="110"/>
+        <source>Cannot freeze the external resume database (Windows error %1). Close the source client and try again.</source>
+        <translation>Не удалось заблокировать изменения внешней базы данных возобновления (ошибка Windows %1). Закройте исходный клиент и повторите попытку.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="117"/>
+        <source>An external database file is not a regular file.</source>
+        <translation>Файл внешней базы данных не является обычным файлом.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="121"/>
+        <source>Cannot read the external resume database snapshot.</source>
+        <translation>Не удалось прочитать снимок внешней базы данных возобновления.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="126"/>
+        <source>Cannot read the external resume database snapshot: %1</source>
+        <translation>Не удалось прочитать снимок внешней базы данных возобновления: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="130"/>
+        <source>The external database snapshot exceeds the import size limit.</source>
+        <translation>Снимок внешней базы данных превышает допустимый размер импорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="132"/>
+        <source>The external database has an unfinished rollback journal. Recover it in the source client before import.</source>
+        <translation>Внешняя база данных содержит незавершённый журнал отката. Восстановите её в исходном клиенте перед импортом.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="136"/>
+        <source>Cannot write the temporary resume database snapshot: %1</source>
+        <translation>Не удалось записать временный снимок базы данных возобновления: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="142"/>
+        <source>Cannot finish copying the external resume database snapshot.</source>
+        <translation>Не удалось завершить копирование снимка внешней базы данных возобновления.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/resumedatastorage.cpp" line="146"/>
+        <source>Cannot flush the temporary resume database snapshot: %1</source>
+        <translation>Не удалось записать временный снимок базы данных возобновления на диск: %1</translation>
     </message>
 </context>
 <context>
@@ -2847,6 +3255,51 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <source>Failed to move torrent. Torrent: &quot;%1&quot;. Source: &quot;%2&quot;. Destination: &quot;%3&quot;. Reason: &quot;%4&quot;</source>
         <translation>Не удалось переместить торрент. Торрент: «%1». Источник: «%2». Назначение: «%3». Причина: «%4»</translation>
     </message>
+    <message>
+        <location filename="../base/bittorrent/sessionimpl.cpp" line="3005"/>
+        <source>The data directory is owned by a repair preview. Close it before adding another torrent here.</source>
+        <translation>Папка данных занята предварительной проверкой восстановления. Закройте её перед добавлением другого торрента в эту папку.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/sessionimpl.cpp" line="4415"/>
+        <source>Failed to register managed UDP routes. Reason: &quot;%1&quot;.</source>
+        <translation>Не удалось зарегистрировать управляемые маршруты UDP. Причина: «%1».</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/sessionimpl.cpp" line="4435"/>
+        <source>Failed to apply the managed torrent route policy. Reason: &quot;%1&quot;.</source>
+        <translation>Не удалось применить правила управляемой маршрутизации торрентов. Причина: «%1».</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/sessionimpl.cpp" line="4474"/>
+        <source>Failed to retire superseded managed UDP routes. Reason: &quot;%1&quot;.</source>
+        <translation>Не удалось отключить заменённые управляемые маршруты UDP. Причина: «%1».</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/sessionimpl.cpp" line="4508"/>
+        <source>Failed to retire trusted incoming routes. Reason: &quot;%1&quot;.</source>
+        <translation>Не удалось отключить доверенные входящие маршруты. Причина: «%1».</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/sessionimpl.cpp" line="4514"/>
+        <source>Failed to retire managed UDP routes. Reason: &quot;%1&quot;.</source>
+        <translation>Не удалось отключить управляемые маршруты UDP. Причина: «%1».</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/sessionimpl.cpp" line="4521"/>
+        <source>Failed to restore the default torrent route policy. Reason: &quot;%1&quot;.</source>
+        <translation>Не удалось восстановить правила маршрутизации торрентов по умолчанию. Причина: «%1».</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/sessionimpl.cpp" line="4567"/>
+        <source>Failed to replace trusted incoming routes. Reason: &quot;%1&quot;.</source>
+        <translation>Не удалось заменить доверенные входящие маршруты. Причина: «%1».</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/sessionimpl.cpp" line="6260"/>
+        <source>Self-connection rejected. Peer IP: %1. Port: %2. Path: %3. Generation: %4.</source>
+        <translation>Соединение с самим собой отклонено. IP пира: %1. Порт: %2. Маршрут: %3. Поколение: %4.</translation>
+    </message>
 </context>
 <context>
     <name>BitTorrent::TorrentCreationTask</name>
@@ -3143,6 +3596,16 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <location filename="../app/cmdoptions.cpp" line="562"/>
         <source>Help</source>
         <translation>Справка</translation>
+    </message>
+    <message>
+        <location filename="../app/cmdoptions.cpp" line="519"/>
+        <source>Store configuration files in directories qbutt_&lt;name&gt;</source>
+        <translation>Хранить файлы настроек в папках qbutt_&lt;name&gt;</translation>
+    </message>
+    <message>
+        <location filename="../app/cmdoptions.cpp" line="542"/>
+        <source>Option values may be supplied via environment variables. For option named &apos;parameter-name&apos;, environment variable name is &apos;QBUTT_PARAMETER_NAME&apos; (in upper case, &apos;-&apos; replaced with &apos;_&apos;). To pass flag values, set the variable to &apos;1&apos; or &apos;TRUE&apos;. For example, to disable the splash screen: </source>
+        <translation>Значения параметров можно передавать через переменные среды. Для параметра &apos;parameter-name&apos; используется переменная &apos;QBUTT_PARAMETER_NAME&apos; (в верхнем регистре, &apos;-&apos; заменяется на &apos;_&apos;). Для включения флага задайте значение &apos;1&apos; или &apos;TRUE&apos;. Например, для отключения заставки: </translation>
     </message>
 </context>
 <context>
@@ -3843,6 +4306,26 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <location filename="../app/main.cpp" line="306"/>
         <source>Error when daemonizing. Reason: &quot;%1&quot;. Error code: %2.</source>
         <translation>Ошибка при демонизации. Причина: «%1». Код ошибки: %2.</translation>
+    </message>
+    <message>
+        <location filename="../app/main.cpp" line="119"/>
+        <source>qbutt has encountered an unrecoverable error.</source>
+        <translation>В qbutt произошла неустранимая ошибка.</translation>
+    </message>
+    <message>
+        <location filename="../app/main.cpp" line="236"/>
+        <source>You cannot use %1: qbutt is already running.</source>
+        <translation>Нельзя использовать %1: qbutt уже запущен.</translation>
+    </message>
+    <message>
+        <location filename="../app/main.cpp" line="243"/>
+        <source>Another qbutt instance is already running.</source>
+        <translation>Другой экземпляр qbutt уже запущен.</translation>
+    </message>
+    <message>
+        <location filename="../app/main.cpp" line="279"/>
+        <source>Found unexpected qbutt instance. Exiting this instance. Current process ID: %1.</source>
+        <translation>Обнаружен непредусмотренный экземпляр qbutt. Текущий экземпляр завершает работу. Идентификатор текущего процесса: %1.</translation>
     </message>
 </context>
 <context>
@@ -4549,6 +5032,56 @@ Minimum requirement: %2.</source>
         <location filename="../gui/mainwindow.cpp" line="1322"/>
         <source>Torrent Files</source>
         <translation>Торрент-файлы</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="355"/>
+        <source>Smart repair from torrent file...</source>
+        <translation>Умное восстановление из торрент-файла…</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="1068"/>
+        <source>qbutt was just updated and needs to be restarted for the changes to be effective.</source>
+        <translation>qbutt обновлён. Перезапустите приложение, чтобы изменения вступили в силу.</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="1217"/>
+        <source>Exiting qbutt</source>
+        <translation>Выход из qbutt</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="1219"/>
+        <source>Are you sure you want to quit qbutt?</source>
+        <translation>Вы действительно хотите выйти из qbutt?</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.ui" line="352"/>
+        <source>L&amp;ock qbutt</source>
+        <translation>За&amp;блокировать qbutt</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.ui" line="363"/>
+        <source>Support qBittorrent</source>
+        <translation>Поддержать qBittorrent</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.ui" line="366"/>
+        <source>Support the upstream qBittorrent project</source>
+        <translation>Поддержать исходный проект qBittorrent</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.ui" line="374"/>
+        <source>&amp;Exit qbutt</source>
+        <translation>&amp;Выход из qbutt</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.ui" line="434"/>
+        <source>Update status</source>
+        <translation>Состояние обновления</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.ui" line="437"/>
+        <source>Show qbutt update status</source>
+        <translation>Показать состояние обновления qbutt</translation>
     </message>
 </context>
 <context>
@@ -6333,6 +6866,386 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <source>Pinned path stopped. Automatic Native fallback is disabled.</source>
         <translation>Соединение через выбранный узел остановлено. Автоматический переход к обычному соединению отключён.</translation>
     </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="197"/>
+        <source>Connection stopped. Connect a node to resume.</source>
+        <translation>Соединение остановлено. Подключите узел для возобновления.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="198"/>
+        <source>Using default connection settings.</source>
+        <translation>Используются настройки соединения по умолчанию.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="256"/>
+        <source>Gateway expired. Reconnecting…</source>
+        <translation>Срок аренды шлюза истёк. Переподключение…</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="258"/>
+        <source>An expired public gateway generation could not be retired safely.</source>
+        <translation>Не удалось безопасно завершить работу истёкшего поколения публичного шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="514"/>
+        <source>Enter valid gateway addresses, TLS name, readable certificate files and a port from 0 to 65535.</source>
+        <translation>Укажите корректные адреса шлюза, имя TLS, доступные для чтения файлы сертификатов и порт от 0 до 65535.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="545"/>
+        <source>Unable to save public gateway settings.</source>
+        <translation>Не удалось сохранить настройки публичного шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="551"/>
+        <source>Public gateway disabled.</source>
+        <translation>Публичный шлюз отключён.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="559"/>
+        <source>Gateway saved. Connect a node to use it.</source>
+        <translation>Шлюз сохранён. Подключите узел для его использования.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="565"/>
+        <source>Applying gateway settings…</source>
+        <translation>Применение настроек шлюза…</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="570"/>
+        <source>The previous public gateway settings could not be restored. Network paths remain stopped.</source>
+        <translation>Не удалось восстановить прежние настройки публичного шлюза. Сетевые маршруты остаются остановленными.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="573"/>
+        <source>The active paths could not be stopped for a gateway generation change.</source>
+        <translation>Не удалось остановить активные маршруты для смены поколения шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="602"/>
+        <source>DNS saved. Reconnect nodes to apply.</source>
+        <translation>DNS сохранён. Переподключите узлы для применения.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="795"/>
+        <source>Disconnect all managed paths before changing server groups.</source>
+        <translation>Перед изменением групп серверов отключите все управляемые маршруты.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="800"/>
+        <source>The saved server grouping limit was reached.</source>
+        <translation>Достигнут предел сохранённых групп серверов.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="808"/>
+        <source>Unable to save server grouping in the qbutt profile.</source>
+        <translation>Не удалось сохранить группы серверов в профиле qbutt.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="813"/>
+        <source>Server grouping saved.</source>
+        <translation>Группы серверов сохранены.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="833"/>
+        <source>Select two nodes from the loaded subscription to group their servers.</source>
+        <translation>Выберите два узла из загруженной подписки, чтобы объединить их серверы.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="874"/>
+        <source>Choose a node and network adapter.</source>
+        <translation>Выберите узел и сетевой адаптер.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="881"/>
+        <source>Choose at most three distinct reserve transports for the selected server.</source>
+        <translation>Выберите не более трёх разных резервных транспортов для выбранного сервера.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="886"/>
+        <source>Checking the selected node…</source>
+        <translation>Проверка выбранного узла…</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="915"/>
+        <source>This server is already connected. Disconnect it or choose a backup connection.</source>
+        <translation>Этот сервер уже подключён. Отключите его или выберите резервное соединение.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="924"/>
+        <source>Eight servers are already selected. Use Default connection to reset them.</source>
+        <translation>Уже выбрано восемь серверов. Нажмите «Соединение по умолчанию», чтобы сбросить выбор.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="938"/>
+        <source>Unable to install the blocked startup route before connecting the path.</source>
+        <translation>Не удалось установить блокирующий стартовый маршрут перед подключением.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="939"/>
+        <source>Unable to restore Native after the blocked startup route failed.</source>
+        <translation>Не удалось восстановить обычное соединение после ошибки блокирующего стартового маршрута.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="946"/>
+        <source>Connecting…</source>
+        <translation>Подключение…</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="960"/>
+        <source>Choose a connection mode.</source>
+        <translation>Выберите режим соединения.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="966"/>
+        <source>Choose a network adapter for the direct connection.</source>
+        <translation>Выберите сетевой адаптер для прямого соединения.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="974"/>
+        <source>The selected network adapter has no usable address.</source>
+        <translation>У выбранного сетевого адаптера нет подходящего адреса.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1095"/>
+        <source>Unable to retire unavailable Native routes safely.</source>
+        <translation>Не удалось безопасно отключить недоступные маршруты обычного соединения.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1114"/>
+        <source>Direct connection unavailable. Connected nodes remain active.</source>
+        <translation>Прямое соединение недоступно. Подключённые узлы остаются активными.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1115"/>
+        <source>Using connected nodes and the direct connection.</source>
+        <translation>Используются подключённые узлы и прямое соединение.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1118"/>
+        <source>Using connected nodes only.</source>
+        <translation>Используются только подключённые узлы.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1120"/>
+        <source>Using the first node in the connection list.</source>
+        <translation>Используется первый узел в списке соединений.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1269"/>
+        <source>qbutt-net returned an incompatible event.</source>
+        <translation>qbutt-net вернул несовместимое событие.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1285"/>
+        <source>qbutt-net returned an invalid control response envelope.</source>
+        <translation>qbutt-net вернул ответ управления с некорректной структурой.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1318"/>
+        <source>qbutt-net rejected a gateway path-generation invariant.</source>
+        <translation>qbutt-net отклонил несогласованное поколение маршрута шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1326"/>
+        <source>The bundled qbutt-net rejected transport status reporting.</source>
+        <translation>Встроенный компонент qbutt-net отклонил запрос состояния транспорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1330"/>
+        <source>qbutt-net could not retire a stopped path generation.</source>
+        <translation>qbutt-net не удалось завершить работу остановленного поколения маршрута.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1337"/>
+        <source>qbutt-net rejected a transport replacement invariant.</source>
+        <translation>qbutt-net отклонил несогласованную замену транспорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1340"/>
+        <source>The reserve transport could not start. This path remains stopped; other paths are unchanged.</source>
+        <translation>Не удалось запустить резервный транспорт. Этот маршрут остаётся остановленным; остальные маршруты не изменены.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1352"/>
+        <source>qbutt-net rejected a path while applying the public gateway settings.</source>
+        <translation>qbutt-net отклонил маршрут при применении настроек публичного шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1429"/>
+        <source>qbutt-net returned an unexpected selected node.</source>
+        <translation>qbutt-net вернул выбранный узел, не соответствующий запросу.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1435"/>
+        <source>Choose reserve transports from the same configured or explicitly grouped server.</source>
+        <translation>Выберите резервные транспорты с тем же адресом сервера или из группы, заданной вручную.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1545"/>
+        <source>Opening incoming connections for %1…</source>
+        <translation>Открытие входящих соединений для %1…</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1547"/>
+        <source>Node enabled: %1.</source>
+        <translation>Узел включён: %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1601"/>
+        <source>qbutt-net returned an invalid public gateway lease.</source>
+        <translation>qbutt-net вернул некорректную аренду публичного шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1622"/>
+        <source>Unable to register the verified public gateway lease with libtorrent.</source>
+        <translation>Не удалось зарегистрировать проверенную аренду публичного шлюза в libtorrent.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1632"/>
+        <source>Public gateway lease active for %1 until %2.</source>
+        <translation>Аренда публичного шлюза для %1 действует до %2.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1650"/>
+        <source>qbutt-net did not retire the expected public gateway lease.</source>
+        <translation>qbutt-net не завершил ожидаемую аренду публичного шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1655"/>
+        <source>qbutt-net retired an unexpected public gateway lease.</source>
+        <translation>qbutt-net завершил другую аренду публичного шлюза вместо ожидаемой.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1670"/>
+        <source>qbutt-net returned an invalid transport status.</source>
+        <translation>qbutt-net вернул некорректное состояние транспорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1700"/>
+        <source>qbutt-net returned status for an invalid path generation.</source>
+        <translation>qbutt-net вернул состояние для недопустимого поколения маршрута.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1720"/>
+        <source>qbutt-net returned stale or decreasing transport counters.</source>
+        <translation>qbutt-net вернул устаревшие или уменьшившиеся счётчики транспорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1726"/>
+        <source>qbutt-net recommended an unselected reserve transport.</source>
+        <translation>qbutt-net предложил резервный транспорт, который не был выбран.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1770"/>
+        <source>qbutt-net returned a mismatched DNS path generation.</source>
+        <translation>qbutt-net вернул несовпадающее поколение маршрута DNS.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1798"/>
+        <source>qbutt-net returned an invalid path close response.</source>
+        <translation>qbutt-net вернул некорректный ответ о закрытии маршрута.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1807"/>
+        <source>qbutt-net returned a response for an unknown request.</source>
+        <translation>qbutt-net вернул ответ на неизвестный запрос.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1830"/>
+        <source>qbutt-net returned an invalid terminal gateway event.</source>
+        <translation>qbutt-net вернул некорректное событие завершения работы шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1837"/>
+        <source>qbutt-net returned a terminal event for an unknown path generation.</source>
+        <translation>qbutt-net вернул событие завершения для неизвестного поколения маршрута.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1845"/>
+        <source>A public gateway connection ended. Reconnecting paths with new generations.</source>
+        <translation>Соединение с публичным шлюзом завершено. Маршруты переподключаются с новыми поколениями.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1847"/>
+        <source>The ended public gateway generation could not be retired safely.</source>
+        <translation>Не удалось безопасно завершить работу закрытого поколения публичного шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1875"/>
+        <source>qbutt-net returned invalid trusted incoming metadata.</source>
+        <translation>qbutt-net вернул некорректные доверенные метаданные входящего соединения.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1880"/>
+        <source>qbutt-net returned incoming metadata for an unknown path generation.</source>
+        <translation>qbutt-net вернул метаданные входящего соединения для неизвестного поколения маршрута.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1893"/>
+        <source>qbutt-net returned incoming metadata outside the active gateway lease.</source>
+        <translation>qbutt-net вернул метаданные входящего соединения вне действующей аренды шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1902"/>
+        <source>An incoming gateway connection was rejected before it entered the torrent session.</source>
+        <translation>Входящее соединение шлюза отклонено до передачи в сеанс торрентов.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2030"/>
+        <source>Some connections could not be restored.</source>
+        <translation>Не удалось восстановить часть соединений.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2031"/>
+        <source>Connections restored.</source>
+        <translation>Соединения восстановлены.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2052"/>
+        <source>qbutt-net failed a gateway request for an unknown path generation.</source>
+        <translation>qbutt-net сообщил об ошибке запроса шлюза для неизвестного поколения маршрута.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2059"/>
+        <source>The public gateway lease ended. Reconnecting paths with new generations.</source>
+        <translation>Аренда публичного шлюза завершена. Маршруты переподключаются с новыми поколениями.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2069"/>
+        <source>qbutt-net failed an unexpected public gateway transition.</source>
+        <translation>qbutt-net сообщил об ошибке непредусмотренного перехода состояния публичного шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2079"/>
+        <source>A failed public gateway transition could not be removed safely.</source>
+        <translation>Не удалось безопасно отменить неудачный переход состояния публичного шлюза.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2082"/>
+        <source>The public gateway could not be opened. The path is active for outgoing traffic only.</source>
+        <translation>Не удалось открыть публичный шлюз. Маршрут активен только для исходящего трафика.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2126"/>
+        <source>Choose a configured reserve transport of the selected active path.</source>
+        <translation>Выберите настроенный резервный транспорт выбранного активного маршрута.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2144"/>
+        <source>Switching to the backup connection…</source>
+        <translation>Переключение на резервное соединение…</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2171"/>
+        <source>Closing incoming connections…</source>
+        <translation>Закрытие входящих соединений…</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="2210"/>
+        <source>Disconnected.</source>
+        <translation>Отключено.</translation>
+    </message>
 </context>
 <context>
     <name>Net::Smtp</name>
@@ -6380,6 +7293,506 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <location filename="../base/net/smtp.cpp" line="566"/>
         <source>Email Notification Error: %1</source>
         <translation>Ошибка оповещения по эл. почте: %1</translation>
+    </message>
+</context>
+<context>
+    <name>NetworkDiagnosticsDialog</name>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="141"/>
+        <source>No peers available</source>
+        <translation>Нет доступных пиров</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="142"/>
+        <source>Connecting to %n peer(s)</source>
+        <translation>
+            <numerusform>Подключение к %n пиру</numerusform>
+            <numerusform>Подключение к %n пирам</numerusform>
+            <numerusform>Подключение к %n пирам</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="143"/>
+        <source>%n peer(s) are withholding data (choked)</source>
+        <translation>
+            <numerusform>%n пир приостановил передачу данных (choked)</numerusform>
+            <numerusform>%n пира приостановили передачу данных (choked)</numerusform>
+            <numerusform>%n пиров приостановили передачу данных (choked)</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="144"/>
+        <source>%n peer(s) have no needed data</source>
+        <translation>
+            <numerusform>У %n пира нет нужных данных</numerusform>
+            <numerusform>У %n пиров нет нужных данных</numerusform>
+            <numerusform>У %n пиров нет нужных данных</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="145"/>
+        <source>%n peer(s) waiting for disk I/O</source>
+        <translation>
+            <numerusform>%n пир ожидает дисковых операций</numerusform>
+            <numerusform>%n пира ожидают дисковых операций</numerusform>
+            <numerusform>%n пиров ожидают дисковых операций</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="146"/>
+        <source>Downloaded data failed verification</source>
+        <translation>Загруженные данные не прошли проверку</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="147"/>
+        <source>%n peer(s) waiting for bandwidth</source>
+        <translation>
+            <numerusform>%n пир ожидает освобождения полосы пропускания</numerusform>
+            <numerusform>%n пира ожидают освобождения полосы пропускания</numerusform>
+            <numerusform>%n пиров ожидают освобождения полосы пропускания</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="148"/>
+        <source>Transferring data</source>
+        <translation>Передача данных</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="149"/>
+        <source>Torrent stopped</source>
+        <translation>Торрент остановлен</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="150"/>
+        <source>Download complete</source>
+        <translation>Загрузка завершена</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="151"/>
+        <source>Downloading metadata</source>
+        <translation>Загрузка метаданных</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="152"/>
+        <source>Not downloading</source>
+        <translation>Не загружается</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="153"/>
+        <source>Idle; no clear cause</source>
+        <translation>Простой; причина не определена</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="164"/>
+        <source>Tracker</source>
+        <translation>Трекер</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="165"/>
+        <source>DHT</source>
+        <translation>DHT</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="166"/>
+        <source>Peer exchange</source>
+        <translation>Обмен пирами</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="167"/>
+        <source>Local discovery</source>
+        <translation>Поиск локальных пиров</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="168"/>
+        <source>Resume data</source>
+        <translation>Данные возобновления</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="169"/>
+        <source>Incoming</source>
+        <translation>Входящие соединения</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="170"/>
+        <source>Web seed</source>
+        <translation>Веб-сид</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="171"/>
+        <source>None among active peers</source>
+        <translation>Среди активных пиров нет</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="184"/>
+        <source>Refresh</source>
+        <translation>Обновить</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="185"/>
+        <source>Export…</source>
+        <translation>Экспорт…</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="198"/>
+        <source>Network diagnostics</source>
+        <translation>Диагностика сети</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="202"/>
+        <source>Torrent removed</source>
+        <translation>Торрент удалён</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="203"/>
+        <source>Reading transfer status…</source>
+        <translation>Получение состояния передачи…</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="208"/>
+        <source>Export anonymized diagnostics</source>
+        <translation>Экспорт обезличенной диагностики</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="215"/>
+        <source>Path</source>
+        <translation>Маршрут</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="215"/>
+        <source>Generation</source>
+        <translation>Поколение</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="215"/>
+        <source>Peers (torrent)</source>
+        <translation>Пиры торрента</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="215"/>
+        <source>Attempts</source>
+        <translation>Попытки</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="216"/>
+        <source>Connected</source>
+        <translation>Подключено</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="216"/>
+        <source>Failures</source>
+        <translation>Ошибки</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="216"/>
+        <source>Verified bytes (session)</source>
+        <translation>Проверено за сеанс, байт</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="216"/>
+        <source>Verified rate (session)</source>
+        <translation>Скорость проверенных данных за сеанс</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="217"/>
+        <source>Peer payload bytes (session)</source>
+        <translation>Данные пиров за сеанс, байт</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="217"/>
+        <source>Peer payload rate (torrent)</source>
+        <translation>Скорость данных пиров торрента</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="217"/>
+        <source>Relay bytes</source>
+        <translation>Трафик ретранслятора, байт</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="218"/>
+        <source>Carrier wire bytes</source>
+        <translation>Полный трафик транспорта, байт</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="218"/>
+        <source>Inbound</source>
+        <translation>Входящие соединения</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="229"/>
+        <source>Show details</source>
+        <translation>Показать подробности</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="236"/>
+        <source>Connections · all torrents</source>
+        <translation>Соединения · все торренты</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="237"/>
+        <source>Verified bytes count downloaded data after a successful hash check, excluding padding, duplicate copies and existing files. Inactive connection totals expire after 15 minutes.</source>
+        <translation>Проверенные байты учитывают загруженные данные после успешной проверки хеша, без заполнителей, повторных копий и существующих файлов. Показатели неактивных соединений удаляются через 15 минут.</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="286"/>
+        <source>Torrent removed; diagnostics expired.</source>
+        <translation>Торрент удалён; срок хранения диагностики истёк.</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="287"/>
+        <source>Torrent removed. Diagnostics can still be exported.</source>
+        <translation>Торрент удалён. Диагностику ещё можно экспортировать.</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="302"/>
+        <source>Unable to read peer diagnostics.</source>
+        <translation>Не удалось прочитать диагностику пиров.</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="574"/>
+        <source>Download: %1 · Upload: %2 · Peers: %L3</source>
+        <translation>Приём: %1 · Отдача: %2 · Пиры: %L3</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="578"/>
+        <source>Torrent payload rates before hash verification.</source>
+        <translation>Скорости передачи данных торрента до проверки хеша.</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="601"/>
+        <source>%1 down / %2 up</source>
+        <translation>%1 принято / %2 отправлено</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="603"/>
+        <source>Not reported</source>
+        <translation>Нет данных</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="608"/>
+        <source>Pinned %1 · scored %2 · exploration %3 · denied %4</source>
+        <translation>Закреплено: %1 · по оценке: %2 · пробных: %3 · отклонено: %4</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="613"/>
+        <source>Bounded event tail (counts may be lower): %1</source>
+        <translation>Последние события (показатели могут быть неполными): %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="615"/>
+        <source>Candidates / connections / established</source>
+        <translation>Кандидаты / соединения / установленные</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="615"/>
+        <source>%1 / %2 / %3</source>
+        <translation>%1 / %2 / %3</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="617"/>
+        <source>Sources among active peers</source>
+        <translation>Источники активных пиров</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="618"/>
+        <source>Transferring / choked / no wanted blocks</source>
+        <translation>Передают / приостановлены пиром / нет нужных блоков</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="620"/>
+        <source>Peer payload down</source>
+        <translation>Приём данных пиров</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="621"/>
+        <source>Peer protocol wire down</source>
+        <translation>Приём полного трафика пиров</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="624"/>
+        <source>Recent session route decisions</source>
+        <translation>Недавние решения о маршрутах за сеанс</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="625"/>
+        <source>Disk / bandwidth waits</source>
+        <translation>Ожидание диска / полосы пропускания</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="625"/>
+        <source>%1 / %2</source>
+        <translation>%1 / %2</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="627"/>
+        <source>Hash verification rejected since previous sample</source>
+        <translation>Не прошло проверку хеша после предыдущего замера</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="682"/>
+        <source>Native</source>
+        <translation>Обычное соединение</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="682"/>
+        <source>Blocked route</source>
+        <translation>Заблокированный маршрут</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="683"/>
+        <source>Unmanaged/default route</source>
+        <translation>Неуправляемый маршрут / по умолчанию</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="684"/>
+        <source>Path %1</source>
+        <translation>Маршрут %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="687"/>
+        <source>Unknown</source>
+        <translation>Неизвестно</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="692"/>
+        <source>%1 (TCP %2, UDP %3)</source>
+        <translation>%1 (TCP: %2, UDP: %3)</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="693"/>
+        <source>yes</source>
+        <translation>да</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="693"/>
+        <source>no</source>
+        <translation>нет</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="696"/>
+        <source>Outgoing only</source>
+        <translation>Только исходящие</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="709"/>
+        <source>%1 (%2 timeout)</source>
+        <translation>%1 (по тайм-ауту: %2)</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="735"/>
+        <source>Export anonymized diagnostics (%n sample(s), up to 15 minutes).</source>
+        <translation>
+            <numerusform>Экспортировать обезличенную диагностику (%n замер, до 15 минут).</numerusform>
+            <numerusform>Экспортировать обезличенную диагностику (%n замера, до 15 минут).</numerusform>
+            <numerusform>Экспортировать обезличенную диагностику (%n замеров, до 15 минут).</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="741"/>
+        <source>JSON files (*.json)</source>
+        <translation>Файлы JSON (*.json)</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="747"/>
+        <source>Unable to open the export file.</source>
+        <translation>Не удалось открыть файл для экспорта.</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="753"/>
+        <source>Unable to write the export file.</source>
+        <translation>Не удалось записать файл экспорта.</translation>
+    </message>
+    <message>
+        <location filename="../gui/networkdiagnosticsdialog.cpp" line="756"/>
+        <source>Anonymized diagnostics exported.</source>
+        <translation>Обезличенная диагностика экспортирована.</translation>
+    </message>
+</context>
+<context>
+    <name>NetworkFilterWidget</name>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="54"/>
+        <source>All peer sources</source>
+        <translation>Все источники пиров</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="55"/>
+        <source>Tracker</source>
+        <translation>Трекер</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="56"/>
+        <source>DHT</source>
+        <translation>DHT</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="57"/>
+        <source>Peer exchange</source>
+        <translation>Обмен пирами</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="58"/>
+        <source>Local discovery</source>
+        <translation>Поиск локальных пиров</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="59"/>
+        <source>Resume data</source>
+        <translation>Данные возобновления</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="60"/>
+        <source>Incoming</source>
+        <translation>Входящие соединения</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="61"/>
+        <source>Web seed</source>
+        <translation>Веб-сид</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="62"/>
+        <source>No active peer source</source>
+        <translation>Нет активного источника пиров</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="71"/>
+        <source>Path:</source>
+        <translation>Маршрут:</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="72"/>
+        <source>Source:</source>
+        <translation>Источник:</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="105"/>
+        <source>All paths</source>
+        <translation>Все маршруты</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="106"/>
+        <source>Unmanaged/default route</source>
+        <translation>Неуправляемый маршрут / по умолчанию</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="122"/>
+        <source>Path %1 · generation %2</source>
+        <translation>Маршрут %1 · поколение %2</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="123"/>
+        <source>%1 · generation %2</source>
+        <translation>%1 · поколение %2</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="135"/>
+        <source>Observed path %1 · generation %2</source>
+        <translation>Обнаруженный маршрут %1 · поколение %2</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="138"/>
+        <source>No active path</source>
+        <translation>Нет активного маршрута</translation>
     </message>
 </context>
 <context>
@@ -8359,6 +9772,86 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <source>Length Error</source>
         <translation>Ошибка размера</translation>
     </message>
+    <message>
+        <location filename="../gui/optionsdialog.cpp" line="602"/>
+        <source>When these options are enabled, qbutt will &lt;strong&gt;delete&lt;/strong&gt; .torrent files after they were successfully (the first option) or not (the second option) added to its download queue. This will be applied &lt;strong&gt;not only&lt;/strong&gt; to the files opened via &amp;ldquo;Add torrent&amp;rdquo; menu action but to those opened via &lt;strong&gt;file type association&lt;/strong&gt; as well</source>
+        <translation>При включении этих параметров qbutt будет &lt;strong&gt;удалять&lt;/strong&gt; файлы .torrent после успешного (первый параметр) или неудачного (второй параметр) добавления в очередь загрузки. Это касается &lt;strong&gt;не только&lt;/strong&gt; файлов, открытых через пункт меню &amp;ldquo;Добавить торрент&amp;rdquo;, но и открытых через &lt;strong&gt;ассоциацию типа файлов&lt;/strong&gt;</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.cpp" line="1514"/>
+        <source>Generate an API key? This key can be used to interact with qbutt&apos;s API.</source>
+        <translation>Создать ключ API? Он позволяет обращаться к API qbutt.</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.cpp" line="1767"/>
+        <source>Choose an existing folder to open .torrent files from.</source>
+        <translation>Выберите существующую папку для открытия файлов .torrent.</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="484"/>
+        <source>Drag content from qbutt</source>
+        <translation>Перетаскивание содержимого из qbutt</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="500"/>
+        <source>Start qbutt on Windows start up</source>
+        <translation>Запускать qbutt при запуске Windows</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="526"/>
+        <source>qbutt window state on start up</source>
+        <translation>Состояние окна qbutt при запуске</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="571"/>
+        <source>Show &amp;qbutt in notification area</source>
+        <translation>Показывать &amp;qbutt в области уведомлений</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="583"/>
+        <source>Minimize qbutt to notification area</source>
+        <translation>Сворачивать qbutt в область уведомлений</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="596"/>
+        <source>Close qbutt to notification area</source>
+        <translation>При закрытии сворачивать qbutt в область уведомлений</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="670"/>
+        <source>Use qbutt for .torrent files</source>
+        <translation>Открывать файлы .torrent в qbutt</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="677"/>
+        <source>Use qbutt for magnet links</source>
+        <translation>Открывать magnet-ссылки в qbutt</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="702"/>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;To set qbutt as default program for .torrent files and/or Magnet links&lt;br/&gt;you can use &lt;span style=&quot; font-weight:600;&quot;&gt;Default Programs&lt;/span&gt; dialog from &lt;span style=&quot; font-weight:600;&quot;&gt;Control Panel&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Чтобы назначить qbutt программой по умолчанию для файлов .torrent и magnet-ссылок,&lt;br/&gt;используйте раздел &lt;span style=&quot; font-weight:600;&quot;&gt;Программы по умолчанию&lt;/span&gt; в &lt;span style=&quot; font-weight:600;&quot;&gt;Панели управления&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="722"/>
+        <source>Show qbutt in menu bar</source>
+        <translation>Показывать qbutt в строке меню</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="1451"/>
+        <source>While qbutt is running, show the Add Torrent dialog for .torrent files in this folder, then delete the source .torrent file. Downloaded files are kept.</source>
+        <translation>Пока qbutt работает, показывать окно добавления для файлов .torrent из этой папки, затем удалять исходный файл .torrent. Загруженные файлы сохраняются.</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="1454"/>
+        <source>Open .torrent files from a folder</source>
+        <translation>Открывать файлы .torrent из папки</translation>
+    </message>
+    <message>
+        <location filename="../gui/optionsdialog.ui" line="2025"/>
+        <source>I2P</source>
+        <translation>I2P</translation>
+    </message>
 </context>
 <context>
     <name>PathsWidget</name>
@@ -8511,6 +10004,241 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <location filename="../gui/pathswidget.cpp" line="224"/>
         <source>Working…</source>
         <translation>Выполняется…</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="35"/>
+        <source>Mihomo subscription</source>
+        <translation>Подписка Mihomo</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="41"/>
+        <source>Group servers</source>
+        <translation>Объединить серверы</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="42"/>
+        <source>Reset grouping</source>
+        <translation>Сбросить объединение</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="49"/>
+        <source>Save DNS</source>
+        <translation>Сохранить DNS</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="57"/>
+        <source>TCP</source>
+        <translation>TCP</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="58"/>
+        <source>UDP / uTP / DHT</source>
+        <translation>UDP / uTP / DHT</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="59"/>
+        <source>Save gateway</source>
+        <translation>Сохранить шлюз</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="63"/>
+        <source>Connect</source>
+        <translation>Подключить</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="64"/>
+        <source>Disconnect</source>
+        <translation>Отключить</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="65"/>
+        <source>Use selected backup</source>
+        <translation>Использовать выбранный резерв</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="66"/>
+        <source>Default connection</source>
+        <translation>Соединение по умолчанию</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="84"/>
+        <source>Choose a network adapter</source>
+        <translation>Выберите сетевой адаптер</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="110"/>
+        <source>Network adapter:</source>
+        <translation>Сетевой адаптер:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="112"/>
+        <source>Single node</source>
+        <translation>Один узел</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="113"/>
+        <source>Selected nodes only</source>
+        <translation>Только выбранные узлы</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="114"/>
+        <source>Selected nodes + direct connection</source>
+        <translation>Выбранные узлы и прямое соединение</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="115"/>
+        <source>Use the first node in the connection list.</source>
+        <translation>Использовать первый узел в списке соединений.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="116"/>
+        <source>Use connected nodes together. Private torrents use the first node in the list.</source>
+        <translation>Использовать подключённые узлы вместе. Приватные торренты используют первый узел в списке.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="117"/>
+        <source>Also use your direct connection, exposing its address to peers. Private torrents use the first node in the list.</source>
+        <translation>Также использовать прямое соединение, раскрывая его адрес пирам. Приватные торренты используют первый узел в списке.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="118"/>
+        <source>Mode:</source>
+        <translation>Режим:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="140"/>
+        <source>Advanced</source>
+        <translation>Дополнительно</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="152"/>
+        <source>Group only nodes you know share one server. Disconnect them first.</source>
+        <translation>Объединяйте только узлы, о которых известно, что они ведут на один сервер. Сначала отключите их.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="153"/>
+        <source>Remove manual server groups.</source>
+        <translation>Удалить группы серверов, заданные вручную.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="157"/>
+        <source>Same server as:</source>
+        <translation>Тот же сервер, что у:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="160"/>
+        <source>Choose up to three backup connections to the same server.</source>
+        <translation>Выберите до трёх резервных соединений с тем же сервером.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="161"/>
+        <source>Backup connections:</source>
+        <translation>Резервные соединения:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="179"/>
+        <source>IP:port. Resolve torrent addresses through the connected node.</source>
+        <translation>IP:порт. Разрешать адреса торрентов через подключённый узел.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="180"/>
+        <source>IP:port. Resolve the node&apos;s own address through the network adapter.</source>
+        <translation>IP:порт. Разрешать адрес самого узла через сетевой адаптер.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="181"/>
+        <source>Applies when a node reconnects.</source>
+        <translation>Применяется при переподключении узла.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="204"/>
+        <source>Incoming connections</source>
+        <translation>Входящие соединения</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="220"/>
+        <source>Automatic</source>
+        <translation>Автоматический</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="225"/>
+        <source>Control endpoint:</source>
+        <translation>Адрес управления:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="226"/>
+        <source>Datagram endpoint:</source>
+        <translation>Адрес для дейтаграмм:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="227"/>
+        <source>TLS server name:</source>
+        <translation>Имя сервера TLS:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="228"/>
+        <source>CA certificate:</source>
+        <translation>Сертификат центра сертификации:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="229"/>
+        <source>Client certificate:</source>
+        <translation>Сертификат клиента:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="230"/>
+        <source>Client private key:</source>
+        <translation>Закрытый ключ клиента:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="231"/>
+        <source>Requested port:</source>
+        <translation>Запрашиваемый порт:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="232"/>
+        <source>Listeners:</source>
+        <translation>Приём соединений:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="234"/>
+        <source>Receive connections through your public gateway.</source>
+        <translation>Принимать соединения через ваш публичный шлюз.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="381"/>
+        <source>Connected, outgoing only</source>
+        <translation>Подключено, только исходящие</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="381"/>
+        <source>Connected, public %1</source>
+        <translation>Подключено, публичный адрес %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="384"/>
+        <source>; checking backup connections</source>
+        <translation>; проверка резервных соединений</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="386"/>
+        <source>; no reachable backup found</source>
+        <translation>; доступный резерв не найден</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="388"/>
+        <source>; settings changed, reconnect to apply</source>
+        <translation>; настройки изменены, для применения переподключитесь</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="389"/>
+        <source>Direct connection</source>
+        <translation>Прямое соединение</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="462"/>
+        <source>Choose a node on the same server</source>
+        <translation>Выберите узел на том же сервере</translation>
     </message>
 </context>
 <context>
@@ -9294,6 +11022,116 @@ Those plugins were disabled.</source>
         <source>Claimed actions are never repeated automatically after a crash. Dispatched records mean the action was submitted to the native session. Key: %1</source>
         <translation>Зафиксированные действия не повторяются автоматически после сбоя. Статус отправки означает передачу действия движку торрентов. Ключ: %1</translation>
     </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="65"/>
+        <source>No completion rules</source>
+        <translation>Нет правил завершения</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="67"/>
+        <source>Remove</source>
+        <translation>Удалить</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="70"/>
+        <source>Allow rules for this torrent…</source>
+        <translation>Разрешить правила для этого торрента…</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="73"/>
+        <source>Completion rules</source>
+        <translation>Правила завершения</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="86"/>
+        <source>Run rules in order after downloads are verified. The first Stop, Remove or Delete action ends evaluation.</source>
+        <translation>Правила выполняются по порядку после проверки загрузок. Первое действие остановки, удаления торрента или его данных прекращает обработку правил.</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="91"/>
+        <source>Seeding (seconds)</source>
+        <translation>Раздача (секунды)</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="91"/>
+        <source>Action</source>
+        <translation>Действие</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="95"/>
+        <source>Use * for all categories.</source>
+        <translation>Используйте * для всех категорий.</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="96"/>
+        <source>Separate tags with commas.</source>
+        <translation>Разделяйте метки запятыми.</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="107"/>
+        <source>Status</source>
+        <translation>Состояние</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="107"/>
+        <source>Permission</source>
+        <translation>Разрешение</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="116"/>
+        <source>History</source>
+        <translation>История</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="123"/>
+        <source>Refresh</source>
+        <translation>Обновить</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="180"/>
+        <source>Save and enable these rules? Imported torrents need separate permission.</source>
+        <translation>Сохранить и включить эти правила? Для импортированных торрентов требуется отдельное разрешение.</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="190"/>
+        <source>Allow completion rules</source>
+        <translation>Разрешить правила завершения</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="191"/>
+        <source>Allow saved rules for this stopped torrent? Rules may remove it or delete its files if deletion is allowed.</source>
+        <translation>Разрешить сохранённые правила для этого остановленного торрента? Правила могут удалить торрент или его файлы, если удаление данных разрешено.</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="195"/>
+        <source>Saving permission…</source>
+        <translation>Сохранение разрешения…</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="289"/>
+        <source>Rule %L1</source>
+        <translation>Правило %L1</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="295"/>
+        <source>Recorded; see History</source>
+        <translation>Записано; см. «История»</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="296"/>
+        <source>Start torrent to verify files</source>
+        <translation>Запустите торрент для проверки файлов</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="297"/>
+        <source>Waiting for files</source>
+        <translation>Ожидание файлов</translation>
+    </message>
+    <message>
+        <location filename="../gui/policiesdialog.cpp" line="298"/>
+        <source>Allowed</source>
+        <translation>Разрешено</translation>
+    </message>
 </context>
 <context>
     <name>PreviewSelectDialog</name>
@@ -9374,6 +11212,354 @@ Those plugins were disabled.</source>
         <location filename="../gui/fspathedit_p.cpp" line="313"/>
         <source>Don&apos;t have write permission to path</source>
         <translation>Отсутствуют права для записи в путь</translation>
+    </message>
+</context>
+<context>
+    <name>ProfileImport</name>
+    <message>
+        <location filename="../base/profileimport.cpp" line="80"/>
+        <source>Cannot create the profile migration directory.</source>
+        <translation>Не удалось создать папку переноса профиля.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="83"/>
+        <source>Cannot persist the profile migration. Original data has been retained.</source>
+        <translation>Не удалось сохранить перенос профиля. Исходные данные сохранены.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="104"/>
+        <source>The migration backup has an unsafe or excessive file tree.</source>
+        <translation>Дерево файлов резервной копии переноса небезопасно или превышает допустимый размер.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="116"/>
+        <source>The migration backup cannot be verified completely.</source>
+        <translation>Не удалось полностью проверить резервную копию переноса.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="130"/>
+        <source>Profile metadata contains an unsafe linked or nested path.</source>
+        <translation>Метаданные профиля содержат небезопасную ссылку или вложенный путь.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="136"/>
+        <source>Cannot create the migration backup.</source>
+        <translation>Не удалось создать резервную копию для переноса.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="139"/>
+        <source>The profile exceeds the migration file limit.</source>
+        <translation>Профиль превышает допустимое число файлов для переноса.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="150"/>
+        <source>Cannot read profile metadata for migration.</source>
+        <translation>Не удалось прочитать метаданные профиля для переноса.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="153"/>
+        <source>Profile metadata changed while making its backup.</source>
+        <translation>Метаданные профиля изменились при создании резервной копии.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="161"/>
+        <source>Migration recovery refuses a linked metadata path.</source>
+        <translation>Восстановление переноса отклоняет путь к метаданным, являющийся ссылкой.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="177"/>
+        <source>Cannot replace profile metadata. Close other clients and retry startup.</source>
+        <translation>Не удалось заменить метаданные профиля. Закройте другие клиенты и повторите запуск.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="211"/>
+        <source>Cannot import a damaged resume record.</source>
+        <translation>Не удалось импортировать повреждённую запись возобновления.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="237"/>
+        <source>Could not confirm that the imported torrent data was saved.</source>
+        <translation>Не удалось подтвердить сохранение данных импортированного торрента.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="244"/>
+        <source>The number of saved torrents changed during import.</source>
+        <translation>Число сохранённых торрентов изменилось во время импорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="249"/>
+        <source>A migrated resume record is unreadable or duplicated.</source>
+        <translation>Перенесённая запись возобновления не читается или продублирована.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="256"/>
+        <source>An imported torrent is missing from the saved data.</source>
+        <translation>В сохранённых данных отсутствует импортированный торрент.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="266"/>
+        <source>A saved torrent differs from the approved paths or settings.</source>
+        <translation>Пути или настройки сохранённого торрента отличаются от подтверждённых.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="275"/>
+        <source>Complete torrent metadata is required for import.</source>
+        <translation>Для импорта нужны полные метаданные торрента.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="277"/>
+        <source>A torrent exceeds the profile import limit of 16384 file mappings.</source>
+        <translation>Торрент превышает предел импорта профиля: 16384 соответствия файлов.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="282"/>
+        <source>The resume record contains an invalid mapped-file index.</source>
+        <translation>Запись возобновления содержит недопустимый индекс сопоставленного файла.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="301"/>
+        <source>A protected profile directory cannot be resolved safely.</source>
+        <translation>Не удалось безопасно определить путь к защищённой папке профиля.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="310"/>
+        <source>The profile import exceeds the total file reservation limit.</source>
+        <translation>Импорт профиля превышает общий предел резервирования файлов.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="314"/>
+        <source>A payload mapping cannot be resolved safely.</source>
+        <translation>Не удалось безопасно определить соответствие файла данных.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="324"/>
+        <source>A native payload filename cannot be resolved safely.</source>
+        <translation>Не удалось безопасно определить системное имя файла данных.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="329"/>
+        <source>A native payload filename already belongs to another file: %1</source>
+        <translation>Системное имя файла данных уже принадлежит другому файлу: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="336"/>
+        <source>A payload mapping overlaps protected profile metadata: %1</source>
+        <translation>Путь файла данных пересекается с защищёнными метаданными профиля: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="349"/>
+        <source>Selected torrents overlap another data set. Choose independent payload mappings.</source>
+        <translation>Выбранные торренты пересекаются с другим набором данных. Выберите независимые пути файлов.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="372"/>
+        <source>Select absolute source paths.</source>
+        <translation>Выберите абсолютные исходные пути.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="374"/>
+        <source>Choose a separate source profile.</source>
+        <translation>Выберите отдельный исходный профиль.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="377"/>
+        <source>Cannot read the source settings file.</source>
+        <translation>Не удалось прочитать исходный файл настроек.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="381"/>
+        <source>Cannot create a read-only settings snapshot.</source>
+        <translation>Не удалось создать снимок настроек для чтения.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="392"/>
+        <source>The source exceeds the preview limit of 10000 settings.</source>
+        <translation>Источник превышает предел предварительного просмотра: 10000 настроек.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="401"/>
+        <source>The source settings file is malformed.</source>
+        <translation>Исходный файл настроек имеет некорректный формат.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="409"/>
+        <source>The source contains a damaged or metadata-incomplete torrent. Resolve it before import.</source>
+        <translation>Источник содержит повреждённый торрент или торрент с неполными метаданными. Устраните проблему перед импортом.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="414"/>
+        <source>Source settings changed during preview. Close the source client and retry.</source>
+        <translation>Исходные настройки изменились во время предварительного просмотра. Закройте исходный клиент и повторите попытку.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="423"/>
+        <source>Cannot decode the source profile safely.</source>
+        <translation>Не удалось безопасно прочитать исходный профиль.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="430"/>
+        <source>Confirm that the source client has stopped managing the selected payloads.</source>
+        <translation>Подтвердите, что исходный клиент больше не управляет выбранными файлами данных.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="433"/>
+        <source>A profile import is already pending. Restart qbutt to finish or recover it.</source>
+        <translation>Импорт профиля уже ожидает завершения. Перезапустите qbutt, чтобы завершить или восстановить его.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="437"/>
+        <source>Another profile import is being prepared.</source>
+        <translation>Подготавливается другой импорт профиля.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="452"/>
+        <source>Every selected torrent requires an explicit absolute payload mapping.</source>
+        <translation>Для каждого выбранного торрента нужно явно указать абсолютные пути файлов данных.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="463"/>
+        <source>Cannot get exclusive access to imported files: %1</source>
+        <translation>Не удалось получить исключительный доступ к импортируемым файлам: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="487"/>
+        <source>Select at least one torrent to import.</source>
+        <translation>Выберите хотя бы один торрент для импорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="491"/>
+        <source>Cannot create the native import staging directory.</source>
+        <translation>Не удалось создать рабочую папку импорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="507"/>
+        <source>Cannot stage imported settings.</source>
+        <translation>Не удалось подготовить импортируемые настройки.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="514"/>
+        <source>Cannot save the prepared profile import.</source>
+        <translation>Не удалось сохранить подготовленный импорт профиля.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="524"/>
+        <source>Cannot prepare the native profile import.</source>
+        <translation>Не удалось подготовить импорт профиля.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="534"/>
+        <source>Profile import is still being prepared by another process.</source>
+        <translation>Импорт профиля ещё подготавливается другим процессом.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="537"/>
+        <source>The profile import manifest cannot be read. Existing settings have not been opened.</source>
+        <translation>Не удалось прочитать описание импорта профиля. Существующие настройки не открывались.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="542"/>
+        <source>The profile import manifest has an unsupported format.</source>
+        <translation>Описание импорта профиля имеет неподдерживаемый формат.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="555"/>
+        <source>Cannot finish the import: its backup location is invalid.</source>
+        <translation>Не удалось завершить импорт: расположение резервной копии некорректно.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="572"/>
+        <source>The import backup is unavailable. Startup was stopped to allow recovery.</source>
+        <translation>Резервная копия импорта недоступна. Запуск остановлен для возможности восстановления.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="576"/>
+        <source>The import backup file list is unavailable. Startup was stopped to allow recovery.</source>
+        <translation>Список файлов резервной копии импорта недоступен. Запуск остановлен для возможности восстановления.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="581"/>
+        <source>The migration backup inventory is damaged. No recovery files were removed.</source>
+        <translation>Перечень файлов резервной копии переноса повреждён. Файлы восстановления не удалены.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="586"/>
+        <source>The migration backup is incomplete or changed. No recovery files were removed.</source>
+        <translation>Резервная копия переноса неполна или изменена. Файлы восстановления не удалены.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="613"/>
+        <source>An interrupted profile import was rolled back. Original qbutt settings are restored. Start qbutt again to continue.</source>
+        <translation>Прерванный импорт профиля отменён. Исходные настройки qbutt восстановлены. Запустите qbutt снова, чтобы продолжить.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="618"/>
+        <source>The profile import state is invalid. Startup was stopped to allow recovery.</source>
+        <translation>Состояние импорта профиля некорректно. Запуск остановлен для возможности восстановления.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="627"/>
+        <source>Finish staging recovery before importing another profile.</source>
+        <translation>Завершите восстановление рабочей копии перед импортом другого профиля.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="632"/>
+        <source>The prepared native import cannot be read. Existing qbutt settings are unchanged.</source>
+        <translation>Не удалось прочитать подготовленный импорт. Существующие настройки qbutt не изменены.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="640"/>
+        <source>Cannot inspect existing qbutt jobs before import: %1</source>
+        <translation>Не удалось проверить существующие задания qbutt перед импортом: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="653"/>
+        <source>An existing qbutt resume record needs recovery before import.</source>
+        <translation>Перед импортом требуется восстановить существующую запись возобновления qbutt.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="663"/>
+        <source>Prepared torrents must remain stopped and have explicit file locations.</source>
+        <translation>Подготовленные торренты должны оставаться остановленными и иметь явно заданные пути файлов.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="672"/>
+        <source>An imported torrent already exists in qbutt. No trackers, files or settings were merged.</source>
+        <translation>Импортируемый торрент уже есть в qbutt. Трекеры, файлы и настройки не объединялись.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="686"/>
+        <source>Exclusive access to imported files was lost before startup: %1</source>
+        <translation>Перед запуском потерян исключительный доступ к импортированным файлам: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="692"/>
+        <source>Cannot create the required temporary migration backup.</source>
+        <translation>Не удалось создать необходимую временную резервную копию для переноса.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="714"/>
+        <source>Cannot create the merged native resume store.</source>
+        <translation>Не удалось создать объединённое хранилище данных возобновления.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="733"/>
+        <source>The pending qbutt settings need recovery before import.</source>
+        <translation>Перед импортом требуется восстановить ожидающие применения настройки qbutt.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="751"/>
+        <source>Merged settings failed validation before installation.</source>
+        <translation>Объединённые настройки не прошли проверку перед установкой.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="791"/>
+        <source>Profile migration failed before completion.</source>
+        <translation>Перенос профиля завершился ошибкой.</translation>
+    </message>
+    <message>
+        <location filename="../base/profileimport.cpp" line="805"/>
+        <source>%1 Import was cancelled before installation; start qbutt again to continue.</source>
+        <translation>%1 Импорт отменён до установки; запустите qbutt снова, чтобы продолжить.</translation>
     </message>
 </context>
 <context>
@@ -9594,6 +11780,61 @@ Showing the first %L1 files.</source>
         <location filename="../gui/profileimportdialog.cpp" line="266"/>
         <source>Preview ready: %L1 safe settings and %L2 torrents. Review the destination roots before importing.</source>
         <translation>Предпросмотр готов. Безопасных настроек: %L1; торрентов: %L2. Перед импортом проверьте папки назначения.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="47"/>
+        <source>The source client is closed and will no longer use these files.</source>
+        <translation>Исходный клиент закрыт и больше не будет использовать эти файлы.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="68"/>
+        <source>This profile uses relative paths</source>
+        <translation>Этот профиль использует относительные пути</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="71"/>
+        <source>Portable profile folder:</source>
+        <translation>Папка переносимого профиля:</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="92"/>
+        <source>Show settings</source>
+        <translation>Показать настройки</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="107"/>
+        <source>Original folder</source>
+        <translation>Исходная папка</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="107"/>
+        <source>Folder on this computer</source>
+        <translation>Папка на этом компьютере</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="115"/>
+        <source>Check the folders above. Files stay in place; imported torrents start stopped.</source>
+        <translation>Проверьте папки выше. Файлы останутся на месте; импортированные торренты будут остановлены.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="164"/>
+        <source>Restart qbutt to finish importing. Keep the source client closed.</source>
+        <translation>Перезапустите qbutt, чтобы завершить импорт. Исходный клиент должен оставаться закрытым.</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="179"/>
+        <source>Reading profile…</source>
+        <translation>Чтение профиля…</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="199"/>
+        <source>Preparing import…</source>
+        <translation>Подготовка импорта…</translation>
+    </message>
+    <message>
+        <location filename="../gui/profileimportdialog.cpp" line="270"/>
+        <source>%L1 settings and %L2 torrents to import</source>
+        <translation>К импорту: настроек — %L1, торрентов — %L2</translation>
     </message>
 </context>
 <context>
@@ -10357,6 +12598,157 @@ Showing the first %L1 files.</source>
     </message>
 </context>
 <context>
+    <name>ReleaseUpdateDialog</name>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="26"/>
+        <source>qbutt updates</source>
+        <translation>Обновления qbutt</translation>
+    </message>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="30"/>
+        <source>Installed: qbutt %1</source>
+        <translation>Установлено: qbutt %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="32"/>
+        <source>Source: &lt;a href=&quot;https://github.com/qbutt-org/qbutt/releases&quot;&gt;qbutt releases&lt;/a&gt;</source>
+        <translation>Источник: &lt;a href=&quot;https://github.com/qbutt-org/qbutt/releases&quot;&gt;выпуски qbutt&lt;/a&gt;</translation>
+    </message>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="34"/>
+        <source>Updates use the system connection.</source>
+        <translation>Обновления используют системное соединение.</translation>
+    </message>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="46"/>
+        <source>Check for updates</source>
+        <translation>Проверить обновления</translation>
+    </message>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="48"/>
+        <source>Download ZIP…</source>
+        <translation>Скачать ZIP…</translation>
+    </message>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="50"/>
+        <source>Cancel download</source>
+        <translation>Отменить загрузку</translation>
+    </message>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="51"/>
+        <source>Open folder</source>
+        <translation>Открыть папку</translation>
+    </message>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="59"/>
+        <source>Save qbutt update</source>
+        <translation>Сохранить обновление qbutt</translation>
+    </message>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="61"/>
+        <source>ZIP archives (*.zip)</source>
+        <translation>Архивы ZIP (*.zip)</translation>
+    </message>
+    <message>
+        <location filename="../gui/releaseupdatedialog.cpp" line="86"/>
+        <source>Cancel check</source>
+        <translation>Отменить проверку</translation>
+    </message>
+</context>
+<context>
+    <name>ReleaseUpdater</name>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="105"/>
+        <source>The update request timed out.</source>
+        <translation>Время ожидания ответа при проверке обновлений истекло.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="150"/>
+        <source>Canceled.</source>
+        <translation>Отменено.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="160"/>
+        <source>Checking GitHub Releases…</source>
+        <translation>Проверка выпусков на GitHub…</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="168"/>
+        <source>The release server redirected to an unexpected location.</source>
+        <translation>Сервер выпусков перенаправил запрос на непредусмотренный адрес.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="201"/>
+        <source>The release response exceeded its expected size.</source>
+        <translation>Ответ сервера выпусков превысил допустимый размер.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="211"/>
+        <source>Could not write the downloaded archive.</source>
+        <translation>Не удалось записать загруженный архив.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="238"/>
+        <source>Could not retrieve the release (HTTP %1, network error %2). Try again later.</source>
+        <translation>Не удалось получить выпуск (HTTP %1, сетевая ошибка %2). Повторите попытку позже.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="248"/>
+        <source>The download is incomplete or damaged. Please try again.</source>
+        <translation>Файл загружен не полностью или повреждён. Повторите попытку.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="253"/>
+        <source>Could not save the download.</source>
+        <translation>Не удалось сохранить загруженный файл.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="257"/>
+        <source>Download complete. Close qbutt and extract the archive to install the update.</source>
+        <translation>Загрузка завершена. Закройте qbutt и распакуйте архив для установки обновления.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="267"/>
+        <source>GitHub returned invalid release metadata.</source>
+        <translation>GitHub вернул некорректные сведения о выпуске.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="293"/>
+        <source>No qbutt releases were found. Try again later.</source>
+        <translation>Выпуски qbutt не найдены. Повторите попытку позже.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="299"/>
+        <source>qbutt %1 is up to date.</source>
+        <translation>Установлена актуальная версия qbutt %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="317"/>
+        <source>The download information is invalid. Try again later.</source>
+        <translation>Сведения о загрузке некорректны. Повторите попытку позже.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="326"/>
+        <source>The Windows download is not available. Try again later.</source>
+        <translation>Загрузка для Windows недоступна. Повторите попытку позже.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="331"/>
+        <source>qbutt %1 is available (%2 MiB).</source>
+        <translation>Доступен qbutt %1 (%2 МиБ).</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="342"/>
+        <source>Could not create the download file.</source>
+        <translation>Не удалось создать файл для загрузки.</translation>
+    </message>
+    <message>
+        <location filename="../base/releaseupdater.cpp" line="347"/>
+        <source>Downloading qbutt %1…</source>
+        <translation>Загрузка qbutt %1…</translation>
+    </message>
+</context>
+<context>
     <name>RepairAnalysis</name>
     <message>
         <location filename="../base/bittorrent/repairanalysis.cpp" line="87"/>
@@ -10638,6 +13030,731 @@ Verification used v2 whole-file roots; partial files require the torrent recheck
         <location filename="../gui/repairdialog.cpp" line="302"/>
         <source>Repair cannot continue: %1</source>
         <translation>Невозможно продолжить восстановление файлов: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="49"/>
+        <source>I have closed other programs that can change these files.</source>
+        <translation>Я закрыл другие программы, которые могут изменять эти файлы.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="68"/>
+        <source>Folder:</source>
+        <translation>Папка:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="73"/>
+        <source>Files and options</source>
+        <translation>Файлы и параметры</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="83"/>
+        <source>Repair a separate copy first</source>
+        <translation>Сначала восстановить отдельную копию</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="83"/>
+        <source>Change original files, without a backup</source>
+        <translation>Изменить исходные файлы без резервной копии</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="83"/>
+        <source>Resume interrupted repair</source>
+        <translation>Возобновить прерванное восстановление</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="89"/>
+        <source>Repair method:</source>
+        <translation>Способ восстановления:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="92"/>
+        <source>Other folders to search, one per line</source>
+        <translation>Другие папки для поиска, по одной на строку</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="96"/>
+        <source>Other folders:</source>
+        <translation>Другие папки:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="97"/>
+        <source>Add folder…</source>
+        <translation>Добавить папку…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="100"/>
+        <source>Choose source for selected file…</source>
+        <translation>Выбрать источник для выбранного файла…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="106"/>
+        <source>Choose a source file</source>
+        <translation>Выберите исходный файл</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="122"/>
+        <source>An interrupted repair is available to resume.</source>
+        <translation>Можно возобновить прерванное восстановление.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="123"/>
+        <source>Scanning does not change your files.</source>
+        <translation>Проверка не изменяет ваши файлы.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="167"/>
+        <source>Scan files</source>
+        <translation>Проверить файлы</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="169"/>
+        <source>Repair separate copy</source>
+        <translation>Восстановить отдельную копию</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="171"/>
+        <source>Replace originals</source>
+        <translation>Заменить исходные файлы</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="173"/>
+        <source>Restore originals</source>
+        <translation>Вернуть исходные файлы</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="185"/>
+        <source>Resume repair</source>
+        <translation>Возобновить восстановление</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="218"/>
+        <source>Scanning files…</source>
+        <translation>Проверка файлов…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="219"/>
+        <source>Repair original files</source>
+        <translation>Восстановить исходные файлы</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="222"/>
+        <source>Other writers are closed. I allow changes without a backup.</source>
+        <translation>Другие программы, изменяющие файлы, закрыты. Я разрешаю изменения без резервной копии.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="241"/>
+        <source>Repairing a separate copy. Originals stay unchanged until you confirm replacement.</source>
+        <translation>Восстановление отдельной копии. Исходные файлы не изменятся, пока вы не подтвердите замену.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="242"/>
+        <source>Repairing original files…</source>
+        <translation>Восстановление исходных файлов…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="256"/>
+        <source>Checking the separate copy before downloading. Close to pause; you can resume later.</source>
+        <translation>Проверка отдельной копии перед загрузкой. Закройте окно для паузы; продолжить можно позже.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="257"/>
+        <source>Checking repaired files. Closing this window cancels the check.</source>
+        <translation>Проверка восстановленных файлов. Закрытие окна отменяет проверку.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="262"/>
+        <source>Check complete. Use Start in the torrent list to download any missing data.</source>
+        <translation>Проверка завершена. Нажмите «Запустить» в списке торрентов, чтобы загрузить недостающие данные.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="282"/>
+        <source>Other writers are closed. I allow replacing the originals and keeping a backup.</source>
+        <translation>Другие программы, изменяющие файлы, закрыты. Я разрешаю заменить исходные файлы с сохранением резервной копии.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="284"/>
+        <source>Recovery files: %1</source>
+        <translation>Файлы для восстановления: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="287"/>
+        <source>
+The separate copy needs %1 of extra space; %2 is available. Originals stay unchanged until replacement.</source>
+        <translation>
+Для отдельной копии нужно дополнительно %1; доступно %2. Исходные файлы не изменятся до замены.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="293"/>
+        <source>The repaired copy is verified and ready to replace the originals. A backup will be kept.</source>
+        <translation>Восстановленная копия проверена и готова к замене исходных файлов. Резервная копия будет сохранена.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="297"/>
+        <source>Repair complete. The original files are kept in the backup folder.</source>
+        <translation>Восстановление завершено. Исходные файлы сохранены в папке резервной копии.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="301"/>
+        <source>Original files restored. The separate copy is kept.</source>
+        <translation>Исходные файлы возвращены. Отдельная копия сохранена.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="305"/>
+        <source>The separate copy is ready to resume repair.</source>
+        <translation>Отдельная копия готова к продолжению восстановления.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="306"/>
+        <source>Downloading and checking the separate copy. Close to pause; you can resume later.</source>
+        <translation>Загрузка и проверка отдельной копии. Закройте окно для паузы; продолжить можно позже.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="310"/>
+        <source>Repair was interrupted. Restore the original files to continue.</source>
+        <translation>Восстановление прервано. Верните исходные файлы, чтобы продолжить.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="314"/>
+        <source>Finishing file changes…</source>
+        <translation>Завершение изменений файлов…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="326"/>
+        <source>Replacing original files…</source>
+        <translation>Замена исходных файлов…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="338"/>
+        <source>Restoring original files…</source>
+        <translation>Возврат исходных файлов…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="345"/>
+        <source>Preparing to scan…</source>
+        <translation>Подготовка к проверке…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="356"/>
+        <source>The torrent was removed.</source>
+        <translation>Торрент удалён.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="392"/>
+        <source>Not selected for repair.</source>
+        <translation>Не выбран для восстановления.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="393"/>
+        <source>Managed repair does not create or truncate this file. Normal downloading may use shared pieces at file boundaries.</source>
+        <translation>Управляемое восстановление не создаёт и не обрезает этот файл. При обычной загрузке могут использоваться общие части на границах файлов.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="399"/>
+        <source>Reusable: %1 of %2.</source>
+        <translation>Можно использовать повторно: %1 из %2.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="402"/>
+        <source>
+Partial files need another check before downloading.</source>
+        <translation>
+Неполные файлы требуют повторной проверки перед загрузкой.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairdialog.cpp" line="404"/>
+        <source>
+Repair will change the original files without a backup.</source>
+        <translation>
+Восстановление изменит исходные файлы без резервной копии.</translation>
+    </message>
+</context>
+<context>
+    <name>RepairFileGuard</name>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="33"/>
+        <source>Repair cancelled. Earlier in-place changes may already have been applied.</source>
+        <translation>Восстановление отменено. Ранее выполненные изменения исходных файлов могли уже примениться.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="34"/>
+        <source>Repair cancelled.</source>
+        <translation>Восстановление отменено.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="113"/>
+        <source>Cannot exclusively access %1 (Windows error %2). Close programs using this data.</source>
+        <translation>Не удалось получить исключительный доступ к %1 (ошибка Windows %2). Закройте программы, использующие эти данные.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="126"/>
+        <source>Windows cannot safely create repair files or directories: the required API is unavailable.</source>
+        <translation>Windows не может безопасно создать файлы или папки восстановления: необходимый API недоступен.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="132"/>
+        <source>A target file or directory name is too long: %1</source>
+        <translation>Имя файла или папки назначения слишком длинное: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="147"/>
+        <source>Cannot atomically create the missing repair target %1 (Windows error %2, NT status 0x%3).</source>
+        <translation>Не удалось атомарно создать отсутствующий объект восстановления %1 (ошибка Windows %2, статус NT 0x%3).</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="156"/>
+        <source>Cannot confirm exclusive access to the newly created repair target: %1</source>
+        <translation>Не удалось подтвердить исключительный доступ к созданному объекту восстановления: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="251"/>
+        <source>A source file path is invalid. Choose an absolute path on a local drive.</source>
+        <translation>Путь к исходному файлу некорректен. Выберите абсолютный путь на локальном диске.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="270"/>
+        <source>A source file changed before it could be locked. Analyze the data again.</source>
+        <translation>Исходный файл изменился до получения блокировки. Повторите анализ данных.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="289"/>
+        <source>Managed repair is currently supported only on Windows.</source>
+        <translation>Управляемое восстановление пока поддерживается только в Windows.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="301"/>
+        <source>Repair requires a valid absolute path on a local drive.</source>
+        <translation>Для восстановления нужен корректный абсолютный путь на локальном диске.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="308"/>
+        <source>Repair currently requires a local fixed drive.</source>
+        <translation>Для восстановления пока требуется локальный несъёмный диск.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="326"/>
+        <source>Unsafe, linked or colliding target mapping: %1</source>
+        <translation>Небезопасное, ссылающееся или конфликтующее соответствие назначения: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="333"/>
+        <source>Unsafe target path component: %1</source>
+        <translation>Небезопасный компонент пути назначения: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="350"/>
+        <source>A mapped file is also used as a directory: %1</source>
+        <translation>Сопоставленный файл также используется как папка: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="373"/>
+        <source>Unsafe directory component: %1</source>
+        <translation>Небезопасный компонент пути папки: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="392"/>
+        <source>Repair exceeds the limit of %1 open file and directory handles.</source>
+        <translation>Восстановление превышает предел открытых дескрипторов файлов и папок: %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="420"/>
+        <source>Repair cannot identify directory: %1</source>
+        <translation>Не удалось определить идентификатор папки для восстановления: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="428"/>
+        <source>Repair requires an ordinary directory or a mounted volume: %1</source>
+        <translation>Для восстановления требуется обычная папка или подключённый том: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="436"/>
+        <source>Multiple target directory paths refer to the same directory: %1</source>
+        <translation>Несколько путей назначения указывают на одну папку: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="455"/>
+        <source>The repair data directory must already exist.</source>
+        <translation>Папка данных для восстановления должна уже существовать.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="514"/>
+        <source>Repair requires an ordinary file without hard links or reparse points: %1</source>
+        <translation>Для восстановления требуется обычный файл без жёстких ссылок и точек повторной обработки: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="523"/>
+        <source>Multiple target paths refer to the same file: %1</source>
+        <translation>Несколько путей назначения указывают на один файл: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="585"/>
+        <source>Read-only analysis cannot create files.</source>
+        <translation>Анализ без изменений не может создавать файлы.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="602"/>
+        <source>Repair lost exclusive access to target directory %1.</source>
+        <translation>При восстановлении потерян исключительный доступ к папке назначения %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="611"/>
+        <source>Repair exceeds the limit of %1 open file and directory handles. Earlier empty directories may already have been created.</source>
+        <translation>Восстановление превышает предел открытых дескрипторов файлов и папок: %1. Некоторые пустые папки уже могли быть созданы.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="620"/>
+        <source>%1 Earlier target directories may already have been created.</source>
+        <translation>%1 Некоторые папки назначения уже могли быть созданы.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="629"/>
+        <source>Cannot verify the newly created target directory or its exclusive access: %1</source>
+        <translation>Не удалось проверить созданную папку назначения или исключительный доступ к ней: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="637"/>
+        <source>Repair exceeds the limit of %1 open file and directory handles. Earlier empty directories or targets may already have been created.</source>
+        <translation>Восстановление превышает предел открытых дескрипторов файлов и папок: %1. Некоторые пустые папки или файлы назначения уже могли быть созданы.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="651"/>
+        <source>%1 Earlier empty targets may already have been created.</source>
+        <translation>%1 Некоторые пустые файлы назначения уже могли быть созданы.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="660"/>
+        <source>Cannot verify the newly created empty file or its exclusive access: %1</source>
+        <translation>Не удалось проверить созданный пустой файл или исключительный доступ к нему: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="680"/>
+        <source>Read-only analysis cannot modify files.</source>
+        <translation>Анализ без изменений не может менять файлы.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="701"/>
+        <source>In-place repair stopped at %1 (Windows error %2). Earlier in-place changes may already have been applied.</source>
+        <translation>Восстановление исходных файлов остановлено на %1 (ошибка Windows %2). Ранее выполненные изменения могли уже примениться.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairfileguard.cpp" line="709"/>
+        <source>Exact size verification failed after truncating %1.</source>
+        <translation>Проверка точного размера после обрезания %1 завершилась ошибкой.</translation>
+    </message>
+</context>
+<context>
+    <name>RepairPlan</name>
+    <message>
+        <location filename="../base/bittorrent/repairplan.cpp" line="42"/>
+        <source>Select at most 32 source directories per analysis.</source>
+        <translation>Выберите не более 32 исходных папок для одного анализа.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairplan.cpp" line="50"/>
+        <source>Select ordinary source directories without links or junctions.</source>
+        <translation>Выберите обычные исходные папки без ссылок и точек соединения.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairplan.cpp" line="64"/>
+        <source>Source indexing cancelled.</source>
+        <translation>Индексация источников отменена.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairplan.cpp" line="71"/>
+        <source>The selected source directories contain more than 100000 entries. Choose smaller directories.</source>
+        <translation>Выбранные исходные папки содержат более 100000 элементов. Выберите папки меньшего размера.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairplan.cpp" line="95"/>
+        <source>An explicit source mapping is invalid.</source>
+        <translation>Заданное соответствие исходного файла некорректно.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairplan.cpp" line="101"/>
+        <source>An explicit source must be an ordinary existing file: %1</source>
+        <translation>Заданный источник должен быть обычным существующим файлом: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairplan.cpp" line="148"/>
+        <source>Select valid torrent metadata.</source>
+        <translation>Выберите корректные метаданные торрента.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/repairplan.cpp" line="154"/>
+        <source>Select at least one valid target file for repair.</source>
+        <translation>Выберите хотя бы один допустимый файл назначения для восстановления.</translation>
+    </message>
+</context>
+<context>
+    <name>RepairPreviewDialog</name>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="65"/>
+        <source>Allow adding the torrent and creating any missing empty files.</source>
+        <translation>Разрешить добавление торрента и создание отсутствующих пустых файлов.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="68"/>
+        <source>Smart repair from torrent file</source>
+        <translation>Умное восстановление из торрент-файла</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="76"/>
+        <source>Choose target torrent</source>
+        <translation>Выберите торрент для восстановления</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="77"/>
+        <source>Torrent files (*.torrent)</source>
+        <translation>Торрент-файлы (*.torrent)</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="80"/>
+        <source>Choose the folder containing the torrent&apos;s files</source>
+        <translation>Выберите папку с файлами торрента</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="81"/>
+        <source>The parent folder for the paths listed in the torrent.</source>
+        <translation>Родительская папка для путей, указанных в торренте.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="83"/>
+        <source>Other folders to search, one per line</source>
+        <translation>Другие папки для поиска, по одной на строку</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="86"/>
+        <source>Repair a separate copy first</source>
+        <translation>Сначала восстановить отдельную копию</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="86"/>
+        <source>Change original files, without a backup</source>
+        <translation>Изменить исходные файлы без резервной копии</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="89"/>
+        <source>Torrent:</source>
+        <translation>Торрент:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="90"/>
+        <source>Folder:</source>
+        <translation>Папка:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="97"/>
+        <source>Scanning does not change your files.</source>
+        <translation>Проверка не изменяет ваши файлы.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="112"/>
+        <source>Files and options</source>
+        <translation>Файлы и параметры</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="121"/>
+        <source>Repair method:</source>
+        <translation>Способ восстановления:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="122"/>
+        <source>Other folders:</source>
+        <translation>Другие папки:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="123"/>
+        <source>Add folder…</source>
+        <translation>Добавить папку…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="131"/>
+        <source>Reusable:</source>
+        <translation>Можно использовать:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="132"/>
+        <source>To download:</source>
+        <translation>Нужно загрузить:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="133"/>
+        <source>Data found:</source>
+        <translation>Найдено данных:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="134"/>
+        <source>Extra space:</source>
+        <translation>Дополнительное место:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="135"/>
+        <source>Files to repair:</source>
+        <translation>Файлов для восстановления:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="136"/>
+        <source>Oversized files:</source>
+        <translation>Файлов с лишними данными:</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="141"/>
+        <source>Not analyzed</source>
+        <translation>Не проверено</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="148"/>
+        <source>Target file</source>
+        <translation>Файл назначения</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="148"/>
+        <source>Chosen source</source>
+        <translation>Выбранный источник</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="148"/>
+        <source>Expected bytes</source>
+        <translation>Ожидается, байт</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="149"/>
+        <source>Candidate bytes</source>
+        <translation>Найдено для проверки, байт</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="149"/>
+        <source>Verified bytes</source>
+        <translation>Подтверждено, байт</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="149"/>
+        <source>Problems</source>
+        <translation>Проблемы</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="161"/>
+        <source>Choose source for selected file…</source>
+        <translation>Выбрать источник для выбранного файла…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="177"/>
+        <source>Scan files</source>
+        <translation>Проверить файлы</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="180"/>
+        <source>Continue</source>
+        <translation>Продолжить</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="191"/>
+        <source>Choose a source directory</source>
+        <translation>Выберите папку с исходными файлами</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="224"/>
+        <source>Scan failed: %1</source>
+        <translation>Ошибка проверки: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="246"/>
+        <source>Cancelling scan…</source>
+        <translation>Отмена проверки…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="277"/>
+        <source>Select at least one file in Files and options.</source>
+        <translation>Выберите хотя бы один файл в разделе «Файлы и параметры».</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="295"/>
+        <source>Cannot load target torrent metadata: %1</source>
+        <translation>Не удалось загрузить метаданные торрента: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="295"/>
+        <source>metadata is missing</source>
+        <translation>метаданные отсутствуют</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="336"/>
+        <source>Choose an existing folder for the torrent&apos;s files.</source>
+        <translation>Выберите существующую папку для файлов торрента.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="344"/>
+        <source>Each source folder must exist and have an absolute path.</source>
+        <translation>Каждая исходная папка должна существовать и иметь абсолютный путь.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="353"/>
+        <source>Scanning files…</source>
+        <translation>Проверка файлов…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="368"/>
+        <source>Choose a source file</source>
+        <translation>Выберите исходный файл</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="373"/>
+        <source>Source changed. Scan again to update the results.</source>
+        <translation>Источник изменён. Повторите проверку, чтобы обновить результаты.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="381"/>
+        <source>%L1 bytes (%2)</source>
+        <translation>%L1 байт (%2)</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="387"/>
+        <source>No candidate selected</source>
+        <translation>Источник не выбран</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="403"/>
+        <source>%1 required; %2 available</source>
+        <translation>Требуется %1; доступно %2</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="408"/>
+        <source>Repair a separate copy first. Originals stay unchanged until you confirm replacement.</source>
+        <translation>Сначала восстановить отдельную копию. Исходные файлы не изменятся, пока вы не подтвердите замену.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="409"/>
+        <source>Original files will be changed without a backup. You will confirm this before repair starts.</source>
+        <translation>Исходные файлы будут изменены без резервной копии. Перед началом восстановления потребуется ваше подтверждение.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="420"/>
+        <source>Not enough space for a separate copy: %1 needed, %2 available. Choose another folder.</source>
+        <translation>Недостаточно места для отдельной копии: нужно %1, доступно %2. Выберите другую папку.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="427"/>
+        <source>This torrent already exists. Stop it and use Smart repair from its transfer-list menu.</source>
+        <translation>Этот торрент уже добавлен. Остановите его и выберите «Умное восстановление» в его контекстном меню.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="474"/>
+        <source>The stopped repair job was not added: %1</source>
+        <translation>Остановленное задание восстановления не добавлено: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="478"/>
+        <source>Adding the torrent…</source>
+        <translation>Добавление торрента…</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="485"/>
+        <source>The stopped repair job was rejected before it was added.</source>
+        <translation>Остановленное задание восстановления отклонено до добавления.</translation>
+    </message>
+    <message>
+        <location filename="../gui/repairpreviewdialog.cpp" line="506"/>
+        <source>Scan again</source>
+        <translation>Проверить снова</translation>
     </message>
 </context>
 <context>
@@ -11337,6 +14454,11 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
         <source>You can cancel the action within %1 seconds.</source>
         <translation>Вы можете отменить действие в течение %1 секунд.</translation>
     </message>
+    <message>
+        <location filename="../gui/shutdownconfirmdialog.cpp" line="141"/>
+        <source>qbutt will now exit.</source>
+        <translation>qbutt завершит работу.</translation>
+    </message>
 </context>
 <context>
     <name>SpeedLimitDialog</name>
@@ -11544,6 +14666,219 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
     </message>
 </context>
 <context>
+    <name>StagingOperation</name>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="54"/>
+        <source>Staging stopped. Original data is preserved; the journal can be recovered.</source>
+        <translation>Подготовка рабочей копии остановлена. Исходные данные сохранены; операцию можно восстановить по журналу.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="93"/>
+        <source>Staging requires ordinary files without hard links or reparse points.</source>
+        <translation>Для рабочей копии нужны обычные файлы без жёстких ссылок и точек повторной обработки.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="116"/>
+        <source>Cannot lock %1 (Windows error %2). Close programs using this file and try recovery again.</source>
+        <translation>Не удалось заблокировать %1 (ошибка Windows %2). Закройте программы, использующие этот файл, и повторите восстановление.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="138"/>
+        <source>Cannot safely rename the file: its locked parent directory or the required Windows API is unavailable.</source>
+        <translation>Нельзя безопасно переименовать файл: заблокированная родительская папка или необходимый API Windows недоступны.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="146"/>
+        <source>Recovery could not replace %1 (NT status 0x%2). The destination file was not overwritten.</source>
+        <translation>При восстановлении не удалось заменить %1 (статус NT 0x%2). Файл назначения не перезаписан.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="194"/>
+        <source>Cannot inspect storage for the target destination.</source>
+        <translation>Не удалось проверить хранилище в месте назначения.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="210"/>
+        <source>The target is too large to calculate its required storage space.</source>
+        <translation>Объект назначения слишком велик для расчёта необходимого места.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="221"/>
+        <source>The target file size is invalid or too large to calculate its required storage space.</source>
+        <translation>Размер файла назначения некорректен или слишком велик для расчёта необходимого места.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="260"/>
+        <source>Select at least one valid target file for staging.</source>
+        <translation>Выберите хотя бы один допустимый файл назначения для рабочей копии.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="268"/>
+        <source>Recover the existing staged operation before starting another one.</source>
+        <translation>Восстановите текущую операцию с рабочей копией перед началом новой.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="344"/>
+        <source>Cannot read the staging journal within the supported size limit.</source>
+        <translation>Не удалось прочитать журнал рабочей копии в пределах допустимого размера.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="366"/>
+        <source>The staging journal identity, version or state is invalid.</source>
+        <translation>Идентификатор, версия или состояние журнала рабочей копии некорректны.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="397"/>
+        <source>The journal does not match the target torrent file mapping.</source>
+        <translation>Журнал не соответствует сопоставлению файлов торрента назначения.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="405"/>
+        <source>The journal omits target files or has no selected files.</source>
+        <translation>В журнале отсутствуют файлы назначения или нет выбранных файлов.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="420"/>
+        <source>Staged repair is currently supported only on Windows.</source>
+        <translation>Восстановление через рабочую копию пока поддерживается только в Windows.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="426"/>
+        <source>Cannot create the staging journal within the supported size limit.</source>
+        <translation>Не удалось создать журнал рабочей копии в пределах допустимого размера.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="435"/>
+        <source>Cannot save the staging journal to disk.</source>
+        <translation>Не удалось сохранить журнал рабочей копии на диск.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="444"/>
+        <source>Cannot publish the staging journal (Windows error %1).</source>
+        <translation>Не удалось зафиксировать журнал рабочей копии (ошибка Windows %1).</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="459"/>
+        <source>Recover the interrupted operation before preparing new staging files.</source>
+        <translation>Восстановите прерванную операцию перед подготовкой новых файлов рабочей копии.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="466"/>
+        <source>Safe staging requires %1 bytes of free space on the target drive. Original files have not been changed.</source>
+        <translation>Для безопасной рабочей копии нужно %1 байт свободного места на диске назначения. Исходные файлы не изменены.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="476"/>
+        <source>The target volume or file layout changed after planning. No staging data was created.</source>
+        <translation>Том назначения или расположение файлов изменились после планирования. Данные рабочей копии не созданы.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="485"/>
+        <source>Cannot create a new, independent staging directory.</source>
+        <translation>Не удалось создать новую независимую папку рабочей копии.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="495"/>
+        <source>Cannot prepare target staging directories.</source>
+        <translation>Не удалось подготовить папки назначения для рабочей копии.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="514"/>
+        <source>Cannot exclusively create staging file %1.</source>
+        <translation>Не удалось создать файл рабочей копии %1 с исключительным доступом.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="522"/>
+        <source>A selected source is no longer readable: %1.</source>
+        <translation>Выбранный источник больше не доступен для чтения: %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="532"/>
+        <source>Copying source data to independent staging failed.</source>
+        <translation>Не удалось скопировать исходные данные в независимую рабочую копию.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="540"/>
+        <source>Cannot allocate the exact target file size in staging.</source>
+        <translation>Не удалось выделить точный размер файла назначения в рабочей копии.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="546"/>
+        <source>Cannot flush staging data to disk.</source>
+        <translation>Не удалось записать данные рабочей копии на диск.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="561"/>
+        <source>This staged payload is not ready for verification.</source>
+        <translation>Данные этой рабочей копии ещё не готовы к проверке.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="588"/>
+        <source>Staging must match every target hash and exact file size before commit: %1.</source>
+        <translation>Перед фиксацией рабочая копия должна соответствовать всем хешам и точным размерам файлов назначения: %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="625"/>
+        <source>Finish applying or rolling back the staged files before completing recovery.</source>
+        <translation>Завершите применение или откат файлов рабочей копии перед завершением восстановления.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="636"/>
+        <source>Cannot archive the completed recovery journal.</source>
+        <translation>Не удалось архивировать завершённый журнал восстановления.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="640"/>
+        <source>Completing staged recovery is currently supported only on Windows.</source>
+        <translation>Завершение восстановления через рабочую копию пока поддерживается только в Windows.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="653"/>
+        <source>Applying staged files is currently supported only on Windows.</source>
+        <translation>Применение файлов рабочей копии пока поддерживается только в Windows.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="659"/>
+        <source>The staged operation is not ready for this action.</source>
+        <translation>Операция с рабочей копией не готова к этому действию.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="665"/>
+        <source>This older recovery journal can only be rolled back safely.</source>
+        <translation>Для этого старого журнала восстановления безопасен только откат.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="681"/>
+        <source>The target volume or directory layout changed. Recovery preserved every file.</source>
+        <translation>Том назначения или расположение папок изменились. При восстановлении сохранены все файлы.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="693"/>
+        <source>Cannot prepare directories for recovery.</source>
+        <translation>Не удалось подготовить папки для восстановления.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="777"/>
+        <source>File identity changed at %1. Recovery preserved it and needs attention.</source>
+        <translation>Идентификатор файла %1 изменился. Файл сохранён; восстановление требует вмешательства.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="784"/>
+        <source>The original or verified file is missing or duplicated. Recovery stopped without deleting data.</source>
+        <translation>Исходный или проверенный файл отсутствует либо продублирован. Восстановление остановлено без удаления данных.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="802"/>
+        <source>Cannot open the locked file for verification.</source>
+        <translation>Не удалось открыть заблокированный файл для проверки.</translation>
+    </message>
+    <message>
+        <location filename="../base/bittorrent/stagingoperation.cpp" line="822"/>
+        <source>Target hashes or exact sizes changed before commit. Recovery retained every file.</source>
+        <translation>Хеши или точные размеры файлов назначения изменились перед фиксацией. При восстановлении сохранены все файлы.</translation>
+    </message>
+</context>
+<context>
     <name>StatsDialog</name>
     <message>
         <location filename="../gui/statsdialog.ui" line="14"/>
@@ -11708,6 +15043,16 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
         <location filename="../gui/statusbar.cpp" line="306"/>
         <source>Click to switch to regular speed limits</source>
         <translation>Щелчок для переключения на общие ограничения скорости</translation>
+    </message>
+    <message>
+        <location filename="../gui/statusbar.cpp" line="182"/>
+        <source>qbutt needs to be restarted!</source>
+        <translation>Необходимо перезапустить qbutt!</translation>
+    </message>
+    <message>
+        <location filename="../gui/statusbar.cpp" line="202"/>
+        <source>Offline. This usually means that qbutt failed to listen on the selected port for incoming connections.</source>
+        <translation>Не в сети. Обычно это означает, что qbutt не удалось открыть выбранный порт для входящих соединений.</translation>
     </message>
 </context>
 <context>
@@ -13163,6 +16508,11 @@ Please choose a different name and try again.</source>
         <source>Message</source>
         <translation>Сообщение</translation>
     </message>
+    <message>
+        <location filename="../gui/trackerlist/trackerlistmodel.cpp" line="609"/>
+        <source>%1 (path %2, generation %3)</source>
+        <translation>%1 (маршрут %2, поколение %3)</translation>
+    </message>
 </context>
 <context>
     <name>TrackerListWidget</name>
@@ -13428,6 +16778,11 @@ Please choose a different name and try again.</source>
         <location filename="../gui/transferlistfilterswidget.cpp" line="145"/>
         <source>Tracker status</source>
         <translation>Состояние трекера</translation>
+    </message>
+    <message>
+        <location filename="../gui/transferlistfilterswidget.cpp" line="122"/>
+        <source>Network</source>
+        <translation>Сеть</translation>
     </message>
 </context>
 <context>
@@ -14098,6 +17453,11 @@ Please choose a different name and try again.</source>
         <source>Super seeding mode</source>
         <translation>Режим суперсида</translation>
     </message>
+    <message>
+        <location filename="../gui/transferlistwidget.cpp" line="1047"/>
+        <source>Network diagnostics...</source>
+        <translation>Диагностика сети…</translation>
+    </message>
 </context>
 <context>
     <name>UIThemeDialog</name>
@@ -14181,6 +17541,11 @@ Please choose a different name and try again.</source>
         <location filename="../gui/uithememanager.cpp" line="107"/>
         <source>Failed to load UI theme from file: &quot;%1&quot;</source>
         <translation>Не удалось загрузить тему оболочки из файла: «%1»</translation>
+    </message>
+    <message>
+        <location filename="../gui/uithememanager.cpp" line="178"/>
+        <source>Failed to load the built-in theme.</source>
+        <translation>Не удалось загрузить встроенную тему.</translation>
     </message>
 </context>
 <context>
