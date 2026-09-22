@@ -29,7 +29,7 @@ context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.load_cert_chain(cert, key)
 bundle = io.BytesIO()
 with zipfile.ZipFile(bundle, "w") as archive:
-    archive.writestr("qbutt.exe", bytes(range(256)) * 4096)
+    archive.writestr("qbutt.exe", bytes(range(256)) * 65536)
     archive.writestr("qbutt-net.exe", b"generated fixture; never executed")
     archive.writestr("Qt6Core.dll", b"generated fixture; never loaded")
 payload = bundle.getvalue()
@@ -145,6 +145,10 @@ try:
                     raise RuntimeError(f"{scenario}: driver exit {result.returncode}: {result.stdout} {result.stderr}")
                 item = json.loads(result.stdout.strip())
                 assert item["state"] == state and item["controls"], (scenario, item)
+                if scenario == "corrupt":
+                    assert "incomplete or damaged" in item["message"], item
+                if scenario == "short-asset":
+                    assert "exceeded its expected size" in item["message"], item
                 if scenario == "versions":
                     assert item["fileName"] == f"qbutt-{version_10}-windows-x64.zip", item
                 archive_requests = [r for r in requests if r["scenario"] == scenario and ".zip " in r["request"]]

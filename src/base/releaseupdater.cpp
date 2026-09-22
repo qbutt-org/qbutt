@@ -179,7 +179,6 @@ void ReleaseUpdater::fetch(const QUrl &url, const Request request, const int red
     networkRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
     networkRequest.setTransferTimeout(30000);
     m_reply = m_network.get(networkRequest);
-    m_reply->setReadBufferSize(256 * 1024);
     connect(m_reply, &QIODevice::readyRead, this, &ReleaseUpdater::readData);
     connect(m_reply, &QNetworkReply::finished, this, &ReleaseUpdater::finishRequest);
 }

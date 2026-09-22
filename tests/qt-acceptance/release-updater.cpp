@@ -54,6 +54,7 @@ int main(int argc, char *argv[])
     if (!updater)
         return 4;
     bool done = false;
+    qint64 receivedBytes = 0;
     const auto complete = [&]()
     {
         if (done)
@@ -78,7 +79,8 @@ int main(int argc, char *argv[])
                 && (button->isEnabled() == (state == ReleaseUpdater::State::Available));
             const bool fits = label && (label->height() >= label->heightForWidth(label->width()));
             const QJsonObject result {{u"state"_s, static_cast<int>(state)}, {u"message"_s, updater->message()},
-                {u"fileName"_s, updater->fileName()}, {u"controls"_s, controls}, {u"textFits"_s, fits},
+                {u"fileName"_s, updater->fileName()}, {u"receivedBytes"_s, receivedBytes},
+                {u"controls"_s, controls}, {u"textFits"_s, fits},
                 {u"statusHeight"_s, label ? label->height() : 0},
                 {u"requiredStatusHeight"_s, label ? label->heightForWidth(label->width()) : 0}};
             const QByteArray json = QJsonDocument(result).toJson(QJsonDocument::Compact);
@@ -91,6 +93,7 @@ int main(int argc, char *argv[])
     QObject::connect(updater, &ReleaseUpdater::changed, &app, complete);
     QObject::connect(updater, &ReleaseUpdater::progress, &app, [&](qint64 received, qint64)
     {
+        receivedBytes = received;
         if ((mode == u"cancel") && (received > 0))
             updater->cancel();
     });
