@@ -34,6 +34,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <limits>
+#include <utility>
 
 #include <QApplication>
 #include <QClipboard>
@@ -197,7 +198,21 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, QWidget *parent)
         m_ui->tabSelection->item(i)->setSizeHint(size);
     }
 
+    connect(m_ui->moreSettingsButton, &QToolButton::toggled, this, &ThisType::setAdditionalSettingsVisible);
+    setAdditionalSettingsVisible(false);
     connect(m_ui->tabSelection, &QListWidget::currentItemChanged, this, &ThisType::changePage);
+
+    for (const auto &[button, contents] : {std::pair {m_ui->moreGeneralSettingsButton, m_ui->additionalGeneralSettings}
+        , std::pair {m_ui->moreDownloadSettingsButton, m_ui->additionalDownloadSettings}
+        , std::pair {m_ui->moreConnectionSettingsButton, m_ui->additionalConnectionSettings}})
+    {
+        contents->hide();
+        connect(button, &QToolButton::toggled, contents, [button, contents](const bool expanded)
+        {
+            contents->setVisible(expanded);
+            button->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+        });
+    }
 
     // Load options
     loadBehaviorTabOptions();
@@ -614,6 +629,7 @@ void OptionsDialog::loadDownloadsTabOptions()
     m_ui->checkUnwantedFolder->setChecked(session->isUnwantedFolderEnabled());
     m_ui->checkRecursiveDownload->setChecked(pref->isRecursiveDownloadEnabled());
     m_ui->checkAutoRemoveCompletedTorrents->setChecked(pref->isAutoRemoveCompletedTorrentsEnabled());
+    m_ui->checkDownloadProgressOverlay->setChecked(pref->isDownloadProgressOverlayEnabled());
 
     m_ui->comboSavingMode->setCurrentIndex(!session->isAutoTMMDisabledByDefault());
     m_ui->comboTorrentCategoryChanged->setCurrentIndex(session->isDisableAutoTMMWhenCategoryChanged());
@@ -730,6 +746,7 @@ void OptionsDialog::loadDownloadsTabOptions()
     connect(m_ui->checkUnwantedFolder, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
     connect(m_ui->checkRecursiveDownload, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
     connect(m_ui->checkAutoRemoveCompletedTorrents, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
+    connect(m_ui->checkDownloadProgressOverlay, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
 
     connect(m_ui->comboSavingMode, qComboBoxCurrentIndexChanged, this, &ThisType::enableApplyButton);
     connect(m_ui->comboTorrentCategoryChanged, qComboBoxCurrentIndexChanged, this, &ThisType::enableApplyButton);
@@ -802,6 +819,7 @@ void OptionsDialog::saveDownloadsTabOptions() const
     session->setUnwantedFolderEnabled(m_ui->checkUnwantedFolder->isChecked());
     pref->setRecursiveDownloadEnabled(m_ui->checkRecursiveDownload->isChecked());
     pref->setAutoRemoveCompletedTorrentsEnabled(m_ui->checkAutoRemoveCompletedTorrents->isChecked());
+    pref->setDownloadProgressOverlayEnabled(m_ui->checkDownloadProgressOverlay->isChecked());
 
     session->setAutoTMMDisabledByDefault(m_ui->comboSavingMode->currentIndex() == 0);
     session->setDisableAutoTMMWhenCategoryChanged(m_ui->comboTorrentCategoryChanged->currentIndex() == 1);
@@ -1585,7 +1603,26 @@ void OptionsDialog::changePage(QListWidgetItem *current, QListWidgetItem *previo
 {
     if (!current)
         current = previous;
-    m_ui->tabOption->setCurrentIndex(m_ui->tabSelection->row(current));
+    const int page = m_ui->tabSelection->row(current);
+    if (page >= TAB_BITTORRENT)
+        m_ui->moreSettingsButton->setChecked(true);
+    m_ui->tabOption->setCurrentIndex(page);
+}
+
+void OptionsDialog::setAdditionalSettingsVisible(const bool visible)
+{
+    if (!visible && (m_ui->tabSelection->currentRow() >= TAB_BITTORRENT))
+        m_ui->tabSelection->setCurrentRow(TAB_UI);
+
+    for (int tab = TAB_BITTORRENT; tab <= TAB_ADVANCED; ++tab)
+    {
+#ifdef DISABLE_WEBUI
+        if (tab == TAB_WEBUI)
+            continue;
+#endif
+        m_ui->tabSelection->item(tab)->setHidden(!visible);
+    }
+    m_ui->moreSettingsButton->setArrowType(visible ? Qt::DownArrow : Qt::RightArrow);
 }
 
 void OptionsDialog::loadSplitterState()

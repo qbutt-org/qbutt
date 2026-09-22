@@ -2231,6 +2231,10 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
 <context>
     <name>BitTorrent::CompletionPolicy</name>
     <message>
+        <source>Choose only one action: stop the torrent, remove it, or delete its files.</source>
+        <translation>Выберите одно действие: остановить торрент, убрать его из списка или удалить его файлы.</translation>
+    </message>
+    <message>
         <location filename="../base/bittorrent/completionpolicy.cpp" line="62"/>
         <source>Completion journal capacity reached; automatic actions are held.</source>
         <translation>Журнал завершения заполнен; автоматические действия приостановлены.</translation>
@@ -2302,13 +2306,13 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
     <message>
         <location filename="../base/bittorrent/completionpolicy.cpp" line="142"/>
-        <source>Deleting payload requires the separate allow_delete_data setting.</source>
-        <translation>Для удаления данных требуется отдельное разрешение allow_delete_data.</translation>
+        <source>Enable file deletion before choosing this action.</source>
+        <translation>Сначала разрешите удаление файлов.</translation>
     </message>
     <message>
         <location filename="../base/bittorrent/completionpolicy.cpp" line="145"/>
-        <source>Choose actions with at most one of stop, remove_torrent or delete_data.</source>
-        <translation>Из действий stop, remove_torrent и delete_data можно выбрать только одно.</translation>
+        <source>Choose an action or enable notifications.</source>
+        <translation>Выберите действие или включите уведомление.</translation>
     </message>
     <message>
         <location filename="../base/bittorrent/completionpolicy.cpp" line="164"/>
@@ -7798,8 +7802,36 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
 <context>
     <name>OptionsDialog</name>
     <message>
-        <source>Remove torrents from the list after download (keep files)</source>
-        <translation>Удалять торренты из списка после загрузки (файлы сохраняются)</translation>
+        <source>General</source>
+        <translation>Основные</translation>
+    </message>
+    <message>
+        <source>More settings</source>
+        <translation>Другие настройки</translation>
+    </message>
+    <message>
+        <source>More download settings</source>
+        <translation>Другие настройки загрузки</translation>
+    </message>
+    <message>
+        <source>More connection settings</source>
+        <translation>Другие настройки соединения</translation>
+    </message>
+    <message>
+        <source>More interface settings</source>
+        <translation>Другие настройки интерфейса</translation>
+    </message>
+    <message>
+        <source>Save files to:</source>
+        <translation>Сохранять файлы в:</translation>
+    </message>
+    <message>
+        <source>Show download progress over other windows</source>
+        <translation>Показывать прогресс загрузки поверх окон</translation>
+    </message>
+    <message>
+        <source>Remove completed torrents from the list (keep files)</source>
+        <translation>Убирать завершённые торренты из списка (сохранять файлы)</translation>
     </message>
     <message>
         <location filename="../gui/optionsdialog.ui" line="14"/>

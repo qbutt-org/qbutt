@@ -122,6 +122,7 @@ private:
     // Methods
     bool applySettings();
     void saveOptions() const;
+    void setAdditionalSettingsVisible(bool visible);
 
     void loadBehaviorTabOptions();
     void saveBehaviorTabOptions() const;
