@@ -44,9 +44,16 @@ probe `qoCysY`, app Hysteria2 HTTPS webseed `8Ri1u0` (893 exact verified bytes,
 Native route credit zero), and Native v1/v2/hybrid resume/recheck `R9mseq` passed.
 The updater used at that time downloaded the published ZIP successfully;
 GitHub confirmed the release tag and source. These historical checks do not
-validate the revised updater or the planned 1.0 installer and portable bundle.
+validate the revised updater or the later 1.0 installer and portable bundle.
 Generated payloads, profiles and duplicate download were recycled after owned
 processes stopped.
+
+[1.0.0](https://github.com/qbutt-org/qbutt/releases/tag/v1.0.0) is published with
+portable ZIP and EXE installer. The revised updater passed 16 controlled HTTPS/Qt
+scenarios and a real GitHub download of the published archive. Local installation,
+upgrade, uninstall with preserved user files, Russian/English UI, folder auto-open,
+completion removal, and the desktop progress strip passed their applicable checks.
+This release does not add evidence for the external network conditions listed below.
 
 ## Historical runtime evidence, 12 September 2026
 
