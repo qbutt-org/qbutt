@@ -37,7 +37,7 @@ async function download(name: string, destination: string, mode: "keep" | "remov
             assert.equal(claims.length, 1, "The same completion dispatched multiple actions");
             assert.deepEqual(claims[0]!.actions, [mode === "remove" ? "remove_torrent" : "stop"]);
             if (mode === "stop")
-                assert.equal((await lab.info(hash)).state, "stoppedUP", "Explicit stop rule did not retain the torrent");
+                await waitFor("explicit stop rule retains the torrent", () => lab.info(hash), item => item.state === "stoppedUP");
         }
         const verifiedBytes = await verifyPayload(destination, lab.manifest.payload);
         const traffic = await seed.stop();
@@ -67,7 +67,8 @@ try {
     await writeFile(configPath, config.replace("[Preferences]\n",
         "[Preferences]\nDownloads\\AutoRemoveCompletedTorrents=true\n"));
     await lab.start();
-    assert.equal((await lab.info(retainedHash)).progress, 1, "Enabling auto-remove swept an existing completed torrent");
+    await waitFor("restored completed torrent retained after enabling", () => lab.info(retainedHash),
+        item => item.progress === 1);
     const removedHash = await download("v1-64k", destinations[1]!, "remove");
     assert.equal((await lab.info(retainedHash)).progress, 1, "Auto-removal also removed an earlier completed torrent");
 
@@ -77,7 +78,8 @@ try {
     const stoppedHash = await download("v2", destinations[2]!, "stop");
     await lab.shutdown();
     await lab.start();
-    const restored = await lab.json<TorrentStatus[]>("torrents/info");
+    const restored = await waitFor("retained completed torrents restored", () => lab.json<TorrentStatus[]>("torrents/info"),
+        items => items.length === 2 && items.every(item => item.progress === 1));
     assert.deepEqual(restored.map(item => item.hash).sort(), [retainedHash, stoppedHash].sort(),
         "Restart lost a retained torrent or restored the automatically removed one");
     const receipts = await lab.json<Claim[]>("qbuttPolicies/journal");

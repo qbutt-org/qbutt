@@ -859,6 +859,7 @@ void MainWindow::saveSplitterSettings() const
 
 void MainWindow::cleanup()
 {
+    m_downloadProgressOverlay.reset();
     if (!m_neverShown)
     {
         saveSettings();

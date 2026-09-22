@@ -237,6 +237,11 @@ try {
         };
         const torrent = manifest.torrents.find(candidate => candidate.name === "v1-public");
         assert(torrent, "Generated v1-public fixture is missing");
+        const overlayTorrent = manifest.torrents.find(candidate => candidate.name === "v1-64k");
+        assert(overlayTorrent, "Generated overlay fixture is missing");
+        const overlayDestination = join(root, "overlay-download");
+        await cp(join(fixtures, "seed"), overlayDestination, { recursive: true });
+        await rm(join(overlayDestination, "bundle", "alpha.bin"));
         const profile = join(root, "profile");
         const config = join(profile, "qbutt", "config");
         await mkdir(config, { recursive: true });
@@ -275,6 +280,7 @@ try {
         await writeFile(spec, JSON.stringify({
             schema: 1, evidencePath, childEvidence, torrentPath: join(fixtures, torrent.file),
             sourceRoot: join(fixtures, "seed"), largeRoot, destination, subscription,
+            overlayTorrentPath: join(fixtures, overlayTorrent.file), overlayDestination,
             screenshots: join(root, "screenshots"), fixtureRoot: root, profile, bulkRows: 2000,
         }, null, 2));
         await mkdir(join(root, "screenshots"));
@@ -346,7 +352,7 @@ finally {
         await clean(() => removeOwnedDirectory(tmpdir(), basename(bundle)));
         releaseRuntimeLock();
     }
-    for (const name of ["fixtures", "large-source", "profile", "destination", "product-profile", "functional-profile"])
+    for (const name of ["fixtures", "large-source", "profile", "destination", "overlay-download", "product-profile", "functional-profile"])
         await clean(() => removeOwnedDirectory(root, name));
     if (cleanupErrors.length)
         failure = new AggregateError(failure ? [failure, ...cleanupErrors] : cleanupErrors,

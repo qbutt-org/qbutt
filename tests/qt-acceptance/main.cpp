@@ -52,6 +52,7 @@
 #include <QScopeGuard>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QScreen>
 #include <QSet>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -1155,6 +1156,73 @@ namespace
         dialog.close();
     }
 
+    void exerciseProgressOverlay(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
+    {
+        QWidget *overlay = nullptr;
+        for (QWidget *widget : QApplication::topLevelWidgets())
+        {
+            if (widget->objectName() == u"downloadProgressOverlay")
+                overlay = widget;
+        }
+        auto *preferences = Preferences::instance();
+        auto *session = BitTorrent::Session::instance();
+        require(overlay && !preferences->isDownloadProgressOverlayEnabled() && !overlay->isVisible(),
+            u"Download overlay is not disabled by default"_s);
+        const auto flags = overlay->windowFlags();
+        require(flags.testFlag(Qt::WindowStaysOnTopHint) && flags.testFlag(Qt::WindowTransparentForInput)
+                && flags.testFlag(Qt::WindowDoesNotAcceptFocus) && overlay->testAttribute(Qt::WA_ShowWithoutActivating),
+            u"Overlay can steal input or does not stay above other windows"_s);
+        preferences->setDownloadProgressOverlayEnabled(true);
+        preferences->apply();
+        require(!overlay->isVisible(), u"Idle overlay is visible"_s);
+        const auto descriptor = BitTorrent::TorrentDescriptor::loadFromFile(Path(spec.value(u"overlayTorrentPath"_s).toString()));
+        require(bool(descriptor), u"Missing progress fixture"_s);
+        const QString destination = spec.value(u"overlayDestination"_s).toString();
+        const auto before = snapshot(destination);
+        BitTorrent::AddTorrentParams params;
+        params.savePath = Path(destination);
+        params.useAutoTMM = false;
+        params.useDownloadPath = false;
+        params.addStopped = false;
+        require(session->addTorrent(*descriptor, params), u"Cannot add progress fixture"_s);
+        BitTorrent::Torrent *torrent = nullptr;
+        waitFor(u"Partial download progress overlay"_s, [&]
+        {
+            torrent = session->findTorrent(descriptor->infoHash());
+            return torrent && !torrent->isChecking() && (torrent->progress() > 0)
+                && (torrent->progress() < 1) && overlay->isVisible();
+        });
+        const qreal expected = qreal(torrent->completedSize()) / torrent->wantedSize();
+        require(qAbs(overlay->property("progress").toReal() - expected) < 0.001,
+            u"Overlay progress differs from verified wanted bytes"_s);
+        const QRect available = QApplication::primaryScreen()->availableGeometry();
+        require(overlay->geometry() == QRect(available.left(), available.bottom() - 2, available.width(), 3),
+            u"Overlay is not at the bottom edge above the taskbar"_s);
+        window->showMinimized();
+        QCoreApplication::processEvents();
+        require(overlay->isVisible(), u"Minimizing qbutt hid the independent overlay"_s);
+        require(overlay->grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"progress-overlay.png"_s)),
+            u"Cannot render progress overlay"_s);
+        window->showNormal();
+        session->pause();
+        waitFor(u"Pause hides progress overlay"_s, [&] { return !overlay->isVisible(); });
+        session->resume();
+        waitFor(u"Resume restores progress overlay"_s, [&] { return overlay->isVisible(); });
+        torrent->stop();
+        waitFor(u"Stopped download hides progress overlay"_s, [&] { return !overlay->isVisible(); });
+        preferences->setDownloadProgressOverlayEnabled(false);
+        preferences->apply();
+        torrent->start();
+        require(!overlay->isVisible(), u"Disabled overlay reappeared"_s);
+        torrent->stop();
+        require(session->removeTorrent(torrent->id(), BitTorrent::TorrentRemoveOption::KeepContent),
+            u"Cannot release progress fixture"_s);
+        waitFor(u"Progress fixture removed"_s, [&] { return !session->findTorrent(descriptor->infoHash()); });
+        require(snapshot(destination) == before, u"Overlay altered fixture payload"_s);
+        addCheck(evidence, {{u"name"_s, u"download-progress-overlay"_s}, {u"progress"_s, expected},
+            {u"clickThrough"_s, true}, {u"noFocus"_s, true}, {u"minimizedVisible"_s, true}, {u"pauseHides"_s, true}});
+    }
+
     void exerciseDiagnosticWaits(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
         auto *session = static_cast<BitTorrent::SessionImpl *>(BitTorrent::Session::instance());
@@ -1706,9 +1774,70 @@ namespace
         require(window->grab().save(screenshots.filePath(phase + u"-layout.png"_s)), u"Cannot render appearance layout"_s);
         if (phase != u"retained")
         {
+            options.show();
+            const auto requireNoOverflow = [&options]
+            {
+                QCoreApplication::processEvents();
+                for (QScrollArea *area : options.findChildren<QScrollArea *>())
+                {
+                    if (area->isVisible())
+                        require(area->horizontalScrollBar()->maximum() == 0, u"Settings page overflows horizontally"_s);
+                }
+            };
+            auto *pages = requiredChild<QListWidget>(&options, u"tabSelection"_s);
+            auto *more = requiredChild<QToolButton>(&options, u"moreSettingsButton"_s);
+            require(!more->isChecked() && pages->item(4)->isHidden() && pages->item(8)->isHidden(),
+                u"Rare settings are expanded on first use"_s);
+            pages->setCurrentRow(1);
+            QCoreApplication::processEvents();
+            auto *remove = requiredChild<QCheckBox>(&options, u"checkAutoRemoveCompletedTorrents"_s);
+            auto *overlay = requiredChild<QCheckBox>(&options, u"checkDownloadProgressOverlay"_s);
+            auto *autoOpen = requiredChild<QGroupBox>(&options, u"groupAutoOpenTorrents"_s);
+            require(remove->isVisible() && overlay->isVisible() && autoOpen->isVisible()
+                    && !remove->isChecked() && !overlay->isChecked() && !autoOpen->isChecked(),
+                u"Everyday download options are hidden or enabled by default"_s);
+            require(!requiredChild<QWidget>(&options, u"additionalDownloadSettings"_s)->isVisible(),
+                u"Technical download controls are expanded by default"_s);
+            require(options.grab().save(screenshots.filePath(phase + u"-downloads.png"_s)), u"Cannot render download settings"_s);
+            requiredChild<QToolButton>(&options, u"moreDownloadSettingsButton"_s)->click();
+            QCoreApplication::processEvents();
+            require(requiredChild<QWidget>(&options, u"additionalDownloadSettings"_s)->isVisible(),
+                u"Technical download options cannot be reached"_s);
+            requireNoOverflow();
+            require(options.grab().save(screenshots.filePath(phase + u"-downloads-expanded.png"_s)), u"Cannot render additional download settings"_s);
+            requiredChild<QToolButton>(&options, u"moreDownloadSettingsButton"_s)->click();
+            pages->setCurrentRow(8);
+            require(more->isChecked() && !pages->item(8)->isHidden(), u"Direct navigation left the active page hidden"_s);
+            more->click();
+            require(pages->currentRow() == 0 && pages->item(8)->isHidden(), u"Collapsing additional pages retained an invisible selection"_s);
+            requiredChild<QToolButton>(&options, u"moreGeneralSettingsButton"_s)->click();
+            requireNoOverflow();
+            require(options.grab().save(screenshots.filePath(phase + u"-options-expanded.png"_s)), u"Cannot render additional general settings"_s);
+            requiredChild<QToolButton>(&options, u"moreGeneralSettingsButton"_s)->click();
+            if (phase == u"functional")
+            {
+                auto *apply = requiredChild<QDialogButtonBox>(&options, u"buttonBox"_s)->button(QDialogButtonBox::Apply);
+                remove->setChecked(true);
+                overlay->setChecked(true);
+                apply->click();
+                require(Preferences::instance()->isAutoRemoveCompletedTorrentsEnabled()
+                        && Preferences::instance()->isDownloadProgressOverlayEnabled(), u"Download checkboxes did not save"_s);
+                OptionsDialog reopened {&application, window};
+                require(requiredChild<QCheckBox>(&reopened, u"checkAutoRemoveCompletedTorrents"_s)->isChecked()
+                        && requiredChild<QCheckBox>(&reopened, u"checkDownloadProgressOverlay"_s)->isChecked(),
+                    u"Saved download options did not survive reopening"_s);
+                reopened.close();
+                remove->setChecked(false);
+                overlay->setChecked(false);
+                apply->click();
+            }
             options.showConnectionTab();
             QCoreApplication::processEvents();
             require(options.grab().save(screenshots.filePath(phase + u"-connections.png"_s)), u"Cannot render connection settings"_s);
+            requiredChild<QToolButton>(&options, u"moreConnectionSettingsButton"_s)->click();
+            requireNoOverflow();
+            require(options.grab().save(screenshots.filePath(phase + u"-connections-expanded.png"_s)), u"Cannot render additional connection settings"_s);
+            requiredChild<QToolButton>(&options, u"moreConnectionSettingsButton"_s)->click();
             RepairPreviewDialog repair {window};
             repair.show();
             QCoreApplication::processEvents();
@@ -1882,6 +2011,7 @@ namespace
         exerciseRepair(window, spec, evidence);
         exercisePolicies(window, spec, evidence);
         exerciseDiagnostics(window, spec, evidence);
+        exerciseProgressOverlay(window, spec, evidence);
         exerciseLargeTransferList(window, spec, evidence);
         restoreNative(window, evidence);
     }
