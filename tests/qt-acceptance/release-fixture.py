@@ -127,6 +127,10 @@ class Handler(socketserver.BaseRequestHandler):
                     connection.sendall(body[start:start + 16384])
                     if mode == "cancel" and path.endswith((".zip", ".exe")):
                         time.sleep(0.02)
+                try:
+                    connection.unwrap()  # Complete the TLS close before closing TCP.
+                except (OSError, ssl.SSLError):
+                    pass
         except (OSError, EOFError):
             pass  # Cancellation, an untrusted certificate, or early close is expected.
 
