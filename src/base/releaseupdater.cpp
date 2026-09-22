@@ -8,14 +8,27 @@
 #include <algorithm>
 #include <optional>
 
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QStringList>
+#include <QUuid>
+
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 
 #include "global.h"
 #include "version.h"
@@ -89,6 +102,20 @@ namespace
                 || (url.host() == u"objects.githubusercontent.com"));
     }
 
+    void clearCachedInstallers(const QString &keep = {})
+    {
+        const QString root = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+        if (root.isEmpty())
+            return;
+        const QDir cache {root + u"/updates"};
+        static const QRegularExpression installer {u"^qbutt-[0-9A-Za-z.-]+-windows-x64-setup\\.exe$"_s};
+        for (const QFileInfo &file : cache.entryInfoList(QDir::Files | QDir::NoSymLinks))
+        {
+            if ((file.fileName() != keep) && installer.match(file.fileName()).hasMatch())
+                QFile::remove(file.filePath());
+        }
+    }
+
     QByteArray assetHash(const QJsonObject &asset)
     {
         static const QRegularExpression pattern {u"^sha256:([0-9a-f]{64})$"_s};
@@ -102,7 +129,16 @@ ReleaseUpdater::ReleaseUpdater(QObject *parent)
     , m_network(this)
 {
     m_deadline.setSingleShot(true);
-    connect(&m_deadline, &QTimer::timeout, this, [this]() { fail(tr("The update request timed out.")); });
+    connect(&m_deadline, &QTimer::timeout, this, [this]()
+    {
+        fail(m_state == State::Installing ? tr("Could not start the update. Please try again.")
+            : tr("The update request timed out."));
+    });
+    connect(&m_poll, &QTimer::timeout, this, [this]()
+    {
+        m_poll.setInterval(60 * 60 * 1000);
+        check();
+    });
 }
 
 ReleaseUpdater::~ReleaseUpdater()
@@ -114,6 +150,32 @@ ReleaseUpdater::State ReleaseUpdater::state() const { return m_state; }
 QString ReleaseUpdater::message() const { return m_message; }
 QString ReleaseUpdater::fileName() const { return m_fileName; }
 QString ReleaseUpdater::savedPath() const { return m_savedPath; }
+QString ReleaseUpdater::version() const { return m_version; }
+
+bool ReleaseUpdater::isInstalled() const
+{
+#ifdef Q_OS_WIN
+    const QDir applicationDir {QCoreApplication::applicationDirPath()};
+    if (applicationDir.exists(u"profile"_s))
+        return false;
+    const QSettings installation {u"HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion"
+        "\\Uninstall\\{64A54F85-79F8-43D3-9B5B-2336052C370E}_is1"_s, QSettings::Registry64Format};
+    const QString path = installation.value(u"Inno Setup: App Path"_s).toString();
+    if (path.isEmpty())
+        return false;
+    const QString installedFile = QFileInfo(QDir(path).filePath(u"qbutt.exe"_s)).canonicalFilePath();
+    return !installedFile.isEmpty() && (installedFile.compare(
+        QFileInfo(QCoreApplication::applicationFilePath()).canonicalFilePath(), Qt::CaseInsensitive) == 0);
+#else
+    return false;
+#endif
+}
+
+void ReleaseUpdater::startAutomaticChecks()
+{
+    if (isInstalled() && !m_poll.isActive())
+        m_poll.start(30000);
+}
 
 void ReleaseUpdater::setState(const State state, const QString &message)
 {
@@ -125,6 +187,13 @@ void ReleaseUpdater::setState(const State state, const QString &message)
 void ReleaseUpdater::stop()
 {
     m_deadline.stop();
+#ifdef Q_OS_WIN
+    if (m_installReady)
+    {
+        ::CloseHandle(m_installReady);
+        m_installReady = nullptr;
+    }
+#endif
     if (m_reply)
     {
         m_reply->disconnect(this);
@@ -138,8 +207,11 @@ void ReleaseUpdater::stop()
 
 void ReleaseUpdater::fail(const QString &message)
 {
+    const bool installation = (m_state == State::Installing);
     stop();
     setState(State::Error, message);
+    if (installation)
+        emit installationFailed();
 }
 
 void ReleaseUpdater::cancel()
@@ -152,6 +224,9 @@ void ReleaseUpdater::cancel()
 
 void ReleaseUpdater::check()
 {
+    if ((m_state == State::Checking) || (m_state == State::Downloading) || (m_state == State::Installing)
+        || ((m_state == State::Ready) && isInstalled()))
+        return;
     stop();
     m_version.clear();
     m_savedPath.clear();
@@ -207,7 +282,7 @@ void ReleaseUpdater::readData()
             m_hash.addData(data);
             if (!m_file || (m_file->write(data) != data.size()))
             {
-                fail(tr("Could not write the downloaded archive."));
+                fail(tr("Could not write the download."));
                 return;
             }
             emit progress(m_received, m_archiveSize);
@@ -253,7 +328,7 @@ void ReleaseUpdater::finishRequest()
             return;
         }
         stop();
-        setState(State::Ready, tr("Download complete. Close qbutt and extract the archive to install the update."));
+        ready();
     }
 }
 
@@ -295,11 +370,14 @@ void ReleaseUpdater::readReleases()
     if (selected.isEmpty())
     {
         stop();
+        if (isInstalled())
+            clearCachedInstallers();
         setState(State::Current, tr("qbutt %1 is up to date.").arg(QStringLiteral(QBUTT_VERSION)));
         return;
     }
     m_version = selected.value(u"tag_name"_s).toString().mid(1);
-    m_fileName = u"qbutt-%1-windows-x64.zip"_s.arg(m_version);
+    m_fileName = (isInstalled() ? u"qbutt-%1-windows-x64-setup.exe"_s
+        : u"qbutt-%1-windows-x64.zip"_s).arg(m_version);
     const QString prefix = RELEASE_ROOT + u"download/v" + m_version + u'/';
     QJsonObject archive;
     int matches = 0;
@@ -328,6 +406,8 @@ void ReleaseUpdater::readReleases()
     m_archiveUrl = QUrl(prefix + m_fileName);
     stop();
     setState(State::Available, tr("qbutt %1 is available (%2 MiB).").arg(m_version).arg(m_archiveSize / (1024 * 1024)));
+    if (isInstalled() && (m_state == State::Available))
+        downloadInstaller();
 }
 
 void ReleaseUpdater::download(const QString &destination)
@@ -345,4 +425,115 @@ void ReleaseUpdater::download(const QString &destination)
     m_deadline.start(10 * 60 * 1000);
     setState(State::Downloading, tr("Downloading qbutt %1…").arg(m_version));
     fetch(m_archiveUrl, Request::Archive);
+}
+
+void ReleaseUpdater::ready()
+{
+    setState(State::Ready, isInstalled() ? tr("qbutt %1 is ready to install.").arg(m_version)
+        : tr("Download complete. Close qbutt and extract the archive to install the update."));
+}
+
+bool ReleaseUpdater::validDownload(const QString &path) const
+{
+    const QFileInfo info {path};
+    if (!info.isFile() || info.isSymLink() || (info.size() != m_archiveSize))
+        return false;
+    QFile file {path};
+    QCryptographicHash hash {QCryptographicHash::Sha256};
+    return file.open(QIODevice::ReadOnly) && hash.addData(&file) && (hash.result() == m_archiveHash);
+}
+
+void ReleaseUpdater::downloadInstaller()
+{
+    const QString cacheRoot = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    const QDir cache {cacheRoot + u"/updates"};
+    if (cacheRoot.isEmpty() || !cache.mkpath(u"."_s))
+    {
+        fail(tr("Could not create the update folder."));
+        return;
+    }
+    clearCachedInstallers(m_fileName);
+    const QString destination = cache.filePath(m_fileName);
+    if (validDownload(destination))
+    {
+        m_savedPath = destination;
+        ready();
+        return;
+    }
+    download(destination);
+}
+
+bool ReleaseUpdater::install()
+{
+#ifdef Q_OS_WIN
+    if ((m_state != State::Ready) || !isInstalled())
+        return false;
+    if (!validDownload(m_savedPath))
+    {
+        fail(tr("The download is incomplete or damaged. Please try again."));
+        return false;
+    }
+
+    // Carry startup options through the existing environment interface. Do not
+    // replay torrent filenames, magnets, or one-shot add-torrent options.
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    for (const QString &argument : QCoreApplication::arguments().mid(1))
+    {
+        const qsizetype separator = argument.indexOf(u'=');
+        const QString option = argument.left(separator);
+        if ((separator > 0) && ((option == u"--profile") || (option == u"--configuration")
+            || (option == u"--webui-port") || (option == u"--torrenting-port")))
+        {
+            environment.insert(u"QBUTT_" + option.mid(2).toUpper().replace(u'-', u'_'), argument.mid(separator + 1));
+        }
+        else if ((argument == u"--relative-fastresume") || (argument == u"--no-splash"))
+            environment.insert(u"QBUTT_" + argument.mid(2).toUpper().replace(u'-', u'_'), u"1"_s);
+    }
+
+    const QString eventName = u"Local\\qbutt-update-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_installReady = ::CreateEventW(nullptr, TRUE, FALSE, reinterpret_cast<LPCWSTR>(eventName.utf16()));
+    if (!m_installReady)
+    {
+        fail(tr("Could not start the update. Please try again."));
+        return false;
+    }
+
+    QProcess installer;
+    installer.setProgram(m_savedPath);
+    installer.setArguments({u"/VERYSILENT"_s, u"/SUPPRESSMSGBOXES"_s, u"/NORESTART"_s,
+        u"/NOCLOSEAPPLICATIONS"_s, u"/NORESTARTAPPLICATIONS"_s,
+        u"/DIR=" + QDir::toNativeSeparators(QCoreApplication::applicationDirPath()),
+        u"/QBUTTUPDATE=" + QString::number(QCoreApplication::applicationPid()),
+        u"/QBUTTREADY=" + eventName,
+        u"/QBUTTWORKDIR=" + QDir::toNativeSeparators(QDir::currentPath())});
+    installer.setProcessEnvironment(environment);
+    installer.setWorkingDirectory(QCoreApplication::applicationDirPath());
+    if (!installer.startDetached())
+    {
+        fail(tr("Could not start the update. Please try again."));
+        return false;
+    }
+    m_poll.stop();
+    setState(State::Installing, tr("Restarting to update…"));
+    m_deadline.start(60000);
+    waitForInstaller();
+    return true;
+#else
+    return false;
+#endif
+}
+
+void ReleaseUpdater::waitForInstaller()
+{
+#ifdef Q_OS_WIN
+    if (!m_installReady)
+        return;
+    if (::WaitForSingleObject(m_installReady, 0) == WAIT_OBJECT_0)
+    {
+        stop();
+        emit installRequested();
+    }
+    else
+        QTimer::singleShot(100, this, &ReleaseUpdater::waitForInstaller);
+#endif
 }

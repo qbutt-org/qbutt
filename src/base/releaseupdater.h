@@ -17,14 +17,14 @@
 class QNetworkReply;
 class QSaveFile;
 
-// Downloads an entire portable release. Never installs code or changes a profile.
+// Downloads GitHub releases and hands installed Windows updates to the installer.
 class ReleaseUpdater final : public QObject
 {
     Q_OBJECT
     Q_DISABLE_COPY_MOVE(ReleaseUpdater)
 
 public:
-    enum class State { Idle, Checking, Available, Current, Downloading, Ready, Canceled, Error };
+    enum class State { Idle, Checking, Available, Current, Downloading, Ready, Canceled, Error, Installing };
     Q_ENUM(State)
 
     explicit ReleaseUpdater(QObject *parent = nullptr);
@@ -34,6 +34,10 @@ public:
     QString message() const;
     QString fileName() const;
     QString savedPath() const;
+    QString version() const;
+    bool isInstalled() const;
+    void startAutomaticChecks();
+    bool install();
     void check();
     void download(const QString &destination);
     void cancel();
@@ -41,6 +45,8 @@ public:
 signals:
     void changed();
     void progress(qint64 received, qint64 total);
+    void installRequested();
+    void installationFailed();
 
 private:
     enum class Request { Releases, Archive };
@@ -48,6 +54,10 @@ private:
     void readData();
     void finishRequest();
     void readReleases();
+    void downloadInstaller();
+    bool validDownload(const QString &path) const;
+    void ready();
+    void waitForInstaller();
     void setState(State state, const QString &message);
     void fail(const QString &message);
     void stop();
@@ -55,6 +65,7 @@ private:
     QNetworkAccessManager m_network;
     QPointer<QNetworkReply> m_reply;
     QTimer m_deadline;
+    QTimer m_poll;
     std::unique_ptr<QSaveFile> m_file;
     QCryptographicHash m_hash {QCryptographicHash::Sha256};
     State m_state = State::Idle;
@@ -69,4 +80,7 @@ private:
     qint64 m_archiveSize = 0;
     qint64 m_received = 0;
     int m_redirects = 0;
+#ifdef Q_OS_WIN
+    void *m_installReady = nullptr;
+#endif
 };
