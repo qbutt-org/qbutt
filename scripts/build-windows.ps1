@@ -7,7 +7,7 @@ param(
     [string] $LibtorrentSourceDir,
     [string] $LibtorrentBuildRoot,
     [string] $NetSourceDir,
-    [string] $SigningKey = $env:QBUTT_RELEASE_SIGNING_KEY,
+    [string] $InstallerCompiler,
     [string] $CMakePath = (Join-Path $env:ProgramFiles 'CMake/bin/cmake.exe'),
     [ValidateRange(1, 64)] [int] $Parallel = 8
 )
@@ -79,6 +79,19 @@ New-Item -ItemType Directory -Force $BuildRoot, $DependencyRoot, $ArtifactRoot |
 $lockPath = Join-Path $SourceDir 'upstream-lock.json'
 $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
 $pins = $lock.windows
+
+if (-not $InstallerCompiler) {
+    $installerTools = Join-Path $DependencyRoot "inno-setup-$($pins.innoSetup.version)"
+    $InstallerCompiler = Join-Path $installerTools 'ISCC.exe'
+    if (-not (Test-Path -LiteralPath $InstallerCompiler)) {
+        $installerDownload = Join-Path $DependencyRoot "innosetup-$($pins.innoSetup.version).exe"
+        Save-VerifiedDownload $installerDownload $pins.innoSetup.url $pins.innoSetup.sha256
+        $installerProcess = Start-Process -FilePath $installerDownload -ArgumentList @(
+            '/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/NOICONS', '/TASKS=',
+            "/DIR=`"$installerTools`"") -WindowStyle Hidden -Wait -PassThru
+        if ($installerProcess.ExitCode -ne 0) { throw "Inno Setup installation failed: $($installerProcess.ExitCode)" }
+    }
+}
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $visualStudio = & $vswhere -latest -version '[17.0,18.0)' -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -222,7 +235,7 @@ Invoke-Native "$qtRoot/bin/windeployqt.exe" @('--release', '--no-compiler-runtim
     '--exclude-plugins', 'qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql', '--dir', $portable, (Join-Path $portable 'qbutt.exe'))
 Copy-Item -Path (Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT/*.dll') -Destination $portable
 Copy-Item -LiteralPath (Join-Path $SourceDir 'COPYING'), (Join-Path $SourceDir 'COPYING.GPLv2'), (Join-Path $SourceDir 'COPYING.GPLv3'),
-    (Join-Path $SourceDir 'AUTHORS'), $lockPath -Destination $portable
+    (Join-Path $SourceDir 'AUTHORS') -Destination $portable
 Copy-Item -LiteralPath (Join-Path $SourceDir 'dist/windows/qt.conf') -Destination $portable
 $licenses = Join-Path $portable 'licenses'
 New-Item -ItemType Directory -Path $licenses | Out-Null
@@ -244,7 +257,6 @@ finally { Pop-Location }
 @"
 qbutt is a fork of qBittorrent; see COPYING, COPYING.GPLv2, COPYING.GPLv3 and AUTHORS.
 Source and build instructions: https://github.com/qbutt-org/qbutt
-Exact source revisions and binary archive hashes: upstream-lock.json.
 
 qbutt-net is a separate process under GPLv3 (licenses/qbutt-net.txt).
 Source: $($lock.qbuttNet.repository -replace '\.git$', '')/tree/$($lock.qbuttNet.commit)
@@ -263,7 +275,7 @@ libtorrent source: $($pins.libtorrent.repository -replace '\.git$', '')/tree/$($
 Based on upstream libtorrent $($pins.libtorrent.upstream.tag):
 $($pins.libtorrent.upstream.repository -replace '\.git$', '')/tree/$($pins.libtorrent.upstream.commit)
 Boost source: $($pins.boost.url)
-OpenSSL and zlib source recipes, source checksums, and patches:
+OpenSSL and zlib source recipes and patches:
 https://github.com/microsoft/vcpkg/tree/$($pins.vcpkg.commit)/ports/openssl
 https://github.com/microsoft/vcpkg/tree/$($pins.vcpkg.commit)/ports/zlib
 Their license texts are included in licenses/.
@@ -288,19 +300,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
     go = $goVersion
     bun = (& $bun --version)
     qt = $pins.qt.version
+    innoSetup = $pins.innoSetup.version
     dependencyLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
-} | ConvertTo-Json | Set-Content (Join-Path $portable 'build-manifest.json')
+} | ConvertTo-Json | Set-Content (Join-Path $ArtifactRoot 'build-manifest.json')
 $archive = Join-Path $ArtifactRoot "qbutt-$releaseVersion-windows-x64.zip"
-$signaturePath = Join-Path $ArtifactRoot 'SHA256SUMS.txt.sig'
-if (Test-Path -LiteralPath $signaturePath) {
-    Remove-Item -LiteralPath $signaturePath
-}
 Compress-Archive -Path "$portable/*" -DestinationPath $archive -Force
-$digest = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-$manifestDigest = (Get-FileHash -LiteralPath (Join-Path $portable 'build-manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-@("$digest  $(Split-Path $archive -Leaf)", "$manifestDigest  build-manifest.json") |
-    Set-Content (Join-Path $ArtifactRoot 'SHA256SUMS.txt') -Encoding ascii
-if ($SigningKey) {
-    Invoke-Native $bun @((Join-Path $SourceDir 'scripts/sign-release.ts'), $ArtifactRoot, $SigningKey)
-}
+& (Join-Path $SourceDir 'scripts/build-installer.ps1') -SourceDir $SourceDir -BundleDir $portable `
+    -OutputDir $ArtifactRoot -CompilerPath $InstallerCompiler
 Write-Output "Portable build: $portable"
+Write-Output "Portable archive: $archive"
