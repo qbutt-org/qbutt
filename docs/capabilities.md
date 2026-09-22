@@ -42,12 +42,11 @@ Clean [alpha.5](https://github.com/qbutt-org/qbutt/releases/tag/v0.1.0-alpha.5)
 uses app `6ccde49a` and net `d14c8889` from source `4921d247c`. Final adapter
 probe `qoCysY`, app Hysteria2 HTTPS webseed `8Ri1u0` (893 exact verified bytes,
 Native route credit zero), and Native v1/v2/hybrid resume/recheck `R9mseq` passed.
-The production-trust alpha.3 updater downloaded and verified the published
-62,692,085-byte ZIP; SHA-256 `bf5a651690168fb2aa7cc9d6b3ace96140e1886a6ed4b82f56d592095986bfdd`
-matches locally. GitHub confirmed the tag/source and all four asset digests.
-The release's `verification.json` distinguishes final-bundle checks from retained
-checks of unchanged code. Generated payloads, profiles and duplicate download
-were recycled after owned processes stopped.
+The updater used at that time downloaded the published ZIP successfully;
+GitHub confirmed the release tag and source. These historical checks do not
+validate the revised updater or the planned 1.0 installer and portable bundle.
+Generated payloads, profiles and duplicate download were recycled after owned
+processes stopped.
 
 ## Historical runtime evidence, 12 September 2026
 
