@@ -277,12 +277,13 @@ void UIThemeManager::applyPalette() const
             palette.setColor(QPalette::Disabled, role, QColor(0x8d, 0x8d, 0x8d));
         }
         palette.setColor(QPalette::BrightText, Qt::white);
-        palette.setColor(QPalette::Highlight, QColor(0x88, 0x4e, 0x3f));
+        palette.setColor(QPalette::PlaceholderText, QColor(0x9c, 0x9c, 0x9c));
+        palette.setColor(QPalette::Highlight, QColor(0x00, 0x70, 0xb0));
         palette.setColor(QPalette::HighlightedText, Qt::white);
         palette.setColor(QPalette::Disabled, QPalette::Highlight, QColor(0x3c, 0x3c, 0x3c));
         palette.setColor(QPalette::Disabled, QPalette::HighlightedText, QColor(0xa0, 0xa0, 0xa0));
-        palette.setColor(QPalette::Link, QColor(0xe3, 0x6d, 0x55));
-        palette.setColor(QPalette::LinkVisited, QColor(0xcd, 0x91, 0x82));
+        palette.setColor(QPalette::Link, QColor(0x00, 0x9d, 0xf7));
+        palette.setColor(QPalette::LinkVisited, QColor(0x68, 0xb9, 0xe8));
         palette.setColor(QPalette::Light, QColor(0x66, 0x66, 0x66));
         palette.setColor(QPalette::Midlight, QColor(0x3c, 0x3c, 0x3c));
         palette.setColor(QPalette::Mid, QColor(0x47, 0x47, 0x47));

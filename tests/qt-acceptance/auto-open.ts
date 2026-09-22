@@ -50,7 +50,7 @@ try {
     const evidencePath = join(root, "evidence.json");
     const spec = join(root, "spec.json");
     await writeFile(spec, JSON.stringify({ schema: 1, mode: "auto-open", evidencePath, profile, watched, payload, torrent }));
-    application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash", "--confirm-legal-notice"], {
+    application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash"], {
         cwd: bundle, windowsHide: true, timeout: 90000,
         env: { ...process.env, QBUTT_QT_ACCEPTANCE_SPEC: spec, QT_QPA_PLATFORM: "offscreen", QT_SCALE_FACTOR: "1" },
         stdout: Bun.file(join(root, "stdout.log")), stderr: Bun.file(join(root, "stderr.log")),

@@ -369,6 +369,12 @@ namespace
         dialog.show();
         PathsWidget &widget = *requiredChild<PathsWidget>(&dialog, {});
         QCoreApplication::processEvents();
+        auto *advanced = requiredChild<QToolButton>(&widget, u"mihomoAdvancedSettings"_s);
+        require(!advanced->isChecked() && !requiredChild<QWidget>(&widget, u"mihomoAdvancedOptions"_s)->isVisible(),
+            u"Advanced connection settings should start collapsed"_s);
+        require(dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"paths-initial.png"_s)),
+            u"Cannot render initial connection settings"_s);
+        advanced->click();
         auto *nodes = requiredChild<QComboBox>(&widget, u"mihomoNode"_s);
         auto *reserves = requiredChild<QListWidget>(&widget, u"mihomoReserveTransports"_s);
         auto *sameServer = requiredChild<QComboBox>(&widget, u"mihomoSameServer"_s);
@@ -533,7 +539,9 @@ namespace
             require(hasNative == (policy == u"mixed"), u"Native route does not match the selected policy"_s);
             transitions.append(QJsonObject {{u"mode"_s, policy}, {u"latencyMs"_s, duration}});
         }
-        require(status->text().contains(u"Pinned"_s, Qt::CaseInsensitive), u"Paths status did not explain the active policy"_s);
+        require(status->text().contains(u"first node"_s), u"Paths status did not explain the active policy"_s);
+        advanced->click();
+        QCoreApplication::processEvents();
         auto *viewport = requiredChild<QScrollArea>(&dialog, u"scrollArea_3"_s)->viewport();
         require(widget.isVisible() && viewport->rect().contains(QRect(widget.mapTo(viewport, QPoint {}), widget.size())),
             u"Paths is clipped inside the production Connection page"_s);
@@ -614,6 +622,12 @@ namespace
         auto targetMutations = std::make_unique<TreeMutationMonitor>(destination);
         RepairPreviewDialog preview(window);
         preview.show();
+        QCoreApplication::processEvents();
+        require(!requiredChild<QWidget>(&preview, u"repairPreviewResults"_s)->isVisible(),
+            u"Repair preview displayed empty results"_s);
+        require(preview.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"repair-initial.png"_s)),
+            u"Cannot render initial repair dialog"_s);
+        requiredChild<QToolButton>(&preview, u"repairPreviewDetails"_s)->click();
         setPreviewPaths(preview, spec, {});
         require(requiredChild<QComboBox>(&preview, u"repairPreviewMode"_s)->currentIndex() == 0,
             u"Repair preview did not default to independent staging"_s);
@@ -732,7 +746,7 @@ namespace
         commit->click();
         waitFor(u"Staged commit"_s, [&]
         {
-            return repairStatus->text().contains(u"committed"_s, Qt::CaseInsensitive);
+            return repairStatus->text().startsWith(u"Repair complete."_s);
         }, 90000);
         require(snapshot(source) == sourceBefore, u"Staging changed the selected source tree"_s);
         const auto targetAfter = snapshot(destination);
@@ -766,6 +780,8 @@ namespace
         PoliciesDialog dialog(window);
         dialog.show();
         QCoreApplication::processEvents();
+        require(dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"policies-initial.png"_s)),
+            u"Cannot render initial completion rules"_s);
         auto *rules = requiredChild<QTableWidget>(&dialog, u"completionPoliciesRules"_s);
         auto *preview = requiredChild<QTableWidget>(&dialog, u"completionPoliciesPreview"_s);
         auto *journal = requiredChild<QTableWidget>(&dialog, u"completionPoliciesJournal"_s);
@@ -791,6 +807,16 @@ namespace
         requiredChild<QPushButton>(&dialog, u"completionPoliciesRefresh"_s)->click();
         require(preview->rowCount() >= 1, u"Completion policy preview omitted the repaired torrent"_s);
         auto *save = requiredChild<QPushButton>(&dialog, u"completionPoliciesSave"_s);
+        auto *status = requiredChild<QLabel>(&dialog, u"completionPoliciesStatus"_s);
+        action->setCurrentIndex(action->findData(u"delete_data"_s));
+        save->click();
+        require(status->text() == u"Enable file deletion before choosing this action.",
+            u"File-deletion refusal does not explain the required permission"_s);
+        action->setCurrentIndex(0);
+        save->click();
+        require(status->text() == u"Choose an action or enable notifications.",
+            u"Empty completion rule does not explain how to fix it"_s);
+        action->setCurrentIndex(stop);
         BitTorrent::CompletionPolicy *policy = BitTorrent::Session::instance()->completionPolicy();
         answerMessageBox(&dialog, QMessageBox::Yes);
         save->click();
@@ -859,6 +885,9 @@ namespace
             auto *ownership = requiredChild<QCheckBox>(dialog, u"profileImportOwnership"_s);
             auto *rows = requiredChild<QTableWidget>(dialog, u"profileImportTorrents"_s);
             auto *status = requiredChild<QLabel>(dialog, u"profileImportStatus"_s);
+            require(!rows->isVisible(), u"Profile import displayed an empty result table"_s);
+            require(dialog->grab().save(screenshots.filePath(u"import-initial.png"_s)), u"Cannot render initial profile import"_s);
+            requiredChild<QCheckBox>(dialog, u"profilePortableToggle"_s)->click();
             settings->setSelectedPath(Path(spec.value(u"sourceSettings"_s).toString()));
             base->setSelectedPath(Path(spec.value(u"fixtureRoot"_s).toString()));
             for (const QString &kind : {u"schema"_s, u"metadata"_s, u"valid"_s})
@@ -885,6 +914,7 @@ namespace
                 require(rows->item(row, 0)->checkState() == Qt::Checked, u"Unexpected import selection"_s);
             ownership->setChecked(true);
             require(apply->isEnabled(), u"Explicit ownership did not enable import"_s);
+            requiredChild<QCheckBox>(dialog, u"profileImportSettingsToggle"_s)->click();
             require(dialog->grab().save(screenshots.filePath(u"import-preview.png"_s)), u"Cannot render import preview"_s);
             apply->click();
             waitFor(u"Import preparation"_s, [=] { return dialog->findChild<QMessageBox *>() || apply->isEnabled(); });
@@ -961,13 +991,7 @@ namespace
         {
             rows->selectRow(0);
             const QString selected = rows->item(0, 0)->data(Qt::UserRole).toString();
-            QPushButton *accept = nullptr;
-            for (auto *button : dialog.findChildren<QPushButton *>())
-            {
-                if (button->text() == u"Enable saved policies for selected imported torrent…")
-                    accept = button;
-            }
-            require(accept, u"Missing imported policy acknowledgement button"_s);
+            auto *accept = requiredChild<QPushButton>(&dialog, u"completionPoliciesAccept"_s);
             require(dialog.grab().save(screenshots.filePath(u"import-policy-held.png"_s)), u"Cannot render held imported policies"_s);
             answerMessageBox(&dialog, QMessageBox::No);
             accept->click();
@@ -1020,9 +1044,9 @@ namespace
         return false;
     }
 
-    int displayedSampleCount(const QLabel *status)
+    int displayedSampleCount(const QPushButton *exportButton)
     {
-        const QRegularExpressionMatch match = QRegularExpression {uR"(^(\d+) samples?)"_s}.match(status->text());
+        const QRegularExpressionMatch match = QRegularExpression {uR"(\((\d+) sample)"_s}.match(exportButton->toolTip());
         return match.hasMatch() ? match.captured(1).toInt() : -1;
     }
 
@@ -1036,28 +1060,28 @@ namespace
         NetworkDiagnosticsDialog dialog {window, torrent};
         dialog.show();
         auto *refresh = requiredChild<QPushButton>(&dialog, u"diagnosticsRefresh"_s);
-        auto *status = requiredChild<QLabel>(&dialog, u"diagnosticsStatus"_s);
+        auto *exportButton = requiredChild<QPushButton>(&dialog, u"diagnosticsExport"_s);
         Heartbeat heartbeat;
         heartbeat.start();
-        waitFor(u"Initial diagnostics sample"_s, [&] { return displayedSampleCount(status) > 0; });
+        waitFor(u"Initial diagnostics sample"_s, [&] { return displayedSampleCount(exportButton) > 0; });
         const auto refreshOnce = [&]
         {
             waitFor(u"Diagnostics refresh action"_s, [=] { return refresh->isEnabled(); });
-            const int before = displayedSampleCount(status);
+            const int before = displayedSampleCount(exportButton);
             QElapsedTimer latency;
             latency.start();
             refresh->click();
             require(latency.elapsed() <= RESPONSE_LIMIT_MS, u"Diagnostics refresh blocked the Qt event loop"_s);
             waitFor(u"Diagnostics refresh completion"_s, [=]
             {
-                return refresh->isEnabled() && ((before == 300) || (displayedSampleCount(status) > before));
+                return refresh->isEnabled() && ((before == 300) || (displayedSampleCount(exportButton) > before));
             });
         };
-        while (displayedSampleCount(status) < 300)
+        while (displayedSampleCount(exportButton) < 300)
             refreshOnce();
         for (int index = 0; index < 5; ++index)
             refreshOnce();
-        const int retainedSamples = displayedSampleCount(status);
+        const int retainedSamples = displayedSampleCount(exportButton);
         require(retainedSamples == 300, u"Diagnostics retention exceeded its 300-sample bound"_s);
         heartbeat.stop();
         require(heartbeat.ticks > 0 && heartbeat.maximumGap <= RESPONSE_LIMIT_MS,
@@ -1120,6 +1144,8 @@ namespace
                 && (savedDocument.object().value(u"schema"_s).toString() == u"qbutt-diagnostics-v1")
                 && (savedDocument.object().value(u"samples"_s).toArray().size() == retainedSamples),
             u"Saved diagnostics export has an unexpected schema or retention count"_s);
+        require(dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"diagnostics-compact.png"_s)), u"Cannot render compact diagnostics"_s);
+        requiredChild<QCheckBox>(&dialog, u"diagnosticsDetailsToggle"_s)->click();
         require(dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"diagnostics.png"_s)),
             u"Cannot render diagnostics offscreen"_s);
         addCheck(evidence, {{u"name"_s, u"network-diagnostics"_s}, {u"samples"_s, retainedSamples},
@@ -1531,6 +1557,10 @@ namespace
         const QString phase = spec.value(u"appearance"_s).toString();
         const bool dark = phase == u"product";
         require(dark || (phase == u"retained") || (phase == u"functional"), u"Unknown appearance phase"_s);
+        if (dark)
+            require(RepairPreviewDialog::tr("Scan files") != u"Scan files", u"Russian product translation was not loaded"_s);
+        require(window->windowTitle().startsWith(u"qbutt ") && !window->windowTitle().contains(u"qBittorrent"),
+            u"Window title contains upstream branding"_s);
         window->resize(1704, 1040);
         window->show();
         QCoreApplication::processEvents();
@@ -1571,6 +1601,9 @@ namespace
             require(palette.color(QPalette::Base) == QColor(u"#191919"_s)
                     && palette.color(QPalette::Window) == QColor(u"#202020"_s)
                     && palette.color(QPalette::Button) == QColor(u"#303030"_s), u"Dark surfaces are not neutral charcoal"_s);
+            require(palette.color(QPalette::Link) == QColor(u"#009df7"_s)
+                    && palette.color(QPalette::PlaceholderText).lightness() > 127,
+                u"Product accent or field hint contrast is incorrect"_s);
         }
         else
         {
@@ -1671,6 +1704,27 @@ namespace
         require(options.grab().save(screenshots.filePath(phase + u"-options.png"_s)), u"Cannot render appearance options"_s);
         options.hide();
         require(window->grab().save(screenshots.filePath(phase + u"-layout.png"_s)), u"Cannot render appearance layout"_s);
+        if (phase != u"retained")
+        {
+            options.showConnectionTab();
+            QCoreApplication::processEvents();
+            require(options.grab().save(screenshots.filePath(phase + u"-connections.png"_s)), u"Cannot render connection settings"_s);
+            RepairPreviewDialog repair {window};
+            repair.show();
+            QCoreApplication::processEvents();
+            require(repair.grab().save(screenshots.filePath(phase + u"-repair.png"_s)), u"Cannot render repair start"_s);
+            repair.close();
+            ProfileImportDialog importer {window};
+            importer.show();
+            QCoreApplication::processEvents();
+            require(importer.grab().save(screenshots.filePath(phase + u"-import.png"_s)), u"Cannot render import start"_s);
+            importer.close();
+            PoliciesDialog policies {window};
+            policies.show();
+            QCoreApplication::processEvents();
+            require(policies.grab().save(screenshots.filePath(phase + u"-policies.png"_s)), u"Cannot render empty completion rules"_s);
+            policies.close();
+        }
         addCheck(evidence, {{u"name"_s, u"appearance-%1"_s.arg(phase)}, {u"layout"_s, layout()},
             {u"background"_s, palette.color(QPalette::Base).name()}, {u"text"_s, palette.color(QPalette::Text).name()},
             {u"customThemeChecked"_s, custom->isChecked()}, {u"offscreen"_s, true}});

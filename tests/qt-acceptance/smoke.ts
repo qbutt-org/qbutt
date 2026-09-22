@@ -190,7 +190,7 @@ try {
                     "Session\\InterfaceAddress=127.0.0.1", "Session\\AddTorrentStopped=true",
                     "[Network]", "PortForwardingEnabled=false",
                     "[GUI]", "Notifications\\Enabled=false",
-                    "[Preferences]", "General\\Locale=en", "Advanced\\updateCheck=false",
+                    "[Preferences]", `General\\Locale=${phase === "product" ? "ru" : "en"}`, "Advanced\\updateCheck=false",
                     "Connection\\ResolvePeerCountries=false", "Connection\\ResolvePeerHostNames=false",
                     "General\\ExitConfirm=false", "General\\CloseToTray=false", "General\\MinimizeToTray=false",
                     "General\\SystrayEnabled=false", "WebUI\\Enabled=false",

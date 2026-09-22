@@ -158,8 +158,8 @@ int main(int argc, char **argv)
         observe.setInterval(2);
         QObject::connect(&observe, &QTimer::timeout, &dialog, [&]
         {
-            const bool complete = status->text().startsWith(u"Read-only preview complete."_s);
-            const bool refused = status->text().startsWith(u"Preview refused:"_s)
+            const bool complete = reviewed->isEnabled();
+            const bool refused = status->text().startsWith(u"Scan failed:"_s)
                 || status->text().startsWith(u"Every source directory"_s)
                 || status->text().startsWith(u"Choose an existing"_s);
             if ((mode == u"subset-cancel") && evidence.contains(u"selectionChangedDuringAnalysis"_s)

@@ -478,7 +478,7 @@ void TorrentFilesWatcher::Worker::scanAutoOpenFolder()
         state.pending = true;
         emit autoOpenRequested(path);
     }
-    m_autoOpenFiles.removeIf([&present](const auto &item) { return !present.contains(item.first); });
+    m_autoOpenFiles.removeIf([&present](const auto &item) { return !present.contains(item.key()); });
 }
 
 void TorrentFilesWatcher::Worker::autoOpenFinished(const Path &path, const bool opened)

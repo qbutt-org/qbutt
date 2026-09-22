@@ -15,7 +15,10 @@ add_executable(qbutt-qt-acceptance
     ${qBittorrent_SOURCE_DIR}/src/app/upgrade.h
     ${qBittorrent_SOURCE_DIR}/src/app/upgrade.cpp
     ${qBittorrent_SOURCE_DIR}/src/icons/icons.qrc
+    ${qBittorrent_BINARY_DIR}/src/lang/lang.qrc
 )
+
+add_dependencies(qbutt-qt-acceptance qbt_app)
 
 target_include_directories(qbutt-qt-acceptance PRIVATE
     ${qBittorrent_SOURCE_DIR}/src

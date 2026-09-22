@@ -140,10 +140,12 @@ QString BitTorrent::CompletionPolicy::validateConfiguration(const QJsonObject &c
             else if (action != u"notify")
                 return tr("Unknown rule action: %1").arg(action);
             if ((action == u"delete_data") && !configuration[u"allow_delete_data"_s].toBool())
-                return tr("Deleting payload requires the separate allow_delete_data setting.");
+                return tr("Enable file deletion before choosing this action.");
         }
-        if (actions.isEmpty() || (terminal > 1))
-            return tr("Choose actions with at most one of stop, remove_torrent or delete_data.");
+        if (actions.isEmpty())
+            return tr("Choose an action or enable notifications.");
+        if (terminal > 1)
+            return tr("Choose only one action: stop the torrent, remove it, or delete its files.");
     }
     return {};
 }
