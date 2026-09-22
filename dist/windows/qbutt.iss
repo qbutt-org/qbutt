@@ -18,6 +18,7 @@ MinVersion=10.0
 OutputBaseFilename=qbutt-{#AppVersion}-windows-x64-setup
 SetupIconFile={#ProjectDir}\src\icons\qbittorrent.ico
 UninstallDisplayIcon={app}\qbutt.exe
+UninstallDisplayName=qbutt
 VersionInfoVersion={#AppFileVersion}
 VersionInfoDescription=qbutt Setup
 Compression=lzma2
