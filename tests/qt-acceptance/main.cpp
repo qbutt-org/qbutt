@@ -2279,18 +2279,6 @@ int main(int argc, char **argv)
         if (!registry->isReady())
             return 3;
     }
-    const QString certificate = qEnvironmentVariable("QBUTT_UPDATE_FIXTURE_CA");
-    if (!certificate.isEmpty())
-    {
-        const auto certificates = QSslCertificate::fromPath(certificate);
-        if (certificates.isEmpty())
-            return 4;
-        QSslConfiguration configuration = QSslConfiguration::defaultConfiguration();
-        configuration.setCaCertificates(certificates);
-        QSslConfiguration::setDefaultConfiguration(configuration);
-        QNetworkProxy::setApplicationProxy(QNetworkProxy(QNetworkProxy::HttpProxy, u"127.0.0.1"_s,
-            static_cast<quint16>(qEnvironmentVariableIntValue("QBUTT_UPDATE_FIXTURE_PORT"))));
-    }
     QJsonObject evidence {{u"schema"_s, 1}, {u"suite"_s, u"qt-acceptance"_s}, {u"status"_s, u"running"_s},
         {u"evidencePath"_s, spec.value(u"evidencePath"_s).toString()}, {u"profile"_s, QString::fromLocal8Bit(argv[1])},
         {u"checks"_s, QJsonArray {}}};
@@ -2299,6 +2287,17 @@ int main(int argc, char **argv)
     try
     {
         Application application(argc, argv);
+        const QString certificate = qEnvironmentVariable("QBUTT_UPDATE_FIXTURE_CA");
+        if (!certificate.isEmpty())
+        {
+            const auto certificates = QSslCertificate::fromPath(certificate);
+            require(!certificates.isEmpty(), u"Cannot load update fixture CA"_s);
+            QSslConfiguration configuration = QSslConfiguration::defaultConfiguration();
+            configuration.setCaCertificates(certificates);
+            QSslConfiguration::setDefaultConfiguration(configuration);
+            QNetworkProxy::setApplicationProxy(QNetworkProxy(QNetworkProxy::HttpProxy, u"127.0.0.1"_s,
+                static_cast<quint16>(qEnvironmentVariableIntValue("QBUTT_UPDATE_FIXTURE_PORT"))));
+        }
 #ifdef Q_OS_WIN
         const int font = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(u"Fonts/segoeui.ttf"_s));
         if (font >= 0)

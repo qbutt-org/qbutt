@@ -165,6 +165,10 @@ try:
                     cases += [("installed-success", 5), ("installed-cache-hit", 5), ("installed-cache-corrupt", 5),
                               ("installed-cancel", 6), ("installed-corrupt", 7), ("installed-missing-installer", 7),
                               ("installed-duplicate-check", 5), ("installed-tampered", 7)]
+                selected_cases = os.environ.get("QBUTT_UPDATE_FIXTURE_CASES")
+                if selected_cases:
+                    selected = json.loads(selected_cases)
+                    cases = [case for case in cases if case[0] in selected]
             for scenario, state in cases:
                 installed = scenario.startswith("installed-")
                 if cache and scenario == "installed-cache-corrupt":
