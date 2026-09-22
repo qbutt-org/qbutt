@@ -47,6 +47,7 @@
 #include <QNetworkProxy>
 #include <QPalette>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSaveFile>
@@ -2023,21 +2024,25 @@ namespace
             u"Background update did not expose the ready action"_s);
         const QString screenshot = QDir(spec.value(u"screenshotDirectory"_s).toString()).filePath(u"update-ready.png"_s);
         require(window->grab().save(screenshot), u"Cannot render update action"_s);
+        QJsonObject check {{u"name"_s, u"installed-update"_s}, {u"automaticDownload"_s, true},
+            {u"closedDialogContinuedDownload"_s, true}, {u"mainAction"_s, button->text()},
+            {u"infoHash"_s, descriptor->infoHash().toString()},
+            {u"headerState"_s, QString::fromLatin1(list->header()->saveState().toBase64())},
+            {u"cacheRoot"_s, QStandardPaths::writableLocation(QStandardPaths::CacheLocation)},
+            {u"installerPath"_s, updater->savedPath()}, {u"screenshot"_s, screenshot}};
+        const QPointer<ReleaseUpdater> pending {updater};
         bool requested = false;
-        const auto handoff = QObject::connect(updater, &ReleaseUpdater::installRequested, window, [&] { requested = true; });
+        const auto handoff = QObject::connect(updater, &ReleaseUpdater::installRequested, qApp, [&] { requested = true; });
         button->click();
         waitFor(u"Installer readiness before app exit"_s, [&]
         {
-            return requested || (updater->state() == ReleaseUpdater::State::Error);
+            return requested || !pending || (pending->state() == ReleaseUpdater::State::Error);
         }, 70000);
         QObject::disconnect(handoff);
-        require(requested, updater->message());
-        addCheck(evidence, {{u"name"_s, u"installed-update"_s}, {u"automaticDownload"_s, true},
-            {u"closedDialogContinuedDownload"_s, true}, {u"mainAction"_s, button->text()},
-            {u"installerAcknowledged"_s, true}, {u"infoHash"_s, descriptor->infoHash().toString()},
-            {u"headerState"_s, QString::fromLatin1(list->header()->saveState().toBase64())},
-            {u"cacheRoot"_s, QStandardPaths::writableLocation(QStandardPaths::CacheLocation)},
-            {u"installerPath"_s, updater->savedPath()}, {u"screenshot"_s, screenshot}});
+        if (!requested)
+            require(false, pending ? pending->message() : u"Application closed before installer readiness"_s);
+        check[u"installerAcknowledged"_s] = true;
+        addCheck(evidence, check);
     }
 
     void runAcceptance(Application &application, const QJsonObject &spec, QJsonObject &evidence)
