@@ -20,6 +20,7 @@
 
 #include <libtorrent/torrent_info.hpp>
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -50,7 +51,7 @@ namespace
     {
         if (!flag || !flag->load(std::memory_order_relaxed))
             return false;
-        error = QStringLiteral("Staging stopped. Original data is preserved; the journal can be recovered.");
+        error = QCoreApplication::translate("StagingOperation", "Staging stopped. Original data is preserved; the journal can be recovered.");
         return true;
     }
 
@@ -89,7 +90,7 @@ namespace
             || (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))
             || (info.nNumberOfLinks != 1))
         {
-            error = QStringLiteral("Staging refuses a hardlink, reparse point or non-file.");
+            error = QCoreApplication::translate("StagingOperation", "Staging requires ordinary files without hard links or reparse points.");
             return {};
         }
         return {{QStringLiteral("volume"), QString::number(info.dwVolumeSerialNumber)}
@@ -112,7 +113,7 @@ namespace
                 attributes = {};
                 return true;
             }
-            error = QStringLiteral("Cannot own %1 (Windows error %2). Close other writers and try recovery again.")
+            error = QCoreApplication::translate("StagingOperation", "Cannot lock %1 (Windows error %2). Close programs using this file and try recovery again.")
                 .arg(path).arg(code);
             return false;
         }
@@ -134,7 +135,7 @@ namespace
         const auto setInformation = reinterpret_cast<SetInformation>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtSetInformationFile"));
         if (!parent || !setInformation)
         {
-            error = QStringLiteral("The owned parent directory or handle-relative rename API is unavailable.");
+            error = QCoreApplication::translate("StagingOperation", "Cannot safely rename the file: its locked parent directory or the required Windows API is unavailable.");
             return false;
         }
         IO_STATUS_BLOCK result {};
@@ -142,7 +143,7 @@ namespace
             , static_cast<FILE_INFORMATION_CLASS>(10)); // FileRenameInformation
         if (status < 0)
         {
-            error = QStringLiteral("Recovery stopped before replacing %1 (NT status 0x%2). No unowned file was overwritten.")
+            error = QCoreApplication::translate("StagingOperation", "Recovery could not replace %1 (NT status 0x%2). The destination file was not overwritten.")
                 .arg(path).arg(quint32(status), 8, 16, QLatin1Char('0'));
             return false;
         }
@@ -190,7 +191,7 @@ nonstd::expected<StagingOperation::StorageRequirement, QString> StagingOperation
 {
     const QStorageInfo storage(destination);
     if (!storage.isValid() || !storage.isReady())
-        return nonstd::make_unexpected(QStringLiteral("Cannot inspect storage for the target destination."));
+        return nonstd::make_unexpected(QCoreApplication::translate("StagingOperation", "Cannot inspect storage for the target destination."));
     const qint64 allocationUnit = std::max<qint64>(4096, storage.blockSize());
     qint64 required = 0;
     qint64 journalBytes = allocationUnit;
@@ -206,7 +207,7 @@ nonstd::expected<StagingOperation::StorageRequirement, QString> StagingOperation
         return true;
     };
     if (!accountJournalString(destination, 4096))
-        return nonstd::make_unexpected(QStringLiteral("The target exceeds supported storage accounting."));
+        return nonstd::make_unexpected(QCoreApplication::translate("StagingOperation", "The target is too large to calculate its required storage space."));
     for (const lt::file_index_t index : files.file_range())
     {
         if (files.pad_file_at(index))
@@ -217,21 +218,21 @@ nonstd::expected<StagingOperation::StorageRequirement, QString> StagingOperation
         if ((size < 0) || (required > (std::numeric_limits<qint64>::max() - overhead))
             || (size > (std::numeric_limits<qint64>::max() - required - overhead)))
         {
-            return nonstd::make_unexpected(QStringLiteral("The target size is invalid or exceeds supported storage accounting."));
+            return nonstd::make_unexpected(QCoreApplication::translate("StagingOperation", "The target file size is invalid or too large to calculate its required storage space."));
         }
         const qint64 allocation = ((size + allocationUnit - 1) / allocationUnit) * allocationUnit;
         required += allocation + ((relative.count(u'/') + 2) * allocationUnit);
         if (!accountJournalString(relative, 512) || !accountJournalString(sources.value(int(index))))
-            return nonstd::make_unexpected(QStringLiteral("The target exceeds supported storage accounting."));
+            return nonstd::make_unexpected(QCoreApplication::translate("StagingOperation", "The target is too large to calculate its required storage space."));
     }
     if (journalBytes > (std::numeric_limits<qint64>::max() - allocationUnit + 1))
-        return nonstd::make_unexpected(QStringLiteral("The target exceeds supported storage accounting."));
+        return nonstd::make_unexpected(QCoreApplication::translate("StagingOperation", "The target is too large to calculate its required storage space."));
     const qint64 roundedJournal = ((journalBytes + allocationUnit - 1) / allocationUnit) * allocationUnit;
     if (roundedJournal > (std::numeric_limits<qint64>::max() / 2))
-        return nonstd::make_unexpected(QStringLiteral("The target exceeds supported storage accounting."));
+        return nonstd::make_unexpected(QCoreApplication::translate("StagingOperation", "The target is too large to calculate its required storage space."));
     const qint64 journalAllocation = 2 * roundedJournal;
     if (required > (std::numeric_limits<qint64>::max() - journalAllocation))
-        return nonstd::make_unexpected(QStringLiteral("The target exceeds supported storage accounting."));
+        return nonstd::make_unexpected(QCoreApplication::translate("StagingOperation", "The target is too large to calculate its required storage space."));
     return StorageRequirement {required + journalAllocation, qint64(storage.bytesAvailable())};
 }
 
@@ -256,7 +257,7 @@ std::unique_ptr<StagingOperation> StagingOperation::plan(const QString &journalP
     if (selected.isEmpty() || std::any_of(selected.cbegin(), selected.cend(), [&files](const int index)
         { return (index < 0) || (index >= files.num_files()) || files.pad_file_at(lt::file_index_t(index)); }))
     {
-        error = QStringLiteral("Select at least one valid target file for staging.");
+        error = QCoreApplication::translate("StagingOperation", "Select at least one valid target file for staging.");
         return {};
     }
     auto destinationGuard = RepairFileGuard::open(files, destination, false, error, cancelFlag);
@@ -264,7 +265,7 @@ std::unique_ptr<StagingOperation> StagingOperation::plan(const QString &journalP
         return {};
     if (QFileInfo::exists(journalPath))
     {
-        error = QStringLiteral("Recover the existing staged operation before starting another one.");
+        error = QCoreApplication::translate("StagingOperation", "Recover the existing staged operation before starting another one.");
         return {};
     }
     auto operation = std::unique_ptr<StagingOperation>(new StagingOperation);
@@ -340,7 +341,7 @@ std::unique_ptr<StagingOperation> StagingOperation::load(const QString &journalP
     QFile input(journalPath);
     if (!input.open(QIODevice::ReadOnly) || (input.size() > JournalLimit))
     {
-        error = QStringLiteral("Cannot read the bounded staging journal.");
+        error = QCoreApplication::translate("StagingOperation", "Cannot read the staging journal within the supported size limit.");
         return {};
     }
     const QJsonObject journal = QJsonDocument::fromJson(input.readAll()).object();
@@ -362,7 +363,7 @@ std::unique_ptr<StagingOperation> StagingOperation::load(const QString &journalP
         || QUuid(id).isNull() || (QUuid(id).toString(QUuid::WithoutBraces) != id)
         || !states.contains(state))
     {
-        error = QStringLiteral("The staging journal identity, version or state is invalid.");
+        error = QCoreApplication::translate("StagingOperation", "The staging journal identity, version or state is invalid.");
         return {};
     }
     const QJsonArray entries = journal.value(QStringLiteral("files")).toArray();
@@ -393,7 +394,7 @@ std::unique_ptr<StagingOperation> StagingOperation::load(const QString &journalP
                 && (!selected.toBool() || !validIdentity(verified) || verified.toObject().isEmpty()
                     || (verified.toObject().value(QStringLiteral("size")) != file.value(QStringLiteral("size"))))))
         {
-            error = QStringLiteral("The journal does not match the target torrent file mapping.");
+            error = QCoreApplication::translate("StagingOperation", "The journal does not match the target torrent file mapping.");
             return {};
         }
         indexes.insert(index);
@@ -401,7 +402,7 @@ std::unique_ptr<StagingOperation> StagingOperation::load(const QString &journalP
     }
     if ((indexes.size() != expectedCount) || (selectedCount == 0))
     {
-        error = QStringLiteral("The journal omits target files or has no selected files.");
+        error = QCoreApplication::translate("StagingOperation", "The journal omits target files or has no selected files.");
         return {};
     }
     auto operation = std::unique_ptr<StagingOperation>(new StagingOperation);
@@ -416,13 +417,13 @@ std::unique_ptr<StagingOperation> StagingOperation::load(const QString &journalP
 bool StagingOperation::save(QString &error)
 {
 #ifndef Q_OS_WIN
-    error = QStringLiteral("Durable staged repair currently requires Windows.");
+    error = QCoreApplication::translate("StagingOperation", "Staged repair is currently supported only on Windows.");
     return false;
 #else
     const QByteArray data = QJsonDocument(m_journal).toJson(QJsonDocument::Compact);
     if ((data.size() > JournalLimit) || !QDir().mkpath(QFileInfo(m_journalPath).absolutePath()))
     {
-        error = QStringLiteral("Cannot allocate the bounded staging journal.");
+        error = QCoreApplication::translate("StagingOperation", "Cannot create the staging journal within the supported size limit.");
         return false;
     }
     const QString temporary = m_journalPath + u".pending-" + QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -431,7 +432,7 @@ bool StagingOperation::save(QString &error)
         || (output.write(data) != data.size()) || !output.flush()
         || !FlushFileBuffers(reinterpret_cast<HANDLE>(_get_osfhandle(output.handle()))))
     {
-        error = QStringLiteral("Cannot durably write the staging journal.");
+        error = QCoreApplication::translate("StagingOperation", "Cannot save the staging journal to disk.");
         return false;
     }
     output.close();
@@ -440,7 +441,7 @@ bool StagingOperation::save(QString &error)
     if (!MoveFileExW(reinterpret_cast<LPCWSTR>(from.utf16()), reinterpret_cast<LPCWSTR>(to.utf16())
         , MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
     {
-        error = QStringLiteral("Cannot publish the staging journal (Windows error %1).").arg(GetLastError());
+        error = QCoreApplication::translate("StagingOperation", "Cannot publish the staging journal (Windows error %1).").arg(GetLastError());
         return false;
     }
 #ifdef QBUTT_STAGING_FAULTS
@@ -455,14 +456,14 @@ bool StagingOperation::prepare(QString &error, const std::atomic_bool *cancelFla
     error.clear();
     if (state() != u"planned")
     {
-        error = QStringLiteral("Only a new read-only plan may prepare staging. Recover an interrupted operation first.");
+        error = QCoreApplication::translate("StagingOperation", "Recover the interrupted operation before preparing new staging files.");
         return false;
     }
     const QStorageInfo storage(destination());
     const qint64 required = m_journal.value(QStringLiteral("required_bytes")).toString().toLongLong();
     if (!storage.isValid() || !storage.isReady() || (storage.bytesAvailable() < required))
     {
-        error = QStringLiteral("Safe staging needs %1 additional bytes on the target volume. No in-place fallback is used.").arg(required);
+        error = QCoreApplication::translate("StagingOperation", "Safe staging requires %1 bytes of free space on the target drive. Original files have not been changed.").arg(required);
         return false;
     }
     auto destinationGuard = RepairFileGuard::open(m_files, destination(), false, error, cancelFlag);
@@ -472,7 +473,7 @@ bool StagingOperation::prepare(QString &error, const std::atomic_bool *cancelFla
         m_journal.value(QStringLiteral("destination_identity")).toString().toLatin1());
     if (plannedIdentity.isEmpty() || (destinationGuard->identity() != plannedIdentity))
     {
-        error = QStringLiteral("The target volume or file layout changed after planning. No staging data was created.");
+        error = QCoreApplication::translate("StagingOperation", "The target volume or file layout changed after planning. No staging data was created.");
         return false;
     }
     m_journal.insert(QStringLiteral("state"), QStringLiteral("preparing"));
@@ -481,7 +482,7 @@ bool StagingOperation::prepare(QString &error, const std::atomic_bool *cancelFla
     const QString root = transactionRoot(m_journal);
     if (!QDir().mkdir(root) || !QDir(root).mkdir(QStringLiteral("payload")) || !QDir(root).mkdir(QStringLiteral("backup")))
     {
-        error = QStringLiteral("Cannot create a new, independent staging directory.");
+        error = QCoreApplication::translate("StagingOperation", "Cannot create a new, independent staging directory.");
         return false;
     }
     const QJsonArray entries = m_journal.value(QStringLiteral("files")).toArray();
@@ -491,7 +492,7 @@ bool StagingOperation::prepare(QString &error, const std::atomic_bool *cancelFla
         const QString path = QDir(payloadPath()).filePath(file.value(QStringLiteral("path")).toString());
         if (!QDir().mkpath(QFileInfo(path).absolutePath()))
         {
-            error = QStringLiteral("Cannot prepare target staging directories.");
+            error = QCoreApplication::translate("StagingOperation", "Cannot prepare target staging directories.");
             return false;
         }
     }
@@ -510,7 +511,7 @@ bool StagingOperation::prepare(QString &error, const std::atomic_bool *cancelFla
         QFile output(path);
         if (!output.open(QIODevice::WriteOnly | QIODevice::NewOnly))
         {
-            error = QStringLiteral("Cannot exclusively create staging file %1.").arg(path);
+            error = QCoreApplication::translate("StagingOperation", "Cannot exclusively create staging file %1.").arg(path);
             return false;
         }
         if (!source.isEmpty())
@@ -518,7 +519,7 @@ bool StagingOperation::prepare(QString &error, const std::atomic_bool *cancelFla
             QFile input(source);
             if (!input.open(QIODevice::ReadOnly))
             {
-                error = QStringLiteral("A selected source is no longer readable: %1.").arg(source);
+                error = QCoreApplication::translate("StagingOperation", "A selected source is no longer readable: %1.").arg(source);
                 return false;
             }
             for (qint64 remaining = std::min(input.size(), size); remaining > 0;)
@@ -528,7 +529,7 @@ bool StagingOperation::prepare(QString &error, const std::atomic_bool *cancelFla
                 const qint64 count = std::min<qint64>(remaining, buffer.size());
                 if ((input.read(buffer.data(), count) != count) || (output.write(buffer.data(), count) != count))
                 {
-                    error = QStringLiteral("Copying source data to independent staging failed.");
+                    error = QCoreApplication::translate("StagingOperation", "Copying source data to independent staging failed.");
                     return false;
                 }
                 remaining -= count;
@@ -536,13 +537,13 @@ bool StagingOperation::prepare(QString &error, const std::atomic_bool *cancelFla
         }
         if (!output.resize(size) || !output.flush())
         {
-            error = QStringLiteral("Cannot allocate the exact target file size in staging.");
+            error = QCoreApplication::translate("StagingOperation", "Cannot allocate the exact target file size in staging.");
             return false;
         }
 #ifdef Q_OS_WIN
         if (!FlushFileBuffers(reinterpret_cast<HANDLE>(_get_osfhandle(output.handle()))))
         {
-            error = QStringLiteral("Cannot flush staging data to disk.");
+            error = QCoreApplication::translate("StagingOperation", "Cannot flush staging data to disk.");
             return false;
         }
 #endif
@@ -557,7 +558,7 @@ bool StagingOperation::verify(const lt::torrent_info &target, QString &error, co
     error.clear();
     if ((state() != u"downloading") && (state() != u"ready_to_commit"))
     {
-        error = QStringLiteral("This staged payload is not ready for verification.");
+        error = QCoreApplication::translate("StagingOperation", "This staged payload is not ready for verification.");
         return false;
     }
     auto guard = RepairFileGuard::open(m_files, payloadPath(), false, error, cancelFlag);
@@ -584,7 +585,7 @@ bool StagingOperation::verify(const lt::torrent_info &target, QString &error, co
             continue;
         if ((file.verifiedBytes != file.expectedSize) || (file.actualSize != file.expectedSize))
         {
-            error = QStringLiteral("Staging must match every target hash and exact file size before commit: %1.").arg(file.path);
+            error = QCoreApplication::translate("StagingOperation", "Staging must match every target hash and exact file size before commit: %1.").arg(file.path);
             return false;
         }
     }
@@ -621,7 +622,7 @@ bool StagingOperation::finish(QString &error)
 {
     if ((state() != u"committed") && (state() != u"rolled_back"))
     {
-        error = QStringLiteral("Only a completed commit or rollback may release its recovery reservation.");
+        error = QCoreApplication::translate("StagingOperation", "Finish applying or rolling back the staged files before completing recovery.");
         return false;
     }
     // Retire the reservation with a durable rename on the journal volume.
@@ -632,11 +633,11 @@ bool StagingOperation::finish(QString &error)
     const QString active = nativePath(m_journalPath);
     if (!MoveFileExW(reinterpret_cast<LPCWSTR>(active.utf16()), reinterpret_cast<LPCWSTR>(archive.utf16()), MOVEFILE_WRITE_THROUGH))
     {
-        error = QStringLiteral("Cannot archive the completed recovery journal.");
+        error = QCoreApplication::translate("StagingOperation", "Cannot archive the completed recovery journal.");
         return false;
     }
 #else
-    error = QStringLiteral("Durable journal retirement currently requires Windows.");
+    error = QCoreApplication::translate("StagingOperation", "Completing staged recovery is currently supported only on Windows.");
     return false;
 #endif
 #ifdef QBUTT_STAGING_FAULTS
@@ -649,19 +650,19 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
 {
     error.clear();
 #ifndef Q_OS_WIN
-    error = QStringLiteral("Recoverable staged commit currently requires Windows.");
+    error = QCoreApplication::translate("StagingOperation", "Applying staged files is currently supported only on Windows.");
     return false;
 #else
     if ((!rollback && (state() != u"ready_to_commit") && (state() != u"committing") && (state() != u"committed"))
         || (rollback && (state() == u"planned")))
     {
-        error = QStringLiteral("The durable operation state does not permit this transition.");
+        error = QCoreApplication::translate("StagingOperation", "The staged operation is not ready for this action.");
         return false;
     }
     const int version = m_journal.value(QStringLiteral("version")).toInt();
     if (!rollback && (version < 2) && (state() != u"committed"))
     {
-        error = QStringLiteral("This older recovery journal can only be rolled back safely.");
+        error = QCoreApplication::translate("StagingOperation", "This older recovery journal can only be rolled back safely.");
         return false;
     }
     const QString backup = QDir(transactionRoot(m_journal)).filePath(QStringLiteral("backup"));
@@ -677,7 +678,7 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
             m_journal.value(QStringLiteral("destination_directories")).toString().toLatin1());
         if (expectedDirectories.isEmpty() || (targetDirectories->directoryIdentity() != expectedDirectories))
         {
-            error = QStringLiteral("The target volume or directory layout changed. Recovery preserved every file.");
+            error = QCoreApplication::translate("StagingOperation", "The target volume or directory layout changed. Recovery preserved every file.");
             return false;
         }
     }
@@ -689,7 +690,7 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
         {
             if (!QDir().mkpath(QFileInfo(QDir(root).filePath(relative)).absolutePath()))
             {
-                error = QStringLiteral("Cannot prepare recoverable rename directories.");
+                error = QCoreApplication::translate("StagingOperation", "Cannot prepare directories for recovery.");
                 return false;
             }
         }
@@ -773,14 +774,14 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
                 continue; // Interrupted preparation/download never installs data.
             else
             {
-                error = QStringLiteral("File identity changed at %1. Recovery preserved it and needs attention.").arg(QDir(roots.at(slot)).filePath(relative));
+                error = QCoreApplication::translate("StagingOperation", "File identity changed at %1. Recovery preserved it and needs attention.").arg(QDir(roots.at(slot)).filePath(relative));
                 return false;
             }
         }
         if ((!original.isEmpty() && (originals != 1)) || (original.isEmpty() && (originals != 0))
             || (!rollback && (replacements != 1)) || (replacements > 1))
         {
-            error = QStringLiteral("The original or verified file is missing or duplicated. Recovery stopped without deleting data.");
+            error = QCoreApplication::translate("StagingOperation", "The original or verified file is missing or duplicated. Recovery stopped without deleting data.");
             return false;
         }
     }
@@ -798,7 +799,7 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
             file.descriptor = _open_osfhandle(reinterpret_cast<intptr_t>(file.value), _O_RDONLY | _O_BINARY);
             if (file.descriptor < 0)
             {
-                error = QStringLiteral("Cannot bind verification to the owned file handle.");
+                error = QCoreApplication::translate("StagingOperation", "Cannot open the locked file for verification.");
                 return false;
             }
             descriptors.insert(index, file.descriptor);
@@ -818,7 +819,7 @@ bool StagingOperation::transact(const bool rollback, QString &error, const std::
                 continue;
             if ((file.verifiedBytes != file.expectedSize) || (file.actualSize != file.expectedSize))
             {
-                error = QStringLiteral("Target hashes or exact sizes changed before commit. Recovery retained every file.");
+                error = QCoreApplication::translate("StagingOperation", "Target hashes or exact sizes changed before commit. Recovery retained every file.");
                 return false;
             }
         }

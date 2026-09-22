@@ -17,6 +17,7 @@
 
 #include <libtorrent/file_storage.hpp>
 
+#include <QCoreApplication>
 #include <QDataStream>
 #include <QDir>
 #include <QFileInfo>
@@ -29,8 +30,8 @@ namespace
     {
         if (!cancelled || !cancelled->load(std::memory_order_relaxed))
             return false;
-        error = modifying ? QStringLiteral("Repair cancelled. Earlier in-place changes may already have been applied.")
-            : QStringLiteral("Repair cancelled.");
+        error = modifying ? QCoreApplication::translate("RepairFileGuard", "Repair cancelled. Earlier in-place changes may already have been applied.")
+            : QCoreApplication::translate("RepairFileGuard", "Repair cancelled.");
         return true;
     }
 
@@ -109,7 +110,7 @@ namespace
 
     QString fileError(const QString &path, const DWORD code)
     {
-        return QStringLiteral("Cannot exclusively access %1 (Windows error %2). Close programs using this data.")
+        return QCoreApplication::translate("RepairFileGuard", "Cannot exclusively access %1 (Windows error %2). Close programs using this data.")
             .arg(path).arg(code);
     }
 
@@ -122,13 +123,13 @@ namespace
             GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlNtStatusToDosError"));
         if (!createFile || !statusToError)
         {
-            error = QStringLiteral("The handle-relative creation API is unavailable.");
+            error = QCoreApplication::translate("RepairFileGuard", "Windows cannot safely create repair files or directories: the required API is unavailable.");
             return INVALID_HANDLE_VALUE;
         }
         const qsizetype bytes = component.size() * qsizetype(sizeof(wchar_t));
         if (bytes > std::numeric_limits<USHORT>::max())
         {
-            error = QStringLiteral("The target path component is too long: %1").arg(path);
+            error = QCoreApplication::translate("RepairFileGuard", "A target file or directory name is too long: %1").arg(path);
             return INVALID_HANDLE_VALUE;
         }
         UNICODE_STRING name {};
@@ -143,7 +144,7 @@ namespace
             , FILE_ATTRIBUTE_NORMAL, shareAccess, FILE_CREATE, options, nullptr, 0);
         if (!NT_SUCCESS(status))
         {
-            error = QStringLiteral("Cannot atomically create the missing repair target %1 "
+            error = QCoreApplication::translate("RepairFileGuard", "Cannot atomically create the missing repair target %1 "
                 "(Windows error %2, NT status 0x%3).")
                 .arg(path).arg(statusToError(status)).arg(quint32(status), 8, 16, QLatin1Char('0'));
             return INVALID_HANDLE_VALUE;
@@ -152,7 +153,7 @@ namespace
         {
             if (object != INVALID_HANDLE_VALUE)
                 CloseHandle(object);
-            error = QStringLiteral("The handle-relative create did not exclusively create repair target %1.").arg(path);
+            error = QCoreApplication::translate("RepairFileGuard", "Cannot confirm exclusive access to the newly created repair target: %1").arg(path);
             return INVALID_HANDLE_VALUE;
         }
         return object;
@@ -247,7 +248,7 @@ QList<std::shared_ptr<BitTorrent::RepairFileGuard>> BitTorrent::RepairFileGuard:
         if ((it.key() < 0) || (it.key() >= targetFiles.num_files()) || (path.size() < 4)
             || (path.mid(1, 2) != u":/") || (QDir::cleanPath(path) != path))
         {
-            error = QStringLiteral("A source mapping is not a normalized local file path.");
+            error = QCoreApplication::translate("RepairFileGuard", "A source file path is invalid. Choose an absolute path on a local drive.");
             return {};
         }
         if (!sourcePaths.contains(path.toCaseFolded()))
@@ -266,7 +267,7 @@ QList<std::shared_ptr<BitTorrent::RepairFileGuard>> BitTorrent::RepairFileGuard:
             return {};
         if (guard->existingFiles().size() != it.value().num_files())
         {
-            error = QStringLiteral("A mapped source changed before it could be owned. Analyze the data again.");
+            error = QCoreApplication::translate("RepairFileGuard", "A source file changed before it could be locked. Analyze the data again.");
             return {};
         }
         guards.append(std::move(guard));
@@ -285,7 +286,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
     Q_UNUSED(cancelled)
     Q_UNUSED(renameChildren)
     Q_UNUSED(writableFiles)
-    error = QStringLiteral("Managed repair currently requires Windows file ownership checks.");
+    error = QCoreApplication::translate("RepairFileGuard", "Managed repair is currently supported only on Windows.");
     return {};
 #else
     error.clear();
@@ -297,14 +298,14 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
     if ((root.size() < 3) || !root.at(0).isLetter() || (root.mid(1, 2) != u":/")
         || (QDir::cleanPath(root) != root))
     {
-        error = QStringLiteral("Repair requires an absolute, normalized local drive path.");
+        error = QCoreApplication::translate("RepairFileGuard", "Repair requires a valid absolute path on a local drive.");
         return {};
     }
     guard->m_root = root;
 
     if (GetDriveTypeW(reinterpret_cast<LPCWSTR>(root.left(3).utf16())) != DRIVE_FIXED)
     {
-        error = QStringLiteral("Repair currently requires a local fixed drive.");
+        error = QCoreApplication::translate("RepairFileGuard", "Repair currently requires a local fixed drive.");
         return {};
     }
 
@@ -322,14 +323,14 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
         if (QDir::isAbsolutePath(relative) || (files.file_flags(index) & lt::file_storage::flag_symlink)
             || targets.contains(key))
         {
-            error = QStringLiteral("Unsafe, linked or colliding target mapping: %1").arg(relative);
+            error = QCoreApplication::translate("RepairFileGuard", "Unsafe, linked or colliding target mapping: %1").arg(relative);
             return {};
         }
         for (const QString &component : relative.split(u'/'))
         {
             if (!isSafeComponent(component))
             {
-                error = QStringLiteral("Unsafe target path component: %1").arg(relative);
+                error = QCoreApplication::translate("RepairFileGuard", "Unsafe target path component: %1").arg(relative);
                 return {};
             }
         }
@@ -346,7 +347,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
         {
             if (targets.contains(parent.toCaseFolded()))
             {
-                error = QStringLiteral("A mapped file is also used as a directory: %1").arg(parent);
+                error = QCoreApplication::translate("RepairFileGuard", "A mapped file is also used as a directory: %1").arg(parent);
                 return {};
             }
             parent = parent.section(u'/', 0, -2);
@@ -369,7 +370,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             {
                 if (!isSafeComponent(components.at(i)))
                 {
-                    error = QStringLiteral("Unsafe directory component: %1").arg(path);
+                    error = QCoreApplication::translate("RepairFileGuard", "Unsafe directory component: %1").arg(path);
                     return DirectoryState::Invalid;
                 }
                 if (!current.endsWith(u'/'))
@@ -388,7 +389,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             }
             if ((guard->m_directoryHandles.size() + guard->m_files.size()) >= MaximumHandles)
             {
-                error = QStringLiteral("Repair exceeds the limit of %1 open file and directory handles.").arg(MaximumHandles);
+                error = QCoreApplication::translate("RepairFileGuard", "Repair exceeds the limit of %1 open file and directory handles.").arg(MaximumHandles);
                 return DirectoryState::Invalid;
             }
 
@@ -416,7 +417,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             BY_HANDLE_FILE_INFORMATION info {};
             if (!GetFileInformationByHandle(handle, &info))
             {
-                error = QStringLiteral("Repair cannot identify directory: %1").arg(current);
+                error = QCoreApplication::translate("RepairFileGuard", "Repair cannot identify directory: %1").arg(current);
                 return DirectoryState::Invalid;
             }
             const QString mountTarget = (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
@@ -424,7 +425,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             if (!(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
                 || ((info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) && mountTarget.isEmpty()))
             {
-                error = QStringLiteral("Repair refuses a non-volume reparse point or non-directory: %1").arg(current);
+                error = QCoreApplication::translate("RepairFileGuard", "Repair requires an ordinary directory or a mounted volume: %1").arg(current);
                 return DirectoryState::Invalid;
             }
             QByteArray directoryId;
@@ -432,7 +433,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
                 << quint32(info.nFileIndexHigh) << quint32(info.nFileIndexLow);
             if (directoryIds.contains(directoryId))
             {
-                error = QStringLiteral("Multiple target directory paths refer to the same directory: %1").arg(current);
+                error = QCoreApplication::translate("RepairFileGuard", "Multiple target directory paths refer to the same directory: %1").arg(current);
                 return DirectoryState::Invalid;
             }
             directoryIds.insert(directoryId);
@@ -451,7 +452,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
         return {};
     if (rootState == DirectoryState::Missing)
     {
-        error = QStringLiteral("The repair data directory must already exist.");
+        error = QCoreApplication::translate("RepairFileGuard", "The repair data directory must already exist.");
         return {};
     }
 
@@ -480,7 +481,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
         }
         if ((guard->m_directoryHandles.size() + guard->m_files.size()) >= MaximumHandles)
         {
-            error = QStringLiteral("Repair exceeds the limit of %1 open file and directory handles.").arg(MaximumHandles);
+            error = QCoreApplication::translate("RepairFileGuard", "Repair exceeds the limit of %1 open file and directory handles.").arg(MaximumHandles);
             return {};
         }
 
@@ -510,7 +511,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             || (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))
             || (info.nNumberOfLinks != 1))
         {
-            error = QStringLiteral("Repair refuses a hardlink, reparse point or non-file: %1").arg(path);
+            error = QCoreApplication::translate("RepairFileGuard", "Repair requires an ordinary file without hard links or reparse points: %1").arg(path);
             return {};
         }
         const qint64 size = (qint64(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
@@ -519,7 +520,7 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
             << quint32(info.nFileIndexHigh) << quint32(info.nFileIndexLow);
         if (fileIds.contains(fileId))
         {
-            error = QStringLiteral("Multiple target paths refer to the same file: %1").arg(path);
+            error = QCoreApplication::translate("RepairFileGuard", "Multiple target paths refer to the same file: %1").arg(path);
             return {};
         }
         fileIds.insert(fileId);
@@ -581,7 +582,7 @@ bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::
     error.clear();
     if (!m_writable)
     {
-        error = QStringLiteral("Read-only analysis cannot create files.");
+        error = QCoreApplication::translate("RepairFileGuard", "Read-only analysis cannot create files.");
         return false;
     }
 #ifdef Q_OS_WIN
@@ -598,7 +599,7 @@ bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::
             const HANDLE parent = static_cast<HANDLE>(m_directoryHandles.value(current.toCaseFolded()));
             if (!parent)
             {
-                error = QStringLiteral("Repair lost ownership of target directory %1.").arg(current);
+                error = QCoreApplication::translate("RepairFileGuard", "Repair lost exclusive access to target directory %1.").arg(current);
                 return false;
             }
             current = QDir(current).filePath(component);
@@ -607,7 +608,7 @@ bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::
                 continue;
             if ((m_directoryHandles.size() + m_files.size()) >= MaximumHandles)
             {
-                error = QStringLiteral("Repair exceeds the limit of %1 open file and directory handles. Earlier empty directories may already have been created.")
+                error = QCoreApplication::translate("RepairFileGuard", "Repair exceeds the limit of %1 open file and directory handles. Earlier empty directories may already have been created.")
                     .arg(MaximumHandles);
                 return false;
             }
@@ -616,7 +617,7 @@ bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::
                 , FILE_DIRECTORY_FILE, error);
             if (directory == INVALID_HANDLE_VALUE)
             {
-                error += QStringLiteral(" Earlier target directories may already have been created.");
+                error = QCoreApplication::translate("RepairFileGuard", "%1 Earlier target directories may already have been created.").arg(error);
                 return false;
             }
             auto closeDirectory = qScopeGuard([directory] { CloseHandle(directory); });
@@ -625,7 +626,7 @@ bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::
                 || !(directoryInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
                 || (directoryInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT))
             {
-                error = QStringLiteral("The newly created target directory is not an exclusive regular directory: %1").arg(current);
+                error = QCoreApplication::translate("RepairFileGuard", "Cannot verify the newly created target directory or its exclusive access: %1").arg(current);
                 return false;
             }
             m_directoryHandles.insert(key, directory);
@@ -633,21 +634,21 @@ bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::
         }
         if ((m_directoryHandles.size() + m_files.size()) >= MaximumHandles)
         {
-            error = QStringLiteral("Repair exceeds the limit of %1 open file and directory handles. "
+            error = QCoreApplication::translate("RepairFileGuard", "Repair exceeds the limit of %1 open file and directory handles. "
                 "Earlier empty directories or targets may already have been created.").arg(MaximumHandles);
             return false;
         }
         const HANDLE parent = static_cast<HANDLE>(m_directoryHandles.value(current.toCaseFolded()));
         if (!parent)
         {
-            error = QStringLiteral("Repair lost ownership of target directory %1.").arg(current);
+            error = QCoreApplication::translate("RepairFileGuard", "Repair lost exclusive access to target directory %1.").arg(current);
             return false;
         }
         const HANDLE handle = createOwnedObject(parent, QFileInfo(file.path).fileName(), file.path
             , GENERIC_READ | GENERIC_WRITE, 0, FILE_NON_DIRECTORY_FILE, error);
         if (handle == INVALID_HANDLE_VALUE)
         {
-            error += QStringLiteral(" Earlier empty targets may already have been created.");
+            error = QCoreApplication::translate("RepairFileGuard", "%1 Earlier empty targets may already have been created.").arg(error);
             return false;
         }
         auto closeHandle = qScopeGuard([handle] { CloseHandle(handle); });
@@ -656,7 +657,7 @@ bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::
             || (info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY))
             || (info.nNumberOfLinks != 1) || (info.nFileSizeHigh != 0) || (info.nFileSizeLow != 0))
         {
-            error = QStringLiteral("The newly created empty target is not an exclusive regular file: %1").arg(file.path);
+            error = QCoreApplication::translate("RepairFileGuard", "Cannot verify the newly created empty file or its exclusive access: %1").arg(file.path);
             return false;
         }
         m_files.push_back({handle, file.nativeIndex, file.path, 0, 0, true});
@@ -666,7 +667,7 @@ bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::
     return true;
 #else
     Q_UNUSED(cancelled)
-    error = QStringLiteral("Managed repair currently requires Windows file ownership checks.");
+    error = QCoreApplication::translate("RepairFileGuard", "Managed repair is currently supported only on Windows.");
     return false;
 #endif
 }
@@ -676,7 +677,7 @@ bool BitTorrent::RepairFileGuard::truncateOversized(QString &error, const std::a
     error.clear();
     if (!m_writable)
     {
-        error = QStringLiteral("Read-only analysis cannot modify files.");
+        error = QCoreApplication::translate("RepairFileGuard", "Read-only analysis cannot modify files.");
         return false;
     }
     if (checkCancellation(error, cancelled, true))
@@ -697,7 +698,7 @@ bool BitTorrent::RepairFileGuard::truncateOversized(QString &error, const std::a
             || !FlushFileBuffers(file.handle))
         {
             const DWORD code = GetLastError();
-            error = QStringLiteral("In-place repair stopped at %1 (Windows error %2). "
+            error = QCoreApplication::translate("RepairFileGuard", "In-place repair stopped at %1 (Windows error %2). "
                 "Earlier in-place changes may already have been applied.")
                 .arg(file.path).arg(code);
             return false;
@@ -705,13 +706,13 @@ bool BitTorrent::RepairFileGuard::truncateOversized(QString &error, const std::a
         LARGE_INTEGER size {};
         if (!GetFileSizeEx(file.handle, &size) || (size.QuadPart != file.expectedSize))
         {
-            error = QStringLiteral("Exact size verification failed after truncating %1.").arg(file.path);
+            error = QCoreApplication::translate("RepairFileGuard", "Exact size verification failed after truncating %1.").arg(file.path);
             return false;
         }
     }
     return true;
 #else
-    error = QStringLiteral("Managed repair currently requires Windows file ownership checks.");
+    error = QCoreApplication::translate("RepairFileGuard", "Managed repair is currently supported only on Windows.");
     return false;
 #endif
 }

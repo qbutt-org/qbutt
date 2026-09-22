@@ -10,6 +10,7 @@
 #include <libtorrent/file_storage.hpp>
 #include <libtorrent/torrent_info.hpp>
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
@@ -38,7 +39,7 @@ QMap<int, QString> BitTorrent::findRepairSources(const lt::file_storage &files, 
     int inspected = 0;
     if (roots.size() > 32)
     {
-        error = QStringLiteral("Select at most 32 source directories per analysis.");
+        error = QCoreApplication::translate("RepairPlan", "Select at most 32 source directories per analysis.");
         return {};
     }
     for (const QString &root : roots)
@@ -46,7 +47,7 @@ QMap<int, QString> BitTorrent::findRepairSources(const lt::file_storage &files, 
         const QFileInfo directory(root);
         if (!directory.isDir() || directory.isSymbolicLink() || directory.isJunction())
         {
-            error = QStringLiteral("Select ordinary source directories without links or junctions.");
+            error = QCoreApplication::translate("RepairPlan", "Select ordinary source directories without links or junctions.");
             return {};
         }
         auto rootGuard = RepairFileGuard::open(lt::file_storage {}, root, false, error, cancelled);
@@ -60,14 +61,14 @@ QMap<int, QString> BitTorrent::findRepairSources(const lt::file_storage &files, 
             {
                 if (isCancelled(cancelled))
                 {
-                    error = QStringLiteral("Source indexing cancelled.");
+                    error = QCoreApplication::translate("RepairPlan", "Source indexing cancelled.");
                     return {};
                 }
                 const QString path = QDir::cleanPath(QDir::fromNativeSeparators(iterator.next()));
                 const QFileInfo info = iterator.fileInfo();
                 if (++inspected > 100000)
                 {
-                    error = QStringLiteral("The selected source roots exceed 100000 entries. Select narrower directories.");
+                    error = QCoreApplication::translate("RepairPlan", "The selected source directories contain more than 100000 entries. Choose smaller directories.");
                     return {};
                 }
                 const QString key = path.toCaseFolded();
@@ -91,13 +92,13 @@ QMap<int, QString> BitTorrent::findRepairSources(const lt::file_storage &files, 
         if ((it.key() < 0) || (it.key() >= files.num_files()) || files.pad_file_at(lt::file_index_t(it.key()))
             || !QDir::isAbsolutePath(path) || (path != QDir::fromNativeSeparators(it.value())))
         {
-            error = QStringLiteral("An explicit source mapping is invalid.");
+            error = QCoreApplication::translate("RepairPlan", "An explicit source mapping is invalid.");
             return {};
         }
         const QFileInfo source(path);
         if (!source.isFile() || source.isSymbolicLink() || source.isJunction())
         {
-            error = QStringLiteral("An explicit source must be an ordinary existing file: %1").arg(path);
+            error = QCoreApplication::translate("RepairPlan", "An explicit source must be an ordinary existing file: %1").arg(path);
             return {};
         }
     }
@@ -144,13 +145,13 @@ RepairPlan BitTorrent::planRepairData(const lt::torrent_info &target, const lt::
     RepairPlan result;
     if (!target.is_valid())
     {
-        result.error = QStringLiteral("Select valid torrent metadata.");
+        result.error = QCoreApplication::translate("RepairPlan", "Select valid torrent metadata.");
         return result;
     }
     if (selected.isEmpty() || std::any_of(selected.cbegin(), selected.cend(), [&files](const int index)
         { return (index < 0) || (index >= files.num_files()) || files.pad_file_at(lt::file_index_t(index)); }))
     {
-        result.error = QStringLiteral("Select at least one valid target file for repair.");
+        result.error = QCoreApplication::translate("RepairPlan", "Select at least one valid target file for repair.");
         return result;
     }
 

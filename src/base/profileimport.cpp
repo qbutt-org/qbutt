@@ -12,6 +12,7 @@
 #include <libtorrent/file_storage.hpp>
 #include <libtorrent/torrent_info.hpp>
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QDirIterator>
@@ -76,10 +77,10 @@ namespace
     Result writeBytes(const QString &path, const QByteArray &bytes)
     {
         if (!QDir().mkpath(QFileInfo(path).absolutePath()))
-            return nonstd::make_unexpected(u"Cannot create the profile migration directory."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot create the profile migration directory."));
         QSaveFile file(path);
         if (!file.open(QIODevice::WriteOnly) || (file.write(bytes) != bytes.size()) || !file.commit())
-            return nonstd::make_unexpected(u"Cannot persist the profile migration. Original data has been retained."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot persist the profile migration. Original data has been retained."));
         return {};
     }
 
@@ -100,7 +101,7 @@ namespace
             iterator.next();
             const QFileInfo info = iterator.fileInfo();
             if (info.isSymLink() || info.isJunction() || (entries.size() >= 30000))
-                return nonstd::make_unexpected(u"The migration backup has an unsafe or excessive file tree."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The migration backup has an unsafe or excessive file tree."));
             const QString relative = QDir(directory).relativeFilePath(info.absoluteFilePath());
             if (info.isDir())
             {
@@ -112,7 +113,7 @@ namespace
             if (!info.isFile() || (info.size() < 0) || (info.size() > 1024LL * 1024 * 1024 - totalSize)
                 || !file.open(QIODevice::ReadOnly) || !hash.addData(&file) || (file.error() != QFile::NoError))
             {
-                return nonstd::make_unexpected(u"The migration backup cannot be verified completely."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The migration backup cannot be verified completely."));
             }
             totalSize += info.size();
             entries.insert(relative, QString::fromLatin1(hash.result().toHex()));
@@ -126,16 +127,16 @@ namespace
     {
         const QFileInfo info(source);
         if (info.isSymLink() || info.isJunction() || (depth > 8))
-            return nonstd::make_unexpected(u"Profile metadata contains an unsafe linked or nested path."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Profile metadata contains an unsafe linked or nested path."));
         if (!info.exists())
             return {};
         if (info.isDir())
         {
             if (!QDir().mkpath(destination))
-                return nonstd::make_unexpected(u"Cannot create the migration backup."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot create the migration backup."));
             const auto entries = QDir(source).entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
             if (entries.size() > 30000)
-                return nonstd::make_unexpected(u"The profile exceeds the migration file limit."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The profile exceeds the migration file limit."));
             for (const QString &entry : entries)
             {
                 const auto copied = copyObject(QDir(source).filePath(entry), QDir(destination).filePath(entry), depth + 1);
@@ -146,10 +147,10 @@ namespace
         }
         QFile input(source);
         if (!info.isFile() || (info.size() > 512 * 1024 * 1024) || !input.open(QIODevice::ReadOnly))
-            return nonstd::make_unexpected(u"Cannot read profile metadata for migration."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot read profile metadata for migration."));
         const QByteArray bytes = input.readAll();
         if ((input.error() != QFile::NoError) || (bytes.size() != info.size()))
-            return nonstd::make_unexpected(u"Profile metadata changed while making its backup."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Profile metadata changed while making its backup."));
         return writeBytes(destination, bytes);
     }
 
@@ -157,7 +158,7 @@ namespace
     {
         const QFileInfo info(path);
         if (info.isSymLink() || info.isJunction() || (depth > 8))
-            return nonstd::make_unexpected(u"Migration recovery refuses a linked metadata path."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Migration recovery refuses a linked metadata path."));
         if (!info.exists())
             return {};
         if (info.isDir())
@@ -173,7 +174,7 @@ namespace
         }
         else if (QFile::remove(path))
             return {};
-        return nonstd::make_unexpected(u"Cannot replace profile metadata. Close other clients and retry startup."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot replace profile metadata. Close other clients and retry startup."));
     }
 
     Result copyData(const QString &source, const QString &destination)
@@ -207,7 +208,7 @@ namespace
         for (const auto &record : records)
         {
             if (!record.result)
-                return nonstd::make_unexpected(u"Cannot import a damaged resume record."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot import a damaged resume record."));
         }
         QSemaphore completed;
         std::atomic_bool success = true;
@@ -233,26 +234,26 @@ namespace
         // Destruction drains the native worker before callback state expires.
         storage.reset();
         if (!received || !success)
-            return nonstd::make_unexpected(u"The native resume store did not confirm the migration write."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Could not confirm that the imported torrent data was saved."));
         return {};
     }
 
     Result verifyRecords(const ExternalResumeDataResult &loaded, const QList<LoadedResumeData> &expected)
     {
         if (!loaded || (loaded->size() != expected.size()))
-            return nonstd::make_unexpected(u"Native resume record count changed during migration."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The number of saved torrents changed during import."));
         QHash<TorrentID, const LoadTorrentParams *> records;
         for (const auto &record : *loaded)
         {
             if (!record.result || records.contains(record.torrentID))
-                return nonstd::make_unexpected(u"A migrated resume record is unreadable or duplicated."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "A migrated resume record is unreadable or duplicated."));
             records.insert(record.torrentID, &*record.result);
         }
         for (const auto &record : expected)
         {
             const auto *actual = records.value(record.torrentID);
             if (!record.result || !actual)
-                return nonstd::make_unexpected(u"A migrated torrent identity was lost."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "An imported torrent is missing from the saved data."));
             const auto &wanted = *record.result;
             if ((actual->savePath != wanted.savePath) || (actual->downloadPath != wanted.downloadPath)
                 || (actual->stopped != wanted.stopped) || (actual->useAutoTMM != wanted.useAutoTMM)
@@ -262,7 +263,7 @@ namespace
                 || !actual->ltAddTorrentParams.ti || !wanted.ltAddTorrentParams.ti
                 || (actual->ltAddTorrentParams.ti->info_hashes() != wanted.ltAddTorrentParams.ti->info_hashes()))
             {
-                return nonstd::make_unexpected(u"A migrated native resume record differs from the approved mapping or policy."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "A saved torrent differs from the approved paths or settings."));
             }
         }
         return {};
@@ -271,14 +272,14 @@ namespace
     nonstd::expected<lt::file_storage, QString> mappedFiles(const LoadTorrentParams &params)
     {
         if (!params.ltAddTorrentParams.ti)
-            return nonstd::make_unexpected(u"Complete torrent metadata is required for import."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Complete torrent metadata is required for import."));
         if (params.ltAddTorrentParams.ti->num_files() > 16384)
-            return nonstd::make_unexpected(u"A torrent exceeds the profile import limit of 16384 file mappings."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "A torrent exceeds the profile import limit of 16384 file mappings."));
         lt::file_storage files = params.ltAddTorrentParams.ti->files();
         for (const auto &[index, name] : params.ltAddTorrentParams.renamed_files)
         {
             if ((index < lt::file_index_t(0)) || (index >= files.end_file()) || files.pad_file_at(index))
-                return nonstd::make_unexpected(u"The resume record contains an invalid mapped-file index."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The resume record contains an invalid mapped-file index."));
             files.rename_file(index, name);
         }
         return files;
@@ -297,7 +298,7 @@ namespace
         {
             const QString identity = repairPathIdentity(directory);
             if (identity.isEmpty())
-                return nonstd::make_unexpected(u"A protected profile directory cannot be resolved safely."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "A protected profile directory cannot be resolved safely."));
             protectedIdentities.append(identity);
         }
         const QDir saveDirectory(QString::fromStdString(params.ltAddTorrentParams.save_path));
@@ -306,11 +307,11 @@ namespace
             if (files->pad_file_at(index))
                 continue;
             if (targets.size() > 65536)
-                return nonstd::make_unexpected(u"The profile import exceeds the total file reservation limit."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The profile import exceeds the total file reservation limit."));
             const Path actualPath(files->file_path(index));
             const QString actualIdentity = repairPathIdentity(saveDirectory.filePath(actualPath.data()));
             if (actualIdentity.isEmpty())
-                return nonstd::make_unexpected(u"A payload mapping cannot be resolved safely."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "A payload mapping cannot be resolved safely."));
             const Path userPath = params.ltAddTorrentParams.renamed_files.contains(index)
                 ? TorrentImpl::userFilePath(actualPath) : actualPath;
             const Path unwantedPath = userPath.parentPath() / Path(UNWANTED_FOLDER_NAME) / Path(userPath.filename());
@@ -320,19 +321,19 @@ namespace
                 const QString path = saveDirectory.filePath(alias.data());
                 const QString identity = repairPathIdentity(path);
                 if (identity.isEmpty())
-                    return nonstd::make_unexpected(u"A native payload filename cannot be resolved safely."_s);
+                    return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "A native payload filename cannot be resolved safely."));
                 const QFileInfo info(path);
                 if (imported && (info.isSymLink() || info.isJunction()
                     || ((identity != actualIdentity) && info.exists())))
                 {
-                    return nonstd::make_unexpected(u"A native payload filename already belongs to another file: %1"_s.arg(path));
+                    return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "A native payload filename already belongs to another file: %1").arg(path));
                 }
                 for (const QString &protectedIdentity : protectedIdentities)
                 {
                     if ((identity == protectedIdentity) || identity.startsWith(protectedIdentity + u'/')
                         || protectedIdentity.startsWith(identity + u'/'))
                     {
-                        return nonstd::make_unexpected(u"A payload mapping overlaps protected profile metadata: %1"_s.arg(path));
+                        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "A payload mapping overlaps protected profile metadata: %1").arg(path));
                     }
                 }
                 if (!identities.contains(identity))
@@ -345,14 +346,14 @@ namespace
                 for (QString parent = identity; !parent.isEmpty(); parent = parent.left(parent.lastIndexOf(u'/')))
                 {
                     if (targets.contains(parent))
-                        return nonstd::make_unexpected(u"Selected torrents overlap another data set. Choose independent payload mappings."_s);
+                        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Selected torrents overlap another data set. Choose independent payload mappings."));
                     if (!parent.contains(u'/'))
                         break;
                 }
                 const QString prefix = identity + u'/';
                 const auto descendant = targets.lower_bound(prefix);
                 if ((descendant != targets.end()) && descendant->startsWith(prefix))
-                    return nonstd::make_unexpected(u"Selected torrents overlap another data set. Choose independent payload mappings."_s);
+                    return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Selected torrents overlap another data set. Choose independent payload mappings."));
                 // Only this file's exact duplicates were removed above. A
                 // later file cannot acquire any actual or derived name.
                 targets.insert(identity);
@@ -368,16 +369,16 @@ try
 {
     if (!settingsFile.isAbsolute() || !dataDirectory.isAbsolute()
         || (!sourceBase.isEmpty() && !sourceBase.isAbsolute()))
-        return nonstd::make_unexpected(u"Select absolute source paths."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Select absolute source paths."));
     if (repairPathIdentity(dataDirectory.data()) == repairPathIdentity(specialFolderLocation(SpecialFolder::Data).data()))
-        return nonstd::make_unexpected(u"Choose a separate source profile."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Choose a separate source profile."));
     QFile input(settingsFile.data());
     if (!input.open(QIODevice::ReadOnly) || (input.size() > 8 * 1024 * 1024))
-        return nonstd::make_unexpected(u"Cannot read the source settings file."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot read the source settings file."));
     const QByteArray settingsBytes = input.readAll();
     QTemporaryDir snapshot(QDir::tempPath() + u"/qbutt-profile-preview-XXXXXX"_s);
     if (!snapshot.isValid())
-        return nonstd::make_unexpected(u"Cannot create a read-only settings snapshot."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot create a read-only settings snapshot."));
     const QString snapshotPath = QDir(snapshot.path()).filePath(u"settings.ini"_s);
     const auto saved = writeBytes(snapshotPath, settingsBytes);
     if (!saved)
@@ -388,7 +389,7 @@ try
     result.protectedDirectories = {dataDirectory.data(), settingsFile.parentPath().data()};
     const QStringList sourceKeys = source.allKeys();
     if (sourceKeys.size() > 10000)
-        return nonstd::make_unexpected(u"The source exceeds the preview limit of 10000 settings."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The source exceeds the preview limit of 10000 settings."));
     for (const QString &key : sourceKeys)
     {
         if (SAFE_SETTINGS.contains(key))
@@ -397,7 +398,7 @@ try
             result.skippedSettings.append(key);
     }
     if (source.status() != QSettings::NoError)
-        return nonstd::make_unexpected(u"The source settings file is malformed."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The source settings file is malformed."));
 
     const auto records = ResumeDataStorage::readExternal(dataDirectory, sourceBase);
     if (!records)
@@ -405,12 +406,12 @@ try
     for (const auto &record : *records)
     {
         if (!record.result || !record.result->ltAddTorrentParams.ti)
-            return nonstd::make_unexpected(u"The source contains a damaged or metadata-incomplete torrent. Resolve it before import."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The source contains a damaged or metadata-incomplete torrent. Resolve it before import."));
         const Path sourcePath(QString::fromStdString(record.result->ltAddTorrentParams.save_path));
         result.torrents.append({record.torrentID, *record.result, sourcePath, sourcePath, true});
     }
     if (!input.seek(0) || (input.readAll() != settingsBytes))
-        return nonstd::make_unexpected(u"Source settings changed during preview. Close the source client and retry."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Source settings changed during preview. Close the source client and retry."));
     return result;
 }
 catch (const RuntimeError &error)
@@ -419,21 +420,21 @@ catch (const RuntimeError &error)
 }
 catch (const std::exception &)
 {
-    return nonstd::make_unexpected(u"Cannot decode the source profile safely."_s);
+    return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot decode the source profile safely."));
 }
 
 Result ProfileImport::prepare(ProfileImportPreview preview, const bool ownershipConfirmed)
 try
 {
     if (!ownershipConfirmed)
-        return nonstd::make_unexpected(u"Confirm that the source client has stopped managing the selected payloads."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Confirm that the source client has stopped managing the selected payloads."));
     const QDir transaction(transactionDirectory());
     if (transaction.exists())
-        return nonstd::make_unexpected(u"A profile import is already pending. Restart qbutt to finish or recover it."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "A profile import is already pending. Restart qbutt to finish or recover it."));
     const QString data = specialFolderLocation(SpecialFolder::Data).data();
     QLockFile lock(QDir(data).filePath(u"profile-import.lock"_s));
     if (!lock.tryLock())
-        return nonstd::make_unexpected(u"Another profile import is being prepared."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Another profile import is being prepared."));
 
     QList<LoadedResumeData> records;
     std::set<QString> targets;
@@ -448,7 +449,7 @@ try
         auto &params = torrent.params;
         auto &native = params.ltAddTorrentParams;
         if (!torrent.destinationPath.isAbsolute() || !native.ti)
-            return nonstd::make_unexpected(u"Every selected torrent requires an explicit absolute payload mapping."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Every selected torrent requires an explicit absolute payload mapping."));
         native.save_path = torrent.destinationPath.toString().toStdString();
         const auto reserved = reserveTargets(params, targets, protectedDirectories, true);
         if (!reserved)
@@ -459,7 +460,7 @@ try
         QString error;
         auto guard = RepairFileGuard::open(*files, torrent.destinationPath.data(), true, error);
         if (!guard)
-            return nonstd::make_unexpected(u"Cannot admit one writer for an imported payload: %1"_s.arg(error));
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot get exclusive access to imported files: %1").arg(error));
         ownership.append(std::move(guard));
         params.savePath = torrent.destinationPath;
         params.downloadPath = {};
@@ -483,11 +484,11 @@ try
         records.append({torrent.id, params});
     }
     if (records.isEmpty())
-        return nonstd::make_unexpected(u"Select at least one torrent to import."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Select at least one torrent to import."));
 
     QTemporaryDir staging(QDir(data).filePath(u"profile-import-preparing-XXXXXX"_s));
     if (!staging.isValid())
-        return nonstd::make_unexpected(u"Cannot create the native import staging directory."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot create the native import staging directory."));
     const QString imports = QDir(staging.path()).filePath(u"imports"_s);
     const auto stored = storeRecords(imports, records, false);
     if (!stored)
@@ -503,14 +504,14 @@ try
     }
     settings.sync();
     if (settings.status() != QSettings::NoError)
-        return nonstd::make_unexpected(u"Cannot stage imported settings."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot stage imported settings."));
     const auto manifest = writeBytes(QDir(staging.path()).filePath(u"transaction.json"_s)
         , QJsonDocument(QJsonObject {{u"version"_s, 1}, {u"state"_s, u"prepared"_s}
             , {u"protectedDirectories"_s, QJsonArray::fromStringList(preview.protectedDirectories)}}).toJson(QJsonDocument::Compact));
     if (!manifest)
         return manifest;
     if (!QDir().rename(staging.path(), transaction.path()))
-        return nonstd::make_unexpected(u"Cannot publish the prepared profile import."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot save the prepared profile import."));
     staging.setAutoRemove(false);
     return {};
 }
@@ -520,7 +521,7 @@ catch (const RuntimeError &error)
 }
 catch (const std::exception &)
 {
-    return nonstd::make_unexpected(u"Cannot prepare the native profile import."_s);
+    return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot prepare the native profile import."));
 }
 
 Result ProfileImport::recover()
@@ -530,15 +531,15 @@ Result ProfileImport::recover()
         return {};
     QLockFile lock(QDir(specialFolderLocation(SpecialFolder::Data).data()).filePath(u"profile-import.lock"_s));
     if (!lock.tryLock())
-        return nonstd::make_unexpected(u"Profile import is still being prepared by another process."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Profile import is still being prepared by another process."));
     QFile manifestFile(transaction.filePath(u"transaction.json"_s));
     if (!manifestFile.open(QIODevice::ReadOnly) || (manifestFile.size() > 16384))
-        return nonstd::make_unexpected(u"The profile import manifest cannot be read. Existing settings have not been opened."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The profile import manifest cannot be read. Existing settings have not been opened."));
     const auto document = QJsonDocument::fromJson(manifestFile.readAll());
     manifestFile.close();
     QJsonObject manifest = document.object();
     if (manifest.value(u"version"_s).toInt() != 1)
-        return nonstd::make_unexpected(u"The profile import manifest has an unsupported format."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The profile import manifest has an unsupported format."));
     const QString state = manifest.value(u"state"_s).toString();
     const QString data = specialFolderLocation(SpecialFolder::Data).data();
 
@@ -551,7 +552,7 @@ Result ProfileImport::recover()
             if (!info.fileName().startsWith(u"qbutt-profile-migration-"_s)
                 || (repairPathIdentity(info.absolutePath()) != repairPathIdentity(QDir::tempPath())))
             {
-                return nonstd::make_unexpected(u"Migration retirement refuses an invalid backup location."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot finish the import: its backup location is invalid."));
             }
             const auto removed = removeObject(backup);
             if (!removed)
@@ -568,21 +569,21 @@ Result ProfileImport::recover()
             || !backupInfo.fileName().startsWith(u"qbutt-profile-migration-"_s)
             || (repairPathIdentity(backupInfo.absolutePath()) != repairPathIdentity(QDir::tempPath())))
         {
-            return nonstd::make_unexpected(u"The migration backup is unavailable. Startup is held to preserve recoverable state."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The import backup is unavailable. Startup was stopped to allow recovery."));
         }
         QFile index(transaction.filePath(u"backup.json"_s));
         if (!index.open(QIODevice::ReadOnly) || (index.size() > 16 * 1024 * 1024))
-            return nonstd::make_unexpected(u"The migration backup inventory is unavailable. Startup remains held."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The import backup file list is unavailable. Startup was stopped to allow recovery."));
         const QByteArray bytes = index.readAll();
         if (QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())
             != manifest.value(u"backupDigest"_s).toString())
         {
-            return nonstd::make_unexpected(u"The migration backup inventory is damaged. No recovery files were removed."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The migration backup inventory is damaged. No recovery files were removed."));
         }
         const auto checked = inventory(backup);
         const auto expected = QJsonDocument::fromJson(bytes);
         if (!checked || !expected.isObject() || (*checked != expected.object()))
-            return nonstd::make_unexpected(u"The migration backup is incomplete or changed. No recovery files were removed."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The migration backup is incomplete or changed. No recovery files were removed."));
         auto result = replaceData(QDir(backup).filePath(u"data"_s), data);
         if (!result)
             return result;
@@ -609,12 +610,12 @@ Result ProfileImport::recover()
             return restored;
         // Keep the prepared import and backup for an explicit retry; do not
         // silently reapply a transaction which previously failed.
-        return nonstd::make_unexpected(u"An interrupted profile import was rolled back. Original qbutt settings are restored. Start qbutt again to continue."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "An interrupted profile import was rolled back. Original qbutt settings are restored. Start qbutt again to continue."));
     }
     if ((state == u"committed") || (state == u"rolled-back"))
         return retire();
     if (state != u"prepared")
-        return nonstd::make_unexpected(u"The profile import state is invalid; startup is held."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The profile import state is invalid. Startup was stopped to allow recovery."));
 
     const auto install = [&]() -> Result
     {
@@ -623,12 +624,12 @@ Result ProfileImport::recover()
         for (const QString &name : staging.entryList({u"*.json"_s}, QDir::Files))
         {
             if (activeJournal.match(name).hasMatch())
-                return nonstd::make_unexpected(u"Finish staging recovery before importing another profile."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Finish staging recovery before importing another profile."));
         }
 
         const auto imports = ResumeDataStorage::readExternal(Path(transaction.filePath(u"imports"_s)), Profile::instance()->basePath());
         if (!imports || imports->isEmpty())
-            return nonstd::make_unexpected(u"The prepared native import cannot be read. Existing qbutt settings are unchanged."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The prepared native import cannot be read. Existing qbutt settings are unchanged."));
 
         QList<LoadedResumeData> current;
         if (QFileInfo::exists(QDir(data).filePath(u"torrents.db"_s))
@@ -636,7 +637,7 @@ Result ProfileImport::recover()
         {
             const auto loaded = ResumeDataStorage::readExternal(Path(data), Profile::instance()->basePath());
             if (!loaded)
-                return nonstd::make_unexpected(u"Cannot inspect existing qbutt jobs before import: %1"_s.arg(loaded.error()));
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot inspect existing qbutt jobs before import: %1").arg(loaded.error()));
             current = *loaded;
         }
         std::set<QString> targets;
@@ -649,7 +650,7 @@ Result ProfileImport::recover()
         for (const auto &record : current)
         {
             if (!record.result)
-                return nonstd::make_unexpected(u"An existing qbutt resume record needs recovery before import."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "An existing qbutt resume record needs recovery before import."));
             hashes.append(InfoHash(record.result->ltAddTorrentParams.info_hashes));
             const auto reserved = reserveTargets(*record.result, targets, protectedDirectories, false);
             if (!reserved)
@@ -659,7 +660,7 @@ Result ProfileImport::recover()
         for (const auto &record : *imports)
         {
             if (!record.result || !record.result->stopped || record.result->useAutoTMM)
-                return nonstd::make_unexpected(u"Prepared imports must remain stopped with explicit payload mappings."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Prepared torrents must remain stopped and have explicit file locations."));
             const auto &params = *record.result;
             const auto hash = params.ltAddTorrentParams.info_hashes;
             for (const InfoHash &existing : hashes)
@@ -668,7 +669,7 @@ Result ProfileImport::recover()
                 if ((hash.has_v1() && other.has_v1() && (hash.v1 == other.v1))
                     || (hash.has_v2() && other.has_v2() && (hash.v2 == other.v2)))
                 {
-                    return nonstd::make_unexpected(u"An imported torrent already exists in qbutt. No trackers, files or settings were merged."_s);
+                    return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "An imported torrent already exists in qbutt. No trackers, files or settings were merged."));
                 }
             }
             hashes.append(InfoHash(hash));
@@ -682,13 +683,13 @@ Result ProfileImport::recover()
             auto guard = RepairFileGuard::open(*files
                 , QString::fromStdString(params.ltAddTorrentParams.save_path), true, error);
             if (!guard)
-                return nonstd::make_unexpected(u"Imported payload ownership changed before startup: %1"_s.arg(error));
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Exclusive access to imported files was lost before startup: %1").arg(error));
             ownership.append(std::move(guard));
         }
 
         QTemporaryDir backup(QDir::tempPath() + u"/qbutt-profile-migration-XXXXXX"_s);
         if (!backup.isValid())
-            return nonstd::make_unexpected(u"Cannot create the required temporary migration backup."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot create the required temporary migration backup."));
         auto result = copyData(data, QDir(backup.path()).filePath(u"data"_s));
         if (!result)
             return result;
@@ -710,7 +711,7 @@ Result ProfileImport::recover()
 
         QTemporaryDir merged(transaction.filePath(u"merged-XXXXXX"_s));
         if (!merged.isValid())
-            return nonstd::make_unexpected(u"Cannot create the merged native resume store."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Cannot create the merged native resume store."));
         result = copyData(QDir(backup.path()).filePath(u"data"_s), merged.path());
         if (!result)
             return result;
@@ -729,7 +730,7 @@ Result ProfileImport::recover()
         // only INI headers or whitespace does not replace the current settings.
         const bool hasPendingSettings = !pending.allKeys().isEmpty();
         if (pending.status() != QSettings::NoError)
-            return nonstd::make_unexpected(u"The pending qbutt settings need recovery before import."_s);
+            return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The pending qbutt settings need recovery before import."));
         if (hasPendingSettings)
             previousSettings = pending.fileName();
         result = copyObject(previousSettings, mergedSettings);
@@ -747,7 +748,7 @@ Result ProfileImport::recover()
             }
             settings.sync();
             if ((settings.status() != QSettings::NoError) || (incoming.status() != QSettings::NoError))
-                return nonstd::make_unexpected(u"Merged settings failed validation before installation."_s);
+                return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Merged settings failed validation before installation."));
         }
 
         manifest.insert(u"backup"_s, backup.path());
@@ -787,7 +788,7 @@ Result ProfileImport::recover()
     }
     catch (const std::exception &)
     {
-        installed = nonstd::make_unexpected(u"Profile migration failed before completion."_s);
+        installed = nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "Profile migration failed before completion."));
     }
     if (!installed && (manifest.value(u"state"_s).toString() == u"installing"))
     {
@@ -801,7 +802,7 @@ Result ProfileImport::recover()
         const auto rejected = writeManifest(manifest);
         if (!rejected)
             return rejected;
-        return nonstd::make_unexpected(installed.error() + u" Import was cancelled before installation; start qbutt again to continue."_s);
+        return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "%1 Import was cancelled before installation; start qbutt again to continue.").arg(installed.error()));
     }
     return installed;
 }
