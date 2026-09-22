@@ -1,0 +1,231 @@
+QPushButton, QToolButton, QComboBox {
+    background: palette(button);
+    border: 1px solid palette(mid);
+    border-radius: 3px;
+    padding: 3px 8px;
+}
+QToolButton {
+    padding: 3px;
+}
+QToolButton[popupMode="1"] {
+    padding-right: 20px;
+}
+QToolButton::menu-button {
+    background: palette(button);
+    border: none;
+    border-left: 1px solid palette(mid);
+    width: 16px;
+}
+QToolButton::menu-button:hover {
+    background: palette(midlight);
+}
+QToolBar, QMenuBar {
+    background: palette(window);
+    border: none;
+}
+QToolBar QToolButton {
+    background: transparent;
+    border-color: transparent;
+}
+QPushButton:hover:enabled, QToolButton:hover:enabled, QComboBox:hover:enabled {
+    background: palette(midlight);
+    border-color: palette(light);
+}
+QPushButton:pressed, QPushButton:checked, QToolButton:pressed, QToolButton:checked {
+    background: palette(highlight);
+    border-color: palette(link);
+    color: palette(highlighted-text);
+}
+QPushButton:default, QPushButton:focus, QToolButton:focus, QComboBox:focus {
+    border-color: palette(link);
+}
+QPushButton:checked:disabled, QToolButton:checked:disabled {
+    background: palette(midlight);
+}
+QLineEdit, QAbstractSpinBox, QTextEdit, QPlainTextEdit {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 3px;
+    padding: 2px 4px;
+}
+QLineEdit:focus, QAbstractSpinBox:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border-color: palette(link);
+}
+QComboBox {
+    padding-right: 24px;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 22px;
+}
+QComboBox::down-arrow, QAbstractSpinBox::down-arrow, QToolButton::menu-arrow, QScrollBar::down-arrow {
+    image: url(:/themes/chevron-down.svg);
+    width: 10px;
+    height: 6px;
+}
+QAbstractSpinBox::up-arrow, QScrollBar::up-arrow {
+    image: url(:/themes/chevron-up.svg);
+    width: 10px;
+    height: 6px;
+}
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {
+    background: palette(button);
+    border: none;
+    width: 18px;
+}
+QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover {
+    background: palette(midlight);
+}
+QCheckBox::indicator, QGroupBox::indicator, QAbstractItemView::indicator, QMenu::indicator:non-exclusive {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 2px;
+    width: 13px;
+    height: 13px;
+}
+QCheckBox::indicator:checked, QGroupBox::indicator:checked,
+QAbstractItemView::indicator:checked, QMenu::indicator:non-exclusive:checked {
+    background: palette(highlight);
+    image: url(:/themes/check.svg);
+}
+QCheckBox::indicator:indeterminate, QAbstractItemView::indicator:indeterminate {
+    background: palette(highlight);
+    image: url(:/themes/dash.svg);
+}
+QCheckBox::indicator:checked:disabled, QCheckBox::indicator:indeterminate:disabled,
+QGroupBox::indicator:checked:disabled, QAbstractItemView::indicator:checked:disabled,
+QAbstractItemView::indicator:indeterminate:disabled, QMenu::indicator:non-exclusive:checked:disabled {
+    background: palette(midlight);
+}
+QCheckBox::indicator:hover:enabled, QGroupBox::indicator:hover:enabled {
+    border-color: palette(link);
+}
+QMenu {
+    background: palette(window);
+    border: 1px solid palette(mid);
+}
+QMenuBar::item {
+    background: transparent;
+    padding: 4px 8px;
+}
+QMenuBar::item:selected, QMenuBar::item:pressed {
+    background: palette(midlight);
+}
+QMenu::item {
+    padding: 4px 26px 4px 24px;
+}
+QMenu::item:selected {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+}
+QMenu::separator {
+    background: palette(mid);
+    height: 1px;
+    margin: 3px 6px;
+}
+QHeaderView::section {
+    background: palette(window);
+    border: none;
+    border-right: 1px solid palette(mid);
+    padding: 3px 5px;
+}
+QTabBar::tab {
+    background: palette(window);
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 6px 12px;
+}
+QTabBar::tab:hover {
+    background: palette(midlight);
+}
+QTabBar::tab:selected {
+    background: palette(button);
+    border-bottom-color: palette(link);
+}
+QTabWidget::pane {
+    border: 1px solid palette(mid);
+}
+QProgressBar {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 3px;
+    text-align: center;
+}
+QProgressBar::chunk {
+    background: palette(highlight);
+}
+QScrollBar {
+    background: palette(base);
+}
+QScrollBar:horizontal {
+    height: 14px;
+    margin: 0 14px;
+}
+QScrollBar:vertical {
+    width: 14px;
+    margin: 14px 0;
+}
+QScrollBar::handle {
+    background: palette(mid);
+    border: none;
+}
+QScrollBar::handle:horizontal {
+    min-width: 20px;
+}
+QScrollBar::handle:vertical {
+    min-height: 20px;
+}
+QScrollBar::handle:hover {
+    background: palette(light);
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    background: palette(button);
+    border: none;
+    width: 14px;
+    height: 14px;
+    subcontrol-origin: margin;
+}
+QScrollBar::sub-line:horizontal {
+    subcontrol-position: left;
+}
+QScrollBar::add-line:horizontal {
+    subcontrol-position: right;
+}
+QScrollBar::sub-line:vertical {
+    subcontrol-position: top;
+}
+QScrollBar::add-line:vertical {
+    subcontrol-position: bottom;
+}
+QScrollBar::left-arrow {
+    image: url(:/themes/chevron-left.svg);
+    width: 6px;
+    height: 10px;
+}
+QScrollBar::right-arrow {
+    image: url(:/themes/chevron-right.svg);
+    width: 6px;
+    height: 10px;
+}
+QScrollBar::add-page, QScrollBar::sub-page {
+    background: palette(base);
+}
+QSlider::groove:horizontal {
+    background: palette(mid);
+    height: 4px;
+}
+QSlider::sub-page:horizontal {
+    background: palette(highlight);
+}
+QSlider::handle:horizontal {
+    background: palette(light);
+    border-radius: 5px;
+    width: 10px;
+    margin: -4px 0;
+}
+QSlider::handle:horizontal:hover:enabled {
+    background: palette(link);
+}
+QSlider::handle:horizontal:disabled {
+    background: palette(mid);
+}

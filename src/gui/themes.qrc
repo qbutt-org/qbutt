@@ -1,0 +1,11 @@
+<RCC>
+    <qresource prefix="/">
+        <file>themes/dark.qss</file>
+        <file>themes/chevron-down.svg</file>
+        <file>themes/chevron-up.svg</file>
+        <file>themes/chevron-left.svg</file>
+        <file>themes/chevron-right.svg</file>
+        <file>themes/check.svg</file>
+        <file>themes/dash.svg</file>
+    </qresource>
+</RCC>

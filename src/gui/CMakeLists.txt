@@ -272,7 +272,7 @@ add_library(qbt_gui STATIC
     ${UI_HEADERS}
 )
 
-target_sources(qbt_gui INTERFACE about.qrc)
+target_sources(qbt_gui INTERFACE about.qrc themes.qrc)
 
 # UI headers will be generated in ${CMAKE_CURRENT_BINARY_DIR}
 target_include_directories(qbt_gui PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

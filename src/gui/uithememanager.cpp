@@ -31,6 +31,7 @@
 #include "uithememanager.h"
 
 #include <QApplication>
+#include <QFile>
 #include <QPalette>
 #include <QPixmapCache>
 #include <QResource>
@@ -116,8 +117,7 @@ UIThemeManager::UIThemeManager()
         m_themeSource = std::make_unique<DefaultThemeSource>();
 
     applyPalette();
-    if (m_useCustomTheme)
-        applyStyleSheet();
+    applyStyleSheet();
 }
 
 UIThemeManager *UIThemeManager::instance()
@@ -159,14 +159,35 @@ void UIThemeManager::applyColorScheme() const
 
 void UIThemeManager::applyStyleSheet() const
 {
-    qApp->setStyleSheet(QString::fromUtf8(m_themeSource->readStyleSheet()));
+    if (m_useCustomTheme)
+    {
+        qApp->setStyleSheet(QString::fromUtf8(m_themeSource->readStyleSheet()));
+        return;
+    }
+
+#ifdef QBT_HAS_COLORSCHEME_OPTION
+    if (colorScheme() != ColorScheme::Dark)
+    {
+        qApp->setStyleSheet({});
+        return;
+    }
+#endif
+    QFile styleSheet {u":/themes/dark.qss"_s};
+    if (!styleSheet.open(QIODevice::ReadOnly))
+    {
+        LogMsg(tr("Failed to load the built-in theme."), Log::WARNING);
+        return;
+    }
+    qApp->setStyleSheet(QString::fromUtf8(styleSheet.readAll()));
 }
 
 void UIThemeManager::onColorSchemeChanged()
 {
     // workaround to refresh styled controls once color scheme is changed
+    qApp->setStyleSheet({});
     QApplication::setStyle(QApplication::style()->name());
     applyPalette();
+    applyStyleSheet();
     emit themeChanged();
 }
 
@@ -244,29 +265,29 @@ void UIThemeManager::applyPalette() const
             return;
 #endif
         QPalette palette;
-        palette.setColor(QPalette::Window, QColor(0x20, 0x23, 0x30));
-        palette.setColor(QPalette::Base, QColor(0x17, 0x19, 0x23));
-        palette.setColor(QPalette::AlternateBase, QColor(0x24, 0x28, 0x36));
-        palette.setColor(QPalette::Button, QColor(0x2b, 0x30, 0x40));
-        palette.setColor(QPalette::ToolTipBase, QColor(0x2b, 0x30, 0x40));
+        palette.setColor(QPalette::Window, QColor(0x20, 0x20, 0x20));
+        palette.setColor(QPalette::Base, QColor(0x19, 0x19, 0x19));
+        palette.setColor(QPalette::AlternateBase, QColor(0x27, 0x27, 0x27));
+        palette.setColor(QPalette::Button, QColor(0x30, 0x30, 0x30));
+        palette.setColor(QPalette::ToolTipBase, QColor(0x30, 0x30, 0x30));
         for (const QPalette::ColorRole role : {QPalette::WindowText, QPalette::Text,
             QPalette::ButtonText, QPalette::ToolTipText})
         {
-            palette.setColor(role, QColor(0xe0, 0xe6, 0xf0));
-            palette.setColor(QPalette::Disabled, role, QColor(0x93, 0x9b, 0xae));
+            palette.setColor(role, QColor(0xe7, 0xe7, 0xe7));
+            palette.setColor(QPalette::Disabled, role, QColor(0x8d, 0x8d, 0x8d));
         }
         palette.setColor(QPalette::BrightText, Qt::white);
-        palette.setColor(QPalette::Highlight, QColor(0x43, 0x62, 0x91));
+        palette.setColor(QPalette::Highlight, QColor(0x88, 0x4e, 0x3f));
         palette.setColor(QPalette::HighlightedText, Qt::white);
-        palette.setColor(QPalette::Disabled, QPalette::Highlight, QColor(0x38, 0x40, 0x53));
-        palette.setColor(QPalette::Disabled, QPalette::HighlightedText, QColor(0xb0, 0xb8, 0xc9));
-        palette.setColor(QPalette::Link, QColor(0x95, 0xbd, 0xf5));
-        palette.setColor(QPalette::LinkVisited, QColor(0xbb, 0xad, 0xe7));
-        palette.setColor(QPalette::Light, QColor(0x64, 0x6f, 0x87));
-        palette.setColor(QPalette::Midlight, QColor(0x47, 0x50, 0x65));
-        palette.setColor(QPalette::Mid, QColor(0x37, 0x3e, 0x51));
-        palette.setColor(QPalette::Dark, QColor(0x11, 0x13, 0x1b));
-        palette.setColor(QPalette::Shadow, QColor(0x0d, 0x0f, 0x16));
+        palette.setColor(QPalette::Disabled, QPalette::Highlight, QColor(0x3c, 0x3c, 0x3c));
+        palette.setColor(QPalette::Disabled, QPalette::HighlightedText, QColor(0xa0, 0xa0, 0xa0));
+        palette.setColor(QPalette::Link, QColor(0xe3, 0x6d, 0x55));
+        palette.setColor(QPalette::LinkVisited, QColor(0xcd, 0x91, 0x82));
+        palette.setColor(QPalette::Light, QColor(0x66, 0x66, 0x66));
+        palette.setColor(QPalette::Midlight, QColor(0x3c, 0x3c, 0x3c));
+        palette.setColor(QPalette::Mid, QColor(0x47, 0x47, 0x47));
+        palette.setColor(QPalette::Dark, QColor(0x14, 0x14, 0x14));
+        palette.setColor(QPalette::Shadow, QColor(0x10, 0x10, 0x10));
         qApp->setPalette(palette);
         return;
     }

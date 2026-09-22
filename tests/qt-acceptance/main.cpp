@@ -31,14 +31,17 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QFontDatabase>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHeaderView>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
 #include <QListWidget>
 #include <QMap>
+#include <QMenu>
 #include <QMessageBox>
 #include <QNetworkInterface>
 #include <QPalette>
@@ -48,14 +51,18 @@
 #include <QSaveFile>
 #include <QScopeGuard>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSet>
 #include <QSignalBlocker>
+#include <QSlider>
+#include <QSpinBox>
 #include <QStandardPaths>
 #include <QStyle>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QThread>
 #include <QTimer>
+#include <QToolButton>
 #include <QTreeWidget>
 
 #ifdef Q_OS_WIN
@@ -1554,8 +1561,23 @@ namespace
         const QPalette palette = application.palette();
         require((palette.color(QPalette::Base).lightness() < 127) == dark, u"Unexpected application background palette"_s);
         require((palette.color(QPalette::Text).lightness() > 127) == dark, u"Unexpected application text palette"_s);
-        require(QApplication::style()->name().compare(u"Fusion", Qt::CaseInsensitive) == 0, u"Appearance style is not Fusion"_s);
-        require(!Preferences::instance()->useCustomUITheme() && application.styleSheet().isEmpty(), u"Appearance depends on an external theme"_s);
+        require(Preferences::instance()->getStyle().compare(u"Fusion", Qt::CaseInsensitive) == 0, u"Appearance style is not Fusion"_s);
+        require(!Preferences::instance()->useCustomUITheme(), u"Appearance depends on an external theme"_s);
+        if (dark)
+        {
+            QFile builtInStyle {u":/themes/dark.qss"_s};
+            require(builtInStyle.open(QIODevice::ReadOnly), u"The built-in dark style is missing"_s);
+            require(application.styleSheet() == QString::fromUtf8(builtInStyle.readAll()), u"The built-in dark style is not active"_s);
+            require(palette.color(QPalette::Base) == QColor(u"#191919"_s)
+                    && palette.color(QPalette::Window) == QColor(u"#202020"_s)
+                    && palette.color(QPalette::Button) == QColor(u"#303030"_s), u"Dark surfaces are not neutral charcoal"_s);
+        }
+        else
+        {
+            require(application.styleSheet().isEmpty()
+                    && QApplication::style()->name().compare(u"Fusion", Qt::CaseInsensitive) == 0,
+                u"Functional Light/Fusion was changed by the product style"_s);
+        }
         OptionsDialog options {&application, window};
         options.show();
         QCoreApplication::processEvents();
@@ -1572,6 +1594,80 @@ namespace
 #endif
         require(style->currentData().toString().compare(u"Fusion", Qt::CaseInsensitive) == 0, u"Style control does not reflect Fusion"_s);
         const QDir screenshots {spec.value(u"screenshots"_s).toString()};
+        if (dark)
+        {
+            QDialog controls {&options};
+            auto *grid = new QGridLayout(&controls);
+            QPushButton button {u"Button"_s};
+            QPushButton disabled {u"Disabled"_s};
+            disabled.setEnabled(false);
+            QPushButton selected {u"Selected"_s};
+            selected.setCheckable(true);
+            selected.setChecked(true);
+            QComboBox combo;
+            combo.addItems({u"Selected item"_s, u"Another item"_s});
+            QSpinBox spin;
+            spin.setValue(42);
+            QToolButton tool;
+            tool.setText(u"Tool"_s);
+            QMenu menu;
+            menu.addAction(u"Menu action"_s);
+            QAction *menuCheck = menu.addAction(u"Checked action"_s);
+            menuCheck->setCheckable(true);
+            menuCheck->setChecked(true);
+            tool.setMenu(&menu);
+            tool.setPopupMode(QToolButton::MenuButtonPopup);
+            QCheckBox unchecked {u"Unchecked"_s};
+            QCheckBox checked {u"Checked"_s};
+            checked.setChecked(true);
+            QCheckBox disabledChecked {u"Disabled checked"_s};
+            disabledChecked.setChecked(true);
+            disabledChecked.setEnabled(false);
+            QSlider slider {Qt::Horizontal};
+            slider.setValue(42);
+            QScrollBar scroll {Qt::Horizontal};
+            scroll.setValue(30);
+            grid->addWidget(&button, 0, 0);
+            grid->addWidget(&disabled, 0, 1);
+            grid->addWidget(&selected, 0, 2);
+            grid->addWidget(&combo, 1, 0);
+            grid->addWidget(&spin, 1, 1);
+            grid->addWidget(&tool, 1, 2);
+            grid->addWidget(&unchecked, 2, 0);
+            grid->addWidget(&checked, 2, 1);
+            grid->addWidget(&disabledChecked, 2, 2);
+            grid->addWidget(&slider, 3, 0);
+            grid->addWidget(&scroll, 3, 1, 1, 2);
+            controls.resize(620, 160);
+            controls.show();
+            QCoreApplication::processEvents();
+            const auto requireFlatSurface = [](QWidget &control, const QColor &expected)
+            {
+                const QImage pixels = control.grab().toImage();
+                for (int y = 4; y < pixels.height() - 4; ++y)
+                    require(pixels.pixelColor(4, y) == expected, u"A dark control has a gradient or an unexpected fill"_s);
+            };
+            requireFlatSurface(button, palette.color(QPalette::Button));
+            requireFlatSurface(disabled, palette.color(QPalette::Button));
+            requireFlatSurface(selected, palette.color(QPalette::Highlight));
+            requireFlatSurface(combo, palette.color(QPalette::Button));
+            requireFlatSurface(spin, palette.color(QPalette::Base));
+            requireFlatSurface(tool, palette.color(QPalette::Button));
+            require(!unchecked.isChecked() && checked.isChecked() && disabledChecked.isChecked()
+                    && !disabledChecked.isEnabled() && !disabled.isEnabled() && menuCheck->isChecked()
+                    && (slider.value() == 42) && (scroll.value() == 30), u"Rendered control states differ from Qt properties"_s);
+            require(controls.grab().save(screenshots.filePath(u"product-controls.png"_s)), u"Cannot render dark control states"_s);
+            combo.showPopup();
+            QCoreApplication::processEvents();
+            QWidget *popup = QApplication::activePopupWidget();
+            require(popup && popup->grab().save(screenshots.filePath(u"product-dropdown.png"_s)), u"Cannot render the dark dropdown"_s);
+            combo.hidePopup();
+            menu.popup(controls.mapToGlobal(QPoint(0, 0)));
+            QCoreApplication::processEvents();
+            require(menu.grab().save(screenshots.filePath(u"product-menu.png"_s)), u"Cannot render the dark menu"_s);
+            menu.hide();
+            controls.close();
+        }
         require(options.grab().save(screenshots.filePath(phase + u"-options.png"_s)), u"Cannot render appearance options"_s);
         options.hide();
         require(window->grab().save(screenshots.filePath(phase + u"-layout.png"_s)), u"Cannot render appearance layout"_s);
