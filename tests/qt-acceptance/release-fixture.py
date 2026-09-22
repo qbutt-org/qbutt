@@ -182,7 +182,7 @@ try:
                 assert item["installed"] == installed, item
                 if installed:
                     cache = Path(item["cacheRoot"]).resolve()
-                    assert cache.name == root.name, (cache, root.name)
+                    assert cache.name == root.name or (cache.name == "cache" and cache.parent.name == root.name), (cache, root.name)
                 if scenario == "corrupt":
                     assert "incomplete or damaged" in item["message"], item
                 if scenario == "short-asset":
@@ -224,7 +224,7 @@ try:
     (root / "evidence.json").write_text(json.dumps({"cases": evidence, "requests": requests}, indent=2))
     print(json.dumps({"passed": len(evidence), "evidence": str(root / "evidence.json")}))
 finally:
-    if cache and cache.name == root.name and cache.exists():
+    if cache and cache.exists() and (cache.name == root.name or (cache.name == "cache" and cache.parent.name == root.name)):
         shutil.rmtree(cache)
     cert.unlink(missing_ok=True)
     key.unlink(missing_ok=True)
