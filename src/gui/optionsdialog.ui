@@ -1377,7 +1377,13 @@
                  </property>
                  <layout class="QVBoxLayout" name="groupSavingManagementLayout">
                   <item>
-                   <layout class="QGridLayout" name="gridLayout_3">
+                   <layout class="QFormLayout" name="gridLayout_3">
+                    <property name="fieldGrowthPolicy">
+                     <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
+                    </property>
+                    <property name="rowWrapPolicy">
+                     <enum>QFormLayout::RowWrapPolicy::WrapLongRows</enum>
+                    </property>
                     <item row="0" column="0">
                      <widget class="QLabel" name="label_40">
                       <property name="text">
@@ -1556,7 +1562,13 @@ Manual: Various torrent properties (e.g. save path) must be assigned manually</s
                    </widget>
                   </item>
                   <item>
-                   <layout class="QGridLayout" name="gridLayout_4">
+                   <layout class="QFormLayout" name="gridLayout_4">
+                    <property name="fieldGrowthPolicy">
+                     <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
+                    </property>
+                    <property name="rowWrapPolicy">
+                     <enum>QFormLayout::RowWrapPolicy::WrapLongRows</enum>
+                    </property>
                     <item row="1" column="0">
                      <widget class="QCheckBox" name="checkUseDownloadPath">
                       <property name="text">
