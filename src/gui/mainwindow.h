@@ -57,6 +57,8 @@ class OptionsDialog;
 class PowerManagement;
 class PropertiesWidget;
 class RSSWidget;
+class ReleaseUpdateDialog;
+class ReleaseUpdater;
 class SearchWidget;
 class StatsDialog;
 class StatusBar;
@@ -204,6 +206,7 @@ private:
     void applyTransferListFilter();
     void refreshWindowTitle();
     void refreshTrayIconTooltip();
+    void showReleaseUpdateDialog();
 
 #ifdef Q_OS_WIN
     void installPython();
@@ -225,6 +228,8 @@ private:
     QPointer<OptionsDialog> m_options;
     QPointer<AboutDialog> m_aboutDlg;
     QPointer<StatsDialog> m_statsDlg;
+    QPointer<ReleaseUpdateDialog> m_releaseUpdateDialog;
+    ReleaseUpdater *m_releaseUpdater = nullptr;
     QPointer<TorrentCreatorDialog> m_createTorrentDlg;
     QPointer<DownloadFromURLDialog> m_downloadFromURLDialog;
 

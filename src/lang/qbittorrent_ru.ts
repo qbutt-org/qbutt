@@ -5087,6 +5087,14 @@ Minimum requirement: %2.</source>
         <source>Show qbutt update status</source>
         <translation>Показать состояние обновления qbutt</translation>
     </message>
+    <message>
+        <source>Update and restart</source>
+        <translation>Обновить и перезапустить</translation>
+    </message>
+    <message>
+        <source>qbutt %1 is ready to install.</source>
+        <translation>qbutt %1 готов к установке.</translation>
+    </message>
 </context>
 <context>
     <name>Net::DNSUpdater</name>
@@ -12690,6 +12698,10 @@ Showing the first %L1 files.</source>
         <source>Cancel check</source>
         <translation>Отменить проверку</translation>
     </message>
+    <message>
+        <source>Update and restart</source>
+        <translation>Обновить и перезапустить</translation>
+    </message>
 </context>
 <context>
     <name>ReleaseUpdater</name>
@@ -12720,8 +12732,8 @@ Showing the first %L1 files.</source>
     </message>
     <message>
         <location filename="../base/releaseupdater.cpp" line="211"/>
-        <source>Could not write the downloaded archive.</source>
-        <translation>Не удалось записать загруженный архив.</translation>
+        <source>Could not write the download.</source>
+        <translation>Не удалось записать загруженный файл.</translation>
     </message>
     <message>
         <location filename="../base/releaseupdater.cpp" line="238"/>
@@ -12782,6 +12794,22 @@ Showing the first %L1 files.</source>
         <location filename="../base/releaseupdater.cpp" line="347"/>
         <source>Downloading qbutt %1…</source>
         <translation>Загрузка qbutt %1…</translation>
+    </message>
+    <message>
+        <source>Could not start the update. Please try again.</source>
+        <translation>Не удалось запустить обновление. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>qbutt %1 is ready to install.</source>
+        <translation>qbutt %1 готов к установке.</translation>
+    </message>
+    <message>
+        <source>Could not create the update folder.</source>
+        <translation>Не удалось создать папку для обновления.</translation>
+    </message>
+    <message>
+        <source>Restarting to update…</source>
+        <translation>Перезапуск для обновления…</translation>
     </message>
 </context>
 <context>

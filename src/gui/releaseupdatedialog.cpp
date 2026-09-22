@@ -14,14 +14,15 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include "base/global.h"
 #include "base/version.h"
 
-ReleaseUpdateDialog::ReleaseUpdateDialog(QWidget *parent)
+ReleaseUpdateDialog::ReleaseUpdateDialog(ReleaseUpdater *updater, QWidget *parent)
     : QDialog(parent)
-    , m_updater(this)
+    , m_updater(updater)
 {
     setWindowTitle(tr("qbutt updates"));
     setAttribute(Qt::WA_DeleteOnClose);
@@ -47,44 +48,53 @@ ReleaseUpdateDialog::ReleaseUpdateDialog(QWidget *parent)
     m_check->setObjectName(u"releaseCheck"_s);
     m_download = buttons->addButton(tr("Download ZIP…"), QDialogButtonBox::ActionRole);
     m_download->setObjectName(u"releaseDownload"_s);
+    m_install = buttons->addButton(tr("Update and restart"), QDialogButtonBox::ActionRole);
+    m_install->setObjectName(u"releaseInstall"_s);
     m_cancel = buttons->addButton(tr("Cancel download"), QDialogButtonBox::ActionRole);
     m_openFolder = buttons->addButton(tr("Open folder"), QDialogButtonBox::ActionRole);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(this, &QDialog::finished, &m_updater, &ReleaseUpdater::cancel);
-    connect(m_check, &QPushButton::clicked, &m_updater, &ReleaseUpdater::check);
-    connect(m_cancel, &QPushButton::clicked, &m_updater, &ReleaseUpdater::cancel);
+    connect(m_check, &QPushButton::clicked, m_updater, &ReleaseUpdater::check);
+    connect(m_cancel, &QPushButton::clicked, m_updater, &ReleaseUpdater::cancel);
+    connect(m_install, &QPushButton::clicked, m_updater, &ReleaseUpdater::install);
     connect(m_download, &QPushButton::clicked, this, [this]()
     {
         const QString path = QFileDialog::getSaveFileName(this, tr("Save qbutt update"),
-            QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)).filePath(m_updater.fileName()),
+            QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)).filePath(m_updater->fileName()),
             tr("ZIP archives (*.zip)"));
         if (!path.isEmpty())
-            m_updater.download(path);
+            m_updater->download(path);
     });
     connect(m_openFolder, &QPushButton::clicked, this, [this]()
     {
-        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(m_updater.savedPath()).absolutePath()));
+        QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(m_updater->savedPath()).absolutePath()));
     });
-    connect(&m_updater, &ReleaseUpdater::changed, this, &ReleaseUpdateDialog::refresh);
-    connect(&m_updater, &ReleaseUpdater::progress, this, [this](const qint64 received, const qint64 total)
+    connect(m_updater, &ReleaseUpdater::changed, this, &ReleaseUpdateDialog::refresh);
+    connect(m_updater, &ReleaseUpdater::progress, this, [this](const qint64 received, const qint64 total)
     {
         m_progress->setRange(0, 1000);
         m_progress->setValue(static_cast<int>(received * 1000 / total));
     });
-    m_updater.check();
+    refresh();
+    if (m_updater->state() == ReleaseUpdater::State::Idle)
+        QTimer::singleShot(0, m_updater, &ReleaseUpdater::check);
 }
 
 void ReleaseUpdateDialog::refresh()
 {
-    const auto state = m_updater.state();
+    const auto state = m_updater->state();
     const bool busy = (state == ReleaseUpdater::State::Checking) || (state == ReleaseUpdater::State::Downloading);
-    m_status->setText(m_updater.message());
+    const bool installing = state == ReleaseUpdater::State::Installing;
+    const bool installed = m_updater->isInstalled();
+    m_status->setText(m_updater->message());
+    m_check->setVisible(!installing && !(installed && (state == ReleaseUpdater::State::Ready)));
     m_check->setEnabled(!busy);
+    m_download->setVisible(!installed);
     m_download->setEnabled(state == ReleaseUpdater::State::Available);
+    m_install->setVisible(installed && (state == ReleaseUpdater::State::Ready));
     m_cancel->setVisible(busy);
     m_cancel->setText(state == ReleaseUpdater::State::Checking ? tr("Cancel check") : tr("Cancel download"));
-    m_openFolder->setVisible(state == ReleaseUpdater::State::Ready);
+    m_openFolder->setVisible(!installed && (state == ReleaseUpdater::State::Ready));
     m_progress->setVisible(busy);
     m_progress->setRange(0, 0);
 }

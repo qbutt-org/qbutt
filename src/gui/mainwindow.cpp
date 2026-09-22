@@ -45,6 +45,7 @@
 #include <QFileSystemWatcher>
 #include <QLabel>
 #include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QMimeData>
@@ -55,6 +56,7 @@
 #include <QStatusBar>
 #include <QString>
 #include <QTimer>
+#include <QToolButton>
 
 #ifdef Q_OS_WIN
 #include <QCryptographicHash>
@@ -326,11 +328,28 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     connect(m_ui->actionMinimize, &QAction::triggered, this, &MainWindow::minimizeWindow);
     connect(m_ui->actionUseAlternativeSpeedLimits, &QAction::triggered, this, &MainWindow::toggleAlternativeSpeeds);
 
-    connect(m_ui->actionUpdateStatus, &QAction::triggered, this, [this]()
+    m_releaseUpdater = new ReleaseUpdater(this);
+    auto *installUpdate = new QToolButton(this);
+    installUpdate->setObjectName(u"releaseInstallButton"_s);
+    installUpdate->setText(tr("Update and restart"));
+    installUpdate->setAutoRaise(true);
+    m_ui->menubar->setCornerWidget(installUpdate, Qt::TopRightCorner);
+    installUpdate->hide();
+    connect(m_releaseUpdater, &ReleaseUpdater::changed, this, [this, installUpdate]()
     {
-        auto *dialog = new ReleaseUpdateDialog(this);
-        dialog->open();
+        installUpdate->setVisible(m_releaseUpdater->isInstalled()
+            && (m_releaseUpdater->state() == ReleaseUpdater::State::Ready));
+        installUpdate->setToolTip(tr("qbutt %1 is ready to install.").arg(m_releaseUpdater->version()));
     });
+    connect(installUpdate, &QToolButton::clicked, this, [this]()
+    {
+        if (!m_releaseUpdater->install())
+            showReleaseUpdateDialog();
+    });
+    connect(m_releaseUpdater, &ReleaseUpdater::installRequested, qApp, &QCoreApplication::quit);
+    connect(m_releaseUpdater, &ReleaseUpdater::installationFailed, this, &MainWindow::showReleaseUpdateDialog);
+    connect(m_ui->actionUpdateStatus, &QAction::triggered, this, &MainWindow::showReleaseUpdateDialog);
+    m_releaseUpdater->startAutomaticChecks();
 
     // Certain menu items should reside at specific places on macOS.
     // Qt partially does it on its own, but updates and different languages require tuning.
@@ -878,6 +897,17 @@ void MainWindow::cleanup()
     // remove all child widgets
     while (auto *w = findChild<QWidget *>())
         delete w;
+    delete m_releaseUpdater;
+    m_releaseUpdater = nullptr;
+}
+
+void MainWindow::showReleaseUpdateDialog()
+{
+    if (!m_releaseUpdateDialog)
+        m_releaseUpdateDialog = new ReleaseUpdateDialog(m_releaseUpdater, this);
+    m_releaseUpdateDialog->show();
+    m_releaseUpdateDialog->raise();
+    m_releaseUpdateDialog->activateWindow();
 }
 
 void MainWindow::loadSettings()
