@@ -82,6 +82,8 @@ private:
     QLabel *m_temporaryBytes = nullptr;
     QLabel *m_changedFiles = nullptr;
     QLabel *m_oversizedFiles = nullptr;
+    QWidget *m_results = nullptr;
+    QWidget *m_detailsSummary = nullptr;
     QProgressBar *m_progress = nullptr;
     QTableWidget *m_files = nullptr;
     QCheckBox *m_reviewed = nullptr;

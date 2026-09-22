@@ -19,6 +19,7 @@
 #include <QFormLayout>
 #include <QHeaderView>
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLocale>
 #include <QPlainTextEdit>
@@ -26,6 +27,7 @@
 #include <QPushButton>
 #include <QTextDocument>
 #include <QTimer>
+#include <QToolButton>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -44,12 +46,12 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
     , m_status {new QLabel {this}}
     , m_progress {new QProgressBar {this}}
     , m_files {new QTreeWidget {this}}
-    , m_consent {new QCheckBox {tr("I authorize this operation and have closed other programs that can write to the target."), this}}
+    , m_consent {new QCheckBox {tr("I have closed other programs that can change these files."), this}}
 {
     setObjectName(QStringLiteral("RepairDialog"));
     setWindowTitle(tr("Smart repair"));
     setWindowModality(Qt::WindowModal);
-    resize(880, 620);
+    resize(760, 0);
 
     auto *layout = new QVBoxLayout {this};
     auto *details = new QFormLayout;
@@ -63,33 +65,45 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
     location->setTextFormat(Qt::PlainText);
     location->setTextInteractionFlags(Qt::TextSelectableByMouse);
     location->setWordWrap(true);
-    details->addRow(tr("Target destination:"), location);
+    details->addRow(tr("Folder:"), location);
+    layout->addLayout(details);
+
+    auto *detailsToggle = new QToolButton {this};
+    detailsToggle->setObjectName(QStringLiteral("repairDetails"));
+    detailsToggle->setText(tr("Files and options"));
+    detailsToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    detailsToggle->setArrowType(Qt::RightArrow);
+    detailsToggle->setCheckable(true);
+    auto *optionsWidget = new QWidget {this};
+    auto *optionsLayout = new QVBoxLayout {optionsWidget};
+    optionsLayout->setContentsMargins(0, 0, 0, 0);
+    auto *settings = new QFormLayout;
     auto *mode = new QComboBox {this};
     mode->setObjectName(QStringLiteral("repairMode"));
-    mode->addItems({tr("Safe staged update"), tr("Repair in place, without rollback"), tr("Recover interrupted staged update")});
+    mode->addItems({tr("Repair a separate copy first"), tr("Change original files, without a backup"), tr("Resume interrupted repair")});
     if (options.mode == RepairDialogMode::RecoverStaged
         || QFileInfo::exists(BitTorrent::StagingOperation::journalPath(torrent->id().toString())))
         mode->setCurrentIndex(2);
     else if (options.mode == RepairDialogMode::InPlace)
         mode->setCurrentIndex(1);
-    details->addRow(tr("Operation:"), mode);
+    settings->addRow(tr("Repair method:"), mode);
     auto *roots = new QPlainTextEdit {this};
     roots->setObjectName(QStringLiteral("repairSourceRoots"));
-    roots->setPlaceholderText(tr("Optional source directories, one per line. Only these locations are searched."));
+    roots->setPlaceholderText(tr("Other folders to search, one per line"));
     roots->setMaximumHeight(64);
     roots->setPlainText(options.sourceRoots.join(u'\n'));
     m_sourceMappings = options.sourceMappings;
-    details->addRow(tr("Find existing data:"), roots);
-    auto *browse = new QPushButton {tr("Add source directory…"), this};
-    details->addRow(QString {}, browse);
-    auto *chooseSource = new QPushButton {tr("Choose source for selected target file…"), this};
-    details->addRow(QString {}, chooseSource);
+    settings->addRow(tr("Other folders:"), roots);
+    auto *browse = new QPushButton {tr("Add folder…"), this};
+    settings->addRow(QString {}, browse);
+    optionsLayout->addLayout(settings);
+    auto *chooseSource = new QPushButton {tr("Choose source for selected file…"), this};
     connect(chooseSource, &QPushButton::clicked, this, [this]
     {
         QTreeWidgetItem *item = m_files->currentItem();
         if (!item)
             return;
-        const QString source = QFileDialog::getOpenFileName(this, tr("Choose existing bytes for this target file"));
+        const QString source = QFileDialog::getOpenFileName(this, tr("Choose a source file"));
         if (source.isEmpty())
             return;
         m_sourceMappings.insert(item->data(0, Qt::UserRole).toInt(), QDir::fromNativeSeparators(source));
@@ -101,13 +115,12 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
         if (!source.isEmpty())
             roots->appendPlainText(QDir::fromNativeSeparators(source));
     });
-    layout->addLayout(details);
-
     m_status->setTextFormat(Qt::PlainText);
     m_status->setObjectName(QStringLiteral("repairStatus"));
     m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_status->setWordWrap(true);
-    m_status->setText(tr("Choose an operation and analyze the target torrent. Analysis does not change source data."));
+    m_status->setText((mode->currentIndex() == 2) ? tr("An interrupted repair is available to resume.")
+        : tr("Scanning does not change your files."));
     layout->addWidget(m_status);
 
     m_progress->setRange(0, 0);
@@ -125,7 +138,9 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
     m_files->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     for (int column = 1; column <= 3; ++column)
         m_files->header()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
-    layout->addWidget(m_files, 1);
+    m_files->setMinimumHeight(180);
+    optionsLayout->addWidget(m_files, 1);
+    optionsLayout->addWidget(chooseSource, 0, Qt::AlignLeft);
     for (int index = 0; index < torrent->filesCount(); ++index)
     {
         auto *item = new QTreeWidgetItem {m_files, {torrent->filePath(index).toString()
@@ -133,29 +148,44 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
         item->setData(0, Qt::UserRole, int(torrent->info().nativeIndexes().at(index)));
     }
 
-    auto *warning = new QLabel {tr("Safe update creates an independent target layout in staging and downloads selected missing data. Originals remain until explicit commit. "
-        "Commit replaces only selected torrent files, retaining originals as recoverable backups. "
-        "Repair in place writes directly and has no rollback. Files absent from the torrent are always preserved."), this};
-    warning->setWordWrap(true);
-    layout->addWidget(warning);
+    layout->addWidget(detailsToggle, 0, Qt::AlignLeft);
+    optionsWidget->hide();
+    layout->addWidget(optionsWidget);
+    connect(detailsToggle, &QToolButton::toggled, this, [this, optionsWidget, detailsToggle](const bool expanded)
+    {
+        optionsWidget->setVisible(expanded);
+        detailsToggle->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+        this->layout()->activate();
+        resize(width(), sizeHint().height());
+    });
     m_consent->setEnabled(false);
     m_consent->setObjectName(QStringLiteral("repairConsent"));
+    m_consent->hide();
     layout->addWidget(m_consent);
 
     auto *buttons = new QDialogButtonBox {QDialogButtonBox::Close, this};
-    auto *analyze = buttons->addButton(tr("Analyze"), QDialogButtonBox::ActionRole);
+    auto *analyze = buttons->addButton(tr("Scan files"), QDialogButtonBox::ActionRole);
     analyze->setObjectName(QStringLiteral("repairAnalyze"));
-    m_apply = buttons->addButton(tr("Prepare staging"), QDialogButtonBox::ActionRole);
+    m_apply = buttons->addButton(tr("Repair separate copy"), QDialogButtonBox::ActionRole);
     m_apply->setObjectName(QStringLiteral("repairPrepare"));
-    m_commit = buttons->addButton(tr("Commit verified update"), QDialogButtonBox::ActionRole);
+    m_commit = buttons->addButton(tr("Replace originals"), QDialogButtonBox::ActionRole);
     m_commit->setObjectName(QStringLiteral("repairCommit"));
-    m_rollback = buttons->addButton(tr("Roll back"), QDialogButtonBox::ActionRole);
+    m_rollback = buttons->addButton(tr("Restore originals"), QDialogButtonBox::ActionRole);
     m_rollback->setObjectName(QStringLiteral("repairRollback"));
     m_commit->setEnabled(false);
     m_rollback->setEnabled(false);
     m_apply->setEnabled(false);
     m_apply->setAutoDefault(false);
-    buttons->button(QDialogButtonBox::Close)->setDefault(true);
+    m_apply->hide();
+    m_commit->hide();
+    m_rollback->hide();
+    analyze->setDefault(true);
+    connect(mode, &QComboBox::currentIndexChanged, this, [analyze, mode]
+    {
+        analyze->setText((mode->currentIndex() == 2) ? tr("Resume repair") : tr("Scan files"));
+    });
+    if (mode->currentIndex() == 2)
+        analyze->setText(tr("Resume repair"));
     layout->addWidget(buttons);
 
     const auto updateSources = [this, mode, roots, browse, chooseSource]
@@ -172,21 +202,24 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_consent, &QCheckBox::toggled, this, [this](const bool consent)
     {
-        m_apply->setEnabled(consent && (!m_staged || m_stagingStatus.value(QStringLiteral("can_prepare")).toBool()));
-        m_commit->setEnabled(consent && m_stagingStatus.value(QStringLiteral("can_commit")).toBool());
-        m_rollback->setEnabled(consent && m_stagingStatus.value(QStringLiteral("can_rollback")).toBool());
+        const QJsonObject status = m_service->stagingStatus();
+        m_apply->setEnabled(consent && (!m_staged || status.value(QStringLiteral("can_prepare")).toBool()));
+        m_commit->setEnabled(consent && status.value(QStringLiteral("can_commit")).toBool());
+        m_rollback->setEnabled(consent && status.value(QStringLiteral("can_rollback")).toBool());
     });
     connect(analyze, &QPushButton::clicked, this, [this, mode, roots, analyze, updateSources]
     {
         mode->setEnabled(false);
         updateSources();
         analyze->setEnabled(false);
+        analyze->hide();
         m_progress->show();
         m_staged = mode->currentIndex() != 1;
-        m_apply->setText(m_staged ? tr("Prepare / resume staging") : tr("Repair in place and recheck"));
+        m_status->setText(tr("Scanning files…"));
+        m_apply->setText(m_staged ? tr("Repair separate copy") : tr("Repair original files"));
         if (!m_staged)
         {
-            m_consent->setText(tr("I closed other writers and consent to repair in place without rollback."));
+            m_consent->setText(tr("Other writers are closed. I allow changes without a backup."));
             m_service->analyze();
         }
         else if (mode->currentIndex() == 2)
@@ -203,8 +236,10 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
         m_apply->setEnabled(false);
         m_consent->setEnabled(false);
         m_progress->show();
-        m_status->setText(m_staged ? tr("Copying candidates into independent staging, then checking and downloading with the torrent engine…")
-            : tr("Preparing files for an in-place repair and starting the torrent recheck…"));
+        m_apply->hide();
+        m_consent->hide();
+        m_status->setText(m_staged ? tr("Repairing a separate copy. Originals stay unchanged until you confirm replacement.")
+            : tr("Repairing original files…"));
         if (m_staged)
             m_service->prepareStaged();
         else
@@ -218,48 +253,65 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
     connect(m_service, &BitTorrent::RepairService::failed, this, &RepairDialog::showFailure);
     connect(m_service, &BitTorrent::RepairService::recheckStarted, this, [this]()
     {
-        m_status->setText(m_staged ? tr("Checking staging before downloading. Closing this dialog stops the operation and retains its recovery journal.")
-            : tr("Checking the prepared data. Closing this dialog cancels the recheck."));
+        m_status->setText(m_staged ? tr("Checking the separate copy before downloading. Close to pause; you can resume later.")
+            : tr("Checking repaired files. Closing this window cancels the check."));
     });
     connect(m_service, &BitTorrent::RepairService::recheckFinished, this, [this]()
     {
         m_progress->hide();
-        m_status->setText(tr("Recheck finished. The torrent is stopped. "
-            "Close this dialog and use Start to download any missing data."));
+        m_status->setText(tr("Check complete. Use Start in the torrent list to download any missing data."));
     });
 
     connect(m_service, &BitTorrent::RepairService::stagingChanged, this, [this](const QJsonObject &status)
     {
-        m_stagingStatus = status;
         const QString state = status.value(QStringLiteral("state")).toString();
-        m_progress->setVisible((state == u"downloading") || (!status.value(QStringLiteral("finalized")).toBool()
-            && !status.value(QStringLiteral("can_prepare")).toBool() && !status.value(QStringLiteral("can_commit")).toBool()
-            && !status.value(QStringLiteral("can_rollback")).toBool()));
+        const bool canPrepare = status.value(QStringLiteral("can_prepare")).toBool();
+        const bool canCommit = status.value(QStringLiteral("can_commit")).toBool();
+        const bool canRollback = status.value(QStringLiteral("can_rollback")).toBool();
+        m_progress->setVisible(((state == u"downloading") && !canPrepare)
+            || (!status.value(QStringLiteral("finalized")).toBool() && !canPrepare && !canCommit && !canRollback));
         m_consent->setChecked(false);
-        m_consent->setEnabled(status.value(QStringLiteral("can_prepare")).toBool() || status.value(QStringLiteral("can_commit")).toBool()
-            || status.value(QStringLiteral("can_rollback")).toBool());
-        if ((state == u"planned") && status.value(QStringLiteral("can_prepare")).toBool())
+        m_consent->setEnabled(canPrepare || canCommit || canRollback);
+        m_consent->setVisible(m_consent->isEnabled());
+        m_apply->setVisible(canPrepare);
+        m_commit->setVisible(canCommit);
+        m_rollback->setVisible(canRollback);
+        m_apply->setEnabled(false);
+        m_commit->setEnabled(false);
+        m_rollback->setEnabled(false);
+        m_consent->setText(canCommit ? tr("Other writers are closed. I allow replacing the originals and keeping a backup.")
+            : tr("I have closed other programs that can change these files."));
+        m_status->setToolTip(tr("Recovery files: %1").arg(status.value(QStringLiteral("payload_path")).toString()));
+        if ((state == u"planned") && canPrepare)
         {
-            m_status->setText(m_status->text() + tr("\nIndependent staging requires %L1 additional bytes; %L2 bytes are available.")
-                .arg(status.value(QStringLiteral("required_bytes")).toString().toLongLong())
-                .arg(status.value(QStringLiteral("available_bytes")).toString().toLongLong()));
+            m_status->setText(m_status->text() + tr("\nThe separate copy needs %1 of extra space; %2 is available. Originals stay unchanged until replacement.")
+                .arg(locale().formattedDataSize(status.value(QStringLiteral("required_bytes")).toString().toLongLong())
+                    , locale().formattedDataSize(status.value(QStringLiteral("available_bytes")).toString().toLongLong())));
         }
-        else if (state == u"ready_to_commit")
+        else if (canCommit)
         {
-            m_status->setText(tr("Every selected target hash and exact file size is verified. Close other writers and confirm commit, or roll back."));
+            m_status->setText(tr("The repaired copy is verified and ready to replace the originals. A backup will be kept."));
         }
         else if ((state == u"committed") && status.value(QStringLiteral("finalized")).toBool())
         {
-            m_status->setText(tr("Verified update committed. The torrent is stopped at the destination. Original files remain in the staging backup directory."));
+            m_status->setText(tr("Repair complete. The original files are kept in the backup folder."));
         }
         else if ((state == u"rolled_back") && status.value(QStringLiteral("finalized")).toBool())
         {
-            m_status->setText(tr("Rollback completed. Original target files are restored; independent staged data and unknown files are preserved."));
+            m_status->setText(tr("Original files restored. The separate copy is kept."));
+        }
+        else if (state == u"downloading")
+        {
+            m_status->setText(canPrepare ? tr("The separate copy is ready to resume repair.")
+                : tr("Downloading and checking the separate copy. Close to pause; you can resume later."));
+        }
+        else if (canRollback)
+        {
+            m_status->setText(tr("Repair was interrupted. Restore the original files to continue."));
         }
         else
         {
-            m_status->setText(tr("Staged operation: %1. Recovery data is retained at %2.")
-                .arg(state, status.value(QStringLiteral("payload_path")).toString()));
+            m_status->setText(tr("Finishing file changes…"));
         }
     });
     connect(m_commit, &QPushButton::clicked, this, [this]
@@ -267,6 +319,11 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
         m_commit->setEnabled(false);
         m_rollback->setEnabled(false);
         m_consent->setEnabled(false);
+        m_consent->hide();
+        m_commit->hide();
+        m_rollback->hide();
+        m_progress->show();
+        m_status->setText(tr("Replacing original files…"));
         m_service->commitStaged();
     });
     connect(m_rollback, &QPushButton::clicked, this, [this]
@@ -274,13 +331,18 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
         m_commit->setEnabled(false);
         m_rollback->setEnabled(false);
         m_consent->setEnabled(false);
+        m_consent->hide();
+        m_commit->hide();
+        m_rollback->hide();
+        m_progress->show();
+        m_status->setText(tr("Restoring original files…"));
         m_service->rollbackStaged();
     });
     if (torrent->state() == BitTorrent::TorrentState::CheckingResumeData)
     {
         analyze->setEnabled(false);
         m_progress->show();
-        m_status->setText(tr("Waiting for torrent initialization before analyzing existing data…"));
+        m_status->setText(tr("Preparing to scan…"));
         m_initializationConnection = connect(torrent->session(), &BitTorrent::Session::torrentsUpdated, this
             , [this, hash = torrent->infoHash(), analyze, immediately = options.analyzeImmediately]
         {
@@ -295,7 +357,7 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
                 return;
             }
             analyze->setEnabled(true);
-            m_status->setText(tr("Ready to analyze existing data."));
+            m_status->setText(tr("Scanning does not change your files."));
             if (immediately)
                 analyze->click();
         });
@@ -334,12 +396,16 @@ void RepairDialog::showAnalysis(const BitTorrent::RepairAnalysis &analysis, cons
             item->setTextAlignment(column, Qt::AlignRight | Qt::AlignVCenter);
     }
 
-    QString summary = tr("Verified %L1 of %L2 bytes. %L3 valid pieces; %L4 unverified pieces.")
-        .arg(analysis.verifiedBytes).arg(analysis.expectedBytes).arg(analysis.validPieces).arg(analysis.unverifiedPieces);
+    QString summary = tr("Reusable: %1 of %2.")
+        .arg(locale().formattedDataSize(analysis.verifiedBytes), locale().formattedDataSize(analysis.expectedBytes));
     if (analysis.wholeFileV2Verification)
-        summary += tr("\nVerification used v2 whole-file roots; partial files require the torrent recheck.");
+        summary += tr("\nPartial files need another check before downloading.");
+    if (!m_staged)
+        summary += tr("\nRepair will change the original files without a backup.");
     m_status->setText(summary);
     m_consent->setEnabled(true);
+    m_consent->show();
+    m_apply->show();
 }
 
 void RepairDialog::showFailure(const QString &message)
@@ -348,5 +414,9 @@ void RepairDialog::showFailure(const QString &message)
     m_consent->setChecked(false);
     m_consent->setEnabled(false);
     m_apply->setEnabled(false);
+    m_apply->hide();
+    m_commit->hide();
+    m_rollback->hide();
+    m_consent->hide();
     m_status->setText(tr("Repair cannot continue: %1").arg(message));
 }

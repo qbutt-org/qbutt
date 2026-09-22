@@ -11,7 +11,6 @@
 #pragma once
 
 #include <QDialog>
-#include <QJsonObject>
 #include <QMap>
 #include <QStringList>
 
@@ -64,7 +63,6 @@ private:
     QPushButton *m_commit = nullptr;
     QPushButton *m_rollback = nullptr;
     bool m_staged = true;
-    QJsonObject m_stagingStatus;
     QMap<int, QString> m_sourceMappings;
     QMetaObject::Connection m_initializationConnection;
 };

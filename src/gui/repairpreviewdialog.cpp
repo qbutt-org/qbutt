@@ -29,6 +29,7 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QTableWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QtConcurrentRun>
 
@@ -61,69 +62,86 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
     , m_oversizedFiles {new QLabel {this}}
     , m_progress {new QProgressBar {this}}
     , m_files {new QTableWidget {this}}
-    , m_reviewed {new QCheckBox {tr("I reviewed the mappings and allow adding a stopped job and creating missing empty target files."), this}}
+    , m_reviewed {new QCheckBox {tr("Allow adding the torrent and creating any missing empty files."), this}}
 {
     setObjectName(u"RepairPreviewDialog"_s);
     setWindowTitle(tr("Smart repair from torrent file"));
     setWindowModality(Qt::WindowModal);
-    resize(1040, 720);
+    resize(760, 0);
     m_worker.setMaxThreadCount(1);
 
     auto *layout = new QVBoxLayout {this};
-    auto *introduction = new QLabel {tr("Select a .torrent and the parent directory where its paths belong. "
-        "Select the files to repair before running the preview. Adjacent files may be read to verify shared pieces. "
-        "It does not add a torrent, create resume data, truncate files or start a download."), this};
-    introduction->setWordWrap(true);
-    layout->addWidget(introduction);
-
     m_torrentFile->setObjectName(u"repairPreviewTorrent"_s);
     m_torrentFile->setMode(FileSystemPathEdit::Mode::FileOpen);
     m_torrentFile->setDialogCaption(tr("Choose target torrent"));
     m_torrentFile->setFileNameFilter(tr("Torrent files (*.torrent)"));
     m_destination->setObjectName(u"repairPreviewDestination"_s);
     m_destination->setMode(FileSystemPathEdit::Mode::DirectoryOpen);
-    m_destination->setDialogCaption(tr("Choose target parent directory"));
+    m_destination->setDialogCaption(tr("Choose the folder containing the torrent's files"));
+    m_destination->setToolTip(tr("The parent folder for the paths listed in the torrent."));
     m_sourceDirectories->setObjectName(u"repairPreviewRoots"_s);
-    m_sourceDirectories->setPlaceholderText(tr("Optional source directories, one per line. No other locations are searched."));
+    m_sourceDirectories->setPlaceholderText(tr("Other folders to search, one per line"));
     m_sourceDirectories->setMaximumHeight(70);
     m_mode->setObjectName(u"repairPreviewMode"_s);
-    m_mode->addItems({tr("Safe staged update"), tr("Repair in place, without rollback")});
+    m_mode->addItems({tr("Repair a separate copy first"), tr("Change original files, without a backup")});
     auto *sources = new QFormLayout;
     sources->setRowWrapPolicy(QFormLayout::DontWrapRows);
-    sources->addRow(tr("Target .torrent:"), m_torrentFile);
-    sources->addRow(tr("Target parent directory:"), m_destination);
-    sources->addRow(tr("Find existing data:"), m_sourceDirectories);
-    m_addSourceDirectory = new QPushButton {tr("Add source directory…"), this};
-    m_addSourceDirectory->setObjectName(u"repairPreviewAddRoot"_s);
-    sources->addRow(QString {}, m_addSourceDirectory);
-    sources->addRow(tr("Operation after preview:"), m_mode);
+    sources->addRow(tr("Torrent:"), m_torrentFile);
+    sources->addRow(tr("Folder:"), m_destination);
     layout->addLayout(sources);
 
     m_status->setObjectName(u"repairPreviewStatus"_s);
     m_status->setTextFormat(Qt::PlainText);
     m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_status->setWordWrap(true);
-    m_status->setText(tr("Choose the target torrent and directory, then run a read-only preview."));
+    m_status->setText(tr("Scanning does not change your files."));
     layout->addWidget(m_status);
     m_progress->setObjectName(u"repairPreviewProgress"_s);
     m_progress->setRange(0, 0);
     m_progress->setTextVisible(false);
     layout->addWidget(m_progress);
 
-    for (auto [label, name, value] : {
-        std::tuple {tr("Selected candidate bytes found:"), u"repairPreviewCandidates"_s, m_candidateBytes},
-        std::tuple {tr("Selected verified bytes reusable:"), u"repairPreviewVerified"_s, m_verifiedBytes},
-        std::tuple {tr("Selected payload required from network:"), u"repairPreviewNetwork"_s, m_networkBytes},
-        std::tuple {tr("Temporary space for safe staging:"), u"repairPreviewTemporary"_s, m_temporaryBytes},
-        std::tuple {tr("Selected files needing data or size repair:"), u"repairPreviewChanged"_s, m_changedFiles},
-        std::tuple {tr("Selected files with extra tails:"), u"repairPreviewOversized"_s, m_oversizedFiles}})
+    m_results = new QWidget {this};
+    m_results->setObjectName(u"repairPreviewResults"_s);
+    auto *results = new QFormLayout {m_results};
+    results->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(m_results);
+
+    auto *detailsToggle = new QToolButton {this};
+    detailsToggle->setObjectName(u"repairPreviewDetails"_s);
+    detailsToggle->setText(tr("Files and options"));
+    detailsToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    detailsToggle->setArrowType(Qt::RightArrow);
+    detailsToggle->setCheckable(true);
+    layout->addWidget(detailsToggle, 0, Qt::AlignLeft);
+    auto *details = new QWidget {this};
+    auto *detailsLayout = new QVBoxLayout {details};
+    detailsLayout->setContentsMargins(0, 0, 0, 0);
+    auto *options = new QFormLayout;
+    options->addRow(tr("Repair method:"), m_mode);
+    options->addRow(tr("Other folders:"), m_sourceDirectories);
+    m_addSourceDirectory = new QPushButton {tr("Add folder…"), this};
+    m_addSourceDirectory->setObjectName(u"repairPreviewAddRoot"_s);
+    options->addRow(QString {}, m_addSourceDirectory);
+    detailsLayout->addLayout(options);
+    m_detailsSummary = new QWidget {details};
+    auto *detailsSummary = new QFormLayout {m_detailsSummary};
+    detailsSummary->setContentsMargins(0, 0, 0, 0);
+    for (auto [label, name, value, target] : {
+        std::tuple {tr("Reusable:"), u"repairPreviewVerified"_s, m_verifiedBytes, results},
+        std::tuple {tr("To download:"), u"repairPreviewNetwork"_s, m_networkBytes, results},
+        std::tuple {tr("Data found:"), u"repairPreviewCandidates"_s, m_candidateBytes, detailsSummary},
+        std::tuple {tr("Extra space:"), u"repairPreviewTemporary"_s, m_temporaryBytes, detailsSummary},
+        std::tuple {tr("Files to repair:"), u"repairPreviewChanged"_s, m_changedFiles, detailsSummary},
+        std::tuple {tr("Oversized files:"), u"repairPreviewOversized"_s, m_oversizedFiles, detailsSummary}})
     {
         value->setObjectName(name);
         value->setTextInteractionFlags(Qt::TextSelectableByMouse);
         value->setWordWrap(true);
         value->setText(tr("Not analyzed"));
-        sources->addRow(label, value);
+        target->addRow(label, value);
     }
+    detailsLayout->addWidget(m_detailsSummary);
 
     m_files->setObjectName(u"repairPreviewFiles"_s);
     m_files->setColumnCount(6);
@@ -138,23 +156,28 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
     m_files->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
     for (int column = 2; column < 6; ++column)
         m_files->horizontalHeader()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
-    layout->addWidget(m_files, 1);
-
-    auto *mappingNotice = new QLabel {tr("Every chosen source is shown above before any write. Candidate bytes are only data found for checking; "
-        "only hash-verified bytes count as reusable. Network bytes are target payload and exclude protocol or duplicate traffic. "
-        "Staging space includes the full layout needed for shared pieces. Ignored files are not committed or repaired; "
-        "a later download may store shared boundary bytes in them. Files outside the torrent manifest are preserved."), this};
-    mappingNotice->setWordWrap(true);
-    layout->addWidget(mappingNotice);
+    m_files->setMinimumHeight(180);
+    detailsLayout->addWidget(m_files, 1);
+    m_chooseSource = new QPushButton {tr("Choose source for selected file…"), this};
+    m_chooseSource->setObjectName(u"repairPreviewChooseSource"_s);
+    detailsLayout->addWidget(m_chooseSource, 0, Qt::AlignLeft);
+    details->hide();
+    layout->addWidget(details);
+    connect(detailsToggle, &QToolButton::toggled, this, [this, details, detailsToggle](const bool expanded)
+    {
+        details->setVisible(expanded);
+        detailsToggle->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+        this->layout()->activate();
+        resize(width(), sizeHint().height());
+    });
     m_reviewed->setObjectName(u"repairPreviewReviewed"_s);
     layout->addWidget(m_reviewed);
 
     auto *buttons = new QDialogButtonBox {QDialogButtonBox::Close, this};
-    m_chooseSource = buttons->addButton(tr("Choose source for selected target…"), QDialogButtonBox::ActionRole);
-    m_chooseSource->setObjectName(u"repairPreviewChooseSource"_s);
-    m_previewButton = buttons->addButton(tr("Preview without changes"), QDialogButtonBox::ActionRole);
+    m_previewButton = buttons->addButton(tr("Scan files"), QDialogButtonBox::ActionRole);
     m_previewButton->setObjectName(u"repairPreviewAnalyze"_s);
-    m_applyButton = buttons->addButton(tr("Add stopped and continue"), QDialogButtonBox::ActionRole);
+    m_previewButton->setDefault(true);
+    m_applyButton = buttons->addButton(tr("Continue"), QDialogButtonBox::ActionRole);
     m_applyButton->setObjectName(u"repairPreviewApply"_s);
     m_applyButton->setAutoDefault(false);
     m_closeButton = buttons->button(QDialogButtonBox::Close);
@@ -198,7 +221,7 @@ RepairPreviewDialog::RepairPreviewDialog(QWidget *parent)
         else if (!m_closePending)
         {
             m_plan.reset();
-            m_status->setText(tr("Preview refused: %1").arg(plan.error));
+            m_status->setText(tr("Scan failed: %1").arg(plan.error));
         }
         updateControls();
         if (m_closePending)
@@ -220,7 +243,7 @@ void RepairPreviewDialog::reject()
     {
         m_closePending = true;
         m_cancelled->store(true, std::memory_order_relaxed);
-        m_status->setText(tr("Cancelling the read-only preview…"));
+        m_status->setText(tr("Cancelling scan…"));
         updateControls();
         return;
     }
@@ -251,8 +274,8 @@ void RepairPreviewDialog::clearPreview()
     }
     for (QLabel *value : {m_candidateBytes, m_verifiedBytes, m_networkBytes, m_temporaryBytes, m_changedFiles, m_oversizedFiles})
         value->setText(tr("Not analyzed"));
-    m_status->setText(selectedFiles().isEmpty() ? tr("Select at least one file to analyze and repair.")
-        : tr("Choose the target directory, review the selected files, then run a read-only preview."));
+    m_status->setText(m_descriptor && selectedFiles().isEmpty() ? tr("Select at least one file in Files and options.")
+        : tr("Scanning does not change your files."));
     updateControls();
 }
 
@@ -310,7 +333,7 @@ void RepairPreviewDialog::preview()
     const QString destination = QDir::cleanPath(QDir::fromNativeSeparators(m_destination->selectedPath().toString()));
     if (!QDir::isAbsolutePath(destination) || !QFileInfo(destination).isDir())
     {
-        m_status->setText(tr("Choose an existing ordinary target parent directory."));
+        m_status->setText(tr("Choose an existing folder for the torrent's files."));
         return;
     }
     const QStringList roots = (m_mode->currentIndex() == 0) ? sourceRoots() : QStringList {};
@@ -318,7 +341,7 @@ void RepairPreviewDialog::preview()
     {
         if (!QDir::isAbsolutePath(root) || !QFileInfo(root).isDir())
         {
-            m_status->setText(tr("Every source directory must be an existing absolute directory."));
+            m_status->setText(tr("Each source folder must exist and have an absolute path."));
             return;
         }
     }
@@ -327,7 +350,7 @@ void RepairPreviewDialog::preview()
     const lt::file_storage files = target->files();
     m_operation = Operation::Preview;
     m_cancelled = std::make_shared<std::atomic_bool>(false);
-    m_status->setText(tr("Checking selected paths and torrent hashes. No files are changed."));
+    m_status->setText(tr("Scanning files…"));
     updateControls();
     const QMap<int, QString> mappings = (m_mode->currentIndex() == 0) ? m_explicitMappings : QMap<int, QString> {};
     m_previewWatcher.setFuture(QtConcurrent::run(&m_worker, [target, files, destination, roots
@@ -342,12 +365,12 @@ void RepairPreviewDialog::chooseSource()
     if ((m_operation != Operation::Idle) || (m_files->currentRow() < 0))
         return;
     const int nativeIndex = m_files->item(m_files->currentRow(), 0)->data(Qt::UserRole).toInt();
-    const QString source = QFileDialog::getOpenFileName(this, tr("Choose existing bytes for this target file"));
+    const QString source = QFileDialog::getOpenFileName(this, tr("Choose a source file"));
     if (source.isEmpty())
         return;
     m_explicitMappings.insert(nativeIndex, QDir::cleanPath(QDir::fromNativeSeparators(source)));
     clearPreview();
-    m_status->setText(tr("The source mapping changed. Run the read-only preview again."));
+    m_status->setText(tr("Source changed. Scan again to update the results."));
 }
 
 void RepairPreviewDialog::showPreview()
@@ -381,10 +404,9 @@ void RepairPreviewDialog::showPreview()
         .arg(formatBytes(m_plan->temporaryStorageBytes), formatBytes(m_plan->availableStorageBytes)));
     m_changedFiles->setText(locale().toString(m_plan->changedFiles));
     m_oversizedFiles->setText(locale().toString(m_plan->oversizedFiles));
-    const QString firstTarget = m_plan->files.isEmpty() ? QString {} : QDir(m_destination->selectedPath().toString())
-        .filePath(m_plan->files.constFirst().targetPath);
-    m_status->setText(tr("Read-only preview complete. First resolved target: %1\n"
-        "Mappings will be checked again under exclusive repair ownership before any payload write.").arg(firstTarget));
+    m_status->setText((m_mode->currentIndex() == 0)
+        ? tr("Repair a separate copy first. Originals stay unchanged until you confirm replacement.")
+        : tr("Original files will be changed without a backup. You will confirm this before repair starts."));
     m_reviewed->setChecked(false);
 }
 
@@ -395,7 +417,8 @@ void RepairPreviewDialog::startRepair()
         return;
     if ((m_mode->currentIndex() == 0) && (m_plan->temporaryStorageBytes > m_plan->availableStorageBytes))
     {
-        m_status->setText(tr("Safe staging does not have enough temporary space. Choose another destination or explicitly select in-place repair."));
+        m_status->setText(tr("Not enough space for a separate copy: %1 needed, %2 available. Choose another folder.")
+            .arg(locale().formattedDataSize(m_plan->temporaryStorageBytes), locale().formattedDataSize(m_plan->availableStorageBytes)));
         return;
     }
     Session *session = Session::instance();
@@ -452,7 +475,7 @@ void RepairPreviewDialog::startRepair()
         updateControls();
     });
     m_operation = Operation::Adding;
-    m_status->setText(tr("Adding a stopped, manually managed repair job. Initialization may create missing empty target files; existing files are preserved. No payload download is started."));
+    m_status->setText(tr("Adding the torrent…"));
     updateControls();
     if (!session->addTorrent(*m_descriptor, params))
     {
@@ -476,6 +499,11 @@ void RepairPreviewDialog::updateControls()
     m_mode->setEnabled(idle);
     m_files->setEnabled(idle);
     m_progress->setVisible(!idle);
+    m_results->setVisible(m_plan.has_value());
+    m_detailsSummary->setVisible(m_plan.has_value());
+    m_reviewed->setVisible(m_plan.has_value());
+    m_applyButton->setVisible(m_plan.has_value());
+    m_previewButton->setText(m_plan ? tr("Scan again") : tr("Scan files"));
     m_previewButton->setEnabled(idle && m_descriptor.has_value() && !selectedFiles().isEmpty()
         && m_destination->selectedPath().isAbsolute());
     m_chooseSource->setEnabled(idle && staged && (m_files->currentRow() >= 0));
