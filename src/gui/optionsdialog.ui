@@ -1214,6 +1214,13 @@
              </widget>
             </item>
             <item>
+             <widget class="QCheckBox" name="checkAutoRemoveCompletedTorrents">
+              <property name="text">
+               <string>Remove torrents from the list after download (keep files)</string>
+              </property>
+             </widget>
+            </item>
+            <item>
              <widget class="QGroupBox" name="groupSavingManagement">
               <property name="title">
                <string>Saving Management</string>

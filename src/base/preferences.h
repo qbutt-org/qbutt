@@ -145,6 +145,8 @@ public:
 #endif
 
     // Downloads
+    bool isAutoRemoveCompletedTorrentsEnabled() const;
+    void setAutoRemoveCompletedTorrentsEnabled(bool enabled);
     Path getScanDirsLastPath() const;
     void setScanDirsLastPath(const Path &path);
     bool isMailNotificationEnabled() const;

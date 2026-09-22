@@ -25,6 +25,7 @@
 #include "base/global.h"
 #include "base/logger.h"
 #include "base/path.h"
+#include "base/preferences.h"
 #include "base/profile.h"
 #include "downloadpriority.h"
 #include "sessionimpl.h"
@@ -433,7 +434,15 @@ void CompletionPolicy::finish(bool success)
     QJsonArray claims;
     if (success && !torrent->isCompletionPolicyPreview())
     {
-        for (const QJsonValue &value : (m_configuration[u"enabled"_s].toBool() ? evaluate(torrent, m_configuration) : QJsonArray()))
+        QJsonArray rules = m_configuration[u"enabled"_s].toBool() ? m_configuration[u"rules"_s].toArray() : QJsonArray();
+        // Apply the simple download option only to new completion events. An
+        // explicit terminal action in the user's rules takes precedence.
+        if (notifyFinished && Preferences::instance()->isAutoRemoveCompletedTorrentsEnabled())
+        {
+            rules.append(QJsonObject {{u"id"_s, u"qbutt-auto-remove-completed"_s}, {u"enabled"_s, true}
+                , {u"match"_s, QJsonObject()}, {u"actions"_s, QJsonArray {u"remove_torrent"_s}}});
+        }
+        for (const QJsonValue &value : evaluate(torrent, {{u"rules"_s, rules}}))
         {
             QJsonObject claim = value.toObject();
             if (claim[u"already_claimed"_s].toBool())

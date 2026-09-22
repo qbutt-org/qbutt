@@ -490,6 +490,19 @@ void Preferences::setStyle(const QString &styleName)
 }
 
 // Downloads
+bool Preferences::isAutoRemoveCompletedTorrentsEnabled() const
+{
+    return value(u"Preferences/Downloads/AutoRemoveCompletedTorrents"_s, false);
+}
+
+void Preferences::setAutoRemoveCompletedTorrentsEnabled(const bool enabled)
+{
+    if (enabled == isAutoRemoveCompletedTorrentsEnabled())
+        return;
+
+    setValue(u"Preferences/Downloads/AutoRemoveCompletedTorrents"_s, enabled);
+}
+
 Path Preferences::getScanDirsLastPath() const
 {
     return value<Path>(u"Preferences/Downloads/ScanDirsLastPath"_s);

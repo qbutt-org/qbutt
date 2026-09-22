@@ -7798,6 +7798,10 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
 <context>
     <name>OptionsDialog</name>
     <message>
+        <source>Remove torrents from the list after download (keep files)</source>
+        <translation>Удалять торренты из списка после загрузки (файлы сохраняются)</translation>
+    </message>
+    <message>
         <location filename="../gui/optionsdialog.ui" line="14"/>
         <source>Options</source>
         <translation>Настройки</translation>
