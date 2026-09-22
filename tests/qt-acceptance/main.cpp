@@ -44,6 +44,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QNetworkInterface>
+#include <QNetworkProxy>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -58,6 +59,8 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QStandardPaths>
+#include <QSslCertificate>
+#include <QSslConfiguration>
 #include <QStyle>
 #include <QTableWidget>
 #include <QTabWidget>
@@ -86,6 +89,7 @@
 #include "base/net/pathmanager.h"
 #include "base/path.h"
 #include "base/preferences.h"
+#include "base/releaseupdater.h"
 #include "base/torrentfilter.h"
 #include "base/torrentfileswatcher.h"
 #include "gui/addnewtorrentdialog.h"
@@ -100,10 +104,12 @@
 #include "gui/properties/proptabbar.h"
 #include "gui/repairdialog.h"
 #include "gui/repairpreviewdialog.h"
+#include "gui/releaseupdatedialog.h"
 #include "gui/transferlistmodel.h"
 #include "gui/transferlistsortmodel.h"
 #include "gui/transferlistwidget.h"
 #include "gui/uithememanager.h"
+#include "update-registry.h"
 
 namespace Net
 {
@@ -1975,10 +1981,74 @@ namespace
         addCheck(evidence, {{u"name"_s, u"auto-open"_s}, {u"handoffs"_s, handoffs}, {u"sourceLocked"_s, sourceLocked}});
     }
 
+    void exerciseInstalledUpdate(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
+    {
+        QCoreApplication::setOrganizationName(spec.value(u"cacheOrganization"_s).toString());
+        ReleaseUpdater *updater = window->findChild<ReleaseUpdater *>();
+        auto *button = requiredChild<QToolButton>(window, u"releaseInstallButton"_s);
+        require(updater && updater->isInstalled() && !button->isVisible(), u"Installed update did not start quietly"_s);
+        auto *session = BitTorrent::Session::instance();
+        const auto descriptor = BitTorrent::TorrentDescriptor::loadFromFile(Path(spec.value(u"torrentPath"_s).toString()));
+        require(bool(descriptor), u"Cannot read update fixture torrent"_s);
+        BitTorrent::AddTorrentParams params;
+        params.savePath = Path(spec.value(u"destination"_s).toString());
+        params.useAutoTMM = false;
+        params.addStopped = true;
+        require(session->addTorrent(*descriptor, params), u"Cannot add update fixture torrent"_s);
+        waitFor(u"Update fixture added"_s, [&] { return session->findTorrent(descriptor->infoHash()); });
+        auto *list = window->findChild<TransferListWidget *>();
+        require(list, u"Missing torrent list"_s);
+        list->header()->resizeSection(TransferListModel::TR_NAME, 317);
+        list->header()->moveSection(list->header()->visualIndex(TransferListModel::TR_AMOUNT_LEFT), 2);
+        window->resize(1100, 700);
+        window->show();
+        bool dialogClosedDuringDownload = false;
+        const auto observe = QObject::connect(updater, &ReleaseUpdater::changed, window, [&]
+        {
+            if ((updater->state() == ReleaseUpdater::State::Downloading) && !dialogClosedDuringDownload)
+            {
+                dialogClosedDuringDownload = true;
+                auto *dialog = new ReleaseUpdateDialog(updater, window);
+                dialog->show();
+                dialog->close();
+            }
+        });
+        waitFor(u"Background installer download"_s, [&]
+        {
+            return (updater->state() == ReleaseUpdater::State::Ready) || (updater->state() == ReleaseUpdater::State::Error);
+        }, 120000);
+        QObject::disconnect(observe);
+        require(updater->state() == ReleaseUpdater::State::Ready, updater->message());
+        require(dialogClosedDuringDownload && button->isVisible() && button->isEnabled(),
+            u"Background update did not expose the ready action"_s);
+        const QString screenshot = QDir(spec.value(u"screenshotDirectory"_s).toString()).filePath(u"update-ready.png"_s);
+        require(window->grab().save(screenshot), u"Cannot render update action"_s);
+        bool requested = false;
+        const auto handoff = QObject::connect(updater, &ReleaseUpdater::installRequested, window, [&] { requested = true; });
+        button->click();
+        waitFor(u"Installer readiness before app exit"_s, [&]
+        {
+            return requested || (updater->state() == ReleaseUpdater::State::Error);
+        }, 70000);
+        QObject::disconnect(handoff);
+        require(requested, updater->message());
+        addCheck(evidence, {{u"name"_s, u"installed-update"_s}, {u"automaticDownload"_s, true},
+            {u"closedDialogContinuedDownload"_s, true}, {u"mainAction"_s, button->text()},
+            {u"installerAcknowledged"_s, true}, {u"infoHash"_s, descriptor->infoHash().toString()},
+            {u"headerState"_s, QString::fromLatin1(list->header()->saveState().toBase64())},
+            {u"cacheRoot"_s, QStandardPaths::writableLocation(QStandardPaths::CacheLocation)},
+            {u"installerPath"_s, updater->savedPath()}, {u"screenshot"_s, screenshot}});
+    }
+
     void runAcceptance(Application &application, const QJsonObject &spec, QJsonObject &evidence)
     {
         MainWindow *window = application.mainWindow();
         require(window && BitTorrent::Session::instance()->isRestored(), u"Production application did not finish startup"_s);
+        if (spec.value(u"mode"_s).toString() == u"installed-update")
+        {
+            exerciseInstalledUpdate(window, spec, evidence);
+            return;
+        }
         if (spec.value(u"mode"_s).toString() == u"auto-open")
         {
             exerciseAutoOpen(application, spec, evidence);
@@ -2202,6 +2272,25 @@ int main(int argc, char **argv)
     if (specPath.isEmpty())
         return 2;
     const QJsonObject spec = readObject(specPath);
+    std::unique_ptr<UpdateRegistryFixture> registry;
+    if (spec.value(u"registryFixture"_s).toBool())
+    {
+        registry = std::make_unique<UpdateRegistryFixture>(QFileInfo(QString::fromLocal8Bit(argv[0])).absolutePath());
+        if (!registry->isReady())
+            return 3;
+    }
+    const QString certificate = qEnvironmentVariable("QBUTT_UPDATE_FIXTURE_CA");
+    if (!certificate.isEmpty())
+    {
+        const auto certificates = QSslCertificate::fromPath(certificate);
+        if (certificates.isEmpty())
+            return 4;
+        QSslConfiguration configuration = QSslConfiguration::defaultConfiguration();
+        configuration.setCaCertificates(certificates);
+        QSslConfiguration::setDefaultConfiguration(configuration);
+        QNetworkProxy::setApplicationProxy(QNetworkProxy(QNetworkProxy::HttpProxy, u"127.0.0.1"_s,
+            static_cast<quint16>(qEnvironmentVariableIntValue("QBUTT_UPDATE_FIXTURE_PORT"))));
+    }
     QJsonObject evidence {{u"schema"_s, 1}, {u"suite"_s, u"qt-acceptance"_s}, {u"status"_s, u"running"_s},
         {u"evidencePath"_s, spec.value(u"evidencePath"_s).toString()}, {u"profile"_s, QString::fromLocal8Bit(argv[1])},
         {u"checks"_s, QJsonArray {}}};

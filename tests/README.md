@@ -180,12 +180,23 @@ The fixture checks version ordering, GitHub metadata, complete ZIP downloads,
 corruption, cancellation, interrupted transfers, redirects and certificate
 rejection. Failed downloads preserve an existing destination. Test CA trust is
 limited to the driver process; generated keys and payloads are cleaned afterward.
-No release sidecar files are used. The driver is not shipped.
+No release sidecar files are used. The driver is not shipped. To include installed
+update cases, pass a third argument: a copy of the driver named `qbutt.exe` in an
+isolated runtime without an adjacent `profile` directory. Register that stable
+path in the firewall before running. Its installation marker is redirected to a
+temporary process-local registry key; the real uninstall key is untouched. Cases
+cover automatic EXE downloads, cache reuse and corruption, cancellation, repeated
+checks, and refusal to execute an installer changed after downloading.
 
 `<driver> live <temporary-output-path>` checks the real GitHub API. A driver built
 with an older qbutt version can use `live-download <temporary-zip-path>` after a
-new release. The application checks and downloads the complete portable ZIP;
-installation remains manual. `qbutt-version.txt` controls the independent qbutt
+new release. Portable ZIP installation remains manual. Installed builds download
+the EXE in the background and expose an update-and-restart action. The full Qt
+driver's `installed-update` mode exercises this main-window action with an isolated
+profile and stopped torrent; `QBUTT_UPDATE_APPLICATION_ARGS` (JSON argv) and
+`QBUTT_UPDATE_FIXTURE_SETUP` let the HTTPS fixture serve a locally built installer.
+Use an installer fixture with its own AppId for this process-restart scenario;
+never replace a live installation. `qbutt-version.txt` controls the independent qbutt
 version, UI and archive name.
 
 `smoke:qt` launches the real application offscreen with a new profile. It drives

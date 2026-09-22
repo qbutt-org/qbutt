@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import socketserver
+import shutil
 import ssl
 import subprocess
 import sys
@@ -33,6 +34,7 @@ with zipfile.ZipFile(bundle, "w") as archive:
     archive.writestr("qbutt-net.exe", b"generated fixture; never executed")
     archive.writestr("Qt6Core.dll", b"generated fixture; never loaded")
 payload = bundle.getvalue()
+installer = Path(os.environ["QBUTT_UPDATE_FIXTURE_SETUP"]).read_bytes() if os.environ.get("QBUTT_UPDATE_FIXTURE_SETUP") else b"MZ" + payload
 sha = lambda data: hashlib.sha256(data).hexdigest()
 scenario = ""
 requests = []
@@ -46,20 +48,27 @@ invalid_version = future_version.rsplit(".", 1)[0] + ".01"
 
 
 def release(version):
-    name = f"qbutt-{version}-windows-x64.zip"
-    asset = {"name": name, "size": len(payload), "digest": "sha256:" + sha(payload),
-             "browser_download_url": base + f"download/v{version}/{name}", "state": "uploaded"}
-    if scenario == "identity":
+    mode = scenario.removeprefix("installed-")
+    def asset_for(suffix, data):
+        name = f"qbutt-{version}-windows-x64{suffix}"
+        return {"name": name, "size": len(data), "digest": "sha256:" + sha(data),
+                "browser_download_url": base + f"download/v{version}/{name}", "state": "uploaded"}
+    asset = asset_for("-setup.exe", installer) if scenario.startswith("installed-") else asset_for(".zip", payload)
+    if mode == "identity":
         asset["browser_download_url"] = "https://github.com/other/repo/bundle.zip"
-    elif scenario == "missing-digest":
+    elif mode == "missing-digest":
         del asset["digest"]
-    elif scenario == "invalid-digest":
+    elif mode == "invalid-digest":
         asset["digest"] = "sha256:invalid"
-    elif scenario == "oversize-asset":
+    elif mode == "oversize-asset":
         asset["size"] = 512 * 1024 * 1024 + 1
-    elif scenario == "short-asset":
+    elif mode == "short-asset":
         asset["size"] = len(payload) - 1
-    assets = [asset, dict(asset)] if scenario == "duplicate" else [asset]
+    assets = [asset, dict(asset)] if mode == "duplicate" else [asset]
+    if scenario.startswith("installed-"):
+        assets.insert(0, asset_for(".zip", payload))
+        if mode == "missing-installer":
+            assets = assets[:1]
     return {"tag_name": "v" + version, "html_url": base + "tag/v" + version,
             "draft": False, "prerelease": "-" in version, "assets": assets}
 
@@ -78,7 +87,8 @@ def headers(connection):
 
 class Handler(socketserver.BaseRequestHandler):
     def handle(self):
-        mode = scenario
+        case = scenario
+        mode = scenario.removeprefix("installed-")
         self.request.settimeout(10)
         try:
             connect = headers(self.request)
@@ -86,7 +96,7 @@ class Handler(socketserver.BaseRequestHandler):
             self.request.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             with context.wrap_socket(self.request, server_side=True) as connection:
                 request = headers(connection)
-                requests.append({"scenario": mode, "request": request})
+                requests.append({"scenario": case, "request": request})
                 path = request.split(" ")[1]
                 status, extra = "200 OK", ""
                 if path.startswith("/repos/"):
@@ -101,20 +111,21 @@ class Handler(socketserver.BaseRequestHandler):
                         status, body = "403 Forbidden", b"rate limited"
                     elif mode == "redirect":
                         status, body, extra = "302 Found", b"", "Location: http://example.invalid/release\r\n"
-                elif path.endswith(".zip") or path.endswith("fixture-archive"):
-                    body = payload if mode != "corrupt" else b"!" + payload[1:]
+                elif path.endswith((".zip", ".exe", "fixture-archive")):
+                    data = installer if path.endswith(".exe") else payload
+                    body = data if mode != "corrupt" else b"!" + data[1:]
                     if mode == "archive-redirect" and path.endswith(".zip"):
                         status, body = "302 Found", b"<html>Redirecting to release storage.</html>"
                         extra = "Location: https://github.com/fixture-archive\r\n"
                 else:
                     raise ValueError("unexpected fixture path")
                 connection.sendall(f"HTTP/1.1 {status}\r\nContent-Length: {len(body)}\r\n{extra}Connection: close\r\n\r\n".encode())
-                if mode == "interrupted" and path.endswith(".zip"):
+                if mode == "interrupted" and path.endswith((".zip", ".exe")):
                     connection.sendall(body[:16384])
                     return
                 for start in range(0, len(body), 16384):
                     connection.sendall(body[start:start + 16384])
-                    if mode == "cancel" and path.endswith(".zip"):
+                    if mode == "cancel" and path.endswith((".zip", ".exe")):
                         time.sleep(0.02)
         except (OSError, EOFError):
             pass  # Cancellation, an untrusted certificate, or early close is expected.
@@ -125,26 +136,52 @@ class Server(socketserver.ThreadingTCPServer):
 
 
 evidence = []
+cache = None
 try:
     with Server(("127.0.0.1", 0), Handler) as server:
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
         env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "QBUTT_UPDATE_FIXTURE_CA": str(cert),
-               "QBUTT_UPDATE_FIXTURE_PORT": str(server.server_address[1])}
+               "QBUTT_UPDATE_FIXTURE_PORT": str(server.server_address[1]),
+               "QBUTT_UPDATE_FIXTURE_CACHE_NAME": root.name}
         try:
-            for scenario, state in [("current", 3), ("versions", 2), ("success", 5), ("cancel", 6),
+            if os.environ.get("QBUTT_UPDATE_APPLICATION_ARGS"):
+                scenario = "installed-application"
+                with (root / "application.stdout.log").open("w") as stdout, (root / "application.stderr.log").open("w") as stderr:
+                    result = subprocess.run([sys.argv[1], *json.loads(os.environ["QBUTT_UPDATE_APPLICATION_ARGS"])],
+                                            env=env, stdout=stdout, stderr=stderr, timeout=160)
+                if result.returncode:
+                    raise RuntimeError(f"application: exit {result.returncode}; inspect {root}")
+                evidence.append({"scenario": scenario, "exitCode": result.returncode})
+                cases = []
+            else:
+                cases = [("current", 3), ("versions", 2), ("success", 5), ("cancel", 6),
                                     ("corrupt", 7), ("interrupted", 7), ("identity", 7),
                                     ("redirect", 7), ("network", 7), ("untrusted", 7),
                                     ("missing-digest", 7), ("invalid-digest", 7), ("duplicate", 7),
-                                    ("oversize-asset", 7), ("short-asset", 7), ("archive-redirect", 5)]:
+                                    ("oversize-asset", 7), ("short-asset", 7), ("archive-redirect", 5)]
+                if len(sys.argv) > 3:
+                    cases += [("installed-success", 5), ("installed-cache-hit", 5), ("installed-cache-corrupt", 5),
+                              ("installed-cancel", 6), ("installed-corrupt", 7), ("installed-missing-installer", 7),
+                              ("installed-duplicate-check", 5), ("installed-tampered", 7)]
+            for scenario, state in cases:
+                installed = scenario.startswith("installed-")
+                if cache and scenario == "installed-cache-corrupt":
+                    cached = cache / "updates" / f"qbutt-{future_version}-windows-x64-setup.exe"
+                    with cached.open("r+b") as stream:
+                        stream.write(b"!")
                 target = root / f"{scenario}.zip"
                 target.write_bytes(b"existing destination must survive failed downloads")
-                result = subprocess.run([sys.argv[1], scenario, str(target)], env=env,
+                result = subprocess.run([sys.argv[3] if installed else sys.argv[1], scenario, str(target)], env=env,
                                         capture_output=True, text=True, timeout=75)
                 if result.returncode:
                     raise RuntimeError(f"{scenario}: driver exit {result.returncode}: {result.stdout} {result.stderr}")
                 item = json.loads(result.stdout.strip())
                 assert item["state"] == state and item["controls"], (scenario, item)
+                assert item["installed"] == installed, item
+                if installed:
+                    cache = Path(item["cacheRoot"]).resolve()
+                    assert cache.name == root.name, (cache, root.name)
                 if scenario == "corrupt":
                     assert "incomplete or damaged" in item["message"], item
                 if scenario == "short-asset":
@@ -157,18 +194,35 @@ try:
                 if scenario == "success":
                     assert len(archive_requests) == 1, requests
                     assert len([r for r in requests if r["scenario"] == scenario]) == 2, requests
+                if installed:
+                    installer_requests = [r for r in requests if r["scenario"] == scenario and ".exe " in r["request"]]
+                    assert not archive_requests, (scenario, requests)
+                    assert len(installer_requests) == (0 if scenario in ("installed-cache-hit", "installed-missing-installer") else 1), (scenario, requests)
+                    if state == 5:
+                        assert Path(item["savedPath"]).read_bytes() == installer, item
+                    if scenario == "installed-cache-hit":
+                        assert item["receivedBytes"] == 0, item
+                    if scenario == "installed-duplicate-check":
+                        assert item["duplicateCheck"], item
+                        assert len([r for r in requests if r["scenario"] == scenario]) == 2, requests
                 expected = payload if scenario in ("success", "archive-redirect") else b"existing destination must survive failed downloads"
                 assert target.read_bytes() == expected, scenario
                 assert not [path for path in root.glob(f"{scenario}.zip.*") if path.suffix != ".png"], "partial file remained"
                 item.update(scenario=scenario, destinationSha256=sha(target.read_bytes()))
                 evidence.append(item)
                 target.unlink()
+                if cache and scenario not in ("installed-success", "installed-cache-hit"):
+                    if cache.exists():
+                        shutil.rmtree(cache)
+                    cache = None
         finally:
             server.shutdown()
             server_thread.join(timeout=10)
     (root / "evidence.json").write_text(json.dumps({"cases": evidence, "requests": requests}, indent=2))
     print(json.dumps({"passed": len(evidence), "evidence": str(root / "evidence.json")}))
 finally:
+    if cache and cache.name == root.name and cache.exists():
+        shutil.rmtree(cache)
     cert.unlink(missing_ok=True)
     key.unlink(missing_ok=True)
     for partial in root.glob("*.zip*"):

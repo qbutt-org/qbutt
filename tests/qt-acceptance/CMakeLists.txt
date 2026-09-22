@@ -1,5 +1,7 @@
 add_executable(qbutt-qt-acceptance
     main.cpp
+    update-registry.cpp
+    update-registry.h
     ${qBittorrent_SOURCE_DIR}/src/app/application.h
     ${qBittorrent_SOURCE_DIR}/src/app/application.cpp
     ${qBittorrent_SOURCE_DIR}/src/app/applicationinstancemanager.h
@@ -45,6 +47,8 @@ set_target_properties(qbutt-qt-acceptance PROPERTIES
 find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Widgets Network)
 add_executable(qbutt-update-acceptance
     release-updater.cpp
+    update-registry.cpp
+    update-registry.h
     ${qBittorrent_SOURCE_DIR}/src/base/releaseupdater.cpp
     ${qBittorrent_SOURCE_DIR}/src/base/releaseupdater.h
     ${qBittorrent_SOURCE_DIR}/src/gui/releaseupdatedialog.cpp
@@ -52,4 +56,7 @@ add_executable(qbutt-update-acceptance
 )
 target_include_directories(qbutt-update-acceptance PRIVATE ${qBittorrent_SOURCE_DIR}/src)
 target_link_libraries(qbutt-update-acceptance PRIVATE qbt_common_cfg Qt6::Widgets Qt6::Network)
+if (WIN32)
+    target_link_libraries(qbutt-update-acceptance PRIVATE advapi32)
+endif()
 set_target_properties(qbutt-update-acceptance PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
