@@ -24,6 +24,7 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include "base/global.h"
@@ -31,8 +32,9 @@
 #include "base/net/proxyconfigurationmanager.h"
 
 PathsWidget::PathsWidget(QWidget *parent)
-    : QGroupBox(tr("Mihomo subscription (experimental)"), parent)
+    : QGroupBox(tr("Mihomo subscription"), parent)
     , m_manager {Net::PathManager::instance()}
+    , m_transportForm {new QFormLayout}
     , m_url {new QLineEdit(this)}
     , m_nodes {new QComboBox(this)}
     , m_sameServer {new QComboBox(this)}
@@ -44,7 +46,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     , m_dnsServer {new QLineEdit(this)}
     , m_bootstrapServer {new QLineEdit(this)}
     , m_dnsFamily {new QComboBox(this)}
-    , m_dnsApply {new QPushButton(tr("Save DNS settings"), this)}
+    , m_dnsApply {new QPushButton(tr("Save DNS"), this)}
     , m_gatewayControlAddress {new QLineEdit(this)}
     , m_gatewayDatagramAddress {new QLineEdit(this)}
     , m_gatewayServerName {new QLineEdit(this)}
@@ -54,14 +56,14 @@ PathsWidget::PathsWidget(QWidget *parent)
     , m_gatewayPort {new QSpinBox(this)}
     , m_gatewayTcp {new QCheckBox(tr("TCP"), this)}
     , m_gatewayUdp {new QCheckBox(tr("UDP / uTP / DHT"), this)}
-    , m_gatewayApply {new QPushButton(tr("Save public gateway"), this)}
+    , m_gatewayApply {new QPushButton(tr("Save gateway"), this)}
     , m_paths {new QListWidget(this)}
     , m_refresh {new QPushButton(tr("Refresh"), this)}
     , m_localFile {new QPushButton(tr("Local file…"), this)}
-    , m_start {new QPushButton(tr("Connect selected node"), this)}
-    , m_disconnect {new QPushButton(tr("Disconnect selected path"), this)}
-    , m_switch {new QPushButton(tr("Use selected reserve"), this)}
-    , m_native {new QPushButton(tr("Use default connection"), this)}
+    , m_start {new QPushButton(tr("Connect"), this)}
+    , m_disconnect {new QPushButton(tr("Disconnect"), this)}
+    , m_switch {new QPushButton(tr("Use selected backup"), this)}
+    , m_native {new QPushButton(tr("Default connection"), this)}
     , m_status {new QLabel(this)}
 {
     auto *layout = new QVBoxLayout(this);
@@ -72,30 +74,14 @@ PathsWidget::PathsWidget(QWidget *parent)
     m_url->setPlaceholderText(u"https://…"_s);
     m_url->setEchoMode(QLineEdit::PasswordEchoOnEdit);
     m_url->setText(m_manager->subscriptionUrl());
-    m_url->setToolTip(tr("Stored only in your qbutt profile. Refresh uses the regular control network."));
     subscription->addWidget(m_url, 1);
     subscription->addWidget(m_refresh);
     subscription->addWidget(m_localFile);
     form->addRow(tr("Subscription:"), subscription);
     m_nodes->setObjectName(u"mihomoNode"_s);
     form->addRow(tr("Node:"), m_nodes);
-    auto *serverGrouping = new QHBoxLayout;
-    m_sameServer->setObjectName(u"mihomoSameServer"_s);
-    m_groupServers->setObjectName(u"mihomoGroupServers"_s);
-    m_resetServerGroups->setObjectName(u"mihomoResetServerGroups"_s);
-    m_groupServers->setToolTip(tr("Use only when you know both nodes reach the same server. Disconnect all managed paths first."));
-    m_resetServerGroups->setToolTip(tr("Remove your explicit grouping. Variants with the same configured server remain together."));
-    serverGrouping->addWidget(m_sameServer, 1);
-    serverGrouping->addWidget(m_groupServers);
-    serverGrouping->addWidget(m_resetServerGroups);
-    form->addRow(tr("Same server as:"), serverGrouping);
-    m_reserves->setObjectName(u"mihomoReserveTransports"_s);
-    m_reserves->setMaximumHeight(75);
-    m_reserves->setToolTip(tr("Optional: choose up to three alternatives on this server. Only checked nodes may replace the selected transport."));
-    form->addRow(tr("Reserve transports:"), m_reserves);
-
     m_interfaces->setObjectName(u"mihomoPhysicalInterface"_s);
-    m_interfaces->addItem(tr("Choose a physical interface"), QString());
+    m_interfaces->addItem(tr("Choose a network adapter"), QString());
     const QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
     for (const QNetworkInterface &iface : interfaces)
     {
@@ -121,28 +107,78 @@ PathsWidget::PathsWidget(QWidget *parent)
         m_interfaces->setCurrentIndex(savedInterface);
     else if (m_interfaces->count() == 2)
         m_interfaces->setCurrentIndex(1);
-    m_interfaces->setToolTip(tr("The selected adapter is bound by qbutt-net. Its actual route must still be verified."));
-    form->addRow(tr("Interface:"), m_interfaces);
+    form->addRow(tr("Network adapter:"), m_interfaces);
     m_mode->setObjectName(u"mihomoPeerPolicy"_s);
-    m_mode->addItem(tr("Pinned — first selected edge"), u"pinned"_s);
-    m_mode->addItem(tr("Tunnels only — selected remote edges"), u"tunnels"_s);
-    m_mode->addItem(tr("Mixed — remote edges and Native"), u"mixed"_s);
-    form->addRow(tr("Peer connections:"), m_mode);
+    m_mode->addItem(tr("Single node"), u"pinned"_s);
+    m_mode->addItem(tr("Selected nodes only"), u"tunnels"_s);
+    m_mode->addItem(tr("Selected nodes + direct connection"), u"mixed"_s);
+    m_mode->setItemData(0, tr("Use the first node in the connection list."), Qt::ToolTipRole);
+    m_mode->setItemData(1, tr("Use connected nodes together. Private torrents use the first node in the list."), Qt::ToolTipRole);
+    m_mode->setItemData(2, tr("Also use your direct connection, exposing its address to peers. Private torrents use the first node in the list."), Qt::ToolTipRole);
+    form->addRow(tr("Mode:"), m_mode);
     layout->addLayout(form);
 
-    auto *dnsToggle = new QPushButton(tr("DNS settings…"), this);
-    dnsToggle->setObjectName(u"mihomoDnsSettings"_s);
-    dnsToggle->setCheckable(true);
-    layout->addWidget(dnsToggle, 0, Qt::AlignLeft);
-    auto *dnsOptions = new QWidget(this);
-    auto *dnsForm = new QFormLayout(dnsOptions);
-    dnsForm->setContentsMargins(0, 0, 0, 0);
+    m_paths->setObjectName(u"mihomoPaths"_s);
+    m_paths->setMaximumHeight(110);
+    layout->addWidget(m_paths);
+
+    auto *actions = new QHBoxLayout;
+    m_start->setObjectName(u"mihomoStart"_s);
+    m_native->setObjectName(u"mihomoNative"_s);
+    actions->addWidget(m_start);
+    actions->addWidget(m_disconnect);
+    actions->addWidget(m_native);
+    actions->addStretch();
+    layout->addLayout(actions);
+    m_status->setWordWrap(true);
+    m_status->setTextFormat(Qt::PlainText);
+    m_status->setObjectName(u"mihomoPathStatus"_s);
+    layout->addWidget(m_status);
+
+    auto *advancedToggle = new QToolButton(this);
+    advancedToggle->setObjectName(u"mihomoAdvancedSettings"_s);
+    advancedToggle->setText(tr("Advanced"));
+    advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    advancedToggle->setArrowType(Qt::RightArrow);
+    advancedToggle->setCheckable(true);
+    auto *advancedOptions = new QWidget(this);
+    advancedOptions->setObjectName(u"mihomoAdvancedOptions"_s);
+    auto *advancedLayout = new QVBoxLayout(advancedOptions);
+    advancedLayout->setContentsMargins(0, 0, 0, 0);
+    auto *serverGrouping = new QHBoxLayout;
+    m_sameServer->setObjectName(u"mihomoSameServer"_s);
+    m_groupServers->setObjectName(u"mihomoGroupServers"_s);
+    m_resetServerGroups->setObjectName(u"mihomoResetServerGroups"_s);
+    m_groupServers->setToolTip(tr("Group only nodes you know share one server. Disconnect them first."));
+    m_resetServerGroups->setToolTip(tr("Remove manual server groups."));
+    serverGrouping->addWidget(m_sameServer, 1);
+    serverGrouping->addWidget(m_groupServers);
+    serverGrouping->addWidget(m_resetServerGroups);
+    m_transportForm->addRow(tr("Same server as:"), serverGrouping);
+    m_reserves->setObjectName(u"mihomoReserveTransports"_s);
+    m_reserves->setMaximumHeight(75);
+    m_reserves->setToolTip(tr("Choose up to three backup connections to the same server."));
+    m_transportForm->addRow(tr("Backup connections:"), m_reserves);
+    m_switch->setObjectName(u"mihomoSwitchTransport"_s);
+    m_transportForm->addRow(QString(), m_switch);
+    advancedLayout->addLayout(m_transportForm);
+    advancedOptions->hide();
+    layout->addWidget(advancedToggle, 0, Qt::AlignLeft);
+    layout->addWidget(advancedOptions);
+    connect(advancedToggle, &QToolButton::toggled, this, [advancedToggle, advancedOptions](const bool expanded)
+    {
+        advancedToggle->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+        advancedOptions->setVisible(expanded);
+    });
+
+    auto *dnsForm = new QFormLayout;
     m_dnsServer->setObjectName(u"mihomoDnsServer"_s);
     m_bootstrapServer->setObjectName(u"mihomoBootstrapServer"_s);
     m_dnsFamily->setObjectName(u"mihomoDnsFamily"_s);
     m_dnsApply->setObjectName(u"mihomoSaveDns"_s);
-    m_dnsServer->setToolTip(tr("Numeric IP:port. Hostname lookups use this DNS server through each selected node."));
-    m_bootstrapServer->setToolTip(tr("Numeric IP:port. Only the node's own hostname is resolved through the selected physical interface."));
+    m_dnsServer->setToolTip(tr("IP:port. Resolve torrent addresses through the connected node."));
+    m_bootstrapServer->setToolTip(tr("IP:port. Resolve the node's own address through the network adapter."));
+    m_dnsApply->setToolTip(tr("Applies when a node reconnects."));
     m_dnsFamily->addItem(tr("IPv4 and IPv6"), u"dual"_s);
     m_dnsFamily->addItem(tr("IPv4 only"), u"ipv4"_s);
     m_dnsFamily->addItem(tr("IPv6 only"), u"ipv6"_s);
@@ -150,13 +186,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     dnsForm->addRow(tr("Bootstrap DNS:"), m_bootstrapServer);
     dnsForm->addRow(tr("Destination addresses:"), m_dnsFamily);
     dnsForm->addRow(QString(), m_dnsApply);
-    auto *dnsDescription = new QLabel(tr("The default is Cloudflare DNS (1.1.1.1). Changes apply when connecting a node. "
-        "Full application DNS isolation has not been verified."), dnsOptions);
-    dnsDescription->setWordWrap(true);
-    dnsForm->addRow(dnsDescription);
-    dnsOptions->hide();
-    layout->addWidget(dnsOptions);
-    connect(dnsToggle, &QPushButton::toggled, dnsOptions, &QWidget::setVisible);
+    advancedLayout->addLayout(dnsForm);
     const auto loadDnsSettings = [this]()
     {
         const QJsonObject dns = m_manager->dnsPolicy();
@@ -171,13 +201,8 @@ PathsWidget::PathsWidget(QWidget *parent)
         m_manager->setDnsPolicy(m_dnsServer->text(), m_bootstrapServer->text(), m_dnsFamily->currentData().toString());
     });
 
-    auto *gatewayToggle = new QPushButton(tr("Public gateway settings…"), this);
-    gatewayToggle->setObjectName(u"mihomoGatewaySettings"_s);
-    gatewayToggle->setCheckable(true);
-    layout->addWidget(gatewayToggle, 0, Qt::AlignLeft);
-    auto *gatewayOptions = new QWidget(this);
-    auto *gatewayForm = new QFormLayout(gatewayOptions);
-    gatewayForm->setContentsMargins(0, 0, 0, 0);
+    advancedLayout->addWidget(new QLabel(tr("Incoming connections"), advancedOptions));
+    auto *gatewayForm = new QFormLayout;
     m_gatewayControlAddress->setObjectName(u"mihomoGatewayControlAddress"_s);
     m_gatewayDatagramAddress->setObjectName(u"mihomoGatewayDatagramAddress"_s);
     m_gatewayServerName->setObjectName(u"mihomoGatewayServerName"_s);
@@ -193,12 +218,10 @@ PathsWidget::PathsWidget(QWidget *parent)
     m_gatewayServerName->setPlaceholderText(u"gateway.example"_s);
     m_gatewayPort->setRange(0, 65535);
     m_gatewayPort->setSpecialValueText(tr("Automatic"));
-    auto *protocols = new QWidget(gatewayOptions);
-    auto *protocolsLayout = new QHBoxLayout(protocols);
-    protocolsLayout->setContentsMargins(0, 0, 0, 0);
-    protocolsLayout->addWidget(m_gatewayTcp);
-    protocolsLayout->addWidget(m_gatewayUdp);
-    protocolsLayout->addStretch();
+    auto *protocols = new QHBoxLayout;
+    protocols->addWidget(m_gatewayTcp);
+    protocols->addWidget(m_gatewayUdp);
+    protocols->addStretch();
     gatewayForm->addRow(tr("Control endpoint:"), m_gatewayControlAddress);
     gatewayForm->addRow(tr("Datagram endpoint:"), m_gatewayDatagramAddress);
     gatewayForm->addRow(tr("TLS server name:"), m_gatewayServerName);
@@ -208,13 +231,9 @@ PathsWidget::PathsWidget(QWidget *parent)
     gatewayForm->addRow(tr("Requested port:"), m_gatewayPort);
     gatewayForm->addRow(tr("Listeners:"), protocols);
     gatewayForm->addRow(QString(), m_gatewayApply);
-    auto *gatewayDescription = new QLabel(tr("The gateway is optional. qbutt advertises a public endpoint only while its "
-        "authenticated listener lease is active. Disabling both listeners retires existing leases."), gatewayOptions);
-    gatewayDescription->setWordWrap(true);
-    gatewayForm->addRow(gatewayDescription);
-    gatewayOptions->hide();
-    layout->addWidget(gatewayOptions);
-    connect(gatewayToggle, &QPushButton::toggled, gatewayOptions, &QWidget::setVisible);
+    m_gatewayTcp->setToolTip(tr("Receive connections through your public gateway."));
+    m_gatewayUdp->setToolTip(tr("Receive connections through your public gateway."));
+    advancedLayout->addLayout(gatewayForm);
     const QJsonObject gateway = m_manager->gatewayConfiguration();
     m_gatewayControlAddress->setText(gateway.value(u"controlAddress"_s).toString());
     m_gatewayDatagramAddress->setText(gateway.value(u"datagramAddress"_s).toString());
@@ -240,30 +259,6 @@ PathsWidget::PathsWidget(QWidget *parent)
             {u"tcp"_s, m_gatewayTcp->isChecked()},
             {u"udp"_s, m_gatewayUdp->isChecked()}});
     });
-
-    m_paths->setObjectName(u"mihomoPaths"_s);
-    m_paths->setMaximumHeight(110);
-    layout->addWidget(m_paths);
-
-    auto *actions = new QHBoxLayout;
-    m_start->setObjectName(u"mihomoStart"_s);
-    m_native->setObjectName(u"mihomoNative"_s);
-    actions->addWidget(m_start);
-    actions->addWidget(m_disconnect);
-    m_switch->setObjectName(u"mihomoSwitchTransport"_s);
-    actions->addWidget(m_switch);
-    actions->addWidget(m_native);
-    actions->addStretch();
-    layout->addLayout(actions);
-    auto *description = new QLabel(tr("All policies share one torrent session. Supported UDP routes carry uTP, UDP trackers and DHT. "
-        "Public announces use active gateway leases. "
-        "Including Native exposes its address to public torrent peers; private torrents stay on the first remote edge."), this);
-    description->setWordWrap(true);
-    layout->addWidget(description);
-    m_status->setWordWrap(true);
-    m_status->setTextFormat(Qt::PlainText);
-    m_status->setObjectName(u"mihomoPathStatus"_s);
-    layout->addWidget(m_status);
 
     connect(m_refresh, &QPushButton::clicked, this, [this]()
     {
@@ -373,19 +368,25 @@ void PathsWidget::refreshState()
     {
         const QJsonObject path = value.toObject();
         const bool open = path.value(u"open"_s).toBool();
+        const bool native = path.value(u"edgeId"_s) == u"native"_s;
         const QString name = path.value(u"proxyName"_s).toString();
         const QJsonObject gateway = path.value(u"gateway"_s).toObject();
         const QString publicEndpoint = gateway.value(u"publicEndpoint"_s).toString();
-        QString pathState = !open ? tr("Stopped") : (publicEndpoint.isEmpty()
-            ? tr("Connected, outgoing only") : tr("Connected, public %1").arg(publicEndpoint));
+        QString pathState;
+        if (!open)
+            pathState = tr("Stopped");
+        else if (native)
+            pathState = tr("Connected");
+        else
+            pathState = publicEndpoint.isEmpty() ? tr("Connected, outgoing only") : tr("Connected, public %1").arg(publicEndpoint);
         const QString transport = path.value(u"transport"_s).toObject().value(u"state"_s).toString();
         if (open && (transport == u"checking"))
-            pathState += tr("; checking reserve transports");
+            pathState += tr("; checking backup connections");
         else if (open && (transport == u"unavailable"))
-            pathState += tr("; no reachable reserve found");
+            pathState += tr("; no reachable backup found");
         else if (open && (transport == u"config-changed"))
-            pathState += tr("; transport settings changed, reconnect to apply");
-        auto *item = new QListWidgetItem(u"%1 — %2"_s.arg(name, pathState), m_paths);
+            pathState += tr("; settings changed, reconnect to apply");
+        auto *item = new QListWidgetItem(u"%1 — %2"_s.arg(native ? tr("Direct connection") : name, pathState), m_paths);
         item->setData(Qt::UserRole, path.value(u"pathId"_s).toString());
         item->setData(Qt::UserRole + 1, open);
         if (item->data(Qt::UserRole).toString() == selectedPath)
@@ -394,6 +395,8 @@ void PathsWidget::refreshState()
     }
     if (!m_paths->currentItem() && (m_paths->count() > 0))
         m_paths->setCurrentRow(0);
+    m_paths->setVisible(m_paths->count() > 0);
+    m_disconnect->setVisible(m_paths->count() > 0);
     const bool resolving = state.value(u"resolution"_s).toObject().value(u"state"_s) == u"pending"_s;
     m_disconnect->setEnabled((!busy || resolving) && m_paths->currentItem()
         && m_paths->currentItem()->data(Qt::UserRole + 1).toBool());
@@ -410,6 +413,8 @@ void PathsWidget::refreshState()
         }
     }
     m_switch->setEnabled(!busy && selectedReserve);
+    m_transportForm->setRowVisible(m_reserves, m_reserves->count() > 0);
+    m_transportForm->setRowVisible(m_switch, m_reserves->count() > 0);
     m_url->setEnabled(!busy);
     m_refresh->setEnabled(!busy);
     m_localFile->setEnabled(!busy);
@@ -454,7 +459,7 @@ void PathsWidget::refreshReserves()
     const QSignalBlocker groupingBlocker(m_sameServer);
     const QString previousTarget = m_sameServer->currentData().toString();
     m_sameServer->clear();
-    m_sameServer->addItem(tr("Choose only a known alias"), QString());
+    m_sameServer->addItem(tr("Choose a node on the same server"), QString());
     const QString serverId = m_nodes->currentData(Qt::UserRole + 1).toString();
     if (serverId.isEmpty())
     {

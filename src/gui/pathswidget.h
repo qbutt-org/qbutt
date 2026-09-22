@@ -10,6 +10,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QFormLayout;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -34,6 +35,7 @@ private:
 
     Net::PathManager *m_manager;
     QString m_reserveNode;
+    QFormLayout *m_transportForm;
     QLineEdit *m_url;
     QComboBox *m_nodes;
     QComboBox *m_sameServer;

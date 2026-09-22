@@ -194,8 +194,8 @@ Net::PathManager *Net::PathManager::m_instance = nullptr;
 
 Net::PathManager::PathManager()
     : m_status {ProxyConfigurationManager::instance()->hasRuntimeProxy()
-        ? tr("Pinned path unavailable. Start a path to reconnect; automatic Native fallback is disabled.")
-        : tr("Native / saved connection settings. No qbutt-net path is active.")}
+        ? tr("Connection stopped. Connect a node to resume.")
+        : tr("Using default connection settings.")}
     , m_storeSubscriptionUrl {u"Network/Paths/SubscriptionUrl"_s}
     , m_storeConfigurationPath {u"Network/Paths/ConfigurationPath"_s}
     , m_storeProxyName {u"Network/Paths/ProxyName"_s}
@@ -253,7 +253,7 @@ Net::PathManager::PathManager()
             { return path.publicLease && (path.publicLease->expiresUnixMilli <= now); }))
         {
             if (!beginPathRollover(activePathRollover(),
-                tr("A public gateway lease expired. Reconnecting paths with new generations.")))
+                tr("Gateway expired. Reconnecting…")))
             {
                 fail(tr("An expired public gateway generation could not be retired safely."));
             }
@@ -556,13 +556,13 @@ bool Net::PathManager::setGatewayConfiguration(const QJsonObject &configuration)
     QList<PathRollover> rollover = activePathRollover();
     if (rollover.isEmpty())
     {
-        m_status = enabled ? tr("Public gateway settings saved. They apply when a path is connected.")
+        m_status = enabled ? tr("Gateway saved. Connect a node to use it.")
             : tr("Public gateway disabled.");
         emit changed();
         return true;
     }
     if (!beginPathRollover(std::move(rollover),
-        tr("Reconnecting paths with new generations for the public gateway settings.")))
+        tr("Applying gateway settings…")))
     {
         store(previous);
         if (!SettingsStorage::instance()->save())
@@ -599,7 +599,7 @@ bool Net::PathManager::setDnsPolicy(const QString &server, const QString &bootst
         reportError(tr("Unable to save DNS settings."));
         return false;
     }
-    m_status = tr("DNS settings saved. They apply when connecting a node; existing paths keep their settings.");
+    m_status = tr("DNS saved. Reconnect nodes to apply.");
     emit dnsPolicyChanged();
     emit changed();
     return true;
@@ -810,7 +810,7 @@ bool Net::PathManager::saveServerGroups(const QVariantMap &groups)
     }
     for (ActivePath &path : m_paths)
         path.edgeId = edgeIdForServer(path.configuredServerId);
-    m_status = tr("Server grouping saved. Only one transport per grouped server can be active.");
+    m_status = tr("Server grouping saved.");
     emit proxiesLoaded(m_proxies);
     emit changed();
     return true;
@@ -871,7 +871,7 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
     }
     if (proxyName.isEmpty() || interfaceName.isEmpty())
     {
-        reportError(tr("Select a proxy node and choose its physical interface."));
+        reportError(tr("Choose a node and network adapter."));
         return;
     }
     QStringList uniqueReserves = reserveNames;
@@ -883,7 +883,7 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
     }
     // qbutt-net owns subscription parsing. Resolve identity again for each open,
     // including API calls that never loaded the UI's node list.
-    m_status = tr("Checking the selected node's server identity.");
+    m_status = tr("Checking the selected node…");
     request({{u"method"_s, u"list"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
         {u"openProxyName"_s, proxyName}, {u"openInterfaceName"_s, interfaceName},
         {u"proxyNames"_s, QJsonArray::fromStringList(QStringList {proxyName} + reserveNames)},
@@ -912,7 +912,7 @@ void Net::PathManager::openIdentifiedPath(const QString &configPath, const QStri
         {
             if (path.endpoint.port > 0)
             {
-                reportError(tr("This edge already has an active transport. Disconnect it before choosing another transport."));
+                reportError(tr("This server is already connected. Disconnect it or choose a backup connection."));
                 return;
             }
             if (pathId == 0)
@@ -921,7 +921,7 @@ void Net::PathManager::openIdentifiedPath(const QString &configPath, const QStri
     }
     if ((pathId == 0) && (m_paths.size() >= 8))
     {
-        reportError(tr("Eight edges are already selected. Reset the selection before adding another edge."));
+        reportError(tr("Eight servers are already selected. Use Default connection to reset them."));
         return;
     }
     const bool enableManagedRoutes = !proxyManager->hasRuntimeProxy();
@@ -943,7 +943,7 @@ void Net::PathManager::openIdentifiedPath(const QString &configPath, const QStri
     ++m_generation;
     if (pathId == 0)
         pathId = ++m_nextPathId;
-    m_status = tr("Starting path. Egress and network capabilities have not been probed.");
+    m_status = tr("Connecting…");
     request({{u"method"_s, u"open"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
         {u"proxyName"_s, proxyName}, {u"pathId"_s, QString::number(pathId)},
         {u"generation"_s, m_generation}, {u"interfaceName"_s, interfaceName},
@@ -957,13 +957,13 @@ bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInter
         return false;
     if ((mode != u"mixed") && (mode != u"pinned") && (mode != u"tunnels"))
     {
-        reportError(tr("Choose Pinned, Mixed or Tunnels only."));
+        reportError(tr("Choose a connection mode."));
         return false;
     }
     const bool mixed = (mode == u"mixed");
     if (mixed && nativeInterface.isEmpty())
     {
-        reportError(tr("Choose a physical Native interface for Mixed mode."));
+        reportError(tr("Choose a network adapter for the direct connection."));
         return false;
     }
     QList<PeerRouteEndpoint> nativeEndpoints = mixed ? nativeEndpointsForInterface(nativeInterface)
@@ -971,7 +971,7 @@ bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInter
     if (mixed && nativeEndpoints.isEmpty()
         && ((m_storePolicy.get() != mode) || (m_storeNativeInterface.get() != nativeInterface)))
     {
-        reportError(tr("The selected physical Native interface has no usable address."));
+        reportError(tr("The selected network adapter has no usable address."));
         return false;
     }
     return applyPolicy(mode, mixed ? nativeInterface : QString(), std::move(nativeEndpoints));
@@ -1111,13 +1111,13 @@ bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInt
         if (!m_statusRefresh.isActive())
             m_statusRefresh.start();
         m_status = m_nativeEndpoints.isEmpty()
-            ? tr("Mixed: the selected Native interface is unavailable. Remote paths remain active.")
-            : tr("Mixed: public torrents use selected edges and the chosen Native interface. Private torrents stay pinned.");
+            ? tr("Direct connection unavailable. Connected nodes remain active.")
+            : tr("Using connected nodes and the direct connection.");
     }
     else if (mode == u"tunnels")
-        m_status = tr("Tunnels only: public torrents use selected remote edges. Private torrents stay pinned.");
+        m_status = tr("Using connected nodes only.");
     else
-        m_status = tr("Pinned: torrent traffic uses the first selected edge.");
+        m_status = tr("Using the first node in the connection list.");
     emit changed();
     return true;
 }
@@ -1161,7 +1161,7 @@ void Net::PathManager::useNative()
     }
     m_paths.clear();
     m_nativeEndpoints.clear();
-    m_status = tr("Native / saved connection settings. No qbutt-net path is active.");
+    m_status = tr("Using default connection settings.");
     emit changed();
 }
 
@@ -1542,10 +1542,9 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             return;
         }
         m_status = gatewayQueued
-            ? tr("TCP endpoint ready for %1. Acquiring its public gateway lease before route activation.")
+            ? tr("Opening incoming connections for %1…")
                 .arg(request.value(u"proxyName"_s).toString())
-            : tr("TCP endpoint ready: %1\n"
-                "Egress, UDP, public inbound and throughput: unknown (not probed).")
+            : tr("Node enabled: %1.")
                 .arg(request.value(u"proxyName"_s).toString());
         if (m_rolloverOpening && !gatewayQueued)
         {
@@ -2028,8 +2027,8 @@ void Net::PathManager::startNextPathRollover()
         const bool failed = m_rolloverFailed;
         m_rolloverFailed = false;
         m_status = failed
-            ? tr("One or more paths or public gateway leases could not be reconnected.")
-            : tr("Paths reconnected with new transport generations.");
+            ? tr("Some connections could not be restored.")
+            : tr("Connections restored.");
         emit changed();
         return;
     }
@@ -2142,7 +2141,7 @@ void Net::PathManager::switchTransport(const QString &pathId, const QString &pro
         {u"configuredServerId"_s, configuredServerId}, {u"interfaceName"_s, path->interfaceName}, {u"dns"_s, path->dnsPolicy}};
     if (!revokePath(*path))
         return;
-    m_status = tr("Switching to the selected reserve transport on the same server.");
+    m_status = tr("Switching to the backup connection…");
     request(replacement);
 }
 
@@ -2169,7 +2168,7 @@ void Net::PathManager::stopPath(const QString &pathId)
         {
             m_pendingStopPath = pathId;
             queueGatewayClose(*path);
-            m_status = tr("Retiring the public gateway lease before disconnecting the path.");
+            m_status = tr("Closing incoming connections…");
             if (resolving && (m_resolution.value(u"pathId"_s).toString() == pathId))
                 finishResolution({}, u"path_stopped"_s);
             sendQueuedRequest();
@@ -2194,8 +2193,8 @@ void Net::PathManager::stopPath(const QString &pathId)
         return;
     }
     m_status = ProxyConfigurationManager::instance()->hasRuntimeProxy()
-        ? tr("Pinned path stopped. Automatic Native fallback is disabled.")
-        : tr("Native / saved connection settings. No qbutt-net path is active.");
+        ? tr("Connection stopped. Connect a node to resume.")
+        : tr("Using default connection settings.");
     emit changed();
 }
 
@@ -2208,7 +2207,7 @@ bool Net::PathManager::finishStopPath(const QString &pathId)
     const quint64 generation = path->endpoint.generation;
     if (!revokePath(*path))
         return false;
-    m_status = tr("Path disconnected. Its existing peer connections have been closed.");
+    m_status = tr("Disconnected.");
     request({{u"method"_s, u"close"_s}, {u"pathId"_s, pathId},
         {u"generation"_s, static_cast<qint64>(generation)}});
     return true;
