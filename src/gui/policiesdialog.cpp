@@ -62,57 +62,65 @@ PoliciesDialog::PoliciesDialog(QWidget *parent)
     , m_preview(new QTableWidget(0, 5, this))
     , m_journal(new QTableWidget(0, 6, this))
     , m_status(new QLabel(this))
+    , m_empty(new QLabel(tr("No completion rules"), this))
+    , m_tabs(new QTabWidget(this))
+    , m_remove(new QPushButton(tr("Remove"), this))
+    , m_up(new QPushButton(tr("Move up"), this))
+    , m_down(new QPushButton(tr("Move down"), this))
+    , m_accept(new QPushButton(tr("Allow rules for this torrent…"), this))
 {
     setObjectName(u"completionPoliciesDialog"_s);
-    setWindowTitle(tr("Completion policies"));
+    setWindowTitle(tr("Completion rules"));
     m_enabled->setObjectName(u"completionPoliciesEnabled"_s);
     m_deleteData->setObjectName(u"completionPoliciesAllowDelete"_s);
     m_rules->setObjectName(u"completionPoliciesRules"_s);
     m_preview->setObjectName(u"completionPoliciesPreview"_s);
     m_journal->setObjectName(u"completionPoliciesJournal"_s);
     m_status->setObjectName(u"completionPoliciesStatus"_s);
-    resize(1100, 650);
+    m_empty->setObjectName(u"completionPoliciesEmpty"_s);
+    m_tabs->setObjectName(u"completionPoliciesTabs"_s);
+    m_accept->setObjectName(u"completionPoliciesAccept"_s);
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(m_enabled);
     layout->addWidget(m_deleteData);
-    auto *help = new QLabel(tr("Rules run in order after wanted files are verified, moves finish and resume data is saved. "
-        "The first matching Stop, Remove torrent or Delete data rule ends evaluation. Remove torrent keeps downloaded files. "
-        "Category * matches all categories; tags are comma separated. Reusing a rule ID does not replay an action."), this);
-    help->setWordWrap(true);
-    layout->addWidget(help);
-    auto *tabs = new QTabWidget(this);
-    auto *rulePage = new QWidget(tabs);
+    m_enabled->setToolTip(tr("Run rules in order after downloads are verified. The first Stop, Remove or Delete action ends evaluation."));
+    layout->addWidget(m_empty);
+    auto *rulePage = new QWidget(m_tabs);
     auto *ruleLayout = new QVBoxLayout(rulePage);
-    m_rules->setHorizontalHeaderLabels({tr("Rule ID"), tr("Enabled"), tr("Category"), tr("Tags"), tr("Min ratio")
-        , tr("Min seeding seconds"), tr("Terminal action"), tr("Notify")});
+    m_rules->setHorizontalHeaderLabels({tr("Rule"), tr("Enabled"), tr("Category"), tr("Tags"), tr("Min ratio")
+        , tr("Seeding (seconds)"), tr("Action"), tr("Notify")});
+    m_rules->hideColumn(0);
+    m_rules->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_rules->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_rules->horizontalHeaderItem(2)->setToolTip(tr("Use * for all categories."));
+    m_rules->horizontalHeaderItem(3)->setToolTip(tr("Separate tags with commas."));
     ruleLayout->addWidget(m_rules);
     auto *ruleButtons = new QDialogButtonBox(this);
     auto *add = ruleButtons->addButton(tr("Add rule"), QDialogButtonBox::ActionRole);
     add->setObjectName(u"completionPoliciesAdd"_s);
-    auto *remove = ruleButtons->addButton(tr("Remove rule"), QDialogButtonBox::ActionRole);
-    auto *up = ruleButtons->addButton(tr("Move up"), QDialogButtonBox::ActionRole);
-    auto *down = ruleButtons->addButton(tr("Move down"), QDialogButtonBox::ActionRole);
-    ruleLayout->addWidget(ruleButtons);
-    tabs->addTab(rulePage, tr("Rules"));
-    auto *previewPage = new QWidget(tabs);
+    ruleButtons->addButton(m_remove, QDialogButtonBox::ActionRole);
+    ruleButtons->addButton(m_up, QDialogButtonBox::ActionRole);
+    ruleButtons->addButton(m_down, QDialogButtonBox::ActionRole);
+    m_tabs->addTab(rulePage, tr("Rules"));
+    auto *previewPage = new QWidget(m_tabs);
     auto *previewLayout = new QVBoxLayout(previewPage);
-    m_preview->setHorizontalHeaderLabels({tr("Torrent"), tr("Rule"), tr("Actions"), tr("Readiness"), tr("Import preview")});
+    m_preview->setHorizontalHeaderLabels({tr("Torrent"), tr("Rule"), tr("Actions"), tr("Status"), tr("Permission")});
     m_preview->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_preview->setSelectionMode(QAbstractItemView::SingleSelection);
     m_preview->setEditTriggers(QAbstractItemView::NoEditTriggers);
     previewLayout->addWidget(m_preview);
-    auto *accept = new QPushButton(tr("Enable saved policies for selected imported torrent…"), this);
-    previewLayout->addWidget(accept);
-    tabs->addTab(previewPage, tr("Preview"));
+    previewLayout->addWidget(m_accept);
+    m_tabs->addTab(previewPage, tr("Preview"));
     m_journal->setHorizontalHeaderLabels({tr("Time"), tr("Torrent"), tr("Rule"), tr("Actions"), tr("Result"), tr("Reason")});
     m_journal->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    tabs->addTab(m_journal, tr("Journal"));
-    layout->addWidget(tabs);
+    m_tabs->addTab(m_journal, tr("History"));
+    layout->addWidget(m_tabs);
+    layout->addWidget(ruleButtons);
     m_status->setTextFormat(Qt::PlainText);
     m_status->setWordWrap(true);
     layout->addWidget(m_status);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Close, this);
-    auto *preview = buttons->addButton(tr("Refresh preview"), QDialogButtonBox::ActionRole);
+    auto *preview = buttons->addButton(tr("Refresh"), QDialogButtonBox::ActionRole);
     preview->setObjectName(u"completionPoliciesRefresh"_s);
     buttons->button(QDialogButtonBox::Save)->setObjectName(u"completionPoliciesSave"_s);
     layout->addWidget(buttons);
@@ -122,8 +130,21 @@ PoliciesDialog::PoliciesDialog(QWidget *parent)
     m_deleteData->setChecked(config[u"allow_delete_data"_s].toBool());
     for (const QJsonValue &rule : config[u"rules"_s].toArray())
         addRule(rule.toObject());
-    connect(add, &QPushButton::clicked, this, [this] { addRule({}); });
-    connect(remove, &QPushButton::clicked, this, [this] { m_rules->removeRow(m_rules->currentRow()); });
+    connect(add, &QPushButton::clicked, this, [this]
+    {
+        addRule({});
+        m_tabs->setCurrentIndex(0);
+        m_rules->setCurrentCell(m_rules->rowCount() - 1, 2);
+        updateControls();
+        resize(1000, 560);
+    });
+    connect(m_remove, &QPushButton::clicked, this, [this]
+    {
+        m_rules->removeRow(m_rules->currentRow());
+        updateControls();
+    });
+    connect(m_rules, &QTableWidget::itemSelectionChanged, this, &PoliciesDialog::updateControls);
+    connect(m_preview, &QTableWidget::itemSelectionChanged, this, &PoliciesDialog::updateControls);
     const auto move = [this](const int offset)
     {
         const int row = m_rules->currentRow();
@@ -135,10 +156,16 @@ PoliciesDialog::PoliciesDialog(QWidget *parent)
         m_rules->setRowCount(0);
         for (const QJsonValue &rule : rules)
             addRule(rule.toObject());
-        m_rules->setCurrentCell(row + offset, 0);
+        m_rules->setCurrentCell(row + offset, 2);
     };
-    connect(up, &QPushButton::clicked, this, [move] { move(-1); });
-    connect(down, &QPushButton::clicked, this, [move] { move(1); });
+    connect(m_up, &QPushButton::clicked, this, [move] { move(-1); });
+    connect(m_down, &QPushButton::clicked, this, [move] { move(1); });
+    connect(m_tabs, &QTabWidget::currentChanged, this, [this, preview](const int index)
+    {
+        preview->setVisible(index == 1);
+        updateControls();
+    });
+    preview->hide();
     connect(preview, &QPushButton::clicked, this, &PoliciesDialog::refresh);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(buttons, &QDialogButtonBox::accepted, this, [this, policy]
@@ -150,27 +177,29 @@ PoliciesDialog::PoliciesDialog(QWidget *parent)
             return;
         }
         if (m_enabled->isChecked() && (QMessageBox::question(this, tr("Enable completion rules")
-            , tr("Save these rules and allow their actions for eligible torrents? Review the Preview tab first. "
-                "Imported torrents still require their separate preview acknowledgement.")) != QMessageBox::Yes))
+            , tr("Save and enable these rules? Imported torrents need separate permission.")) != QMessageBox::Yes))
             return;
         const QString error = policy->configure(configuration());
         m_status->setText(error.isEmpty() ? tr("Rules saved.") : error);
     });
-    connect(accept, &QPushButton::clicked, this, [this, policy]
+    connect(m_accept, &QPushButton::clicked, this, [this, policy]
     {
         const int row = m_preview->currentRow();
         if (row < 0)
             return;
-        if (QMessageBox::question(this, tr("Accept imported torrent preview")
-            , tr("Enable the saved completion rules for this torrent? Stop it first. A rule may remove its task "
-                "or delete files when the separate deletion setting is enabled.")) != QMessageBox::Yes)
+        if (QMessageBox::question(this, tr("Allow completion rules")
+            , tr("Allow saved rules for this stopped torrent? Rules may remove it or delete its files if deletion is allowed.")) != QMessageBox::Yes)
             return;
         const auto id = BitTorrent::TorrentID::fromString(m_preview->item(row, 0)->data(Qt::UserRole).toString());
         const QString error = policy->acknowledgePreview(id);
-        m_status->setText(error.isEmpty() ? tr("Saving preview acknowledgement…") : error);
+        m_status->setText(error.isEmpty() ? tr("Saving permission…") : error);
     });
     connect(policy, &BitTorrent::CompletionPolicy::changed, this, &PoliciesDialog::refresh);
     refresh();
+    if (m_rules->rowCount() > 0 || m_journal->rowCount() > 0)
+        resize(1000, 560);
+    else
+        resize(680, sizeHint().height());
 }
 
 void PoliciesDialog::addRule(const QJsonObject &rule)
@@ -201,6 +230,7 @@ void PoliciesDialog::addRule(const QJsonObject &rule)
     auto *notify = new QCheckBox(this);
     notify->setChecked(rule.isEmpty() || actions.contains(u"notify"_s));
     m_rules->setCellWidget(row, 7, notify);
+    connect(action, &QComboBox::currentIndexChanged, this, &PoliciesDialog::updateControls);
 }
 
 QJsonObject PoliciesDialog::configuration() const
@@ -251,12 +281,23 @@ void PoliciesDialog::refresh()
             m_preview->insertRow(row);
             m_preview->setItem(row, 0, new QTableWidgetItem(torrent[u"name"_s].toString()));
             m_preview->item(row, 0)->setData(Qt::UserRole, torrent[u"hash"_s].toString());
-            m_preview->setItem(row, 1, new QTableWidgetItem(rule[u"rule"_s].toString(tr("No match"))));
+            const QString ruleId = rule[u"rule"_s].toString();
+            QString ruleName = tr("No match");
+            for (int index = 0; index < m_rules->rowCount(); ++index)
+            {
+                if (m_rules->item(index, 0)->text() == ruleId)
+                    ruleName = tr("Rule %L1").arg(index + 1);
+            }
+            auto *ruleItem = new QTableWidgetItem(ruleName);
+            ruleItem->setToolTip(ruleId);
+            m_preview->setItem(row, 1, ruleItem);
             m_preview->setItem(row, 2, new QTableWidgetItem(actionNames(rule[u"actions"_s].toArray())));
-            m_preview->setItem(row, 3, new QTableWidgetItem(rule[u"already_claimed"_s].toBool() ? tr("Recorded; no automatic repeat")
-                : torrent[u"recheck_paused"_s].toBool() ? tr("Start the torrent to finish its native recheck; actions wait for verification")
-                : torrent[u"ready"_s].toBool() ? tr("Ready") : tr("Waiting for verified data and file operations")));
-            m_preview->setItem(row, 4, new QTableWidgetItem(torrent[u"preview_required"_s].toBool() ? tr("Required") : tr("Accepted")));
+            m_preview->setItem(row, 3, new QTableWidgetItem(rule[u"already_claimed"_s].toBool() ? tr("Recorded; see History")
+                : torrent[u"recheck_paused"_s].toBool() ? tr("Start torrent to verify files")
+                : torrent[u"ready"_s].toBool() ? tr("Ready") : tr("Waiting for files")));
+            auto *permission = new QTableWidgetItem(torrent[u"preview_required"_s].toBool() ? tr("Required") : tr("Allowed"));
+            permission->setData(Qt::UserRole, torrent[u"preview_required"_s].toBool());
+            m_preview->setItem(row, 4, permission);
         }
     }
     const QJsonArray journal = policy->journal();
@@ -288,4 +329,33 @@ void PoliciesDialog::refresh()
     }
     if (const QString error = policy->configuration()[u"error"_s].toString(); !error.isEmpty())
         m_status->setText(error);
+    updateControls();
+}
+
+void PoliciesDialog::updateControls()
+{
+    const int count = m_rules->rowCount();
+    const int row = m_rules->currentRow();
+    m_tabs->setTabVisible(0, count > 0);
+    m_tabs->setTabVisible(1, (count > 0) && (m_preview->rowCount() > 0));
+    m_tabs->setTabVisible(2, m_journal->rowCount() > 0);
+    m_empty->setVisible(count == 0);
+    m_enabled->setVisible(count > 0);
+    m_tabs->setVisible((count > 0) || (m_journal->rowCount() > 0));
+    m_remove->setVisible((count > 0) && (m_tabs->currentIndex() == 0));
+    m_up->setVisible((count > 1) && (m_tabs->currentIndex() == 0));
+    m_down->setVisible((count > 1) && (m_tabs->currentIndex() == 0));
+    m_remove->setEnabled(row >= 0);
+    m_up->setEnabled(row > 0);
+    m_down->setEnabled((row >= 0) && (row + 1 < count));
+    bool hasDelete = false;
+    for (int index = 0; index < count; ++index)
+    {
+        const auto *action = qobject_cast<QComboBox *>(m_rules->cellWidget(index, 6));
+        hasDelete |= action && (action->currentData() == u"delete_data"_s);
+    }
+    m_deleteData->setVisible(hasDelete);
+    const int selected = m_preview->currentRow();
+    const QTableWidgetItem *permission = (selected >= 0) ? m_preview->item(selected, 4) : nullptr;
+    m_accept->setEnabled(permission && permission->data(Qt::UserRole).toBool());
 }

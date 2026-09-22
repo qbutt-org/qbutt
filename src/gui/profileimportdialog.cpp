@@ -10,6 +10,7 @@
 
 #include "profileimportdialog.h"
 
+#include <algorithm>
 #include <utility>
 
 #include <libtorrent/torrent_info.hpp>
@@ -35,26 +36,21 @@
 ProfileImportDialog::ProfileImportDialog(QWidget *parent)
     : QDialog {parent}
     , m_sources {new QWidget {this}}
+    , m_results {new QWidget {this}}
     , m_settingsFile {new FileSystemPathLineEdit {m_sources}}
     , m_dataDirectory {new FileSystemPathLineEdit {m_sources}}
     , m_sourceBase {new FileSystemPathLineEdit {m_sources}}
     , m_status {new QLabel {this}}
     , m_progress {new QProgressBar {this}}
-    , m_settings {new QTreeWidget {this}}
-    , m_torrents {new QTableWidget {this}}
-    , m_ownership {new QCheckBox {tr("The source client is closed and no longer manages the selected data."), this}}
+    , m_settings {new QTreeWidget {m_results}}
+    , m_torrents {new QTableWidget {m_results}}
+    , m_ownership {new QCheckBox {tr("The source client is closed and will no longer use these files."), m_results}}
 {
     setObjectName(u"ProfileImportDialog"_s);
     setWindowTitle(tr("Import profile"));
     setWindowModality(Qt::WindowModal);
-    resize(960, 720);
 
     auto *layout = new QVBoxLayout {this};
-    auto *introduction = new QLabel {tr("Import selected qBittorrent settings and torrents into qbutt on its next start. "
-        "The source profile is read-only. Payload files are not moved or copied, and all imported torrents start stopped."), this};
-    introduction->setWordWrap(true);
-    layout->addWidget(introduction);
-
     m_settingsFile->setObjectName(u"profileSettingsFile"_s);
     m_settingsFile->setMode(FileSystemPathEdit::Mode::FileOpen);
     m_settingsFile->setDialogCaption(tr("Choose qBittorrent settings"));
@@ -69,56 +65,64 @@ ProfileImportDialog::ProfileImportDialog(QWidget *parent)
     form->setContentsMargins(0, 0, 0, 0);
     form->addRow(tr("Settings file:"), m_settingsFile);
     form->addRow(tr("Data directory:"), m_dataDirectory);
-    form->addRow(tr("Portable profile base (optional):"), m_sourceBase);
+    auto *portable = new QCheckBox {tr("This profile uses relative paths"), m_sources};
+    portable->setObjectName(u"profilePortableToggle"_s);
+    form->addRow(portable);
+    form->addRow(tr("Portable profile folder:"), m_sourceBase);
+    form->setRowVisible(m_sourceBase, false);
+    connect(portable, &QCheckBox::toggled, this, [this, form](const bool checked)
+    {
+        form->setRowVisible(m_sourceBase, checked);
+        if (!checked)
+            m_sourceBase->clear();
+    });
     layout->addWidget(m_sources);
-    auto *sourceHint = new QLabel {tr("A portable profile base is needed only when the source uses relative paths. "
-        "Otherwise, source and destination paths must be absolute."), this};
-    sourceHint->setWordWrap(true);
-    layout->addWidget(sourceHint);
 
     m_status->setObjectName(u"profileImportStatus"_s);
     m_status->setTextFormat(Qt::PlainText);
     m_status->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_status->setWordWrap(true);
-    m_status->setText(tr("Choose the source files, then preview the import."));
     layout->addWidget(m_status);
     m_progress->setRange(0, 0);
     m_progress->setTextVisible(false);
     layout->addWidget(m_progress);
 
+    auto *results = new QVBoxLayout {m_results};
+    results->setContentsMargins(0, 0, 0, 0);
+    auto *settingsToggle = new QCheckBox {tr("Show settings"), m_results};
+    settingsToggle->setObjectName(u"profileImportSettingsToggle"_s);
+    results->addWidget(settingsToggle);
     m_settings->setObjectName(u"profileImportSettings"_s);
     m_settings->setHeaderLabels({tr("Settings"), tr("Value to import")});
     m_settings->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_settings->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_settings->header()->setStretchLastSection(true);
     m_settings->setMaximumHeight(150);
-    layout->addWidget(m_settings);
-    auto *policySummary = new QLabel {tr("Only the settings shown above are imported. Completion policies remain in preview until reviewed in qbutt. "
-        "Expand Skipped settings to review the excluded names."), this};
-    policySummary->setWordWrap(true);
-    layout->addWidget(policySummary);
+    m_settings->hide();
+    connect(settingsToggle, &QCheckBox::toggled, m_settings, &QWidget::setVisible);
+    results->addWidget(m_settings);
 
     m_torrents->setObjectName(u"profileImportTorrents"_s);
     m_torrents->setColumnCount(4);
-    m_torrents->setHorizontalHeaderLabels({tr("Import"), tr("Torrent"), tr("Source payload location"), tr("Destination root")});
+    m_torrents->setHorizontalHeaderLabels({tr("Import"), tr("Torrent"), tr("Original folder"), tr("Folder on this computer")});
     m_torrents->verticalHeader()->hide();
     m_torrents->setAlternatingRowColors(true);
     m_torrents->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_torrents->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     for (int column = 1; column < 4; ++column)
         m_torrents->horizontalHeader()->setSectionResizeMode(column, QHeaderView::Stretch);
-    layout->addWidget(m_torrents, 1);
-    auto *mappingHint = new QLabel {tr("Edit a destination root to point to the existing payload on this computer. "
-        "Unchecked torrents will not be imported."), this};
+    results->addWidget(m_torrents, 1);
+    auto *mappingHint = new QLabel {tr("Check the folders above. Files stay in place; imported torrents start stopped."), m_results};
     mappingHint->setWordWrap(true);
-    layout->addWidget(mappingHint);
+    results->addWidget(mappingHint);
     m_ownership->setObjectName(u"profileImportOwnership"_s);
-    layout->addWidget(m_ownership);
+    results->addWidget(m_ownership);
+    layout->addWidget(m_results, 1);
 
     auto *buttons = new QDialogButtonBox {QDialogButtonBox::Close, this};
     m_previewButton = buttons->addButton(tr("Preview"), QDialogButtonBox::ActionRole);
     m_previewButton->setObjectName(u"profileImportPreview"_s);
-    m_importButton = buttons->addButton(tr("Import on next start"), QDialogButtonBox::ActionRole);
+    m_importButton = buttons->addButton(tr("Import"), QDialogButtonBox::ActionRole);
     m_importButton->setObjectName(u"profileImportApply"_s);
     m_importButton->setAutoDefault(false);
     m_closeButton = buttons->button(QDialogButtonBox::Close);
@@ -157,8 +161,7 @@ ProfileImportDialog::ProfileImportDialog(QWidget *parent)
             return;
         }
         auto *notice = new QMessageBox {QMessageBox::Information, tr("Import prepared")
-            , tr("Restart qbutt to finish importing the selected settings and stopped torrents. "
-                "Keep the source client closed; it must no longer manage the selected data.")
+            , tr("Restart qbutt to finish importing. Keep the source client closed.")
             , QMessageBox::Ok, this};
         m_progress->hide();
         notice->setAttribute(Qt::WA_DeleteOnClose);
@@ -166,13 +169,14 @@ ProfileImportDialog::ProfileImportDialog(QWidget *parent)
         notice->open();
     });
     updateControls();
+    resize(680, sizeHint().height());
 }
 
 void ProfileImportDialog::preview()
 {
     clearPreview();
     m_operation = Operation::Preview;
-    m_status->setText(tr("Reading the source profile. No files are changed."));
+    m_status->setText(tr("Reading profile…"));
     updateControls();
     m_previewWatcher.setFuture(QtConcurrent::run(&m_worker, [settings = m_settingsFile->selectedPath()
         , data = m_dataDirectory->selectedPath(), sourceBase = m_sourceBase->selectedPath()]
@@ -192,7 +196,7 @@ void ProfileImportDialog::prepareImport()
         selected.torrents[row].destinationPath = Path {m_torrents->item(row, 3)->text()};
     }
     m_operation = Operation::Import;
-    m_status->setText(tr("Preparing the import for qbutt's next start. Wait for this operation to finish before closing."));
+    m_status->setText(tr("Preparing import…"));
     updateControls();
     m_importWatcher.setFuture(QtConcurrent::run(&m_worker, [selected = std::move(selected)]() mutable
     {
@@ -206,7 +210,7 @@ void ProfileImportDialog::clearPreview()
     m_settings->clear();
     m_torrents->setRowCount(0);
     m_ownership->setChecked(false);
-    m_status->setText(tr("Choose the source files, then preview the import."));
+    m_status->clear();
     updateControls();
 }
 
@@ -263,14 +267,18 @@ void ProfileImportDialog::showPreview()
             m_torrents->setItem(row, column, item);
         }
     }
-    m_status->setText(tr("Preview ready: %L1 safe settings and %L2 torrents. Review the destination roots before importing.")
+    m_status->setText(tr("%L1 settings and %L2 torrents to import")
         .arg(m_preview->settings.size()).arg(m_preview->torrents.size()));
+    resize(std::max(width(), 860), 560);
 }
 
 void ProfileImportDialog::updateControls()
 {
     const bool idle = (m_operation == Operation::Idle);
     m_sources->setEnabled(idle);
+    m_results->setVisible(m_preview.has_value());
+    m_importButton->setVisible(m_preview.has_value());
+    m_status->setVisible(!m_status->text().isEmpty());
     m_previewButton->setEnabled(idle && m_settingsFile->selectedPath().isAbsolute() && m_dataDirectory->selectedPath().isAbsolute()
         && (m_sourceBase->selectedPath().isEmpty() || m_sourceBase->selectedPath().isAbsolute()));
     m_torrents->setEnabled(idle && m_preview.has_value());

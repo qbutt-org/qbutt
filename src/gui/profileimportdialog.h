@@ -58,6 +58,7 @@ private:
     QFutureWatcher<nonstd::expected<ProfileImportPreview, QString>> m_previewWatcher;
     QFutureWatcher<nonstd::expected<void, QString>> m_importWatcher;
     QWidget *m_sources = nullptr;
+    QWidget *m_results = nullptr;
     FileSystemPathLineEdit *m_settingsFile = nullptr;
     FileSystemPathLineEdit *m_dataDirectory = nullptr;
     FileSystemPathLineEdit *m_sourceBase = nullptr;

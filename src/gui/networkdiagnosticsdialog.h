@@ -50,6 +50,7 @@ private:
     QPointer<BitTorrent::Torrent> m_torrent;
     QTimer *m_timer = nullptr;
     QLabel *m_torrentLabel = nullptr;
+    QLabel *m_transfer = nullptr;
     QTableWidget *m_summary = nullptr;
     QTableWidget *m_paths = nullptr;
     QListWidget *m_reasons = nullptr;

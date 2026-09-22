@@ -172,18 +172,21 @@ int main(int argc, char **argv)
             auto *settings = dialog.findChild<FileSystemPathEdit *>(u"profileSettingsFile"_s);
             auto *data = dialog.findChild<FileSystemPathEdit *>(u"profileDataDirectory"_s);
             auto *base = dialog.findChild<FileSystemPathEdit *>(u"profileSourceBase"_s);
+            auto *portable = dialog.findChild<QCheckBox *>(u"profilePortableToggle"_s);
+            auto *showSettings = dialog.findChild<QCheckBox *>(u"profileImportSettingsToggle"_s);
             auto *preview = dialog.findChild<QPushButton *>(u"profileImportPreview"_s);
             auto *apply = dialog.findChild<QPushButton *>(u"profileImportApply"_s);
             auto *ownership = dialog.findChild<QCheckBox *>(u"profileImportOwnership"_s);
             auto *torrents = dialog.findChild<QTableWidget *>(u"profileImportTorrents"_s);
             auto *settingList = dialog.findChild<QTreeWidget *>(u"profileImportSettings"_s);
             auto *status = dialog.findChild<QLabel *>(u"profileImportStatus"_s);
-            require(settings && data && base && preview && apply && ownership && torrents && settingList && status,
+            require(settings && data && base && portable && showSettings && preview && apply && ownership && torrents && settingList && status,
                 u"The native profile dialog controls are missing"_s);
             require(!preview->isEnabled() && !apply->isEnabled(), u"Empty input enabled an import action"_s);
             require(dialog.grab().save(QDir(output).filePath(u"initial.png"_s)), u"Cannot render the initial dialog"_s);
             choosePath(settings, settingsFile, false);
             choosePath(data, sourceData, true);
+            portable->click();
             choosePath(base, sourceBase, true);
             require(preview->isEnabled(), u"Valid source selection did not enable preview"_s);
             settings->setSelectedPath(Path(QDir(sourceBase).filePath(u"missing-settings.ini"_s)));
@@ -224,6 +227,7 @@ int main(int argc, char **argv)
             for (int i = 0; i < settingList->topLevelItem(1)->childCount(); ++i)
                 require(settingList->topLevelItem(1)->child(i)->text(1).isEmpty(), u"An excluded setting exposed its value"_s);
             settingList->topLevelItem(1)->setExpanded(true);
+            showSettings->click();
             QTextDocument mappingText;
             mappingText.setHtml(torrents->item(0, 2)->toolTip());
             require(mappingText.toPlainText().contains(u"Relative file paths"_s), u"Actual file mappings are missing"_s);

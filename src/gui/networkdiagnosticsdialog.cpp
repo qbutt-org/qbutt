@@ -9,6 +9,7 @@
 #include <limits>
 #include <utility>
 
+#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFuture>
@@ -137,19 +138,19 @@ namespace
 
     QString reasonText(const QString &code, const int count)
     {
-        if (code == u"no-candidates") return NetworkDiagnosticsDialog::tr("No peer connection candidates are available.");
-        if (code == u"connecting") return NetworkDiagnosticsDialog::tr("%n peer connection(s) have not completed the handshake.", nullptr, count);
-        if (code == u"choked") return NetworkDiagnosticsDialog::tr("%n wanted peer connection(s) are choked by the remote side.", nullptr, count);
-        if (code == u"no-demand") return NetworkDiagnosticsDialog::tr("%n peer connection(s) have no wanted blocks.", nullptr, count);
-        if (code == u"disk") return NetworkDiagnosticsDialog::tr("%n peer connection(s) are waiting for disk I/O.", nullptr, count);
-        if (code == u"hash") return NetworkDiagnosticsDialog::tr("Hash verification rejected data since the previous sample.");
-        if (code == u"rate") return NetworkDiagnosticsDialog::tr("%n peer connection(s) are waiting for bandwidth.", nullptr, count);
-        if (code == u"transferring") return NetworkDiagnosticsDialog::tr("Payload is currently transferring.");
-        if (code == u"stopped") return NetworkDiagnosticsDialog::tr("The torrent is stopped.");
-        if (code == u"finished") return NetworkDiagnosticsDialog::tr("The wanted payload is complete.");
-        if (code == u"metadata") return NetworkDiagnosticsDialog::tr("The torrent is downloading metadata; payload demand is not available yet.");
-        if (code == u"inactive") return NetworkDiagnosticsDialog::tr("The current torrent state is not attempting a payload download.");
-        return NetworkDiagnosticsDialog::tr("The torrent is idle without a single dominant cause.");
+        if (code == u"no-candidates") return NetworkDiagnosticsDialog::tr("No peers available");
+        if (code == u"connecting") return NetworkDiagnosticsDialog::tr("Connecting to %n peer(s)", nullptr, count);
+        if (code == u"choked") return NetworkDiagnosticsDialog::tr("%n peer(s) are withholding data (choked)", nullptr, count);
+        if (code == u"no-demand") return NetworkDiagnosticsDialog::tr("%n peer(s) have no needed data", nullptr, count);
+        if (code == u"disk") return NetworkDiagnosticsDialog::tr("%n peer(s) waiting for disk I/O", nullptr, count);
+        if (code == u"hash") return NetworkDiagnosticsDialog::tr("Downloaded data failed verification");
+        if (code == u"rate") return NetworkDiagnosticsDialog::tr("%n peer(s) waiting for bandwidth", nullptr, count);
+        if (code == u"transferring") return NetworkDiagnosticsDialog::tr("Transferring data");
+        if (code == u"stopped") return NetworkDiagnosticsDialog::tr("Torrent stopped");
+        if (code == u"finished") return NetworkDiagnosticsDialog::tr("Download complete");
+        if (code == u"metadata") return NetworkDiagnosticsDialog::tr("Downloading metadata");
+        if (code == u"inactive") return NetworkDiagnosticsDialog::tr("Not downloading");
+        return NetworkDiagnosticsDialog::tr("Idle; no clear cause");
     }
 
     QString peerSourcesText(const int sources)
@@ -176,15 +177,17 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(QWidget *parent, BitTorrent::
     , m_torrent {torrent}
     , m_timer {new QTimer {this}}
     , m_torrentLabel {new QLabel {this}}
+    , m_transfer {new QLabel {this}}
     , m_summary {new QTableWidget {this}}
     , m_paths {new QTableWidget {this}}
     , m_reasons {new QListWidget {this}}
     , m_refresh {new QPushButton {tr("Refresh"), this}}
-    , m_export {new QPushButton {tr("Export anonymized diagnostics..."), this}}
+    , m_export {new QPushButton {tr("Export…"), this}}
     , m_status {new QLabel {this}}
 {
     setObjectName(u"networkDiagnosticsDialog"_s);
     m_torrentLabel->setObjectName(u"diagnosticsTorrent"_s);
+    m_transfer->setObjectName(u"diagnosticsTransfer"_s);
     m_summary->setObjectName(u"diagnosticsSummary"_s);
     m_paths->setObjectName(u"diagnosticsPaths"_s);
     m_reasons->setObjectName(u"diagnosticsReasons"_s);
@@ -193,8 +196,16 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(QWidget *parent, BitTorrent::
     m_status->setObjectName(u"diagnosticsStatus"_s);
 
     setWindowTitle(tr("Network diagnostics"));
-    resize(920, 680);
+    resize(680, 300);
+    m_torrentLabel->setTextFormat(Qt::PlainText);
+    m_torrentLabel->setWordWrap(true);
     m_torrentLabel->setText(torrent ? torrent->name() : tr("Torrent removed"));
+    m_transfer->setText(tr("Reading transfer status…"));
+    m_transfer->setWordWrap(true);
+    m_reasons->setFrameShape(QFrame::NoFrame);
+    m_reasons->setSelectionMode(QAbstractItemView::NoSelection);
+    m_reasons->hide();
+    m_export->setToolTip(tr("Export anonymized diagnostics"));
     m_summary->setColumnCount(2);
     m_summary->horizontalHeader()->hide();
     m_summary->verticalHeader()->hide();
@@ -213,16 +224,27 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(QWidget *parent, BitTorrent::
     buttons->addButton(m_export, QDialogButtonBox::ActionRole);
     auto *layout = new QVBoxLayout {this};
     layout->addWidget(m_torrentLabel);
-    layout->addWidget(new QLabel {tr("Current transfer evidence"), this});
-    layout->addWidget(m_summary);
-    auto *pathScope = new QLabel {tr("Path totals include all torrents in this session, including closed connections. "
-        "Verified bytes count downloaded blocks once after a successful hash check, excluding padding and redundant copies. "
-        "Existing local data is not counted. Retired path totals expire after 15 minutes without activity."), this};
-    pathScope->setWordWrap(true);
-    layout->addWidget(pathScope);
-    layout->addWidget(m_paths);
-    layout->addWidget(new QLabel {tr("Likely causes"), this});
+    layout->addWidget(m_transfer);
     layout->addWidget(m_reasons);
+    auto *detailsToggle = new QCheckBox {tr("Show details"), this};
+    detailsToggle->setObjectName(u"diagnosticsDetailsToggle"_s);
+    layout->addWidget(detailsToggle);
+    auto *details = new QWidget {this};
+    auto *detailsLayout = new QVBoxLayout {details};
+    detailsLayout->setContentsMargins(0, 0, 0, 0);
+    detailsLayout->addWidget(m_summary);
+    auto *pathScope = new QLabel {tr("Connections · all torrents"), details};
+    pathScope->setToolTip(tr("Verified bytes count downloaded data after a successful hash check, excluding padding, "
+        "duplicate copies and existing files. Inactive connection totals expire after 15 minutes."));
+    detailsLayout->addWidget(pathScope);
+    detailsLayout->addWidget(m_paths);
+    details->hide();
+    layout->addWidget(details, 1);
+    connect(detailsToggle, &QCheckBox::toggled, this, [this, details](const bool checked)
+    {
+        details->setVisible(checked);
+        resize(checked ? 920 : 680, checked ? 680 : 300);
+    });
     layout->addWidget(m_status);
     layout->addWidget(buttons);
 
@@ -261,8 +283,8 @@ void NetworkDiagnosticsDialog::refreshNow()
         m_refresh->setEnabled(false);
         m_export->setEnabled(!m_samples.isEmpty());
         m_status->setText(m_samples.isEmpty()
-            ? tr("Torrent was removed and retained diagnostics have expired.")
-            : tr("Torrent was removed. Retained samples remain available for export."));
+            ? tr("Torrent removed; diagnostics expired.")
+            : tr("Torrent removed. Diagnostics can still be exported."));
         return;
     }
 
@@ -549,6 +571,11 @@ void NetworkDiagnosticsDialog::render(const QJsonObject &snapshot)
 {
     const QJsonObject torrent = snapshot.value(u"torrent"_s).toObject();
     const QJsonObject peers = snapshot.value(u"peers"_s).toObject();
+    m_transfer->setText(tr("Download: %1 · Upload: %2 · Peers: %L3")
+        .arg(Utils::Misc::friendlyUnit(torrent.value(u"payloadDownloadRate"_s).toInteger(), true),
+            Utils::Misc::friendlyUnit(torrent.value(u"payloadUploadRate"_s).toInteger(), true))
+        .arg(torrent.value(u"establishedPeers"_s).toInt()));
+    m_transfer->setToolTip(tr("Torrent payload rates before hash verification."));
     int remotePaths = 0;
     int wireKnownPaths = 0;
     qint64 relayDownload = 0;
@@ -573,10 +600,10 @@ void NetworkDiagnosticsDialog::render(const QJsonObject &snapshot)
     const bool wireKnown = (remotePaths > 0) && (wireKnownPaths == remotePaths);
     const QString relaySummary = wireKnown ? tr("%1 down / %2 up")
         .arg(Utils::Misc::friendlyUnit(relayDownload), Utils::Misc::friendlyUnit(relayUpload))
-        : tr("Unknown (transport does not report this counter)");
+        : tr("Not reported");
     const QString carrierSummary = wireKnown ? tr("%1 down / %2 up")
         .arg(Utils::Misc::friendlyUnit(carrierDownload), Utils::Misc::friendlyUnit(carrierUpload))
-        : tr("Unknown (transport does not report this counter)");
+        : tr("Not reported");
     const QJsonObject decisions = snapshot.value(u"selector"_s).toObject().value(u"recentDecisions"_s).toObject();
     const QString decisionCounts = tr("Pinned %1 · scored %2 · exploration %3 · denied %4")
         .arg(decisions.value(u"pinned"_s).toInt()).arg(decisions.value(u"best-score"_s).toInt())
@@ -592,7 +619,6 @@ void NetworkDiagnosticsDialog::render(const QJsonObject &snapshot)
             .arg(peers.value(u"choked"_s).toInt()).arg(peers.value(u"noDemand"_s).toInt())},
         {tr("Peer payload down"), Utils::Misc::friendlyUnit(torrent.value(u"payloadDownloadRate"_s).toInteger(), true)},
         {tr("Peer protocol wire down"), Utils::Misc::friendlyUnit(torrent.value(u"wireDownloadRate"_s).toInteger(), true)},
-        {tr("Verified download rate"), tr("See per-path session rates below")},
         {tr("Relay bytes"), relaySummary},
         {tr("Carrier wire bytes"), carrierSummary},
         {tr("Recent session route decisions"), decisionSummary},
@@ -703,8 +729,10 @@ void NetworkDiagnosticsDialog::render(const QJsonObject &snapshot)
         const QJsonObject reason = value.toObject();
         m_reasons->addItem(reasonText(reason.value(u"code"_s).toString(), reason.value(u"count"_s).toInt()));
     }
-    m_status->setText(tr("%n sample(s), capped at 300 and retained for at most 15 minutes.", nullptr,
-        m_samples.size()));
+    m_reasons->setVisible(m_reasons->count() > 0);
+    m_reasons->setFixedHeight(std::min(140, m_reasons->count() * m_reasons->sizeHintForRow(0)));
+    m_status->clear();
+    m_export->setToolTip(tr("Export anonymized diagnostics (%n sample(s), up to 15 minutes).", nullptr, m_samples.size()));
 }
 
 void NetworkDiagnosticsDialog::exportDiagnostics()
