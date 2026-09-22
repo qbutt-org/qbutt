@@ -152,6 +152,7 @@ try:
                                             env=env, stdout=stdout, stderr=stderr, timeout=160)
                 if result.returncode:
                     raise RuntimeError(f"application: exit {result.returncode}; inspect {root}")
+                assert len(requests) == 2 and sum(".exe " in item["request"] for item in requests) == 1, requests
                 evidence.append({"scenario": scenario, "exitCode": result.returncode})
                 cases = []
             else:
@@ -205,6 +206,8 @@ try:
                     if scenario == "installed-duplicate-check":
                         assert item["duplicateCheck"], item
                         assert len([r for r in requests if r["scenario"] == scenario]) == 2, requests
+                    if scenario in ("installed-cancel", "installed-corrupt"):
+                        assert not list((cache / "updates").glob("*")), "partial installer remained"
                 expected = payload if scenario in ("success", "archive-redirect") else b"existing destination must survive failed downloads"
                 assert target.read_bytes() == expected, scenario
                 assert not [path for path in root.glob(f"{scenario}.zip.*") if path.suffix != ".png"], "partial file remained"
