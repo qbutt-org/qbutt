@@ -8,8 +8,6 @@
 #include <algorithm>
 #include <optional>
 
-#include <openssl/evp.h>
-
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -20,7 +18,6 @@
 #include <QStringList>
 
 #include "global.h"
-#include "releasepublickey.h"
 #include "version.h"
 
 namespace
@@ -98,25 +95,6 @@ namespace
         const auto match = pattern.match(asset.value(u"digest"_s).toString());
         return match.hasMatch() ? QByteArray::fromHex(match.captured(1).toLatin1()) : QByteArray {};
     }
-
-    bool verifySignature(const QByteArray &checksums, const QByteArray &signature)
-    {
-#ifdef QBUTT_UPDATE_ACCEPTANCE
-        // RFC 8032 test key, compiled only into the isolated HTTPS fixture driver.
-        const QByteArray publicKey = QByteArray::fromHex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a");
-#else
-        const QByteArray publicKey = QByteArray::fromHex(QBUTT_RELEASE_PUBLIC_KEY_HEX);
-#endif
-        if ((publicKey.size() != 32) || (signature.size() != 64))
-            return false;
-        const std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> key {
-            EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, nullptr,
-                reinterpret_cast<const unsigned char *>(publicKey.constData()), publicKey.size()), EVP_PKEY_free};
-        const std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context {EVP_MD_CTX_new(), EVP_MD_CTX_free};
-        return key && context && (EVP_DigestVerifyInit(context.get(), nullptr, nullptr, nullptr, key.get()) == 1)
-            && (EVP_DigestVerify(context.get(), reinterpret_cast<const unsigned char *>(signature.constData()), signature.size(),
-                reinterpret_cast<const unsigned char *>(checksums.constData()), checksums.size()) == 1);
-    }
 }
 
 ReleaseUpdater::ReleaseUpdater(QObject *parent)
@@ -156,7 +134,6 @@ void ReleaseUpdater::stop()
     }
     m_file.reset(); // QSaveFile removes an uncommitted partial file.
     m_buffer.clear();
-    m_checksums.clear();
 }
 
 void ReleaseUpdater::fail(const QString &message)
@@ -170,7 +147,7 @@ void ReleaseUpdater::cancel()
     if ((m_state != State::Checking) && (m_state != State::Downloading))
         return;
     stop();
-    setState(State::Canceled, tr("Canceled. No installed files were changed."));
+    setState(State::Canceled, tr("Canceled."));
 }
 
 void ReleaseUpdater::check()
@@ -214,14 +191,7 @@ void ReleaseUpdater::readData()
     const bool success = m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200;
     qint64 limit = 64 * 1024;
     if (success)
-    {
-        if (m_request == Request::Archive)
-            limit = m_archiveSize;
-        else if (m_request == Request::Releases)
-            limit = 2 * 1024 * 1024;
-        else if (m_request == Request::Signature)
-            limit = 64;
-    }
+        limit = (m_request == Request::Archive) ? m_archiveSize : (2 * 1024 * 1024);
     while (m_reply && m_reply->bytesAvailable())
     {
         const QByteArray data = m_reply->read(64 * 1024);
@@ -233,9 +203,9 @@ void ReleaseUpdater::readData()
         }
         if (!success)
             continue;
-        m_hash.addData(data);
         if (m_request == Request::Archive)
         {
+            m_hash.addData(data);
             if (!m_file || (m_file->write(data) != data.size()))
             {
                 fail(tr("Could not write the downloaded archive."));
@@ -271,50 +241,20 @@ void ReleaseUpdater::finishRequest()
     }
     if (m_request == Request::Releases)
         readReleases();
-    else if (m_request == Request::Checksums)
-    {
-        if (m_hash.result() != m_checksumsHash)
-        {
-            fail(tr("The checksum file does not match GitHub's SHA-256 digest."));
-            return;
-        }
-        const QByteArray expected = m_archiveHash.toHex() + "  " + m_fileName.toUtf8();
-        int matches = 0;
-        for (const QByteArray &line : m_buffer.split('\n'))
-            matches += (line.trimmed() == expected);
-        if (matches != 1)
-        {
-            fail(tr("The archive checksum is missing or inconsistent."));
-            return;
-        }
-        m_checksums = m_buffer;
-        fetch(QUrl(m_checksumsUrl.toString() + u".sig"), Request::Signature);
-    }
-    else if (m_request == Request::Signature)
-    {
-        if (!verifySignature(m_checksums, m_buffer))
-        {
-            fail(tr("The release signature is invalid. The download was not saved."));
-            return;
-        }
-        m_checksums.clear();
-        fetch(m_archiveUrl, Request::Archive);
-    }
     else
     {
         if ((m_received != m_archiveSize) || (m_hash.result() != m_archiveHash))
         {
-            fail(tr("The downloaded archive is incomplete or its SHA-256 is incorrect."));
+            fail(tr("The download is incomplete or damaged. Please try again."));
             return;
         }
         if (!m_file->commit())
         {
-            fail(tr("Could not save the verified archive."));
+            fail(tr("Could not save the download."));
             return;
         }
         stop();
-        setState(State::Ready, tr("Download verified and saved. Extract the whole bundle into a new folder. "
-            "Keep qbutt.exe, qbutt-net.exe and the supplied libraries together. Your current installation and profile were not changed."));
+        setState(State::Ready, tr("Download complete. Close qbutt and extract the archive to install the update."));
     }
 }
 
@@ -350,7 +290,7 @@ void ReleaseUpdater::readReleases()
     }
     if (!recognized)
     {
-        fail(tr("No valid qbutt releases were returned for this release channel."));
+        fail(tr("No qbutt releases were found. Try again later."));
         return;
     }
     if (selected.isEmpty())
@@ -363,42 +303,30 @@ void ReleaseUpdater::readReleases()
     m_fileName = u"qbutt-%1-windows-x64.zip"_s.arg(m_version);
     const QString prefix = RELEASE_ROOT + u"download/v" + m_version + u'/';
     QJsonObject archive;
-    QJsonObject checksums;
-    QJsonObject signature;
     int matches = 0;
     for (const auto &value : selected.value(u"assets"_s).toArray())
     {
         const QJsonObject asset = value.toObject();
         const QString name = asset.value(u"name"_s).toString();
-        if ((name != m_fileName) && (name != u"SHA256SUMS.txt") && (name != u"SHA256SUMS.txt.sig"))
+        if (name != m_fileName)
             continue;
         ++matches;
         if ((asset.value(u"browser_download_url"_s).toString() != prefix + name)
             || (asset.value(u"state"_s).toString() != u"uploaded"))
         {
-            fail(tr("The release asset identity is invalid."));
+            fail(tr("The download information is invalid. Try again later."));
             return;
         }
-        if (name == m_fileName)
-            archive = asset;
-        else if (name == u"SHA256SUMS.txt")
-            checksums = asset;
-        else
-            signature = asset;
+        archive = asset;
     }
     m_archiveSize = archive.value(u"size"_s).toInteger();
     m_archiveHash = assetHash(archive);
-    m_checksumsHash = assetHash(checksums);
-    if ((matches != 3) || (m_archiveSize <= 0) || (m_archiveSize > MAX_ARCHIVE_SIZE)
-        || (checksums.value(u"size"_s).toInteger() <= 0) || (checksums.value(u"size"_s).toInteger() > 64 * 1024)
-        || (signature.value(u"size"_s).toInteger() != 64)
-        || m_archiveHash.isEmpty() || m_checksumsHash.isEmpty())
+    if ((matches != 1) || (m_archiveSize <= 0) || (m_archiveSize > MAX_ARCHIVE_SIZE) || m_archiveHash.isEmpty())
     {
-        fail(tr("The release is missing a valid signed Windows x64 bundle or SHA-256 digests."));
+        fail(tr("The Windows download is not available. Try again later."));
         return;
     }
     m_archiveUrl = QUrl(prefix + m_fileName);
-    m_checksumsUrl = QUrl(prefix + u"SHA256SUMS.txt");
     stop();
     setState(State::Available, tr("qbutt %1 is available (%2 MiB).").arg(m_version).arg(m_archiveSize / (1024 * 1024)));
 }
@@ -417,5 +345,5 @@ void ReleaseUpdater::download(const QString &destination)
     m_savedPath = destination;
     m_deadline.start(10 * 60 * 1000);
     setState(State::Downloading, tr("Downloading qbutt %1…").arg(m_version));
-    fetch(m_checksumsUrl, Request::Checksums);
+    fetch(m_archiveUrl, Request::Archive);
 }

@@ -42,17 +42,13 @@ set_target_properties(qbutt-qt-acceptance PROPERTIES
 )
 
 find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Widgets Network)
-foreach(target qbutt-update-acceptance qbutt-update-live-acceptance)
-    add_executable(${target}
-        release-updater.cpp
-        ${qBittorrent_SOURCE_DIR}/src/base/releaseupdater.cpp
-        ${qBittorrent_SOURCE_DIR}/src/base/releaseupdater.h
-        ${qBittorrent_SOURCE_DIR}/src/gui/releaseupdatedialog.cpp
-        ${qBittorrent_SOURCE_DIR}/src/gui/releaseupdatedialog.h
-    )
-    target_include_directories(${target} PRIVATE ${qBittorrent_SOURCE_DIR}/src)
-    target_link_libraries(${target} PRIVATE qbt_common_cfg Qt6::Widgets Qt6::Network OpenSSL::Crypto)
-    set_target_properties(${target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
-endforeach()
-target_compile_definitions(qbutt-update-acceptance PRIVATE QBUTT_UPDATE_ACCEPTANCE)
-set_target_properties(qbutt-update-live-acceptance PROPERTIES EXCLUDE_FROM_ALL TRUE)
+add_executable(qbutt-update-acceptance
+    release-updater.cpp
+    ${qBittorrent_SOURCE_DIR}/src/base/releaseupdater.cpp
+    ${qBittorrent_SOURCE_DIR}/src/base/releaseupdater.h
+    ${qBittorrent_SOURCE_DIR}/src/gui/releaseupdatedialog.cpp
+    ${qBittorrent_SOURCE_DIR}/src/gui/releaseupdatedialog.h
+)
+target_include_directories(qbutt-update-acceptance PRIVATE ${qBittorrent_SOURCE_DIR}/src)
+target_link_libraries(qbutt-update-acceptance PRIVATE qbt_common_cfg Qt6::Widgets Qt6::Network)
+set_target_properties(qbutt-update-acceptance PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

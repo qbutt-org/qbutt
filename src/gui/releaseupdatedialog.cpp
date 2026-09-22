@@ -27,9 +27,9 @@ ReleaseUpdateDialog::ReleaseUpdateDialog(QWidget *parent)
     setAttribute(Qt::WA_DeleteOnClose);
     setMinimumWidth(520);
     auto *layout = new QVBoxLayout(this);
-    layout->addWidget(new QLabel(tr("Installed: qbutt %1 (qBittorrent %2)")
-        .arg(QStringLiteral(QBUTT_VERSION), QStringLiteral(QBT_VERSION_2)), this));
-    auto *source = new QLabel(tr("Source: <a href=\"https://github.com/qbutt-org/qbutt/releases\">qbutt GitHub Releases</a>"), this);
+    layout->addWidget(new QLabel(tr("Installed: qbutt %1")
+        .arg(QStringLiteral(QBUTT_VERSION)), this));
+    auto *source = new QLabel(tr("Source: <a href=\"https://github.com/qbutt-org/qbutt/releases\">qbutt releases</a>"), this);
     source->setOpenExternalLinks(true);
     layout->addWidget(source);
     auto *network = new QLabel(tr("Update checks and downloads use this computer's normal network connection, "
@@ -42,10 +42,6 @@ ReleaseUpdateDialog::ReleaseUpdateDialog(QWidget *parent)
     m_status->setWordWrap(true);
     m_status->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
     layout->addWidget(m_status);
-    auto *integrity = new QLabel(tr("Downloads contain the complete portable bundle. Its release signature and SHA-256 "
-        "are verified before saving. Installation is manual."), this);
-    integrity->setWordWrap(true);
-    layout->addWidget(integrity);
     m_progress = new QProgressBar(this);
     m_progress->setObjectName(u"releaseProgress"_s);
     layout->addWidget(m_progress);
@@ -63,7 +59,7 @@ ReleaseUpdateDialog::ReleaseUpdateDialog(QWidget *parent)
     connect(m_cancel, &QPushButton::clicked, &m_updater, &ReleaseUpdater::cancel);
     connect(m_download, &QPushButton::clicked, this, [this]()
     {
-        const QString path = QFileDialog::getSaveFileName(this, tr("Save qbutt release"),
+        const QString path = QFileDialog::getSaveFileName(this, tr("Save qbutt update"),
             QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)).filePath(m_updater.fileName()),
             tr("ZIP archives (*.zip)"));
         if (!path.isEmpty())

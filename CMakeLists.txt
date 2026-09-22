@@ -61,6 +61,12 @@ include(CommonConfig)
 
 # Generate version header
 file(STRINGS "qbutt-version.txt" QBUTT_VERSION LIMIT_COUNT 1)
+if(NOT QBUTT_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)")
+    message(FATAL_ERROR "Invalid qbutt version: ${QBUTT_VERSION}")
+endif()
+set(QBUTT_VERSION_MAJOR "${CMAKE_MATCH_1}")
+set(QBUTT_VERSION_MINOR "${CMAKE_MATCH_2}")
+set(QBUTT_VERSION_PATCH "${CMAKE_MATCH_3}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/qbutt-version.txt")
 configure_file("src/base/version.h.in" "${CMAKE_CURRENT_SOURCE_DIR}/src/base/version.h" @ONLY)
 

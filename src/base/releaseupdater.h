@@ -43,7 +43,7 @@ signals:
     void progress(qint64 received, qint64 total);
 
 private:
-    enum class Request { Releases, Checksums, Signature, Archive };
+    enum class Request { Releases, Archive };
     void fetch(const QUrl &url, Request request, int redirects = 0);
     void readData();
     void finishRequest();
@@ -64,10 +64,7 @@ private:
     QString m_fileName;
     QString m_savedPath;
     QUrl m_archiveUrl;
-    QUrl m_checksumsUrl;
     QByteArray m_archiveHash;
-    QByteArray m_checksumsHash;
-    QByteArray m_checksums;
     QByteArray m_buffer;
     qint64 m_archiveSize = 0;
     qint64 m_received = 0;
