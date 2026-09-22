@@ -42,7 +42,6 @@ target_sources(qbt_app PRIVATE
     applicationinstancemanager.h
     cmdoptions.h
     filelogger.h
-    legalnotice.h
     qtlocalpeer/qtlocalpeer.h
     signalhandler.h
     upgrade.h
@@ -52,7 +51,6 @@ target_sources(qbt_app PRIVATE
     applicationinstancemanager.cpp
     cmdoptions.cpp
     filelogger.cpp
-    legalnotice.cpp
     main.cpp
     qtlocalpeer/qtlocalpeer.cpp
     signalhandler.cpp

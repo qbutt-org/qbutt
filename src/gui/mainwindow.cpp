@@ -486,14 +486,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
         {
             showMinimized();
             if (pref->minimizeToTray())
-            {
                 hide();
-                if (!pref->minimizeToTrayNotified())
-                {
-                    app->desktopIntegration()->showNotification(tr("qbutt is minimized to tray"), tr("This behavior can be changed in the settings. You won't be reminded again."));
-                    pref->setMinimizeToTrayNotified(true);
-                }
-            }
         }
     }
     else
@@ -585,7 +578,7 @@ void MainWindow::setTitleSuffix(const QString &suffix)
 {
     const auto emDash = QChar(0x2014);
     const QString separator = u' ' + emDash + u' ';
-    m_windowTitle = u"qbutt " QBUTT_VERSION + separator + tr("based on qBittorrent %1").arg(QStringLiteral(QBT_VERSION))
+    m_windowTitle = u"qbutt " QBUTT_VERSION
         + (!suffix.isEmpty() ? (separator + suffix) : QString());
 
     refreshWindowTitle();
@@ -1206,11 +1199,6 @@ void MainWindow::closeEvent(QCloseEvent *e)
     {
         e->ignore();
         QMetaObject::invokeMethod(this, &QWidget::hide, Qt::QueuedConnection);
-        if (!pref->closeToTrayNotified())
-        {
-            app()->desktopIntegration()->showNotification(tr("qbutt is closed to tray"), tr("This behavior can be changed in the settings. You won't be reminded again."));
-            pref->setCloseToTrayNotified(true);
-        }
         return;
     }
 #endif // Q_OS_MACOS
@@ -1299,11 +1287,6 @@ bool MainWindow::event(QEvent *e)
                     qDebug("Minimize to Tray enabled, hiding!");
                     e->ignore();
                     QMetaObject::invokeMethod(this, &QWidget::hide, Qt::QueuedConnection);
-                    if (!pref->minimizeToTrayNotified())
-                    {
-                        app()->desktopIntegration()->showNotification(tr("qbutt is minimized to tray"), tr("This behavior can be changed in the settings. You won't be reminded again."));
-                        pref->setMinimizeToTrayNotified(true);
-                    }
                     return true;
                 }
             }

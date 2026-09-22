@@ -62,7 +62,7 @@ void StacktraceDialog::setText(const QString &signalName, const QString &stacktr
         "</p></font>"
         "<br/><hr><br/>"
         "<p align=center><font size=4>"
-        "qbutt, based on qBittorrent version: " QBT_VERSION " (%1-bit)<br/>"
+        "qbutt version: " QBUTT_VERSION " (%1-bit)<br/>"
         "Libtorrent version: %2<br/>"
         "Qt version: " QT_VERSION_STR "<br/>"
         "Boost version: %3<br/>"

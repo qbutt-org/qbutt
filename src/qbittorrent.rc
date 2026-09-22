@@ -6,11 +6,11 @@ IDI_ICON2 ICON "icons\qbittorrent_file.ico"
 #include <windows.h>
 #include "base/version.h"
 
-#define VER_FILEVERSION             QBT_VERSION_MAJOR,QBT_VERSION_MINOR,QBT_VERSION_BUGFIX,QBT_VERSION_BUILD
-#define VER_FILEVERSION_STR         QBT_VERSION
+#define VER_FILEVERSION             QBUTT_VERSION_MAJOR,QBUTT_VERSION_MINOR,QBUTT_VERSION_PATCH,0
+#define VER_FILEVERSION_STR         QBUTT_VERSION
 
-#define VER_PRODUCTVERSION          QBT_VERSION_MAJOR,QBT_VERSION_MINOR,QBT_VERSION_BUGFIX,QBT_VERSION_BUILD
-#define VER_PRODUCTVERSION_STR      QBT_VERSION
+#define VER_PRODUCTVERSION          VER_FILEVERSION
+#define VER_PRODUCTVERSION_STR      QBUTT_VERSION
 
 #ifndef DEBUG
 #define VER_DEBUG                   0
@@ -32,7 +32,7 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "CompanyName",      "The qbutt Project"
-            VALUE "FileDescription",  "qbutt - A BitTorrent Client"
+            VALUE "FileDescription",  "qbutt - A ButtTorrent Client"
             VALUE "FileVersion",      VER_FILEVERSION_STR
             VALUE "InternalName",     "qbutt"
             VALUE "LegalCopyright",   "Copyright ©2006-2026 The qBittorrent Project"

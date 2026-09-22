@@ -169,50 +169,23 @@ sizes and hashes over one peer connection. It keeps screenshots and compact
 evidence, then releases the lock and removes the owned profile and payload.
 This is process-level Light/Fusion acceptance, not physical desktop interaction.
 
-The `qbutt-update-acceptance` CMake target builds only the production release
-service/dialog and a Qt process driver. `tests/qt-acceptance/release-fixture.py`
-accepts the driver and OpenSSL executable paths. Put the existing Qt SDK's `bin`
-on `PATH` and set `QT_PLUGIN_PATH` to its `plugins` directory; register the driver
-and Python with `bun tests/windows-firewall.ts <driver> <python>` before running.
-The driver uses Light/Fusion offscreen and checks widget properties and text
-geometry as well as screenshots. Its localhost HTTPS fixture covers no update,
-alpha ordering, complete bundle download, cancellation during progress, corrupted
-archive/checksums, interrupted transfer, wrong asset identity, insecure redirect,
-HTTP failure and an untrusted certificate. Signature scenarios cover an unsigned
-release, a damaged/short/oversized signature, an unknown signing key, replay from
-another version and tampered metadata with internally consistent SHA-256 digests.
-The test driver alone uses the public RFC 8032 key; no runtime key override exists
-in the product. Existing destination bytes must survive
-every failed/canceled download, with no partial file left. The generated CA is
-trusted only by the test process, never installed in Windows. Run this socket
-fixture separately from gateway/network labs. The runner removes its key, CA and
-payload; it prints the compact evidence/screenshot directory.
+The `qbutt-update-acceptance` CMake target builds the production update service,
+dialog and a Qt process driver. Run `tests/qt-acceptance/release-fixture.py` with
+the driver and OpenSSL executable paths. Put the Qt SDK `bin` on `PATH`, set
+`QT_PLUGIN_PATH` to its `plugins` directory, and register driver/Python with
+`bun tests/windows-firewall.ts <driver> <python>` before the socket fixture.
 
-With no fixture environment variables, `<driver> live <temporary-output-path>`
-checks the real GitHub API once without downloading. For a real signed download,
-build the separate `qbutt-update-live-acceptance` target before increasing
-`qbutt-version.txt`; it uses the production trust anchor, with no fixture key.
-After publishing a newer signed release, run that retained executable with
-`live-download <temporary-zip-path>` and no fixture environment variables. This
-mode requires the `Ready` state for exit zero; compare the saved ZIP's SHA-256
-with the locally built archive. Neither driver is shipped in the portable bundle.
-The product action is manual
-check/download of the complete portable ZIP, not self-installation. The product
-requires an Ed25519 signature of the exact `SHA256SUMS.txt` bytes, verified against
-`src/base/releasepublickey.h`, as well as matching archive and GitHub digests. The
-signed archive filename binds its version and platform. No migration or rollback
-is performed. `qbutt-version.txt` is independent of the upstream version
-and controls release comparison, the UI and the versioned Windows archive name.
+The fixture checks version ordering, GitHub metadata, complete ZIP downloads,
+corruption, cancellation, interrupted transfers, redirects and certificate
+rejection. Failed downloads preserve an existing destination. Test CA trust is
+limited to the driver process; generated keys and payloads are cleaned afterward.
+No release sidecar files are used. The driver is not shipped.
 
-To sign a locally built clean release, pass `-SigningKey <private-key.pem>` to
-`scripts/build-windows.ps1` (or set `QBUTT_RELEASE_SIGNING_KEY`). The build invokes
-`bun scripts/sign-release.ts <artifact-directory> <private-key.pem>`; it rejects
-dirty build manifests, mismatched keys and changed artifacts. Publish the ZIP,
-`SHA256SUMS.txt` and `SHA256SUMS.txt.sig` together. Keep the private key outside
-source/build directories with access limited to the release operator; never
-upload it. Key replacement requires a release that users already trust. Existing
-unsigned releases remain available for manual download but cannot be offered as
-a new verified bundle by this updater.
+`<driver> live <temporary-output-path>` checks the real GitHub API. A driver built
+with an older qbutt version can use `live-download <temporary-zip-path>` after a
+new release. The application checks and downloads the complete portable ZIP;
+installation remains manual. `qbutt-version.txt` controls the independent qbutt
+version, UI and archive name.
 
 `smoke:qt` launches the real application offscreen with a new profile. It drives
 repair preview, explicit mappings, staged commit, multiple Paths, completion

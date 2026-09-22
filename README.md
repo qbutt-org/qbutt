@@ -1,49 +1,37 @@
 # qbutt
 
-qbutt is a native Qt BitTorrent client based on qBittorrent, focused on configurable network paths through an ordinary Mihomo subscription. It is an independent public project: no service account, private API or prescribed VPN provider is required.
+qbutt — A ButtTorrent Client.
 
-This is an experimental Windows x64 implementation. The application keeps qBittorrent's source layout and one libtorrent session; [qbutt-net](https://github.com/qbutt-org/qbutt-net) runs the selected transport in a separate process. The current source baseline is qBittorrent 5.2.3 with libtorrent 2.0.11. Exact dependencies are recorded in [upstream-lock.json](upstream-lock.json).
+Торрент-клиент для Windows с одновременной загрузкой через несколько VPN-подключений и обычную сеть. Поддерживает стандартные подписки Mihomo, докачку с использованием уже имеющихся файлов и встроенную тёмную тему.
 
-## Run
+## Установка
 
-Extract the portable archive into a writable directory and start `qbutt.exe`. Keep `qbutt-net.exe`, the Qt libraries and `profile/` beside it. Settings and session state live in that portable profile. **Help → Update status** checks GitHub Releases and downloads a complete portable ZIP; installation and profile migration remain manual. Current source requires an Ed25519 release signature and matching SHA-256 before saving the download. The published alpha.3 checks SHA-256 only. Windows executables do not carry an Authenticode signature.
+Скачайте [последний релиз](https://github.com/qbutt-org/qbutt/releases/latest):
 
-For a subscription, open **Tools → Options → Connection → Mihomo subscription**. Paste an HTTPS subscription URL and click **Refresh**, or use **Local file…** for a Mihomo YAML file. Select a node and physical network interface, then **Connect selected node**. Repeat to add more paths; **Disconnect selected path** removes one, and **Use default connection** returns to Native. Subscription retrieval uses the regular network connection. Only node definitions are imported; the subscription's TUN, DNS and routing configuration is not applied.
+- **Установщик EXE** установит qbutt и добавит ярлык в меню «Пуск».
+- **Portable ZIP** достаточно распаковать и запустить `qbutt.exe`. Настройки хранятся в папке `profile` рядом с программой.
 
-**Peer connections** offers Pinned (first selected remote edge), Tunnels only (selected remote edges), and Mixed (remote edges plus Native). Paths and policy can change while torrents remain in the session; a lost managed path is blocked until it is restored or replaced. The current source allows one active node per configured server address: disconnect it before selecting another protocol or port on the same server. Different hostnames may still lead to the same server or public exit. Controlled integration tests cover multiple paths, TCP peers, HTTP/UDP trackers, DHT, PEX and uTP, but the full real-network Tunnels-only, DNS, private-torrent and failure-transition matrix is still incomplete. Treat an unprobed adapter capability as unknown.
+У qbutt отдельный профиль. Настройки и торренты из другого клиента можно перенести через **Файл → Импорт профиля**.
 
-If you know two nodes name the same server, disconnect managed paths and use **Same server as → Group servers**. The grouping survives node renaming and application restart. Choose alternatives under **Reserve transports** to keep that server identity when replacing a failed transport. **Reset grouping** removes your explicit groups; matching configured server addresses still share one identity. A shared DNS answer or public IP does not automatically group nodes.
+## Возможности
 
-**Public gateway settings…** is optional and requires a separately operated authenticated gateway with TLS credentials. Its TCP or UDP listener lease supplies an advertised public endpoint while active. Controlled IPv4 and IPv6 labs verified inbound TCP, uTP and DHT through that lease. Independent VPN egress verified WAN TCP and uTP/DHT ingress with exact payload; separate WAN HTTP/UDP trackers verified the advertised identity and its retirement. Connections to our own advertised lease are rejected before dialing, and lease/process fault scenarios are recorded in the implementation evidence. Internet IPv6, provider CGNAT and physical system-VPN transitions remain unverified. A Mihomo subscription alone does not provide a public inbound listener.
+- Добавьте подписку в **Настройки → Соединение**, выберите узлы и подключитесь. Можно использовать несколько узлов одновременно, при желании вместе с обычным подключением.
+- Чтобы докачать имеющиеся файлы, откройте восстановление из меню торрента или меню **Файл**, выберите папку и запустите проверку.
+- В **Настройки → Загрузки** можно включить открытие `.torrent` из выбранной папки. По умолчанию указана папка «Рабочий стол», функция выключена. После открытия исходный `.torrent` удаляется.
+- Обновления доступны через меню **Справка**. Программа скачивает portable-архив с GitHub; для установленной версии можно скачать новый установщик со страницы релиза.
 
-For an existing torrent, stop it and open **Smart repair...** from its transfer-list menu. **File → Smart repair from torrent file...** can preview a new torrent before adding it. Choose source directories or map individual files to reuse existing data. Analysis reads target sizes and hashes without changing payload data; review its findings before authorizing a write. **Safe staged update** builds a separate verified payload with a recoverable journal; **Repair in place, without rollback** changes the managed target under exclusive ownership and then uses the normal libtorrent recheck. Start the torrent afterward to download missing pieces. Unknown files are preserved.
+Для подключения подходит обычная подписка Mihomo: аккаунт в конкретном сервисе не нужен. Системные VPN-настройки из подписки не применяются. Дополнительные сетевые настройки доступны по необходимости; входящие подключения через публичный шлюз требуют отдельно настроенного шлюза.
 
-In-place repair supports native separate download/save directories, incomplete-file extensions, `.unwanted` mappings and AutoTMM after exclusive ownership captures the physical layout on fixed local Windows drives. It rejects hardlink aliases, reparse points and conflicting writers; keep other writers closed throughout. Missing nonempty files can be analyzed and downloaded. After read-only analysis and consent, the exclusive repair guard can create missing zero-byte targets and their directories. Interrupted staged updates have an explicit recovery mode. Neither repair mode treats unverified candidate bytes as completed torrent data.
+## Разработка
 
-The default appearance is dark, with the familiar qBittorrent transfer layout. Theme and layout changes are saved in the separate qbutt profile.
-
-## Build and verify
-
-Use Windows x64, Visual Studio 2022 with the C++ desktop workload and Windows SDK, CMake, Git, Python 3.12 and Bun 1.4.0. From PowerShell:
+Windows x64, Visual Studio 2022 с C++ и Windows SDK, CMake, Git, Python 3.12 и Bun:
 
 ```powershell
 ./scripts/build-windows.ps1
 ```
 
-The script retrieves pinned Qt, Boost, libtorrent, OpenSSL, zlib, Go, Ninja and qbutt-net dependencies, then writes the portable ZIP and build manifest under `%LOCALAPPDATA%/qbutt/build`. The manifest identifies the source revision and whether the application checkout was dirty.
+Скрипт использует зависимости из `upstream-lock.json` и собирает portable ZIP и EXE-установщик локально. `-BuildRoot` задаёт папку сборки, `-ArtifactRoot` — папку готовых файлов. Служебные сведения о сборке остаются локально.
 
-Use `-ArtifactRoot` to place the portable directory, ZIP and checksums outside a reusable `-BuildRoot`, preserving an earlier release without duplicating compiled objects or dependencies.
+См. [правила проекта](AGENTS.md), [архитектуру](docs/qbutt-architecture.md) и [интеграционные проверки](tests/README.md). Автоматического запуска GitHub Actions нет.
 
-Release signing uses `-SigningKey` (or `QBUTT_RELEASE_SIGNING_KEY`) with an Ed25519 private key matching the application's pinned public key. It requires a clean source build and produces `SHA256SUMS.txt.sig` beside the ZIP and checksums. Keep the private key outside the repository and release assets. Signing and download verification have passed isolated fixtures; an end-to-end signed public release is still pending.
-
-[The integration lab](tests/README.md) uses Bun, generated legal v1/v2/hybrid torrents and isolated application profiles for its default local scenarios. Explicit WAN and public-swarm scenarios can contact external hosts; the WAN fixture reads a separately supplied Mihomo configuration without modifying that source. [Transport capabilities](docs/capabilities.md) distinguish available adapters from measured behavior.
-
-## Development
-
-Read [AGENTS.md](AGENTS.md), [the architecture](docs/qbutt-architecture.md), [implementation evidence and remaining gaps](docs/implementation.md), and [the first-slice decisions](docs/adr/0001-first-slice.md). The architecture describes the target product, not proof of complete acceptance.
-
-The public repositories publish only `main`. Upstream updates are reviewed and integrated through a separate `upstream` remote; upstream branches and tags are not mirrored into these repositories. Report qbutt issues [here](https://github.com/qbutt-org/qbutt/issues).
-
-Release builds and validation run locally; finished archives are uploaded to GitHub Releases. GitHub workflows are available only for an explicit manual run and do not start on pushes or pull requests.
-
-qbutt preserves the work and notices of the [qBittorrent contributors](AUTHORS), libtorrent and the other bundled projects. See [COPYING](COPYING), [COPYING.GPLv2](COPYING.GPLv2) and [COPYING.GPLv3](COPYING.GPLv3); portable archives include dependency notices and source references. The optional IP-to-country data comes from [DB-IP](https://db-ip.com/db/download/ip-to-country-lite) under CC BY 4.0.
+qbutt основан на открытом исходном коде qBittorrent. Сохранены [авторы](AUTHORS), [лицензии](COPYING) и уведомления зависимостей. Данные стран IP: [DB-IP](https://db-ip.com/db/download/ip-to-country-lite), CC BY 4.0.

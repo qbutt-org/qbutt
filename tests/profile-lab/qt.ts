@@ -87,7 +87,7 @@ try {
             fixtureRoot: root, sourceSettings: source.settings, validData: source.data,
             schemaData: join(root, "schema-data"), metadataData: join(root, "metadata-data"),
             receipt: join(root, "acknowledgement.json") }, null, 2));
-        child = Bun.spawn([executable, `--profile=${profile}`, "--no-splash", "--confirm-legal-notice"], {
+        child = Bun.spawn([executable, `--profile=${profile}`, "--no-splash"], {
             cwd: bundle, env: { ...environment, QBUTT_QT_ACCEPTANCE_SPEC: spec }, windowsHide: true, timeout: 120000,
             stdout: Bun.file(join(root, `${phase}-stdout.log`)), stderr: Bun.file(join(root, `${phase}-stderr.log`)),
         });

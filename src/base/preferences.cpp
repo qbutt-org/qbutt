@@ -267,19 +267,6 @@ void Preferences::setMinimizeToTray(const bool b)
     setValue(u"Preferences/General/MinimizeToTray"_s, b);
 }
 
-bool Preferences::minimizeToTrayNotified() const
-{
-    return value(u"Preferences/General/MinimizeToTrayNotified"_s, false);
-}
-
-void Preferences::setMinimizeToTrayNotified(const bool b)
-{
-    if (b == minimizeToTrayNotified())
-        return;
-
-    setValue(u"Preferences/General/MinimizeToTrayNotified"_s, b);
-}
-
 bool Preferences::closeToTray() const
 {
     return value(u"Preferences/General/CloseToTray"_s, true);
@@ -291,19 +278,6 @@ void Preferences::setCloseToTray(const bool b)
         return;
 
     setValue(u"Preferences/General/CloseToTray"_s, b);
-}
-
-bool Preferences::closeToTrayNotified() const
-{
-    return value(u"Preferences/General/CloseToTrayNotified"_s, false);
-}
-
-void Preferences::setCloseToTrayNotified(const bool b)
-{
-    if (b == closeToTrayNotified())
-        return;
-
-    setValue(u"Preferences/General/CloseToTrayNotified"_s, b);
 }
 
 bool Preferences::iconsInMenusEnabled() const

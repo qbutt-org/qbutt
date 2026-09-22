@@ -310,7 +310,6 @@ namespace
 #if !defined(Q_OS_WIN) || defined(DISABLE_GUI)
     constexpr const BoolOption SHOW_VERSION_OPTION {u"version", u'v'};
 #endif
-    constexpr const BoolOption CONFIRM_LEGAL_NOTICE {u"confirm-legal-notice"};
 #if defined(DISABLE_GUI) && !defined(Q_OS_WIN)
     constexpr const BoolOption DAEMON_OPTION {u"daemon", u'd'};
 #else
@@ -331,8 +330,7 @@ namespace
 }
 
 QBtCommandLineParameters::QBtCommandLineParameters(const QProcessEnvironment &env)
-    : confirmLegalNotice(CONFIRM_LEGAL_NOTICE.value(env))
-    , relativeFastresumePaths(RELATIVE_FASTRESUME.value(env))
+    : relativeFastresumePaths(RELATIVE_FASTRESUME.value(env))
 #ifndef DISABLE_GUI
     , noSplash(NO_SPLASH_OPTION.value(env))
 #elif !defined(Q_OS_WIN)
@@ -374,10 +372,6 @@ QBtCommandLineParameters parseCommandLine(const QStringList &args)
                 result.showVersion = true;
             }
 #endif
-            else if (arg == CONFIRM_LEGAL_NOTICE)
-            {
-                result.confirmLegalNotice = true;
-            }
             else if (arg == WEBUI_PORT_OPTION)
             {
                 result.webUIPort = WEBUI_PORT_OPTION.value(arg);
@@ -507,7 +501,6 @@ QString makeUsage(const QString &prgName)
 #if !defined(Q_OS_WIN) || defined(DISABLE_GUI)
         + SHOW_VERSION_OPTION.usage() + wrapText(QCoreApplication::translate("CMD Options", "Display program version and exit")) + u'\n'
 #endif
-        + CONFIRM_LEGAL_NOTICE.usage() + wrapText(QCoreApplication::translate("CMD Options", "Confirm the legal notice")) + u'\n'
         + WEBUI_PORT_OPTION.usage(QCoreApplication::translate("CMD Options", "port"))
         + wrapText(QCoreApplication::translate("CMD Options", "Change the WebUI port"))
         + u'\n'

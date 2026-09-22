@@ -8,8 +8,6 @@ add_executable(qbutt-qt-acceptance
     ${qBittorrent_SOURCE_DIR}/src/app/cmdoptions.cpp
     ${qBittorrent_SOURCE_DIR}/src/app/filelogger.h
     ${qBittorrent_SOURCE_DIR}/src/app/filelogger.cpp
-    ${qBittorrent_SOURCE_DIR}/src/app/legalnotice.h
-    ${qBittorrent_SOURCE_DIR}/src/app/legalnotice.cpp
     ${qBittorrent_SOURCE_DIR}/src/app/qtlocalpeer/qtlocalpeer.h
     ${qBittorrent_SOURCE_DIR}/src/app/qtlocalpeer/qtlocalpeer.cpp
     ${qBittorrent_SOURCE_DIR}/src/app/signalhandler.h

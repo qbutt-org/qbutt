@@ -202,7 +202,7 @@ try {
             const spec = join(root, `${phase}-spec.json`);
             await writeFile(spec, JSON.stringify({ schema: 1, mode: "appearance", appearance: phase,
                 evidencePath, profile, screenshots, layoutDefaults, retainedState }, null, 2));
-            application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash", "--confirm-legal-notice"], {
+            application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash"], {
                 cwd: bundle, windowsHide: true,
                 env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QT_SCALE_FACTOR: "1",
                     QBUTT_QT_ACCEPTANCE_SPEC: spec },
@@ -279,7 +279,7 @@ try {
         }, null, 2));
         await mkdir(join(root, "screenshots"));
 
-        application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash", "--confirm-legal-notice"], {
+        application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash"], {
             cwd: bundle, windowsHide: true,
             env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: spec,
                 QBUTT_QT_CHILD_EVIDENCE: childEvidence },

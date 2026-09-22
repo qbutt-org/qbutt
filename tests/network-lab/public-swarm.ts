@@ -298,8 +298,7 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
 
     const origin = `http://127.0.0.1:${webPort}`;
     let cookie = "";
-    const child = Bun.spawn([executable, `--profile=${profile}`, `--webui-port=${webPort}`, "--no-splash",
-        "--confirm-legal-notice"], {
+    const child = Bun.spawn([executable, `--profile=${profile}`, `--webui-port=${webPort}`, "--no-splash"], {
         env: { ...process.env, QT_QPA_PLATFORM: "offscreen" },
         stdout: Bun.file(join(root, "app.stdout.log")),
         stderr: Bun.file(join(root, "app.stderr.log")), windowsHide: true,

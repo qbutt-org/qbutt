@@ -39,7 +39,7 @@ try {
     await writeFile(specPath, JSON.stringify({mode: "diagnostic-waits", evidencePath, commandPath,
         diskEvidence, diskRelease, torrentPath: join(lab.fixtures, torrent.file), destination,
         peer: `127.0.0.1:${peer.port}`, screenshots: lab.root}));
-    application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash", "--confirm-legal-notice"], {
+    application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash"], {
         cwd: dirname(executable), windowsHide: true, stdin: "ignore",
         env: {...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: specPath},
         stdout: Bun.file(join(lab.root, "app.stdout.log")), stderr: Bun.file(join(lab.root, "app.stderr.log")),

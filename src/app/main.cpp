@@ -41,8 +41,6 @@
 #ifndef Q_OS_HAIKU
 #include <unistd.h>
 #endif // Q_OS_HAIKU
-#elif defined DISABLE_GUI
-#include <io.h>
 #endif
 
 #include <QCoreApplication>
@@ -51,7 +49,9 @@
 
 #ifndef DISABLE_GUI
 // GUI-only includes
+#include <QColor>
 #include <QFont>
+#include <QIcon>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPen>
@@ -71,11 +71,9 @@ Q_IMPORT_PLUGIN(QICOPlugin)
 #include "base/logger.h"
 #include "base/preferences.h"
 #include "base/profile.h"
-#include "base/settingvalue.h"
 #include "base/version.h"
 #include "application.h"
 #include "cmdoptions.h"
-#include "legalnotice.h"
 #include "signalhandler.h"
 
 #ifndef DISABLE_GUI
@@ -130,19 +128,23 @@ namespace
 #if !defined(Q_OS_WIN) || defined(DISABLE_GUI)
     void displayVersion()
     {
-        printf("%s (based on qBittorrent %s)\n", qUtf8Printable(qApp->applicationName()), QBT_VERSION);
+        printf("%s %s\n", qUtf8Printable(qApp->applicationName()), QBUTT_VERSION);
     }
 #endif
 
 #ifndef DISABLE_GUI
     void showSplashScreen()
     {
-        QPixmap splashImg(u":/icons/splash.png"_s);
+        QPixmap splashImg(350, 180);
+        splashImg.fill(QColor {u"#222222"_s});
         QPainter painter(&splashImg);
-        const auto version = QStringLiteral(QBT_VERSION);
+        painter.drawPixmap(28, 42, QIcon {u":/icons/qbittorrent-tray.svg"_s}.pixmap(96, 96));
         painter.setPen(QPen(Qt::white));
-        painter.setFont(QFont(u"Arial"_s, 22, QFont::Black));
-        painter.drawText(224 - painter.fontMetrics().horizontalAdvance(version), 270, version);
+        painter.setFont(QFont(u"Arial"_s, 26));
+        painter.drawText(148, 86, u"qbutt"_s);
+        painter.setFont(QFont(u"Arial"_s, 12));
+        painter.drawText(150, 115, QStringLiteral(QBUTT_VERSION));
+        painter.end();
         QSplashScreen *splash = new QSplashScreen(splashImg);
         splash->show();
         QTimer::singleShot(1500ms, Qt::CoarseTimer, splash, &QObject::deleteLater);
@@ -247,26 +249,6 @@ int main(int argc, char *argv[])
             app->callMainInstance();
 
             return EXIT_SUCCESS;
-        }
-
-        CachedSettingValue<bool> legalNoticeShown {u"LegalNotice/Accepted"_s, false};
-        if (params.confirmLegalNotice)
-            legalNoticeShown = true;
-
-        if (!legalNoticeShown)
-        {
-#ifndef DISABLE_GUI
-            const bool isInteractive = true;
-#elif defined(Q_OS_WIN)
-            const bool isInteractive = (_isatty(_fileno(stdin)) != 0) && (_isatty(_fileno(stdout)) != 0);
-#else
-            // when run in daemon mode user can only dismiss the notice with command line option
-            const bool isInteractive = !params.shouldDaemonize
-                && ((isatty(fileno(stdin)) != 0) && (isatty(fileno(stdout)) != 0));
-#endif
-            showLegalNotice(isInteractive);
-            if (isInteractive)
-                legalNoticeShown = true;
         }
 
 #ifdef Q_OS_MACOS

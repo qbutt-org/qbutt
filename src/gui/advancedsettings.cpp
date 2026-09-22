@@ -448,7 +448,7 @@ void AdvancedSettings::loadAdvancedSettings()
     static_cast<QLabel *>(cellWidget(LIBTORRENT_HEADER, PROPERTY))->setAlignment(Qt::AlignCenter | Qt::AlignVCenter);
 
     m_comboBoxResumeDataStorage.addItem(tr("Fastresume files"), QVariant::fromValue(BitTorrent::ResumeDataStorageType::Legacy));
-    m_comboBoxResumeDataStorage.addItem(tr("SQLite database (experimental)"), QVariant::fromValue(BitTorrent::ResumeDataStorageType::SQLite));
+    m_comboBoxResumeDataStorage.addItem(tr("SQLite database"), QVariant::fromValue(BitTorrent::ResumeDataStorageType::SQLite));
     m_comboBoxResumeDataStorage.setCurrentIndex(m_comboBoxResumeDataStorage.findData(QVariant::fromValue(session->resumeDataStorageType())));
     addRow(RESUME_DATA_STORAGE, tr("Resume data storage type (requires restart)"), &m_comboBoxResumeDataStorage);
 

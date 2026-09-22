@@ -159,7 +159,7 @@ export async function createLab(name: string, options: { pex?: boolean; protocol
     async function start() {
         assert(!processHandle, "Lab process is already running");
         ++launch;
-        processHandle = Bun.spawn([executable!, `--profile=${profile}`, `--webui-port=${port}`, "--no-splash", "--confirm-legal-notice"], {
+        processHandle = Bun.spawn([executable!, `--profile=${profile}`, `--webui-port=${port}`, "--no-splash"], {
             env: { ...process.env, QT_QPA_PLATFORM: "offscreen" },
             stdout: Bun.file(join(root, `app-${launch}.stdout.log`)),
             stderr: Bun.file(join(root, `app-${launch}.stderr.log`)),

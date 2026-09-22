@@ -334,8 +334,8 @@ Application::Application(int &argc, char **argv)
     connect(this, &QGuiApplication::commitDataRequest, this, &Application::shutdownCleanup, Qt::DirectConnection);
 #endif
 
-    LogMsg(tr("qbutt, based on qBittorrent %1, started. Process ID: %2")
-        .arg(QStringLiteral(QBT_VERSION), QString::number(QCoreApplication::applicationPid())));
+    LogMsg(tr("qbutt %1 started. Process ID: %2")
+        .arg(QStringLiteral(QBUTT_VERSION), QString::number(QCoreApplication::applicationPid())));
     if (portableModeEnabled)
     {
         LogMsg(tr("Running in portable mode. Auto detected profile folder at: %1").arg(profileDir.toString()));
