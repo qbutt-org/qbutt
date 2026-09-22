@@ -55,6 +55,8 @@ upgrade, uninstall with preserved user files, Russian/English UI, folder auto-op
 completion removal, and the desktop progress strip passed their applicable checks.
 This release does not add evidence for the external network conditions listed below.
 
+Version 1.0.1 adds background EXE downloads for installed Windows copies and a main-window update/restart action. Portable updates remain manual ZIP downloads. The revised flow passed 24 HTTPS/Qt cases and an isolated real Inno upgrade/restart with the same profile, torrent, payload, and all 38 column layouts preserved. The installed 1.0.0 needs one manual EXE upgrade to gain this flow.
+
 ## Historical runtime evidence, 12 September 2026
 
 qbutt-net commit `a268eef9753311478f664fd8b1229e2f40fca686`, built with Go 1.27.1, passed 16 local TCP/UDP and fault scenarios. The binary SHA-256 was `011f1d8ba41f676960cd03cb3a06585887a23e0779cc7ad5394ff3ef351554f7`. TCP payload (98,304 bytes), a 1,024-byte UDP datagram, half-close, SOCKS authentication, generation checks and parent EOF were exercised with controlled local endpoints.
