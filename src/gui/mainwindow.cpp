@@ -79,6 +79,7 @@
 #include "cookiesdialog.h"
 #include "desktopintegration.h"
 #include "downloadfromurldialog.h"
+#include "downloadprogressoverlay.h"
 #include "executionlogwidget.h"
 #include "hidabletabwidget.h"
 #include "interfaces/iguiapplication.h"
@@ -379,6 +380,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 
     // Configure BT session according to options
     loadPreferences();
+    m_downloadProgressOverlay = std::make_unique<DownloadProgressOverlay>();
 
     connect(BitTorrent::Session::instance(), &BitTorrent::Session::statsUpdated, this, &MainWindow::loadSessionStats);
     connect(BitTorrent::Session::instance(), &BitTorrent::Session::torrentsUpdated, this, &MainWindow::reloadTorrentStats);

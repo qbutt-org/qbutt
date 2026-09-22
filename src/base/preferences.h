@@ -145,6 +145,8 @@ public:
 #endif
 
     // Downloads
+    bool isDownloadProgressOverlayEnabled() const;
+    void setDownloadProgressOverlayEnabled(bool enabled);
     bool isAutoRemoveCompletedTorrentsEnabled() const;
     void setAutoRemoveCompletedTorrentsEnabled(bool enabled);
     Path getScanDirsLastPath() const;

@@ -29,6 +29,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include <QMainWindow>
 #include <QPointer>
 
@@ -48,6 +50,7 @@ class QTimer;
 
 class AboutDialog;
 class DownloadFromURLDialog;
+class DownloadProgressOverlay;
 class ExecutionLogWidget;
 class LineEdit;
 class OptionsDialog;
@@ -227,6 +230,7 @@ private:
 
     QPointer<QMenu> m_trayIconMenu;
 
+    std::unique_ptr<DownloadProgressOverlay> m_downloadProgressOverlay;
     TransferListWidget *m_transferListWidget = nullptr;
     TransferListFiltersWidget *m_transferListFiltersWidget = nullptr;
     PropertiesWidget *m_propertiesWidget = nullptr;

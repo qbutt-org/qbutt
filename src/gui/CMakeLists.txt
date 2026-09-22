@@ -57,6 +57,7 @@ add_library(qbt_gui STATIC
     deletionconfirmationdialog.h
     desktopintegration.h
     downloadfromurldialog.h
+    downloadprogressoverlay.h
     executionlogwidget.h
     filterpatternformat.h
     filterpatternformatmenu.h
@@ -171,6 +172,7 @@ add_library(qbt_gui STATIC
     deletionconfirmationdialog.cpp
     desktopintegration.cpp
     downloadfromurldialog.cpp
+    downloadprogressoverlay.cpp
     executionlogwidget.cpp
     filterpatternformatmenu.cpp
     flowlayout.cpp

@@ -490,6 +490,19 @@ void Preferences::setStyle(const QString &styleName)
 }
 
 // Downloads
+bool Preferences::isDownloadProgressOverlayEnabled() const
+{
+    return value(u"GUI/DownloadProgressOverlayEnabled"_s, false);
+}
+
+void Preferences::setDownloadProgressOverlayEnabled(const bool enabled)
+{
+    if (enabled == isDownloadProgressOverlayEnabled())
+        return;
+
+    setValue(u"GUI/DownloadProgressOverlayEnabled"_s, enabled);
+}
+
 bool Preferences::isAutoRemoveCompletedTorrentsEnabled() const
 {
     return value(u"Preferences/Downloads/AutoRemoveCompletedTorrents"_s, false);
