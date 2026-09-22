@@ -46,6 +46,7 @@ bun run smoke:staging
 bun run smoke:staging-mappings
 bun run smoke:storage-faults
 bun run smoke:completion
+bun tests/auto-remove.ts
 bun run smoke:mixed
 bun run smoke:mixed-baseline
 bun run smoke:tunnels
