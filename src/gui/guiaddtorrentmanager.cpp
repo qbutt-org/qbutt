@@ -121,7 +121,7 @@ bool GUIAddTorrentManager::addTorrent(const QString &source, const BitTorrent::A
 
     if (const auto parseResult = BitTorrent::TorrentDescriptor::parse(source))
     {
-        return processTorrent(source, parseResult.value(), params);
+        return showTorrent(source, parseResult.value(), params);
     }
     else if (source.startsWith(u"magnet:", Qt::CaseInsensitive))
     {
@@ -135,7 +135,7 @@ bool GUIAddTorrentManager::addTorrent(const QString &source, const BitTorrent::A
     if (const auto loadResult = BitTorrent::TorrentDescriptor::loadFromFile(decodedPath))
     {
         const BitTorrent::TorrentDescriptor &torrentDescriptor = loadResult.value();
-        const bool isProcessing = processTorrent(source, torrentDescriptor, params);
+        const bool isProcessing = showTorrent(source, torrentDescriptor, params);
         if (isProcessing)
             setTorrentFileGuard(source, torrentFileGuard);
         return isProcessing;
@@ -158,13 +158,13 @@ void GUIAddTorrentManager::onDownloadFinished(const Net::DownloadResult &result)
     {
     case Net::DownloadStatus::Success:
         if (const auto loadResult = BitTorrent::TorrentDescriptor::load(result.data))
-            processTorrent(source, loadResult.value(), addTorrentParams);
+            showTorrent(source, loadResult.value(), addTorrentParams);
         else
             handleAddTorrentFailed(source, loadResult.error());
         break;
     case Net::DownloadStatus::RedirectedToMagnet:
         if (const auto parseResult = BitTorrent::TorrentDescriptor::parse(result.magnetURI))
-            processTorrent(source, parseResult.value(), addTorrentParams);
+            showTorrent(source, parseResult.value(), addTorrentParams);
         else
             handleAddTorrentFailed(source, parseResult.error());
         break;
@@ -186,11 +186,21 @@ void GUIAddTorrentManager::onMetadataDownloaded(const BitTorrent::TorrentInfo &m
     }
 }
 
-bool GUIAddTorrentManager::processTorrent(const QString &source
+bool GUIAddTorrentManager::showTorrent(const QString &source
         , const BitTorrent::TorrentDescriptor &torrentDescr, const BitTorrent::AddTorrentParams &params)
 {
     const bool hasMetadata = torrentDescr.info().has_value();
     const BitTorrent::InfoHash infoHash = torrentDescr.infoHash();
+
+    if (AddNewTorrentDialog *dialog = m_dialogs.value(infoHash))
+    {
+        if (hasMetadata)
+            dialog->updateMetadata(*torrentDescr.info());
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+        return true;
+    }
 
     // Prevent showing the dialog if download is already present
     if (BitTorrent::Torrent *torrent = btSession()->findTorrent(infoHash))

@@ -1446,6 +1446,27 @@ Manual: Various torrent properties (e.g. save path) must be assigned manually</s
              </widget>
             </item>
             <item>
+             <widget class="QGroupBox" name="groupAutoOpenTorrents">
+              <property name="toolTip">
+               <string>While qbutt is running, show the Add Torrent dialog for .torrent files in this folder, then delete the source .torrent file. Downloaded files are kept.</string>
+              </property>
+              <property name="title">
+               <string>Open .torrent files from a folder</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+              <property name="checked">
+               <bool>false</bool>
+              </property>
+              <layout class="QHBoxLayout" name="autoOpenTorrentLayout">
+               <item>
+                <widget class="FileSystemPathLineEdit" name="autoOpenTorrentFolder" native="true"/>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
              <widget class="QGroupBox" name="groupBox_2">
               <property name="title">
                <string>Automatically add torrents from:</string>

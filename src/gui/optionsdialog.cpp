@@ -42,6 +42,7 @@
 #include <QDialogButtonBox>
 #include <QEvent>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QStyleFactory>
 #include <QSystemTrayIcon>
@@ -646,6 +647,17 @@ void OptionsDialog::loadDownloadsTabOptions()
     if (!isExportDirFinEmpty)
         m_ui->textExportDirFin->setSelectedPath(session->finishedTorrentExportDirectory());
 
+    const auto *torrentFilesWatcher = TorrentFilesWatcher::instance();
+    m_ui->groupAutoOpenTorrents->setChecked(torrentFilesWatcher->isAutoOpenEnabled());
+    m_ui->autoOpenTorrentFolder->setMode(FileSystemPathEdit::Mode::DirectoryOpen);
+    m_ui->autoOpenTorrentFolder->setDialogCaption(tr("Select folder to monitor"));
+    m_ui->autoOpenTorrentFolder->setSelectedPath(torrentFilesWatcher->autoOpenFolder());
+#ifndef Q_OS_WIN
+    m_ui->groupAutoOpenTorrents->hide();
+#endif
+    connect(m_ui->groupAutoOpenTorrents, &QGroupBox::toggled, this, &ThisType::enableApplyButton);
+    connect(m_ui->autoOpenTorrentFolder, &FileSystemPathEdit::selectedPathChanged, this, &ThisType::enableApplyButton);
+
     auto *watchedFoldersModel = new WatchedFoldersModel(TorrentFilesWatcher::instance(), this);
     connect(watchedFoldersModel, &QAbstractListModel::dataChanged, this, &ThisType::enableApplyButton);
     m_ui->scanFoldersView->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
@@ -800,6 +812,8 @@ void OptionsDialog::saveDownloadsTabOptions() const
     session->setDownloadPath(m_ui->textDownloadPath->selectedPath());
     session->setTorrentExportDirectory(getTorrentExportDir());
     session->setFinishedTorrentExportDirectory(getFinishedTorrentExportDir());
+
+    TorrentFilesWatcher::instance()->setAutoOpenFolder(m_ui->groupAutoOpenTorrents->isChecked(), m_ui->autoOpenTorrentFolder->selectedPath());
 
     auto *watchedFoldersModel = static_cast<WatchedFoldersModel *>(m_ui->scanFoldersView->model());
     watchedFoldersModel->apply();
@@ -1745,6 +1759,14 @@ void OptionsDialog::on_buttonBox_accepted()
 
 bool OptionsDialog::applySettings()
 {
+    if (m_ui->groupAutoOpenTorrents->isChecked()
+        && (!m_ui->autoOpenTorrentFolder->selectedPath().isAbsolute()
+            || !QFileInfo(m_ui->autoOpenTorrentFolder->selectedPath().data()).isDir()))
+    {
+        m_ui->tabSelection->setCurrentRow(TAB_DOWNLOADS);
+        QMessageBox::warning(this, tr("Location Error"), tr("Choose an existing folder to open .torrent files from."));
+        return false;
+    }
     if (!schedTimesOk())
     {
         m_ui->tabSelection->setCurrentRow(TAB_SPEED);

@@ -34,6 +34,7 @@
 #include "base/bittorrent/addtorrentparams.h"
 #include "base/bittorrent/torrentdescriptor.h"
 #include "base/path.h"
+#include "base/settingvalue.h"
 #include "base/utils/thread.h"
 
 /*
@@ -61,12 +62,18 @@ public:
     void setWatchedFolder(const Path &path, const WatchedFolderOptions &options);
     void removeWatchedFolder(const Path &path);
 
+    bool isAutoOpenEnabled() const;
+    Path autoOpenFolder() const;
+    void setAutoOpenFolder(bool enabled, const Path &path);
+
 signals:
     void watchedFolderSet(const Path &path, const WatchedFolderOptions &options);
     void watchedFolderRemoved(const Path &path);
+    void autoOpenRequested(const QString &source, const BitTorrent::TorrentDescriptor &torrentDescr);
 
 private slots:
     void onTorrentFound(const BitTorrent::TorrentDescriptor &torrentDescr, const BitTorrent::AddTorrentParams &addTorrentParams);
+    void onAutoOpenRequested(const Path &path);
 
 private:
     explicit TorrentFilesWatcher(QObject *parent = nullptr);
@@ -80,6 +87,8 @@ private:
     static TorrentFilesWatcher *m_instance;
 
     QHash<Path, WatchedFolderOptions> m_watchedFolders;
+    SettingValue<bool> m_autoOpenEnabled {u"Core/AutoOpenTorrentFiles"_s};
+    SettingValue<Path> m_autoOpenFolder {u"Core/AutoOpenTorrentFolder"_s};
 
     Utils::Thread::UniquePtr m_ioThread;
 

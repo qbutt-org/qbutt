@@ -64,11 +64,11 @@ public:
     ~GUIAddTorrentManager() override;
 
     bool addTorrent(const QString &source, const BitTorrent::AddTorrentParams &params = {}, AddTorrentOption option = AddTorrentOption::Default);
+    bool showTorrent(const QString &source, const BitTorrent::TorrentDescriptor &torrentDescr, const BitTorrent::AddTorrentParams &params = {});
 
 private:
     void onDownloadFinished(const Net::DownloadResult &result);
     void onMetadataDownloaded(const BitTorrent::TorrentInfo &metadata);
-    bool processTorrent(const QString &source, const BitTorrent::TorrentDescriptor &torrentDescr, const BitTorrent::AddTorrentParams &params);
 
     QHash<QString, BitTorrent::AddTorrentParams> m_downloadedTorrents;
     QHash<BitTorrent::InfoHash, AddNewTorrentDialog *> m_dialogs;

@@ -1010,6 +1010,16 @@ int Application::exec()
         m_window = new MainWindow(this, windowState, instanceName());
 
         delete m_startupProgressDialog;
+
+#ifdef Q_OS_WIN
+        auto *torrentFilesWatcher = TorrentFilesWatcher::instance();
+        connect(torrentFilesWatcher, &TorrentFilesWatcher::autoOpenRequested, this
+            , [this](const QString &source, const BitTorrent::TorrentDescriptor &torrentDescr)
+        {
+            m_addTorrentManager->showTorrent(source, torrentDescr);
+        }, Qt::DirectConnection);
+        torrentFilesWatcher->setAutoOpenFolder(torrentFilesWatcher->isAutoOpenEnabled(), torrentFilesWatcher->autoOpenFolder());
+#endif
 #endif // DISABLE_GUI
 
 #ifndef DISABLE_WEBUI

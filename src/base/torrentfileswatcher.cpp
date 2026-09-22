@@ -31,14 +31,22 @@
 
 #include <chrono>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 #include <QtAssert>
+#include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QSet>
+#include <QStandardPaths>
 #include <QThread>
 #include <QTimer>
 #include <QVariant>
@@ -50,6 +58,7 @@
 #include "base/exceptions.h"
 #include "base/global.h"
 #include "base/logger.h"
+#include "base/preferences.h"
 #include "base/profile.h"
 #include "base/settingsstorage.h"
 #include "base/tagset.h"
@@ -95,11 +104,15 @@ public:
 public slots:
     void setWatchedFolder(const Path &path, const TorrentFilesWatcher::WatchedFolderOptions &options);
     void removeWatchedFolder(const Path &path);
+    void setAutoOpenFolder(const Path &path);
+    void autoOpenFinished(const Path &path, bool opened);
 
 signals:
     void torrentFound(const BitTorrent::TorrentDescriptor &torrentDescr, const BitTorrent::AddTorrentParams &addTorrentParams);
+    void autoOpenRequested(const Path &path);
 
 private:
+    void scanAutoOpenFolder();
     void onTimeout();
     void scheduleWatchedFolderProcessing(const Path &path);
     void processWatchedFolder(const Path &path);
@@ -116,6 +129,18 @@ private:
     // Failed torrents
     QTimer *m_retryTorrentTimer = nullptr;
     QHash<Path, QHash<Path, int>> m_failedTorrents;
+
+    struct AutoOpenFile
+    {
+        qint64 size = -1;
+        QDateTime modified;
+        std::chrono::steady_clock::time_point readyAt;
+        bool pending = false;
+        bool opened = false;
+    };
+    QTimer *m_autoOpenTimer = nullptr;
+    Path m_autoOpenFolder;
+    QHash<Path, AutoOpenFile> m_autoOpenFiles;
 };
 
 TorrentFilesWatcher *TorrentFilesWatcher::m_instance = nullptr;
@@ -143,6 +168,7 @@ TorrentFilesWatcher::TorrentFilesWatcher(QObject *parent)
     , m_asyncWorker {new TorrentFilesWatcher::Worker(new QFileSystemWatcher(this))}
 {
     connect(m_asyncWorker, &TorrentFilesWatcher::Worker::torrentFound, this, &TorrentFilesWatcher::onTorrentFound);
+    connect(m_asyncWorker, &TorrentFilesWatcher::Worker::autoOpenRequested, this, &TorrentFilesWatcher::onAutoOpenRequested);
 
     m_asyncWorker->moveToThread(m_ioThread.get());
     connect(m_ioThread.get(), &QThread::finished, m_asyncWorker, &QObject::deleteLater);
@@ -150,6 +176,93 @@ TorrentFilesWatcher::TorrentFilesWatcher(QObject *parent)
     m_ioThread->start();
 
     load();
+}
+
+bool TorrentFilesWatcher::isAutoOpenEnabled() const
+{
+#ifdef Q_OS_WIN
+    return m_autoOpenEnabled;
+#else
+    return false;
+#endif
+}
+
+Path TorrentFilesWatcher::autoOpenFolder() const
+{
+    return m_autoOpenFolder.get(Path(QStandardPaths::writableLocation(QStandardPaths::DesktopLocation)));
+}
+
+void TorrentFilesWatcher::setAutoOpenFolder(const bool enabled, const Path &path)
+{
+    if (enabled && (path.isEmpty() || path.isRelative()))
+        throw InvalidArgument(tr("Choose an absolute folder path."));
+
+    m_autoOpenEnabled = enabled;
+    if (path.isAbsolute())
+        m_autoOpenFolder = path;
+    QMetaObject::invokeMethod(m_asyncWorker, [this, enabled = isAutoOpenEnabled(), path]
+    {
+        m_asyncWorker->setAutoOpenFolder(enabled ? path : Path());
+    });
+}
+
+void TorrentFilesWatcher::onAutoOpenRequested(const Path &path)
+{
+    bool opened = false;
+    const auto finish = qScopeGuard([this, path, &opened]
+    {
+        QMetaObject::invokeMethod(m_asyncWorker, [this, path, opened]
+        {
+            m_asyncWorker->autoOpenFinished(path, opened);
+        });
+    });
+    if (!isAutoOpenEnabled() || (path.parentPath() != autoOpenFolder()))
+        return;
+
+#ifdef Q_OS_WIN
+    QString nativePath = QDir::toNativeSeparators(path.data());
+    if (!nativePath.startsWith(u"\\\\?\\"))
+    {
+        if (nativePath.startsWith(u"\\\\"))
+            nativePath = u"\\\\?\\UNC\\" + nativePath.sliced(2);
+        else
+            nativePath = u"\\\\?\\" + nativePath;
+    }
+
+    // Keep the exact source immutable until the dialog owns its metadata. Delete
+    // through this handle, never through a path that could name a replacement.
+    const HANDLE handle = CreateFileW(reinterpret_cast<LPCWSTR>(nativePath.utf16()), GENERIC_READ | DELETE
+        , FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        return; // A browser may still be writing the file; retry after it closes.
+    const auto closeHandle = qScopeGuard([handle] { CloseHandle(handle); });
+    BY_HANDLE_FILE_INFORMATION info {};
+    if (!GetFileInformationByHandle(handle, &info)
+        || (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
+        || (info.nNumberOfLinks != 1) || (info.nFileSizeHigh != 0) || (info.nFileSizeLow == 0)
+        || (info.nFileSizeLow > Preferences::instance()->getTorrentFileSizeLimit()))
+    {
+        return;
+    }
+    QByteArray data(info.nFileSizeLow, Qt::Uninitialized);
+    DWORD bytesRead = 0;
+    if (!ReadFile(handle, data.data(), info.nFileSizeLow, &bytesRead, nullptr) || (bytesRead != info.nFileSizeLow))
+        return;
+    const auto torrent = BitTorrent::TorrentDescriptor::load(data);
+    if (!torrent)
+        return;
+
+    // The GUI connection is synchronous: it copies the descriptor into the
+    // ordinary Add Torrent dialog before this signal returns.
+    emit autoOpenRequested(path.toString(), torrent.value());
+    opened = true;
+    FILE_DISPOSITION_INFO disposition {TRUE};
+    if (!SetFileInformationByHandle(handle, FileDispositionInfo, &disposition, sizeof(disposition)))
+    {
+        LogMsg(tr("Opened torrent but could not remove its source file: %1 (Windows error %2).")
+            .arg(path.toString()).arg(GetLastError()), Log::WARNING);
+    }
+#endif
 }
 
 void TorrentFilesWatcher::load()
@@ -316,6 +429,7 @@ TorrentFilesWatcher::Worker::Worker(QFileSystemWatcher *watcher)
     : m_watcher {watcher}
     , m_watchTimer {new QTimer(this)}
     , m_retryTorrentTimer {new QTimer(this)}
+    , m_autoOpenTimer {new QTimer(this)}
 {
     connect(m_watcher, &QFileSystemWatcher::directoryChanged, this, [this](const QString &path)
     {
@@ -324,6 +438,58 @@ TorrentFilesWatcher::Worker::Worker(QFileSystemWatcher *watcher)
     connect(m_watchTimer, &QTimer::timeout, this, &Worker::onTimeout);
 
     connect(m_retryTorrentTimer, &QTimer::timeout, this, &Worker::processFailedTorrents);
+    connect(m_autoOpenTimer, &QTimer::timeout, this, &Worker::scanAutoOpenFolder);
+}
+
+void TorrentFilesWatcher::Worker::setAutoOpenFolder(const Path &path)
+{
+    if (m_autoOpenFolder == path)
+        return;
+
+    const Path previous = m_autoOpenFolder;
+    m_autoOpenFolder = path;
+    m_autoOpenFiles.clear();
+    if (path.isEmpty())
+        m_autoOpenTimer->stop();
+    else
+        m_autoOpenTimer->start(500ms);
+
+    if (m_watchedFolders.contains(previous))
+        scheduleWatchedFolderProcessing(previous);
+}
+
+void TorrentFilesWatcher::Worker::scanAutoOpenFolder()
+{
+    const auto now = std::chrono::steady_clock::now();
+    QSet<Path> present;
+    QDirIterator files {m_autoOpenFolder.data(), {u"*.torrent"_s}, QDir::Files | QDir::NoSymLinks};
+    while (files.hasNext())
+    {
+        const Path path {files.next()};
+        const QFileInfo info = files.fileInfo();
+        present.insert(path);
+        AutoOpenFile &state = m_autoOpenFiles[path];
+        if ((state.size != info.size()) || (state.modified != info.lastModified()))
+            state = {info.size(), info.lastModified(), now + 1s};
+
+        if ((state.size <= 0) || state.pending || state.opened || (now < state.readyAt))
+            continue;
+
+        state.pending = true;
+        emit autoOpenRequested(path);
+    }
+    m_autoOpenFiles.removeIf([&present](const auto &item) { return !present.contains(item.first); });
+}
+
+void TorrentFilesWatcher::Worker::autoOpenFinished(const Path &path, const bool opened)
+{
+    const auto it = m_autoOpenFiles.find(path);
+    if (it == m_autoOpenFiles.end())
+        return;
+
+    it->pending = false;
+    it->opened = opened;
+    it->readyAt = std::chrono::steady_clock::now() + 10s;
 }
 
 void TorrentFilesWatcher::Worker::onTimeout()
@@ -364,6 +530,9 @@ void TorrentFilesWatcher::Worker::scheduleWatchedFolderProcessing(const Path &pa
 
 void TorrentFilesWatcher::Worker::processWatchedFolder(const Path &path)
 {
+    if (!m_watchedFolders.contains(path))
+        return;
+
     const TorrentFilesWatcher::WatchedFolderOptions options = m_watchedFolders.value(path);
     processFolder(path, path, options);
 
@@ -378,6 +547,8 @@ void TorrentFilesWatcher::Worker::processFolder(const Path &path, const Path &wa
     while (dirIter.hasNext())
     {
         const Path filePath {dirIter.next()};
+        if ((path == m_autoOpenFolder) && filePath.hasExtension(u".torrent"_s))
+            continue;
         BitTorrent::AddTorrentParams addTorrentParams = options.addTorrentParams;
         if (path != watchedFolderPath)
         {
@@ -463,6 +634,9 @@ void TorrentFilesWatcher::Worker::processFailedTorrents()
         const TorrentFilesWatcher::WatchedFolderOptions options = m_watchedFolders.value(watchedFolderPath);
         Algorithm::removeIf(partialTorrents, [this, &watchedFolderPath, &options](const Path &torrentPath, int &value)
         {
+            if (torrentPath.parentPath() == m_autoOpenFolder)
+                return true;
+
             if (!torrentPath.exists())
                 return true;
 

@@ -50,6 +50,7 @@
 #include <QScrollArea>
 #include <QSet>
 #include <QSignalBlocker>
+#include <QStandardPaths>
 #include <QStyle>
 #include <QTableWidget>
 #include <QTabWidget>
@@ -78,6 +79,8 @@
 #include "base/path.h"
 #include "base/preferences.h"
 #include "base/torrentfilter.h"
+#include "base/torrentfileswatcher.h"
+#include "gui/addnewtorrentdialog.h"
 #include "gui/fspathedit.h"
 #include "gui/mainwindow.h"
 #include "gui/networkdiagnosticsdialog.h"
@@ -1603,10 +1606,105 @@ namespace
         window->hide();
     }
 
+    void exerciseAutoOpen(Application &application, const QJsonObject &spec, QJsonObject &evidence)
+    {
+        auto *watcher = TorrentFilesWatcher::instance();
+        require(!watcher->isAutoOpenEnabled(), u"Folder auto-open is not off by default"_s);
+        OptionsDialog options {&application, application.mainWindow()};
+        auto *enabled = requiredChild<QGroupBox>(&options, u"groupAutoOpenTorrents"_s);
+        auto *folder = requiredChild<FileSystemPathEdit>(&options, u"autoOpenTorrentFolder"_s);
+        auto *buttons = requiredChild<QDialogButtonBox>(&options, u"buttonBox"_s);
+        require(!enabled->isChecked() && !folder->isEnabled(), u"Auto-open controls have incorrect default state"_s);
+        require(folder->selectedPath() == Path(QStandardPaths::writableLocation(QStandardPaths::DesktopLocation))
+            , u"Auto-open folder is not prefilled with the actual Desktop"_s);
+
+        const QDir watched {spec.value(u"watched"_s).toString()};
+        const QString fixture = spec.value(u"torrent"_s).toString();
+        const QString first = watched.filePath(u"Юникод & test.TORRENT"_s);
+        const auto dialogs = []
+        {
+            QList<AddNewTorrentDialog *> result;
+            for (QWidget *widget : QApplication::topLevelWidgets())
+            {
+                if (auto *dialog = qobject_cast<AddNewTorrentDialog *>(widget); dialog && dialog->isVisible())
+                    result.append(dialog);
+            }
+            return result;
+        };
+        const auto settle = []
+        {
+            QElapsedTimer elapsed;
+            elapsed.start();
+            waitFor(u"Auto-open observation interval"_s, [&] { return elapsed.elapsed() >= 2200; }, 4000);
+        };
+        require(QFile::copy(fixture, first), u"Cannot create auto-open fixture"_s);
+        settle();
+        require(QFileInfo::exists(first) && dialogs().isEmpty(), u"Disabled auto-open consumed a torrent"_s);
+
+        enabled->setChecked(true);
+        folder->setSelectedPath(Path(watched.path()));
+        buttons->button(QDialogButtonBox::Apply)->click();
+        require(watcher->isAutoOpenEnabled() && (watcher->autoOpenFolder() == Path(watched.path()))
+            , u"Auto-open UI settings were not applied"_s);
+        int handoffs = 0;
+        bool sourceLocked = false;
+        const auto handoff = QObject::connect(watcher, &TorrentFilesWatcher::autoOpenRequested, &options
+            , [&](const QString &source, const BitTorrent::TorrentDescriptor &torrent)
+        {
+            ++handoffs;
+            QFile writer {source};
+            sourceLocked = torrent.info().has_value() && !writer.open(QIODevice::WriteOnly)
+                && !QFile::rename(source, source + u".replacement"_s);
+        }, Qt::DirectConnection);
+        waitFor(u"Normal Add Torrent dialog and source removal"_s
+            , [&] { return (dialogs().size() == 1) && !QFileInfo::exists(first); }, 15000);
+        require((handoffs == 1) && sourceLocked, u"Metadata handoff did not protect the exact source file"_s);
+        require(QFile::copy(fixture, watched.filePath(u"duplicate.torrent"_s)), u"Cannot create duplicate fixture"_s);
+        waitFor(u"Duplicate source consumed"_s
+            , [&] { return !QFileInfo::exists(watched.filePath(u"duplicate.torrent"_s)); }, 15000);
+        require(dialogs().size() == 1, u"Duplicate metadata created another Add Torrent dialog"_s);
+        dialogs().constFirst()->reject();
+        settle();
+        require(dialogs().isEmpty() && BitTorrent::Session::instance()->torrents().isEmpty()
+            , u"Cancelled auto-open added a torrent or reopened its dialog"_s);
+
+        const QString locked = watched.filePath(u"locked.torrent"_s);
+        QFile writer {locked};
+        require(writer.open(QIODevice::WriteOnly), u"Cannot hold fixture writer"_s);
+        QFile input {fixture};
+        require(input.open(QIODevice::ReadOnly), u"Cannot read torrent fixture"_s);
+        const QByteArray metadata = input.readAll();
+        require(writer.write(metadata) == metadata.size() && writer.flush(), u"Cannot write locked fixture"_s);
+        settle();
+        require(QFileInfo::exists(locked) && dialogs().isEmpty(), u"An active writer was consumed"_s);
+        writer.close();
+        waitFor(u"Closed writer auto-opened"_s, [&] { return (dialogs().size() == 1) && !QFileInfo::exists(locked); }, 15000);
+        requiredChild<FileSystemPathEdit>(dialogs().constFirst(), u"savePath"_s)->setSelectedPath(Path(spec.value(u"payload"_s).toString()));
+        requiredChild<QCheckBox>(dialogs().constFirst(), u"startTorrentCheckBox"_s)->setChecked(false);
+        dialogs().constFirst()->accept();
+        waitFor(u"Accepted metadata survives source removal"_s, [] { return BitTorrent::Session::instance()->torrents().size() == 1; });
+
+        enabled->setChecked(false);
+        buttons->button(QDialogButtonBox::Apply)->click();
+        require(QFile::copy(fixture, watched.filePath(u"disabled.torrent"_s)), u"Cannot create disabled fixture"_s);
+        settle();
+        require(QFileInfo::exists(watched.filePath(u"disabled.torrent"_s)) && dialogs().isEmpty()
+            , u"Disabling auto-open did not stop detection"_s);
+        require(QFileInfo::exists(watched.filePath(u"invalid.torrent"_s))
+            && QFileInfo::exists(watched.filePath(u"nested/ignored.torrent"_s)), u"Invalid or nested source was consumed"_s);
+        QObject::disconnect(handoff);
+        addCheck(evidence, {{u"name"_s, u"auto-open"_s}, {u"handoffs"_s, handoffs}, {u"sourceLocked"_s, sourceLocked}});
+    }
+
     void runAcceptance(Application &application, const QJsonObject &spec, QJsonObject &evidence)
     {
         MainWindow *window = application.mainWindow();
         require(window && BitTorrent::Session::instance()->isRestored(), u"Production application did not finish startup"_s);
+        if (spec.value(u"mode"_s).toString() == u"auto-open")
+        {
+            exerciseAutoOpen(application, spec, evidence);
+            return;
+        }
         if (spec.value(u"mode"_s).toString() == u"native-address")
         {
             window->hide();
