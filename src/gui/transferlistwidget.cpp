@@ -151,7 +151,6 @@ TransferListWidget::TransferListWidget(IGUIApplication *app, QWidget *parent)
     new MacOSShiftClickHandler(this);
 #endif
     header()->setFirstSectionMovable(true);
-    header()->setStretchLastSection(true);
     header()->setTextElideMode(Qt::ElideRight);
 
     // First-run layout; saved header state always takes precedence.
@@ -209,6 +208,9 @@ TransferListWidget::TransferListWidget(IGUIApplication *app, QWidget *parent)
         if ((columnWidth(i) <= 0) && (!isColumnHidden(i)))
             resizeColumnToContents(i);
     }
+
+    // Stretch only after the first-run layout has initialized hidden section widths.
+    header()->setStretchLastSection(true);
 
     setContextMenuPolicy(Qt::CustomContextMenu);
 
