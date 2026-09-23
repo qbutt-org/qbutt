@@ -49,8 +49,6 @@ namespace Net
         QString subscriptionUrl() const;
         QString configurationPath() const;
         QString proxyName() const;
-        QStringList reserveNames(const QString &proxyName) const;
-        bool setReserveNames(const QString &proxyName, const QStringList &names);
         QString interfaceName() const;
         QStringList selectedNodes() const;
         QString preferredTransport(const QString &edgeId) const;
@@ -214,8 +212,6 @@ namespace Net
         SettingValue<QString> m_storeSubscriptionUrl;
         SettingValue<QString> m_storeConfigurationPath;
         SettingValue<QString> m_storeProxyName;
-        SettingValue<QStringList> m_storeReserveNames;
-        SettingValue<QVariantMap> m_storeNodeReserves;
         SettingValue<QString> m_storeInterfaceName;
         SettingValue<QStringList> m_storeSelectedNodes;
         SettingValue<QVariantMap> m_storePreferredTransports;
