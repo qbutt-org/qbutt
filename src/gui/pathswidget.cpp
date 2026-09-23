@@ -13,7 +13,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
-#include <QFileDialog>
+#include <QFont>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QJsonObject>
@@ -24,25 +24,23 @@
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSpinBox>
-#include <QToolButton>
 #include <QVBoxLayout>
 
 #include "base/global.h"
 #include "base/net/pathmanager.h"
-#include "base/net/proxyconfigurationmanager.h"
 
 PathsWidget::PathsWidget(QWidget *parent)
     : QGroupBox(tr("Mihomo subscription"), parent)
     , m_manager {Net::PathManager::instance()}
     , m_transportForm {new QFormLayout}
     , m_url {new QLineEdit(this)}
-    , m_nodes {new QComboBox(this)}
+    , m_nodes {new QListWidget(this)}
+    , m_enabled {new QCheckBox(tr("Use Mihomo"), this)}
     , m_sameServer {new QComboBox(this)}
     , m_groupServers {new QPushButton(tr("Group servers"), this)}
     , m_resetServerGroups {new QPushButton(tr("Reset grouping"), this)}
     , m_reserves {new QListWidget(this)}
     , m_interfaces {new QComboBox(this)}
-    , m_mode {new QComboBox(this)}
     , m_dnsServer {new QLineEdit(this)}
     , m_bootstrapServer {new QLineEdit(this)}
     , m_dnsFamily {new QComboBox(this)}
@@ -59,33 +57,31 @@ PathsWidget::PathsWidget(QWidget *parent)
     , m_gatewayApply {new QPushButton(tr("Save gateway"), this)}
     , m_paths {new QListWidget(this)}
     , m_refresh {new QPushButton(tr("Refresh"), this)}
-    , m_localFile {new QPushButton(tr("Local file…"), this)}
-    , m_start {new QPushButton(tr("Connect"), this)}
-    , m_disconnect {new QPushButton(tr("Disconnect"), this)}
     , m_switch {new QPushButton(tr("Use selected backup"), this)}
-    , m_native {new QPushButton(tr("Default connection"), this)}
     , m_status {new QLabel(this)}
 {
     auto *layout = new QVBoxLayout(this);
     auto *form = new QFormLayout;
     auto *subscription = new QHBoxLayout;
     m_url->setObjectName(u"mihomoSubscriptionUrl"_s);
-    m_localFile->setObjectName(u"mihomoLocalFile"_s);
     m_url->setPlaceholderText(u"https://…"_s);
-    m_url->setEchoMode(QLineEdit::PasswordEchoOnEdit);
     m_url->setText(m_manager->subscriptionUrl());
     subscription->addWidget(m_url, 1);
     subscription->addWidget(m_refresh);
-    subscription->addWidget(m_localFile);
     form->addRow(tr("Subscription:"), subscription);
-    m_nodes->setObjectName(u"mihomoNode"_s);
-    form->addRow(tr("Node:"), m_nodes);
+    m_nodes->setObjectName(u"mihomoNodes"_s);
+    m_nodes->setMaximumHeight(150);
+    m_nodes->setToolTip(tr("Check the nodes to use alongside the direct connection."));
+    form->addRow(tr("Nodes:"), m_nodes);
+    m_enabled->setObjectName(u"mihomoEnabled"_s);
+    form->addRow(QString(), m_enabled);
     m_interfaces->setObjectName(u"mihomoPhysicalInterface"_s);
     m_interfaces->addItem(tr("Choose a network adapter"), QString());
     const QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
     for (const QNetworkInterface &iface : interfaces)
     {
         if (!iface.flags().testFlag(QNetworkInterface::IsUp)
+            || !iface.flags().testFlag(QNetworkInterface::IsRunning)
             || iface.flags().testFlag(QNetworkInterface::IsLoopBack)
             || ((iface.type() != QNetworkInterface::Ethernet) && (iface.type() != QNetworkInterface::Wifi)))
         {
@@ -101,50 +97,47 @@ PathsWidget::PathsWidget(QWidget *parent)
         const QString bindName = iface.name();
 #endif
         m_interfaces->addItem(iface.humanReadableName(), bindName);
+        m_interfaces->setItemData(m_interfaces->count() - 1, iface.index(), Qt::UserRole + 1);
     }
     const int savedInterface = m_interfaces->findData(m_manager->interfaceName());
     if (savedInterface > 0)
         m_interfaces->setCurrentIndex(savedInterface);
-    else if (m_interfaces->count() == 2)
-        m_interfaces->setCurrentIndex(1);
+    else if (m_interfaces->count() > 1)
+    {
+#ifdef Q_OS_WIN
+        SOCKADDR_IN destination {};
+        destination.sin_family = AF_INET;
+        destination.sin_addr.S_un.S_addr = htonl(0x01010101);
+        NET_IFINDEX routeInterface = 0;
+        if (GetBestInterfaceEx(reinterpret_cast<SOCKADDR *>(&destination), &routeInterface) == NO_ERROR)
+        {
+            const int routeIndex = m_interfaces->findData(static_cast<int>(routeInterface), Qt::UserRole + 1);
+            if (routeIndex > 0)
+                m_interfaces->setCurrentIndex(routeIndex);
+        }
+#endif
+        if (m_interfaces->currentIndex() == 0)
+            m_interfaces->setCurrentIndex(1);
+    }
     form->addRow(tr("Network adapter:"), m_interfaces);
-    m_mode->setObjectName(u"mihomoPeerPolicy"_s);
-    m_mode->addItem(tr("Single node"), u"pinned"_s);
-    m_mode->addItem(tr("Selected nodes only"), u"tunnels"_s);
-    m_mode->addItem(tr("Selected nodes + direct connection"), u"mixed"_s);
-    m_mode->setItemData(0, tr("Use the first node in the connection list."), Qt::ToolTipRole);
-    m_mode->setItemData(1, tr("Use connected nodes together. Private torrents use the first node in the list."), Qt::ToolTipRole);
-    m_mode->setItemData(2, tr("Also use your direct connection, exposing its address to peers. Private torrents use the first node in the list."), Qt::ToolTipRole);
-    form->addRow(tr("Mode:"), m_mode);
+    form->setRowVisible(m_interfaces, m_interfaces->count() != 2);
     layout->addLayout(form);
 
     m_paths->setObjectName(u"mihomoPaths"_s);
     m_paths->setMaximumHeight(110);
     layout->addWidget(m_paths);
 
-    auto *actions = new QHBoxLayout;
-    m_start->setObjectName(u"mihomoStart"_s);
-    m_native->setObjectName(u"mihomoNative"_s);
-    actions->addWidget(m_start);
-    actions->addWidget(m_disconnect);
-    actions->addWidget(m_native);
-    actions->addStretch();
-    layout->addLayout(actions);
     m_status->setWordWrap(true);
     m_status->setTextFormat(Qt::PlainText);
     m_status->setObjectName(u"mihomoPathStatus"_s);
     layout->addWidget(m_status);
 
-    auto *advancedToggle = new QToolButton(this);
-    advancedToggle->setObjectName(u"mihomoAdvancedSettings"_s);
-    advancedToggle->setText(tr("Advanced"));
-    advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    advancedToggle->setArrowType(Qt::RightArrow);
-    advancedToggle->setCheckable(true);
-    auto *advancedOptions = new QWidget(this);
-    advancedOptions->setObjectName(u"mihomoAdvancedOptions"_s);
-    auto *advancedLayout = new QVBoxLayout(advancedOptions);
-    advancedLayout->setContentsMargins(0, 0, 0, 0);
+    auto *advancedHeading = new QLabel(tr("Advanced settings"), this);
+    QFont headingFont = advancedHeading->font();
+    headingFont.setBold(true);
+    advancedHeading->setFont(headingFont);
+    layout->addSpacing(12);
+    layout->addWidget(advancedHeading);
     auto *serverGrouping = new QHBoxLayout;
     m_sameServer->setObjectName(u"mihomoSameServer"_s);
     m_groupServers->setObjectName(u"mihomoGroupServers"_s);
@@ -161,15 +154,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     m_transportForm->addRow(tr("Backup connections:"), m_reserves);
     m_switch->setObjectName(u"mihomoSwitchTransport"_s);
     m_transportForm->addRow(QString(), m_switch);
-    advancedLayout->addLayout(m_transportForm);
-    advancedOptions->hide();
-    layout->addWidget(advancedToggle, 0, Qt::AlignLeft);
-    layout->addWidget(advancedOptions);
-    connect(advancedToggle, &QToolButton::toggled, this, [advancedToggle, advancedOptions](const bool expanded)
-    {
-        advancedToggle->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
-        advancedOptions->setVisible(expanded);
-    });
+    layout->addLayout(m_transportForm);
 
     auto *dnsForm = new QFormLayout;
     m_dnsServer->setObjectName(u"mihomoDnsServer"_s);
@@ -186,7 +171,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     dnsForm->addRow(tr("Bootstrap DNS:"), m_bootstrapServer);
     dnsForm->addRow(tr("Destination addresses:"), m_dnsFamily);
     dnsForm->addRow(QString(), m_dnsApply);
-    advancedLayout->addLayout(dnsForm);
+    layout->addLayout(dnsForm);
     const auto loadDnsSettings = [this]()
     {
         const QJsonObject dns = m_manager->dnsPolicy();
@@ -201,7 +186,7 @@ PathsWidget::PathsWidget(QWidget *parent)
         m_manager->setDnsPolicy(m_dnsServer->text(), m_bootstrapServer->text(), m_dnsFamily->currentData().toString());
     });
 
-    advancedLayout->addWidget(new QLabel(tr("Incoming connections"), advancedOptions));
+    layout->addWidget(new QLabel(tr("Incoming connections"), this));
     auto *gatewayForm = new QFormLayout;
     m_gatewayControlAddress->setObjectName(u"mihomoGatewayControlAddress"_s);
     m_gatewayDatagramAddress->setObjectName(u"mihomoGatewayDatagramAddress"_s);
@@ -233,7 +218,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     gatewayForm->addRow(QString(), m_gatewayApply);
     m_gatewayTcp->setToolTip(tr("Receive connections through your public gateway."));
     m_gatewayUdp->setToolTip(tr("Receive connections through your public gateway."));
-    advancedLayout->addLayout(gatewayForm);
+    layout->addLayout(gatewayForm);
     const QJsonObject gateway = m_manager->gatewayConfiguration();
     m_gatewayControlAddress->setText(gateway.value(u"controlAddress"_s).toString());
     m_gatewayDatagramAddress->setText(gateway.value(u"datagramAddress"_s).toString());
@@ -264,28 +249,40 @@ PathsWidget::PathsWidget(QWidget *parent)
     {
         m_manager->refreshSubscription(m_url->text());
     });
-    connect(m_localFile, &QPushButton::clicked, this, [this]()
+    connect(m_nodes, &QListWidget::itemChanged, this, [this](QListWidgetItem *item)
     {
-        const QString fileName = QFileDialog::getOpenFileName(this, tr("Select a Mihomo subscription"), {},
-            tr("Mihomo YAML (*.yaml *.yml);;All files (*)"));
-        if (!fileName.isEmpty())
-            m_manager->inspectConfiguration(fileName);
-    });
-    connect(m_start, &QPushButton::clicked, this, [this]()
-    {
-        QStringList reserves;
-        for (int row = 0; row < m_reserves->count(); ++row)
+        m_nodes->setCurrentItem(item);
+        QStringList selected;
+        for (int row = 0; row < m_nodes->count(); ++row)
         {
-            const QListWidgetItem *item = m_reserves->item(row);
-            if (item->checkState() == Qt::Checked)
-                reserves.append(item->data(Qt::UserRole).toString());
+            const QListWidgetItem *node = m_nodes->item(row);
+            if (node->checkState() == Qt::Checked)
+                selected.append(node->data(Qt::UserRole).toString());
         }
-        m_manager->openPath(m_manager->configurationPath(), m_nodes->currentData().toString(),
-            m_interfaces->currentData().toString(), reserves);
+        if (!m_manager->setSelectedNodes(selected))
+        {
+            const QSignalBlocker nodesBlocker(m_nodes);
+            const QStringList saved = m_manager->selectedNodes();
+            for (int row = 0; row < m_nodes->count(); ++row)
+            {
+                QListWidgetItem *node = m_nodes->item(row);
+                node->setCheckState(saved.contains(node->data(Qt::UserRole).toString())
+                    ? Qt::Checked : Qt::Unchecked);
+            }
+        }
+    });
+    connect(m_enabled, &QCheckBox::toggled, this, [this](const bool enabled)
+    {
+        if (!m_manager->setManagedEnabled(enabled, m_interfaces->currentData().toString()))
+        {
+            const QSignalBlocker blocker(m_enabled);
+            m_enabled->setChecked(m_manager->managedEnabled());
+        }
+        refreshState();
     });
     connect(m_groupServers, &QPushButton::clicked, this, [this]()
     {
-        m_manager->groupServers(m_nodes->currentData().toString(), m_sameServer->currentData().toString());
+        m_manager->groupServers(selectedNode(), m_sameServer->currentData().toString());
     });
     connect(m_resetServerGroups, &QPushButton::clicked, m_manager, &Net::PathManager::resetServerGroups);
     connect(m_sameServer, &QComboBox::currentIndexChanged, this, &PathsWidget::refreshState);
@@ -295,25 +292,8 @@ PathsWidget::PathsWidget(QWidget *parent)
             m_manager->switchTransport(m_paths->currentItem()->data(Qt::UserRole).toString(),
                 m_reserves->currentItem()->data(Qt::UserRole).toString());
     });
-    connect(m_disconnect, &QPushButton::clicked, this, [this]()
-    {
-        if (const auto *item = m_paths->currentItem())
-            m_manager->stopPath(item->data(Qt::UserRole).toString());
-    });
-    const auto applyPolicy = [this]()
-    {
-        m_manager->setPolicy(m_mode->currentData().toString(),
-            (m_mode->currentData() == u"mixed"_s) ? m_interfaces->currentData().toString() : QString());
-    };
-    connect(m_mode, &QComboBox::activated, this, applyPolicy);
-    connect(m_interfaces, &QComboBox::activated, this, [this]()
-    {
-        if (m_mode->currentData() == u"mixed"_s)
-            m_manager->setPolicy(m_mode->currentData().toString(), m_interfaces->currentData().toString());
-    });
-    connect(m_native, &QPushButton::clicked, m_manager, &Net::PathManager::useNative);
-    connect(m_nodes, &QComboBox::currentIndexChanged, this, &PathsWidget::refreshState);
-    connect(m_nodes, &QComboBox::currentIndexChanged, this, &PathsWidget::refreshReserves);
+    connect(m_nodes, &QListWidget::currentRowChanged, this, &PathsWidget::refreshState);
+    connect(m_nodes, &QListWidget::currentRowChanged, this, &PathsWidget::refreshReserves);
     connect(m_interfaces, &QComboBox::currentIndexChanged, this, &PathsWidget::refreshState);
     connect(m_paths, &QListWidget::currentRowChanged, this, &PathsWidget::refreshState);
     connect(m_reserves, &QListWidget::currentRowChanged, this, &PathsWidget::refreshState);
@@ -321,7 +301,9 @@ PathsWidget::PathsWidget(QWidget *parent)
     connect(m_manager, &Net::PathManager::changed, this, &PathsWidget::refreshState);
     connect(m_manager, &Net::PathManager::proxiesLoaded, this, [this](const QJsonArray &proxies)
     {
-        const QString previous = (m_nodes->count() > 0) ? m_nodes->currentData().toString() : m_manager->proxyName();
+        const QString previous = selectedNode().isEmpty() ? m_manager->proxyName() : selectedNode();
+        const QStringList selected = m_manager->selectedNodes();
+        const QSignalBlocker nodesBlocker(m_nodes);
         m_nodes->clear();
         for (const QJsonValue &value : proxies)
         {
@@ -329,19 +311,34 @@ PathsWidget::PathsWidget(QWidget *parent)
             const QString name = node.value(u"name"_s).toString();
             if (!name.isEmpty())
             {
-                m_nodes->addItem(u"%1 (%2)"_s.arg(name, node.value(u"type"_s).toString()), name);
-                m_nodes->setItemData(m_nodes->count() - 1, node.value(u"configuredServerId"_s).toString(), Qt::UserRole + 1);
+                auto *item = new QListWidgetItem(u"%1 (%2)"_s.arg(name, node.value(u"type"_s).toString()), m_nodes);
+                item->setData(Qt::UserRole, name);
+                item->setData(Qt::UserRole + 1, node.value(u"configuredServerId"_s).toString());
+                item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+                item->setCheckState(selected.contains(name) ? Qt::Checked : Qt::Unchecked);
             }
         }
-        const int previousIndex = m_nodes->findData(previous);
-        if (previousIndex >= 0)
-            m_nodes->setCurrentIndex(previousIndex);
+        for (int row = 0; row < m_nodes->count(); ++row)
+        {
+            if (m_nodes->item(row)->data(Qt::UserRole) == previous)
+            {
+                m_nodes->setCurrentRow(row);
+                break;
+            }
+        }
+        if (!m_nodes->currentItem() && (m_nodes->count() > 0))
+            m_nodes->setCurrentRow(0);
         refreshReserves();
         refreshState();
     });
     refreshState();
     if (!m_manager->configurationPath().isEmpty() && !m_manager->isBusy())
         m_manager->inspectConfiguration(m_manager->configurationPath());
+}
+
+QString PathsWidget::selectedNode() const
+{
+    return m_nodes->currentItem() ? m_nodes->currentItem()->data(Qt::UserRole).toString() : QString();
 }
 
 void PathsWidget::refreshState()
@@ -357,13 +354,10 @@ void PathsWidget::refreshState()
     m_sameServer->setEnabled(!busy && !managedOpen);
     m_groupServers->setEnabled(!busy && !managedOpen && !m_sameServer->currentData().toString().isEmpty());
     m_resetServerGroups->setEnabled(!busy && !managedOpen && !state.value(u"serverGroups"_s).toObject().isEmpty());
-    m_mode->setCurrentIndex(m_mode->findData(state.value(u"mode"_s).toString()));
-    m_mode->setEnabled(!busy);
     const QSignalBlocker pathsBlocker(m_paths);
     const QString selectedPath = m_paths->currentItem()
         ? m_paths->currentItem()->data(Qt::UserRole).toString() : QString();
     m_paths->clear();
-    bool nodeConnected = false;
     for (const QJsonValue &value : state.value(u"paths"_s).toArray())
     {
         const QJsonObject path = value.toObject();
@@ -391,15 +385,10 @@ void PathsWidget::refreshState()
         item->setData(Qt::UserRole + 1, open);
         if (item->data(Qt::UserRole).toString() == selectedPath)
             m_paths->setCurrentItem(item);
-        nodeConnected |= open && (name == m_nodes->currentData().toString());
     }
     if (!m_paths->currentItem() && (m_paths->count() > 0))
         m_paths->setCurrentRow(0);
     m_paths->setVisible(m_paths->count() > 0);
-    m_disconnect->setVisible(m_paths->count() > 0);
-    const bool resolving = state.value(u"resolution"_s).toObject().value(u"state"_s) == u"pending"_s;
-    m_disconnect->setEnabled((!busy || resolving) && m_paths->currentItem()
-        && m_paths->currentItem()->data(Qt::UserRole + 1).toBool());
     bool selectedReserve = false;
     const QListWidgetItem *reserve = m_reserves->currentItem();
     if (m_paths->currentItem() && reserve && (reserve->checkState() == Qt::Checked))
@@ -417,10 +406,25 @@ void PathsWidget::refreshState()
     m_transportForm->setRowVisible(m_switch, m_reserves->count() > 0);
     m_url->setEnabled(!busy);
     m_refresh->setEnabled(!busy);
-    m_localFile->setEnabled(!busy);
-    m_nodes->setEnabled(!busy);
+    {
+        const QSignalBlocker enabledBlocker(m_enabled);
+        m_enabled->setChecked(m_manager->managedEnabled());
+    }
+    if (!busy)
+    {
+        const QSignalBlocker nodesBlocker(m_nodes);
+        const QStringList selected = m_manager->selectedNodes();
+        for (int row = 0; row < m_nodes->count(); ++row)
+        {
+            QListWidgetItem *item = m_nodes->item(row);
+            item->setCheckState(selected.contains(item->data(Qt::UserRole).toString())
+                ? Qt::Checked : Qt::Unchecked);
+        }
+    }
+    m_nodes->setEnabled(!busy && !m_manager->managedEnabled());
+    m_enabled->setEnabled(!busy);
     m_reserves->setEnabled(!busy);
-    m_interfaces->setEnabled(!busy);
+    m_interfaces->setEnabled(!busy && !m_manager->managedEnabled());
     m_dnsServer->setEnabled(!busy);
     m_bootstrapServer->setEnabled(!busy);
     m_dnsFamily->setEnabled(!busy);
@@ -435,15 +439,12 @@ void PathsWidget::refreshState()
     m_gatewayTcp->setEnabled(!busy);
     m_gatewayUdp->setEnabled(!busy);
     m_gatewayApply->setEnabled(!busy);
-    m_start->setEnabled(!busy && !nodeConnected && (m_nodes->count() > 0)
-        && !m_interfaces->currentData().toString().isEmpty());
-    m_native->setEnabled(!busy && Net::ProxyConfigurationManager::instance()->hasRuntimeProxy());
     m_status->setText(busy ? tr("Working…") : m_manager->status());
 }
 
 void PathsWidget::refreshReserves()
 {
-    const QString node = m_nodes->currentData().toString();
+    const QString node = selectedNode();
     QStringList selected = m_manager->reserveNames(node);
     if ((m_reserveNode == node) && (m_reserves->count() > 0))
     {
@@ -460,7 +461,8 @@ void PathsWidget::refreshReserves()
     const QString previousTarget = m_sameServer->currentData().toString();
     m_sameServer->clear();
     m_sameServer->addItem(tr("Choose a node on the same server"), QString());
-    const QString serverId = m_nodes->currentData(Qt::UserRole + 1).toString();
+    const QString serverId = m_nodes->currentItem()
+        ? m_nodes->currentItem()->data(Qt::UserRole + 1).toString() : QString();
     if (serverId.isEmpty())
     {
         refreshState();
@@ -469,18 +471,19 @@ void PathsWidget::refreshReserves()
     const QString edge = m_manager->edgeIdForServer(serverId);
     for (int index = 0; index < m_nodes->count(); ++index)
     {
-        if (index == m_nodes->currentIndex())
+        if (index == m_nodes->currentRow())
             continue;
-        const QString name = m_nodes->itemData(index).toString();
-        const QString candidateId = m_nodes->itemData(index, Qt::UserRole + 1).toString();
+        const QListWidgetItem *candidate = m_nodes->item(index);
+        const QString name = candidate->data(Qt::UserRole).toString();
+        const QString candidateId = candidate->data(Qt::UserRole + 1).toString();
         if (candidateId.isEmpty())
             continue;
         if (m_manager->edgeIdForServer(candidateId) != edge)
         {
-            m_sameServer->addItem(m_nodes->itemText(index), name);
+            m_sameServer->addItem(candidate->text(), name);
             continue;
         }
-        auto *item = new QListWidgetItem(m_nodes->itemText(index), m_reserves);
+        auto *item = new QListWidgetItem(candidate->text(), m_reserves);
         item->setData(Qt::UserRole, name);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setCheckState(selected.contains(name) ? Qt::Checked : Qt::Unchecked);

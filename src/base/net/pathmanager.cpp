@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <utility>
 
 #ifdef Q_OS_WIN
 #include <winsock2.h>
@@ -202,6 +203,8 @@ Net::PathManager::PathManager()
     , m_storeReserveNames {u"Network/Paths/ReserveNames"_s}
     , m_storeServerGroups {u"Network/Paths/ServerGroups"_s}
     , m_storeInterfaceName {u"Network/Paths/InterfaceName"_s}
+    , m_storeSelectedNodes {u"Network/Paths/SelectedNodes"_s}
+    , m_storeManagedEnabled {u"Network/Paths/Enabled"_s}
     , m_storePolicy {u"Network/Paths/Policy"_s}
     , m_storeNativeInterface {u"Network/Paths/NativeInterface"_s}
     , m_storeDnsServer {u"Network/Paths/DnsServer"_s}
@@ -307,6 +310,12 @@ Net::PathManager::PathManager()
     connect(BitTorrent::Session::instance(), &BitTorrent::Session::udpRouteReady,
         this, &PathManager::queueDhtBootstrap);
     connect(this, &PathManager::changed, this, &PathManager::processDhtBootstrap, Qt::QueuedConnection);
+    connect(this, &PathManager::changed, this, &PathManager::openNextSelectedNode, Qt::QueuedConnection);
+    connect(this, &PathManager::changed, this, &PathManager::restoreSelectedNodes, Qt::QueuedConnection);
+    connect(BitTorrent::Session::instance(), &BitTorrent::Session::restored,
+        this, &PathManager::restoreSelectedNodes);
+    if (BitTorrent::Session::instance()->isRestored())
+        QMetaObject::invokeMethod(this, &PathManager::restoreSelectedNodes, Qt::QueuedConnection);
     connect(BitTorrent::Session::instance(), &BitTorrent::Session::dhtSettingsChanged, this, [this]()
     {
         m_dhtBootstrap.clear();
@@ -468,6 +477,130 @@ QStringList Net::PathManager::reserveNames(const QString &proxyName) const
 QString Net::PathManager::interfaceName() const
 {
     return m_storeInterfaceName;
+}
+
+QStringList Net::PathManager::selectedNodes() const
+{
+    return m_storeSelectedNodes;
+}
+
+bool Net::PathManager::managedEnabled() const
+{
+    return m_storeManagedEnabled;
+}
+
+bool Net::PathManager::setSelectedNodes(const QStringList &names)
+{
+    QStringList unique = names;
+    if (controlBusy() || m_storeManagedEnabled || (names.size() > 8)
+        || names.contains(QString()) || (unique.removeDuplicates() != 0))
+    {
+        reportError(tr("Select up to eight distinct nodes while Mihomo is off."));
+        return false;
+    }
+    QStringList edges;
+    for (const QString &name : names)
+    {
+        const auto node = std::ranges::find_if(m_proxies, [&name](const QJsonValue &value)
+        { return value.toObject().value(u"name"_s) == name; });
+        if (node == m_proxies.end())
+        {
+            reportError(tr("A selected node is missing from the subscription."));
+            return false;
+        }
+        const QString edge = edgeIdForServer(node->toObject().value(u"configuredServerId"_s).toString());
+        if (edge.isEmpty() || edges.contains(edge))
+        {
+            reportError(tr("Select at most one node for each configured server."));
+            return false;
+        }
+        edges.append(edge);
+    }
+    const QStringList previous = m_storeSelectedNodes;
+    m_storeSelectedNodes = names;
+    if (SettingsStorage::instance()->save())
+        return true;
+    m_storeSelectedNodes = previous;
+    reportError(tr("Unable to save the selected nodes."));
+    return false;
+}
+
+bool Net::PathManager::setManagedEnabled(const bool enabled, const QString &interfaceName)
+{
+    if (controlBusy())
+        return false;
+    if (!enabled)
+        return useNative();
+    if (m_storeSelectedNodes.get().isEmpty() || m_storeConfigurationPath.get().isEmpty()
+        || nativeEndpointsForInterface(interfaceName).isEmpty())
+    {
+        reportError(tr("Select nodes and an active physical network adapter first."));
+        return false;
+    }
+    if (!setPolicy(u"mixed"_s, interfaceName))
+        return false;
+    m_storeManagedEnabled = true;
+    m_storeInterfaceName = interfaceName;
+    if (!SettingsStorage::instance()->save())
+    {
+        m_storeManagedEnabled = false;
+        useNative();
+        reportError(tr("Unable to save the network selection."));
+        return false;
+    }
+    m_pendingNodes = m_storeSelectedNodes;
+    m_restoreStarted = true;
+    openNextSelectedNode();
+    return true;
+}
+
+void Net::PathManager::restoreSelectedNodes()
+{
+    if (m_restoreStarted || !BitTorrent::Session::instance()->isRestored() || controlBusy())
+        return;
+    m_restoreStarted = true;
+    if (!m_storeManagedEnabled)
+    {
+        // Older profiles may still carry a blocked managed runtime proxy.
+        if (ProxyConfigurationManager::instance()->hasRuntimeProxy())
+            useNative();
+        return;
+    }
+    const QString interfaceName = m_storeInterfaceName;
+    if (m_storeSelectedNodes.get().isEmpty() || m_storeConfigurationPath.get().isEmpty()
+        || nativeEndpointsForInterface(interfaceName).isEmpty() || !setPolicy(u"mixed"_s, interfaceName))
+    {
+        reportError(tr("Saved Mihomo nodes could not start. Check the subscription and physical adapter."));
+        return;
+    }
+    m_pendingNodes = m_storeSelectedNodes;
+    openNextSelectedNode();
+}
+
+void Net::PathManager::openNextSelectedNode()
+{
+    if (!m_storeManagedEnabled || controlBusy())
+        return;
+    if (!m_openingNode.isEmpty())
+    {
+        const QString opened = std::exchange(m_openingNode, QString());
+        if (!std::ranges::any_of(m_paths, [&opened](const ActivePath &path)
+            { return (path.proxyName == opened) && (path.endpoint.port > 0); }))
+        {
+            m_pendingNodes.clear();
+            return;
+        }
+    }
+    if (m_pendingNodes.isEmpty())
+        return;
+    const QString name = m_pendingNodes.takeFirst();
+    m_openingNode = name;
+    openPath(m_storeConfigurationPath, name, m_storeInterfaceName, reserveNames(name));
+    if (!controlBusy())
+    {
+        m_openingNode.clear();
+        m_pendingNodes.clear();
+    }
 }
 
 QJsonObject Net::PathManager::dnsPolicy() const
@@ -721,13 +854,14 @@ void Net::PathManager::refreshSubscription(const QString &urlText)
 {
     if (controlBusy())
         return;
-    const QUrl url(urlText.trimmed(), QUrl::StrictMode);
+    QUrl url(urlText.trimmed(), QUrl::StrictMode);
     if (!url.isValid() || ((url.scheme() != u"https") && (url.scheme() != u"http")) || url.host().isEmpty()
         || !url.userInfo().isEmpty() || url.hasFragment())
     {
         reportError(tr("Enter an HTTP or HTTPS subscription URL without user information or a fragment."));
         return;
     }
+    url.setScheme(u"https"_s);
 
     QNetworkRequest request(url);
     request.setRawHeader("User-Agent", "mihomo");
@@ -770,7 +904,7 @@ void Net::PathManager::refreshSubscription(const QString &urlText)
         }
         if (reply->error() != QNetworkReply::NoError)
         {
-            reportError(tr("Unable to download the subscription. Check the address and network connection."));
+            reportError(tr("Unable to download the subscription over HTTPS. Check the address and network connection."));
             return;
         }
         const QByteArray config = reply->readAll();
@@ -1149,31 +1283,42 @@ bool Net::PathManager::applyRoutes()
     return BitTorrent::Session::instance()->setNetworkRoutes(endpoints, policy);
 }
 
-void Net::PathManager::useNative()
+bool Net::PathManager::useNative()
 {
     if (controlBusy())
-        return;
+        return false;
     // Terminate accepted sockets before restoring saved connection settings.
     if (!shutdown())
     {
         reportError(tr("The previous qbutt-net process has not stopped. Native was not enabled."));
-        return;
+        return false;
     }
     if (!BitTorrent::Session::instance()->resetNetworkRoutes())
     {
         reportError(tr("Unable to restore the default torrent network routes."));
-        return;
+        return false;
     }
     if (!ProxyConfigurationManager::instance()->clearRuntimeProxy())
     {
         applyRoutes();
         fail(tr("Unable to save the Native startup policy. The pinned path remains blocked."));
-        return;
+        return false;
     }
     m_paths.clear();
     m_nativeEndpoints.clear();
+    m_pendingNodes.clear();
+    m_openingNode.clear();
+    const bool previouslyEnabled = m_storeManagedEnabled;
+    m_storeManagedEnabled = false;
+    if (previouslyEnabled && !SettingsStorage::instance()->save())
+    {
+        m_storeManagedEnabled = true;
+        reportError(tr("Unable to save the network selection."));
+        return false;
+    }
     m_status = tr("Using default connection settings.");
     emit changed();
+    return true;
 }
 
 void Net::PathManager::request(QJsonObject message)
@@ -1363,7 +1508,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             else if (errorCode == u"config_limit")
                 reportError(tr("Subscription exceeds the 2 MiB limit."));
             else
-                reportError(tr("Unable to read the subscription from the private qbutt profile."));
+                reportError(tr("Unable to read the subscription."));
         }
         else
         {

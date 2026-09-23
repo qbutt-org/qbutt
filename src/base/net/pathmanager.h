@@ -53,6 +53,10 @@ namespace Net
         bool groupServers(const QString &proxyName, const QString &sameAsProxyName);
         bool resetServerGroups();
         QString interfaceName() const;
+        QStringList selectedNodes() const;
+        bool managedEnabled() const;
+        bool setSelectedNodes(const QStringList &names);
+        bool setManagedEnabled(bool enabled, const QString &interfaceName = {});
         QJsonObject dnsPolicy() const;
         QJsonObject gatewayConfiguration() const;
         bool setDnsPolicy(const QString &server, const QString &bootstrapServer, const QString &family);
@@ -64,7 +68,7 @@ namespace Net
             const QString &interfaceName, const QStringList &reserveNames = {});
         void switchTransport(const QString &pathId, const QString &proxyName);
         bool setPolicy(const QString &mode, const QString &nativeInterface = {});
-        void useNative();
+        bool useNative();
         void stopPath(const QString &pathId = {});
 
     signals:
@@ -100,6 +104,8 @@ namespace Net
         bool applyTrustedInboundRoutes();
         void finishResolution(const QList<QHostAddress> &addresses, const QString &errorCode = {});
         void sendQueuedRequest();
+        void restoreSelectedNodes();
+        void openNextSelectedNode();
         bool queueGatewayOpen(const ActivePath &path);
         void queueGatewayClose(const ActivePath &path);
         void scheduleGatewayRenewal();
@@ -186,6 +192,9 @@ namespace Net
         quint64 m_nativeGeneration = 0;
         QString m_pendingStopPath;
         QList<PathRollover> m_pathRollover;
+        QStringList m_pendingNodes;
+        QString m_openingNode;
+        bool m_restoreStarted = false;
         bool m_rolloverOpening = false;
         bool m_rolloverFailed = false;
         QString m_status;
@@ -195,6 +204,8 @@ namespace Net
         SettingValue<QStringList> m_storeReserveNames;
         SettingValue<QVariantMap> m_storeServerGroups;
         SettingValue<QString> m_storeInterfaceName;
+        SettingValue<QStringList> m_storeSelectedNodes;
+        SettingValue<bool> m_storeManagedEnabled;
         SettingValue<QString> m_storePolicy;
         SettingValue<QString> m_storeNativeInterface;
         SettingValue<QString> m_storeDnsServer;

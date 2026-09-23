@@ -30,6 +30,7 @@ public:
     explicit PathsWidget(QWidget *parent = nullptr);
 
 private:
+    QString selectedNode() const;
     void refreshState();
     void refreshReserves();
 
@@ -37,13 +38,13 @@ private:
     QString m_reserveNode;
     QFormLayout *m_transportForm;
     QLineEdit *m_url;
-    QComboBox *m_nodes;
+    QListWidget *m_nodes;
+    QCheckBox *m_enabled;
     QComboBox *m_sameServer;
     QPushButton *m_groupServers;
     QPushButton *m_resetServerGroups;
     QListWidget *m_reserves;
     QComboBox *m_interfaces;
-    QComboBox *m_mode;
     QLineEdit *m_dnsServer;
     QLineEdit *m_bootstrapServer;
     QComboBox *m_dnsFamily;
@@ -60,10 +61,6 @@ private:
     QPushButton *m_gatewayApply;
     QListWidget *m_paths;
     QPushButton *m_refresh;
-    QPushButton *m_localFile;
-    QPushButton *m_start;
-    QPushButton *m_disconnect;
     QPushButton *m_switch;
-    QPushButton *m_native;
     QLabel *m_status;
 };
