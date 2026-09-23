@@ -33,8 +33,13 @@
     </message>
     <message>
         <location filename="../gui/aboutdialog.ui" line="93"/>
-        <source>Current maintainer</source>
-        <translation>Текущий куратор</translation>
+        <source>qbutt maintainer</source>
+        <translation>Разработчик qbutt</translation>
+    </message>
+    <message>
+        <location filename="../gui/aboutdialog.ui" line="129"/>
+        <source>qBittorrent maintainer</source>
+        <translation>Разработчик qBittorrent</translation>
     </message>
     <message>
         <location filename="../gui/aboutdialog.ui" line="120"/>
@@ -3495,9 +3500,9 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Сменить порт для торрент-трафика</translation>
     </message>
     <message>
-        <location filename="../app/cmdoptions.cpp" line="518"/>
-        <source>Disable splash screen</source>
-        <translation>Отключить заставку при запуске</translation>
+        <location filename="../app/cmdoptions.cpp" line="505"/>
+        <source>Start in the system tray</source>
+        <translation>Запускать в области уведомлений</translation>
     </message>
     <message>
         <location filename="../app/cmdoptions.cpp" line="520"/>
@@ -3607,9 +3612,9 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Хранить файлы настроек в папках qbutt_&lt;name&gt;</translation>
     </message>
     <message>
-        <location filename="../app/cmdoptions.cpp" line="542"/>
-        <source>Option values may be supplied via environment variables. For option named &apos;parameter-name&apos;, environment variable name is &apos;QBUTT_PARAMETER_NAME&apos; (in upper case, &apos;-&apos; replaced with &apos;_&apos;). To pass flag values, set the variable to &apos;1&apos; or &apos;TRUE&apos;. For example, to disable the splash screen: </source>
-        <translation>Значения параметров можно передавать через переменные среды. Для параметра &apos;parameter-name&apos; используется переменная &apos;QBUTT_PARAMETER_NAME&apos; (в верхнем регистре, &apos;-&apos; заменяется на &apos;_&apos;). Для включения флага задайте значение &apos;1&apos; или &apos;TRUE&apos;. Например, для отключения заставки: </translation>
+        <location filename="../app/cmdoptions.cpp" line="536"/>
+        <source>Option values may be supplied via environment variables. For option named &apos;parameter-name&apos;, environment variable name is &apos;QBUTT_PARAMETER_NAME&apos; (in upper case, &apos;-&apos; replaced with &apos;_&apos;). To pass flag values, set the variable to &apos;1&apos; or &apos;TRUE&apos;.</source>
+        <translation>Значения параметров можно передавать через переменные среды. Для параметра «parameter-name» используется переменная «QBUTT_PARAMETER_NAME» (в верхнем регистре, «-» заменяется на «_»). Для включения флага задайте значение «1» или «TRUE».</translation>
     </message>
 </context>
 <context>
@@ -4625,11 +4630,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>&amp;Документация</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.ui" line="355"/>
-        <source>Lock</source>
-        <translation>Блокировка</translation>
-    </message>
-    <message>
         <location filename="../gui/mainwindow.ui" line="419"/>
         <location filename="../gui/mainwindow.ui" line="453"/>
         <location filename="../gui/mainwindow.cpp" line="1521"/>
@@ -4658,24 +4658,9 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Журнал работы</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="683"/>
-        <source>Clear the password</source>
-        <translation>Очищение пароля</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.cpp" line="209"/>
-        <source>&amp;Set Password</source>
-        <translation>З&amp;адать пароль</translation>
-    </message>
-    <message>
         <location filename="../gui/mainwindow.cpp" line="161"/>
         <source>Preferences</source>
         <translation>Настройки</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.cpp" line="210"/>
-        <source>&amp;Clear Password</source>
-        <translation>Очи&amp;стить пароль</translation>
     </message>
     <message>
         <location filename="../gui/mainwindow.cpp" line="265"/>
@@ -4726,23 +4711,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Использовать стиль системы</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="666"/>
-        <location filename="../gui/mainwindow.cpp" line="1036"/>
-        <source>UI lock password</source>
-        <translation>Пароль блокировки интерфейса</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.cpp" line="667"/>
-        <location filename="../gui/mainwindow.cpp" line="1037"/>
-        <source>Please type the UI lock password:</source>
-        <translation>Пожалуйста, введите пароль блокировки интерфейса:</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.cpp" line="684"/>
-        <source>Are you sure you want to clear the password?</source>
-        <translation>Уверены, что хотите очистить пароль?</translation>
-    </message>
-    <message>
         <location filename="../gui/mainwindow.cpp" line="743"/>
         <source>Use regular expressions</source>
         <translation>Использовать регулярные выражения</translation>
@@ -4785,11 +4753,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
     <message>
         <location filename="../gui/mainwindow.cpp" line="1215"/>
-        <source>Some files are currently transferring.</source>
-        <translation>Некоторые файлы сейчас раздаются.</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.cpp" line="1215"/>
         <source>Are you sure you want to quit qBittorrent?</source>
         <translation>Уверены, что хотите выйти из qBittorrent?</translation>
     </message>
@@ -4802,11 +4765,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <location filename="../gui/mainwindow.cpp" line="1218"/>
         <source>&amp;Yes</source>
         <translation>&amp;Да</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.cpp" line="1219"/>
-        <source>&amp;Always Yes</source>
-        <translation>&amp;Всегда да</translation>
     </message>
     <message>
         <location filename="../gui/mainwindow.cpp" line="1348"/>
@@ -4973,12 +4931,6 @@ Minimum requirement: %2.</source>
         <translation>Ошибка при загрузке</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="673"/>
-        <location filename="../gui/mainwindow.cpp" line="1045"/>
-        <source>Invalid password</source>
-        <translation>Недопустимый пароль</translation>
-    </message>
-    <message>
         <location filename="../gui/mainwindow.cpp" line="230"/>
         <source>Filter torrents...</source>
         <translation>Фильтр торрентов…</translation>
@@ -4989,21 +4941,11 @@ Minimum requirement: %2.</source>
         <translation>Фильтровать:</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="673"/>
-        <source>The password must be at least 3 characters long</source>
-        <translation>Пароль должен быть не менее 3 символов</translation>
-    </message>
-    <message>
         <location filename="../gui/mainwindow.cpp" line="709"/>
         <location filename="../gui/mainwindow.cpp" line="722"/>
         <location filename="../gui/mainwindow.cpp" line="724"/>
         <source>RSS (%1)</source>
         <translation>RSS (%1)</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.cpp" line="1045"/>
-        <source>The password is invalid</source>
-        <translation>Недопустимый пароль</translation>
     </message>
     <message>
         <location filename="../gui/mainwindow.cpp" line="1894"/>
@@ -5038,29 +4980,9 @@ Minimum requirement: %2.</source>
         <translation>Торрент-файлы</translation>
     </message>
     <message>
-        <location filename="../gui/mainwindow.cpp" line="355"/>
-        <source>Smart repair from torrent file...</source>
-        <translation>Умное восстановление из торрент-файла…</translation>
-    </message>
-    <message>
         <location filename="../gui/mainwindow.cpp" line="1068"/>
         <source>qbutt was just updated and needs to be restarted for the changes to be effective.</source>
         <translation>qbutt обновлён. Перезапустите приложение, чтобы изменения вступили в силу.</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.cpp" line="1217"/>
-        <source>Exiting qbutt</source>
-        <translation>Выход из qbutt</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.cpp" line="1219"/>
-        <source>Are you sure you want to quit qbutt?</source>
-        <translation>Вы действительно хотите выйти из qbutt?</translation>
-    </message>
-    <message>
-        <location filename="../gui/mainwindow.ui" line="352"/>
-        <source>L&amp;ock qbutt</source>
-        <translation>За&amp;блокировать qbutt</translation>
     </message>
     <message>
         <location filename="../gui/mainwindow.ui" line="363"/>
@@ -6658,14 +6580,14 @@ Minimum requirement: %2.</source>
         <translation>Native</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="193"/>
-        <source>Enter an HTTPS subscription URL without user information or a fragment.</source>
-        <translation>Введите HTTPS-адрес подписки без имени пользователя, пароля и фрагмента после знака #.</translation>
+        <location filename="../base/net/pathmanager.cpp" line="861"/>
+        <source>Enter an HTTP or HTTPS subscription URL without user information or a fragment.</source>
+        <translation>Введите HTTP- или HTTPS-адрес подписки без имени пользователя, пароля и части после #.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="227"/>
-        <source>Unable to download the subscription (HTTPS, 2 MiB and 15 second limits).</source>
-        <translation>Не удалось загрузить подписку. Требуется HTTPS, размер до 2 МиБ и время загрузки до 15 секунд.</translation>
+        <location filename="../base/net/pathmanager.cpp" line="907"/>
+        <source>Unable to download the subscription over HTTPS. Check the address and network connection.</source>
+        <translation>Не удалось загрузить подписку по HTTPS. Проверьте адрес и подключение к сети.</translation>
     </message>
     <message>
         <location filename="../base/net/pathmanager.cpp" line="237"/>
@@ -7258,6 +7180,73 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <source>Disconnected.</source>
         <translation>Отключено.</translation>
     </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="896"/>
+        <location filename="../base/net/pathmanager.cpp" line="1509"/>
+        <source>Subscription exceeds the 2 MiB limit.</source>
+        <translation>Размер подписки превышает 2 МиБ.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="902"/>
+        <source>Subscription server returned HTTP %1.</source>
+        <translation>Сервер подписки вернул код HTTP %1.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1503"/>
+        <source>Subscription must contain a Mihomo YAML list of nodes.</source>
+        <translation>Подписка должна содержать список узлов в формате Mihomo YAML.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1505"/>
+        <source>Subscription contains too many nodes for one import.</source>
+        <translation>В подписке слишком много узлов для одного импорта.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1507"/>
+        <source>Subscription contains duplicate, empty or oversized node names.</source>
+        <translation>В подписке есть повторяющиеся, пустые или слишком длинные имена узлов.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="1511"/>
+        <source>Unable to read the subscription.</source>
+        <translation>Не удалось прочитать подписку.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="508"/>
+        <source>A selected node is missing from the subscription.</source>
+        <translation>Выбранный узел отсутствует в подписке.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="514"/>
+        <source>Select at most one node for each configured server.</source>
+        <translation>Выберите не более одного узла для каждого сервера.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="524"/>
+        <source>Unable to save the selected nodes.</source>
+        <translation>Не удалось сохранить выбранные узлы.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="548"/>
+        <location filename="../base/net/pathmanager.cpp" line="1316"/>
+        <source>Unable to save the network selection.</source>
+        <translation>Не удалось сохранить выбор подключений.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="537"/>
+        <source>Select nodes and an active physical network adapter first.</source>
+        <translation>Сначала выберите узлы и действующий сетевой адаптер.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="573"/>
+        <source>Saved Mihomo nodes could not start. Check the subscription and physical adapter.</source>
+        <translation>Не удалось подключить сохранённые узлы Mihomo. Проверьте подписку и сетевой адаптер.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="498"/>
+        <source>Select up to eight distinct nodes while Mihomo is off.</source>
+        <translation>Выберите не более восьми разных узлов при выключенном Mihomo.</translation>
+    </message>
 </context>
 <context>
     <name>Net::Smtp</name>
@@ -7814,20 +7803,14 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>Основные</translation>
     </message>
     <message>
-        <source>More settings</source>
-        <translation>Другие настройки</translation>
+        <location filename="../gui/optionsdialog.ui" line="374"/>
+        <source>Advanced settings</source>
+        <translation>Расширенные настройки</translation>
     </message>
     <message>
-        <source>More download settings</source>
-        <translation>Другие настройки загрузки</translation>
-    </message>
-    <message>
-        <source>More connection settings</source>
-        <translation>Другие настройки соединения</translation>
-    </message>
-    <message>
-        <source>More interface settings</source>
-        <translation>Другие настройки интерфейса</translation>
+        <location filename="../gui/optionsdialog.ui" line="237"/>
+        <source>Custom UI theme changes take effect after restarting qbutt</source>
+        <translation>Для применения пользовательской темы перезапустите qbutt.</translation>
     </message>
     <message>
         <source>Save files to:</source>
@@ -7963,21 +7946,6 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <location filename="../gui/optionsdialog.ui" line="500"/>
         <source>Start qBittorrent on Windows start up</source>
         <translation>Запускать qBittorrent вместе с Windows</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="507"/>
-        <source>Show splash screen on start up</source>
-        <translation>Показывать заставку при запуске программы</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="551"/>
-        <source>Confirmation on exit when torrents are active</source>
-        <translation>Подтверждать выход при наличии активных торрентов</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="561"/>
-        <source>Confirmation on auto-exit when downloads finish</source>
-        <translation>Подтверждать автовыход по окончании загрузок</translation>
     </message>
     <message>
         <location filename="../gui/optionsdialog.ui" line="702"/>
@@ -8500,11 +8468,6 @@ Use &apos;;&apos; to split multiple entries. Can use wildcard &apos;*&apos;.</so
         <translation>Язык:</translation>
     </message>
     <message>
-        <location filename="../gui/optionsdialog.ui" line="185"/>
-        <source>Style:</source>
-        <translation>Стиль:</translation>
-    </message>
-    <message>
         <location filename="../gui/optionsdialog.ui" line="204"/>
         <source>Color scheme:</source>
         <translation>Цветовая схема:</translation>
@@ -8553,17 +8516,6 @@ Use &apos;;&apos; to split multiple entries. Can use wildcard &apos;*&apos;.</so
         <translation>Перетаскивать содержимое из qBittorrent</translation>
     </message>
     <message>
-        <location filename="../gui/optionsdialog.ui" line="605"/>
-        <source>Tray icon style:</source>
-        <translation>Стиль значка в трее:</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="613"/>
-        <location filename="../gui/optionsdialog.cpp" line="316"/>
-        <source>Normal</source>
-        <translation>Обычно</translation>
-    </message>
-    <message>
         <location filename="../gui/optionsdialog.ui" line="649"/>
         <source>File association</source>
         <translation>Ассоциации файлов</translation>
@@ -8607,11 +8559,6 @@ Use &apos;;&apos; to split multiple entries. Can use wildcard &apos;*&apos;.</so
         <location filename="../gui/optionsdialog.ui" line="839"/>
         <source>Delete backup logs older than:</source>
         <translation>Удалять резервные копии старше:</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="906"/>
-        <source>Show external IP in status bar</source>
-        <translation>Показывать внешний адрес IP в строке состояния</translation>
     </message>
     <message>
         <location filename="../gui/optionsdialog.ui" line="968"/>
@@ -8746,11 +8693,6 @@ Use &apos;;&apos; to split multiple entries. Can use wildcard &apos;*&apos;.</so
         <translation>Файл темы:</translation>
     </message>
     <message>
-        <location filename="../gui/optionsdialog.ui" line="149"/>
-        <source>Changing Interface settings requires application restart</source>
-        <translation>Для применения настроек интерфейса потребуется перезапуск приложения</translation>
-    </message>
-    <message>
         <location filename="../gui/optionsdialog.ui" line="280"/>
         <source>Shows a confirmation dialog upon torrent deletion</source>
         <translation>Показывает окно подтверждения при удалении торрента</translation>
@@ -8762,35 +8704,10 @@ Use &apos;;&apos; to split multiple entries. Can use wildcard &apos;*&apos;.</so
         <translation>Просмотр файла или открыть папку назначения</translation>
     </message>
     <message>
-        <location filename="../gui/optionsdialog.ui" line="548"/>
-        <source>Shows a confirmation dialog when exiting with active torrents</source>
-        <translation>Показывает окно подтверждения выхода при наличии активных торрентов</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="580"/>
-        <source>When minimizing, the main window is closed and must be reopened from the systray icon</source>
-        <translation>При сворачивании главное окно скроется, и его можно снова открыть через значок в трее</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="593"/>
-        <source>The systray icon will still be visible when closing the main window</source>
-        <translation>В области уведомлений будет отображаться значок после закрытия главного окна</translation>
-    </message>
-    <message>
         <location filename="../gui/optionsdialog.ui" line="596"/>
         <source>Close qBittorrent to notification area</source>
         <extracomment>The systray icon will still be visible when closing the main window</extracomment>
         <translation>Закрывать qBittorrent в область уведомлений</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="618"/>
-        <source>Monochrome (for dark theme)</source>
-        <translation>Одноцветный (для тёмной темы)</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="623"/>
-        <source>Monochrome (for light theme)</source>
-        <translation>Одноцветный (для светлой темы)</translation>
     </message>
     <message>
         <location filename="../gui/optionsdialog.ui" line="745"/>
@@ -8892,11 +8809,6 @@ Manual: Various torrent properties (e.g. save path) must be assigned manually</s
         <location filename="../gui/optionsdialog.ui" line="251"/>
         <source>Use icons from system theme</source>
         <translation>Использовать значки из системной темы</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="519"/>
-        <source>Window state on start up:</source>
-        <translation>Состояние окна при запуске:</translation>
     </message>
     <message>
         <location filename="../gui/optionsdialog.ui" line="526"/>
@@ -9491,21 +9403,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Поддерживаемые параметры (с учётом регистра):</translation>
     </message>
     <message>
-        <location filename="../gui/optionsdialog.cpp" line="317"/>
-        <source>Minimized</source>
-        <translation>Свёрнуто</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.cpp" line="319"/>
-        <source>Hidden</source>
-        <translation>Спрятано</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.cpp" line="334"/>
-        <source>Disabled due to failed to detect system tray presence</source>
-        <translation>Отключено из-за сбоя при обнаружении наличия трея</translation>
-    </message>
-    <message>
         <location filename="../gui/optionsdialog.cpp" line="583"/>
         <source>No stop condition is set.</source>
         <translation>Без условия остановки.</translation>
@@ -9640,23 +9537,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <location filename="../gui/optionsdialog.cpp" line="1531"/>
         <source>Delete this API key? The current key will immediately stop working.</source>
         <translation>Удалить этот ключ API? Текущий ключ сразу перестанет работать.</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.cpp" line="1863"/>
-        <source>%1 is recommended for best compatibility with Windows dark mode</source>
-        <comment>Fusion is recommended for best compatibility with Windows dark mode</comment>
-        <translation>%1 лучше совместим с тёмным режимом Windows</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.cpp" line="1870"/>
-        <source>System</source>
-        <comment>System default Qt style</comment>
-        <translation>Система</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.cpp" line="1871"/>
-        <source>Let Qt decide the style for this system</source>
-        <translation>Разрешить Qt подбирать стиль для этой системы</translation>
     </message>
     <message>
         <location filename="../gui/optionsdialog.cpp" line="1888"/>
@@ -9842,26 +9722,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Запускать qbutt при запуске Windows</translation>
     </message>
     <message>
-        <location filename="../gui/optionsdialog.ui" line="526"/>
-        <source>qbutt window state on start up</source>
-        <translation>Состояние окна qbutt при запуске</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="571"/>
-        <source>Show &amp;qbutt in notification area</source>
-        <translation>Показывать &amp;qbutt в области уведомлений</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="583"/>
-        <source>Minimize qbutt to notification area</source>
-        <translation>Сворачивать qbutt в область уведомлений</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="596"/>
-        <source>Close qbutt to notification area</source>
-        <translation>При закрытии сворачивать qbutt в область уведомлений</translation>
-    </message>
-    <message>
         <location filename="../gui/optionsdialog.ui" line="670"/>
         <source>Use qbutt for .torrent files</source>
         <translation>Открывать файлы .torrent в qbutt</translation>
@@ -9870,11 +9730,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <location filename="../gui/optionsdialog.ui" line="677"/>
         <source>Use qbutt for magnet links</source>
         <translation>Открывать magnet-ссылки в qbutt</translation>
-    </message>
-    <message>
-        <location filename="../gui/optionsdialog.ui" line="702"/>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;To set qbutt as default program for .torrent files and/or Magnet links&lt;br/&gt;you can use &lt;span style=&quot; font-weight:600;&quot;&gt;Default Programs&lt;/span&gt; dialog from &lt;span style=&quot; font-weight:600;&quot;&gt;Control Panel&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Чтобы назначить qbutt программой по умолчанию для файлов .torrent и magnet-ссылок,&lt;br/&gt;используйте раздел &lt;span style=&quot; font-weight:600;&quot;&gt;Программы по умолчанию&lt;/span&gt; в &lt;span style=&quot; font-weight:600;&quot;&gt;Панели управления&lt;/span&gt;.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <location filename="../gui/optionsdialog.ui" line="722"/>
@@ -9944,19 +9799,9 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>По умолчанию используется Cloudflare DNS (1.1.1.1). Изменения применяются при подключении узла. Полная изоляция DNS приложения пока не проверена.</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="33"/>
-        <source>Mihomo subscription (experimental)</source>
-        <translation>Подписка Mihomo (экспериментально)</translation>
-    </message>
-    <message>
         <location filename="../gui/pathswidget.cpp" line="41"/>
         <source>Refresh</source>
         <translation>Обновить</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="42"/>
-        <source>Local file…</source>
-        <translation>Из файла…</translation>
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="43"/>
@@ -9982,11 +9827,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <location filename="../gui/pathswidget.cpp" line="59"/>
         <source>Subscription:</source>
         <translation>Подписка:</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="61"/>
-        <source>Node:</source>
-        <translation>Узел:</translation>
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="64"/>
@@ -10023,16 +9863,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
     <message>
         <source>All policies share one torrent session. Supported UDP routes carry uTP and UDP trackers. DHT stays disabled until an external route address is verified, and public inbound remains unavailable. Including Native exposes its address to public torrent peers; private torrents stay on the first remote edge.</source>
         <translation>Все режимы используют одну торрент-сессию. Поддерживаемые UDP-маршруты передают uTP и UDP-трекеры. DHT остаётся отключённым, пока не подтверждён внешний адрес маршрута; входящие подключения из интернета пока недоступны. В режиме Native его адрес виден пирам публичных торрентов; приватные торренты остаются на первом удалённом выходе.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="128"/>
-        <source>Select a Mihomo subscription</source>
-        <translation>Выберите файл подписки Mihomo</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="129"/>
-        <source>Mihomo YAML (*.yaml *.yml);;All files (*)</source>
-        <translation>Файлы Mihomo YAML (*.yaml *.yml);;Все файлы (*)</translation>
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="205"/>
@@ -10085,24 +9915,9 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Сохранить шлюз</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="63"/>
-        <source>Connect</source>
-        <translation>Подключить</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="64"/>
-        <source>Disconnect</source>
-        <translation>Отключить</translation>
-    </message>
-    <message>
         <location filename="../gui/pathswidget.cpp" line="65"/>
         <source>Use selected backup</source>
         <translation>Использовать выбранный резерв</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="66"/>
-        <source>Default connection</source>
-        <translation>Соединение по умолчанию</translation>
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="84"/>
@@ -10113,46 +9928,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <location filename="../gui/pathswidget.cpp" line="110"/>
         <source>Network adapter:</source>
         <translation>Сетевой адаптер:</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="112"/>
-        <source>Single node</source>
-        <translation>Один узел</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="113"/>
-        <source>Selected nodes only</source>
-        <translation>Только выбранные узлы</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="114"/>
-        <source>Selected nodes + direct connection</source>
-        <translation>Выбранные узлы и прямое соединение</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="115"/>
-        <source>Use the first node in the connection list.</source>
-        <translation>Использовать первый узел в списке соединений.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="116"/>
-        <source>Use connected nodes together. Private torrents use the first node in the list.</source>
-        <translation>Использовать подключённые узлы вместе. Приватные торренты используют первый узел в списке.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="117"/>
-        <source>Also use your direct connection, exposing its address to peers. Private torrents use the first node in the list.</source>
-        <translation>Также использовать прямое соединение, раскрывая его адрес пирам. Приватные торренты используют первый узел в списке.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="118"/>
-        <source>Mode:</source>
-        <translation>Режим:</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="140"/>
-        <source>Advanced</source>
-        <translation>Дополнительно</translation>
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="152"/>
@@ -10283,6 +10058,26 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <location filename="../gui/pathswidget.cpp" line="462"/>
         <source>Choose a node on the same server</source>
         <translation>Выберите узел на том же сервере</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="75"/>
+        <source>Nodes:</source>
+        <translation>Узлы:</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="74"/>
+        <source>Check the nodes to use alongside the direct connection.</source>
+        <translation>Отметьте узлы, которые будут работать вместе с прямым подключением.</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="135"/>
+        <source>Advanced settings</source>
+        <translation>Расширенные настройки</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="38"/>
+        <source>Use Mihomo</source>
+        <translation>Использовать Mihomo</translation>
     </message>
 </context>
 <context>
@@ -12876,9 +12671,9 @@ Showing the first %L1 files.</source>
         <translation>Разрешаю эту операцию. Другие программы, изменяющие файлы назначения, закрыты.</translation>
     </message>
     <message>
-        <location filename="../gui/repairdialog.cpp" line="47"/>
-        <source>Smart repair</source>
-        <translation>Проверка и восстановление файлов</translation>
+        <location filename="../gui/repairdialog.cpp" line="52"/>
+        <source>Repair files</source>
+        <translation>Восстановить файлы</translation>
     </message>
     <message>
         <location filename="../gui/repairdialog.cpp" line="57"/>
@@ -13506,319 +13301,36 @@ Repair will change the original files without a backup.</source>
     </message>
 </context>
 <context>
-    <name>RepairPlan</name>
+    <name>RepairSources</name>
     <message>
-        <location filename="../base/bittorrent/repairplan.cpp" line="42"/>
+        <location filename="../base/bittorrent/repairsources.cpp" line="38"/>
         <source>Select at most 32 source directories per analysis.</source>
         <translation>Выберите не более 32 исходных папок для одного анализа.</translation>
     </message>
     <message>
-        <location filename="../base/bittorrent/repairplan.cpp" line="50"/>
+        <location filename="../base/bittorrent/repairsources.cpp" line="46"/>
         <source>Select ordinary source directories without links or junctions.</source>
         <translation>Выберите обычные исходные папки без ссылок и точек соединения.</translation>
     </message>
     <message>
-        <location filename="../base/bittorrent/repairplan.cpp" line="64"/>
+        <location filename="../base/bittorrent/repairsources.cpp" line="60"/>
         <source>Source indexing cancelled.</source>
         <translation>Индексация источников отменена.</translation>
     </message>
     <message>
-        <location filename="../base/bittorrent/repairplan.cpp" line="71"/>
+        <location filename="../base/bittorrent/repairsources.cpp" line="67"/>
         <source>The selected source directories contain more than 100000 entries. Choose smaller directories.</source>
         <translation>Выбранные исходные папки содержат более 100000 элементов. Выберите папки меньшего размера.</translation>
     </message>
     <message>
-        <location filename="../base/bittorrent/repairplan.cpp" line="95"/>
+        <location filename="../base/bittorrent/repairsources.cpp" line="91"/>
         <source>An explicit source mapping is invalid.</source>
         <translation>Заданное соответствие исходного файла некорректно.</translation>
     </message>
     <message>
-        <location filename="../base/bittorrent/repairplan.cpp" line="101"/>
+        <location filename="../base/bittorrent/repairsources.cpp" line="97"/>
         <source>An explicit source must be an ordinary existing file: %1</source>
         <translation>Заданный источник должен быть обычным существующим файлом: %1</translation>
-    </message>
-    <message>
-        <location filename="../base/bittorrent/repairplan.cpp" line="148"/>
-        <source>Select valid torrent metadata.</source>
-        <translation>Выберите корректные метаданные торрента.</translation>
-    </message>
-    <message>
-        <location filename="../base/bittorrent/repairplan.cpp" line="154"/>
-        <source>Select at least one valid target file for repair.</source>
-        <translation>Выберите хотя бы один допустимый файл назначения для восстановления.</translation>
-    </message>
-</context>
-<context>
-    <name>RepairPreviewDialog</name>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="65"/>
-        <source>Allow adding the torrent and creating any missing empty files.</source>
-        <translation>Разрешить добавление торрента и создание отсутствующих пустых файлов.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="68"/>
-        <source>Smart repair from torrent file</source>
-        <translation>Умное восстановление из торрент-файла</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="76"/>
-        <source>Choose target torrent</source>
-        <translation>Выберите торрент для восстановления</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="77"/>
-        <source>Torrent files (*.torrent)</source>
-        <translation>Торрент-файлы (*.torrent)</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="80"/>
-        <source>Choose the folder containing the torrent&apos;s files</source>
-        <translation>Выберите папку с файлами торрента</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="81"/>
-        <source>The parent folder for the paths listed in the torrent.</source>
-        <translation>Родительская папка для путей, указанных в торренте.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="83"/>
-        <source>Other folders to search, one per line</source>
-        <translation>Другие папки для поиска, по одной на строку</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="86"/>
-        <source>Repair a separate copy first</source>
-        <translation>Сначала восстановить отдельную копию</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="86"/>
-        <source>Change original files, without a backup</source>
-        <translation>Изменить исходные файлы без резервной копии</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="89"/>
-        <source>Torrent:</source>
-        <translation>Торрент:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="90"/>
-        <source>Folder:</source>
-        <translation>Папка:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="97"/>
-        <source>Scanning does not change your files.</source>
-        <translation>Проверка не изменяет ваши файлы.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="112"/>
-        <source>Files and options</source>
-        <translation>Файлы и параметры</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="121"/>
-        <source>Repair method:</source>
-        <translation>Способ восстановления:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="122"/>
-        <source>Other folders:</source>
-        <translation>Другие папки:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="123"/>
-        <source>Add folder…</source>
-        <translation>Добавить папку…</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="131"/>
-        <source>Reusable:</source>
-        <translation>Можно использовать:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="132"/>
-        <source>To download:</source>
-        <translation>Нужно загрузить:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="133"/>
-        <source>Data found:</source>
-        <translation>Найдено данных:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="134"/>
-        <source>Extra space:</source>
-        <translation>Дополнительное место:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="135"/>
-        <source>Files to repair:</source>
-        <translation>Файлов для восстановления:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="136"/>
-        <source>Oversized files:</source>
-        <translation>Файлов с лишними данными:</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="141"/>
-        <source>Not analyzed</source>
-        <translation>Не проверено</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="148"/>
-        <source>Target file</source>
-        <translation>Файл назначения</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="148"/>
-        <source>Chosen source</source>
-        <translation>Выбранный источник</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="148"/>
-        <source>Expected bytes</source>
-        <translation>Ожидается, байт</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="149"/>
-        <source>Candidate bytes</source>
-        <translation>Найдено для проверки, байт</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="149"/>
-        <source>Verified bytes</source>
-        <translation>Подтверждено, байт</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="149"/>
-        <source>Problems</source>
-        <translation>Проблемы</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="161"/>
-        <source>Choose source for selected file…</source>
-        <translation>Выбрать источник для выбранного файла…</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="177"/>
-        <source>Scan files</source>
-        <translation>Проверить файлы</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="180"/>
-        <source>Continue</source>
-        <translation>Продолжить</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="191"/>
-        <source>Choose a source directory</source>
-        <translation>Выберите папку с исходными файлами</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="224"/>
-        <source>Scan failed: %1</source>
-        <translation>Ошибка проверки: %1</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="246"/>
-        <source>Cancelling scan…</source>
-        <translation>Отмена проверки…</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="277"/>
-        <source>Select at least one file in Files and options.</source>
-        <translation>Выберите хотя бы один файл в разделе «Файлы и параметры».</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="295"/>
-        <source>Cannot load target torrent metadata: %1</source>
-        <translation>Не удалось загрузить метаданные торрента: %1</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="295"/>
-        <source>metadata is missing</source>
-        <translation>метаданные отсутствуют</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="336"/>
-        <source>Choose an existing folder for the torrent&apos;s files.</source>
-        <translation>Выберите существующую папку для файлов торрента.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="344"/>
-        <source>Each source folder must exist and have an absolute path.</source>
-        <translation>Каждая исходная папка должна существовать и иметь абсолютный путь.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="353"/>
-        <source>Scanning files…</source>
-        <translation>Проверка файлов…</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="368"/>
-        <source>Choose a source file</source>
-        <translation>Выберите исходный файл</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="373"/>
-        <source>Source changed. Scan again to update the results.</source>
-        <translation>Источник изменён. Повторите проверку, чтобы обновить результаты.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="381"/>
-        <source>%L1 bytes (%2)</source>
-        <translation>%L1 байт (%2)</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="387"/>
-        <source>No candidate selected</source>
-        <translation>Источник не выбран</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="403"/>
-        <source>%1 required; %2 available</source>
-        <translation>Требуется %1; доступно %2</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="408"/>
-        <source>Repair a separate copy first. Originals stay unchanged until you confirm replacement.</source>
-        <translation>Сначала восстановить отдельную копию. Исходные файлы не изменятся, пока вы не подтвердите замену.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="409"/>
-        <source>Original files will be changed without a backup. You will confirm this before repair starts.</source>
-        <translation>Исходные файлы будут изменены без резервной копии. Перед началом восстановления потребуется ваше подтверждение.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="420"/>
-        <source>Not enough space for a separate copy: %1 needed, %2 available. Choose another folder.</source>
-        <translation>Недостаточно места для отдельной копии: нужно %1, доступно %2. Выберите другую папку.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="427"/>
-        <source>This torrent already exists. Stop it and use Smart repair from its transfer-list menu.</source>
-        <translation>Этот торрент уже добавлен. Остановите его и выберите «Умное восстановление» в его контекстном меню.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="474"/>
-        <source>The stopped repair job was not added: %1</source>
-        <translation>Остановленное задание восстановления не добавлено: %1</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="478"/>
-        <source>Adding the torrent…</source>
-        <translation>Добавление торрента…</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="485"/>
-        <source>The stopped repair job was rejected before it was added.</source>
-        <translation>Остановленное задание восстановления отклонено до добавления.</translation>
-    </message>
-    <message>
-        <location filename="../gui/repairpreviewdialog.cpp" line="506"/>
-        <source>Scan again</source>
-        <translation>Проверить снова</translation>
     </message>
 </context>
 <context>
@@ -14434,24 +13946,9 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
 <context>
     <name>ShutdownConfirmDialog</name>
     <message>
-        <location filename="../gui/shutdownconfirmdialog.ui" line="64"/>
-        <source>Don&apos;t show again</source>
-        <translation>Больше не показывать</translation>
-    </message>
-    <message>
         <location filename="../gui/shutdownconfirmdialog.cpp" line="118"/>
         <source>qBittorrent will now exit.</source>
         <translation>qBittorrent будет сейчас закрыт.</translation>
-    </message>
-    <message>
-        <location filename="../gui/shutdownconfirmdialog.cpp" line="119"/>
-        <source>E&amp;xit Now</source>
-        <translation>В&amp;ыйти сейчас</translation>
-    </message>
-    <message>
-        <location filename="../gui/shutdownconfirmdialog.cpp" line="120"/>
-        <source>Exit confirmation</source>
-        <translation>Подтверждение выхода</translation>
     </message>
     <message>
         <location filename="../gui/shutdownconfirmdialog.cpp" line="123"/>
@@ -14517,11 +14014,6 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
         <location filename="../gui/shutdownconfirmdialog.cpp" line="150"/>
         <source>You can cancel the action within %1 seconds.</source>
         <translation>Вы можете отменить действие в течение %1 секунд.</translation>
-    </message>
-    <message>
-        <location filename="../gui/shutdownconfirmdialog.cpp" line="141"/>
-        <source>qbutt will now exit.</source>
-        <translation>qbutt завершит работу.</translation>
     </message>
 </context>
 <context>
@@ -15034,32 +14526,9 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
 <context>
     <name>StatusBar</name>
     <message>
-        <location filename="../gui/statusbar.cpp" line="81"/>
-        <source>Connection status:</source>
-        <translation>Состояние связи:</translation>
-    </message>
-    <message>
-        <location filename="../gui/statusbar.cpp" line="82"/>
-        <location filename="../gui/statusbar.cpp" line="217"/>
-        <source>No direct connections. This may indicate network configuration problems.</source>
-        <translation>Нет прямых соединений. Причиной этому могут быть проблемы в настройках сети.</translation>
-    </message>
-    <message>
         <location filename="../gui/statusbar.cpp" line="103"/>
         <source>Free space: N/A</source>
         <translation>Свободное место: Н/Д</translation>
-    </message>
-    <message>
-        <location filename="../gui/statusbar.cpp" line="107"/>
-        <location filename="../gui/statusbar.cpp" line="254"/>
-        <source>External IP: N/A</source>
-        <translation>Внешний IP: Н/Д</translation>
-    </message>
-    <message>
-        <location filename="../gui/statusbar.cpp" line="111"/>
-        <location filename="../gui/statusbar.cpp" line="229"/>
-        <source>DHT: %1 nodes</source>
-        <translation>Узлы DHT: %1</translation>
     </message>
     <message>
         <location filename="../gui/statusbar.cpp" line="182"/>
@@ -15067,36 +14536,14 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
         <translation>qBittorrent надо перезапустить!</translation>
     </message>
     <message>
-        <location filename="../gui/statusbar.cpp" line="202"/>
-        <location filename="../gui/statusbar.cpp" line="211"/>
-        <location filename="../gui/statusbar.cpp" line="217"/>
-        <source>Connection Status:</source>
-        <translation>Состояние связи:</translation>
-    </message>
-    <message>
-        <location filename="../gui/statusbar.cpp" line="202"/>
-        <source>Offline. This usually means that qBittorrent failed to listen on the selected port for incoming connections.</source>
-        <translation>Отключён. Обычно это означает, что qBittorrent не смог прослушать выбранный порт для входящих соединений.</translation>
-    </message>
-    <message>
-        <location filename="../gui/statusbar.cpp" line="211"/>
-        <source>Online</source>
-        <translation>В сети</translation>
-    </message>
-    <message>
         <location filename="../gui/statusbar.cpp" line="240"/>
         <source>Free space: </source>
         <translation>Свободное место: </translation>
     </message>
     <message>
-        <location filename="../gui/statusbar.cpp" line="260"/>
-        <source>External IPs: %1, %2</source>
-        <translation>Внешние IP: %1, %2</translation>
-    </message>
-    <message>
-        <location filename="../gui/statusbar.cpp" line="262"/>
-        <source>External IP: %1%2</source>
-        <translation>Внешний IP: %1%2</translation>
+        <location filename="../gui/statusbar.cpp" line="163"/>
+        <source>Free space unavailable</source>
+        <translation>Не удалось определить свободное место</translation>
     </message>
     <message>
         <location filename="../gui/statusbar.cpp" line="312"/>
@@ -15112,11 +14559,6 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
         <location filename="../gui/statusbar.cpp" line="182"/>
         <source>qbutt needs to be restarted!</source>
         <translation>Необходимо перезапустить qbutt!</translation>
-    </message>
-    <message>
-        <location filename="../gui/statusbar.cpp" line="202"/>
-        <source>Offline. This usually means that qbutt failed to listen on the selected port for incoming connections.</source>
-        <translation>Не в сети. Обычно это означает, что qbutt не удалось открыть выбранный порт для входящих соединений.</translation>
     </message>
 </context>
 <context>
@@ -17196,9 +16638,9 @@ Please choose a different name and try again.</source>
 <context>
     <name>TransferListWidget</name>
     <message>
-        <location filename="../gui/transferlistwidget.cpp" line="1016"/>
-        <source>Smart repair...</source>
-        <translation>Проверить и восстановить файлы…</translation>
+        <location filename="../gui/transferlistwidget.cpp" line="1046"/>
+        <source>Repair files...</source>
+        <translation>Восстановить файлы…</translation>
     </message>
     <message>
         <location filename="../gui/transferlistwidget.cpp" line="689"/>
