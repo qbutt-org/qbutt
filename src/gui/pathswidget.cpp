@@ -502,9 +502,10 @@ void PathsWidget::refreshState()
             if (managed && (checked || disconnecting))
             {
                 if (pathOpen && (path.value(u"proxyName"_s) == name))
-                    connection = health == u"reachable"_s ? tr("Active · reachable")
-                        : health == u"checking"_s ? tr("Checking")
-                        : health == u"failed"_s ? tr("DNS check failed") : tr("Unknown");
+                    connection = tr("Active") + u" · "_s
+                        + (health == u"reachable"_s ? tr("Reachable")
+                            : health == u"checking"_s ? tr("Checking")
+                            : health == u"failed"_s ? tr("DNS check failed") : tr("Unknown"));
                 else if (failed.contains(name))
                     connection = tr("Attempt failed");
                 else if (pending.contains(name))

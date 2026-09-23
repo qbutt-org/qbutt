@@ -9971,8 +9971,8 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Нажмите, чтобы предпочесть этот протокол. Повторное нажатие вернёт автовыбор.</translation>
     </message>
     <message>
-        <source>Active · reachable</source>
-        <translation>Активен · доступен</translation>
+        <source>Active</source>
+        <translation>Активен</translation>
     </message>
     <message>
         <source>Checking</source>
