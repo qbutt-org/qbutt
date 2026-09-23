@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createLab, startSeed, verifyPayload, waitFor, type TorrentStatus } from "./lab";
 
@@ -11,6 +11,8 @@ const appName = process.env.QBUTT_LAB_APP_NAME ?? "qbutt";
 assert.equal(appName, "qbutt", "Auto-remove acceptance requires qbutt");
 const configPath = join(lab.root, "profile", appName, "config", `${appName}.ini`);
 const destinations = ["default-on", "disabled", "explicit-stop"].map(name => join(lab.root, name));
+const unknownPath = join(destinations[0]!, "user-notes.txt");
+const unknownBytes = Buffer.from("Keep this unrelated file after torrent removal.\n");
 let failure: unknown;
 
 async function download(name: string, destination: string, mode: "keep" | "remove" | "stop"): Promise<string> {
@@ -56,8 +58,11 @@ try {
     assert(fixtureConfig.includes("Downloads\\AutoRemoveCompletedTorrents=false\n"),
         "The shared lab must pin its original keep-torrent behavior");
     await writeFile(configPath, fixtureConfig.replace("Downloads\\AutoRemoveCompletedTorrents=false\n", ""));
+    await mkdir(destinations[0]!, { recursive: true });
+    await writeFile(unknownPath, unknownBytes);
     await lab.start();
     const removedHash = await download("v1", destinations[0]!, "remove");
+    assert.deepEqual(await readFile(unknownPath), unknownBytes, "Automatic removal changed an unrelated file");
     await lab.shutdown();
 
     // An explicit disabled setting preserves the user's earlier behavior.
@@ -94,8 +99,9 @@ try {
     await lab.shutdown();
     for (const destination of destinations)
         await verifyPayload(destination, lab.manifest.payload);
+    assert.deepEqual(await readFile(unknownPath), unknownBytes, "Restart changed an unrelated file after automatic removal");
     await lab.checkpoint({ check: "restart-and-final-payload", explicitlyDisabledRetained: true,
-        explicitStopRetained: true, removedTorrentAbsent: true, allPayloadsPreserved: true });
+        explicitStopRetained: true, removedTorrentAbsent: true, allPayloadsPreserved: true, unknownFilePreserved: true });
 }
 catch (error) { failure = error; }
 finally {

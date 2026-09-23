@@ -95,6 +95,7 @@
 #include "base/releaseupdater.h"
 #include "base/torrentfilter.h"
 #include "base/torrentfileswatcher.h"
+#include "gui/aboutdialog.h"
 #include "gui/addnewtorrentdialog.h"
 #include "gui/fspathedit.h"
 #include "gui/mainwindow.h"
@@ -167,10 +168,22 @@ namespace
     void writeObject(const QString &path, const QJsonObject &object)
     {
         QSaveFile file(path);
-        require(file.open(QIODevice::WriteOnly), u"Cannot create acceptance evidence"_s);
-        require(file.write(QJsonDocument(object).toJson(QJsonDocument::Indented)) > 0, u"Cannot write acceptance evidence"_s);
-        const bool committed = file.commit();
-        require(committed, u"Cannot commit acceptance evidence %1: %2"_s.arg(path, file.errorString()));
+        require(file.open(QIODevice::WriteOnly), u"Cannot create acceptance object"_s);
+        require(file.write(QJsonDocument(object).toJson(QJsonDocument::Indented)) > 0,
+            u"Cannot write acceptance object"_s);
+        require(file.commit(), u"Cannot commit acceptance object %1: %2"_s.arg(path, file.errorString()));
+    }
+
+    void writeEvidence(const QString &path, const QJsonObject &object)
+    {
+        // The runner reads this only after exit; repeated atomic replacements
+        // can fail under Windows file sharing while recording progress.
+        const QByteArray bytes = QJsonDocument(object).toJson(QJsonDocument::Indented);
+        QFile file(path);
+        require(file.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            u"Cannot open acceptance evidence %1: %2"_s.arg(path, file.errorString()));
+        require(file.write(bytes) == bytes.size() && file.flush(),
+            u"Cannot write acceptance evidence %1: %2"_s.arg(path, file.errorString()));
     }
 
     QMap<QString, QString> snapshot(const QString &root)
@@ -354,7 +367,7 @@ namespace
         QJsonArray checks = evidence.value(u"checks"_s).toArray();
         checks.append(check);
         evidence[u"checks"_s] = checks;
-        writeObject(evidence.value(u"evidencePath"_s).toString(), evidence);
+        writeEvidence(evidence.value(u"evidencePath"_s).toString(), evidence);
     }
 
     QString findPhysicalInterface(QComboBox *interfaces)
@@ -672,7 +685,9 @@ namespace
         require(priorities.size() == 5 && wantedPaths.size() == 3,
             u"Selective repair fixture has unexpected files"_s);
         BitTorrent::Torrent *torrent = addThroughDialog(destination, priorities, true);
-        waitFor(u"Stopped repair torrent is ready"_s, [=] { return torrent->isStopped() && !torrent->isChecking(); });
+        // A stopped incomplete torrent may retain libtorrent's paused
+        // checking_files state. Repair takes exclusive ownership and drains I/O.
+        waitFor(u"Stopped repair torrent is ready"_s, [=] { return torrent->isStopped(); });
         require(torrent->filePriorities() == priorities, u"Normal Add Torrent lost the selected priorities"_s);
         const auto initializedTarget = snapshot(destination);
         for (auto it = targetBefore.cbegin(); it != targetBefore.cend(); ++it)
@@ -734,9 +749,10 @@ namespace
                 chooseSource = button;
         }
         require(chooseSource && chooseSource->isEnabled(), u"Explicit repair source mapping is unavailable"_s);
-        const QString mappedSource = QDir(source).filePath(files->topLevelItem(0)->text(0));
+        const QString mappedSource = QDir(source).filePath(QDir::fromNativeSeparators(files->topLevelItem(0)->text(0)));
+        require(QFileInfo::exists(mappedSource), u"Mapped repair source is missing"_s);
         chooseFile(chooseSource, mappedSource);
-        require(files->topLevelItem(0)->text(4).contains(mappedSource),
+        require(QDir::fromNativeSeparators(files->topLevelItem(0)->text(4)).contains(QDir::fromNativeSeparators(mappedSource)),
             u"Repair source picker did not update the reviewed mapping"_s);
         auto *consent = requiredChild<QCheckBox>(&repair, u"repairConsent"_s);
         auto *analyze = requiredChild<QPushButton>(&repair, u"repairAnalyze"_s);
@@ -1125,17 +1141,28 @@ namespace
         auto *summary = requiredChild<QTableWidget>(&dialog, u"diagnosticsSummary"_s);
         auto *paths = requiredChild<QTableWidget>(&dialog, u"diagnosticsPaths"_s);
         auto *reasons = requiredChild<QListWidget>(&dialog, u"diagnosticsReasons"_s);
-        require((summary->rowCount() > 0) && (paths->rowCount() >= 3) && (reasons->count() > 0),
+        require((summary->rowCount() > 0) && (paths->rowCount() >= 4) && (reasons->count() > 0),
             u"Diagnostics UI omitted production transfer or path evidence"_s);
         require(tableContains(paths, u"Unknown"_s),
             u"Diagnostics UI invented a value for evidence that remained unknown"_s);
 
         const QJsonObject rawStatus = Net::PathManager::instance()->statusData();
         const QJsonArray snapshotPaths = rawStatus.value(u"paths"_s).toArray();
-        require(snapshotPaths.size() == 3, u"Diagnostics snapshot lost an active path generation"_s);
+        require(snapshotPaths.size() == 4, u"Diagnostics snapshot lost an active path generation"_s);
+        int managedPaths = 0;
+        int directPaths = 0;
         for (const QJsonValue &value : snapshotPaths)
         {
             const QJsonObject path = value.toObject();
+            if (path.value(u"edgeId"_s) == u"native"_s)
+            {
+                ++directPaths;
+                require(!path.contains(u"gateway"_s) && !path.contains(u"wire"_s)
+                        && !path.contains(u"publicEndpoint"_s),
+                    u"Direct path acquired fabricated managed gateway or wire evidence"_s);
+                continue;
+            }
+            ++managedPaths;
             const QJsonObject gateway = path.value(u"gateway"_s).toObject();
             const QJsonObject wire = path.value(u"wire"_s).toObject();
             require((gateway.value(u"state"_s).toString() == u"outgoing-only")
@@ -1146,6 +1173,8 @@ namespace
             for (const QJsonValue &counter : wire)
                 require(counter.isDouble() && (counter.toInteger(-1) >= 0), u"Diagnostics retained an invalid wire counter"_s);
         }
+        require(managedPaths == 3 && directPaths == 1,
+            u"Diagnostics did not preserve three managed paths alongside Direct"_s);
 
         const QByteArray raw = QJsonDocument {rawStatus}.toJson(QJsonDocument::Compact);
         require(raw.contains("QBUTT_ACCEPTANCE_SECRET")
@@ -1436,7 +1465,7 @@ namespace
         auto *pathFilter = requiredChild<QComboBox>(window, u"pathFilter"_s);
         auto *sourceFilter = requiredChild<QComboBox>(window, u"sourceFilter"_s);
         const QJsonArray activePaths = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
-        require(activePaths.size() == 3, u"Network filters require the three active acceptance paths"_s);
+        require(activePaths.size() == 4, u"Network filters require three managed paths alongside Direct"_s);
         const QJsonObject firstPath = activePaths.at(0).toObject();
         const QString activePathKey = u"%1:%2"_s.arg(firstPath.value(u"pathId"_s).toString())
             .arg(firstPath.value(u"generation"_s).toInteger());
@@ -1597,7 +1626,7 @@ namespace
         require(!enabled->isChecked() && Net::PathManager::instance()->selectedNodes().size() == 3,
             u"Disabling managed networking lost the selected nodes"_s);
         addCheck(evidence, {{u"name"_s, u"native-restoration"_s}, {u"managedPathsOpen"_s, false},
-            {u"selectedNodesRetained"_s, true}});
+            {u"defaultRoutesRestored"_s, true}, {u"selectedNodesRetained"_s, true}});
     }
 
     void exerciseNetworkRestore(Application &application, MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
@@ -1687,13 +1716,23 @@ namespace
         for (const QString &key : {u"sortSection"_s, u"sortAscending"_s, u"stretchLastSection"_s})
             require(actual.value(key) == expected.value(key), name + u" "_s + key + u" differs"_s);
         const bool stretch = expected.value(u"stretchLastSection"_s).toBool();
+        const auto widthForLocale = [view, &name](const QJsonObject &column)
+        {
+            const int captured = column.value(u"width"_s).toInt();
+            const int logical = column.value(u"logicalIndex"_s).toInt();
+            if ((name == u"Transfers"_s) && column.value(u"hidden"_s).toBool())
+                return captured;
+            if ((name == u"Files"_s) && (logical == 0))
+                return captured;
+            return std::max(captured, view->header()->sectionSizeHint(logical));
+        };
         int fixedWidth = 0;
         for (const QJsonValue &value : columns)
         {
             const QJsonObject column = value.toObject();
             if (!column.value(u"hidden"_s).toBool()
                 && (column.value(u"visualIndex"_s).toInt() != columns.size() - 1))
-                fixedWidth += column.value(u"width"_s).toInt();
+                fixedWidth += widthForLocale(column);
         }
         for (const QJsonValue &value : columns)
         {
@@ -1701,6 +1740,7 @@ namespace
             const QString label = name + u" "_s + column.take(u"column"_s).toString();
             const int logical = column.value(u"logicalIndex"_s).toInt(-1);
             require(logical >= 0 && logical < columns.size(), label + u" has an invalid logical index"_s);
+            column[u"width"_s] = widthForLocale(column);
             if (stretch && (column.value(u"visualIndex"_s).toInt() == columns.size() - 1))
             {
                 // The captured last Files column expands to the available
@@ -1787,6 +1827,22 @@ namespace
         require(palette.color(QPalette::Link) == QColor(dark ? u"#009df7"_s : u"#0879b9"_s),
             u"Built-in accent color is incorrect"_s);
         const QDir screenshots {spec.value(u"screenshots"_s).toString()};
+        const auto captureAbout = [window, &screenshots](const QString &theme)
+        {
+            AboutDialog about {window};
+            about.show();
+            auto *tabs = requiredChild<QTabWidget>(&about, u"tw_tabs"_s);
+            require(tabs->count() >= 5 && requiredChild<QLabel>(&about, u"labelName"_s)->text().contains(u"qbutt"_s),
+                u"About dialog lost its product title or legal tabs"_s);
+            for (const int row : {0, 1, 4})
+            {
+                tabs->setCurrentIndex(row);
+                QCoreApplication::processEvents();
+                require(about.grab().save(screenshots.filePath(u"%1-about-%2.png"_s.arg(theme).arg(row))),
+                    u"Cannot render an About dialog page"_s);
+            }
+            about.close();
+        };
 #ifdef QBT_HAS_COLORSCHEME_OPTION
         if (dark)
         {
@@ -1820,6 +1876,39 @@ namespace
                     u"Cannot render live Light preview"_s);
                 require(preview.grab().save(screenshots.filePath(u"product-options-live-light.png"_s)),
                     u"Cannot render live Light settings"_s);
+                QStringList overflow;
+                QJsonArray pageGeometry;
+                for (int row = 0; row < previewPages->count(); ++row)
+                {
+                    previewPages->setCurrentRow(row);
+                    QCoreApplication::processEvents();
+                    require(preview.grab().save(screenshots.filePath(u"product-light-settings-%1.png"_s.arg(row))),
+                        u"Cannot render a live Light settings category"_s);
+                    if (row == 4)
+                    {
+                        auto *area = requiredChild<QScrollArea>(&preview, u"scrollArea_4"_s);
+                        area->verticalScrollBar()->setValue(area->verticalScrollBar()->maximum());
+                        QCoreApplication::processEvents();
+                        require(preview.grab().save(screenshots.filePath(u"product-light-bittorrent-bottom.png"_s)),
+                            u"Cannot render BitTorrent lower settings"_s);
+                    }
+                    for (QScrollArea *area : preview.findChildren<QScrollArea *>())
+                    {
+                        if (!area->isVisible() || !area->widget())
+                            continue;
+                        const int horizontalMax = area->horizontalScrollBar()->maximum();
+                        pageGeometry.append(QJsonObject {{u"page"_s, previewPages->item(row)->text()},
+                            {u"horizontalMax"_s, horizontalMax}, {u"viewportWidth"_s, area->viewport()->width()},
+                            {u"contentMinimumWidth"_s, area->widget()->minimumSizeHint().width()}});
+                        if (horizontalMax > 0)
+                            overflow.append(u"%1 (%2): %3 px"_s.arg(previewPages->item(row)->text(), area->objectName())
+                                .arg(horizontalMax));
+                    }
+                }
+                addCheck(evidence, {{u"name"_s, u"settings-measurements"_s}, {u"pages"_s, pageGeometry}});
+                require(overflow.isEmpty(), u"Live Light settings overflow at width %1: %2"_s
+                    .arg(preview.width()).arg(overflow.join(u", "_s)));
+                captureAbout(u"product-light"_s);
                 preview.reject();
                 require(UIThemeManager::instance()->colorScheme() == ColorScheme::System,
                     u"Cancelling appearance preview changed the saved scheme"_s);
@@ -1831,6 +1920,7 @@ namespace
                 u"A retained toolbar icon did not return to its dark variant"_s);
             require(window->grab().save(screenshots.filePath(u"product-dark.png"_s)),
                 u"Cannot render dark toolbar"_s);
+            captureAbout(u"product-dark"_s);
         }
 #endif
         OptionsDialog options {&application, window};
@@ -1932,13 +2022,37 @@ namespace
                 for (QScrollArea *area : options.findChildren<QScrollArea *>())
                 {
                     if (area->isVisible())
-                        require(area->horizontalScrollBar()->maximum() == 0, u"Settings page overflows horizontally"_s);
+                        require(area->horizontalScrollBar()->maximum() == 0,
+                            u"Settings %1 overflows by %2 px"_s.arg(area->objectName())
+                                .arg(area->horizontalScrollBar()->maximum()));
                 }
             };
             auto *pages = requiredChild<QListWidget>(&options, u"tabSelection"_s);
             require(pages->count() == 9, u"The settings navigation lost a category"_s);
             for (int row = 0; row < pages->count(); ++row)
+            {
                 require(!pages->item(row)->isHidden(), u"A settings category is hidden"_s);
+                pages->setCurrentRow(row);
+                requireNoOverflow();
+                if (phase == u"product")
+                {
+                    require(options.grab().save(screenshots.filePath(u"product-dark-settings-%1.png"_s.arg(row))),
+                        u"Cannot render a dark settings category"_s);
+                    if (row == 4)
+                    {
+                        auto *area = requiredChild<QScrollArea>(&options, u"scrollArea_4"_s);
+                        area->verticalScrollBar()->setValue(area->verticalScrollBar()->maximum());
+                        QCoreApplication::processEvents();
+                        require(options.grab().save(screenshots.filePath(u"product-dark-bittorrent-bottom.png"_s)),
+                            u"Cannot render dark BitTorrent lower settings"_s);
+                    }
+                }
+            }
+            addCheck(evidence, {{u"name"_s, u"settings-categories"_s},
+                {u"count"_s, pages->count()}, {u"dialogWidth"_s, options.width()},
+                {u"dialogHeight"_s, options.height()}, {u"horizontalOverflow"_s, false}});
+            pages->setCurrentRow(0);
+            QCoreApplication::processEvents();
             require(requiredChild<QLabel>(&options, u"verticalLayout_9AdvancedHeading"_s)->isVisible(),
                 u"General advanced settings heading is hidden"_s);
             pages->setCurrentRow(1);
@@ -2432,7 +2546,7 @@ int main(int argc, char **argv)
     QJsonObject evidence {{u"schema"_s, 1}, {u"suite"_s, u"qt-acceptance"_s}, {u"status"_s, u"running"_s},
         {u"evidencePath"_s, spec.value(u"evidencePath"_s).toString()}, {u"profile"_s, QString::fromLocal8Bit(argv[1])},
         {u"checks"_s, QJsonArray {}}};
-    writeObject(spec.value(u"evidencePath"_s).toString(), evidence);
+    writeEvidence(spec.value(u"evidencePath"_s).toString(), evidence);
     int result = 1;
     try
     {
@@ -2462,11 +2576,26 @@ int main(int argc, char **argv)
                     runAcceptance(application, spec, evidence);
                     evidence[u"status"_s] = u"passed"_s;
                     result = 0;
+                    if (spec.value(u"mode"_s).toString() == u"installed-update"_s)
+                    {
+                        // Let MainWindow's queued installRequested handler quit
+                        // the application; a harness exit would hide a tray quit regression.
+                        writeEvidence(spec.value(u"evidencePath"_s).toString(), evidence);
+                        QTimer::singleShot(10000, &application, [&]
+                        {
+                            evidence[u"status"_s] = u"failed"_s;
+                            evidence[u"error"_s] = u"Update did not quit the shown application"_s;
+                            result = 1;
+                            application.exit(result);
+                        });
+                        return;
+                    }
                 }
                 catch (const std::exception &error)
                 {
                     evidence[u"status"_s] = u"failed"_s;
                     evidence[u"error"_s] = QString::fromUtf8(error.what());
+                    result = 1;
                 }
                 application.exit(result);
             };
@@ -2489,6 +2618,6 @@ int main(int argc, char **argv)
     }
     // Repair ownership can still hold directory handles when a UI check fails.
     // Preserve its original failure and save only after application teardown.
-    writeObject(spec.value(u"evidencePath"_s).toString(), evidence);
+    writeEvidence(spec.value(u"evidencePath"_s).toString(), evidence);
     return result;
 }
