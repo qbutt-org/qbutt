@@ -167,7 +167,7 @@
           <item row="2" column="1">
            <widget class="QLabel" name="label_19">
             <property name="text">
-             <string notr="true">&lt;a href=&quot;mailto:sledgehammer999@qbittorrent.org&quot;&gt;sledgehammer999@qbittorrent.org&lt;/a&gt;</string>
+             <string notr="true">&lt;a style=&quot;text-decoration: none&quot; href=&quot;mailto:sledgehammer999@qbittorrent.org&quot;&gt;sledgehammer999@qbittorrent.org&lt;/a&gt;</string>
             </property>
             <property name="openExternalLinks">
              <bool>true</bool>
@@ -237,7 +237,7 @@
           <item row="2" column="1">
            <widget class="QLabel" name="label_6">
             <property name="text">
-             <string notr="true">&lt;a href=&quot;mailto:chris@qbittorrent.org&quot;&gt;chris@qbittorrent.org&lt;/a&gt;</string>
+             <string notr="true">&lt;a style=&quot;text-decoration: none&quot; href=&quot;mailto:chris@qbittorrent.org&quot;&gt;chris@qbittorrent.org&lt;/a&gt;</string>
             </property>
             <property name="openExternalLinks">
              <bool>true</bool>
