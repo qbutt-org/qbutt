@@ -7030,11 +7030,6 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>Открытие входящих соединений для %1…</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="1547"/>
-        <source>Node enabled: %1.</source>
-        <translation>Узел включён: %1.</translation>
-    </message>
-    <message>
         <location filename="../base/net/pathmanager.cpp" line="1601"/>
         <source>qbutt-net returned an invalid public gateway lease.</source>
         <translation>qbutt-net вернул некорректную аренду публичного шлюза.</translation>

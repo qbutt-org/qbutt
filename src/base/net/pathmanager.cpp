@@ -1773,11 +1773,11 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             fail(tr("Unable to apply the network routes returned by qbutt-net."));
             return;
         }
-        m_status = gatewayQueued
-            ? tr("Opening incoming connections for %1…")
-                .arg(request.value(u"proxyName"_s).toString())
-            : tr("Node enabled: %1.")
+        if (gatewayQueued)
+            m_status = tr("Opening incoming connections for %1…")
                 .arg(request.value(u"proxyName"_s).toString());
+        else
+            m_status.clear();
         if (m_rolloverOpening && !gatewayQueued)
         {
             m_rolloverOpening = false;

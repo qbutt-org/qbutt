@@ -505,6 +505,8 @@ namespace
         QJsonArray opened = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
         require(opened.size() >= 4 && paths->count() == opened.size() && nodes->isEnabled(),
             u"Paths UI did not retain three selected nodes alongside Direct"_s);
+        require(status->text().isEmpty() && !status->isVisible(),
+            u"Connected Paths repeated the selected node below the path list"_s);
         require(std::ranges::any_of(opened, [](const QJsonValue &value)
         {
             const QJsonObject path = value.toObject();
@@ -621,8 +623,9 @@ namespace
         require(generationKeys(Net::PathManager::instance()->statusData().value(u"paths"_s).toArray())
                 == openedGenerations,
             u"Refreshing the local configuration changed active path generations"_s);
-        require(!status->text().isEmpty() && sameServer->isVisible() && groupServers->isVisible(),
-            u"Paths status or advanced settings disappeared while connected"_s);
+        require(status->text().isEmpty() && !status->isVisible()
+                && sameServer->isVisible() && groupServers->isVisible(),
+            u"Replacing a transport restored redundant Paths status or hid advanced settings"_s);
         QCoreApplication::processEvents();
         for (int row = 0; row < paths->count(); ++row)
         {
