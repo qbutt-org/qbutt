@@ -52,6 +52,7 @@
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPointer>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSaveFile>
@@ -2532,6 +2533,9 @@ namespace
     void exerciseInstalledUpdate(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
         const bool nativeWindow = spec.value(u"nativeWindow"_s).toBool();
+        const bool previewOnly = spec.value(u"previewOnly"_s).toBool();
+        if (previewOnly)
+            UIThemeManager::instance()->previewColorScheme(spec.value(u"dark"_s).toBool() ? ColorScheme::Dark : ColorScheme::Light);
         if (nativeWindow)
         {
             require(QSystemTrayIcon::isSystemTrayAvailable(), u"Native system tray is unavailable"_s);
@@ -2558,8 +2562,34 @@ namespace
         list->header()->moveSection(list->header()->visualIndex(TransferListModel::TR_AMOUNT_LEFT), 2);
         window->resize(1100, 700);
         window->show();
+        QCoreApplication::processEvents();
         if (nativeWindow)
             require(window->isVisible(), u"Native main window is not visible"_s);
+        auto *toolbar = requiredChild<QToolBar>(window, u"toolBar"_s);
+        auto *progress = requiredChild<QProgressBar>(window, u"releaseDownloadProgress"_s);
+        auto *filter = toolbar->findChild<QLineEdit *>();
+        require(filter, u"Torrent search is missing from the toolbar"_s);
+        const auto beforeSearch = [toolbar, filter](const QWidget *control)
+        {
+            const int right = control->mapTo(toolbar, QPoint(control->width(), 0)).x();
+            const int searchLeft = filter->mapTo(toolbar, QPoint()).x();
+            return control->isVisible() && toolbar->isAncestorOf(control)
+                && (right <= searchLeft) && (searchLeft - right <= 16);
+        };
+        bool progressRendered = false;
+        const auto observeProgress = QObject::connect(updater, &ReleaseUpdater::progress, window,
+            [&](const qint64 received, const qint64 total)
+        {
+            if (progressRendered || (total <= 0) || (received * 10 < total) || (received >= total))
+                return;
+            require((progress->maximum() > 0) && (progress->value() > 0)
+                    && (qAbs(progress->value() / double(progress->maximum()) - received / double(total)) < 0.011),
+                u"Toolbar progress does not reflect received installer bytes"_s);
+            require(beforeSearch(progress) && !button->isVisible(), u"Download progress is not next to torrent search"_s);
+            progressRendered = true;
+            require(window->grab().save(QDir(spec.value(u"screenshotDirectory"_s).toString()).filePath(u"update-downloading.png"_s)),
+                u"Cannot render update download progress"_s);
+        });
         bool dialogClosedDuringDownload = false;
         const auto observe = QObject::connect(updater, &ReleaseUpdater::changed, window, [&]
         {
@@ -2571,13 +2601,17 @@ namespace
                 dialog->close();
             }
         });
+        if (previewOnly)
+            updater->check();
         waitFor(u"Background installer download"_s, [&]
         {
             return (updater->state() == ReleaseUpdater::State::Ready) || (updater->state() == ReleaseUpdater::State::Error);
         }, 120000);
         QObject::disconnect(observe);
+        QObject::disconnect(observeProgress);
         require(updater->state() == ReleaseUpdater::State::Ready, updater->message());
-        require(dialogClosedDuringDownload && button->isVisible() && button->isEnabled(),
+        require(dialogClosedDuringDownload && progressRendered && beforeSearch(button)
+                && !progress->isVisible() && button->isEnabled(),
             u"Background update did not expose the ready action"_s);
         const QString screenshot = QDir(spec.value(u"screenshotDirectory"_s).toString()).filePath(u"update-ready.png"_s);
         require(window->grab().save(screenshot), u"Cannot render update action"_s);
@@ -2588,6 +2622,12 @@ namespace
             {u"headerState"_s, QString::fromLatin1(list->header()->saveState().toBase64())},
             {u"cacheRoot"_s, QStandardPaths::writableLocation(QStandardPaths::CacheLocation)},
             {u"installerPath"_s, updater->savedPath()}, {u"screenshot"_s, screenshot}};
+        if (previewOnly)
+        {
+            check[u"downloadProgress"_s] = true;
+            addCheck(evidence, check);
+            return;
+        }
         const QPointer<ReleaseUpdater> pending {updater};
         bool requested = false;
         const auto handoff = QObject::connect(updater, &ReleaseUpdater::installRequested, qApp, [&] { requested = true; });
@@ -2884,7 +2924,7 @@ int main(int argc, char **argv)
                     runAcceptance(application, spec, evidence);
                     evidence[u"status"_s] = u"passed"_s;
                     result = 0;
-                    if (spec.value(u"mode"_s).toString() == u"installed-update"_s)
+                    if ((spec.value(u"mode"_s).toString() == u"installed-update"_s) && !spec.value(u"previewOnly"_s).toBool())
                     {
                         // Let MainWindow's queued installRequested handler quit
                         // the application; a harness exit would hide a tray quit regression.

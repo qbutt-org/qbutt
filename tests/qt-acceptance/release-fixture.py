@@ -126,8 +126,11 @@ class Handler(socketserver.BaseRequestHandler):
                     return
                 for start in range(0, len(body), 16384):
                     connection.sendall(body[start:start + 16384])
-                    if mode == "cancel" and path.endswith((".zip", ".exe")):
-                        time.sleep(0.02)
+                    if path.endswith((".zip", ".exe")):
+                        if mode == "cancel":
+                            time.sleep(0.02)
+                        elif os.environ.get("QBUTT_UPDATE_FIXTURE_THROTTLE"):
+                            time.sleep(0.002)
                 try:
                     connection.unwrap()  # Complete the TLS close before closing TCP.
                 except (OSError, ssl.SSLError):

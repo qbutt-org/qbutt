@@ -12,6 +12,7 @@ import { labAppearanceSettings } from "../appearance";
 
 const sourceExecutable = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 const appearanceOnly = process.argv.includes("--appearance-only");
+const updateToolbarOnly = process.argv.includes("--update-toolbar");
 const python = process.env.QBUTT_LAB_PYTHON;
 assert(sourceExecutable, "Set QBUTT_QT_ACCEPTANCE_EXE");
 if (!appearanceOnly)
@@ -138,6 +139,7 @@ let subscriptionServer: ReturnType<typeof Bun.serve> | undefined;
 let subscriptionRequests = 0;
 let failure: unknown;
 let result: Record<string, unknown> | undefined;
+const updateCaches: string[] = [];
 try {
     for (;;) {
         try {
@@ -170,9 +172,59 @@ try {
         const extension = extname(path).toLowerCase();
         return !extension || [".dll", ".qm", ".conf"].includes(extension);
     } });
-    const executable = join(bundle, basename(sourceExecutable));
+    const executable = join(bundle, updateToolbarOnly ? "qbutt.exe" : basename(sourceExecutable));
     await cp(sourceExecutable, executable);
-    if (appearanceOnly) {
+    if (updateToolbarOnly) {
+        await allowLabNetwork([executable, python!]);
+        const screenshots = join(root, "screenshots");
+        const torrentPath = join(root, "fixture.torrent");
+        await writeFile(torrentPath, Buffer.concat([
+            Buffer.from("d4:infod6:lengthi1e4:name11:fixture.bin12:piece lengthi16384e6:pieces20:"),
+            createHash("sha1").update("x").digest(), Buffer.from("ee"),
+        ]));
+        const results: string[] = [];
+        for (const dark of [false, true]) {
+            const phase = dark ? "dark-ru" : "light-en";
+            const profile = join(root, "profile", phase);
+            const config = join(profile, "qbutt", "config");
+            const captures = join(screenshots, phase);
+            await mkdir(config, { recursive: true });
+            await mkdir(captures, { recursive: true });
+            await writeFile(join(config, "qbutt.ini"), [
+                "[BitTorrent]", "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
+                "Session\\InterfaceAddress=127.0.0.1", "Session\\AddTorrentStopped=true",
+                "[Network]", "PortForwardingEnabled=false", "[Core]", "AutoOpenTorrentFiles=false",
+                "[Preferences]", `General\\Locale=${dark ? "ru" : "en"}`, "General\\AutoRun=false",
+                "Connection\\ResolvePeerCountries=false", "Connection\\ResolvePeerHostNames=false",
+                "WebUI\\Enabled=false", ...labAppearanceSettings("functional"), "",
+            ].join("\n"));
+            const cacheOrganization = `${basename(root)}-${phase}`;
+            updateCaches.push(cacheOrganization);
+            const evidencePath = join(root, `${phase}-evidence.json`);
+            const spec = join(root, `${phase}-spec.json`);
+            await writeFile(spec, JSON.stringify({ mode: "installed-update", previewOnly: true, registryFixture: true,
+                dark, cacheOrganization, torrentPath, destination: join(root, "destination"),
+                screenshotDirectory: captures, evidencePath }));
+            application = Bun.spawn([python!, resolve(import.meta.dir, "release-fixture.py"), executable,
+                process.env.QBUTT_OPENSSL ?? "C:/Program Files/Git/usr/bin/openssl.exe"], {
+                windowsHide: true, cwd: bundle,
+                env: { ...process.env, QBUTT_QT_ACCEPTANCE_SPEC: spec,
+                    QBUTT_UPDATE_APPLICATION_ARGS: JSON.stringify([`--profile=${profile}`]),
+                    QBUTT_UPDATE_FIXTURE_THROTTLE: "1" },
+                stdout: Bun.file(join(root, `${phase}-stdout.log`)),
+                stderr: Bun.file(join(root, `${phase}-stderr.log`)), timeout: 180000,
+            });
+            assert.equal(await application.exited, 0, `Update toolbar ${phase} failed; inspect ${root}`);
+            const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
+            assert.equal(evidence.status, "passed");
+            const update = evidence.checks.find((check: { name: string }) => check.name === "installed-update");
+            assert.equal(update.downloadProgress, true);
+            assert.equal(resolve(update.cacheRoot), resolve(process.env.LOCALAPPDATA!, cacheOrganization, "qbutt"));
+            results.push(evidencePath);
+        }
+        result = { status: "passed", suite: "update-toolbar", results, screenshots };
+    }
+    else if (appearanceOnly) {
         // Three real application processes exercise first-run defaults and restart
         // persistence. No torrents, transport child or Python fixture are needed.
         await allowLabNetwork([executable]);
@@ -418,6 +470,8 @@ finally {
         await clean(() => removeOwnedDirectory(root, name));
     for (const name of ["subscription-cert.pem", "subscription-key.pem"])
         await clean(() => rm(join(root, name), { force: true }));
+    for (const name of updateCaches)
+        await clean(() => removeOwnedDirectory(process.env.LOCALAPPDATA!, name));
     if (cleanupErrors.length)
         failure = new AggregateError(failure ? [failure, ...cleanupErrors] : cleanupErrors,
             "Qt acceptance cleanup failed");
