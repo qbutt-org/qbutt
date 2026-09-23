@@ -722,14 +722,15 @@ void Net::PathManager::refreshSubscription(const QString &urlText)
     if (controlBusy())
         return;
     const QUrl url(urlText.trimmed(), QUrl::StrictMode);
-    if (!url.isValid() || (url.scheme() != u"https") || url.host().isEmpty()
+    if (!url.isValid() || ((url.scheme() != u"https") && (url.scheme() != u"http")) || url.host().isEmpty()
         || !url.userInfo().isEmpty() || url.hasFragment())
     {
-        reportError(tr("Enter an HTTPS subscription URL without user information or a fragment."));
+        reportError(tr("Enter an HTTP or HTTPS subscription URL without user information or a fragment."));
         return;
     }
 
     QNetworkRequest request(url);
+    request.setRawHeader("User-Agent", "mihomo");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setMaximumRedirectsAllowed(5);
     request.setTransferTimeout(15000);
@@ -755,11 +756,21 @@ void Net::PathManager::refreshSubscription(const QString &urlText)
     {
         m_subscriptionReply = nullptr;
         reply->deleteLater();
-        if ((reply->error() != QNetworkReply::NoError)
-            || (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200)
-            || (reply->bytesAvailable() > MAX_SUBSCRIPTION_BYTES))
+        if ((reply->bytesAvailable() > MAX_SUBSCRIPTION_BYTES)
+            || (reply->header(QNetworkRequest::ContentLengthHeader).toLongLong() > MAX_SUBSCRIPTION_BYTES))
         {
-            reportError(tr("Unable to download the subscription (HTTPS, 2 MiB and 15 second limits)."));
+            reportError(tr("Subscription exceeds the 2 MiB limit."));
+            return;
+        }
+        const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (httpStatus != 0 && httpStatus != 200)
+        {
+            reportError(tr("Subscription server returned HTTP %1.").arg(httpStatus));
+            return;
+        }
+        if (reply->error() != QNetworkReply::NoError)
+        {
+            reportError(tr("Unable to download the subscription. Check the address and network connection."));
             return;
         }
         const QByteArray config = reply->readAll();
@@ -1339,6 +1350,20 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             }
             reportError(tr("The reserve transport could not start. This path remains stopped; other paths are unchanged."));
             sendQueuedRequest();
+        }
+        else if (method == u"list")
+        {
+            sendQueuedRequest();
+            if ((errorCode == u"invalid_config") || (errorCode == u"no_proxies"))
+                reportError(tr("Subscription must contain a Mihomo YAML list of nodes."));
+            else if ((errorCode == u"proxy_limit") || (errorCode == u"response_limit"))
+                reportError(tr("Subscription contains too many nodes for one import."));
+            else if (errorCode == u"invalid_proxy_identity")
+                reportError(tr("Subscription contains duplicate, empty or oversized node names."));
+            else if (errorCode == u"config_limit")
+                reportError(tr("Subscription exceeds the 2 MiB limit."));
+            else
+                reportError(tr("Unable to read the subscription from the private qbutt profile."));
         }
         else
         {
