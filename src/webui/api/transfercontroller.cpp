@@ -122,14 +122,14 @@ void TransferController::setDownloadLimitAction()
 void TransferController::toggleSpeedLimitsModeAction()
 {
     BitTorrent::Session *const session = BitTorrent::Session::instance();
-    session->setAltGlobalSpeedLimitEnabled(!session->isAltGlobalSpeedLimitEnabled());
+    session->setSpeedLimitEnabled(!session->isSpeedLimitEnabled());
 
     setResult(QString());
 }
 
 void TransferController::speedLimitsModeAction()
 {
-    setResult(QString::number(BitTorrent::Session::instance()->isAltGlobalSpeedLimitEnabled()));
+    setResult(QString::number(BitTorrent::Session::instance()->isSpeedLimitEnabled()));
 }
 
 void TransferController::setSpeedLimitsModeAction()
@@ -140,8 +140,7 @@ void TransferController::setSpeedLimitsModeAction()
     if (!mode)
         throw APIError(APIErrorType::BadParams, tr("'mode': invalid argument"));
 
-    // Any non-zero values are considered as alternative mode
-    BitTorrent::Session::instance()->setAltGlobalSpeedLimitEnabled(mode != 0);
+    BitTorrent::Session::instance()->setSpeedLimitEnabled(mode != 0);
 
     setResult(QString());
 }

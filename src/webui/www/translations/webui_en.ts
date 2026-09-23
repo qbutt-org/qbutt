@@ -730,7 +730,7 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>Alternative speed limits: Off</source>
+        <source>Speed limits: Off</source>
         <translation type="unfinished" />
     </message>
     <message>
@@ -738,7 +738,7 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>Alternative speed limits: On</source>
+        <source>Speed limits: On</source>
         <translation type="unfinished" />
     </message>
     <message>
@@ -869,7 +869,7 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>Schedule the use of alternative rate limits</source>
+        <source>Schedule speed limits</source>
         <translation type="unfinished" />
     </message>
     <message>
@@ -1029,10 +1029,6 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>Global Rate Limits</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
         <source>Upload:</source>
         <translation type="unfinished" />
     </message>
@@ -1041,7 +1037,7 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>Alternative Rate Limits</source>
+        <source>Speed limits</source>
         <translation type="unfinished" />
     </message>
     <message>
@@ -2245,6 +2241,14 @@ Use ';' to split multiple entries. Can use wildcard '*'.</source>
     <message>
         <source>Resolve peer host names:</source>
         <translation type="unfinished" />
+    </message>
+    <message>
+        <source>Mbit/s</source>
+        <translation>Mbit/s</translation>
+    </message>
+    <message>
+        <source>Speed limit must be zero or greater.</source>
+        <translation>Speed limit must be zero or greater.</translation>
     </message>
 </context>
 <context>
@@ -5144,7 +5148,7 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation type="unfinished" />
     </message>
     <message>
-        <source>KiB/s</source>
+        <source>Mbit/s</source>
         <translation type="unfinished" />
     </message>
 </context>

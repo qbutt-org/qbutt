@@ -4401,8 +4401,8 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     <message>
         <location filename="../gui/mainwindow.ui" line="290"/>
         <location filename="../gui/mainwindow.ui" line="293"/>
-        <source>Alternative Speed Limits</source>
-        <translation>Особые ограничения скорости</translation>
+        <source>Enable speed limits</source>
+        <translation>Включить ограничения скорости</translation>
     </message>
     <message>
         <location filename="../gui/mainwindow.ui" line="301"/>
@@ -4531,8 +4531,8 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
     <message>
         <location filename="../gui/mainwindow.ui" line="238"/>
-        <source>Set Global Speed Limits...</source>
-        <translation>Настроить скорость…</translation>
+        <source>Set speed limits...</source>
+        <translation>Настроить ограничения скорости…</translation>
     </message>
     <message>
         <location filename="../gui/mainwindow.ui" line="243"/>
@@ -8130,8 +8130,8 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
     </message>
     <message>
         <location filename="../gui/optionsdialog.ui" line="2527"/>
-        <source>Schedule &amp;the use of alternative rate limits</source>
-        <translation>Запланировать работу особых огранич&amp;ений скорости</translation>
+        <source>Schedule speed limits</source>
+        <translation>Расписание ограничений скорости</translation>
     </message>
     <message>
         <location filename="../gui/optionsdialog.ui" line="2542"/>
@@ -9095,11 +9095,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Применять к трекерам</translation>
     </message>
     <message>
-        <location filename="../gui/optionsdialog.ui" line="2376"/>
-        <source>Global Rate Limits</source>
-        <translation>Общие ограничения скорости</translation>
-    </message>
-    <message>
         <location filename="../gui/optionsdialog.ui" line="2392"/>
         <location filename="../gui/optionsdialog.ui" line="2431"/>
         <location filename="../gui/optionsdialog.ui" line="2469"/>
@@ -9134,8 +9129,8 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
     </message>
     <message>
         <location filename="../gui/optionsdialog.ui" line="2453"/>
-        <source>Alternative Rate Limits</source>
-        <translation>Особые ограничения скорости</translation>
+        <source>Speed limits</source>
+        <translation>Ограничения скорости</translation>
     </message>
     <message>
         <location filename="../gui/optionsdialog.ui" line="2539"/>
@@ -9770,6 +9765,14 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <location filename="../gui/optionsdialog.ui" line="2025"/>
         <source>I2P</source>
         <translation>I2P</translation>
+    </message>
+    <message>
+        <source> Mbit/s</source>
+        <translation> Мбит/с</translation>
+    </message>
+    <message>
+        <source>Speed limit must be zero or greater.</source>
+        <translation>Ограничение скорости должно быть неотрицательным.</translation>
     </message>
 </context>
 <context>
@@ -14047,11 +14050,6 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
 <context>
     <name>SpeedLimitDialog</name>
     <message>
-        <location filename="../gui/speedlimitdialog.ui" line="14"/>
-        <source>Global Speed Limits</source>
-        <translation>Общие ограничения скорости</translation>
-    </message>
-    <message>
         <location filename="../gui/speedlimitdialog.ui" line="20"/>
         <source>Speed limits</source>
         <translation>Ограничения скорости</translation>
@@ -14075,19 +14073,14 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
         <location filename="../gui/speedlimitdialog.ui" line="80"/>
         <location filename="../gui/speedlimitdialog.ui" line="126"/>
         <location filename="../gui/speedlimitdialog.ui" line="156"/>
-        <source> KiB/s</source>
-        <translation> КБ/с</translation>
+        <source> Mbit/s</source>
+        <translation> Мбит/с</translation>
     </message>
     <message>
         <location filename="../gui/speedlimitdialog.ui" line="63"/>
         <location filename="../gui/speedlimitdialog.ui" line="139"/>
         <source>Download:</source>
         <translation>Загрузка:</translation>
-    </message>
-    <message>
-        <location filename="../gui/speedlimitdialog.ui" line="96"/>
-        <source>Alternative speed limits</source>
-        <translation>Особые ограничения скорости</translation>
     </message>
 </context>
 <context>
@@ -14575,13 +14568,13 @@ Click the &quot;Search plugins...&quot; button at the bottom right of the window
     </message>
     <message>
         <location filename="../gui/statusbar.cpp" line="312"/>
-        <source>Click to switch to alternative speed limits</source>
-        <translation>Щелчок для переключения на особые ограничения скорости</translation>
+        <source>Click to enable speed limits</source>
+        <translation>Нажмите, чтобы включить ограничения скорости</translation>
     </message>
     <message>
         <location filename="../gui/statusbar.cpp" line="306"/>
-        <source>Click to switch to regular speed limits</source>
-        <translation>Щелчок для переключения на общие ограничения скорости</translation>
+        <source>Click to disable speed limits</source>
+        <translation>Нажмите, чтобы отключить ограничения скорости</translation>
     </message>
     <message>
         <location filename="../gui/statusbar.cpp" line="182"/>

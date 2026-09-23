@@ -730,16 +730,16 @@
         <translation>Состояние связи: подключено</translation>
     </message>
     <message>
-        <source>Alternative speed limits: Off</source>
-        <translation>Особые ограничения скорости: откл.</translation>
+        <source>Speed limits: Off</source>
+        <translation>Ограничения скорости: выкл.</translation>
     </message>
     <message>
         <source>Download speed icon</source>
         <translation>Значок скорости загрузки</translation>
     </message>
     <message>
-        <source>Alternative speed limits: On</source>
-        <translation>Особые ограничения скорости: вкл.</translation>
+        <source>Speed limits: On</source>
+        <translation>Ограничения скорости: вкл.</translation>
     </message>
     <message>
         <source>Upload speed icon</source>
@@ -869,8 +869,8 @@
         <translation>Фильтрация по IP</translation>
     </message>
     <message>
-        <source>Schedule the use of alternative rate limits</source>
-        <translation>Запланировать работу особых ограничений скорости</translation>
+        <source>Schedule speed limits</source>
+        <translation>Расписание ограничений скорости</translation>
     </message>
     <message>
         <source>Torrent Queueing</source>
@@ -1029,10 +1029,6 @@
         <translation>Применять к трекерам</translation>
     </message>
     <message>
-        <source>Global Rate Limits</source>
-        <translation>Общие ограничения скорости</translation>
-    </message>
-    <message>
         <source>Upload:</source>
         <translation>Отдача:</translation>
     </message>
@@ -1041,8 +1037,8 @@
         <translation>Загрузка:</translation>
     </message>
     <message>
-        <source>Alternative Rate Limits</source>
-        <translation>Особые ограничения скорости</translation>
+        <source>Speed limits</source>
+        <translation>Ограничения скорости</translation>
     </message>
     <message>
         <source>From:</source>
@@ -2249,6 +2245,14 @@ Use ';' to split multiple entries. Can use wildcard '*'.</source>
     <message>
         <source>Resolve peer host names:</source>
         <translation>Определять имена хостов пиров:</translation>
+    </message>
+    <message>
+        <source>Mbit/s</source>
+        <translation>Мбит/с</translation>
+    </message>
+    <message>
+        <source>Speed limit must be zero or greater.</source>
+        <translation>Ограничение скорости должно быть неотрицательным.</translation>
     </message>
 </context>
 <context>
@@ -5154,8 +5158,8 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Порог загрузки:</translation>
     </message>
     <message>
-        <source>KiB/s</source>
-        <translation>КБ/с</translation>
+        <source>Mbit/s</source>
+        <translation>Мбит/с</translation>
     </message>
 </context>
 <context>

@@ -256,20 +256,16 @@ namespace BitTorrent
         virtual void setAdditionalTrackersURL(const QString &url) = 0;
         virtual QString additionalTrackersFromURL() const = 0;
 
-        virtual int globalDownloadSpeedLimit() const = 0;
-        virtual void setGlobalDownloadSpeedLimit(int limit) = 0;
-        virtual int globalUploadSpeedLimit() const = 0;
-        virtual void setGlobalUploadSpeedLimit(int limit) = 0;
-        virtual int altGlobalDownloadSpeedLimit() const = 0;
-        virtual void setAltGlobalDownloadSpeedLimit(int limit) = 0;
-        virtual int altGlobalUploadSpeedLimit() const = 0;
-        virtual void setAltGlobalUploadSpeedLimit(int limit) = 0;
+        virtual int configuredDownloadSpeedLimit() const = 0;
+        virtual void setConfiguredDownloadSpeedLimit(int limit) = 0;
+        virtual int configuredUploadSpeedLimit() const = 0;
+        virtual void setConfiguredUploadSpeedLimit(int limit) = 0;
         virtual int downloadSpeedLimit() const = 0;
         virtual void setDownloadSpeedLimit(int limit) = 0;
         virtual int uploadSpeedLimit() const = 0;
         virtual void setUploadSpeedLimit(int limit) = 0;
-        virtual bool isAltGlobalSpeedLimitEnabled() const = 0;
-        virtual void setAltGlobalSpeedLimitEnabled(bool enabled) = 0;
+        virtual bool isSpeedLimitEnabled() const = 0;
+        virtual void setSpeedLimitEnabled(bool enabled) = 0;
         virtual bool isBandwidthSchedulerEnabled() const = 0;
         virtual void setBandwidthSchedulerEnabled(bool enabled) = 0;
 

@@ -259,7 +259,7 @@ this.torrentsTable = new window.qBittorrent.DynamicTable.TorrentsTable();
 let updatePropertiesPanel = () => {};
 
 this.updateMainData = () => {};
-let alternativeSpeedLimits = false;
+let speedLimitsEnabled = false;
 let queueing_enabled = true;
 let serverSyncMainDataInterval = 1500;
 let customSyncMainDataInterval = null;
@@ -1216,30 +1216,30 @@ window.addEventListener("DOMContentLoaded", async (event) => {
             }
         }
 
-        if (alternativeSpeedLimits !== serverState.use_alt_speed_limits) {
-            alternativeSpeedLimits = serverState.use_alt_speed_limits;
-            updateAltSpeedIcon(alternativeSpeedLimits);
+        if (speedLimitsEnabled !== serverState.use_alt_speed_limits) {
+            speedLimitsEnabled = serverState.use_alt_speed_limits;
+            updateSpeedLimitIcon(speedLimitsEnabled);
         }
 
         serverSyncMainDataInterval = Math.max(serverState.refresh_interval, 500);
     };
 
-    const updateAltSpeedIcon = (enabled) => {
+    const updateSpeedLimitIcon = (enabled) => {
         if (enabled) {
-            document.getElementById("alternativeSpeedLimits").src = "images/slow.svg";
-            document.getElementById("alternativeSpeedLimits").alt = "QBT_TR(Alternative speed limits: On)QBT_TR[CONTEXT=MainWindow]";
-            document.getElementById("alternativeSpeedLimits").title = "QBT_TR(Alternative speed limits: On)QBT_TR[CONTEXT=MainWindow]";
+            document.getElementById("speedLimitsEnabled").src = "images/slow.svg";
+            document.getElementById("speedLimitsEnabled").alt = "QBT_TR(Speed limits: On)QBT_TR[CONTEXT=MainWindow]";
+            document.getElementById("speedLimitsEnabled").title = "QBT_TR(Speed limits: On)QBT_TR[CONTEXT=MainWindow]";
         }
         else {
-            document.getElementById("alternativeSpeedLimits").src = "images/slow_off.svg";
-            document.getElementById("alternativeSpeedLimits").alt = "QBT_TR(Alternative speed limits: Off)QBT_TR[CONTEXT=MainWindow]";
-            document.getElementById("alternativeSpeedLimits").title = "QBT_TR(Alternative speed limits: Off)QBT_TR[CONTEXT=MainWindow]";
+            document.getElementById("speedLimitsEnabled").src = "images/slow_off.svg";
+            document.getElementById("speedLimitsEnabled").alt = "QBT_TR(Speed limits: Off)QBT_TR[CONTEXT=MainWindow]";
+            document.getElementById("speedLimitsEnabled").title = "QBT_TR(Speed limits: Off)QBT_TR[CONTEXT=MainWindow]";
         }
     };
 
-    document.getElementById("alternativeSpeedLimits").addEventListener("click", (event) => {
+    document.getElementById("speedLimitsEnabled").addEventListener("click", (event) => {
         // Change icon immediately to give some feedback
-        updateAltSpeedIcon(!alternativeSpeedLimits);
+        updateSpeedLimitIcon(!speedLimitsEnabled);
 
         fetch("api/v2/transfer/toggleSpeedLimitsMode", {
                 method: "POST"
@@ -1247,11 +1247,11 @@ window.addEventListener("DOMContentLoaded", async (event) => {
             .then((response) => {
                 if (!response.ok) {
                     // Restore icon in case of failure
-                    updateAltSpeedIcon(alternativeSpeedLimits);
+                    updateSpeedLimitIcon(speedLimitsEnabled);
                     return;
                 }
 
-                alternativeSpeedLimits = !alternativeSpeedLimits;
+                speedLimitsEnabled = !speedLimitsEnabled;
                 updateMainData();
             });
     });

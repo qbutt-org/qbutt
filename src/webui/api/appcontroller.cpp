@@ -275,11 +275,11 @@ void AppController::preferencesAction()
     data[u"banned_IPs"_s] = session->bannedIPs().join(u'\n');
 
     // Speed
-    // Global Rate Limits
-    data[u"dl_limit"_s] = session->globalDownloadSpeedLimit();
-    data[u"up_limit"_s] = session->globalUploadSpeedLimit();
-    data[u"alt_dl_limit"_s] = session->altGlobalDownloadSpeedLimit();
-    data[u"alt_up_limit"_s] = session->altGlobalUploadSpeedLimit();
+    // Keep the legacy keys as aliases for clients using the qBittorrent API.
+    data[u"dl_limit"_s] = session->configuredDownloadSpeedLimit();
+    data[u"up_limit"_s] = session->configuredUploadSpeedLimit();
+    data[u"alt_dl_limit"_s] = session->configuredDownloadSpeedLimit();
+    data[u"alt_up_limit"_s] = session->configuredUploadSpeedLimit();
     data[u"bittorrent_protocol"_s] = static_cast<int>(session->btProtocol());
     data[u"limit_utp_rate"_s] = session->isUTPRateLimited();
     data[u"limit_tcp_overhead"_s] = session->includeOverheadInLimits();
@@ -779,15 +779,15 @@ void AppController::setPreferencesAction()
         session->setBannedIPs(it.value().toString().split(u'\n', Qt::SkipEmptyParts));
 
     // Speed
-    // Global Rate Limits
-    if (hasKey(u"dl_limit"_s))
-        session->setGlobalDownloadSpeedLimit(it.value().toInt());
-    if (hasKey(u"up_limit"_s))
-        session->setGlobalUploadSpeedLimit(it.value().toInt());
+    // Alternative keys take precedence when older clients submit both sets.
     if (hasKey(u"alt_dl_limit"_s))
-        session->setAltGlobalDownloadSpeedLimit(it.value().toInt());
+        session->setConfiguredDownloadSpeedLimit(it.value().toInt());
+    else if (hasKey(u"dl_limit"_s))
+        session->setConfiguredDownloadSpeedLimit(it.value().toInt());
     if (hasKey(u"alt_up_limit"_s))
-       session->setAltGlobalUploadSpeedLimit(it.value().toInt());
+        session->setConfiguredUploadSpeedLimit(it.value().toInt());
+    else if (hasKey(u"up_limit"_s))
+        session->setConfiguredUploadSpeedLimit(it.value().toInt());
     if (hasKey(u"bittorrent_protocol"_s))
         session->setBTProtocol(static_cast<BitTorrent::BTProtocol>(it.value().toInt()));
     if (hasKey(u"limit_utp_rate"_s))

@@ -222,20 +222,16 @@ namespace BitTorrent
         Path finishedTorrentExportDirectory() const override;
         void setFinishedTorrentExportDirectory(const Path &path) override;
 
-        int globalDownloadSpeedLimit() const override;
-        void setGlobalDownloadSpeedLimit(int limit) override;
-        int globalUploadSpeedLimit() const override;
-        void setGlobalUploadSpeedLimit(int limit) override;
-        int altGlobalDownloadSpeedLimit() const override;
-        void setAltGlobalDownloadSpeedLimit(int limit) override;
-        int altGlobalUploadSpeedLimit() const override;
-        void setAltGlobalUploadSpeedLimit(int limit) override;
+        int configuredDownloadSpeedLimit() const override;
+        void setConfiguredDownloadSpeedLimit(int limit) override;
+        int configuredUploadSpeedLimit() const override;
+        void setConfiguredUploadSpeedLimit(int limit) override;
         int downloadSpeedLimit() const override;
         void setDownloadSpeedLimit(int limit) override;
         int uploadSpeedLimit() const override;
         void setUploadSpeedLimit(int limit) override;
-        bool isAltGlobalSpeedLimitEnabled() const override;
-        void setAltGlobalSpeedLimitEnabled(bool enabled) override;
+        bool isSpeedLimitEnabled() const override;
+        void setSpeedLimitEnabled(bool enabled) override;
         bool isBandwidthSchedulerEnabled() const override;
         void setBandwidthSchedulerEnabled(bool enabled) override;
 
@@ -740,11 +736,9 @@ namespace BitTorrent
         CachedSettingValue<bool> m_isPreallocationEnabled;
         CachedSettingValue<Path> m_torrentExportDirectory;
         CachedSettingValue<Path> m_finishedTorrentExportDirectory;
-        CachedSettingValue<int> m_globalDownloadSpeedLimit;
-        CachedSettingValue<int> m_globalUploadSpeedLimit;
-        CachedSettingValue<int> m_altGlobalDownloadSpeedLimit;
-        CachedSettingValue<int> m_altGlobalUploadSpeedLimit;
-        CachedSettingValue<bool> m_isAltGlobalSpeedLimitEnabled;
+        CachedSettingValue<int> m_configuredDownloadSpeedLimit;
+        CachedSettingValue<int> m_configuredUploadSpeedLimit;
+        CachedSettingValue<bool> m_isSpeedLimitEnabled;
         CachedSettingValue<bool> m_isBandwidthSchedulerEnabled;
         CachedSettingValue<bool> m_isPerformanceWarningEnabled;
         CachedSettingValue<int> m_saveResumeDataInterval;

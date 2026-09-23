@@ -240,13 +240,8 @@ TorrentOptionsDialog::TorrentOptionsDialog(QWidget *parent, const QList<BitTorre
         m_ui->comboCategory->addItem(category);
     }
 
-    const bool isAltLimitEnabled = session->isAltGlobalSpeedLimitEnabled();
-    const int globalUploadLimit = isAltLimitEnabled
-            ? (session->altGlobalUploadSpeedLimit() / 1024)
-            : (session->globalUploadSpeedLimit() / 1024);
-    const int globalDownloadLimit = isAltLimitEnabled
-            ? (session->altGlobalDownloadSpeedLimit() / 1024)
-            : (session->globalDownloadSpeedLimit() / 1024);
+    const int globalUploadLimit = session->uploadSpeedLimit() / 1024;
+    const int globalDownloadLimit = session->downloadSpeedLimit() / 1024;
 
     const int uploadVal = std::max(0, (firstTorrentUpLimit / 1024));
     const int downloadVal = std::max(0, (firstTorrentDownLimit / 1024));

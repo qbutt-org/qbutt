@@ -188,8 +188,7 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, QWidget *parent)
 
     const auto updateThemePixmaps = [this]
     {
-        m_ui->labelGlobalRate->setPixmap(UIThemeManager::instance()->getScaledPixmap(u"slow_off"_s, Utils::Gui::mediumIconSize(this).height()));
-        m_ui->labelAltRate->setPixmap(UIThemeManager::instance()->getScaledPixmap(u"slow"_s, Utils::Gui::mediumIconSize(this).height()));
+        m_ui->labelRate->setPixmap(UIThemeManager::instance()->getScaledPixmap(u"slow"_s, Utils::Gui::mediumIconSize(this).height()));
         m_ui->deleteTorrentWarningIcon->setPixmap(QApplication::style()->standardIcon(QStyle::SP_MessageBoxCritical).pixmap(16, 16));
     };
 
@@ -989,11 +988,8 @@ void OptionsDialog::loadSpeedTabOptions()
     const auto *pref = Preferences::instance();
     const auto *session = BitTorrent::Session::instance();
 
-    m_ui->spinUploadLimit->setValue(session->globalUploadSpeedLimit() / 1024);
-    m_ui->spinDownloadLimit->setValue(session->globalDownloadSpeedLimit() / 1024);
-
-    m_ui->spinUploadLimitAlt->setValue(session->altGlobalUploadSpeedLimit() / 1024);
-    m_ui->spinDownloadLimitAlt->setValue(session->altGlobalDownloadSpeedLimit() / 1024);
+    m_ui->spinUploadLimit->setValue(session->configuredUploadSpeedLimit() / 125000.);
+    m_ui->spinDownloadLimit->setValue(session->configuredDownloadSpeedLimit() / 125000.);
 
     m_ui->comboBoxScheduleDays->addItems(translatedWeekdayNames());
 
@@ -1014,11 +1010,8 @@ void OptionsDialog::loadSpeedTabOptions()
     m_ui->checkShowMenuBarIcon->hide();
 #endif
 
-    connect(m_ui->spinUploadLimit, qSpinBoxValueChanged, this, &ThisType::enableApplyButton);
-    connect(m_ui->spinDownloadLimit, qSpinBoxValueChanged, this, &ThisType::enableApplyButton);
-
-    connect(m_ui->spinUploadLimitAlt, qSpinBoxValueChanged, this, &ThisType::enableApplyButton);
-    connect(m_ui->spinDownloadLimitAlt, qSpinBoxValueChanged, this, &ThisType::enableApplyButton);
+    connect(m_ui->spinUploadLimit, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &ThisType::enableApplyButton);
+    connect(m_ui->spinDownloadLimit, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &ThisType::enableApplyButton);
 
     connect(m_ui->groupBoxSchedule, &QGroupBox::toggled, this, &ThisType::enableApplyButton);
     connect(m_ui->timeEditScheduleFrom, &QDateTimeEdit::timeChanged, this, &ThisType::enableApplyButton);
@@ -1040,11 +1033,10 @@ void OptionsDialog::saveSpeedTabOptions() const
     auto *pref = Preferences::instance();
     auto *session = BitTorrent::Session::instance();
 
-    session->setGlobalUploadSpeedLimit(m_ui->spinUploadLimit->value() * 1024);
-    session->setGlobalDownloadSpeedLimit(m_ui->spinDownloadLimit->value() * 1024);
-
-    session->setAltGlobalUploadSpeedLimit(m_ui->spinUploadLimitAlt->value() * 1024);
-    session->setAltGlobalDownloadSpeedLimit(m_ui->spinDownloadLimitAlt->value() * 1024);
+    if (qRound(m_ui->spinUploadLimit->value() * 100) != qRound(session->configuredUploadSpeedLimit() / 1250.))
+        session->setConfiguredUploadSpeedLimit(qRound(m_ui->spinUploadLimit->value() * 125000));
+    if (qRound(m_ui->spinDownloadLimit->value() * 100) != qRound(session->configuredDownloadSpeedLimit() / 1250.))
+        session->setConfiguredDownloadSpeedLimit(qRound(m_ui->spinDownloadLimit->value() * 125000));
 
     session->setBandwidthSchedulerEnabled(m_ui->groupBoxSchedule->isChecked());
     pref->setSchedulerStartTime(m_ui->timeEditScheduleFrom->time());

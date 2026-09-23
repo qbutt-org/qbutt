@@ -33,6 +33,7 @@
 #include <concepts>
 #include <cstdint>
 #include <ctime>
+#include <limits>
 #include <memory>
 #include <ranges>
 #include <string>
@@ -420,6 +421,27 @@ QStringList Session::expandCategory(const QString &category)
 #define BITTORRENT_KEY(name) u"BitTorrent/" name
 #define BITTORRENT_SESSION_KEY(name) BITTORRENT_KEY(u"Session/") name
 
+namespace
+{
+    int migrateSpeedLimit(const QString &key, const QString &legacyKey)
+    {
+        auto *settings = SettingsStorage::instance();
+        if (settings->hasKey(key))
+        {
+            settings->removeValue(legacyKey);
+            return settings->loadValue<int>(key);
+        }
+
+        const int legacyKiB = settings->loadValue<int>(legacyKey, 0);
+        const int limit = settings->hasKey(legacyKey)
+                ? std::clamp(legacyKiB, 0, std::numeric_limits<int>::max() / 1024) * 1024
+                : 1250000;
+        settings->storeValue(key, limit);
+        settings->removeValue(legacyKey);
+        return limit;
+    }
+}
+
 SessionImpl::SessionImpl(QObject *parent)
     : Session(parent)
     , m_DHTBootstrapNodes(BITTORRENT_SESSION_KEY(u"DHTBootstrapNodes"_s), DEFAULT_DHT_BOOTSTRAP_NODES)
@@ -502,11 +524,11 @@ SessionImpl::SessionImpl(QObject *parent)
     , m_isPreallocationEnabled(BITTORRENT_SESSION_KEY(u"Preallocation"_s), false)
     , m_torrentExportDirectory(BITTORRENT_SESSION_KEY(u"TorrentExportDirectory"_s))
     , m_finishedTorrentExportDirectory(BITTORRENT_SESSION_KEY(u"FinishedTorrentExportDirectory"_s))
-    , m_globalDownloadSpeedLimit(BITTORRENT_SESSION_KEY(u"GlobalDLSpeedLimit"_s), 0, lowerLimited(0))
-    , m_globalUploadSpeedLimit(BITTORRENT_SESSION_KEY(u"GlobalUPSpeedLimit"_s), 0, lowerLimited(0))
-    , m_altGlobalDownloadSpeedLimit(BITTORRENT_SESSION_KEY(u"AlternativeGlobalDLSpeedLimit"_s), 10, lowerLimited(0))
-    , m_altGlobalUploadSpeedLimit(BITTORRENT_SESSION_KEY(u"AlternativeGlobalUPSpeedLimit"_s), 10, lowerLimited(0))
-    , m_isAltGlobalSpeedLimitEnabled(BITTORRENT_SESSION_KEY(u"UseAlternativeGlobalSpeedLimit"_s), false)
+    , m_configuredDownloadSpeedLimit(BITTORRENT_SESSION_KEY(u"DownloadSpeedLimit"_s)
+        , migrateSpeedLimit(BITTORRENT_SESSION_KEY(u"DownloadSpeedLimit"_s), BITTORRENT_SESSION_KEY(u"AlternativeGlobalDLSpeedLimit"_s)), lowerLimited(0))
+    , m_configuredUploadSpeedLimit(BITTORRENT_SESSION_KEY(u"UploadSpeedLimit"_s)
+        , migrateSpeedLimit(BITTORRENT_SESSION_KEY(u"UploadSpeedLimit"_s), BITTORRENT_SESSION_KEY(u"AlternativeGlobalUPSpeedLimit"_s)), lowerLimited(0))
+    , m_isSpeedLimitEnabled(BITTORRENT_SESSION_KEY(u"UseAlternativeGlobalSpeedLimit"_s), false)
     , m_isBandwidthSchedulerEnabled(BITTORRENT_SESSION_KEY(u"BandwidthSchedulerEnabled"_s), false)
     , m_isPerformanceWarningEnabled(BITTORRENT_SESSION_KEY(u"PerformanceWarning"_s), false)
     , m_saveResumeDataInterval(BITTORRENT_SESSION_KEY(u"SaveResumeDataInterval"_s), 60)
@@ -564,6 +586,8 @@ SessionImpl::SessionImpl(QObject *parent)
     , m_freeDiskSpaceChecker {new FreeDiskSpaceChecker(savePath())}
     , m_freeDiskSpaceCheckingTimer {new QTimer(this)}
 {
+    SettingsStorage::instance()->removeValue(BITTORRENT_SESSION_KEY(u"GlobalDLSpeedLimit"_s));
+    SettingsStorage::instance()->removeValue(BITTORRENT_SESSION_KEY(u"GlobalUPSpeedLimit"_s));
     // It is required to perform async access to libtorrent sequentially
     m_asyncWorker->setMaxThreadCount(1);
     m_asyncWorker->setObjectName("SessionImpl m_asyncWorker");
@@ -2392,7 +2416,7 @@ void SessionImpl::enableBandwidthScheduler()
     {
         m_bwScheduler = new BandwidthScheduler(this);
         connect(m_bwScheduler.data(), &BandwidthScheduler::bandwidthLimitRequested
-                , this, &SessionImpl::setAltGlobalSpeedLimitEnabled);
+                , this, &SessionImpl::setSpeedLimitEnabled);
     }
     m_bwScheduler->start();
 }
@@ -3516,150 +3540,74 @@ void SessionImpl::configureListeningInterface()
     configureDeferred();
 }
 
-int SessionImpl::globalDownloadSpeedLimit() const
+int SessionImpl::configuredDownloadSpeedLimit() const
 {
-    // Unfortunately the value was saved as KiB instead of B.
-    // But it is better to pass it around internally(+ webui) as Bytes.
-    return m_globalDownloadSpeedLimit * 1024;
+    return m_configuredDownloadSpeedLimit;
 }
 
-void SessionImpl::setGlobalDownloadSpeedLimit(const int limit)
+void SessionImpl::setConfiguredDownloadSpeedLimit(const int limit)
 {
-    // Unfortunately the value was saved as KiB instead of B.
-    // But it is better to pass it around internally(+ webui) as Bytes.
-    if (limit == globalDownloadSpeedLimit())
+    const int value = std::max(limit, 0);
+    if (value == configuredDownloadSpeedLimit())
         return;
 
-    if (limit <= 0)
-        m_globalDownloadSpeedLimit = 0;
-    else if (limit <= 1024)
-        m_globalDownloadSpeedLimit = 1;
-    else
-        m_globalDownloadSpeedLimit = (limit / 1024);
-
-    if (!isAltGlobalSpeedLimitEnabled())
-        configureDeferred();
+    m_configuredDownloadSpeedLimit = value;
+    if (isSpeedLimitEnabled())
+        applyBandwidthLimits();
 }
 
-int SessionImpl::globalUploadSpeedLimit() const
+int SessionImpl::configuredUploadSpeedLimit() const
 {
-    // Unfortunately the value was saved as KiB instead of B.
-    // But it is better to pass it around internally(+ webui) as Bytes.
-    return m_globalUploadSpeedLimit * 1024;
+    return m_configuredUploadSpeedLimit;
 }
 
-void SessionImpl::setGlobalUploadSpeedLimit(const int limit)
+void SessionImpl::setConfiguredUploadSpeedLimit(const int limit)
 {
-    // Unfortunately the value was saved as KiB instead of B.
-    // But it is better to pass it around internally(+ webui) as Bytes.
-    if (limit == globalUploadSpeedLimit())
+    const int value = std::max(limit, 0);
+    if (value == configuredUploadSpeedLimit())
         return;
 
-    if (limit <= 0)
-        m_globalUploadSpeedLimit = 0;
-    else if (limit <= 1024)
-        m_globalUploadSpeedLimit = 1;
-    else
-        m_globalUploadSpeedLimit = (limit / 1024);
-
-    if (!isAltGlobalSpeedLimitEnabled())
-        configureDeferred();
-}
-
-int SessionImpl::altGlobalDownloadSpeedLimit() const
-{
-    // Unfortunately the value was saved as KiB instead of B.
-    // But it is better to pass it around internally(+ webui) as Bytes.
-    return m_altGlobalDownloadSpeedLimit * 1024;
-}
-
-void SessionImpl::setAltGlobalDownloadSpeedLimit(const int limit)
-{
-    // Unfortunately the value was saved as KiB instead of B.
-    // But it is better to pass it around internally(+ webui) as Bytes.
-    if (limit == altGlobalDownloadSpeedLimit())
-        return;
-
-    if (limit <= 0)
-        m_altGlobalDownloadSpeedLimit = 0;
-    else if (limit <= 1024)
-        m_altGlobalDownloadSpeedLimit = 1;
-    else
-        m_altGlobalDownloadSpeedLimit = (limit / 1024);
-
-    if (isAltGlobalSpeedLimitEnabled())
-        configureDeferred();
-}
-
-int SessionImpl::altGlobalUploadSpeedLimit() const
-{
-    // Unfortunately the value was saved as KiB instead of B.
-    // But it is better to pass it around internally(+ webui) as Bytes.
-    return m_altGlobalUploadSpeedLimit * 1024;
-}
-
-void SessionImpl::setAltGlobalUploadSpeedLimit(const int limit)
-{
-    // Unfortunately the value was saved as KiB instead of B.
-    // But it is better to pass it around internally(+ webui) as Bytes.
-    if (limit == altGlobalUploadSpeedLimit())
-        return;
-
-    if (limit <= 0)
-        m_altGlobalUploadSpeedLimit = 0;
-    else if (limit <= 1024)
-        m_altGlobalUploadSpeedLimit = 1;
-    else
-        m_altGlobalUploadSpeedLimit = (limit / 1024);
-
-    if (isAltGlobalSpeedLimitEnabled())
-        configureDeferred();
+    m_configuredUploadSpeedLimit = value;
+    if (isSpeedLimitEnabled())
+        applyBandwidthLimits();
 }
 
 int SessionImpl::downloadSpeedLimit() const
 {
-    return isAltGlobalSpeedLimitEnabled()
-            ? altGlobalDownloadSpeedLimit()
-            : globalDownloadSpeedLimit();
+    return isSpeedLimitEnabled() ? configuredDownloadSpeedLimit() : 0;
 }
 
 void SessionImpl::setDownloadSpeedLimit(const int limit)
 {
-    if (isAltGlobalSpeedLimitEnabled())
-        setAltGlobalDownloadSpeedLimit(limit);
-    else
-        setGlobalDownloadSpeedLimit(limit);
+    setConfiguredDownloadSpeedLimit(limit);
+    if (limit > 0)
+        setSpeedLimitEnabled(true);
 }
 
 int SessionImpl::uploadSpeedLimit() const
 {
-    return isAltGlobalSpeedLimitEnabled()
-            ? altGlobalUploadSpeedLimit()
-            : globalUploadSpeedLimit();
+    return isSpeedLimitEnabled() ? configuredUploadSpeedLimit() : 0;
 }
 
 void SessionImpl::setUploadSpeedLimit(const int limit)
 {
-    if (isAltGlobalSpeedLimitEnabled())
-        setAltGlobalUploadSpeedLimit(limit);
-    else
-        setGlobalUploadSpeedLimit(limit);
+    setConfiguredUploadSpeedLimit(limit);
+    if (limit > 0)
+        setSpeedLimitEnabled(true);
 }
 
-bool SessionImpl::isAltGlobalSpeedLimitEnabled() const
+bool SessionImpl::isSpeedLimitEnabled() const
 {
-    return m_isAltGlobalSpeedLimitEnabled;
+    return m_isSpeedLimitEnabled;
 }
 
-void SessionImpl::setAltGlobalSpeedLimitEnabled(const bool enabled)
+void SessionImpl::setSpeedLimitEnabled(const bool enabled)
 {
-    if (enabled == isAltGlobalSpeedLimitEnabled()) return;
+    if (enabled == isSpeedLimitEnabled()) return;
 
-    // Save new state to remember it on startup
-    m_isAltGlobalSpeedLimitEnabled = enabled;
+    m_isSpeedLimitEnabled = enabled;
     applyBandwidthLimits();
-    // Notify
-    emit speedLimitModeChanged(m_isAltGlobalSpeedLimitEnabled);
+    emit speedLimitModeChanged(m_isSpeedLimitEnabled);
 }
 
 bool SessionImpl::isBandwidthSchedulerEnabled() const

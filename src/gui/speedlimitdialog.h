@@ -54,9 +54,7 @@ private:
     SettingValue<QSize> m_storeDialogSize;
     struct
     {
-        int uploadSpeedLimit;
-        int downloadSpeedLimit;
-        int altUploadSpeedLimit;
-        int altDownloadSpeedLimit;
+        double uploadSpeedLimit;
+        double downloadSpeedLimit;
     } m_initialValues;
 };
