@@ -48,7 +48,7 @@ namespace
 {
     QString makeLink(const QStringView url, const QStringView linkLabel)
     {
-         return u"<a href=\"%1\">%2</a>"_s.arg(url, linkLabel);
+        return u"<a href=\"%1\" style=\"text-decoration: none\">%2</a>"_s.arg(url, linkLabel);
     }
 
     enum AdvSettingsCols

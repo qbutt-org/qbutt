@@ -61,9 +61,9 @@ AboutDialog::AboutDialog(QWidget *parent)
         + u"\n\n%1\n\n"
         u"%2\n\n"
         u"<table>"
-        u"<tr><td>%3</td><td><a href=\"https://github.com/qbutt-org/qbutt\">github.com/qbutt-org/qbutt</a></td></tr>"
-        u"<tr><td>%4</td><td><a href=\"https://www.qbittorrent.org\">https://www.qbittorrent.org</a></td></tr>"
-        u"<tr><td>%5</td><td><a href=\"https://github.com/qbutt-org/qbutt/issues\">https://github.com/qbutt-org/qbutt/issues</a></td></tr>"
+        u"<tr><td>%3</td><td><a href=\"https://github.com/qbutt-org/qbutt\" style=\"text-decoration: none\">github.com/qbutt-org/qbutt</a></td></tr>"
+        u"<tr><td>%4</td><td><a href=\"https://www.qbittorrent.org\" style=\"text-decoration: none\">https://www.qbittorrent.org</a></td></tr>"
+        u"<tr><td>%5</td><td><a href=\"https://github.com/qbutt-org/qbutt/issues\" style=\"text-decoration: none\">https://github.com/qbutt-org/qbutt/issues</a></td></tr>"
         u"</table>"
         u"</p>"_s;
     const QString aboutText = aboutTemplate.arg(tr("A ButtTorrent Client")
@@ -103,7 +103,7 @@ AboutDialog::AboutDialog(QWidget *parent)
     connect(m_ui->btnCopyToClipboard, &QAbstractButton::clicked, this, &AboutDialog::copyVersionsToClipboard);
 
     const QString DBIPText = u"<html><head/><body><p>"
-                             u"%1 (<a href=\"https://db-ip.com/\">https://db-ip.com/</a>)"
+                             u"%1 (<a href=\"https://db-ip.com/\" style=\"text-decoration: none\">https://db-ip.com/</a>)"
                              u"</p></body></html>"_s
                              .arg(tr("The free IP to Country Lite database by DB-IP is used for resolving the countries of peers. "
                                      "The database is licensed under the Creative Commons Attribution 4.0 International License"));

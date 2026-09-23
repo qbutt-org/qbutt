@@ -158,6 +158,9 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, QWidget *parent)
     , m_storeLastViewedPage {SETTINGS_KEY(u"LastViewedPage"_s)}
 {
     m_ui->setupUi(this);
+    QString certificateInfo = m_ui->lblWebUICertInfo->text();
+    certificateInfo.replace(u"<a "_s, u"<a style=\"text-decoration: none\" "_s);
+    m_ui->lblWebUICertInfo->setText(certificateInfo);
     m_applyButton = m_ui->buttonBox->button(QDialogButtonBox::Apply);
 
 #ifdef Q_OS_UNIX

@@ -30,7 +30,9 @@ ReleaseUpdateDialog::ReleaseUpdateDialog(ReleaseUpdater *updater, QWidget *paren
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(new QLabel(tr("Installed: qbutt %1")
         .arg(QStringLiteral(QBUTT_VERSION)), this));
-    auto *source = new QLabel(tr("Source: <a href=\"https://github.com/qbutt-org/qbutt/releases\">qbutt releases</a>"), this);
+    QString sourceText = tr("Source: <a href=\"https://github.com/qbutt-org/qbutt/releases\">qbutt releases</a>");
+    sourceText.replace(u"<a "_s, u"<a style=\"text-decoration: none\" "_s);
+    auto *source = new QLabel(sourceText, this);
     source->setOpenExternalLinks(true);
     source->setToolTip(tr("Updates use the system connection."));
     layout->addWidget(source);

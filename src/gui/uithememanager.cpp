@@ -358,8 +358,8 @@ void UIThemeManager::applyPalette() const
         }
         palette.setColor(QPalette::BrightText, Qt::white);
         palette.setColor(QPalette::PlaceholderText, dark ? QColor(u"#9aa0a7"_s) : QColor(u"#727b84"_s));
-        palette.setColor(QPalette::Highlight, dark ? QColor(u"#2b4557"_s) : QColor(u"#dceefa"_s));
-        palette.setColor(QPalette::HighlightedText, text);
+        palette.setColor(QPalette::Highlight, dark ? QColor(u"#0075b5"_s) : QColor(u"#dceefa"_s));
+        palette.setColor(QPalette::HighlightedText, dark ? QColor(Qt::white) : text);
         palette.setColor(QPalette::Disabled, QPalette::Highlight, alternateBase);
         palette.setColor(QPalette::Disabled, QPalette::HighlightedText, disabledText);
         palette.setColor(QPalette::Link, dark ? QColor(u"#009df7"_s) : QColor(u"#0879b9"_s));
