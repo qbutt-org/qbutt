@@ -5,7 +5,9 @@
 
 #include "profileimport.h"
 
+#include <algorithm>
 #include <atomic>
+#include <limits>
 #include <memory>
 #include <set>
 
@@ -46,10 +48,8 @@ namespace
     const QStringList SAFE_SETTINGS
     {
         u"Preferences/General/Locale"_s,
-        u"BitTorrent/Session/GlobalDLSpeedLimit"_s,
-        u"BitTorrent/Session/GlobalUPSpeedLimit"_s,
-        u"BitTorrent/Session/AlternativeGlobalDLSpeedLimit"_s,
-        u"BitTorrent/Session/AlternativeGlobalUPSpeedLimit"_s,
+        u"BitTorrent/Session/DownloadSpeedLimit"_s,
+        u"BitTorrent/Session/UploadSpeedLimit"_s,
         u"BitTorrent/Session/MaxConnections"_s,
         u"BitTorrent/Session/MaxConnectionsPerTorrent"_s,
         u"BitTorrent/Session/MaxUploads"_s,
@@ -392,7 +392,19 @@ try
         return nonstd::make_unexpected(QCoreApplication::translate("ProfileImport", "The source exceeds the preview limit of 10000 settings."));
     for (const QString &key : sourceKeys)
     {
-        if (SAFE_SETTINGS.contains(key))
+        if ((key == u"BitTorrent/Session/AlternativeGlobalDLSpeedLimit"_s)
+            || (key == u"BitTorrent/Session/AlternativeGlobalUPSpeedLimit"_s))
+        {
+            const QString targetKey = (key == u"BitTorrent/Session/AlternativeGlobalDLSpeedLimit"_s)
+                    ? u"BitTorrent/Session/DownloadSpeedLimit"_s : u"BitTorrent/Session/UploadSpeedLimit"_s;
+            if (!source.contains(targetKey))
+            {
+                const qlonglong legacyKiB = source.value(key).toLongLong();
+                result.settings.insert(targetKey, std::clamp(legacyKiB, 0LL
+                    , static_cast<qlonglong>(std::numeric_limits<int>::max() / 1024)) * 1024);
+            }
+        }
+        else if (SAFE_SETTINGS.contains(key))
             result.settings.insert(key, source.value(key));
         else
             result.skippedSettings.append(key);
