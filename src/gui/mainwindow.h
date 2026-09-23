@@ -200,7 +200,7 @@ private:
     void showFiltersSidebar(bool show);
     void applyTransferListFilter();
     void refreshWindowTitle();
-    void refreshIcons();
+    void initializeIcons();
     void refreshTrayIconTooltip();
     void showReleaseUpdateDialog();
 

@@ -159,8 +159,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 
     addToolbarContextMenu();
 
-    refreshIcons();
-    connect(UIThemeManager::instance(), &UIThemeManager::themeChanged, this, &MainWindow::refreshIcons);
+    initializeIcons();
 
     m_ui->actionPauseSession->setVisible(!BitTorrent::Session::instance()->isPaused());
     m_ui->actionResumeSession->setVisible(BitTorrent::Session::instance()->isPaused());
@@ -509,7 +508,7 @@ MainWindow::~MainWindow()
     delete m_ui;
 }
 
-void MainWindow::refreshIcons()
+void MainWindow::initializeIcons()
 {
 #ifndef Q_OS_MACOS
     setWindowIcon(UIThemeManager::instance()->getIcon(u"qbittorrent"_s));
@@ -537,16 +536,6 @@ void MainWindow::refreshIcons()
     m_ui->actionManageCookies->setIcon(UIThemeManager::instance()->getIcon(u"browser-cookies"_s, u"preferences-web-browser-cookies"_s));
     m_ui->menuLog->setIcon(UIThemeManager::instance()->getIcon(u"help-contents"_s));
     m_ui->actionUpdateStatus->setIcon(UIThemeManager::instance()->getIcon(u"help-about"_s));
-#ifndef Q_OS_MACOS
-    if (m_tabs)
-    {
-        m_tabs->setTabIcon(0, UIThemeManager::instance()->getIcon(u"folder-remote"_s));
-        if (m_rssWidget)
-            m_tabs->setTabIcon(m_tabs->indexOf(m_rssWidget), UIThemeManager::instance()->getIcon(u"application-rss"_s));
-        if (m_executionLog)
-            m_tabs->setTabIcon(m_tabs->indexOf(m_executionLog), UIThemeManager::instance()->getIcon(u"help-contents"_s));
-    }
-#endif
 }
 
 bool MainWindow::isExecutionLogEnabled() const

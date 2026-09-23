@@ -102,11 +102,6 @@ FileSystemPathEdit::FileSystemPathEditPrivate::FileSystemPathEditPrivate(
 
     m_browseBtn->setDefaultAction(m_browseAction);
 
-    QObject::connect(UIThemeManager::instance(), &UIThemeManager::themeChanged, q, [this]
-    {
-        m_browseAction->setIcon(UIThemeManager::instance()->getIcon(u"folder-open"_s));
-    });
-
     m_validator->setStrictMode(false);
 
     m_editor->setBrowseAction(m_browseAction);
