@@ -38,6 +38,7 @@ bun run smoke:native
 bun run smoke:native-inbound
 bun run smoke:proxy
 bun run smoke:network
+bun run smoke:server-identity
 bun run smoke:gateway
 bun run smoke:repair
 bun run smoke:repair-mappings
@@ -71,6 +72,12 @@ without restarting the torrent. `smoke:policy-transition-utp` exercises the same
 transitions with uTP-only peers, a positive UDP canary, retirement of the exact
 native UDP endpoint, and frozen retired relay datagrams. A selected SOCKS UDP
 association may remain alive for other traffic; it is not a peer connection.
+
+`smoke:server-identity` requires `QBUTT_LAB_PATHS=1`. It verifies that two
+protocols on the same configured host share one Edge, rejects duplicate active
+paths and arbitrary identity overrides, then checks generation renewal and exact
+payload hashes after changing the transport. Different configured hostnames do
+not prove independent physical exits.
 
 `smoke:transport-reserves` requires `QBUTT_LAB_PATHS=1` and the protocol-8 child.
 One generated private torrent starts
