@@ -9895,14 +9895,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Адреса назначения:</translation>
     </message>
     <message>
-        <source>Incoming connections</source>
-        <translation>Входящие соединения</translation>
-    </message>
-    <message>
-        <source>Incoming connections for %1</source>
-        <translation>Входящие соединения для %1</translation>
-    </message>
-    <message>
         <source>Control endpoint:</source>
         <translation>Адрес управления:</translation>
     </message>
@@ -9939,20 +9931,20 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Принимать соединения через ваш публичный шлюз.</translation>
     </message>
     <message>
-        <source>Click to prefer this protocol. Click again for automatic selection.</source>
-        <translation>Нажмите, чтобы предпочесть этот протокол. Повторное нажатие вернёт автовыбор.</translation>
+        <source>Disconnecting</source>
+        <translation>Отключение</translation>
     </message>
     <message>
         <source>Reachable</source>
         <translation>Доступен</translation>
     </message>
     <message>
-        <source>Connecting</source>
-        <translation>Подключение</translation>
+        <source>DNS check failed</source>
+        <translation>Проверка DNS не прошла</translation>
     </message>
     <message>
-        <source>Disconnecting</source>
-        <translation>Отключение</translation>
+        <source>Connecting</source>
+        <translation>Подключение</translation>
     </message>
     <message>
         <source>Cannot connect</source>
@@ -9963,24 +9955,28 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Не проверен</translation>
     </message>
     <message>
+        <source>The TCP DNS check through this node failed; existing peer traffic may still work.</source>
+        <translation>Проверка DNS по TCP через этот узел не прошла; существующий обмен с пирами может продолжаться.</translation>
+    </message>
+    <message>
         <source>Preferred protocol. Click to return to automatic selection.</source>
         <translation>Предпочтительный протокол. Нажмите, чтобы вернуть автовыбор.</translation>
+    </message>
+    <message>
+        <source>Click to prefer this protocol. Click again for automatic selection.</source>
+        <translation>Нажмите, чтобы предпочесть этот протокол. Повторное нажатие вернёт автовыбор.</translation>
     </message>
     <message>
         <source>Active · reachable</source>
         <translation>Активен · доступен</translation>
     </message>
     <message>
-        <source>Active · checking</source>
-        <translation>Активен · проверка</translation>
+        <source>Checking</source>
+        <translation>Проверка</translation>
     </message>
     <message>
-        <source>Active · failed</source>
-        <translation>Активен · нет соединения</translation>
-    </message>
-    <message>
-        <source>Active · unknown</source>
-        <translation>Активен · не проверен</translation>
+        <source>Attempt failed</source>
+        <translation>Попытка не удалась</translation>
     </message>
     <message>
         <source>↓ %1 (%2)  ↑ %3 (%4)</source>
@@ -9997,6 +9993,14 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
     <message>
         <source>Choose a network adapter to connect.</source>
         <translation>Выберите сетевой адаптер для подключения.</translation>
+    </message>
+    <message>
+        <source>Incoming connections</source>
+        <translation>Входящие соединения</translation>
+    </message>
+    <message>
+        <source>Incoming connections for %1</source>
+        <translation>Входящие соединения для %1</translation>
     </message>
 </context>
 <context>
