@@ -144,7 +144,6 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 #endif // Q_OS_MACOS
 {
     m_ui->setupUi(this);
-    m_ui->toolBar->layout()->setContentsMargins(8, 3, 8, 3);
 
     Preferences *const pref = Preferences::instance();
     m_displaySpeedInTitle = pref->speedInTitleBar();
