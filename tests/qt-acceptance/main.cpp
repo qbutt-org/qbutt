@@ -47,6 +47,7 @@
 #include <QMap>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QNetworkInterface>
 #include <QNetworkProxy>
 #include <QPalette>
@@ -112,6 +113,7 @@
 #include "gui/pathswidget.h"
 #include "gui/policiesdialog.h"
 #include "gui/profileimportdialog.h"
+#include "gui/properties/peerlistwidget.h"
 #include "gui/properties/propertieswidget.h"
 #include "gui/properties/proptabbar.h"
 #include "gui/repairdialog.h"
@@ -128,7 +130,7 @@ namespace Net
     class PathManagerAcceptance
     {
     public:
-        static void run(const QJsonObject &spec, QJsonObject &evidence);
+        static void run(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence);
     };
 }
 
@@ -400,11 +402,13 @@ namespace
         dialog.show();
         PathsWidget &widget = *requiredChild<PathsWidget>(&dialog, {});
         QCoreApplication::processEvents();
-        auto *nodes = requiredChild<QListWidget>(&widget, u"mihomoNodes"_s);
+        auto *nodes = requiredChild<QTreeWidget>(&widget, u"mihomoNodes"_s);
         auto *enabled = requiredChild<QCheckBox>(&widget, u"mihomoEnabled"_s);
         auto *url = requiredChild<QLineEdit>(&widget, u"mihomoSubscriptionUrl"_s);
+        auto *filter = requiredChild<QLineEdit>(&widget, u"mihomoNodeFilter"_s);
+        auto *format = requiredChild<QComboBox>(&widget, u"mihomoSubscriptionFormat"_s);
         require(!enabled->isChecked() && url->isVisible() && !url->isEnabled()
-                && nodes->count() == 0 && !nodes->isVisible(),
+                && nodes->topLevelItemCount() == 0 && !nodes->isVisible(),
             u"Empty node list was shown before a subscription was loaded"_s);
         require(enabled->geometry().top() < url->geometry().top(),
             u"Mihomo master switch must precede subscription settings"_s);
@@ -413,14 +417,13 @@ namespace
             u"Mihomo settings still expose a manual subscription refresh"_s);
         require(dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"paths-initial.png"_s)),
             u"Cannot render initial connection settings"_s);
-        auto *reserves = requiredChild<QListWidget>(&widget, u"mihomoReserveTransports"_s);
-        auto *sameServer = requiredChild<QComboBox>(&widget, u"mihomoSameServer"_s);
-        auto *groupServers = requiredChild<QPushButton>(&widget, u"mihomoGroupServers"_s);
-        auto *resetGroups = requiredChild<QPushButton>(&widget, u"mihomoResetServerGroups"_s);
-        auto *switchTransport = requiredChild<QPushButton>(&widget, u"mihomoSwitchTransport"_s);
         auto *interfaces = requiredChild<QComboBox>(&widget, u"mihomoPhysicalInterface"_s);
-        auto *paths = requiredChild<QListWidget>(&widget, u"mihomoPaths"_s);
         auto *status = requiredChild<QLabel>(&widget, u"mihomoPathStatus"_s);
+        require(!widget.findChild<QListWidget *>(u"mihomoReserveTransports"_s)
+                && !widget.findChild<QListWidget *>(u"mihomoPaths"_s)
+                && !widget.findChild<QPushButton *>(u"mihomoGroupServers"_s)
+                && !widget.findChild<QPushButton *>(u"mihomoSwitchTransport"_s),
+            u"Obsolete manual server and protocol controls remain in Connection settings"_s);
         require(!interfaces->isEnabled(), u"Disabled Mihomo left its adapter editable"_s);
         enabled->click();
         require(enabled->isChecked() && url->isEnabled() && interfaces->isEnabled()
@@ -428,6 +431,11 @@ namespace
             u"Mihomo setup cannot be entered before a node is selected"_s);
         const QString interfaceName = findPhysicalInterface(interfaces);
         require(!interfaceName.isEmpty(), u"No physical interface is available to exercise Paths"_s);
+        require((format->currentData() == u"auto"_s) && (format->findData(u"base64"_s) >= 0),
+            u"Subscription format preference did not start in Automatic mode"_s);
+        format->setCurrentIndex(format->findData(u"base64"_s));
+        require(Net::PathManager::instance()->subscriptionFormat() == u"base64"_s,
+            u"Subscription format preference was not saved"_s);
         url->setFocus();
         QCoreApplication::processEvents();
         require(url->hasFocus(), u"Subscription URL did not receive focus"_s);
@@ -437,7 +445,7 @@ namespace
         enabled->setFocus();
         QCoreApplication::processEvents();
         require(!url->hasFocus(), u"Subscription URL did not lose focus"_s);
-        waitFor(u"Path node list"_s, [&] { return !Net::PathManager::instance()->isBusy() && (nodes->count() == 4); });
+        waitFor(u"Path node tree"_s, [&] { return !Net::PathManager::instance()->isBusy() && (nodes->topLevelItemCount() == 3); });
         require(Net::PathManager::instance()->subscriptionUrl() == spec.value(u"subscriptionUrl"_s).toString(),
             u"Edited subscription URL was not imported on focus loss"_s);
         url->setFocus();
@@ -445,54 +453,54 @@ namespace
         QCoreApplication::processEvents();
         require(!url->hasFocus(), u"Unchanged subscription URL did not lose focus"_s);
         require(nodes->isVisible(), u"Imported nodes were not shown in Connection settings"_s);
-        const auto findNode = [nodes](const QString &name)
+        const auto findServer = [nodes](const QString &host) -> QTreeWidgetItem *
         {
-            for (int row = 0; row < nodes->count(); ++row)
+            for (int row = 0; row < nodes->topLevelItemCount(); ++row)
             {
-                if (nodes->item(row)->data(Qt::UserRole).toString() == name)
-                    return row;
+                QTreeWidgetItem *server = nodes->topLevelItem(row);
+                if (server->text(0) == host)
+                    return server;
             }
-            return -1;
+            return nullptr;
         };
-        nodes->setCurrentRow(findNode(u"Alpha"_s));
-        require(reserves->count() == 0, u"Different configured servers were automatically grouped"_s);
-        for (int attempt = 0; attempt < 2; ++attempt)
+        QTreeWidgetItem *alpha = findServer(u"127.0.0.20"_s);
+        QTreeWidgetItem *beta = findServer(u"127.0.0.21"_s);
+        QTreeWidgetItem *malicious = findServer(u"127.0.0.22"_s);
+        require(alpha && beta && malicious && (alpha->childCount() == 2)
+                && (beta->childCount() == 0) && (malicious->childCount() == 0),
+            u"Configured servers were not grouped with only multi-protocol children"_s);
+        require(alpha->data(0, Qt::UserRole + 1).toStringList().contains(u"Alpha reserve"_s)
+                && !alpha->child(0)->flags().testFlag(Qt::ItemIsUserCheckable)
+                && !alpha->child(1)->flags().testFlag(Qt::ItemIsUserCheckable),
+            u"Protocol children acquired independent server selection"_s);
+        filter->setText(u"Alpha reserve"_s);
+        QCoreApplication::processEvents();
+        require(!alpha->isHidden() && beta->isHidden(), u"Node search did not filter server groups"_s);
+        filter->clear();
+        QCoreApplication::processEvents();
+        nodes->setCurrentItem(beta);
+        QCoreApplication::processEvents();
+        require(std::ranges::any_of(widget.findChildren<QLabel *>(), [](const QLabel *label)
         {
-            sameServer->setCurrentIndex(sameServer->findData(u"Alpha reserve"_s));
-            require(groupServers->isEnabled(), u"Explicit server grouping control was disabled without live paths"_s);
-            groupServers->click();
-            require(reserves->count() == 1 && resetGroups->isEnabled(), u"Explicit alias grouping did not update the reserve list"_s);
-            if (attempt == 0)
-            {
-                resetGroups->click();
-                require(reserves->count() == 0 && !resetGroups->isEnabled(), u"Reset did not remove only user grouping"_s);
-            }
-        }
-        for (const QString &node : {u"Alpha"_s, u"Beta"_s, QString {MALICIOUS_PROXY_NAME}})
+            return label->text() == PathsWidget::tr("Incoming connections for %1").arg(u"127.0.0.21"_s);
+        }) && requiredChild<QPushButton>(&widget, u"mihomoSaveGateway"_s)->isEnabled(),
+            u"Incoming connection settings did not follow the selected server"_s);
+        nodes->setCurrentItem(alpha);
+        for (QTreeWidgetItem *server : {alpha, beta, malicious})
         {
-            const int row = findNode(node);
-            require(row >= 0, u"Expected acceptance node is missing"_s);
-            if (node == u"Alpha")
-            {
-                require(reserves->count() == 1 && reserves->item(0)->data(Qt::UserRole).toString() == u"Alpha reserve",
-                    u"Reserve list admitted another server or omitted the same-server alternative"_s);
-                require(reserves->item(0)->checkState() == Qt::Unchecked, u"Reserve was selected without user action"_s);
-                reserves->item(0)->setCheckState(Qt::Checked);
-            }
             require(nodes->isEnabled(), u"Mihomo node selection remained disabled after a previous connection"_s);
-            nodes->item(row)->setCheckState(Qt::Checked);
-            waitFor(u"Selected Mihomo node "_s + node, [&]
+            server->setCheckState(0, Qt::Checked);
+            waitFor(u"Selected Mihomo server "_s + server->text(0), [&]
             {
                 return !Net::PathManager::instance()->isBusy()
-                    && Net::PathManager::instance()->selectedNodes().contains(node)
-                    && (nodes->item(row)->checkState() == Qt::Checked);
+                    && (server->checkState(0) == Qt::Checked);
             });
         }
-        require(enabled->isChecked() && Net::PathManager::instance()->selectedNodes().size() == 3,
+        const QStringList selected = Net::PathManager::instance()->selectedNodes();
+        require(enabled->isChecked() && (selected.size() == 4)
+                && selected.contains(u"Alpha"_s) && selected.contains(u"Alpha reserve"_s)
+                && selected.contains(u"Beta"_s) && selected.contains(QString {MALICIOUS_PROXY_NAME}),
             u"Selecting nodes lost the Mihomo setup intent"_s);
-        nodes->setCurrentRow(findNode(u"Alpha"_s));
-        require(reserves->count() == 1 && reserves->item(0)->checkState() == Qt::Checked,
-            u"Explicit reserve was lost when another node was highlighted"_s);
         waitFor(u"Connected selected nodes and direct path"_s, [&]
         {
             const QJsonArray current = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
@@ -503,17 +511,26 @@ namespace
                 && std::ranges::all_of(current, [](const QJsonValue &path) { return path.toObject().value(u"open"_s).toBool(); });
         });
         QJsonArray opened = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
-        require(opened.size() >= 4 && paths->count() == opened.size() && nodes->isEnabled(),
-            u"Paths UI did not retain three selected nodes alongside Direct"_s);
+        QSet<QString> managedEdges;
+        for (const QJsonValue &value : opened)
+        {
+            const QString edge = value.toObject().value(u"edgeId"_s).toString();
+            if (edge != u"native"_s)
+                managedEdges.insert(edge);
+        }
+        require(opened.size() >= 4 && nodes->topLevelItemCount() == 3 && nodes->isEnabled(),
+            u"Connection settings did not retain three selected servers alongside Direct"_s);
+        require(managedEdges.size() == 3 && (opened.size() == managedEdges.size() + 1),
+            u"Two protocols from one server opened as independent paths"_s);
         require(status->text().isEmpty() && !status->isVisible(),
-            u"Connected Paths repeated the selected node below the path list"_s);
+            u"Connected settings repeated the selected node below the tree"_s);
         require(std::ranges::any_of(opened, [](const QJsonValue &value)
         {
             const QJsonObject path = value.toObject();
             return (path.value(u"proxyName"_s) == u"Alpha"_s)
                 && path.value(u"reserveNames"_s).toArray().contains(u"Alpha reserve"_s);
-        }), u"Selected backup connection was not applied when managed paths started"_s);
-        require(url->isEnabled() && nodes->isEnabled() && sameServer->isEnabled() && resetGroups->isEnabled(),
+        }), u"The second protocol was not reserved on the same server"_s);
+        require(url->isEnabled() && nodes->isEnabled() && format->isEnabled(),
             u"Mihomo controls cannot be edited after the first node connects"_s);
         require(std::ranges::all_of(opened, [](const QJsonValue &value)
         {
@@ -533,23 +550,67 @@ namespace
         Net::PathManager::instance()->inspectConfiguration(spec.value(u"subscription"_s).toString());
         require(Net::PathManager::instance()->isBusy(),
             u"A foreground Paths action queued behind status was not exposed as busy"_s);
-        require(!url->isEnabled() && enabled->isEnabled(),
-            u"Subscription refresh was not blocked or the network off switch became unavailable while busy"_s);
+        require(!url->isEnabled() && enabled->isEnabled() && nodes->isEnabled()
+                && filter->isEnabled() && beta->flags().testFlag(Qt::ItemIsUserCheckable),
+            u"Pending refresh made server selection or the network switch unavailable"_s);
+        filter->setText(u"Beta"_s);
+        QCoreApplication::processEvents();
+        require(!beta->isHidden() && alpha->isHidden(), u"Node search stopped responding during status polling"_s);
+        filter->clear();
         waitFor(u"queued foreground Paths action"_s, [&]
         {
             const QJsonObject child = tryReadObject(childEvidence);
             return !Net::PathManager::instance()->isBusy() && !child.value(u"statusPending"_s).toBool()
-                && (nodes->count() == 4);
+                && (nodes->topLevelItemCount() == 3);
         });
-        require(paths->count() == opened.size(),
-            u"Refreshing the local configuration changed active path generations"_s);
+        alpha = findServer(u"127.0.0.20"_s);
+        beta = findServer(u"127.0.0.21"_s);
+        malicious = findServer(u"127.0.0.22"_s);
+        require(alpha && beta && malicious, u"Refreshing the subscription lost a configured server"_s);
+        waitFor(u"Reachable status for selected servers"_s, [&]
+        {
+            const QJsonArray current = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
+            return std::ranges::all_of(current, [](const QJsonValue &value)
+            {
+                const QJsonObject path = value.toObject();
+                if (path.value(u"edgeId"_s) == u"native"_s)
+                    return true;
+                const QJsonObject health = path.value(u"health"_s).toObject();
+                return (health.value(u"state"_s) == u"reachable"_s)
+                    && (health.value(u"protocol"_s) == u"tcp-dns"_s)
+                    && (health.value(u"checkedAtUnixMilli"_s).toInteger() > 0);
+            });
+        });
+        require(alpha->text(1).contains(PathsWidget::tr("Reachable"))
+                && (alpha->child(0)->text(1).contains(PathsWidget::tr("Active"))
+                    || alpha->child(1)->text(1).contains(PathsWidget::tr("Active"))),
+            u"Server tree did not distinguish actual protocol and measured health"_s);
+        const QJsonArray afterRefresh = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
+        require((afterRefresh.size() == opened.size()) && std::ranges::all_of(opened, [&](const QJsonValue &value)
+        {
+            const QJsonObject previous = value.toObject();
+            return std::ranges::any_of(afterRefresh, [&](const QJsonValue &current)
+            {
+                return (current.toObject().value(u"pathId"_s) == previous.value(u"pathId"_s))
+                    && (current.toObject().value(u"generation"_s) == previous.value(u"generation"_s));
+            });
+        }), u"Refreshing the local configuration changed active path generations"_s);
         waitFor(u"Authenticated initial paths"_s, [&]
         {
             return tryReadObject(childEvidence).value(u"payloadBoundaries"_s).toInt() >= 3;
         });
-        nodes->setCurrentRow(findNode(u"Alpha"_s));
-        require(reserves->count() == 1 && reserves->item(0)->checkState() == Qt::Checked,
-            u"Explicit reserves were lost while changing the selected node"_s);
+        waitFor(u"Relay byte counters in the server tree"_s, [&]
+        {
+            const QJsonArray current = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
+            return (alpha->text(2).contains(u"↓"_s) && beta->text(2).contains(u"↑"_s))
+                && std::ranges::count_if(current, [](const QJsonValue &value)
+                {
+                    const QJsonObject path = value.toObject();
+                    const QJsonObject wire = path.value(u"wire"_s).toObject();
+                    return (wire.value(u"relayDownloadBytes"_s).toInteger() > 0)
+                        && (wire.value(u"relayUploadBytes"_s).toInteger() > 0);
+                }) == 3;
+        });
         const auto pathByName = [](const QJsonArray &values, const QString &name)
         {
             for (const QJsonValue &value : values)
@@ -562,22 +623,51 @@ namespace
         };
         const QJsonObject beforeSwitch = pathByName(opened, u"Alpha"_s);
         require(!beforeSwitch.isEmpty(), u"Selected Alpha path was not opened"_s);
-        for (int row = 0; row < paths->count(); ++row)
+        QTreeWidgetItem *reserve = nullptr;
+        for (int child = 0; child < alpha->childCount(); ++child)
         {
-            if (paths->item(row)->data(Qt::UserRole).toString() == beforeSwitch.value(u"pathId"_s).toString())
-                paths->setCurrentRow(row);
+            if (alpha->child(child)->data(0, Qt::UserRole) == u"Alpha reserve"_s)
+                reserve = alpha->child(child);
         }
-        reserves->setCurrentRow(0);
-        require(reserves->item(0)->checkState() == Qt::Checked
-                && reserves->item(0)->flags().testFlag(Qt::ItemIsUserCheckable),
-            u"An active backup connection cannot be edited safely"_s);
-        waitFor(u"Selected reserve action"_s, [=] { return switchTransport->isEnabled(); });
-        switchTransport->click();
-        waitFor(u"Same-server transport replacement"_s, [&]
+        require(reserve, u"Second protocol is missing from its server"_s);
+        const auto clickProtocol = [nodes, reserve]()
+        {
+            nodes->scrollToItem(reserve);
+            QCoreApplication::processEvents();
+            const QPointF point {nodes->visualItemRect(reserve).center()};
+            QMouseEvent press {QEvent::MouseButtonPress, point, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier};
+            QMouseEvent release {QEvent::MouseButtonRelease, point, Qt::LeftButton, Qt::NoButton, Qt::NoModifier};
+            QCoreApplication::sendEvent(nodes->viewport(), &press);
+            QCoreApplication::sendEvent(nodes->viewport(), &release);
+            QCoreApplication::processEvents();
+        };
+        const QString childControl = spec.value(u"childControl"_s).toString();
+        writeObject(childControl, {{u"failReplacement"_s, u"Alpha reserve"_s}});
+        clickProtocol();
+        waitFor(u"Failed preferred protocol preserves the active path"_s, [&]
+        {
+            const QJsonObject current = pathByName(Net::PathManager::instance()->statusData().value(u"paths"_s).toArray(), u"Alpha"_s);
+            return !Net::PathManager::instance()->isBusy()
+                && (tryReadObject(childEvidence).value(u"failedReplacements"_s).toInt() == 1)
+                && (current.value(u"generation"_s) == beforeSwitch.value(u"generation"_s))
+                && (Net::PathManager::instance()->preferredTransport(alpha->data(0, Qt::UserRole).toString()) == u"Alpha reserve"_s);
+        });
+        require(Net::PathManager::instance()->statusData().value(u"failedNodes"_s).toArray().contains(u"Alpha reserve"_s)
+                && !reserve->icon(0).isNull(),
+            u"A failed candidate lost the desired pin or concealed its failure"_s);
+        writeObject(childControl, {});
+        clickProtocol();
+        require(Net::PathManager::instance()->preferredTransport(alpha->data(0, Qt::UserRole).toString()).isEmpty()
+                && (pathByName(Net::PathManager::instance()->statusData().value(u"paths"_s).toArray(), u"Alpha"_s)
+                    .value(u"generation"_s) == beforeSwitch.value(u"generation"_s)),
+            u"Unpinning a failed candidate disturbed the healthy route"_s);
+        clickProtocol();
+        waitFor(u"Pinned protocol replacement"_s, [&]
         {
             const QJsonArray current = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
             return !Net::PathManager::instance()->isBusy() && current.size() == opened.size()
-                && !pathByName(current, u"Alpha reserve"_s).isEmpty();
+                && !pathByName(current, u"Alpha reserve"_s).isEmpty()
+                && (Net::PathManager::instance()->preferredTransport(alpha->data(0, Qt::UserRole).toString()) == u"Alpha reserve"_s);
         });
         const QJsonArray afterSwitch = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
         const QJsonObject replaced = pathByName(afterSwitch, u"Alpha reserve"_s);
@@ -601,47 +691,77 @@ namespace
         }
         require(replaced.value(u"generation"_s).toInteger() > beforeSwitch.value(u"generation"_s).toInteger()
                 && replaced.value(u"edgeId"_s) == beforeSwitch.value(u"edgeId"_s)
-                && replaced.value(u"configuredServerId"_s) != beforeSwitch.value(u"configuredServerId"_s)
+                && replaced.value(u"configuredServerId"_s) == beforeSwitch.value(u"configuredServerId"_s)
                 && otherGenerationsPreserved,
-            u"Manual transport replacement changed another edge or retained its old generation"_s);
+            u"Protocol pin changed another server or retained the old generation"_s);
+        require(!reserve->icon(0).isNull() && reserve->text(1).contains(PathsWidget::tr("Active")),
+            u"Preferred protocol and actual active route are not visible together"_s);
         opened = afterSwitch;
-        const auto generationKeys = [](const QJsonArray &values)
+        writeObject(childControl, {{u"recommended"_s, QJsonObject {{u"Alpha reserve"_s, u"Alpha"_s}}}});
+        waitFor(u"Automatic protocol fallback"_s, [&]
         {
-            QStringList keys;
-            for (const QJsonValue &value : values)
-            {
-                const QJsonObject path = value.toObject();
-                if (path.value(u"edgeId"_s).toString() == u"native")
-                    continue;
-                keys.append(u"%1:%2"_s.arg(path.value(u"pathId"_s).toString())
-                    .arg(path.value(u"generation"_s).toInteger()));
-            }
-            std::ranges::sort(keys);
-            return keys;
-        };
-        const QStringList openedGenerations = generationKeys(opened);
-        require(generationKeys(Net::PathManager::instance()->statusData().value(u"paths"_s).toArray())
-                == openedGenerations,
-            u"Refreshing the local configuration changed active path generations"_s);
-        require(status->text().isEmpty() && !status->isVisible()
-                && sameServer->isVisible() && groupServers->isVisible(),
-            u"Replacing a transport restored redundant Paths status or hid advanced settings"_s);
+            const QJsonArray current = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
+            return !Net::PathManager::instance()->isBusy() && (current.size() == opened.size())
+                && (pathByName(current, u"Alpha"_s).value(u"generation"_s).toInteger()
+                    > replaced.value(u"generation"_s).toInteger());
+        });
+        writeObject(childControl, {});
+        opened = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
+        require(pathByName(opened, u"Alpha"_s).value(u"pathId"_s) == replaced.value(u"pathId"_s)
+                && (Net::PathManager::instance()->preferredTransport(alpha->data(0, Qt::UserRole).toString()) == u"Alpha reserve"_s)
+                && !reserve->icon(0).isNull() && !reserve->text(1).contains(PathsWidget::tr("Active")),
+            u"Fallback lost the server identity or confused the preferred and actual protocols"_s);
+        require(pathByName(opened, u"Beta"_s).value(u"generation"_s)
+                    == pathByName(afterSwitch, u"Beta"_s).value(u"generation"_s)
+                && pathByName(opened, QString {MALICIOUS_PROXY_NAME}).value(u"generation"_s)
+                    == pathByName(afterSwitch, QString {MALICIOUS_PROXY_NAME}).value(u"generation"_s),
+            u"Fallback replaced an unrelated server"_s);
+        clickProtocol();
+        require(Net::PathManager::instance()->preferredTransport(alpha->data(0, Qt::UserRole).toString()).isEmpty()
+                && reserve->icon(0).isNull()
+                && (pathByName(Net::PathManager::instance()->statusData().value(u"paths"_s).toArray(), u"Alpha"_s)
+                    .value(u"generation"_s) == pathByName(opened, u"Alpha"_s).value(u"generation"_s)),
+            u"Clearing a pin cycled a healthy actual route"_s);
+        writeObject(childControl, {{u"failedNames"_s, QJsonArray {u"Beta"_s}}});
+        waitFor(u"Failed server remains selectable"_s, [&]
+        {
+            const QJsonObject path = pathByName(Net::PathManager::instance()->statusData().value(u"paths"_s).toArray(), u"Beta"_s);
+            return (path.value(u"health"_s).toObject().value(u"state"_s) == u"failed"_s)
+                && beta->text(1).contains(PathsWidget::tr("Cannot connect"));
+        });
+        require(beta->checkState(0) == Qt::Checked && beta->flags().testFlag(Qt::ItemIsUserCheckable)
+                && nodes->isEnabled(), u"A failed server became impossible to deselect or retry"_s);
+        require(beta->foreground(0).color() != alpha->foreground(0).color(),
+            u"Failed server was not visually distinguished"_s);
+        writeObject(childControl, {});
+        waitFor(u"Recovered server health"_s, [&]
+        {
+            return beta->text(1).contains(PathsWidget::tr("Reachable"));
+        });
+        require(status->text().isEmpty() && !status->isVisible() && format->isVisible(),
+            u"Protocol changes restored redundant status or hid advanced settings"_s);
         QCoreApplication::processEvents();
-        for (int row = 0; row < paths->count(); ++row)
+        for (int row = 0; row < nodes->topLevelItemCount(); ++row)
         {
-            paths->scrollToItem(paths->item(row));
+            nodes->scrollToItem(nodes->topLevelItem(row));
             QCoreApplication::processEvents();
-            require(paths->viewport()->rect().intersects(paths->visualItemRect(paths->item(row))),
-                u"A Paths row cannot be scrolled into view"_s);
+            require(nodes->viewport()->rect().intersects(nodes->visualItemRect(nodes->topLevelItem(row))),
+                u"A server row cannot be scrolled into view"_s);
         }
         require(dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"paths.png"_s)),
             u"Cannot render Paths offscreen"_s);
+        dialog.resize(800, 650);
+        QCoreApplication::processEvents();
+        require(nodes->horizontalScrollBar()->maximum() == 0
+                && dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"paths-narrow.png"_s)),
+            u"Narrow Connection settings overflowed or could not be rendered"_s);
         addCheck(evidence, {{u"name"_s, u"paths"_s}, {u"edges"_s, opened.size()},
             {u"queuedForegroundBusy"_s, true}, {u"unknownCapabilitiesPreserved"_s, true},
-            {u"explicitReserveInteraction"_s, true},
-            {u"explicitAliasGrouping"_s, true}, {u"selectedNodes"_s, Net::PathManager::instance()->selectedNodes().size()},
+            {u"protocolPinAndFallback"_s, true}, {u"serverHealth"_s, true},
+            {u"selectedNodes"_s, Net::PathManager::instance()->selectedNodes().size()},
             {u"directAlongsideNodes"_s, true},
-            {u"captureWidth"_s, dialog.width()}, {u"captureHeight"_s, dialog.height()}, {u"visiblePathRows"_s, paths->count()}});
+            {u"captureWidth"_s, dialog.width()}, {u"captureHeight"_s, dialog.height()},
+            {u"visibleServerRows"_s, nodes->topLevelItemCount()}});
         dialog.reject();
     }
 
@@ -1645,24 +1765,45 @@ namespace
             {u"responseLimitMs"_s, RESPONSE_LIMIT_MS}});
     }
 
-    void restoreNative(MainWindow *window, QJsonObject &evidence)
+    void restoreNative(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
         PathsWidget widget(window);
         widget.show();
         QCoreApplication::processEvents();
         auto *enabled = requiredChild<QCheckBox>(&widget, u"mihomoEnabled"_s);
         waitFor(u"Managed-network disable action"_s, [=] { return enabled->isEnabled() && enabled->isChecked(); });
+        writeObject(spec.value(u"childControl"_s).toString(), {{u"delayStatus"_s, u"shutdown"_s}});
+        waitFor(u"Delayed transport status before network off"_s, [&]
+        {
+            return tryReadObject(spec.value(u"childEvidence"_s).toString()).value(u"statusPending"_s).toBool();
+        });
+        QElapsedTimer clickLatency;
+        clickLatency.start();
         enabled->click();
+        const qint64 offClickMs = clickLatency.elapsed();
+        require(offClickMs <= RESPONSE_LIMIT_MS,
+            u"Network off blocked the Qt event loop behind a child status request"_s);
         waitFor(u"Native restoration"_s, []
         {
             const QJsonArray paths = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
             return !Net::PathManager::instance()->isBusy() && !Net::PathManager::instance()->isOpen()
                 && paths.isEmpty();
         });
-        require(!enabled->isChecked() && Net::PathManager::instance()->selectedNodes().size() == 3,
+        QElapsedTimer stable;
+        stable.start();
+        while (stable.elapsed() < 1100)
+        {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+            QThread::msleep(1);
+        }
+        require(!enabled->isChecked() && Net::PathManager::instance()->selectedNodes().size() == 4,
             u"Disabling managed networking lost the selected nodes"_s);
+        require(!Net::PathManager::instance()->isOpen()
+                && Net::PathManager::instance()->statusData().value(u"paths"_s).toArray().isEmpty(),
+            u"A stale child completion restored managed networking after Off"_s);
         addCheck(evidence, {{u"name"_s, u"native-restoration"_s}, {u"managedPathsOpen"_s, false},
-            {u"defaultRoutesRestored"_s, true}, {u"selectedNodesRetained"_s, true}});
+            {u"defaultRoutesRestored"_s, true}, {u"selectedNodesRetained"_s, true},
+            {u"offClickMs"_s, offClickMs}});
     }
 
     void exerciseNetworkRestore(Application &application, MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
@@ -1672,7 +1813,7 @@ namespace
         dialog.showConnectionTab();
         dialog.show();
         auto *enabled = requiredChild<QCheckBox>(&dialog, u"mihomoEnabled"_s);
-        auto *nodes = requiredChild<QListWidget>(&dialog, u"mihomoNodes"_s);
+        auto *nodes = requiredChild<QTreeWidget>(&dialog, u"mihomoNodes"_s);
         const auto managedPathsReady = []
         {
             const QJsonArray paths = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
@@ -1690,22 +1831,24 @@ namespace
         };
         waitFor(u"Saved node checklist"_s, [&]
         {
-            return !Net::PathManager::instance()->isBusy() && (nodes->count() == 4)
+            return !Net::PathManager::instance()->isBusy() && (nodes->topLevelItemCount() == 3)
                 && (!expectedEnabled || managedPathsReady());
         });
         QStringList checked;
-        for (int row = 0; row < nodes->count(); ++row)
+        for (int row = 0; row < nodes->topLevelItemCount(); ++row)
         {
-            const QListWidgetItem *item = nodes->item(row);
-            if (item->checkState() == Qt::Checked)
-                checked.append(item->data(Qt::UserRole).toString());
+            const QTreeWidgetItem *item = nodes->topLevelItem(row);
+            if (item->checkState(0) == Qt::Checked)
+                checked.append(item->data(0, Qt::UserRole + 1).toStringList());
         }
         checked.sort();
-        QStringList expected {u"Alpha"_s, u"Beta"_s, QString {MALICIOUS_PROXY_NAME}};
+        QStringList expected {u"Alpha"_s, u"Alpha reserve"_s, u"Beta"_s, QString {MALICIOUS_PROXY_NAME}};
         expected.sort();
+        auto *format = requiredChild<QComboBox>(&dialog, u"mihomoSubscriptionFormat"_s);
         require(enabled->isChecked() == expectedEnabled
                 && Net::PathManager::instance()->managedEnabled() == expectedEnabled
-                && Net::PathManager::instance()->isOpen() == expectedEnabled && (checked == expected),
+                && Net::PathManager::instance()->isOpen() == expectedEnabled && (checked == expected)
+                && (format->currentData() == u"base64"_s),
             u"Restart did not retain the master control and checked nodes"_s);
         const QString screenshot = QDir(spec.value(u"screenshots"_s).toString()).filePath(
             expectedEnabled ? u"paths-enabled-restart.png"_s : u"paths-disabled-restart.png"_s);
@@ -2358,18 +2501,26 @@ namespace
             QJsonArray longNodes;
             for (const QJsonValue &name : spec.value(u"longNodeNames"_s).toArray())
                 longNodes.append(QJsonObject {{u"name"_s, name}, {u"type"_s, u"hysteria2"_s},
-                    {u"configuredServerId"_s, QString(64, QChar(static_cast<char16_t>(u'a' + longNodes.size())))}});
+                    {u"configuredServerId"_s, QString(64, QChar(u'a'))},
+                    {u"serverHost"_s, u"example-long.invalid"_s},
+                    {u"edgeId"_s, QString(64, QChar(u'a'))}});
             require(longNodes.size() == 2, u"Long node name fixture is incomplete"_s);
             Net::PathManager::instance()->proxiesLoaded(longNodes);
             QCoreApplication::processEvents();
-            auto *nodeList = requiredChild<QListWidget>(&options, u"mihomoNodes"_s);
-            require(nodeList->count() == longNodes.size() && nodeList->isVisible(),
-                u"Settings did not populate the generated long node names"_s);
+            auto *nodeList = requiredChild<QTreeWidget>(&options, u"mihomoNodes"_s);
+            require(nodeList->topLevelItemCount() == 1 && nodeList->isVisible()
+                    && (nodeList->topLevelItem(0)->childCount() == longNodes.size()),
+                u"Settings did not group the generated long protocols by server"_s);
             require(nodeList->horizontalScrollBar()->maximum() == 0,
                 u"Long node names created a horizontal list scrollbar"_s);
-            for (int row = 0; row < nodeList->count(); ++row)
-                require(nodeList->item(row)->toolTip().contains(longNodes.at(row).toObject().value(u"name"_s).toString()),
-                    u"An elided node has no full-name tooltip"_s);
+            require(nodeList->topLevelItem(0)->text(0) == u"example-long.invalid"_s,
+                u"The server tree omitted the configured host"_s);
+            QStringList displayedNames;
+            for (int row = 0; row < longNodes.size(); ++row)
+                displayedNames.append(nodeList->topLevelItem(0)->child(row)->data(0, Qt::UserRole).toString());
+            for (const QJsonValue &node : longNodes)
+                require(displayedNames.contains(node.toObject().value(u"name"_s).toString()),
+                    u"An elided protocol lost its full name"_s);
             const auto headings = options.findChildren<QLabel *>();
             require(std::ranges::count_if(headings, [](const QLabel *label)
             {
@@ -2663,7 +2814,7 @@ namespace
         if (spec.value(u"mode"_s).toString() == u"native-address")
         {
             window->hide();
-            Net::PathManagerAcceptance::run(spec, evidence);
+            Net::PathManagerAcceptance::run(window, spec, evidence);
             return;
         }
         if (spec.value(u"mode"_s).toString() == u"diagnostic-waits")
@@ -2695,11 +2846,11 @@ namespace
         exerciseDiagnostics(window, spec, evidence);
         exerciseProgressOverlay(window, spec, evidence);
         exerciseLargeTransferList(window, spec, evidence);
-        restoreNative(window, evidence);
+        restoreNative(window, spec, evidence);
     }
 }
 
-void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evidence)
+void Net::PathManagerAcceptance::run(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
 {
     auto *paths = PathManager::instance();
     auto *session = BitTorrent::Session::instance();
@@ -2797,6 +2948,36 @@ void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evide
     try
     {
         waitFor(u"Native useful payload"_s, [&] { return peer(u"1"_s).value(u"payloadDownload"_s).toInteger() > 16384; });
+        auto *properties = window->propertiesWidget();
+        require(properties, u"Main window has no Peers tab"_s);
+        auto *peerList = properties->getPeerList();
+        properties->loadTorrentInfos(torrent);
+        const auto assertPeerRoute = [&](const QString &pathId, const quint64 generation, const QString &routeName)
+        {
+            const QJsonObject actual = peer(pathId);
+            require(actual.value(u"generation"_s).toInteger() == static_cast<qint64>(generation),
+                u"Peer accounting lost its actual path generation"_s);
+            peerList->loadPeers(torrent);
+            const auto *peerModel = peerList->model();
+            require((peerModel->headerData(PeerListWidget::VIA, Qt::Horizontal).toString() == PeerListWidget::tr("Via"))
+                    && !peerList->isColumnHidden(PeerListWidget::VIA),
+                u"The Peers tab does not show the actual route column"_s);
+            for (int row = 0; row < peerModel->rowCount(); ++row)
+            {
+                if ((peerModel->data(peerModel->index(row, PeerListWidget::IP_HIDDEN)).toString()
+                        == actual.value(u"peer"_s).toString())
+                    && (peerModel->data(peerModel->index(row, PeerListWidget::PORT)).toString()
+                        == QString::number(actual.value(u"port"_s).toInt())))
+                {
+                    require(peerModel->data(peerModel->index(row, PeerListWidget::VIA)).toString() == routeName,
+                        u"The Peers tab displayed a route different from the actual peer path"_s);
+                    return;
+                }
+            }
+            require(false, u"The actual routed peer is missing from the Peers tab"_s);
+        };
+        assertPeerRoute(remotePath, paths->m_paths.front().endpoint.generation, u"remote"_s);
+        assertPeerRoute(u"1"_s, paths->m_nativeEndpoints.front().generation, PeerListWidget::tr("Direct"));
         recordNativeAdmission(u"receiving"_s);
         const quint64 oldGeneration = paths->m_nativeEndpoints.front().generation;
         const QJsonValue oldNativePort = peer(u"1"_s).value(u"localPort"_s);
@@ -2857,6 +3038,8 @@ void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evide
                 && (current.value(u"payloadDownload"_s).toInteger() > 16384);
         }, 90000);
         require(sameRemote(), u"Native replacement retired the healthy remote connection"_s);
+        assertPeerRoute(remotePath, paths->m_paths.front().endpoint.generation, u"remote"_s);
+        assertPeerRoute(u"1"_s, replacementGeneration, PeerListWidget::tr("Direct"));
         torrent->setDownloadLimit(0);
         waitFor(u"Replacement Native completion"_s, [&] { return torrent->progress() == 1; }, 90000);
         require(dhtQueries(u"127.0.0.6"_s) == retiredDhtQueries, u"Retired Native DHT source sent more packets"_s);
@@ -2865,6 +3048,7 @@ void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evide
             {u"replacementGeneration"_s, static_cast<qint64>(replacementGeneration)}, {u"remoteConnectionPreserved"_s, true},
             {u"nativeOnlyTimer"_s, true}, {u"unchangedFamilyPreserved"_s, true},
             {u"unchangedSnapshotPreserved"_s, true}, {u"automaticReconnect"_s, true},
+            {u"actualPeerRouteColumn"_s, true},
             {u"nativeDhtSourceChanged"_s, true}, {u"retiredDhtQueriesRejected"_s, true},
             {u"verifiedBytes"_s, torrent->completedSize()}, {u"physicalInterfaceChanged"_s, false}});
         paths->stopPath();

@@ -2,24 +2,35 @@
 // loopback listeners but never forwards user traffic or reads a subscription.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createServer, isIP, type Server } from "node:net";
 import { isAbsolute } from "node:path";
 
 const evidencePath = process.env.QBUTT_QT_CHILD_EVIDENCE;
 assert(evidencePath, "QBUTT_QT_CHILD_EVIDENCE is required");
-const servers = new Map<string, { server: Server; pathId: string; generation: number; reserveNames: string[] }>();
+const servers = new Map<string, { server: Server; pathId: string; generation: number; proxyName: string; reserveNames: string[];
+    wire: { relayDownloadBytes: number; relayUploadBytes: number } }>();
 const username = "acceptance-user";
 const password = "QBUTT_ACCEPTANCE_SECRET";
-const protocolVersion = 7;
+const protocolVersion = 8;
 const names = ["Alpha", "Beta", "https://user:pass@example.invalid/sub?token=QBUTT_ACCEPTANCE_SECRET#publicEndpoint=198.51.100.44,[2001:db8::44]", "Alpha reserve"];
+const serverHost = (name: string) => `127.0.0.${name === "Alpha reserve" ? 20 : names.indexOf(name) + 20}`;
 const configuredServerId = (name: string) => {
-    const index = names.indexOf(name);
-    assert(index >= 0, "Unknown acceptance proxy name");
-    return createHash("sha256").update("qbutt-configured-server-v1\0" + `127.0.0.${index + 20}`).digest("hex");
+    assert(names.includes(name), "Unknown acceptance proxy name");
+    return createHash("sha256").update("qbutt-configured-server-v1\0" + serverHost(name)).digest("hex");
 };
+const controlPath = process.env.QBUTT_QT_CHILD_CONTROL;
+const control = (): { failedNames?: string[]; recommended?: Record<string, string>; delayStatus?: string;
+    failReplacement?: string } => {
+    if (!controlPath)
+        return {};
+    try { return JSON.parse(readFileSync(controlPath, "utf8")); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return {}; throw error; }
+};
+const delayedTokens = new Set<string>();
 const evidence = { protocol: protocolVersion, hello: 0, listed: 0, status: 0, authenticated: 0, rejectedCredentials: 0,
-    payloadBoundaries: 0, delayedStatus: 0, retiredIngress: 0, statusPending: false, eofObserved: false,
+    payloadBoundaries: 0, delayedStatus: 0, retiredIngress: 0, failedReplacements: 0,
+    statusPending: false, eofObserved: false,
     opened: [] as object[], closed: [] as object[], retiredOnEof: [] as object[] };
 const save = () => writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + "\n");
 const requireKeys = (request: Record<string, unknown>, keys: string[]) =>
@@ -43,7 +54,7 @@ const requireDns = (value: unknown) => {
     assert(["ipv4", "ipv6", "dual"].includes(String(dns.family)));
 };
 
-function authenticatedServer(): Server {
+function authenticatedServer(wire: { relayDownloadBytes: number; relayUploadBytes: number }): Server {
     return createServer(socket => {
         let input = Buffer.alloc(0);
         let stage: "methods" | "credentials" | "request" | "payload" = "methods";
@@ -122,6 +133,8 @@ function authenticatedServer(): Server {
                 }
                 if (input.length > 0) {
                     evidence.payloadBoundaries++;
+                    wire.relayUploadBytes += input.length;
+                    wire.relayDownloadBytes += input.length;
                     save();
                     socket.write(input);
                     input = Buffer.alloc(0);
@@ -162,7 +175,7 @@ for await (const chunk of Bun.stdin.stream()) {
             assert(!selected || (selected.length > 0 && selected.length <= 4 && selected.every(name => names.includes(name))));
             result = { proxies: names.filter(name => !selected || selected.includes(name))
                 .map(name => ({ name, type: name === names[2] ? "malicious-name" : "acceptance",
-                    configuredServerId: configuredServerId(name) })) };
+                    configuredServerId: configuredServerId(name), serverHost: serverHost(name) })) };
         }
         else if (request.method === "open" || request.method === "transport.replace") {
             requireKeys(request,
@@ -177,20 +190,18 @@ for await (const chunk of Bun.stdin.stream()) {
             assert(String(request.proxyName).length > 0 && String(request.interfaceName).length > 0);
             assert.equal(request.configuredServerId, configuredServerId(String(request.proxyName)));
             const pathId = String(request.pathId);
+            const oldKey = `${pathId}:${request.generation}`;
+            const old = request.method === "transport.replace" ? servers.get(oldKey) : undefined;
             if (request.method === "transport.replace") {
-                const oldKey = `${pathId}:${request.generation}`;
-                const old = servers.get(oldKey);
                 assert(old && old.reserveNames.includes(String(request.proxyName)));
                 assert(Number(request.nextGeneration) > old.generation);
-                // Serialize old-generation ingress before the replacement
-                // response, after the parent has already revoked this path.
-                process.stdout.write(JSON.stringify({ v: protocolVersion, id: 0, event: "incomingTcp",
-                    pathId, generation: old.generation, remote: "198.51.100.17:2345", publicEndpoint: "127.0.0.1:40000",
-                    relayHost: "127.0.0.1", relayPort: 40001, relayToken: "ab".repeat(32) }) + "\n");
-                evidence.retiredIngress++;
-                await new Promise<void>(resolve => old.server.close(() => resolve()));
-                servers.delete(oldKey);
-                evidence.closed.push({ pathId, generation: old.generation });
+                if (control().failReplacement === request.proxyName) {
+                    evidence.failedReplacements++;
+                    save();
+                    process.stdout.write(JSON.stringify({ v: protocolVersion, id: request.id,
+                        error: { code: "transport_open_failed", message: "transport_open_failed" } }) + "\n");
+                    continue;
+                }
             }
             const generation = Number(request.nextGeneration ?? request.generation);
             const reserveNames = request.reserveNames as string[];
@@ -200,15 +211,26 @@ for await (const chunk of Bun.stdin.stream()) {
             assert(reserveNames.every(name => configuredServerId(name) === reserveServerIds[name]));
             const key = `${pathId}:${generation}`;
             assert(!servers.has(key), "The parent attempted to open a duplicate path generation");
-            const server = authenticatedServer();
+            const wire = { relayDownloadBytes: 0, relayUploadBytes: 0 };
+            const server = authenticatedServer(wire);
             await new Promise<void>((resolve, reject) => {
                 server.once("error", reject);
                 server.listen(0, "127.0.0.1", resolve);
             });
-            servers.set(key, { server, pathId, generation, reserveNames });
+            servers.set(key, { server, pathId, generation, proxyName: String(request.proxyName), reserveNames, wire });
             const address = server.address();
             assert(address && typeof address !== "string");
             evidence.opened.push({ pathId, generation, proxyName: request.proxyName, port: address.port });
+            if (old) {
+                // The candidate listener exists before the old generation retires.
+                process.stdout.write(JSON.stringify({ v: protocolVersion, id: 0, event: "incomingTcp",
+                    pathId, generation: old.generation, remote: "198.51.100.17:2345", publicEndpoint: "127.0.0.1:40000",
+                    relayHost: "127.0.0.1", relayPort: 40001, relayToken: "ab".repeat(32) }) + "\n");
+                evidence.retiredIngress++;
+                await new Promise<void>(resolve => old.server.close(() => resolve()));
+                servers.delete(oldKey);
+                evidence.closed.push({ pathId, generation: old.generation });
+            }
             result = {
                 pathId, generation, interfaceName: String(request.interfaceName), host: "127.0.0.1", port: address.port,
                 configuredServerId: request.configuredServerId,
@@ -228,7 +250,12 @@ for await (const chunk of Bun.stdin.stream()) {
         else if (request.method === "status") {
             requireKeys(request, ["id", "method", "v"]);
             evidence.status++;
-            if ((servers.size === 3) && (evidence.delayedStatus === 0)) {
+            const state = control();
+            const delayToken = state.delayStatus;
+            if (((servers.size === 3) && (evidence.delayedStatus === 0))
+                || (delayToken && !delayedTokens.has(delayToken))) {
+                if (delayToken)
+                    delayedTokens.add(delayToken);
                 evidence.delayedStatus++;
                 evidence.statusPending = true;
                 save();
@@ -237,8 +264,13 @@ for await (const chunk of Bun.stdin.stream()) {
             }
             result = { paths: [...servers.values()].map(path => ({
                 pathId: path.pathId, generation: path.generation,
-                transport: { state: path.reserveNames.length ? "unknown" : "disabled", recommended: "" },
-                wire: { relayDownloadBytes: 0, relayUploadBytes: 0, carrierDownloadBytes: 0,
+                transport: { state: state.recommended?.[path.proxyName] ? "ready"
+                    : path.reserveNames.length ? "unknown" : "disabled",
+                recommended: state.recommended?.[path.proxyName] ?? "" },
+                health: state.failedNames?.includes(path.proxyName)
+                    ? { state: "failed", protocol: "tcp-dns", checkedAtUnixMilli: Date.now(), reason: "dns-round-trip-failed" }
+                    : { state: "reachable", protocol: "tcp-dns", checkedAtUnixMilli: Date.now() },
+                wire: { relayDownloadBytes: path.wire.relayDownloadBytes, relayUploadBytes: path.wire.relayUploadBytes, carrierDownloadBytes: 0,
                     carrierUploadBytes: 0, carrierDownloadPackets: 0, carrierUploadPackets: 0,
                     relayDownloadCopies: 0 },
             })) };

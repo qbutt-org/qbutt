@@ -368,9 +368,10 @@ try {
         const subscriptionUrl = `https://127.0.0.1:${subscriptionServer.port}/subscription.yaml`;
         const evidencePath = join(root, "evidence.json");
         const childEvidence = join(root, "child-evidence.json");
+        const childControl = join(root, "child-control.json");
         const spec = join(root, "spec.json");
         await writeFile(spec, JSON.stringify({
-            schema: 1, evidencePath, childEvidence, torrentPath: join(fixtures, torrent.file),
+            schema: 1, evidencePath, childEvidence, childControl, torrentPath: join(fixtures, torrent.file),
             sourceRoot: join(fixtures, "seed"), largeRoot, destination, existingDestination, subscription, subscriptionUrl,
             overlayTorrentPath: join(fixtures, overlayTorrent.file), overlayDestination,
             screenshots: join(root, "screenshots"), fixtureRoot: root, profile, bulkRows: 2000,
@@ -380,7 +381,8 @@ try {
         application = Bun.spawn([executable, `--profile=${profile}`], {
             cwd: bundle, windowsHide: true,
             env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: spec,
-                QBUTT_QT_CHILD_EVIDENCE: childEvidence, QBUTT_QT_ACCEPTANCE_CA: certificate },
+                QBUTT_QT_CHILD_EVIDENCE: childEvidence, QBUTT_QT_CHILD_CONTROL: childControl,
+                QBUTT_QT_ACCEPTANCE_CA: certificate },
             stdout: Bun.file(join(root, "stdout.log")), stderr: Bun.file(join(root, "stderr.log")),
             timeout: 600000,
         });
@@ -400,18 +402,19 @@ try {
         assert.equal(subscriptionRequests, 1, "Unchanged subscription focus loss repeated the import request");
         const transport = JSON.parse(await readFile(childEvidence, "utf8")) as {
             protocol: number; hello: number; listed: number; status: number; authenticated: number; rejectedCredentials: number; retiredIngress: number;
-            payloadBoundaries: number; delayedStatus: number; statusPending: boolean;
+            payloadBoundaries: number; delayedStatus: number; failedReplacements: number; statusPending: boolean;
             eofObserved: boolean;
             opened: { pathId: string; generation: number; proxyName: string; port: number }[];
             closed: { pathId: string; generation: number }[];
             retiredOnEof: { pathId: string; generation: number }[];
         };
-        assert.equal(transport.protocol, 7, "The Qt acceptance transport did not use the pinned v7 contract");
+        assert.equal(transport.protocol, 8, "The Qt acceptance transport did not use the pinned v8 contract");
         assert.equal(transport.eofObserved, true, "The transport child did not observe parent EOF and finish cleanup");
         assert(transport.hello >= 1 && transport.listed >= 1, "The production app did not negotiate and list the transport child");
         assert(transport.status >= 1, "The production app did not poll bounded transport counters");
-        assert.equal(transport.opened.length, 4, "The production app did not open three paths plus one reserve generation");
-        assert.equal(transport.retiredIngress, 1, "Queued retired-generation ingress was not exercised");
+        assert.equal(transport.opened.length, 5, "The production app did not open three servers plus pin and fallback generations");
+        assert.equal(transport.failedReplacements, 1, "The failed candidate preflight was not exercised exactly once");
+        assert.equal(transport.retiredIngress, 2, "Queued retired-generation ingress missed a protocol replacement");
         const opened = new Set(transport.opened.map(path => `${path.pathId}:${path.generation}`));
         assert.equal(opened.size, transport.opened.length, "Acceptance paths did not have independent id/generation pairs");
         const retired = [...transport.closed, ...transport.retiredOnEof].map(path => `${path.pathId}:${path.generation}`);
@@ -420,7 +423,7 @@ try {
         assert(transport.authenticated >= 3, "Authenticated payload probes did not reach every listener");
         assert.equal(transport.rejectedCredentials, 3, "Invalid credentials were not rejected by every listener");
         assert.equal(transport.payloadBoundaries, 3, "Authenticated SOCKS payloads did not cross every listener boundary");
-        assert.equal(transport.delayedStatus, 1, "The queued foreground request race was not exercised exactly once");
+        assert.equal(transport.delayedStatus, 2, "The foreground refresh and network-off races were not both exercised");
         assert.equal(transport.statusPending, false, "The delayed status request did not complete");
         const networkRestartEvidence: string[] = [];
         for (const phase of ["network-restore", "network-enabled-restore"] as const) {
@@ -445,7 +448,7 @@ try {
         result = { status: "passed", evidence: evidencePath, executable: resolve(sourceExecutable),
             executableSha256: createHash("sha256").update(bytes).digest("hex"),
             networkRestartEvidence,
-            transport: { protocol: transport.protocol, opened: 4, retired: retired.length,
+            transport: { protocol: transport.protocol, opened: transport.opened.length, retired: retired.length,
                 authenticated: transport.authenticated, payloadBoundaries: transport.payloadBoundaries } };
     }
 }
