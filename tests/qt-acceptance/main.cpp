@@ -634,7 +634,8 @@ namespace
         {
             nodes->scrollToItem(reserve);
             QCoreApplication::processEvents();
-            const QPointF point {nodes->visualItemRect(reserve).center()};
+            const QRect row = nodes->visualItemRect(reserve);
+            const QPointF point {QPoint {row.left() + std::min(80, nodes->columnWidth(0) - 1), row.center().y()}};
             QMouseEvent press {QEvent::MouseButtonPress, point, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier};
             QMouseEvent release {QEvent::MouseButtonRelease, point, Qt::LeftButton, Qt::NoButton, Qt::NoModifier};
             QCoreApplication::sendEvent(nodes->viewport(), &press);
