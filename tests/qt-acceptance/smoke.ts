@@ -431,13 +431,16 @@ try {
         const networkRestartEvidence: string[] = [];
         for (const phase of ["network-restore", "network-enabled-restore"] as const) {
             const restartEvidencePath = join(root, `${phase}-evidence.json`);
+            const restartChildEvidence = join(root, `${phase}-child.json`);
+            const restartChildControl = join(root, `${phase}-child-control.json`);
             const restartSpec = join(root, `${phase}-spec.json`);
             await writeFile(restartSpec, JSON.stringify({ schema: 1, mode: phase,
-                evidencePath: restartEvidencePath, screenshots: join(root, "screenshots") }, null, 2));
+                evidencePath: restartEvidencePath, childEvidence: restartChildEvidence,
+                childControl: restartChildControl, screenshots: join(root, "screenshots") }, null, 2));
             application = Bun.spawn([executable, `--profile=${profile}`], {
                 cwd: bundle, windowsHide: true,
                 env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: restartSpec,
-                    QBUTT_QT_CHILD_EVIDENCE: join(root, `${phase}-child.json`) },
+                    QBUTT_QT_CHILD_EVIDENCE: restartChildEvidence, QBUTT_QT_CHILD_CONTROL: restartChildControl },
                 stdout: Bun.file(join(root, `${phase}-stdout.log`)),
                 stderr: Bun.file(join(root, `${phase}-stderr.log`)), timeout: 90000,
             });
@@ -445,6 +448,17 @@ try {
             assert.equal(restartExitCode, 0, `${phase} process exited ${restartExitCode}; inspect ${root}`);
             const restartEvidence = JSON.parse(await readFile(restartEvidencePath, "utf8"));
             assert.equal(restartEvidence.status, "passed", `${phase} did not retain the saved network selection`);
+            if (phase === "network-enabled-restore") {
+                const forced = JSON.parse(await readFile(restartChildEvidence, "utf8")) as {
+                    statusPending: boolean; eofObserved: boolean; opened: { port: number }[];
+                };
+                assert.equal(forced.statusPending, true, "The stalled child completed before forced network Off");
+                assert.equal(forced.eofObserved, false, "The stalled child unexpectedly reached graceful EOF");
+                assert.equal(forced.opened.length, 3, "Forced network Off did not start with three listening servers");
+                for (const path of forced.opened)
+                    await assert.rejects(authenticate(path.port, "invalid"), { code: "ECONNREFUSED" },
+                        `Forced network Off left the loopback listener on port ${path.port} open`);
+            }
             networkRestartEvidence.push(restartEvidencePath);
         }
         const bytes = await readFile(executable);

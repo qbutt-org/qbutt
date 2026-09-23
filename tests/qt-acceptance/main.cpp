@@ -1870,15 +1870,55 @@ namespace
         const QString screenshot = QDir(spec.value(u"screenshots"_s).toString()).filePath(
             expectedEnabled ? u"paths-enabled-restart.png"_s : u"paths-disabled-restart.png"_s);
         require(dialog.grab().save(screenshot), u"Cannot render retained network selection"_s);
+        const QString childEvidence = spec.value(u"childEvidence"_s).toString();
+        if (expectedEnabled)
+        {
+            waitFor(u"Restored transport status settled"_s, [&]
+            {
+                const QJsonObject child = tryReadObject(childEvidence);
+                return (child.value(u"status"_s).toInt() >= 1)
+                    && !child.value(u"statusPending"_s).toBool();
+            });
+            writeObject(spec.value(u"childControl"_s).toString(), {{u"delayStatus"_s, u"forced-shutdown"_s}});
+            waitFor(u"Stalled child status before forced network off"_s, [&]
+            {
+                return tryReadObject(childEvidence).value(u"statusPending"_s).toBool();
+            });
+            require(Net::PathManager::instance()->statusData().value(u"processId"_s).toInteger() > 0
+                    && tryReadObject(childEvidence).value(u"statusPending"_s).toBool(),
+                u"Forced network Off did not begin with a live, stalled child"_s);
+        }
+        QElapsedTimer offLatency;
+        offLatency.start();
         enabled->click();
+        if (expectedEnabled)
+            require(offLatency.elapsed() <= RESPONSE_LIMIT_MS,
+                u"Stalled transport child blocked the network Off control"_s);
         waitFor(expectedEnabled ? u"Network disabled after restored startup"_s : u"Network enabled after disabled startup"_s, [&]
         {
             return !Net::PathManager::instance()->isBusy()
                 && (expectedEnabled ? !Net::PathManager::instance()->isOpen() : managedPathsReady());
         });
+        if (expectedEnabled)
+        {
+            QElapsedTimer stable;
+            stable.start();
+            while (stable.elapsed() < 1100)
+            {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+                QThread::msleep(1);
+            }
+            const QJsonObject state = Net::PathManager::instance()->statusData();
+            require(!enabled->isChecked() && !Net::PathManager::instance()->isBusy()
+                    && !Net::PathManager::instance()->isOpen()
+                    && (state.value(u"processId"_s).toInteger() == 0)
+                    && state.value(u"paths"_s).toArray().isEmpty(),
+                u"Forced child termination reopened a path or skipped Native restoration"_s);
+        }
         addCheck(evidence, {{u"name"_s, u"network-selection-restart"_s},
             {u"enabledAtStartup"_s, expectedEnabled}, {u"selectedNodes"_s, checked.size()},
-            {u"toggledForNextStartup"_s, true}, {u"screenshot"_s, screenshot}});
+            {u"toggledForNextStartup"_s, true}, {u"screenshot"_s, screenshot},
+            {u"forcedChildTermination"_s, expectedEnabled}});
     }
 
     QJsonObject headerState(QTreeView *view)
