@@ -636,8 +636,9 @@ namespace
             QCoreApplication::processEvents();
             const QRect row = nodes->visualItemRect(reserve);
             const QPointF point {QPoint {row.left() + std::min(80, nodes->columnWidth(0) - 1), row.center().y()}};
-            QMouseEvent press {QEvent::MouseButtonPress, point, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier};
-            QMouseEvent release {QEvent::MouseButtonRelease, point, Qt::LeftButton, Qt::NoButton, Qt::NoModifier};
+            const QPointF globalPoint {nodes->viewport()->mapToGlobal(point.toPoint())};
+            QMouseEvent press {QEvent::MouseButtonPress, point, globalPoint, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier};
+            QMouseEvent release {QEvent::MouseButtonRelease, point, globalPoint, Qt::LeftButton, Qt::NoButton, Qt::NoModifier};
             QCoreApplication::sendEvent(nodes->viewport(), &press);
             QCoreApplication::sendEvent(nodes->viewport(), &release);
             QCoreApplication::processEvents();
