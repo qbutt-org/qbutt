@@ -282,7 +282,7 @@
     },
     "libtorrent": {
       "repository": "https://github.com/qbutt-org/qbutt-libtorrent.git",
-      "commit": "98ca30cc50763555fdf1edbf28aa13de2c73829a",
+      "commit": "ce69296b51339afe3e709cf6fb012c2c98761fe0",
       "upstream": {
         "repository": "https://github.com/arvidn/libtorrent.git",
         "tag": "v2.0.11",
