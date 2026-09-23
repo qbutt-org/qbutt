@@ -131,6 +131,30 @@ namespace
             std::this_thread::sleep_for(10ms);
         return fs::exists(path);
     }
+
+    int waitForListener(lt::session &session, const lt::socket_type_t type,
+        const std::chrono::seconds timeout)
+    {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            std::vector<lt::alert *> alerts;
+            session.pop_alerts(&alerts);
+            for (const lt::alert *alert : alerts)
+            {
+                if (const auto *failed = lt::alert_cast<lt::listen_failed_alert>(alert))
+                {
+                    std::cerr << failed->message() << '\n';
+                    return 0;
+                }
+                if (const auto *ready = lt::alert_cast<lt::listen_succeeded_alert>(alert);
+                    ready && (ready->socket_type == type))
+                    return ready->port;
+            }
+            std::this_thread::sleep_for(10ms);
+        }
+        return 0;
+    }
 }
 
 int main(const int argc, char **argv) try
@@ -402,21 +426,33 @@ int main(const int argc, char **argv) try
     defaultSettings.set_bool(lt::settings_pack::enable_lsd, false);
     defaultSettings.set_bool(lt::settings_pack::enable_upnp, false);
     defaultSettings.set_bool(lt::settings_pack::enable_natpmp, false);
+    defaultSettings.set_int(lt::settings_pack::alert_mask, lt::alert_category::all);
     lt::session defaultSession {defaultSettings};
-    const auto defaultListenDeadline = std::chrono::steady_clock::now() + 10s;
-    while ((defaultSession.listen_port() == 0)
-        && (std::chrono::steady_clock::now() < defaultListenDeadline))
-        std::this_thread::sleep_for(20ms);
-    if (defaultSession.listen_port() == 0)
+    const int defaultUdpPort = waitForListener(defaultSession, lt::socket_type_t::utp, 10s);
+    if ((defaultUdpPort == 0) || (defaultSession.listen_port() == 0))
+    {
+        std::cerr << "default session listener unavailable\n";
         return 17;
+    }
     lt::add_torrent_params defaultAdd;
     defaultAdd.ti = defaultInfo;
     defaultAdd.save_path = (root / "download").string();
     defaultAdd.file_priorities = {lt::dont_download};
     defaultAdd.flags &= ~(lt::torrent_flags::paused | lt::torrent_flags::auto_managed);
-    defaultSession.add_torrent(defaultAdd);
+    const lt::torrent_handle defaultTorrent = defaultSession.add_torrent(defaultAdd);
     if (!waitForFile(markers / "http-default", 10s))
+    {
+        std::cerr << "default tracker not reached: listen=" << defaultSession.listen_port()
+            << " state=" << static_cast<int>(defaultTorrent.status().state) << '\n';
+        std::vector<lt::alert *> alerts;
+        defaultSession.pop_alerts(&alerts);
+        for (const lt::alert *alert : alerts)
+            if (lt::alert_cast<lt::listen_failed_alert>(alert)
+                || lt::alert_cast<lt::tracker_error_alert>(alert)
+                || lt::alert_cast<lt::torrent_error_alert>(alert))
+                std::cerr << alert->message() << '\n';
         return 17;
+    }
 
     lt::settings_pack seedSettings;
     seedSettings.set_str(lt::settings_pack::listen_interfaces, "127.0.0.5:0");
@@ -425,6 +461,7 @@ int main(const int argc, char **argv) try
     seedSettings.set_bool(lt::settings_pack::enable_lsd, false);
     seedSettings.set_bool(lt::settings_pack::enable_upnp, false);
     seedSettings.set_bool(lt::settings_pack::enable_natpmp, false);
+    seedSettings.set_int(lt::settings_pack::alert_mask, lt::alert_category::all);
     seedSettings.set_bool(lt::settings_pack::enable_incoming_tcp, false);
     seedSettings.set_bool(lt::settings_pack::enable_incoming_utp, true);
     seedSettings.set_int(lt::settings_pack::upload_rate_limit, 128 * 1024);
@@ -440,12 +477,16 @@ int main(const int argc, char **argv) try
     seedAdd.flags |= lt::torrent_flags::disable_dht | lt::torrent_flags::disable_lsd
         | lt::torrent_flags::disable_pex;
     const lt::torrent_handle seedTorrent = seedSession.add_torrent(seedAdd);
+    const int seedUdpPort = waitForListener(seedSession, lt::socket_type_t::utp, 15s);
     const auto seedDeadline = std::chrono::steady_clock::now() + 15s;
-    while ((!seedTorrent.status().is_seeding || (seedSession.listen_port() == 0))
-        && (std::chrono::steady_clock::now() < seedDeadline))
+    while (!seedTorrent.status().is_seeding && (std::chrono::steady_clock::now() < seedDeadline))
         std::this_thread::sleep_for(20ms);
-    if (!seedTorrent.status().is_seeding || (seedSession.listen_port() == 0))
+    if (!seedTorrent.status().is_seeding || (seedUdpPort == 0))
+    {
+        std::cerr << "seed session unavailable: udp=" << seedUdpPort
+            << " state=" << static_cast<int>(seedTorrent.status().state) << '\n';
         return 18;
+    }
 
     const lt::udp_route managedUtp = udpRoute(utpRoute, externalAddress, utpPublicPort,
         true, false, false);
@@ -473,7 +514,7 @@ int main(const int argc, char **argv) try
     utpAdd.flags |= lt::torrent_flags::disable_dht | lt::torrent_flags::disable_lsd
         | lt::torrent_flags::disable_pex;
     const lt::torrent_handle utpTorrent = session.add_torrent(utpAdd);
-    utpTorrent.connect_peer({lt::make_address("127.0.0.5"), seedSession.listen_port()});
+    utpTorrent.connect_peer({lt::make_address("127.0.0.5"), static_cast<unsigned short>(seedUdpPort)});
     bool utpObserved = false;
     bool utpSourceObserved = false;
     const auto utpDeadline = std::chrono::steady_clock::now() + 30s;
@@ -511,11 +552,11 @@ int main(const int argc, char **argv) try
     retrySeedAdd.flags |= lt::torrent_flags::disable_dht | lt::torrent_flags::disable_lsd
         | lt::torrent_flags::disable_pex;
     const lt::torrent_handle retrySeedTorrent = retrySeedSession.add_torrent(retrySeedAdd);
+    const int retrySeedTcpPort = waitForListener(retrySeedSession, lt::socket_type_t::tcp, 15s);
     const auto retrySeedDeadline = std::chrono::steady_clock::now() + 15s;
-    while ((!retrySeedTorrent.status().is_seeding || (retrySeedSession.listen_port() == 0))
-        && (std::chrono::steady_clock::now() < retrySeedDeadline))
+    while (!retrySeedTorrent.status().is_seeding && (std::chrono::steady_clock::now() < retrySeedDeadline))
         std::this_thread::sleep_for(20ms);
-    if (!retrySeedTorrent.status().is_seeding || (retrySeedSession.listen_port() == 0))
+    if (!retrySeedTorrent.status().is_seeding || (retrySeedTcpPort == 0))
         return 25;
 
     lt::network_route failedRoute = socksRoute(proxyPort, username, password);
@@ -565,7 +606,7 @@ int main(const int argc, char **argv) try
         | lt::torrent_flags::disable_pex;
     const lt::torrent_handle retryTorrent = retryClient.add_torrent(retryAdd);
     const auto retryStarted = std::chrono::steady_clock::now();
-    retryTorrent.connect_peer({lt::make_address("127.0.0.8"), retrySeedSession.listen_port()});
+    retryTorrent.connect_peer({lt::make_address("127.0.0.8"), static_cast<unsigned short>(retrySeedTcpPort)});
     const auto retryDeadline = retryStarted + 25s;
     int maxRetryPeers = 0;
     while (!retryTorrent.status().is_seeding && (std::chrono::steady_clock::now() < retryDeadline))
@@ -594,7 +635,10 @@ int main(const int argc, char **argv) try
         << ",\"webSeedThroughAuthenticatedSocks\":true"
         << ",\"httpTrackerThroughTcpOnlySocks\":true"
         << ",\"defaultHttpTrackerUnaffected\":true"
+        << ",\"defaultTcpPort\":" << defaultSession.listen_port()
+        << ",\"defaultUdpPort\":" << defaultUdpPort
         << ",\"managedAutomaticUtp\":true"
+        << ",\"utpSeedUdpPort\":" << seedUdpPort
         << ",\"utpVerifiedBytes\":" << actualUtp.size()
         << ",\"alternateRouteRetryVerifiedBytes\":" << actualRetry.size()
         << ",\"alternateRouteRetryMs\":" << retryMilliseconds

@@ -241,7 +241,7 @@ try {
         new Response(child.stdout!).text(), new Response(child.stderr!).text(),
     ]);
     assert.equal(exitCode, 0, `route policy client failed (${exitCode}): ${stderr}\n`
-        + JSON.stringify({ httpAnnounces, dhtQueries, dhtSources, dhtAnnounces }));
+        + JSON.stringify({ httpSources, httpAnnounces, dhtQueries, dhtSources, dhtAnnounces }));
     const clientEvidence = JSON.parse(stdout);
     assert(clientEvidence.passed && clientEvidence.webSeedVerifiedBytes === payload.length);
     assert.equal(clientEvidence.alternateRouteRetryVerifiedBytes, 256 * 1024,
