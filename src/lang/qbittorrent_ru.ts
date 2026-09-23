@@ -6901,14 +6901,14 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>Проверка выбранного узла…</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="915"/>
-        <source>This server is already connected. Disconnect it or choose a backup connection.</source>
-        <translation>Этот сервер уже подключён. Отключите его или выберите резервное соединение.</translation>
+        <location filename="../base/net/pathmanager.cpp" line="1108"/>
+        <source>This server is already connected.</source>
+        <translation>Этот сервер уже подключён.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="924"/>
-        <source>Eight servers are already selected. Use Default connection to reset them.</source>
-        <translation>Уже выбрано восемь серверов. Нажмите «Соединение по умолчанию», чтобы сбросить выбор.</translation>
+        <location filename="../base/net/pathmanager.cpp" line="1117"/>
+        <source>Eight servers are already selected.</source>
+        <translation>Уже выбрано восемь серверов.</translation>
     </message>
     <message>
         <location filename="../base/net/pathmanager.cpp" line="938"/>
@@ -7246,6 +7246,21 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <location filename="../base/net/pathmanager.cpp" line="498"/>
         <source>Select up to eight distinct nodes while Mihomo is off.</source>
         <translation>Выберите не более восьми разных узлов при выключенном Mihomo.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="489"/>
+        <source>Turn off Mihomo and choose up to three distinct backup nodes.</source>
+        <translation>Выключите Mihomo и выберите до трёх разных резервных узлов.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="500"/>
+        <source>Backup nodes must use the same configured or grouped server.</source>
+        <translation>Резервные узлы должны относиться к одному серверу в подписке или к одной группе.</translation>
+    </message>
+    <message>
+        <location filename="../base/net/pathmanager.cpp" line="511"/>
+        <source>Unable to save the backup nodes.</source>
+        <translation>Не удалось сохранить резервные узлы.</translation>
     </message>
 </context>
 <context>
@@ -10078,6 +10093,11 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <location filename="../gui/pathswidget.cpp" line="38"/>
         <source>Use Mihomo</source>
         <translation>Использовать Mihomo</translation>
+    </message>
+    <message>
+        <location filename="../gui/pathswidget.cpp" line="77"/>
+        <source>Find a node</source>
+        <translation>Найти узел</translation>
     </message>
 </context>
 <context>
