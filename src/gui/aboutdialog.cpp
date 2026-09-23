@@ -55,7 +55,7 @@ AboutDialog::AboutDialog(QWidget *parent)
     m_ui->logo->setPixmap(UIThemeManager::instance()->getScaledPixmap(u"qbittorrent-tray"_s, 32));
 
     // About
-    const QString aboutText = (
+    const QString aboutTemplate =
         u"<p style=\"white-space: pre-wrap;\">"_s
         + tr("qbutt is a fork of qBittorrent %1.").arg(QStringLiteral(QBT_VERSION))
         + u"\n\n%1\n\n"
@@ -65,8 +65,8 @@ AboutDialog::AboutDialog(QWidget *parent)
         u"<tr><td>%4</td><td><a href=\"https://www.qbittorrent.org\">https://www.qbittorrent.org</a></td></tr>"
         u"<tr><td>%5</td><td><a href=\"https://github.com/qbutt-org/qbutt/issues\">https://github.com/qbutt-org/qbutt/issues</a></td></tr>"
         u"</table>"
-        u"</p>"_s)
-        .arg(tr("A ButtTorrent Client")
+        u"</p>"_s;
+    const QString aboutText = aboutTemplate.arg(tr("A ButtTorrent Client")
             , tr("Copyright %1 2006-2026 The qBittorrent project").arg(C_COPYRIGHT)
             , tr("Home Page:")
             , tr("Upstream:")
