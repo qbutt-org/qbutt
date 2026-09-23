@@ -26,12 +26,14 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDirIterator>
+#include <QDoubleSpinBox>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFont>
 #include <QFontDatabase>
+#include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHeaderView>
@@ -62,6 +64,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QStandardPaths>
+#include <QStatusBar>
 #include <QStyleHints>
 #include <QSslCertificate>
 #include <QSslConfiguration>
@@ -1841,6 +1844,12 @@ namespace
         const QString phase = spec.value(u"appearance"_s).toString();
         const bool dark = phase == u"product";
         require(dark || (phase == u"retained") || (phase == u"functional"), u"Unknown appearance phase"_s);
+        if (phase == u"functional")
+        {
+            BitTorrent::Session::instance()->setConfiguredDownloadSpeedLimit(1234567);
+            BitTorrent::Session::instance()->setConfiguredUploadSpeedLimit(765432);
+            BitTorrent::Session::instance()->setSpeedLimitEnabled(false);
+        }
         if (dark)
         {
 #ifdef QBT_HAS_COLORSCHEME_OPTION
@@ -1885,6 +1894,37 @@ namespace
         const int separatedGap = actionCenter(u"actionStart"_s) - actionCenter(u"actionDelete"_s);
         require((openGap >= 30) && (openGap <= 38) && (deleteGap >= 30) && (deleteGap <= 38)
                 && (separatedGap > deleteGap), u"Toolbar icons lost compact spacing or group separation"_s);
+        const QMargins centralMargins = window->centralWidget()->layout()->contentsMargins();
+        const QMargins toolbarMargins = toolbar->layout()->contentsMargins();
+        require((centralMargins.left() == 8) && (centralMargins.right() == 8)
+                && (toolbarMargins.left() == 8) && (toolbarMargins.right() == 8),
+            u"Toolbar and content lost their matching outer gutters"_s);
+        auto *webSeedsTab = requiredChild<QPushButton>(properties, u"webSeedsTabButton"_s);
+        auto *speedTab = requiredChild<QPushButton>(properties, u"speedTabButton"_s);
+        auto *filesTab = requiredChild<QPushButton>(properties, u"filesTabButton"_s);
+        require(webSeedsTab->mapTo(window, QPoint()).x() < speedTab->mapTo(window, QPoint()).x()
+                && speedTab->mapTo(window, QPoint()).x() < filesTab->mapTo(window, QPoint()).x()
+                && (filesTab->mapTo(properties, QPoint(filesTab->width(), 0)).x() < properties->width() - 8),
+            u"Properties tabs are not inline in HTTP Sources, Speed, Content order"_s);
+        speedTab->click();
+        require(properties->tabBar()->currentIndex() == PropTabBar::SpeedTab,
+            u"Speed tab moved visually but no longer opens its page"_s);
+        filesTab->click();
+        require(properties->tabBar()->currentIndex() == PropTabBar::FilesTab,
+            u"Content tab did not restore the default page"_s);
+        QStatusBar *statusBar = window->statusBar();
+        auto *limitsButton = requiredChild<QPushButton>(statusBar, u"speedLimitsButton"_s);
+        auto *downloadButton = requiredChild<QPushButton>(statusBar, u"downloadSpeedButton"_s);
+        auto *uploadButton = requiredChild<QPushButton>(statusBar, u"uploadSpeedButton"_s);
+        require(!statusBar->isSizeGripEnabled() && limitsButton->isFlat()
+                && downloadButton->isFlat() && uploadButton->isFlat()
+                && (downloadButton->minimumWidth() < 100) && (uploadButton->minimumWidth() < 100)
+                && (limitsButton->mapTo(statusBar, QPoint()).x() < downloadButton->mapTo(statusBar, QPoint()).x())
+                && (downloadButton->mapTo(statusBar, QPoint()).x() < uploadButton->mapTo(statusBar, QPoint()).x())
+                && (statusBar->width() - uploadButton->mapTo(statusBar, QPoint(uploadButton->width(), 0)).x() <= 16)
+                && std::ranges::none_of(statusBar->findChildren<QFrame *>(), [](const QFrame *frame)
+                { return frame->isVisible() && (frame->frameShape() == QFrame::VLine); }),
+            u"Status controls are wide, framed or detached from the right gutter"_s);
         const auto layout = [&]
         {
             return QJsonObject {{u"transfers"_s, headerState(list)},
@@ -1946,6 +1986,10 @@ namespace
             u"Built-in surfaces do not match the resolved system color scheme"_s);
         require(palette.color(QPalette::Link) == QColor(dark ? u"#009df7"_s : u"#0879b9"_s),
             u"Built-in accent color is incorrect"_s);
+        if (dark)
+            require(palette.color(QPalette::Highlight) == QColor(u"#0075b5"_s)
+                    && palette.color(QPalette::HighlightedText) == QColor(Qt::white),
+                u"Dark selected text lost its brighter accessible contrast"_s);
         const QDir screenshots {spec.value(u"screenshots"_s).toString()};
         const auto captureAbout = [window, &screenshots](const QString &theme)
         {
@@ -2051,9 +2095,17 @@ namespace
         auto *custom = requiredChild<QGroupBox>(&options, u"checkUseCustomTheme"_s);
         auto *scheme = requiredChild<QComboBox>(&options, u"comboColorScheme"_s);
         auto *language = requiredChild<QComboBox>(&options, u"comboLanguage"_s);
+        auto *certificateLink = requiredChild<QLabel>(&options, u"lblWebUICertInfo"_s);
         require(language->mapTo(&options, QPoint()).x() == scheme->mapTo(&options, QPoint()).x()
                 && language->width() == scheme->width(),
             u"Interface language and appearance fields do not share aligned edges"_s);
+        require(certificateLink->openExternalLinks()
+                && certificateLink->textInteractionFlags().testFlag(Qt::LinksAccessibleByMouse)
+                && certificateLink->text().contains(u"href="_s)
+                && certificateLink->text().contains(u"text-decoration: none"_s)
+                && certificateLink->text().contains(phase == u"functional"
+                    ? u"Information about certificates"_s : u"Сведения о сертификатах"_s),
+            u"Certificate help link lost its translation, target or normal ununderlined style"_s);
         require(!custom->isChecked() && custom->isEnabled(), u"Custom theme checkbox does not reflect the default"_s);
 #ifdef QBT_HAS_COLORSCHEME_OPTION
         const ColorScheme expectedScheme = dark ? ColorScheme::System : ColorScheme::Light;
@@ -2177,6 +2229,18 @@ namespace
             addCheck(evidence, {{u"name"_s, u"settings-categories"_s},
                 {u"count"_s, pages->count()}, {u"dialogWidth"_s, options.width()},
                 {u"dialogHeight"_s, options.height()}, {u"horizontalOverflow"_s, false}});
+            pages->setCurrentRow(3);
+            QCoreApplication::processEvents();
+            auto *rateBox = requiredChild<QGroupBox>(&options, u"rateLimitBox"_s);
+            auto *downloadLimit = requiredChild<QDoubleSpinBox>(&options, u"spinDownloadLimit"_s);
+            auto *uploadLimit = requiredChild<QDoubleSpinBox>(&options, u"spinUploadLimit"_s);
+            auto *schedule = requiredChild<QGroupBox>(&options, u"groupBoxSchedule"_s);
+            require(rateBox->isVisible() && !options.findChild<QGroupBox *>(u"altRateLimitBox"_s)
+                    && (downloadLimit->decimals() == 2) && (uploadLimit->decimals() == 2)
+                    && (downloadLimit->suffix() == u" Mbit/s"_s) && (uploadLimit->suffix() == u" Mbit/s"_s)
+                    && (schedule->title() == (dark ? u"Расписание ограничений скорости"_s : u"Schedule speed limits"_s)),
+                u"Speed settings expose multiple modes, wrong units or untranslated schedule"_s);
+            requireNoOverflow();
             pages->setCurrentRow(0);
             QCoreApplication::processEvents();
             require(requiredChild<QLabel>(&options, u"verticalLayout_9AdvancedHeading"_s)->isVisible(),
@@ -2210,6 +2274,12 @@ namespace
                 apply->click();
                 require(Preferences::instance()->isAutoRemoveCompletedTorrentsEnabled()
                         && Preferences::instance()->isDownloadProgressOverlayEnabled(), u"Download checkboxes did not save"_s);
+                auto *session = BitTorrent::Session::instance();
+                require(!session->isSpeedLimitEnabled() && (session->downloadSpeedLimit() == 0)
+                        && (session->uploadSpeedLimit() == 0)
+                        && (session->configuredDownloadSpeedLimit() == 1234567)
+                        && (session->configuredUploadSpeedLimit() == 765432),
+                    u"Unrelated Options apply rounded or enabled saved speed caps"_s);
                 OptionsDialog reopened {&application, window};
                 require(requiredChild<QCheckBox>(&reopened, u"checkAutoRemoveCompletedTorrents"_s)->isChecked()
                         && requiredChild<QCheckBox>(&reopened, u"checkDownloadProgressOverlay"_s)->isChecked(),
@@ -2218,6 +2288,25 @@ namespace
                 remove->setChecked(false);
                 overlay->setChecked(false);
                 apply->click();
+                pages->setCurrentRow(3);
+                downloadLimit->setValue(12.34);
+                uploadLimit->setValue(4.56);
+                apply->click();
+                require(!session->isSpeedLimitEnabled()
+                        && (session->configuredDownloadSpeedLimit() == 1542500)
+                        && (session->configuredUploadSpeedLimit() == 570000)
+                        && (session->downloadSpeedLimit() == 0),
+                    u"Mbit/s inputs changed the effective unlimited mode or converted incorrectly"_s);
+                QAction *toggleLimits = requiredChild<QAction>(window, u"actionUseAlternativeSpeedLimits"_s);
+                toggleLimits->trigger();
+                require(session->isSpeedLimitEnabled() && (session->downloadSpeedLimit() == 1542500)
+                        && (session->uploadSpeedLimit() == 570000),
+                    u"Enabling speed limits did not apply both configured caps"_s);
+                toggleLimits->trigger();
+                require(!session->isSpeedLimitEnabled() && (session->downloadSpeedLimit() == 0)
+                        && (session->uploadSpeedLimit() == 0)
+                        && (session->configuredDownloadSpeedLimit() == 1542500),
+                    u"Disabling speed limits lost configured caps or left a cap active"_s);
             }
             options.showConnectionTab();
             QJsonArray longNodes;
