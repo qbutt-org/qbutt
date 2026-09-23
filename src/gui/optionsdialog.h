@@ -85,6 +85,7 @@ public:
 
 public slots:
     void showConnectionTab();
+    void reject() override;
 
 private slots:
     void adjustProxyOptions();
@@ -122,7 +123,6 @@ private:
     // Methods
     bool applySettings();
     void saveOptions() const;
-    void setAdditionalSettingsVisible(bool visible);
 
     void loadBehaviorTabOptions();
     void saveBehaviorTabOptions() const;
@@ -152,10 +152,8 @@ private:
 
     // General options
     void initializeLanguageCombo();
-    void initializeStyleCombo();
     void initializeColorSchemeOptions();
     QString getLocale() const;
-    bool isSplashScreenDisabled() const;
 #ifdef Q_OS_WIN
     bool WinStartup() const;
 #endif

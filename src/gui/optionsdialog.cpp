@@ -30,11 +30,8 @@
 
 #include "optionsdialog.h"
 
-#include <algorithm>
 #include <chrono>
-#include <cstdlib>
 #include <limits>
-#include <utility>
 
 #include <QApplication>
 #include <QClipboard>
@@ -45,8 +42,6 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMessageBox>
-#include <QStyleFactory>
-#include <QSystemTrayIcon>
 #include <QTranslator>
 
 #include "base/bittorrent/session.h"
@@ -63,7 +58,6 @@
 #include "base/torrentfileguard.h"
 #include "base/torrentfileswatcher.h"
 #include "base/utils/apikey.h"
-#include "base/utils/compare.h"
 #include "base/utils/io.h"
 #include "base/utils/misc.h"
 #include "base/utils/net.h"
@@ -173,46 +167,32 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, QWidget *parent)
     m_ui->hsplitter->setCollapsible(0, false);
     m_ui->hsplitter->setCollapsible(1, false);
 
-    // Main icons
-    m_ui->tabSelection->item(TAB_UI)->setIcon(UIThemeManager::instance()->getIcon(u"preferences-desktop"_s));
-    m_ui->tabSelection->item(TAB_BITTORRENT)->setIcon(UIThemeManager::instance()->getIcon(u"preferences-bittorrent"_s, u"preferences-system-network"_s));
-    m_ui->tabSelection->item(TAB_CONNECTION)->setIcon(UIThemeManager::instance()->getIcon(u"network-connect"_s, u"network-wired"_s));
-    m_ui->tabSelection->item(TAB_DOWNLOADS)->setIcon(UIThemeManager::instance()->getIcon(u"download"_s, u"folder-download"_s));
-    m_ui->tabSelection->item(TAB_SPEED)->setIcon(UIThemeManager::instance()->getIcon(u"speedometer"_s, u"chronometer"_s));
-    m_ui->tabSelection->item(TAB_RSS)->setIcon(UIThemeManager::instance()->getIcon(u"application-rss"_s, u"application-rss+xml"_s));
-    m_ui->tabSelection->item(TAB_SEARCH)->setIcon(UIThemeManager::instance()->getIcon(u"edit-find"_s));
 #ifdef DISABLE_WEBUI
     m_ui->tabSelection->item(TAB_WEBUI)->setHidden(true);
-#else
-    m_ui->tabSelection->item(TAB_WEBUI)->setIcon(UIThemeManager::instance()->getIcon(u"preferences-webui"_s, u"network-server"_s));
 #endif
-    m_ui->tabSelection->item(TAB_ADVANCED)->setIcon(UIThemeManager::instance()->getIcon(u"preferences-advanced"_s, u"preferences-other"_s));
 
-    // set uniform size for all icons
-    int maxHeight = -1;
-    for (int i = 0; i < m_ui->tabSelection->count(); ++i)
-        maxHeight = std::max(maxHeight, m_ui->tabSelection->visualItemRect(m_ui->tabSelection->item(i)).size().height());
-    for (int i = 0; i < m_ui->tabSelection->count(); ++i)
+    const auto updateThemeIcons = [this]
     {
-        const QSize size(std::numeric_limits<int>::max(), static_cast<int>(maxHeight * 1.2));
-        m_ui->tabSelection->item(i)->setSizeHint(size);
-    }
+        m_ui->tabSelection->item(TAB_UI)->setIcon(UIThemeManager::instance()->getIcon(u"preferences-desktop"_s));
+        m_ui->tabSelection->item(TAB_DOWNLOADS)->setIcon(UIThemeManager::instance()->getIcon(u"download"_s, u"folder-download"_s));
+        m_ui->tabSelection->item(TAB_CONNECTION)->setIcon(UIThemeManager::instance()->getIcon(u"network-connect"_s, u"network-wired"_s));
+        m_ui->tabSelection->item(TAB_SPEED)->setIcon(UIThemeManager::instance()->getIcon(u"speedometer"_s, u"chronometer"_s));
+        m_ui->tabSelection->item(TAB_BITTORRENT)->setIcon(UIThemeManager::instance()->getIcon(u"preferences-bittorrent"_s, u"preferences-system-network"_s));
+        m_ui->tabSelection->item(TAB_SEARCH)->setIcon(UIThemeManager::instance()->getIcon(u"edit-find"_s));
+        m_ui->tabSelection->item(TAB_RSS)->setIcon(UIThemeManager::instance()->getIcon(u"application-rss"_s, u"application-rss+xml"_s));
+#ifndef DISABLE_WEBUI
+        m_ui->tabSelection->item(TAB_WEBUI)->setIcon(UIThemeManager::instance()->getIcon(u"preferences-webui"_s, u"network-server"_s));
+#endif
+        m_ui->tabSelection->item(TAB_ADVANCED)->setIcon(UIThemeManager::instance()->getIcon(u"preferences-advanced"_s, u"preferences-other"_s));
+        m_ui->labelGlobalRate->setPixmap(UIThemeManager::instance()->getScaledPixmap(u"slow_off"_s, Utils::Gui::mediumIconSize(this).height()));
+        m_ui->labelAltRate->setPixmap(UIThemeManager::instance()->getScaledPixmap(u"slow"_s, Utils::Gui::mediumIconSize(this).height()));
+        m_ui->deleteTorrentWarningIcon->setPixmap(QApplication::style()->standardIcon(QStyle::SP_MessageBoxCritical).pixmap(16, 16));
+    };
 
-    connect(m_ui->moreSettingsButton, &QToolButton::toggled, this, &ThisType::setAdditionalSettingsVisible);
-    setAdditionalSettingsVisible(false);
+    for (int i = 0; i < m_ui->tabSelection->count(); ++i)
+        m_ui->tabSelection->item(i)->setSizeHint(QSize(168, 36));
+
     connect(m_ui->tabSelection, &QListWidget::currentItemChanged, this, &ThisType::changePage);
-
-    for (const auto &[button, contents] : {std::pair {m_ui->moreGeneralSettingsButton, m_ui->additionalGeneralSettings}
-        , std::pair {m_ui->moreDownloadSettingsButton, m_ui->additionalDownloadSettings}
-        , std::pair {m_ui->moreConnectionSettingsButton, m_ui->additionalConnectionSettings}})
-    {
-        contents->hide();
-        connect(button, &QToolButton::toggled, contents, [button, contents](const bool expanded)
-        {
-            contents->setVisible(expanded);
-            button->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
-        });
-    }
 
     // Load options
     loadBehaviorTabOptions();
@@ -230,6 +210,9 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, QWidget *parent)
     m_advancedSettings = new AdvancedSettings(app, m_ui->tabAdvancedPage);
     m_ui->advPageLayout->addWidget(m_advancedSettings);
     connect(m_advancedSettings, &AdvancedSettings::settingsChanged, this, &ThisType::enableApplyButton);
+
+    updateThemeIcons();
+    connect(UIThemeManager::instance(), &UIThemeManager::themeChanged, this, updateThemeIcons);
 
     // setup apply button
     m_applyButton->setEnabled(false);
@@ -275,7 +258,6 @@ void OptionsDialog::loadBehaviorTabOptions()
     initializeLanguageCombo();
     setLocale(pref->getLocale());
 
-    initializeStyleCombo();
     initializeColorSchemeOptions();
 
     m_ui->checkUseCustomTheme->setChecked(Preferences::instance()->useCustomUITheme());
@@ -326,33 +308,8 @@ void OptionsDialog::loadBehaviorTabOptions()
 #ifndef Q_OS_WIN
     m_ui->checkStartup->setVisible(false);
 #endif
-    m_ui->checkShowSplash->setChecked(!pref->isSplashScreenDisabled());
-    m_ui->checkProgramExitConfirm->setChecked(pref->confirmOnExit());
-    m_ui->checkProgramAutoExitConfirm->setChecked(!pref->dontConfirmAutoExit());
-
-    m_ui->windowStateComboBox->addItem(tr("Normal"), QVariant::fromValue(WindowState::Normal));
-    m_ui->windowStateComboBox->addItem(tr("Minimized"), QVariant::fromValue(WindowState::Minimized));
 #ifndef Q_OS_MACOS
-    m_ui->windowStateComboBox->addItem(tr("Hidden"), QVariant::fromValue(WindowState::Hidden));
-#endif
-    m_ui->windowStateComboBox->setCurrentIndex(m_ui->windowStateComboBox->findData(QVariant::fromValue(app()->startUpWindowState())));
-
-#if !(defined(Q_OS_WIN) || defined(Q_OS_MACOS))
-    m_ui->groupFileAssociation->setVisible(false);
-#endif
-
-#ifndef Q_OS_MACOS
-    // Disable systray integration if it is not supported by the system
-    if (!QSystemTrayIcon::isSystemTrayAvailable())
-    {
-        m_ui->checkShowSystray->setChecked(false);
-        m_ui->checkShowSystray->setEnabled(false);
-        m_ui->checkShowSystray->setToolTip(tr("Disabled due to failed to detect system tray presence"));
-    }
-    m_ui->checkShowSystray->setChecked(pref->systemTrayEnabled());
-    m_ui->checkMinimizeToSysTray->setChecked(pref->minimizeToTray());
-    m_ui->checkCloseToSystray->setChecked(pref->closeToTray());
-    m_ui->comboTrayIcon->setCurrentIndex(static_cast<int>(pref->trayIconStyle()));
+    m_ui->groupFileAssociation->hide();
 #endif
 
 #ifdef Q_OS_WIN
@@ -360,7 +317,6 @@ void OptionsDialog::loadBehaviorTabOptions()
 #endif
 
 #ifdef Q_OS_MACOS
-    m_ui->checkShowSystray->setVisible(false);
     m_ui->checkAssociateTorrents->setChecked(MacUtils::isTorrentFileAssocSet());
     m_ui->checkAssociateTorrents->setEnabled(!m_ui->checkAssociateTorrents->isChecked());
     m_ui->checkAssociateMagnetLinks->setChecked(MacUtils::isMagnetLinkAssocSet());
@@ -387,13 +343,15 @@ void OptionsDialog::loadBehaviorTabOptions()
     m_ui->checkFileLog->setChecked(app()->isFileLoggerEnabled());
 
     m_ui->checkBoxFreeDiskSpaceStatusBar->setChecked(pref->isStatusbarFreeDiskSpaceDisplayed());
-    m_ui->checkBoxExternalIPStatusBar->setChecked(pref->isStatusbarExternalIPDisplayed());
     m_ui->checkBoxPerformanceWarning->setChecked(session->isPerformanceWarningEnabled());
 
     connect(m_ui->comboLanguage, qComboBoxCurrentIndexChanged, this, &ThisType::enableApplyButton);
-    connect(m_ui->comboStyle, qComboBoxCurrentIndexChanged, this, &ThisType::enableApplyButton);
 #ifdef QBT_HAS_COLORSCHEME_OPTION
-    connect(m_ui->comboColorScheme, qComboBoxCurrentIndexChanged, this, &ThisType::enableApplyButton);
+    connect(m_ui->comboColorScheme, qComboBoxCurrentIndexChanged, this, [this]
+    {
+        UIThemeManager::instance()->previewColorScheme(m_ui->comboColorScheme->currentData().value<ColorScheme>());
+        enableApplyButton();
+    });
 #endif
 
 #if (defined(Q_OS_UNIX) && !defined(Q_OS_MACOS))
@@ -432,29 +390,12 @@ void OptionsDialog::loadBehaviorTabOptions()
 #ifdef Q_OS_WIN
     connect(m_ui->checkStartup, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
 #endif
-    connect(m_ui->checkShowSplash, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
-    connect(m_ui->checkProgramExitConfirm, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
-    connect(m_ui->checkProgramAutoExitConfirm, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
-    connect(m_ui->checkShowSystray, &QGroupBox::toggled, this, &ThisType::enableApplyButton);
-    connect(m_ui->checkMinimizeToSysTray, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
-    connect(m_ui->checkCloseToSystray, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
-    connect(m_ui->comboTrayIcon, qComboBoxCurrentIndexChanged, this, &ThisType::enableApplyButton);
-    connect(m_ui->windowStateComboBox, qComboBoxCurrentIndexChanged, this, &ThisType::enableApplyButton);
-
     connect(m_ui->checkPreventFromSuspendWhenDownloading, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
     connect(m_ui->checkPreventFromSuspendWhenSeeding, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
 
 #if defined(Q_OS_MACOS)
     connect(m_ui->checkAssociateTorrents, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
     connect(m_ui->checkAssociateMagnetLinks, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
-#endif
-
-#ifdef Q_OS_WIN
-    m_ui->assocPanel->hide();
-#endif
-
-#ifdef Q_OS_MAC
-    m_ui->defaultProgramPanel->hide();
 #endif
 
 #if (defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)) && !defined(QBT_USES_DBUS)
@@ -474,7 +415,6 @@ void OptionsDialog::loadBehaviorTabOptions()
     connect(m_ui->comboFileLogAgeType, qComboBoxCurrentIndexChanged, this, &ThisType::enableApplyButton);
 
     connect(m_ui->checkBoxFreeDiskSpaceStatusBar, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
-    connect(m_ui->checkBoxExternalIPStatusBar, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
     connect(m_ui->checkBoxPerformanceWarning, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
 }
 
@@ -495,8 +435,6 @@ void OptionsDialog::saveBehaviorTabOptions() const
         qApp->installTranslator(translator);
     }
     pref->setLocale(locale);
-
-    pref->setStyle(m_ui->comboStyle->currentData().toString());
 
 #ifdef QBT_HAS_COLORSCHEME_OPTION
     UIThemeManager::instance()->setColorScheme(m_ui->comboColorScheme->currentData().value<ColorScheme>());
@@ -523,19 +461,8 @@ void OptionsDialog::saveBehaviorTabOptions() const
 
     pref->setTorrentContentDragEnabled(m_ui->checkTorrentContentDrag->isChecked());
 
-    pref->setSplashScreenDisabled(isSplashScreenDisabled());
-    pref->setConfirmOnExit(m_ui->checkProgramExitConfirm->isChecked());
-    pref->setDontConfirmAutoExit(!m_ui->checkProgramAutoExitConfirm->isChecked());
-
 #ifdef Q_OS_WIN
     pref->setWinStartup(WinStartup());
-#endif
-
-#ifndef Q_OS_MACOS
-    pref->setSystemTrayEnabled(m_ui->checkShowSystray->isChecked());
-    pref->setTrayIconStyle(TrayIcon::Style(m_ui->comboTrayIcon->currentIndex()));
-    pref->setCloseToTray(m_ui->checkCloseToSystray->isChecked());
-    pref->setMinimizeToTray(m_ui->checkMinimizeToSysTray->isChecked());
 #endif
 
 #ifdef Q_OS_MACOS
@@ -564,10 +491,7 @@ void OptionsDialog::saveBehaviorTabOptions() const
     app()->setFileLoggerDeleteOld(m_ui->checkFileLogDelete->isChecked());
     app()->setFileLoggerEnabled(m_ui->checkFileLog->isChecked());
 
-    app()->setStartUpWindowState(m_ui->windowStateComboBox->currentData().value<WindowState>());
-
     pref->setStatusbarFreeDiskSpaceDisplayed(m_ui->checkBoxFreeDiskSpaceStatusBar->isChecked());
-    pref->setStatusbarExternalIPDisplayed(m_ui->checkBoxExternalIPStatusBar->isChecked());
     session->setPerformanceWarningEnabled(m_ui->checkBoxPerformanceWarning->isChecked());
 }
 
@@ -608,7 +532,6 @@ void OptionsDialog::loadDownloadsTabOptions()
     const TorrentFileGuard::AutoDeleteMode autoDeleteMode = TorrentFileGuard::autoDeleteMode();
     m_ui->deleteTorrentBox->setChecked(autoDeleteMode != TorrentFileGuard::Never);
     m_ui->deleteCancelledTorrentBox->setChecked(autoDeleteMode == TorrentFileGuard::Always);
-    m_ui->deleteTorrentWarningIcon->setPixmap(QApplication::style()->standardIcon(QStyle::SP_MessageBoxCritical).pixmap(16, 16));
     m_ui->deleteTorrentWarningIcon->hide();
     m_ui->deleteTorrentWarningLabel->hide();
     m_ui->deleteTorrentWarningLabel->setToolTip(u"<html><body><p>" +
@@ -1062,11 +985,9 @@ void OptionsDialog::loadSpeedTabOptions()
     const auto *pref = Preferences::instance();
     const auto *session = BitTorrent::Session::instance();
 
-    m_ui->labelGlobalRate->setPixmap(UIThemeManager::instance()->getScaledPixmap(u"slow_off"_s, Utils::Gui::mediumIconSize(this).height()));
     m_ui->spinUploadLimit->setValue(session->globalUploadSpeedLimit() / 1024);
     m_ui->spinDownloadLimit->setValue(session->globalDownloadSpeedLimit() / 1024);
 
-    m_ui->labelAltRate->setPixmap(UIThemeManager::instance()->getScaledPixmap(u"slow"_s, Utils::Gui::mediumIconSize(this).height()));
     m_ui->spinUploadLimitAlt->setValue(session->altGlobalUploadSpeedLimit() / 1024);
     m_ui->spinDownloadLimitAlt->setValue(session->altGlobalDownloadSpeedLimit() / 1024);
 
@@ -1604,31 +1525,12 @@ void OptionsDialog::changePage(QListWidgetItem *current, QListWidgetItem *previo
     if (!current)
         current = previous;
     const int page = m_ui->tabSelection->row(current);
-    if (page >= TAB_BITTORRENT)
-        m_ui->moreSettingsButton->setChecked(true);
     m_ui->tabOption->setCurrentIndex(page);
-}
-
-void OptionsDialog::setAdditionalSettingsVisible(const bool visible)
-{
-    if (!visible && (m_ui->tabSelection->currentRow() >= TAB_BITTORRENT))
-        m_ui->tabSelection->setCurrentRow(TAB_UI);
-
-    for (int tab = TAB_BITTORRENT; tab <= TAB_ADVANCED; ++tab)
-    {
-#ifdef DISABLE_WEBUI
-        if (tab == TAB_WEBUI)
-            continue;
-#endif
-        m_ui->tabSelection->item(tab)->setHidden(!visible);
-    }
-    m_ui->moreSettingsButton->setArrowType(visible ? Qt::DownArrow : Qt::RightArrow);
 }
 
 void OptionsDialog::loadSplitterState()
 {
-    // width has been modified, use height as width reference instead
-    const int width = m_ui->tabSelection->item(TAB_UI)->sizeHint().height() * 2;
+    const int width = 184;
     const QStringList defaultSizes = {QString::number(width), QString::number(m_ui->hsplitter->width() - width)};
 
     QList<int> splitterSizes;
@@ -1834,6 +1736,14 @@ void OptionsDialog::on_buttonBox_rejected()
     reject();
 }
 
+void OptionsDialog::reject()
+{
+#ifdef QBT_HAS_COLORSCHEME_OPTION
+    UIThemeManager::instance()->previewColorScheme(UIThemeManager::instance()->colorScheme());
+#endif
+    QDialog::reject();
+}
+
 bool OptionsDialog::useAdditionDialog() const
 {
     return m_ui->checkAdditionDialog->isChecked();
@@ -1903,42 +1813,12 @@ void OptionsDialog::adjustProxyOptions()
     }
 }
 
-bool OptionsDialog::isSplashScreenDisabled() const
-{
-    return !m_ui->checkShowSplash->isChecked();
-}
-
-void OptionsDialog::initializeStyleCombo()
-{
-#ifdef Q_OS_WIN
-    m_ui->labelStyleHint->setText(tr("%1 is recommended for best compatibility with Windows dark mode"
-            , "Fusion is recommended for best compatibility with Windows dark mode").arg(u"Fusion"_s));
-#else
-    m_ui->labelStyleHint->hide();
-    m_ui->layoutStyle->removeWidget(m_ui->labelStyleHint);
-#endif
-
-    m_ui->comboStyle->addItem(tr("System", "System default Qt style"), u"system"_s);
-    m_ui->comboStyle->setItemData(0, tr("Let Qt decide the style for this system"), Qt::ToolTipRole);
-    m_ui->comboStyle->insertSeparator(1);
-
-    QStringList styleNames = QStyleFactory::keys();
-    std::ranges::sort(styleNames, Utils::Compare::NaturalLessThan<Qt::CaseInsensitive>());
-    for (const QString &styleName : asConst(styleNames))
-        m_ui->comboStyle->addItem(styleName, styleName);
-
-    const QString prefStyleName = Preferences::instance()->getStyle();
-    const QString selectedStyleName = prefStyleName.isEmpty() ? QApplication::style()->name() : prefStyleName;
-    const int styleIndex = m_ui->comboStyle->findData(selectedStyleName, Qt::UserRole, Qt::MatchFixedString);
-    m_ui->comboStyle->setCurrentIndex(std::max(0, styleIndex));
-}
-
 void OptionsDialog::initializeColorSchemeOptions()
 {
 #ifdef QBT_HAS_COLORSCHEME_OPTION
-    m_ui->comboColorScheme->addItem(tr("Dark", "Dark color scheme"), QVariant::fromValue(ColorScheme::Dark));
-    m_ui->comboColorScheme->addItem(tr("Light", "Light color scheme"), QVariant::fromValue(ColorScheme::Light));
     m_ui->comboColorScheme->addItem(tr("System", "System color scheme"), QVariant::fromValue(ColorScheme::System));
+    m_ui->comboColorScheme->addItem(tr("Light", "Light color scheme"), QVariant::fromValue(ColorScheme::Light));
+    m_ui->comboColorScheme->addItem(tr("Dark", "Dark color scheme"), QVariant::fromValue(ColorScheme::Dark));
     m_ui->comboColorScheme->setCurrentIndex(m_ui->comboColorScheme->findData(QVariant::fromValue(UIThemeManager::instance()->colorScheme())));
 #else
     m_ui->labelColorScheme->hide();
