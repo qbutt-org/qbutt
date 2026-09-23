@@ -9819,11 +9819,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>По умолчанию используется Cloudflare DNS (1.1.1.1). Изменения применяются при подключении узла. Полная изоляция DNS приложения пока не проверена.</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="41"/>
-        <source>Refresh</source>
-        <translation>Обновить</translation>
-    </message>
-    <message>
         <location filename="../gui/pathswidget.cpp" line="43"/>
         <source>Connect selected node</source>
         <translation>Подключить узел</translation>
@@ -9951,8 +9946,8 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="152"/>
-        <source>Group only nodes you know share one server. Disconnect them first.</source>
-        <translation>Объединяйте только узлы, о которых известно, что они ведут на один сервер. Сначала отключите их.</translation>
+        <source>Group only nodes you know share one server.</source>
+        <translation>Объединяйте только узлы, о которых известно, что они ведут на один сервер.</translation>
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="153"/>
@@ -10098,6 +10093,14 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <location filename="../gui/pathswidget.cpp" line="38"/>
         <source>Use Mihomo</source>
         <translation>Использовать Mihomo</translation>
+    </message>
+    <message>
+        <source>Choose a node to connect.</source>
+        <translation>Выберите узел для подключения.</translation>
+    </message>
+    <message>
+        <source>Choose a network adapter to connect.</source>
+        <translation>Выберите сетевой адаптер для подключения.</translation>
     </message>
     <message>
         <location filename="../gui/pathswidget.cpp" line="77"/>

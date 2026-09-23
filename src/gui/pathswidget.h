@@ -33,6 +33,8 @@ private:
     QString selectedNode() const;
     void refreshState();
     void refreshReserves();
+    void activateSelection();
+    bool suspendManaged();
 
     Net::PathManager *m_manager;
     QFormLayout *m_transportForm;
@@ -60,7 +62,8 @@ private:
     QCheckBox *m_gatewayUdp;
     QPushButton *m_gatewayApply;
     QListWidget *m_paths;
-    QPushButton *m_refresh;
     QPushButton *m_switch;
     QLabel *m_status;
+    bool m_setupIntent = false;
+    bool m_importPending = false;
 };
