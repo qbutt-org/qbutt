@@ -6,6 +6,7 @@
 #pragma once
 
 #include <QGroupBox>
+#include <QString>
 
 class QCheckBox;
 class QComboBox;
@@ -32,6 +33,8 @@ private:
     void activateSelection();
     void saveSelection();
     void filterNodes();
+    QString selectedServerId() const;
+    void loadGatewaySettings();
 
     Net::PathManager *m_manager;
     QLineEdit *m_url;
@@ -44,6 +47,7 @@ private:
     QLineEdit *m_bootstrapServer;
     QComboBox *m_dnsFamily;
     QPushButton *m_dnsApply;
+    QLabel *m_gatewayHeading;
     QLineEdit *m_gatewayControlAddress;
     QLineEdit *m_gatewayDatagramAddress;
     QLineEdit *m_gatewayServerName;

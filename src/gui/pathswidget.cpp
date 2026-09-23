@@ -77,6 +77,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     , m_bootstrapServer {new QLineEdit(this)}
     , m_dnsFamily {new QComboBox(this)}
     , m_dnsApply {new QPushButton(tr("Save DNS"), this)}
+    , m_gatewayHeading {new QLabel(this)}
     , m_gatewayControlAddress {new QLineEdit(this)}
     , m_gatewayDatagramAddress {new QLineEdit(this)}
     , m_gatewayServerName {new QLineEdit(this)}
@@ -212,7 +213,8 @@ PathsWidget::PathsWidget(QWidget *parent)
         m_manager->setDnsPolicy(m_dnsServer->text(), m_bootstrapServer->text(), m_dnsFamily->currentData().toString());
     });
 
-    layout->addWidget(new QLabel(tr("Incoming connections"), this));
+    m_gatewayHeading->setWordWrap(true);
+    layout->addWidget(m_gatewayHeading);
     auto *gatewayForm = new QFormLayout;
     gatewayForm->setRowWrapPolicy(QFormLayout::WrapLongRows);
     m_gatewayControlAddress->setObjectName(u"mihomoGatewayControlAddress"_s);
@@ -246,19 +248,13 @@ PathsWidget::PathsWidget(QWidget *parent)
     m_gatewayTcp->setToolTip(tr("Receive connections through your public gateway."));
     m_gatewayUdp->setToolTip(tr("Receive connections through your public gateway."));
     layout->addLayout(gatewayForm);
-    const QJsonObject gateway = m_manager->gatewayConfiguration();
-    m_gatewayControlAddress->setText(gateway.value(u"controlAddress"_s).toString());
-    m_gatewayDatagramAddress->setText(gateway.value(u"datagramAddress"_s).toString());
-    m_gatewayServerName->setText(gateway.value(u"serverName"_s).toString());
-    m_gatewayCaPath->setText(gateway.value(u"caPath"_s).toString());
-    m_gatewayCertificatePath->setText(gateway.value(u"certificatePath"_s).toString());
-    m_gatewayPrivateKeyPath->setText(gateway.value(u"privateKeyPath"_s).toString());
-    m_gatewayPort->setValue(gateway.value(u"port"_s).toInt());
-    m_gatewayTcp->setChecked(gateway.value(u"tcp"_s).toBool());
-    m_gatewayUdp->setChecked(gateway.value(u"udp"_s).toBool());
+    loadGatewaySettings();
     connect(m_gatewayUdp, &QCheckBox::toggled, this, &PathsWidget::refreshState);
     connect(m_gatewayApply, &QPushButton::clicked, this, [this]()
     {
+        const QString serverId = selectedServerId();
+        if (serverId.isEmpty())
+            return;
         m_manager->setGatewayConfiguration({
             {u"controlAddress"_s, m_gatewayControlAddress->text()},
             {u"datagramAddress"_s, m_gatewayDatagramAddress->text()},
@@ -268,7 +264,7 @@ PathsWidget::PathsWidget(QWidget *parent)
             {u"privateKeyPath"_s, m_gatewayPrivateKeyPath->text()},
             {u"port"_s, m_gatewayPort->value()},
             {u"tcp"_s, m_gatewayTcp->isChecked()},
-            {u"udp"_s, m_gatewayUdp->isChecked()}});
+            {u"udp"_s, m_gatewayUdp->isChecked()}}, serverId);
     });
 
     connect(m_url, &QLineEdit::editingFinished, this, [this]()
@@ -283,6 +279,16 @@ PathsWidget::PathsWidget(QWidget *parent)
         m_manager->setSubscriptionFormat(m_subscriptionFormat->currentData().toString());
     });
     connect(m_nodeFilter, &QLineEdit::textChanged, this, &PathsWidget::filterNodes);
+    connect(m_nodes, &QTreeWidget::currentItemChanged, this,
+        [this](QTreeWidgetItem *current, QTreeWidgetItem *previous)
+    {
+        const QTreeWidgetItem *oldServer = previous && previous->parent() ? previous->parent() : previous;
+        const QTreeWidgetItem *newServer = current && current->parent() ? current->parent() : current;
+        if (oldServer != newServer)
+            loadGatewaySettings();
+        else
+            refreshState();
+    });
     connect(m_nodes, &QTreeWidget::itemChanged, this, [this](QTreeWidgetItem *item)
     {
         if (!item->parent())
@@ -325,6 +331,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     connect(m_manager, &Net::PathManager::proxiesLoaded, this, [this, form](const QJsonArray &proxies)
     {
         const QStringList selected = m_manager->selectedNodes();
+        const QString previousServer = selectedServerId();
         QMap<QString, QList<QJsonObject>> groups;
         const QSignalBlocker nodesBlocker(m_nodes);
         m_nodes->clear();
@@ -343,6 +350,7 @@ PathsWidget::PathsWidget(QWidget *parent)
         {
             const QList<QJsonObject> &variants = it.value();
             auto *server = new QTreeWidgetItem(m_nodes, {variants.first().value(u"serverHost"_s).toString()});
+            server->setToolTip(0, server->text(0));
             server->setData(0, Qt::UserRole, it.key());
             server->setFlags(server->flags() | Qt::ItemIsUserCheckable);
             QStringList names;
@@ -365,6 +373,17 @@ PathsWidget::PathsWidget(QWidget *parent)
         }
         m_nodes->sortItems(0, Qt::AscendingOrder);
         m_nodes->expandAll();
+        QTreeWidgetItem *currentServer = nullptr;
+        for (int row = 0; row < m_nodes->topLevelItemCount(); ++row)
+        {
+            QTreeWidgetItem *server = m_nodes->topLevelItem(row);
+            if (server->data(0, Qt::UserRole) == previousServer)
+                currentServer = server;
+        }
+        if (!currentServer && (m_nodes->topLevelItemCount() > 0))
+            currentServer = m_nodes->topLevelItem(0);
+        m_nodes->setCurrentItem(currentServer);
+        loadGatewaySettings();
         filterNodes();
         form->setRowVisible(m_nodeFilter, m_nodes->topLevelItemCount() > 0);
         form->setRowVisible(m_nodes, m_nodes->topLevelItemCount() > 0);
@@ -511,16 +530,17 @@ void PathsWidget::refreshState()
     m_bootstrapServer->setEnabled(enabled && !busy);
     m_dnsFamily->setEnabled(enabled && !busy);
     m_dnsApply->setEnabled(enabled && !busy);
-    m_gatewayControlAddress->setEnabled(enabled && !busy);
-    m_gatewayDatagramAddress->setEnabled(enabled && !busy && m_gatewayUdp->isChecked());
-    m_gatewayServerName->setEnabled(enabled && !busy);
-    m_gatewayCaPath->setEnabled(enabled && !busy);
-    m_gatewayCertificatePath->setEnabled(enabled && !busy);
-    m_gatewayPrivateKeyPath->setEnabled(enabled && !busy);
-    m_gatewayPort->setEnabled(enabled && !busy);
-    m_gatewayTcp->setEnabled(enabled && !busy);
-    m_gatewayUdp->setEnabled(enabled && !busy);
-    m_gatewayApply->setEnabled(enabled && !busy);
+    const bool gatewayEditable = enabled && !busy && !selectedServerId().isEmpty();
+    m_gatewayControlAddress->setEnabled(gatewayEditable);
+    m_gatewayDatagramAddress->setEnabled(gatewayEditable && m_gatewayUdp->isChecked());
+    m_gatewayServerName->setEnabled(gatewayEditable);
+    m_gatewayCaPath->setEnabled(gatewayEditable);
+    m_gatewayCertificatePath->setEnabled(gatewayEditable);
+    m_gatewayPrivateKeyPath->setEnabled(gatewayEditable);
+    m_gatewayPort->setEnabled(gatewayEditable);
+    m_gatewayTcp->setEnabled(gatewayEditable);
+    m_gatewayUdp->setEnabled(gatewayEditable);
+    m_gatewayApply->setEnabled(gatewayEditable);
     if (enabled && !m_manager->status().isEmpty())
         m_status->setText(m_manager->status());
     else if (m_setupIntent && m_manager->selectedNodes().isEmpty())
@@ -554,4 +574,34 @@ void PathsWidget::filterNodes()
         if (childMatches && !query.isEmpty())
             server->setExpanded(true);
     }
+}
+
+QString PathsWidget::selectedServerId() const
+{
+    const QTreeWidgetItem *item = m_nodes->currentItem();
+    if (!item)
+        return {};
+    const QTreeWidgetItem *server = item->parent() ? item->parent() : item;
+    return server->data(0, Qt::UserRole).toString();
+}
+
+void PathsWidget::loadGatewaySettings()
+{
+    const QString serverId = selectedServerId();
+    const QTreeWidgetItem *item = m_nodes->currentItem();
+    const QTreeWidgetItem *server = item && item->parent() ? item->parent() : item;
+    m_gatewayHeading->setText(serverId.isEmpty() ? tr("Incoming connections")
+        : tr("Incoming connections for %1").arg(server->text(0)));
+    const QJsonObject gateway = serverId.isEmpty() ? QJsonObject {} : m_manager->gatewayConfiguration(serverId);
+    m_gatewayControlAddress->setText(gateway.value(u"controlAddress"_s).toString());
+    m_gatewayDatagramAddress->setText(gateway.value(u"datagramAddress"_s).toString());
+    m_gatewayServerName->setText(gateway.value(u"serverName"_s).toString());
+    m_gatewayCaPath->setText(gateway.value(u"caPath"_s).toString());
+    m_gatewayCertificatePath->setText(gateway.value(u"certificatePath"_s).toString());
+    m_gatewayPrivateKeyPath->setText(gateway.value(u"privateKeyPath"_s).toString());
+    m_gatewayPort->setValue(gateway.value(u"port"_s).toInt());
+    const QSignalBlocker udpBlocker(m_gatewayUdp);
+    m_gatewayTcp->setChecked(gateway.value(u"tcp"_s).toBool());
+    m_gatewayUdp->setChecked(gateway.value(u"udp"_s).toBool());
+    refreshState();
 }

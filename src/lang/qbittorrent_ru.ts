@@ -9893,6 +9893,10 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Входящие соединения</translation>
     </message>
     <message>
+        <source>Incoming connections for %1</source>
+        <translation>Входящие соединения для %1</translation>
+    </message>
+    <message>
         <source>Control endpoint:</source>
         <translation>Адрес управления:</translation>
     </message>
