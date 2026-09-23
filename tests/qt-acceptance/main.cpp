@@ -519,9 +519,9 @@ namespace
                 paths->setCurrentRow(row);
         }
         reserves->setCurrentRow(0);
-        reserves->item(0)->setCheckState(Qt::Unchecked);
-        require(!switchTransport->isEnabled(), u"Unchecked reserve enabled manual switching"_s);
-        reserves->item(0)->setCheckState(Qt::Checked);
+        require(reserves->item(0)->checkState() == Qt::Checked
+                && !reserves->item(0)->flags().testFlag(Qt::ItemIsUserCheckable),
+            u"An active backup connection could still be edited while managed networking was on"_s);
         waitFor(u"Selected reserve action"_s, [=] { return switchTransport->isEnabled(); });
         switchTransport->click();
         waitFor(u"Same-server transport replacement"_s, [&]
@@ -1695,9 +1695,24 @@ namespace
         require(dark || (phase == u"retained") || (phase == u"functional"), u"Unknown appearance phase"_s);
         if (dark)
         {
+#ifdef QBT_HAS_COLORSCHEME_OPTION
+            const int before = static_cast<int>(QApplication::styleHints()->colorScheme());
+            int signals = 0;
+            const auto connection = QObject::connect(QApplication::styleHints(), &QStyleHints::colorSchemeChanged,
+                &application, [&] { ++signals; });
             QApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
-            waitFor(u"System dark appearance"_s,
+            QCoreApplication::processEvents();
+            QObject::disconnect(connection);
+            addCheck(evidence, {{u"name"_s, u"offscreen-color-scheme"_s},
+                {u"platform"_s, QApplication::platformName()}, {u"before"_s, before},
+                {u"after"_s, static_cast<int>(QApplication::styleHints()->colorScheme())},
+                {u"signals"_s, signals}, {u"baseAfterOverride"_s, application.palette().color(QPalette::Base).name()}});
+            UIThemeManager::instance()->previewColorScheme(ColorScheme::Dark);
+            waitFor(u"Dark product preview"_s,
                 [&] { return application.palette().color(QPalette::Base) == QColor(u"#191a1c"_s); });
+#else
+            require(false, u"Appearance acceptance requires Qt color scheme support"_s);
+#endif
         }
         if (dark)
             require(RepairDialog::tr("Scan files") != u"Scan files", u"Russian product translation was not loaded"_s);
@@ -1778,16 +1793,13 @@ namespace
                 require(UIThemeManager::instance()->colorScheme() == ColorScheme::System,
                     u"Cancelling appearance preview changed the saved scheme"_s);
             }
-            QApplication::styleHints()->setColorScheme(Qt::ColorScheme::Light);
-            waitFor(u"System appearance follows Light"_s,
-                [&] { return application.palette().color(QPalette::Base) == QColor(u"#ffffff"_s); });
-            QApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
-            waitFor(u"System appearance follows Dark"_s,
+            UIThemeManager::instance()->previewColorScheme(ColorScheme::Dark);
+            waitFor(u"Dark preview restored after Cancel"_s,
                 [&] { return application.palette().color(QPalette::Base) == QColor(u"#191a1c"_s); });
             require(iconDigest(retainedIcon) == darkIcon,
                 u"A retained toolbar icon did not return to its dark variant"_s);
-            require(window->grab().save(screenshots.filePath(u"product-system-dark.png"_s)),
-                u"Cannot render System dark toolbar"_s);
+            require(window->grab().save(screenshots.filePath(u"product-dark.png"_s)),
+                u"Cannot render dark toolbar"_s);
         }
 #endif
         OptionsDialog options {&application, window};
