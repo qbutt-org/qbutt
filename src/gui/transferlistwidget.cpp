@@ -1042,7 +1042,8 @@ void TransferListWidget::displayListMenu()
     connect(actionSetTorrentPath, &QAction::triggered, this, &TransferListWidget::setSelectedTorrentsLocation);
     auto *actionForceRecheck = new QAction(UIThemeManager::instance()->getIcon(u"force-recheck"_s, u"document-edit-verify"_s), tr("Force rec&heck"), listMenu);
     connect(actionForceRecheck, &QAction::triggered, this, &TransferListWidget::recheckSelectedTorrents);
-    auto *actionRepair = new QAction(tr("Smart repair..."), listMenu);
+    auto *actionRepair = new QAction(UIThemeManager::instance()->getIcon(u"repair-data"_s)
+        , tr("Repair files..."), listMenu);
     connect(actionRepair, &QAction::triggered, this, &TransferListWidget::repairSelectedTorrent);
     auto *actionDiagnostics = new QAction(tr("Network diagnostics..."), listMenu);
     connect(actionDiagnostics, &QAction::triggered, this, &TransferListWidget::diagnoseSelectedTorrent);

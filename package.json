@@ -8,7 +8,6 @@
     "smoke:repair": "bun tests/repair/smoke.ts",
     "smoke:repair-mappings": "bun tests/repair/mappings.ts",
     "smoke:repair-index": "bun tests/repair/index-layout.ts",
-    "smoke:repair-product": "bun tests/repair-product/smoke.ts",
     "smoke:staging": "bun tests/repair/staging-smoke.ts",
     "smoke:staging-mappings": "bun tests/repair/staging-mappings.ts",
     "smoke:staging-faults": "bun tests/repair/staging-faults.ts",

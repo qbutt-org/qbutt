@@ -49,7 +49,7 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
     , m_consent {new QCheckBox {tr("I have closed other programs that can change these files."), this}}
 {
     setObjectName(QStringLiteral("RepairDialog"));
-    setWindowTitle(tr("Smart repair"));
+    setWindowTitle(tr("Repair files"));
     setWindowModality(Qt::WindowModal);
     resize(760, 0);
 

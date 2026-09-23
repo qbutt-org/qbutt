@@ -15,7 +15,7 @@
 #include "base/path.h"
 #include "common.h"
 #include "repairfileguard.h"
-#include "repairplan.h"
+#include "repairsources.h"
 #include "sessionimpl.h"
 #include "stagingoperation.h"
 #include "torrentimpl.h"

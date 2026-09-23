@@ -41,7 +41,6 @@ bun run smoke:network
 bun run smoke:gateway
 bun run smoke:repair
 bun run smoke:repair-mappings
-bun run smoke:repair-product
 bun run smoke:staging
 bun run smoke:staging-mappings
 bun run smoke:storage-faults
@@ -199,12 +198,14 @@ Use an installer fixture with its own AppId for this process-restart scenario;
 never replace a live installation. `qbutt-version.txt` controls the independent qbutt
 version, UI and archive name.
 
-`smoke:qt` launches the real application offscreen with a new profile. It drives
-repair preview, explicit mappings, staged commit, multiple Paths, completion
-policies, bounded diagnostics export, and a 2,000-row transfer list. The runner
-creates and cancels a 30,000-file source search, measures event-loop response,
-checks payload snapshots before consent, and verifies final bytes and preserved
-unknown files. Set `QBUTT_QT_ACCEPTANCE_BUNDLE` only when the deployed runtime is
+`smoke:qt` launches the real application offscreen with a new profile. It adds
+existing files through the normal torrent dialog, checks them before completion,
+then exercises stopped-torrent repair with source mappings, explicit consent and
+staged commit. It also covers multiple Paths, completion policies, bounded
+diagnostics export, and a 2,000-row transfer list. The runner creates and cancels
+a 30,000-file source search, measures event-loop response, checks payload snapshots
+before consent, and verifies final bytes and preserved unknown files. Set
+`QBUTT_QT_ACCEPTANCE_BUNDLE` only when the deployed runtime is
 not in the build tree's `portable` directory. This is process/UI-model acceptance,
 not physical desktop interaction or public-network evidence.
 
@@ -290,22 +291,6 @@ exact sizes/SHA-256 with zero downloaded payload. No peer or webseed is supplied
 target. Unchanged file roots are preserved while target piece layers are rebuilt
 for 64 KiB pieces. Preview verifies whole-file roots; native staging recheck
 verifies the target pieces. This does not claim v1-style cross-file piece reuse.
-
-`smoke:repair-product` drives the standalone Smart Repair entry dialog through
-Qt's offscreen platform before any torrent exists. Build its process-level driver
-against the current production build with `tests/repair-product/build.ts`, then set
-`QBUTT_REPAIR_PREVIEW_DRIVER`. It verifies explicit mappings and separate candidate,
-hash-verified, target-network and staging-storage summaries, a responsive cancelled
-scan, and visible refusal for missing roots, hardlinks and reparse points. Every
-source and target tree is hashed before and after; the driver never clicks Apply,
-so no torrent, resume record, journal or payload write is created.
-Target checkboxes are available before analysis. The subset cases reject an empty
-selection, invalidate analysis and consent when selection changes, discard a
-cancelled worker result, and count only selected bytes. Hashing still includes
-adjacent ignored bytes required by v1 pieces; an incomplete boundary cannot be
-credited as verified. The full `smoke:qt` separately carries these priorities into
-the native job and commits only selected files, preserving an ignored extra tail
-and an absent ignored empty file.
 
 `smoke:staging` uses independent copies and the same native downloader for full
 and selected v1/v2/hybrid targets. It checks a read-only plan, renamed-source

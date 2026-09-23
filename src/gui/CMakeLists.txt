@@ -97,7 +97,6 @@ add_library(qbt_gui STATIC
     policiesdialog.h
     releaseupdatedialog.h
     repairdialog.h
-    repairpreviewdialog.h
     rss/articlelistwidget.h
     rss/automatedrssdownloader.h
     rss/feedlistwidget.h
@@ -209,7 +208,6 @@ add_library(qbt_gui STATIC
     policiesdialog.cpp
     releaseupdatedialog.cpp
     repairdialog.cpp
-    repairpreviewdialog.cpp
     rss/articlelistwidget.cpp
     rss/automatedrssdownloader.cpp
     rss/feedlistwidget.cpp
