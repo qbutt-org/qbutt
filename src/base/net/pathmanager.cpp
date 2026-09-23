@@ -243,7 +243,8 @@ Net::PathManager::PathManager()
     });
     connect(&m_process, &QProcess::started, this, [this]()
     {
-        send({{u"method"_s, u"hello"_s}});
+        if (!m_nativePending)
+            send({{u"method"_s, u"hello"_s}});
     });
     connect(&m_process, &QProcess::readyReadStandardOutput, this, &PathManager::readOutput);
     connect(&m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError)
@@ -1455,6 +1456,7 @@ bool Net::PathManager::useNative()
     m_pendingPreferredEdges.clear();
     m_pendingEdgeReopen.reset();
     m_timeout.stop();
+    m_gatewayRenewal.stop();
     m_statusRefresh.stop();
     if (m_subscriptionReply)
     {
@@ -2197,8 +2199,10 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
                 {
                     const QString recommended = path.transport.value(u"recommended"_s).toString();
                     if (!m_failedNodes.contains(recommended))
+                    {
                         switchTransport(QString::number(path.endpoint.pathId), recommended);
-                    break;
+                        break;
+                    }
                 }
             }
         }
