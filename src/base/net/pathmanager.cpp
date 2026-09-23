@@ -536,24 +536,8 @@ bool Net::PathManager::setSelectedNodes(const QStringList &names)
         reportError(tr("Select up to eight distinct nodes while Mihomo is off."));
         return false;
     }
-    QStringList edges;
-    for (const QString &name : names)
-    {
-        const auto node = std::ranges::find_if(m_proxies, [&name](const QJsonValue &value)
-        { return value.toObject().value(u"name"_s) == name; });
-        if (node == m_proxies.end())
-        {
-            reportError(tr("A selected node is missing from the subscription."));
-            return false;
-        }
-        const QString edge = edgeIdForServer(node->toObject().value(u"configuredServerId"_s).toString());
-        if (edge.isEmpty() || edges.contains(edge))
-        {
-            reportError(tr("Select at most one node for each configured server."));
-            return false;
-        }
-        edges.append(edge);
-    }
+    if (!selectedNodesValid(names, m_storeServerGroups))
+        return false;
     const QStringList previous = m_storeSelectedNodes;
     m_storeSelectedNodes = names;
     if (SettingsStorage::instance()->save())
@@ -588,7 +572,7 @@ bool Net::PathManager::setManagedEnabled(const bool enabled, const QString &inte
     }
     m_pendingNodes = m_storeSelectedNodes;
     m_restoreStarted = true;
-    openNextSelectedNode();
+    inspectConfiguration(m_storeConfigurationPath);
     return true;
 }
 
@@ -612,7 +596,31 @@ void Net::PathManager::restoreSelectedNodes()
         return;
     }
     m_pendingNodes = m_storeSelectedNodes;
-    openNextSelectedNode();
+    inspectConfiguration(m_storeConfigurationPath);
+}
+
+bool Net::PathManager::selectedNodesValid(const QStringList &names, const QVariantMap &groups)
+{
+    QStringList edges;
+    for (const QString &name : names)
+    {
+        const auto node = std::ranges::find_if(m_proxies, [&name](const QJsonValue &value)
+        { return value.toObject().value(u"name"_s) == name; });
+        if (node == m_proxies.end())
+        {
+            reportError(tr("A selected node is missing from the subscription."));
+            return false;
+        }
+        const QString serverId = node->toObject().value(u"configuredServerId"_s).toString();
+        const QString edge = groups.value(serverId, serverId).toString();
+        if (edge.isEmpty() || edges.contains(edge))
+        {
+            reportError(tr("Select at most one node for each configured server."));
+            return false;
+        }
+        edges.append(edge);
+    }
+    return true;
 }
 
 void Net::PathManager::openNextSelectedNode()
@@ -983,6 +991,8 @@ bool Net::PathManager::saveServerGroups(const QVariantMap &groups)
         reportError(tr("The saved server grouping limit was reached."));
         return false;
     }
+    if (!selectedNodesValid(m_storeSelectedNodes, groups))
+        return false;
     const QVariantMap previous = m_storeServerGroups;
     m_storeServerGroups = groups;
     if (!SettingsStorage::instance()->save())
@@ -1536,6 +1546,8 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         }
         else if (method == u"list")
         {
+            if (!m_pendingNodes.isEmpty() && m_openingNode.isEmpty())
+                m_pendingNodes.clear();
             sendQueuedRequest();
             if ((errorCode == u"invalid_config") || (errorCode == u"no_proxies"))
                 reportError(tr("Subscription must contain a Mihomo YAML list of nodes."));
@@ -1653,6 +1665,9 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             m_storeConfigurationPath = request.value(u"configPath"_s).toString();
             m_proxies = proxies;
             emit proxiesLoaded(proxies);
+            if (!m_pendingNodes.isEmpty() && m_openingNode.isEmpty()
+                && !selectedNodesValid(m_pendingNodes, m_storeServerGroups))
+                m_pendingNodes.clear();
         }
     }
     else if ((method == u"open") || (method == u"transport.replace"))

@@ -107,6 +107,7 @@ namespace Net
         void sendQueuedRequest();
         void restoreSelectedNodes();
         void openNextSelectedNode();
+        bool selectedNodesValid(const QStringList &names, const QVariantMap &groups);
         bool queueGatewayOpen(const ActivePath &path);
         void queueGatewayClose(const ActivePath &path);
         void scheduleGatewayRenewal();
