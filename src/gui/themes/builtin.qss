@@ -24,12 +24,16 @@ QToolBar, QMenuBar {
     border: none;
 }
 QToolBar {
-    spacing: 3px;
+    spacing: 2px;
     padding: 3px;
 }
 QToolBar QToolButton {
     background: transparent;
     border-color: transparent;
+    padding: 3px;
+}
+QToolBar::separator {
+    width: 4px;
 }
 QToolBar QToolButton:hover, QToolBar QToolButton:checked {
     background: palette(midlight);
