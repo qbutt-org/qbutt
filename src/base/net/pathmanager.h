@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -50,11 +51,10 @@ namespace Net
         QString proxyName() const;
         QStringList reserveNames(const QString &proxyName) const;
         bool setReserveNames(const QString &proxyName, const QStringList &names);
-        QString edgeIdForServer(const QString &configuredServerId) const;
-        bool groupServers(const QString &proxyName, const QString &sameAsProxyName);
-        bool resetServerGroups();
         QString interfaceName() const;
         QStringList selectedNodes() const;
+        QString preferredTransport(const QString &edgeId) const;
+        bool setPreferredTransport(const QString &edgeId, const QString &proxyName = {});
         bool managedEnabled() const;
         bool setSelectedNodes(const QStringList &names);
         bool setManagedEnabled(bool enabled, const QString &interfaceName = {});
@@ -70,6 +70,7 @@ namespace Net
         void switchTransport(const QString &pathId, const QString &proxyName);
         bool setPolicy(const QString &mode, const QString &nativeInterface = {});
         bool useNative();
+        bool reopenSelectedEdge(const QString &edgeId);
         void stopPath(const QString &pathId = {});
 
     signals:
@@ -89,7 +90,6 @@ namespace Net
         void openIdentifiedPath(const QString &configPath, const QString &proxyName,
             const QString &interfaceName, const QString &configuredServerId, const QStringList &reserveNames,
             const QJsonObject &reserveServerIds);
-        bool saveServerGroups(const QVariantMap &groups);
         bool controlBusy() const;
         void send(QJsonObject message);
         void readOutput();
@@ -98,6 +98,7 @@ namespace Net
         void fail(const QString &message);
         void reportError(const QString &message);
         bool shutdown();
+        bool finishUseNative();
         QList<PeerRouteEndpoint> nativeEndpointsForInterface(const QString &interfaceName) const;
         bool applyPolicy(const QString &mode, const QString &nativeInterface,
             QList<PeerRouteEndpoint> nativeEndpoints);
@@ -107,7 +108,7 @@ namespace Net
         void sendQueuedRequest();
         void restoreSelectedNodes();
         void openNextSelectedNode();
-        bool selectedNodesValid(const QStringList &names, const QVariantMap &groups);
+        bool selectedNodesValid(const QStringList &names);
         bool queueGatewayOpen(const ActivePath &path);
         void queueGatewayClose(const ActivePath &path);
         void scheduleGatewayRenewal();
@@ -155,6 +156,9 @@ namespace Net
             QJsonObject capabilities;
             QJsonObject dnsPolicy;
             QJsonObject wire;
+            QJsonObject health;
+            QJsonObject relayRate;
+            qint64 wireSampleTimeMs = 0;
             qint64 closedPayloadDownload = 0;
             qint64 closedPayloadUpload = 0;
             std::optional<PublicLease> publicLease;
@@ -178,6 +182,7 @@ namespace Net
         QTimer m_timeout;
         QTimer m_gatewayRenewal;
         QTimer m_statusRefresh;
+        QElapsedTimer m_wireClock;
         QByteArray m_output;
         QList<QJsonObject> m_requestQueue;
         QJsonObject m_pendingRequest;
@@ -195,7 +200,13 @@ namespace Net
         QString m_pendingStopPath;
         QList<PathRollover> m_pathRollover;
         QStringList m_pendingNodes;
+        QStringList m_failedNodes;
         QString m_openingNode;
+        QStringList m_pendingPreferredEdges;
+        std::optional<PathRollover> m_pendingEdgeReopen;
+        bool m_nativePending = false;
+        bool m_nativeWasEnabled = false;
+        bool m_ignoreProcessExit = false;
         bool m_restoreStarted = false;
         bool m_rolloverOpening = false;
         bool m_rolloverFailed = false;
@@ -205,9 +216,9 @@ namespace Net
         SettingValue<QString> m_storeProxyName;
         SettingValue<QStringList> m_storeReserveNames;
         SettingValue<QVariantMap> m_storeNodeReserves;
-        SettingValue<QVariantMap> m_storeServerGroups;
         SettingValue<QString> m_storeInterfaceName;
         SettingValue<QStringList> m_storeSelectedNodes;
+        SettingValue<QVariantMap> m_storePreferredTransports;
         SettingValue<bool> m_storeManagedEnabled;
         SettingValue<QString> m_storePolicy;
         SettingValue<QString> m_storeNativeInterface;

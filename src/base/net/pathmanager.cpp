@@ -41,11 +41,18 @@ namespace
 {
     constexpr int MAX_FRAME_BYTES = 65536;
     constexpr int MAX_SUBSCRIPTION_BYTES = 2 * 1024 * 1024;
-    constexpr int PROTOCOL_VERSION = 7;
+    constexpr int PROTOCOL_VERSION = 8;
     constexpr auto QBT_NET_UPSTREAM_REVISION = u"d3ec342d441b086ec4318332f59dd05d8a2b5697";
     constexpr qint64 MAX_CONTROL_ID = 9007199254740991;
     constexpr qint64 GATEWAY_TTL_SECONDS = 90;
     constexpr qint64 GATEWAY_RENEWAL_HEADROOM_MS = 70000;
+
+    bool fitsControlFrame(QJsonObject message)
+    {
+        message.insert(u"v"_s, PROTOCOL_VERSION);
+        message.insert(u"id"_s, MAX_CONTROL_ID);
+        return (QJsonDocument(message).toJson(QJsonDocument::Compact).size() + 1) <= MAX_FRAME_BYTES;
+    }
 
     bool isSafeUnsignedInteger(const QJsonValue &value)
     {
@@ -201,9 +208,9 @@ Net::PathManager::PathManager()
     , m_storeProxyName {u"Network/Paths/ProxyName"_s}
     , m_storeReserveNames {u"Network/Paths/ReserveNames"_s}
     , m_storeNodeReserves {u"Network/Paths/NodeReserves"_s}
-    , m_storeServerGroups {u"Network/Paths/ServerGroups"_s}
     , m_storeInterfaceName {u"Network/Paths/InterfaceName"_s}
     , m_storeSelectedNodes {u"Network/Paths/SelectedNodes"_s}
+    , m_storePreferredTransports {u"Network/Paths/PreferredTransports"_s}
     , m_storeManagedEnabled {u"Network/Paths/Enabled"_s}
     , m_storePolicy {u"Network/Paths/Policy"_s}
     , m_storeNativeInterface {u"Network/Paths/NativeInterface"_s}
@@ -224,6 +231,7 @@ Net::PathManager::PathManager()
     m_timeout.setInterval(15000);
     m_gatewayRenewal.setSingleShot(true);
     m_statusRefresh.setInterval(1000);
+    m_wireClock.start();
     // Child diagnostics are intentionally discarded. Its versioned control
     // responses contain safe errors; arbitrary transport logs may hold secrets.
     m_process.setStandardErrorFile(QProcess::nullDevice());
@@ -232,6 +240,11 @@ Net::PathManager::PathManager()
     m_network.setProxy(QNetworkProxy::NoProxy);
     connect(&m_timeout, &QTimer::timeout, this, [this]()
     {
+        if (m_nativePending)
+        {
+            m_process.kill();
+            return;
+        }
         fail(m_pendingRequest.value(u"method"_s).toString().startsWith(u"resolve")
             ? tr("qbutt-net did not complete DNS resolution within 8 seconds.")
             : tr("qbutt-net did not respond within 15 seconds."));
@@ -243,10 +256,29 @@ Net::PathManager::PathManager()
     connect(&m_process, &QProcess::readyReadStandardOutput, this, &PathManager::readOutput);
     connect(&m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError)
     {
+        if (m_nativePending)
+        {
+            if (m_process.state() == QProcess::NotRunning)
+                finishUseNative();
+            return;
+        }
+        if (m_ignoreProcessExit)
+            return;
         fail(tr("Unable to run the bundled qbutt-net process."));
     });
     connect(&m_process, &QProcess::finished, this, [this](int, QProcess::ExitStatus)
     {
+        if (m_nativePending)
+        {
+            finishUseNative();
+            m_ignoreProcessExit = false;
+            return;
+        }
+        if (m_ignoreProcessExit)
+        {
+            m_ignoreProcessExit = false;
+            return;
+        }
         fail(tr("qbutt-net stopped. The pinned path remains blocked."));
     });
     connect(&m_gatewayRenewal, &QTimer::timeout, this, [this]()
@@ -379,14 +411,15 @@ void Net::PathManager::freeInstance()
 
 bool Net::PathManager::isBusy() const
 {
-    return controlBusy();
+    return m_nativePending || controlBusy() || !m_pendingNodes.isEmpty() || !m_openingNode.isEmpty()
+        || !m_pendingPreferredEdges.isEmpty() || m_pendingEdgeReopen.has_value();
 }
 
 bool Net::PathManager::controlBusy() const
 {
     const bool foregroundRequest = (m_pendingId != 0)
         && (m_pendingRequest.value(u"method"_s) != u"status"_s);
-    return foregroundRequest || !m_requestQueue.isEmpty() || m_subscriptionReply
+    return m_nativePending || foregroundRequest || !m_requestQueue.isEmpty() || m_subscriptionReply
         || m_rolloverOpening || !m_pathRollover.isEmpty();
 }
 
@@ -423,10 +456,14 @@ QJsonObject Net::PathManager::statusData(const bool includePeers) const
             {u"open"_s, path.endpoint.port > 0},
             {u"interfaceName"_s, path.interfaceName}, {u"capabilities"_s, path.capabilities},
             {u"dns"_s, path.dnsPolicy}, {u"gateway"_s, gateway},
+            {u"health"_s, path.health.isEmpty() ? QJsonObject {{u"state"_s, u"unknown"_s},
+                {u"protocol"_s, u"tcp-dns"_s}} : path.health},
             {u"closedPayloadDownload"_s, path.closedPayloadDownload},
             {u"closedPayloadUpload"_s, path.closedPayloadUpload}};
         if (!path.wire.isEmpty())
             data.insert(u"wire"_s, path.wire);
+        if (!path.relayRate.isEmpty())
+            data.insert(u"relayRate"_s, path.relayRate);
         paths.append(data);
     }
     for (const PeerRouteEndpoint &endpoint : m_nativeEndpoints)
@@ -444,7 +481,9 @@ QJsonObject Net::PathManager::statusData(const bool includePeers) const
         {u"paths"_s, paths},
         {u"peers"_s, includePeers ? BitTorrent::Session::instance()->peerRouteStatus() : QJsonArray {}},
         {u"generation"_s, m_generation}, {u"nodes"_s, m_proxies},
-        {u"serverGroups"_s, QJsonObject::fromVariantMap(m_storeServerGroups.get())},
+        {u"pendingNodes"_s, QJsonArray::fromStringList(m_pendingNodes)},
+        {u"failedNodes"_s, QJsonArray::fromStringList(m_failedNodes)},
+        {u"preferredTransports"_s, QJsonObject::fromVariantMap(m_storePreferredTransports.get())},
         {u"dns"_s, dnsPolicy()}, {u"resolution"_s, m_resolution},
         {u"proxyName"_s, proxyName()}, {u"interfaceName"_s, interfaceName()}};
 }
@@ -488,13 +527,13 @@ bool Net::PathManager::setReserveNames(const QString &proxyName, const QStringLi
         reportError(tr("Turn off Mihomo and choose up to three distinct backup nodes."));
         return false;
     }
-    const QString edge = edgeIdForServer(primary->toObject().value(u"configuredServerId"_s).toString());
+    const QString edge = primary->toObject().value(u"configuredServerId"_s).toString();
     for (const QString &name : names)
     {
         const auto reserve = std::ranges::find_if(m_proxies, [&name](const QJsonValue &value)
         { return value.toObject().value(u"name"_s) == name; });
         if (reserve == m_proxies.end()
-            || edgeIdForServer(reserve->toObject().value(u"configuredServerId"_s).toString()) != edge)
+            || reserve->toObject().value(u"configuredServerId"_s).toString() != edge)
         {
             reportError(tr("Backup nodes must use the same configured or grouped server."));
             return false;
@@ -521,26 +560,89 @@ QStringList Net::PathManager::selectedNodes() const
     return m_storeSelectedNodes;
 }
 
+QString Net::PathManager::preferredTransport(const QString &edgeId) const
+{
+    return m_storePreferredTransports.get().value(edgeId).toString();
+}
+
+bool Net::PathManager::setPreferredTransport(const QString &edgeId, const QString &proxyName)
+{
+    const bool validEdge = std::ranges::any_of(m_proxies, [&edgeId](const QJsonValue &value)
+    { return value.toObject().value(u"edgeId"_s) == edgeId; });
+    const bool validNode = proxyName.isEmpty() || std::ranges::any_of(m_proxies, [&](const QJsonValue &value)
+    {
+        const QJsonObject node = value.toObject();
+        return (node.value(u"edgeId"_s) == edgeId) && (node.value(u"name"_s) == proxyName);
+    });
+    if (!validEdge || !validNode)
+    {
+        reportError(tr("Choose a protocol from the selected server."));
+        return false;
+    }
+    const QVariantMap previous = m_storePreferredTransports;
+    QVariantMap preferred = previous;
+    if (proxyName.isEmpty())
+        preferred.remove(edgeId);
+    else
+        preferred.insert(edgeId, proxyName);
+    if (preferred != previous)
+    {
+        m_storePreferredTransports = preferred;
+        if (!SettingsStorage::instance()->save())
+        {
+            m_storePreferredTransports = previous;
+            reportError(tr("Unable to save the preferred protocol."));
+            return false;
+        }
+    }
+    m_failedNodes.removeAll(proxyName);
+    m_pendingPreferredEdges.removeAll(edgeId);
+    if (m_storeManagedEnabled && !proxyName.isEmpty())
+    {
+        m_pendingPreferredEdges.append(edgeId);
+        const bool active = std::ranges::any_of(m_paths, [&edgeId](const ActivePath &path)
+        { return (path.edgeId == edgeId) && (path.endpoint.port > 0); });
+        if (!active)
+        {
+            for (const QString &name : m_storeSelectedNodes.get())
+            {
+                if (!m_pendingNodes.contains(name) && std::ranges::any_of(m_proxies, [&](const QJsonValue &value)
+                    { const QJsonObject node = value.toObject(); return (node.value(u"edgeId"_s) == edgeId) && (node.value(u"name"_s) == name); }))
+                    m_pendingNodes.append(name);
+            }
+        }
+    }
+    emit changed();
+    return true;
+}
+
 bool Net::PathManager::managedEnabled() const
 {
-    return m_storeManagedEnabled;
+    return m_nativePending || m_storeManagedEnabled;
 }
 
 bool Net::PathManager::setSelectedNodes(const QStringList &names)
 {
     QStringList unique = names;
-    if (controlBusy() || m_storeManagedEnabled || (names.size() > 8)
-        || names.contains(QString()) || (unique.removeDuplicates() != 0))
+    if (names.contains(QString()) || (unique.removeDuplicates() != 0))
     {
-        reportError(tr("Select up to eight distinct nodes while Mihomo is off."));
+        reportError(tr("Select distinct nodes from the subscription."));
         return false;
     }
-    if (!selectedNodesValid(names, m_storeServerGroups))
+    if (!selectedNodesValid(names))
         return false;
     const QStringList previous = m_storeSelectedNodes;
     m_storeSelectedNodes = names;
     if (SettingsStorage::instance()->save())
+    {
+        if (m_storeManagedEnabled)
+        {
+            m_failedNodes.clear();
+            m_pendingNodes = names;
+            emit changed();
+        }
         return true;
+    }
     m_storeSelectedNodes = previous;
     reportError(tr("Unable to save the selected nodes."));
     return false;
@@ -550,7 +652,7 @@ bool Net::PathManager::setManagedEnabled(const bool enabled, const QString &inte
 {
     if (!enabled)
         return useNative();
-    if (controlBusy())
+    if (m_nativePending || controlBusy())
         return false;
     if (m_storeSelectedNodes.get().isEmpty() || m_storeConfigurationPath.get().isEmpty()
         || nativeEndpointsForInterface(interfaceName).isEmpty())
@@ -570,6 +672,7 @@ bool Net::PathManager::setManagedEnabled(const bool enabled, const QString &inte
         return false;
     }
     m_pendingNodes = m_storeSelectedNodes;
+    m_failedNodes.clear();
     m_restoreStarted = true;
     inspectConfiguration(m_storeConfigurationPath);
     return true;
@@ -595,10 +698,11 @@ void Net::PathManager::restoreSelectedNodes()
         return;
     }
     m_pendingNodes = m_storeSelectedNodes;
+    m_failedNodes.clear();
     inspectConfiguration(m_storeConfigurationPath);
 }
 
-bool Net::PathManager::selectedNodesValid(const QStringList &names, const QVariantMap &groups)
+bool Net::PathManager::selectedNodesValid(const QStringList &names)
 {
     QStringList edges;
     for (const QString &name : names)
@@ -611,13 +715,19 @@ bool Net::PathManager::selectedNodesValid(const QStringList &names, const QVaria
             return false;
         }
         const QString serverId = node->toObject().value(u"configuredServerId"_s).toString();
-        const QString edge = groups.value(serverId, serverId).toString();
-        if (edge.isEmpty() || edges.contains(edge))
+        const QString edge = serverId;
+        if (edge.isEmpty())
         {
-            reportError(tr("Select at most one node for each configured server."));
+            reportError(tr("A selected node has no configured server."));
             return false;
         }
-        edges.append(edge);
+        if (!edges.contains(edge))
+            edges.append(edge);
+    }
+    if (edges.size() > 8)
+    {
+        reportError(tr("Select at most eight servers."));
+        return false;
     }
     return true;
 }
@@ -626,26 +736,86 @@ void Net::PathManager::openNextSelectedNode()
 {
     if (!m_storeManagedEnabled || controlBusy())
         return;
+    const auto edgeForName = [this](const QString &name)
+    {
+        const auto node = std::ranges::find_if(m_proxies, [&name](const QJsonValue &value)
+        { return value.toObject().value(u"name"_s) == name; });
+        return (node == m_proxies.end()) ? QString() : node->toObject().value(u"edgeId"_s).toString();
+    };
+    const auto selectedForEdge = [this, &edgeForName](const QString &edge)
+    {
+        QStringList result;
+        for (const QString &name : m_storeSelectedNodes.get())
+        {
+            if (edgeForName(name) == edge)
+                result.append(name);
+        }
+        return result;
+    };
     if (!m_openingNode.isEmpty())
     {
         const QString opened = std::exchange(m_openingNode, QString());
         if (!std::ranges::any_of(m_paths, [&opened](const ActivePath &path)
             { return (path.proxyName == opened) && (path.endpoint.port > 0); }))
         {
-            m_pendingNodes.clear();
+            if (m_storeSelectedNodes.get().contains(opened) && !m_failedNodes.contains(opened))
+                m_failedNodes.append(opened);
+        }
+    }
+    for (const ActivePath &path : std::as_const(m_paths))
+    {
+        if (path.endpoint.port == 0)
+            continue;
+        QStringList desired = selectedForEdge(path.edgeId);
+        const bool selected = desired.removeOne(path.proxyName);
+        if (!selected || !std::ranges::is_permutation(desired, path.reserveNames))
+        {
+            stopPath(QString::number(path.endpoint.pathId));
+            return;
+        }
+    }
+    if (!m_pendingPreferredEdges.isEmpty())
+    {
+        const QString edge = m_pendingPreferredEdges.takeFirst();
+        const QString preferred = preferredTransport(edge);
+        const auto current = std::ranges::find_if(m_paths, [&edge](const ActivePath &path)
+        { return (path.edgeId == edge) && (path.endpoint.port > 0); });
+        if ((current != m_paths.end()) && (current->proxyName != preferred)
+            && current->reserveNames.contains(preferred) && !m_failedNodes.contains(preferred))
+        {
+            switchTransport(QString::number(current->endpoint.pathId), preferred);
             return;
         }
     }
     if (m_pendingNodes.isEmpty())
         return;
-    const QString name = m_pendingNodes.takeFirst();
+    QString name = m_pendingNodes.takeFirst();
+    const QString edge = edgeForName(name);
+    QStringList selected = selectedForEdge(edge);
+    const QString preferred = preferredTransport(edge);
+    if ((preferred != name) && selected.contains(preferred) && !m_failedNodes.contains(preferred))
+    {
+        m_pendingNodes.removeAll(preferred);
+        m_pendingNodes.prepend(name);
+        name = preferred;
+    }
+    selected.removeAll(name);
+    if (!m_storeSelectedNodes.get().contains(name) || m_failedNodes.contains(name)
+        || edge.isEmpty() || std::ranges::any_of(m_paths, [&edge](const ActivePath &path)
+        { return (path.edgeId == edge) && (path.endpoint.port > 0); }))
+    {
+        QMetaObject::invokeMethod(this, &PathManager::openNextSelectedNode, Qt::QueuedConnection);
+        return;
+    }
     m_openingNode = name;
-    openPath(m_storeConfigurationPath, name, m_storeInterfaceName, reserveNames(name));
+    openPath(m_storeConfigurationPath, name, m_storeInterfaceName, selected);
     if (!controlBusy())
     {
         m_openingNode.clear();
-        m_pendingNodes.clear();
+        if (!m_failedNodes.contains(name))
+            m_failedNodes.append(name);
     }
+    emit changed();
 }
 
 QJsonObject Net::PathManager::dnsPolicy() const
@@ -851,16 +1021,18 @@ qint64 Net::PathManager::resolveHost(const QString &pathId, const quint64 genera
     if (controlBusy())
         return 0;
     const PeerRouteEndpoint *endpoint = findEndpoint(pathId.toULongLong(), generation);
-    if ((m_process.state() != QProcess::Running) || !endpoint
+    if (!endpoint
         || (QString::number(endpoint->pathId) != pathId)
         || host.isEmpty() || (host.toUtf8().size() > 1024) || !validDnsFamily(family))
     {
         reportError(tr("Choose an active path generation, a hostname and a valid address family."));
         return 0;
     }
-    m_resolution = {{u"requestId"_s, m_nextId + 1}, {u"pathId"_s, pathId},
+    // Starting the child sends hello before this queued resolution. Native
+    // may be the only active route, so no remote path need start it first.
+    const qint64 requestId = m_nextId + ((m_process.state() == QProcess::NotRunning) ? 2 : 1);
+    m_resolution = {{u"requestId"_s, requestId}, {u"pathId"_s, pathId},
         {u"generation"_s, static_cast<qint64>(generation)}, {u"family"_s, family}, {u"state"_s, u"pending"_s}};
-    const qint64 requestId = m_nextId + 1;
     QJsonObject message {{u"method"_s, u"resolve"_s}, {u"pathId"_s, pathId},
         {u"generation"_s, static_cast<qint64>(generation)}, {u"host"_s, host}, {u"family"_s, family}};
     if (endpoint->type == PeerRouteEndpoint::Type::Native)
@@ -973,79 +1145,6 @@ void Net::PathManager::inspectConfiguration(const QString &configPath)
     request({{u"method"_s, u"list"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()}});
 }
 
-QString Net::PathManager::edgeIdForServer(const QString &configuredServerId) const
-{
-    return m_storeServerGroups.get().value(configuredServerId, configuredServerId).toString();
-}
-
-bool Net::PathManager::saveServerGroups(const QVariantMap &groups)
-{
-    if (controlBusy() || std::ranges::any_of(m_paths, [](const ActivePath &path) { return path.endpoint.port > 0; }))
-    {
-        reportError(tr("Disconnect all managed paths before changing server groups."));
-        return false;
-    }
-    if (groups.size() > 1024)
-    {
-        reportError(tr("The saved server grouping limit was reached."));
-        return false;
-    }
-    if (!selectedNodesValid(m_storeSelectedNodes, groups))
-        return false;
-    const QVariantMap previous = m_storeServerGroups;
-    m_storeServerGroups = groups;
-    if (!SettingsStorage::instance()->save())
-    {
-        m_storeServerGroups = previous;
-        reportError(tr("Unable to save server grouping in the qbutt profile."));
-        return false;
-    }
-    for (ActivePath &path : m_paths)
-        path.edgeId = edgeIdForServer(path.configuredServerId);
-    m_status = tr("Server grouping saved.");
-    emit proxiesLoaded(m_proxies);
-    emit changed();
-    return true;
-}
-
-bool Net::PathManager::groupServers(const QString &proxyName, const QString &sameAsProxyName)
-{
-    QString source;
-    QString target;
-    for (const QJsonValue &value : m_proxies)
-    {
-        const QJsonObject node = value.toObject();
-        if (node.value(u"name"_s) == proxyName)
-            source = node.value(u"configuredServerId"_s).toString();
-        if (node.value(u"name"_s) == sameAsProxyName)
-            target = node.value(u"configuredServerId"_s).toString();
-    }
-    if (source.isEmpty() || target.isEmpty())
-    {
-        reportError(tr("Select two nodes from the loaded subscription to group their servers."));
-        return false;
-    }
-    const QString sourceEdge = edgeIdForServer(source);
-    const QString targetEdge = edgeIdForServer(target);
-    if (sourceEdge == targetEdge)
-        return true;
-    QVariantMap groups = m_storeServerGroups;
-    // Merge whole configured-server classes. Names, ports and protocols cannot
-    // split one class, and no identity is inferred from DNS answers or egress IPs.
-    for (auto it = groups.begin(); it != groups.end(); ++it)
-    {
-        if (it.value().toString() == sourceEdge)
-            it.value() = targetEdge;
-    }
-    groups.insert(sourceEdge, targetEdge);
-    return saveServerGroups(groups);
-}
-
-bool Net::PathManager::resetServerGroups()
-{
-    return saveServerGroups({});
-}
-
 void Net::PathManager::openPath(const QString &configPath, const QString &proxyName,
     const QString &interfaceName, const QStringList &reserveNames)
 {
@@ -1067,19 +1166,29 @@ void Net::PathManager::openPath(const QString &configPath, const QString &proxyN
         return;
     }
     QStringList uniqueReserves = reserveNames;
-    if ((reserveNames.size() > 3) || reserveNames.contains(proxyName) || reserveNames.contains(QString())
+    if (reserveNames.contains(proxyName) || reserveNames.contains(QString())
         || (uniqueReserves.removeDuplicates() != 0))
     {
-        reportError(tr("Choose at most three distinct reserve transports for the selected server."));
+        reportError(tr("Choose distinct protocols from the selected server."));
         return;
     }
     // qbutt-net owns subscription parsing. Resolve identity again for each open,
     // including API calls that never loaded the UI's node list.
-    m_status = tr("Checking the selected node…");
-    request({{u"method"_s, u"list"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
+    QJsonObject listRequest {{u"method"_s, u"list"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
         {u"openProxyName"_s, proxyName}, {u"openInterfaceName"_s, interfaceName},
         {u"proxyNames"_s, QJsonArray::fromStringList(QStringList {proxyName} + reserveNames)},
-        {u"reserveNames"_s, QJsonArray::fromStringList(reserveNames)}});
+        {u"reserveNames"_s, QJsonArray::fromStringList(reserveNames)}};
+    QJsonObject childRequest = listRequest;
+    childRequest.remove(u"openProxyName"_s);
+    childRequest.remove(u"openInterfaceName"_s);
+    childRequest.remove(u"reserveNames"_s);
+    if (!fitsControlFrame(childRequest))
+    {
+        reportError(tr("Too many selected protocols for one control request."));
+        return;
+    }
+    m_status = tr("Checking the selected node…");
+    request(std::move(listRequest));
 }
 
 void Net::PathManager::openIdentifiedPath(const QString &configPath, const QString &proxyName,
@@ -1097,7 +1206,7 @@ void Net::PathManager::openIdentifiedPath(const QString &configPath, const QStri
         return;
     }
     quint64 pathId = 0;
-    const QString edgeId = edgeIdForServer(configuredServerId);
+    const QString edgeId = configuredServerId;
     for (const ActivePath &path : m_paths)
     {
         if (path.edgeId == edgeId)
@@ -1114,6 +1223,22 @@ void Net::PathManager::openIdentifiedPath(const QString &configPath, const QStri
     if ((pathId == 0) && (m_paths.size() >= 8))
     {
         reportError(tr("Eight servers are already selected."));
+        return;
+    }
+    if ((m_generation >= MAX_CONTROL_ID) || ((pathId == 0) && (m_nextPathId >= MAX_CONTROL_ID)))
+    {
+        reportError(tr("The path generation limit was reached. Restart qbutt."));
+        return;
+    }
+    const quint64 nextPathId = (pathId == 0) ? m_nextPathId + 1 : pathId;
+    QJsonObject openRequest {{u"method"_s, u"open"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
+        {u"proxyName"_s, proxyName}, {u"pathId"_s, QString::number(nextPathId)},
+        {u"generation"_s, m_generation + 1}, {u"interfaceName"_s, interfaceName},
+        {u"configuredServerId"_s, configuredServerId}, {u"dns"_s, dns},
+        {u"reserveNames"_s, QJsonArray::fromStringList(reserveNames)}, {u"reserveServerIds"_s, reserveServerIds}};
+    if (!fitsControlFrame(openRequest))
+    {
+        reportError(tr("Too many selected protocols for one control request."));
         return;
     }
     const bool enableManagedRoutes = !proxyManager->hasRuntimeProxy();
@@ -1134,13 +1259,9 @@ void Net::PathManager::openIdentifiedPath(const QString &configPath, const QStri
 
     ++m_generation;
     if (pathId == 0)
-        pathId = ++m_nextPathId;
+        ++m_nextPathId;
     m_status = tr("Connecting…");
-    request({{u"method"_s, u"open"_s}, {u"configPath"_s, QFileInfo(configPath).absoluteFilePath()},
-        {u"proxyName"_s, proxyName}, {u"pathId"_s, QString::number(pathId)},
-        {u"generation"_s, m_generation}, {u"interfaceName"_s, interfaceName},
-        {u"configuredServerId"_s, configuredServerId}, {u"dns"_s, dns},
-        {u"reserveNames"_s, QJsonArray::fromStringList(reserveNames)}, {u"reserveServerIds"_s, reserveServerIds}});
+    request(std::move(openRequest));
 }
 
 bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInterface)
@@ -1332,6 +1453,8 @@ bool Net::PathManager::applyRoutes()
 
 bool Net::PathManager::useNative()
 {
+    if (m_nativePending)
+        return true;
     const bool previouslyEnabled = m_storeManagedEnabled;
     m_storeManagedEnabled = false;
     if (previouslyEnabled && !SettingsStorage::instance()->save())
@@ -1340,13 +1463,43 @@ bool Net::PathManager::useNative()
         reportError(tr("Unable to save the network selection."));
         return false;
     }
+    m_nativeWasEnabled = previouslyEnabled;
+    m_nativePending = true;
+    m_pendingNodes.clear();
+    m_failedNodes.clear();
+    m_openingNode.clear();
+    m_pendingPreferredEdges.clear();
+    m_pendingEdgeReopen.reset();
+    m_timeout.stop();
+    m_statusRefresh.stop();
+    if (m_subscriptionReply)
+    {
+        m_subscriptionReply->disconnect(this);
+        m_subscriptionReply->abort();
+        m_subscriptionReply->deleteLater();
+        m_subscriptionReply = nullptr;
+    }
+    if (m_process.state() != QProcess::NotRunning)
+    {
+        m_status = tr("Returning to Native…");
+        m_ignoreProcessExit = true;
+        m_process.closeWriteChannel();
+        m_timeout.start(500);
+        emit changed();
+        return true;
+    }
+    return finishUseNative();
+}
+
+bool Net::PathManager::finishUseNative()
+{
+    const bool previouslyEnabled = m_nativeWasEnabled;
+    m_nativePending = false;
     const auto restoreSelection = [this, previouslyEnabled]()
     {
         m_storeManagedEnabled = previouslyEnabled;
         return !previouslyEnabled || SettingsStorage::instance()->save();
     };
-    m_pendingNodes.clear();
-    m_openingNode.clear();
     // Terminate accepted sockets before restoring saved connection settings.
     if (!shutdown())
     {
@@ -1378,12 +1531,33 @@ bool Net::PathManager::useNative()
     return true;
 }
 
+bool Net::PathManager::reopenSelectedEdge(const QString &edgeId)
+{
+    if (m_nativePending || controlBusy() || m_pendingEdgeReopen)
+        return false;
+    const auto path = std::ranges::find_if(m_paths, [&edgeId](const ActivePath &entry)
+    { return (entry.edgeId == edgeId) && (entry.endpoint.port > 0); });
+    if (path == m_paths.end())
+        return false;
+    const QString pathId = QString::number(path->endpoint.pathId);
+    m_pendingEdgeReopen = PathRollover {path->endpoint.pathId, path->configurationPath,
+        path->proxyName, path->reserveNames, path->reserveServerIds,
+        path->interfaceName, path->configuredServerId, path->dnsPolicy};
+    stopPath(pathId);
+    if ((m_pendingStopPath == pathId) || std::ranges::any_of(m_paths, [&pathId](const ActivePath &entry)
+        { return (QString::number(entry.endpoint.pathId) == pathId) && (entry.endpoint.port == 0); }))
+        return true;
+    m_pendingEdgeReopen.reset();
+    return false;
+}
+
 void Net::PathManager::request(QJsonObject message)
 {
     const bool foreground = (message.value(u"method"_s) != u"status"_s);
     m_requestQueue.append(std::move(message));
     if (m_process.state() == QProcess::NotRunning)
     {
+        m_ignoreProcessExit = false;
         QString program = QDir(QCoreApplication::applicationDirPath()).filePath(u"qbutt-net"_s);
 #ifdef Q_OS_WIN
         program += u".exe"_s;
@@ -1448,6 +1622,11 @@ void Net::PathManager::sendQueuedRequest()
 
 void Net::PathManager::readOutput()
 {
+    if (m_nativePending)
+    {
+        m_process.readAllStandardOutput();
+        return;
+    }
     // Read in bounded increments; never accumulate unbounded child output.
     while ((m_process.bytesAvailable() > 0) || m_output.contains('\n'))
     {
@@ -1545,12 +1724,17 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         else if (method == u"transport.replace")
         {
             if ((errorCode != u"transport_config_changed") && (errorCode != u"transport_open_failed")
-                && (errorCode != u"invalid_transport_selection"))
+                && (errorCode != u"invalid_transport_selection") && (errorCode != u"unsupported_final_mask"))
             {
                 fail(tr("qbutt-net rejected a transport replacement invariant."));
                 return;
             }
-            reportError(tr("The reserve transport could not start. This path remains stopped; other paths are unchanged."));
+            const QString failedName = request.value(u"proxyName"_s).toString();
+            if (!m_failedNodes.contains(failedName))
+                m_failedNodes.append(failedName);
+            reportError(errorCode == u"unsupported_final_mask"
+                ? tr("The selected node uses unsupported masking settings.")
+                : tr("The selected protocol could not start. The current connection remains active."));
             sendQueuedRequest();
         }
         else if (method == u"list")
@@ -1559,7 +1743,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
                 m_pendingNodes.clear();
             sendQueuedRequest();
             if ((errorCode == u"invalid_config") || (errorCode == u"no_proxies"))
-                reportError(tr("Subscription must contain a Mihomo YAML list of nodes."));
+                reportError(tr("Subscription must contain supported Mihomo or Base64 nodes."));
             else if ((errorCode == u"proxy_limit") || (errorCode == u"response_limit"))
                 reportError(tr("Subscription contains too many nodes for one import."));
             else if (errorCode == u"invalid_proxy_identity")
@@ -1585,7 +1769,9 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             {
                 sendQueuedRequest();
                 if (!bootstrapRequest)
-                    reportError(tr("qbutt-net rejected the request. Check the selected node and interface."));
+                    reportError(errorCode == u"unsupported_final_mask"
+                        ? tr("The selected node uses unsupported masking settings.")
+                        : tr("qbutt-net rejected the request. Check the selected node and interface."));
                 else
                     emit changed();
             }
@@ -1593,6 +1779,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         return;
     }
     const QJsonObject result = message.value(u"result"_s).toObject();
+    const qint64 previousGeneration = request.value(u"generation"_s).toInteger();
     if (method == u"transport.replace")
         request.insert(u"generation"_s, request.value(u"nextGeneration"_s));
     if (method == u"hello")
@@ -1625,16 +1812,21 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             const QString name = entry.value(u"name"_s).toString();
             const QString type = entry.value(u"type"_s).toString();
             const QString serverId = entry.value(u"configuredServerId"_s).toString();
-            if (!value.isObject() || (entry.size() != 3) || !entry.value(u"name"_s).isString()
+            const QString serverHost = entry.value(u"serverHost"_s).toString();
+            if (!value.isObject() || (entry.size() != 4) || !entry.value(u"name"_s).isString()
                 || !entry.value(u"type"_s).isString() || name.isEmpty() || type.isEmpty()
                 || !entry.value(u"configuredServerId"_s).isString()
+                || !entry.value(u"serverHost"_s).isString() || (serverHost.toUtf8().size() > 253)
+                || (serverId.isEmpty() != serverHost.isEmpty())
                 || (!serverId.isEmpty() && !serverIdPattern.match(serverId).hasMatch()))
             {
                 fail(tr("qbutt-net returned an invalid node description."));
                 return;
             }
             // Only display-safe fields cross into UI/API diagnostics.
-            proxies.append(QJsonObject {{u"name"_s, name}, {u"type"_s, type}, {u"configuredServerId"_s, serverId}});
+            proxies.append(QJsonObject {{u"name"_s, name}, {u"type"_s, type},
+                {u"configuredServerId"_s, serverId}, {u"serverHost"_s, serverHost},
+                {u"edgeId"_s, serverId}});
         }
         if (request.contains(u"openInterfaceName"_s))
         {
@@ -1659,9 +1851,9 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
                 return;
             }
             if (std::ranges::any_of(reserves, [this, &serverId, &reserveServerIds](const QString &name)
-                { return edgeIdForServer(reserveServerIds.value(name).toString()) != edgeIdForServer(serverId); }))
+                { return reserveServerIds.value(name).toString() != serverId; }))
             {
-                reportError(tr("Choose reserve transports from the same configured or explicitly grouped server."));
+                reportError(tr("Choose protocols from the same configured server."));
                 return;
             }
             openIdentifiedPath(request.value(u"configPath"_s).toString(), proxyName,
@@ -1675,7 +1867,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             m_proxies = proxies;
             emit proxiesLoaded(proxies);
             if (!m_pendingNodes.isEmpty() && m_openingNode.isEmpty()
-                && !selectedNodesValid(m_pendingNodes, m_storeServerGroups))
+                && !selectedNodesValid(m_pendingNodes))
                 m_pendingNodes.clear();
         }
     }
@@ -1722,7 +1914,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         path.endpoint.supportsUdp = udp == u"source-supported";
         path.configurationPath = request.value(u"configPath"_s).toString();
         path.configuredServerId = result.value(u"configuredServerId"_s).toString();
-        path.edgeId = edgeIdForServer(path.configuredServerId);
+        path.edgeId = path.configuredServerId;
         path.proxyName = request.value(u"proxyName"_s).toString();
         path.reserveNames = request.value(u"reserveNames"_s).toVariant().toStringList();
         path.reserveServerIds = request.value(u"reserveServerIds"_s).toObject();
@@ -1732,6 +1924,14 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         path.dnsPolicy = request.value(u"dns"_s).toObject();
         auto existing = std::ranges::find(m_paths, path.endpoint.pathId,
             [](const ActivePath &entry) { return entry.endpoint.pathId; });
+        const bool replacing = method == u"transport.replace";
+        if (replacing && ((existing == m_paths.end()) || (existing->endpoint.port == 0)
+            || (existing->endpoint.generation != static_cast<quint64>(previousGeneration))))
+        {
+            fail(tr("qbutt-net replaced an unexpected path generation."));
+            return;
+        }
+        const quint64 replacedPathId = path.endpoint.pathId;
         if (existing != m_paths.end())
         {
             const qsizetype index = std::distance(m_paths.begin(), existing);
@@ -1765,10 +1965,27 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         m_storeProxyName = request.value(u"proxyName"_s).toString();
         m_storeReserveNames = request.value(u"reserveNames"_s).toVariant().toStringList();
         m_storeInterfaceName = request.value(u"interfaceName"_s).toString();
-        const auto opened = std::ranges::find(m_paths, path.endpoint.pathId,
+        const auto opened = std::ranges::find(m_paths, replacedPathId,
             [](const ActivePath &entry) { return entry.endpoint.pathId; });
+        if (replacing)
+        {
+            if ((m_resolution.value(u"state"_s) == u"pending"_s)
+                && (m_resolution.value(u"pathId"_s) == QString::number(replacedPathId)))
+            {
+                finishResolution({}, u"path_stopped"_s);
+            }
+            if (!applyTrustedInboundRoutes() || !applyRoutes())
+            {
+                fail(tr("Unable to apply the replacement network path."));
+                return;
+            }
+            BitTorrent::Session::instance()->invalidateNetworkRoute(replacedPathId,
+                static_cast<quint64>(previousGeneration));
+            scheduleGatewayRenewal();
+            m_failedNodes.removeAll(request.value(u"proxyName"_s).toString());
+        }
         const bool gatewayQueued = (opened != m_paths.end()) && queueGatewayOpen(*opened);
-        if (!gatewayQueued && !applyRoutes())
+        if (!replacing && !gatewayQueued && !applyRoutes())
         {
             fail(tr("Unable to apply the network routes returned by qbutt-net."));
             return;
@@ -1922,12 +2139,26 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
                 return (path.value(u"pathId"_s) == entry.value(u"pathId"_s))
                     && (path.value(u"generation"_s) == entry.value(u"generation"_s));
             });
-            if (!value.isObject() || (entry.size() != 4) || !validPathId || (pathId == 0)
+            const QJsonObject health = entry.value(u"health"_s).toObject();
+            const QString healthState = health.value(u"state"_s).toString();
+            const QString reason = health.value(u"reason"_s).toString();
+            const bool checked = health.contains(u"checkedAtUnixMilli"_s);
+            if (!value.isObject() || (entry.size() != 5) || !validPathId || (pathId == 0)
                 || (QString::number(pathId) != pathIdText) || !isSafeUnsignedInteger(entry.value(u"generation"_s))
                 || (generation <= 0) || !wire || seen.contains(pathId) || (expected == expectedPaths.end())
                 || !entry.value(u"transport"_s).isObject() || (transport.size() != 2)
                 || !transport.value(u"state"_s).isString() || !transportStates.contains(transportState)
-                || !transport.value(u"recommended"_s).isString() || ((transportState == u"ready") == recommended.isEmpty()))
+                || !transport.value(u"recommended"_s).isString() || ((transportState == u"ready") == recommended.isEmpty())
+                || !entry.value(u"health"_s).isObject()
+                || (health.size() != (checked ? (reason.isEmpty() ? 3 : 4) : 2))
+                || !health.value(u"state"_s).isString()
+                || ((healthState != u"checking") && (healthState != u"reachable") && (healthState != u"failed"))
+                || (health.value(u"protocol"_s) != u"tcp-dns")
+                || ((healthState != u"checking") && !checked)
+                || (checked && !isSafeUnsignedInteger(health.value(u"checkedAtUnixMilli"_s)))
+                || ((healthState == u"failed") != (reason == u"dns-round-trip-failed"))
+                || ((healthState != u"failed") && !reason.isEmpty())
+                || (!reason.isEmpty() && !health.value(u"reason"_s).isString()))
             {
                 fail(tr("qbutt-net returned status for an invalid path generation."));
                 return;
@@ -1958,8 +2189,21 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
                 fail(tr("qbutt-net recommended an unselected reserve transport."));
                 return;
             }
+            const qint64 nowMs = m_wireClock.elapsed();
+            if (!path->wire.isEmpty() && (nowMs > path->wireSampleTimeMs))
+            {
+                const double seconds = (nowMs - path->wireSampleTimeMs) / 1000.0;
+                path->relayRate = {{u"downloadBytesPerSecond"_s,
+                    (wire->value(u"relayDownloadBytes"_s).toDouble()
+                        - path->wire.value(u"relayDownloadBytes"_s).toDouble()) / seconds},
+                    {u"uploadBytesPerSecond"_s,
+                    (wire->value(u"relayUploadBytes"_s).toDouble()
+                        - path->wire.value(u"relayUploadBytes"_s).toDouble()) / seconds}};
+            }
+            path->wireSampleTimeMs = nowMs;
             path->wire = *wire;
             path->transport = transport;
+            path->health = health;
         }
         if (m_requestQueue.isEmpty())
         {
@@ -1967,7 +2211,9 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
             {
                 if ((path.endpoint.port > 0) && (path.transport.value(u"state"_s) == u"ready"_s))
                 {
-                    switchTransport(QString::number(path.endpoint.pathId), path.transport.value(u"recommended"_s).toString());
+                    const QString recommended = path.transport.value(u"recommended"_s).toString();
+                    if (!m_failedNodes.contains(recommended))
+                        switchTransport(QString::number(path.endpoint.pathId), recommended);
                     break;
                 }
             }
@@ -2033,6 +2279,28 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         if ((m_storePolicy.get() != u"mixed")
             && !std::ranges::any_of(m_paths, [](const ActivePath &path) { return path.endpoint.port > 0; }))
             m_statusRefresh.stop();
+        if (m_pendingEdgeReopen && (request.value(u"pathId"_s).toString()
+            == QString::number(m_pendingEdgeReopen->pathId)))
+        {
+            const PathRollover reopen = std::exchange(m_pendingEdgeReopen, std::nullopt).value();
+            bool selected = false;
+            if (m_storeManagedEnabled)
+            {
+                for (const QString &name : m_storeSelectedNodes.get())
+                {
+                    const auto node = std::ranges::find_if(m_proxies, [&name](const QJsonValue &value)
+                    { return value.toObject().value(u"name"_s) == name; });
+                    if ((node != m_proxies.end()) && (node->toObject().value(u"edgeId"_s) == reopen.configuredServerId))
+                    {
+                        selected = true;
+                        if (!m_pendingNodes.contains(name))
+                            m_pendingNodes.append(name);
+                    }
+                }
+            }
+            if (!selected && !m_storeManagedEnabled)
+                openPath(reopen.configurationPath, reopen.proxyName, reopen.interfaceName, reopen.reserveNames);
+        }
     }
     else
     {
@@ -2040,8 +2308,7 @@ void Net::PathManager::handleResponse(const QJsonObject &message)
         return;
     }
     sendQueuedRequest();
-    if (method != u"status")
-        emit changed();
+    emit changed();
 }
 
 void Net::PathManager::handleEvent(const QJsonObject &message)
@@ -2353,6 +2620,7 @@ void Net::PathManager::switchTransport(const QString &pathId, const QString &pro
         [](const ActivePath &entry) { return entry.endpoint.pathId; });
     if ((path == m_paths.end()) || (QString::number(path->endpoint.pathId) != pathId)
         || (path->endpoint.port == 0) || !path->reserveNames.contains(proxyName)
+        || m_failedNodes.contains(proxyName)
         || (m_generation >= MAX_CONTROL_ID))
     {
         reportError(tr("Choose a configured reserve transport of the selected active path."));
@@ -2371,8 +2639,6 @@ void Net::PathManager::switchTransport(const QString &pathId, const QString &pro
         {u"reserveNames"_s, QJsonArray::fromStringList(reserves)},
         {u"reserveServerIds"_s, reserveServerIds},
         {u"configuredServerId"_s, configuredServerId}, {u"interfaceName"_s, path->interfaceName}, {u"dns"_s, path->dnsPolicy}};
-    if (!revokePath(*path))
-        return;
     m_status = tr("Switching to the backup connection…");
     request(replacement);
 }

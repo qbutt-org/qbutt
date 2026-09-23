@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { createServer, type Socket } from "node:net";
+import { createServer, isIP, type Socket } from "node:net";
 
 // One framed DNS request per TCP connection; every answer is generated locally.
-export async function startDns(side: number, listenAddress = "127.0.0.1") {
+export async function startDns(side: number, listenAddress = "127.0.0.1",
+    answerIPv4 = `127.0.0.${side + 2}`) {
+    assert.equal(isIP(answerIPv4), 4);
+    const ipv4Bytes = answerIPv4.split(".").map(Number);
     const sockets = new Set<Socket>();
     const queries: { family: number; slow: boolean; source: string }[] = [];
     const server = createServer(socket => {
@@ -39,7 +42,7 @@ export async function startDns(side: number, listenAddress = "127.0.0.1") {
             answer.writeUInt16BE(1, 4);
             answer.writeUInt32BE(0, 6); // No cache: every assertion observes its own exchange.
             answer.writeUInt16BE(family === 1 ? 4 : 16, 10);
-            if (family === 1) answer.set([127, 0, 0, side + 2], 12);
+            if (family === 1) answer.set(ipv4Bytes, 12);
             else answer[27] = side + 2;
             const message = Buffer.concat([header, request.subarray(12), answer]);
             const frame = Buffer.alloc(message.length + 2);

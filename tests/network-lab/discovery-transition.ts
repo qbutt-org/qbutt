@@ -6,6 +6,7 @@ import { networkInterfaces } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createLab, startSeed, verifyPayload, waitFor } from "../lab";
 import { decode, encode, type Value } from "./bencode";
+import { startDns } from "./dns-fixture";
 import { startProxy } from "./proxy";
 
 interface Counters {
@@ -21,6 +22,7 @@ interface Counters {
 interface Status {
     mode: string;
     busy: boolean;
+    processId: number;
     paths: { pathId: string; generation: number; edgeId: string; proxyName: string;
         open: boolean; localAddress?: string }[];
     peers: { infoHash: string; pathId: string; generation: number; peer: string; port: number;
@@ -51,6 +53,7 @@ const udpTrackers: ReturnType<typeof createSocket>[] = [];
 const httpTrackers: ReturnType<typeof Bun.serve>[] = [];
 const proxies: Awaited<ReturnType<typeof startProxy>>[] = [];
 let seed: Awaited<ReturnType<typeof startSeed>> | undefined;
+let nativeDns: Awaited<ReturnType<typeof startDns>> | undefined;
 let failure: unknown;
 
 const snapshot = () => counters.map(counter => ({ ...counter }));
@@ -151,6 +154,7 @@ try {
     }
 
     const bootstrapPort = dht[2]!.address().port;
+    nativeDns = await startDns(2, nativeAddress, nativeAddress);
     const httpPort = httpTrackers[2]!.port!;
     const udpPort = udpTrackers[2]!.address().port;
     assert(new Set([bootstrapPort, httpPort, udpPort]).size === 3,
@@ -160,6 +164,7 @@ try {
     }));
     for (const side of [0, 1]) {
         const targets = [
+            { host: nativeAddress, port: nativeDns.port, connectHost: nativeAddress, connectPort: nativeDns.port },
             { host: nativeAddress, port: bootstrapPort, connectHost: "127.0.0.1", connectPort: dht[side]!.address().port },
             { host: nativeAddress, port: httpPort, connectHost: "127.0.0.1", connectPort: httpTrackers[side]!.port! },
             { host: nativeAddress, port: udpPort, connectHost: "127.0.0.1", connectPort: udpTrackers[side]!.address().port },
@@ -179,33 +184,19 @@ try {
     await lab.start();
     const status = () => lab.json<Status>("qbuttPaths/status");
     await lab.request("app/setPreferences", { json: JSON.stringify({
-        dht: false, pex: false, lsd: false, dht_bootstrap_nodes: `${nativeAddress}:${bootstrapPort}`,
+        dht: false, pex: false, lsd: false, dht_bootstrap_nodes: `native-bootstrap.test:${bootstrapPort}`,
         announce_to_all_trackers: true, announce_to_all_tiers: true,
     }) });
     const preferences = await lab.json<{ dht: boolean; dht_bootstrap_nodes: string;
         bittorrent_protocol: number; announce_to_all_trackers: boolean;
         announce_to_all_tiers: boolean }>("app/preferences");
-    assert(!preferences.dht && preferences.dht_bootstrap_nodes === `${nativeAddress}:${bootstrapPort}`
+    assert(!preferences.dht && preferences.dht_bootstrap_nodes === `native-bootstrap.test:${bootstrapPort}`
         && preferences.bittorrent_protocol === 1 && preferences.announce_to_all_trackers
         && preferences.announce_to_all_tiers,
     "The fixture must begin TCP-only with DHT disabled and the controlled bootstrap node");
-    await lab.request("qbuttPaths/dns", { server: "127.0.0.1:53",
-        bootstrapServer: "127.0.0.1:53", family: "ipv4" });
-    for (const side of [0, 1]) {
-        await lab.request("qbuttPaths/open", { configPath, proxyName: `discovery-transition-${side}`,
-            interfaceName: loopback });
-        await waitFor("discovery tunnel path opens", status,
-            current => !current.busy && current.paths.filter(path => path.open).length === side + 1);
-    }
+    await lab.request("qbuttPaths/dns", { server: `${nativeAddress}:${nativeDns.port}`,
+        bootstrapServer: `${nativeAddress}:${nativeDns.port}`, family: "ipv4" });
     await lab.request("qbuttPaths/policy", { mode: "mixed", nativeInterface });
-    const mixed = await status();
-    const paths = [0, 1].map(side => mixed.paths.find(path => path.proxyName === `discovery-transition-${side}`)!);
-    paths.push(mixed.paths.find(path => path.edgeId === "native" && path.localAddress === nativeAddress)!);
-    assert(mixed.mode === "mixed" && paths.every(path => path?.open)
-        && new Set(paths.map(path => path.pathId)).size === 3
-        && new Set(paths.map(path => path.edgeId)).size === 3,
-    "Mixed did not admit the three independent controlled routes");
-
     const destination = join(lab.root, "download");
     const hash = await lab.add(torrent.name, destination);
     assert.equal(hash, torrent.infoHashV1);
@@ -217,12 +208,37 @@ try {
     await lab.request("app/setPreferences", { json: JSON.stringify({ dht: true }) });
     assert((await lab.json<{ dht: boolean }>("app/preferences")).dht,
         "Controlled DHT was not enabled for the active public torrent");
+    await waitFor("Native-only managed bootstrap starts the child and reaches DHT", async () => {
+        assert.deepEqual(errors, []);
+        const current = await status();
+        return { current, native: snapshot()[2]! };
+    }, value => value.current.processId > 0
+        && value.current.paths.some(path => path.edgeId === "native" && path.open)
+        && !value.current.paths.some(path => path.edgeId !== "native" && path.open)
+        && nativeDns!.queries.some(query => query.source === nativeAddress)
+        && value.native.dhtGetPeers > 0, 60000);
+    await lab.checkpoint({ check: "native-only-managed-dht-bootstrap", childStartedForNative: true,
+        dhtGetPeers: counters[2]!.dhtGetPeers, pathDnsQueries: nativeDns.queries.length });
+    for (const side of [0, 1]) {
+        await lab.request("qbuttPaths/open", { configPath, proxyName: `discovery-transition-${side}`,
+            interfaceName: loopback });
+        await waitFor("discovery tunnel path opens", status,
+            current => !current.busy && current.paths.filter(path => path.open).length === side + 1);
+    }
+    const mixed = await status();
+    const paths = [0, 1].map(side => mixed.paths.find(path => path.proxyName === `discovery-transition-${side}`)!);
+    paths.push(mixed.paths.find(path => path.edgeId === "native" && path.localAddress === nativeAddress)!);
+    assert(mixed.mode === "mixed" && paths.every(path => path?.open)
+        && new Set(paths.map(path => path.pathId)).size === 3
+        && new Set(paths.map(path => path.edgeId)).size === 3,
+    "Mixed did not admit the three independent controlled routes");
+
     const initial = await waitFor("all Mixed routes deliver DHT and tracker traffic", async () => {
         assert.deepEqual(errors, []); return snapshot();
     }, current => current.every(side => side.dhtGetPeers > 0
         && side.httpRequests > 0 && side.udpAnnounces > 0), 60000);
     await lab.checkpoint({ check: "active-mixed-discovery", hash, paths, counters: initial,
-        bootstrap: `${nativeAddress}:${bootstrapPort}`, trackerHost: nativeAddress });
+        bootstrap: `native-bootstrap.test:${bootstrapPort}`, trackerHost: nativeAddress });
 
     await lab.request("qbuttPaths/policy", { mode: "tunnels" });
     await waitFor("Mixed to Tunnels route catalog", status, current => current.mode === "tunnels"
@@ -297,6 +313,7 @@ finally {
     let appStopped = false;
     try { await lab.shutdown(); appStopped = true; } catch (error) { failure ??= error; }
     const closed = await Promise.allSettled(proxies.map(proxy => proxy.close()));
+    try { if (nativeDns) await nativeDns.stop(); } catch (error) { failure ??= error; }
     const stopped = seed ? await Promise.allSettled([seed.stop()]) : [];
     for (const result of [...closed, ...stopped])
         if (result.status === "rejected") failure ??= result.reason;
