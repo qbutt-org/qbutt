@@ -115,6 +115,7 @@
 #include "gui/properties/proptabbar.h"
 #include "gui/repairdialog.h"
 #include "gui/releaseupdatedialog.h"
+#include "gui/speedlimitdialog.h"
 #include "gui/transferlistmodel.h"
 #include "gui/transferlistsortmodel.h"
 #include "gui/transferlistwidget.h"
@@ -1863,6 +1864,8 @@ namespace
         const QString phase = spec.value(u"appearance"_s).toString();
         const bool dark = phase == u"product";
         require(dark || (phase == u"retained") || (phase == u"functional"), u"Unknown appearance phase"_s);
+        const bool russian = phase != u"functional";
+        const QString speedUnit = russian ? u" Мбит/с"_s : u" Mbit/s"_s;
         if (phase == u"functional")
         {
             BitTorrent::Session::instance()->setConfiguredDownloadSpeedLimit(1234567);
@@ -2269,8 +2272,9 @@ namespace
             auto *schedule = requiredChild<QGroupBox>(&options, u"groupBoxSchedule"_s);
             require(rateBox->isVisible() && !options.findChild<QGroupBox *>(u"altRateLimitBox"_s)
                     && (downloadLimit->decimals() == 2) && (uploadLimit->decimals() == 2)
-                    && (downloadLimit->suffix() == u" Mbit/s"_s) && (uploadLimit->suffix() == u" Mbit/s"_s)
-                    && (schedule->title() == (dark ? u"Расписание ограничений скорости"_s : u"Schedule speed limits"_s)),
+                    && (downloadLimit->suffix() == speedUnit) && (uploadLimit->suffix() == speedUnit)
+                    && (schedule->title() == (russian
+                        ? u"Расписание ограничений скорости"_s : u"Schedule speed limits"_s)),
                 u"Speed settings expose multiple modes, wrong units or untranslated schedule"_s);
             requireNoOverflow();
             pages->setCurrentRow(0);
@@ -2413,6 +2417,19 @@ namespace
             writeObject(spec.value(u"retainedState"_s).toString(), layout());
         }
         options.close();
+        SpeedLimitDialog speedDialog {window};
+        speedDialog.show();
+        QCoreApplication::processEvents();
+        auto *dialogDownload = requiredChild<QDoubleSpinBox>(&speedDialog, u"spinDownloadLimit"_s);
+        auto *dialogUpload = requiredChild<QDoubleSpinBox>(&speedDialog, u"spinUploadLimit"_s);
+        require((dialogDownload->suffix() == speedUnit) && (dialogUpload->suffix() == speedUnit)
+                && (dialogDownload->decimals() == 2) && (dialogUpload->decimals() == 2)
+                && requiredChild<QSlider>(&speedDialog, u"sliderDownloadLimit"_s)->isVisible()
+                && requiredChild<QSlider>(&speedDialog, u"sliderUploadLimit"_s)->isVisible(),
+            u"Speed limit dialog lost its localized Mbit/s controls"_s);
+        require(speedDialog.grab().save(screenshots.filePath(phase + u"-speed-limits.png"_s)),
+            u"Cannot render speed limit dialog"_s);
+        speedDialog.close();
         window->hide();
     }
 
