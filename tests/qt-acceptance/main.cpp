@@ -381,8 +381,8 @@ namespace
         auto *nodes = requiredChild<QListWidget>(&widget, u"mihomoNodes"_s);
         auto *enabled = requiredChild<QCheckBox>(&widget, u"mihomoEnabled"_s);
         auto *url = requiredChild<QLineEdit>(&widget, u"mihomoSubscriptionUrl"_s);
-        require(!enabled->isChecked() && url->isVisible() && nodes->isVisible(),
-            u"Subscription and node selection are not visible with managed paths disabled"_s);
+        require(!enabled->isChecked() && url->isVisible() && nodes->count() == 0 && !nodes->isVisible(),
+            u"Empty node list was shown before a subscription was loaded"_s);
         require(dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"paths-initial.png"_s)),
             u"Cannot render initial connection settings"_s);
         auto *reserves = requiredChild<QListWidget>(&widget, u"mihomoReserveTransports"_s);
@@ -397,6 +397,7 @@ namespace
         require(!interfaceName.isEmpty(), u"No physical interface is available to exercise Paths"_s);
         Net::PathManager::instance()->inspectConfiguration(spec.value(u"subscription"_s).toString());
         waitFor(u"Path node list"_s, [&] { return !Net::PathManager::instance()->isBusy() && (nodes->count() == 4); });
+        require(nodes->isVisible(), u"Imported nodes were not shown in Connection settings"_s);
         const auto findNode = [nodes](const QString &name)
         {
             for (int row = 0; row < nodes->count(); ++row)
