@@ -662,10 +662,6 @@
         <translation>Уверены, что хотите выйти из qBittorrent?</translation>
     </message>
     <message>
-        <source>Alternative speed limits</source>
-        <translation>Особые ограничения скорости</translation>
-    </message>
-    <message>
         <source>Search Engine</source>
         <translation>Поисковик</translation>
     </message>

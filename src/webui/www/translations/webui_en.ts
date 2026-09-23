@@ -662,10 +662,6 @@
         <translation type="unfinished" />
     </message>
     <message>
-        <source>Alternative speed limits</source>
-        <translation type="unfinished" />
-    </message>
-    <message>
         <source>Search Engine</source>
         <translation type="unfinished" />
     </message>
