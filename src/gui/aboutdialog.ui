@@ -88,9 +88,45 @@
       </attribute>
       <layout class="QVBoxLayout" name="authorTabLayout">
        <item>
+        <widget class="QGroupBox" name="groupBoxQbuttMaintainer">
+         <property name="title">
+          <string>qbutt maintainer</string>
+         </property>
+         <layout class="QHBoxLayout" name="qbuttMaintainerLayout">
+          <item>
+           <widget class="QLabel" name="labelQbuttMaintainerNameTitle">
+            <property name="text">
+             <string>Name:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelQbuttMaintainerName">
+            <property name="text">
+             <string notr="true">ArieX</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="qbuttMaintainerSpacer">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>0</width>
+              <height>0</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
         <widget class="QGroupBox" name="groupBox_2">
          <property name="title">
-          <string>Current maintainer</string>
+          <string>qBittorrent maintainer</string>
          </property>
          <layout class="QGridLayout" name="gridLayout_4">
           <item row="0" column="0">

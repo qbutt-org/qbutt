@@ -32,15 +32,14 @@
 #include <stdexcept>
 
 #include <QAction>
-#include <QApplication>
 #include <QCoreApplication>
 #include <QFileDialog>
 #include <QHBoxLayout>
-#include <QStyle>
 #include <QToolButton>
 
 #include "base/utils/fs.h"
 #include "fspathedit_p.h"
+#include "uithememanager.h"
 
 namespace
 {
@@ -92,7 +91,7 @@ FileSystemPathEdit::FileSystemPathEditPrivate::FileSystemPathEditPrivate(
                         FileSystemPathEdit *q, Private::IFileEditorWithCompletion *editor)
     : q_ptr {q}
     , m_editor {editor}
-    , m_browseAction {new QAction(QApplication::style()->standardIcon(QStyle::SP_DirOpenIcon), browseButtonFullText.tr(), q)}
+    , m_browseAction {new QAction(UIThemeManager::instance()->getIcon(u"folder-open"_s), browseButtonFullText.tr(), q)}
     , m_browseBtn {new QToolButton(q)}
     , m_fileNameFilter {tr("Any file") + u" (*)"}
     , m_validator {new Private::FileSystemPathValidator(q)}
@@ -102,6 +101,11 @@ FileSystemPathEdit::FileSystemPathEditPrivate::FileSystemPathEditPrivate(
     m_browseAction->setToolTip(browseButtonFullText.tr().remove(u'&'));
 
     m_browseBtn->setDefaultAction(m_browseAction);
+
+    QObject::connect(UIThemeManager::instance(), &UIThemeManager::themeChanged, q, [this]
+    {
+        m_browseAction->setIcon(UIThemeManager::instance()->getIcon(u"folder-open"_s));
+    });
 
     m_validator->setStrictMode(false);
 
