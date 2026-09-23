@@ -1720,23 +1720,42 @@ namespace
     {
         QHeaderView *header = view->header();
         const QSignalBlocker blocker {header};
+        const QByteArray originalState = header->saveState();
+        const bool stretch = header->stretchLastSection();
+        std::vector<int> widths(header->count());
+        std::vector<bool> hidden(header->count());
+        for (int index = 0; index < header->count(); ++index)
+        {
+            hidden[index] = header->isSectionHidden(index);
+            if (!hidden[index])
+                widths[index] = header->sectionSize(index);
+        }
+        // Revealing a hidden section while stretching can replace its saved width with the viewport remainder.
+        if (stretch)
+            header->setStretchLastSection(false);
+        for (int index = 0; index < header->count(); ++index)
+        {
+            if (!hidden[index])
+                continue;
+            header->showSection(index);
+            widths[index] = header->sectionSize(index);
+            header->hideSection(index);
+        }
+        require(header->restoreState(originalState), u"Cannot restore header after hidden-width measurement"_s);
         QJsonArray columns;
         for (int index = 0; index < header->count(); ++index)
         {
-            const bool hidden = header->isSectionHidden(index);
-            // Qt reports zero for a hidden section. Read its retained width
-            // without persisting the temporary reveal through section signals.
-            if (hidden)
-                header->showSection(index);
-            const int width = header->sectionSize(index);
-            if (hidden)
-                header->hideSection(index);
+            const bool sectionHidden = hidden[index];
+            require((header->isSectionHidden(index) == sectionHidden)
+                    && (sectionHidden || (header->sectionSize(index) == widths[index])),
+                u"Header geometry changed while measuring hidden columns"_s);
             columns.append(QJsonObject {{u"logicalIndex"_s, index},
-                {u"visualIndex"_s, header->visualIndex(index)}, {u"hidden"_s, hidden}, {u"width"_s, width}});
+                {u"visualIndex"_s, header->visualIndex(index)}, {u"hidden"_s, sectionHidden},
+                {u"width"_s, widths[index]}});
         }
         return {{u"columns"_s, columns}, {u"sortSection"_s, header->sortIndicatorSection()},
             {u"sortAscending"_s, header->sortIndicatorOrder() == Qt::AscendingOrder},
-            {u"stretchLastSection"_s, header->stretchLastSection()}};
+            {u"stretchLastSection"_s, stretch}};
     }
 
     void requireDefaultHeader(QTreeView *view, const QJsonObject &expected, const QString &name)
