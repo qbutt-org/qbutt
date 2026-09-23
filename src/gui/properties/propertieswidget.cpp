@@ -29,6 +29,8 @@
 
 #include "propertieswidget.h"
 
+#include <algorithm>
+
 #include <QClipboard>
 #include <QDateTime>
 #include <QDebug>
@@ -371,7 +373,8 @@ void PropertiesWidget::readSettings()
         for (int column = 0; column < TorrentContentModelItem::NB_COL; ++column)
         {
             m_ui->filesList->setColumnHidden(column, false);
-            m_ui->filesList->setColumnWidth(column, 100);
+            m_ui->filesList->setColumnWidth(column,
+                std::max(100, m_ui->filesList->header()->sectionSizeHint(column)));
         }
         m_ui->filesList->setColumnWidth(TorrentContentModelItem::COL_NAME, 508);
         m_ui->filesList->header()->setStretchLastSection(true);

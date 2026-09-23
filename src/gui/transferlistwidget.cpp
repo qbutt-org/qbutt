@@ -183,7 +183,7 @@ TransferListWidget::TransferListWidget(IGUIApplication *app, QWidget *parent)
         for (const auto &[column, width] : visibleColumns)
         {
             setColumnHidden(column, false);
-            setColumnWidth(column, width);
+            setColumnWidth(column, std::max(width, header()->sectionSizeHint(column)));
         }
         sortByColumn(TransferListModel::TR_QUEUE_POSITION, Qt::AscendingOrder);
     }
