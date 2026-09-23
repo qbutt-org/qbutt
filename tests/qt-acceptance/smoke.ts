@@ -338,25 +338,29 @@ try {
         assert.equal(transport.payloadBoundaries, 3, "Authenticated SOCKS payloads did not cross every listener boundary");
         assert.equal(transport.delayedStatus, 1, "The queued foreground request race was not exercised exactly once");
         assert.equal(transport.statusPending, false, "The delayed status request did not complete");
-        const restartEvidencePath = join(root, "network-restart-evidence.json");
-        const restartSpec = join(root, "network-restart-spec.json");
-        await writeFile(restartSpec, JSON.stringify({ schema: 1, mode: "network-restore",
-            evidencePath: restartEvidencePath, screenshots: join(root, "screenshots") }, null, 2));
-        application = Bun.spawn([executable, `--profile=${profile}`], {
-            cwd: bundle, windowsHide: true,
-            env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: restartSpec,
-                QBUTT_QT_CHILD_EVIDENCE: join(root, "network-restart-child.json") },
-            stdout: Bun.file(join(root, "network-restart-stdout.log")),
-            stderr: Bun.file(join(root, "network-restart-stderr.log")), timeout: 90000,
-        });
-        const restartExitCode = await application.exited;
-        assert.equal(restartExitCode, 0, `Network restart process exited ${restartExitCode}; inspect ${root}`);
-        const restartEvidence = JSON.parse(await readFile(restartEvidencePath, "utf8"));
-        assert.equal(restartEvidence.status, "passed", "The disabled network selection was not retained after restart");
+        const networkRestartEvidence: string[] = [];
+        for (const phase of ["network-restore", "network-enabled-restore"] as const) {
+            const restartEvidencePath = join(root, `${phase}-evidence.json`);
+            const restartSpec = join(root, `${phase}-spec.json`);
+            await writeFile(restartSpec, JSON.stringify({ schema: 1, mode: phase,
+                evidencePath: restartEvidencePath, screenshots: join(root, "screenshots") }, null, 2));
+            application = Bun.spawn([executable, `--profile=${profile}`], {
+                cwd: bundle, windowsHide: true,
+                env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: restartSpec,
+                    QBUTT_QT_CHILD_EVIDENCE: join(root, `${phase}-child.json`) },
+                stdout: Bun.file(join(root, `${phase}-stdout.log`)),
+                stderr: Bun.file(join(root, `${phase}-stderr.log`)), timeout: 90000,
+            });
+            const restartExitCode = await application.exited;
+            assert.equal(restartExitCode, 0, `${phase} process exited ${restartExitCode}; inspect ${root}`);
+            const restartEvidence = JSON.parse(await readFile(restartEvidencePath, "utf8"));
+            assert.equal(restartEvidence.status, "passed", `${phase} did not retain the saved network selection`);
+            networkRestartEvidence.push(restartEvidencePath);
+        }
         const bytes = await readFile(executable);
         result = { status: "passed", evidence: evidencePath, executable: resolve(sourceExecutable),
             executableSha256: createHash("sha256").update(bytes).digest("hex"),
-            networkRestartEvidence: restartEvidencePath,
+            networkRestartEvidence,
             transport: { protocol: transport.protocol, opened: 4, retired: retired.length,
                 authenticated: transport.authenticated, payloadBoundaries: transport.payloadBoundaries } };
     }

@@ -1601,14 +1601,31 @@ namespace
 
     void exerciseNetworkRestore(Application &application, MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
+        const bool expectedEnabled = spec.value(u"mode"_s) == u"network-enabled-restore"_s;
         OptionsDialog dialog {&application, window};
         dialog.showConnectionTab();
         dialog.show();
         auto *enabled = requiredChild<QCheckBox>(&dialog, u"mihomoEnabled"_s);
         auto *nodes = requiredChild<QListWidget>(&dialog, u"mihomoNodes"_s);
+        const auto managedPathsReady = []
+        {
+            const QJsonArray paths = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
+            const int managed = std::ranges::count_if(paths, [](const QJsonValue &value)
+            {
+                const QJsonObject path = value.toObject();
+                return (path.value(u"edgeId"_s) != u"native"_s) && path.value(u"open"_s).toBool();
+            });
+            const int direct = std::ranges::count_if(paths, [](const QJsonValue &value)
+            {
+                const QJsonObject path = value.toObject();
+                return (path.value(u"edgeId"_s) == u"native"_s) && path.value(u"open"_s).toBool();
+            });
+            return (managed == 3) && (direct >= 1) && (paths.size() == managed + direct);
+        };
         waitFor(u"Saved node checklist"_s, [&]
         {
-            return !Net::PathManager::instance()->isBusy() && (nodes->count() == 4);
+            return !Net::PathManager::instance()->isBusy() && (nodes->count() == 4)
+                && (!expectedEnabled || managedPathsReady());
         });
         QStringList checked;
         for (int row = 0; row < nodes->count(); ++row)
@@ -1620,13 +1637,22 @@ namespace
         checked.sort();
         QStringList expected {u"Alpha"_s, u"Beta"_s, QString {MALICIOUS_PROXY_NAME}};
         expected.sort();
-        require(!enabled->isChecked() && !Net::PathManager::instance()->managedEnabled()
-                && !Net::PathManager::instance()->isOpen() && (checked == expected),
-            u"Restart did not retain the disabled master control and checked nodes"_s);
-        const QString screenshot = QDir(spec.value(u"screenshots"_s).toString()).filePath(u"paths-restart.png"_s);
+        require(enabled->isChecked() == expectedEnabled
+                && Net::PathManager::instance()->managedEnabled() == expectedEnabled
+                && Net::PathManager::instance()->isOpen() == expectedEnabled && (checked == expected),
+            u"Restart did not retain the master control and checked nodes"_s);
+        const QString screenshot = QDir(spec.value(u"screenshots"_s).toString()).filePath(
+            expectedEnabled ? u"paths-enabled-restart.png"_s : u"paths-disabled-restart.png"_s);
         require(dialog.grab().save(screenshot), u"Cannot render retained network selection"_s);
+        enabled->click();
+        waitFor(expectedEnabled ? u"Network disabled after restored startup"_s : u"Network enabled after disabled startup"_s, [&]
+        {
+            return !Net::PathManager::instance()->isBusy()
+                && (expectedEnabled ? !Net::PathManager::instance()->isOpen() : managedPathsReady());
+        });
         addCheck(evidence, {{u"name"_s, u"network-selection-restart"_s},
-            {u"enabled"_s, false}, {u"selectedNodes"_s, checked.size()}, {u"screenshot"_s, screenshot}});
+            {u"enabledAtStartup"_s, expectedEnabled}, {u"selectedNodes"_s, checked.size()},
+            {u"toggledForNextStartup"_s, true}, {u"screenshot"_s, screenshot}});
     }
 
     QJsonObject headerState(QTreeView *view)
@@ -2185,7 +2211,8 @@ namespace
             exerciseAppearance(application, window, spec, evidence);
             return;
         }
-        if (spec.value(u"mode"_s).toString() == u"network-restore")
+        if ((spec.value(u"mode"_s).toString() == u"network-restore")
+            || (spec.value(u"mode"_s).toString() == u"network-enabled-restore"))
         {
             exerciseNetworkRestore(application, window, spec, evidence);
             return;

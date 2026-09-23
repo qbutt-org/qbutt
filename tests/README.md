@@ -151,8 +151,9 @@ bun run smoke:qt
 
 For a short appearance-only acceptance on the same executable, use
 `bun run smoke:appearance`. It needs no Python, torrent data or transport child.
-Three offscreen app processes check a fresh built-in dark profile against
-`docs/ui-default-layout.json`, change layout and select Light through Qt
+Three offscreen app processes check a fresh System-theme profile under a
+controlled dark Qt color scheme against `docs/ui-default-layout.json`, change
+layout and select Light through Qt
 controls, verify those settings after restart, and check an independent
 functional Light/Fusion profile. Header order, hidden state, logical widths,
 Files tab, sidebar action, palette and options controls are asserted; the
@@ -201,7 +202,9 @@ version, UI and archive name.
 `smoke:qt` launches the real application offscreen with a new profile. It adds
 existing files through the normal torrent dialog, checks them before completion,
 then exercises stopped-torrent repair with source mappings, explicit consent and
-staged commit. It also covers multiple Paths, completion policies, bounded
+staged commit. It also covers selected managed nodes beside Direct, the master
+network switch and its saved state across disabled and enabled restarts,
+completion policies, bounded
 diagnostics export, and a 2,000-row transfer list. The runner creates and cancels
 a 30,000-file source search, measures event-loop response, checks payload snapshots
 before consent, and verifies final bytes and preserved unknown files. Set
