@@ -123,6 +123,8 @@ TransferListWidget::TransferListWidget(IGUIApplication *app, QWidget *parent)
 {
     // Load settings
     const bool columnLoaded = loadSettings();
+    // QTreeView stretches the last section by default; keep it off while initializing columns.
+    header()->setStretchLastSection(false);
 
     // Create and apply delegate
     setItemDelegate(new TransferListDelegate(this));
@@ -209,7 +211,6 @@ TransferListWidget::TransferListWidget(IGUIApplication *app, QWidget *parent)
             resizeColumnToContents(i);
     }
 
-    // Stretch only after the first-run layout has initialized hidden section widths.
     header()->setStretchLastSection(true);
 
     setContextMenuPolicy(Qt::CustomContextMenu);
