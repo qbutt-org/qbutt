@@ -1941,12 +1941,14 @@ namespace
                 && speedTab->mapTo(window, QPoint()).x() < filesTab->mapTo(window, QPoint()).x()
                 && (filesTab->mapTo(properties, QPoint(filesTab->width(), 0)).x() < properties->width() - 8),
             u"Properties tabs are not inline in HTTP Sources, Speed, Content order"_s);
+        const int initialPropertiesTab = properties->tabBar()->currentIndex();
         speedTab->click();
         require(properties->tabBar()->currentIndex() == PropTabBar::SpeedTab,
             u"Speed tab moved visually but no longer opens its page"_s);
         filesTab->click();
         require(properties->tabBar()->currentIndex() == PropTabBar::FilesTab,
-            u"Content tab did not restore the default page"_s);
+            u"Content tab did not open its page"_s);
+        properties->tabBar()->setCurrentIndex(initialPropertiesTab);
         QStatusBar *statusBar = window->statusBar();
         auto *limitsButton = requiredChild<QPushButton>(statusBar, u"speedLimitsButton"_s);
         auto *downloadButton = requiredChild<QPushButton>(statusBar, u"downloadSpeedButton"_s);
@@ -1993,7 +1995,10 @@ namespace
             }
             transfers[u"columns"_s] = columns;
             expected[u"transfers"_s] = transfers;
-            require(layout() == expected, u"Saved user layout or legacy stretch migration differs"_s);
+            const QJsonObject actual = layout();
+            require(actual == expected, u"Saved user layout or legacy stretch migration differs: expected "_s
+                + QString::fromUtf8(QJsonDocument {expected}.toJson(QJsonDocument::Compact)) + u", actual "_s
+                + QString::fromUtf8(QJsonDocument {actual}.toJson(QJsonDocument::Compact)));
         }
         else
         {
