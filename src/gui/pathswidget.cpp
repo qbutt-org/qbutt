@@ -294,9 +294,9 @@ PathsWidget::PathsWidget(QWidget *parent)
         if (!item->parent())
             saveSelection();
     });
-    connect(m_nodes, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *item)
+    connect(m_nodes, &QTreeWidget::itemClicked, this, [this](QTreeWidgetItem *item, const int column)
     {
-        if (!item->parent())
+        if (!item->parent() || (column != 0))
             return;
         const QString edge = item->parent()->data(0, Qt::UserRole).toString();
         const QString name = item->data(0, Qt::UserRole).toString();
@@ -515,7 +515,10 @@ void PathsWidget::refreshState()
             server->setToolTip(2, tr("SOCKS relay bytes for this connection, including protocol overhead; not verified torrent data."));
         }
         else
+        {
             server->setText(2, {});
+            server->setToolTip(2, {});
+        }
     }
     m_url->setEnabled(enabled && !busy);
     m_nodeFilter->setEnabled(enabled && (m_nodes->topLevelItemCount() > 0));
