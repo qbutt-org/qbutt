@@ -310,7 +310,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
         if (!m_releaseUpdater->install())
             showReleaseUpdateDialog();
     });
-    connect(m_releaseUpdater, &ReleaseUpdater::installRequested, qApp, &QCoreApplication::quit, Qt::QueuedConnection);
+    connect(m_releaseUpdater, &ReleaseUpdater::installRequested, qApp, [] { QCoreApplication::exit(); }, Qt::QueuedConnection);
     connect(m_releaseUpdater, &ReleaseUpdater::installationFailed, this, &MainWindow::showReleaseUpdateDialog);
     connect(m_ui->actionUpdateStatus, &QAction::triggered, this, &MainWindow::showReleaseUpdateDialog);
     m_releaseUpdater->startAutomaticChecks();
