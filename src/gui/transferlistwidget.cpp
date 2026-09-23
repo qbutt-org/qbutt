@@ -151,7 +151,7 @@ TransferListWidget::TransferListWidget(IGUIApplication *app, QWidget *parent)
     new MacOSShiftClickHandler(this);
 #endif
     header()->setFirstSectionMovable(true);
-    header()->setStretchLastSection(false);
+    header()->setStretchLastSection(true);
     header()->setTextElideMode(Qt::ElideRight);
 
     // First-run layout; saved header state always takes precedence.
