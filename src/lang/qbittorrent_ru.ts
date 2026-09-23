@@ -7205,6 +7205,10 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>Выберите протокол выбранного сервера.</translation>
     </message>
     <message>
+        <source>Unable to save the subscription format preference.</source>
+        <translation>Не удалось сохранить формат подписки.</translation>
+    </message>
+    <message>
         <source>Unable to save the preferred protocol.</source>
         <translation>Не удалось сохранить предпочтительный протокол.</translation>
     </message>
