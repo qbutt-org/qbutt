@@ -47,6 +47,37 @@ try {
     const credentials = { username: randomBytes(16).toString("hex"), password: randomBytes(24).toString("hex") };
     proxy = await startProxy({ ...credentials, targets });
     await lab.start();
+    const initialLimits = await lab.json<{
+        dl_limit: number; up_limit: number; alt_dl_limit: number; alt_up_limit: number;
+    }>("app/preferences");
+    assert(await (await lab.request("transfer/speedLimitsMode")).text() === "0"
+        && await (await lab.request("transfer/downloadLimit")).text() === "0"
+        && await (await lab.request("transfer/uploadLimit")).text() === "0"
+        && initialLimits.dl_limit === initialLimits.alt_dl_limit
+        && initialLimits.up_limit === initialLimits.alt_up_limit,
+    "Disabled speed limits exposed a cap or inconsistent configured aliases");
+    await lab.request("app/setPreferences", { json: JSON.stringify({ alt_dl_limit: 1234567, alt_up_limit: 765432 }) });
+    const configuredLimits = await lab.json<typeof initialLimits>("app/preferences");
+    assert(configuredLimits.dl_limit === 1234567 && configuredLimits.alt_dl_limit === 1234567
+        && configuredLimits.up_limit === 765432 && configuredLimits.alt_up_limit === 765432
+        && await (await lab.request("transfer/speedLimitsMode")).text() === "0"
+        && await (await lab.request("transfer/downloadLimit")).text() === "0",
+    "Configuring caps through WebAPI enabled or mismatched the aliases");
+    await lab.request("transfer/setDownloadLimit", { limit: "1542500" });
+    assert(await (await lab.request("transfer/speedLimitsMode")).text() === "1"
+        && await (await lab.request("transfer/downloadLimit")).text() === "1542500"
+        && await (await lab.request("transfer/uploadLimit")).text() === "765432",
+    "Positive download setter did not enable configured caps immediately");
+    await lab.request("transfer/setUploadLimit", { limit: "570000" });
+    const enabledLimits = await lab.json<typeof initialLimits>("app/preferences");
+    assert(await (await lab.request("transfer/uploadLimit")).text() === "570000"
+        && enabledLimits.dl_limit === 1542500 && enabledLimits.alt_dl_limit === 1542500
+        && enabledLimits.up_limit === 570000 && enabledLimits.alt_up_limit === 570000,
+    "Positive upload setter did not apply immediately or synchronize configured aliases");
+    await lab.request("transfer/setSpeedLimitsMode", { mode: "0" });
+    assert(await (await lab.request("transfer/downloadLimit")).text() === "0"
+        && await (await lab.request("transfer/uploadLimit")).text() === "0",
+    "Disabled speed limits still throttle transfers");
     const configPath = join(lab.root, "controlled-node.json");
     const pathRequest = {
         configPath, proxyName: "fixture", interfaceName: "Loopback Pseudo-Interface 1",
@@ -189,6 +220,13 @@ try {
         await waitFor("final job removal", () => lab.json<unknown[]>("torrents/info"), torrents => torrents.length === 0);
     }
     await lab.shutdown();
+    const savedSettings = await readFile(join(lab.root, "profile", "qbutt", "config", "qbutt.ini"), "utf8");
+    assert(/^Session\\DownloadSpeedLimit=1542500\r?$/m.test(savedSettings)
+        && /^Session\\UploadSpeedLimit=570000\r?$/m.test(savedSettings)
+        && !/^Session\\(?:GlobalDLSpeedLimit|GlobalUPSpeedLimit)=/m.test(savedSettings),
+    "WebAPI speed caps were not saved under the single configured keys");
+    await lab.checkpoint({ check: "speed-limit-webapi", configuredDownload: 1542500,
+        configuredUpload: 570000, effectiveMode: "unlimited", legacyGlobalKeys: false });
     assert(await verifyPayload(destination, lab.manifest.payload) === verifiedBytes, "Shutdown changed verified payload");
 }
 catch (error) {
