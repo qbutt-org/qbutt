@@ -260,7 +260,7 @@ for await (const chunk of Bun.stdin.stream()) {
                 evidence.delayedStatus++;
                 evidence.statusPending = true;
                 save();
-                await Bun.sleep(1000);
+                await Bun.sleep(delayToken === "shutdown" ? 300 : 1000);
                 evidence.statusPending = false;
             }
             result = { paths: [...servers.values()].map(path => ({

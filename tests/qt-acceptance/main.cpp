@@ -1786,11 +1786,14 @@ namespace
         QCoreApplication::processEvents();
         auto *enabled = requiredChild<QCheckBox>(&widget, u"mihomoEnabled"_s);
         waitFor(u"Managed-network disable action"_s, [=] { return enabled->isEnabled() && enabled->isChecked(); });
+        const QString childEvidence = spec.value(u"childEvidence"_s).toString();
         writeObject(spec.value(u"childControl"_s).toString(), {{u"delayStatus"_s, u"shutdown"_s}});
         waitFor(u"Delayed transport status before network off"_s, [&]
         {
-            return tryReadObject(spec.value(u"childEvidence"_s).toString()).value(u"statusPending"_s).toBool();
+            return tryReadObject(childEvidence).value(u"statusPending"_s).toBool();
         });
+        require(tryReadObject(childEvidence).value(u"statusPending"_s).toBool(),
+            u"Network Off did not begin while the child status request was pending"_s);
         QElapsedTimer clickLatency;
         clickLatency.start();
         enabled->click();
