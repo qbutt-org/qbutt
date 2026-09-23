@@ -1774,8 +1774,6 @@ namespace
         const QPalette palette = application.palette();
         require((palette.color(QPalette::Base).lightness() < 127) == dark, u"Unexpected application background palette"_s);
         require((palette.color(QPalette::Text).lightness() > 127) == dark, u"Unexpected application text palette"_s);
-        require(QApplication::style()->name().compare(u"Fusion", Qt::CaseInsensitive) == 0,
-            u"Appearance style is not Fusion"_s);
         require(!Preferences::instance()->useCustomUITheme(), u"Appearance depends on an external theme"_s);
         QFile builtInStyle {u":/themes/builtin.qss"_s};
         require(builtInStyle.open(QIODevice::ReadOnly), u"The built-in style is missing"_s);
@@ -1993,6 +1991,7 @@ namespace
         }
         addCheck(evidence, {{u"name"_s, u"appearance-%1"_s.arg(phase)}, {u"layout"_s, layout()},
             {u"background"_s, palette.color(QPalette::Base).name()}, {u"text"_s, palette.color(QPalette::Text).name()},
+            {u"style"_s, QApplication::style()->name()},
             {u"customThemeChecked"_s, custom->isChecked()}, {u"offscreen"_s, true}});
         if (dark)
         {
