@@ -2690,6 +2690,9 @@ bool Net::PathManager::revokePath(ActivePath &path)
     path.endpoint.password.clear();
     path.wire = {};
     path.transport = {};
+    path.health = {};
+    path.relayRate = {};
+    path.wireSampleTimeMs = 0;
     if ((m_resolution.value(u"state"_s) == u"pending"_s)
         && (m_resolution.value(u"pathId"_s).toString() == pathId))
     {
@@ -2724,6 +2727,9 @@ bool Net::PathManager::shutdown()
         path.endpoint.password.clear();
         path.wire = {};
         path.transport = {};
+        path.health = {};
+        path.relayRate = {};
+        path.wireSampleTimeMs = 0;
     }
     bool routesRetired = session->setTrustedInboundRoutes({});
     if (ProxyConfigurationManager::instance()->hasRuntimeProxy())
