@@ -4372,6 +4372,10 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
     std::vector<lt::udp_route> transitionRoutes = m_managedUdpRoutes;
     for (const lt::udp_route &route : udpRoutes)
     {
+        // A Native route borrows the physical listener only after the managed
+        // torrent policy has retired context-zero discovery and peers.
+        if (route.route.type == lt::peer_route::type_t::native)
+            continue;
         const auto existing = std::ranges::find_if(transitionRoutes,
             [&](const lt::udp_route &candidate) { return sameUdpIdentity(candidate, route); });
         if (existing == transitionRoutes.end())
@@ -4419,7 +4423,30 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
         [selector](const lt::peer_route_observation &observation) { selector->observe(observation); });
     m_peerRouteSelector = selector;
 
-    error = m_nativeSession->set_udp_routes(udpRoutes);
+    nativeListenAddresses.removeDuplicates();
+    const bool nativeListenChanged = m_managedNativeListenAddresses != nativeListenAddresses;
+    if (nativeListenChanged)
+    {
+        if (m_isPortMappingEnabled)
+            disablePortMapping();
+        std::vector<lt::udp_route> remoteRoutes;
+        for (const lt::udp_route &route : udpRoutes)
+        {
+            if (route.route.type != lt::peer_route::type_t::native)
+                remoteRoutes.push_back(route);
+        }
+        // Retire the old Native socket owner before changing its physical
+        // listener. The managed selector already rejects context-zero traffic.
+        error = m_nativeSession->set_udp_routes(std::move(remoteRoutes));
+        if (!error)
+        {
+            m_managedNativeListenAddresses = nativeListenAddresses;
+            m_listenInterfaceConfigured = false;
+            configure();
+        }
+    }
+    if (!error)
+        error = m_nativeSession->set_udp_routes(udpRoutes);
     if (error)
     {
         m_nativeSession->set_torrent_route_policy_selector(
@@ -4451,20 +4478,11 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
         return false;
     }
     m_managedUdpRoutes = std::move(udpRoutes);
-    nativeListenAddresses.removeDuplicates();
-    if (m_managedNativeListenAddresses != nativeListenAddresses)
-    {
-        m_managedNativeListenAddresses = std::move(nativeListenAddresses);
-        m_listenInterfaceConfigured = false;
-        if (m_isPortMappingEnabled)
-            disablePortMapping();
-        // libtorrent handles UPnP before reopening listeners in one settings
-        // update. Queue the physical listener first, then enable its mapping.
-        configure();
-        if (!m_managedNativeListenAddresses.isEmpty()
-            && Net::PortForwarder::instance()->isEnabled())
-            enablePortMapping();
-    }
+    // libtorrent applies a settings pack's mapping callbacks before reopening
+    // listeners. Queue the physical listener first, then enable its mapping.
+    if (nativeListenChanged && !m_managedNativeListenAddresses.isEmpty()
+        && Net::PortForwarder::instance()->isEnabled())
+        enablePortMapping();
     return true;
 }
 

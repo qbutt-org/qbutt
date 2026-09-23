@@ -942,12 +942,17 @@ void Net::PathManager::queueDhtBootstrap(const quint64 pathId, const quint64 gen
 {
     if (!BitTorrent::Session::instance()->isDHTEnabled() || !findEndpoint(pathId, generation))
         return;
-    if (!std::ranges::any_of(m_dhtBootstrap, [=](const DhtBootstrap &entry)
-        { return (entry.pathId == pathId) && (entry.generation == generation) && (entry.ipv6 == ipv6); }))
+    const auto pending = std::ranges::find_if(m_dhtBootstrap, [=](const DhtBootstrap &entry)
+        { return (entry.pathId == pathId) && (entry.generation == generation) && (entry.ipv6 == ipv6); });
+    if (pending != m_dhtBootstrap.end())
     {
-        m_dhtBootstrap.append({pathId, generation, ipv6});
-        QMetaObject::invokeMethod(this, &PathManager::processDhtBootstrap, Qt::QueuedConnection);
+        // A new ready alert may be the same Native owner after a physical
+        // socket rebind. Repeat every scoped router on the replacement node.
+        pending->nodeIndex = 0;
     }
+    else
+        m_dhtBootstrap.append({pathId, generation, ipv6});
+    QMetaObject::invokeMethod(this, &PathManager::processDhtBootstrap, Qt::QueuedConnection);
 }
 
 void Net::PathManager::processDhtBootstrap()
