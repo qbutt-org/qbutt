@@ -97,6 +97,7 @@
 #include "base/net/proxyconfigurationmanager.h"
 #include "base/preferences.h"
 #include "base/profile.h"
+#include "base/settingsstorage.h"
 #include "base/unicodestrings.h"
 #include "base/utils/fs.h"
 #include "base/utils/io.h"
