@@ -1804,16 +1804,22 @@ namespace
                 OptionsDialog preview {&application, window};
                 preview.show();
                 auto *previewScheme = requiredChild<QComboBox>(&preview, u"comboColorScheme"_s);
+                auto *previewPages = requiredChild<QListWidget>(&preview, u"tabSelection"_s);
+                const QIcon retainedPageIcon = previewPages->item(1)->icon();
+                const QByteArray darkPageIcon = iconDigest(retainedPageIcon);
                 require(previewScheme->currentData().value<ColorScheme>() == ColorScheme::System,
                     u"New profile did not select the system appearance"_s);
                 previewScheme->setCurrentIndex(previewScheme->findData(QVariant::fromValue(ColorScheme::Light)));
                 waitFor(u"Live Light preview"_s,
                     [&] { return application.palette().color(QPalette::Base) == QColor(u"#ffffff"_s); });
                 require(UIThemeManager::instance()->colorScheme() == ColorScheme::System
-                        && iconDigest(retainedIcon) != darkIcon,
-                    u"Light preview persisted early or left an existing icon dark"_s);
+                        && iconDigest(retainedIcon) != darkIcon
+                        && iconDigest(retainedPageIcon) != darkPageIcon,
+                    u"Light preview persisted early or left a retained icon dark"_s);
                 require(window->grab().save(screenshots.filePath(u"product-live-light.png"_s)),
                     u"Cannot render live Light preview"_s);
+                require(preview.grab().save(screenshots.filePath(u"product-options-live-light.png"_s)),
+                    u"Cannot render live Light settings"_s);
                 preview.reject();
                 require(UIThemeManager::instance()->colorScheme() == ColorScheme::System,
                     u"Cancelling appearance preview changed the saved scheme"_s);
