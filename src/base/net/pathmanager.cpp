@@ -1339,7 +1339,10 @@ bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInt
     const QString previous = currentMode;
     const QString previousInterface = currentInterface;
     auto *proxyManager = ProxyConfigurationManager::instance();
-    if (!proxyManager->hasRuntimeProxy())
+    const bool enteringMixed = (mode == u"mixed") && !proxyManager->hasRuntimeProxy();
+    // Mixed admits Native before the proxy callback configures listeners.
+    // The runtime-proxy save persists this staged policy and its marker together.
+    if (!enteringMixed && !proxyManager->hasRuntimeProxy())
     {
         if (!proxyManager->setRuntimeProxy(blockedRuntimeProxy()))
         {
@@ -1350,7 +1353,7 @@ bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInt
     m_storePolicy = mode;
     m_storeNativeInterface = nativeInterface;
     if (((previous != m_storePolicy) || (previousInterface != m_storeNativeInterface))
-        && !SettingsStorage::instance()->save())
+        && !enteringMixed && !SettingsStorage::instance()->save())
     {
         m_storePolicy = previous;
         m_storeNativeInterface = previousInterface;
@@ -1368,6 +1371,16 @@ bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInt
     m_nativeEndpoints = std::move(nativeEndpoints);
     if (!applyRoutes())
     {
+        if (enteringMixed)
+        {
+            const bool routesRestored = BitTorrent::Session::instance()->resetNetworkRoutes();
+            m_nativeEndpoints = oldNativeEndpoints;
+            m_storePolicy = previous;
+            m_storeNativeInterface = previousInterface;
+            reportError(routesRestored ? tr("Unable to apply the network policy.")
+                : tr("Unable to restore Native after the network policy failed."));
+            return false;
+        }
         // A removed local address must not be restored after an apply failure.
         // Retire Native while keeping the selected remote routes available.
         m_nativeEndpoints.clear();
@@ -1382,6 +1395,19 @@ bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInt
             return false;
         }
         reportError(tr("Unable to apply the network policy."));
+        return false;
+    }
+    if (enteringMixed && !proxyManager->setRuntimeProxy(blockedRuntimeProxy()))
+    {
+        // The managed torrent selector was installed synchronously before
+        // changing the proxy; restore ordinary Native if that change cannot persist.
+        const bool routesRestored = BitTorrent::Session::instance()->resetNetworkRoutes();
+        m_nativeEndpoints = oldNativeEndpoints;
+        m_storePolicy = previous;
+        m_storeNativeInterface = previousInterface;
+        reportError(routesRestored
+            ? tr("Unable to save the managed startup policy.")
+            : tr("Unable to restore Native after the managed startup policy failed."));
         return false;
     }
     for (const PeerRouteEndpoint &endpoint : oldNativeEndpoints)

@@ -108,6 +108,12 @@ try {
         && allInterfaces.peerUdpAddresses.includes("127.0.0.1")
         && allInterfaces.peerUdpAddresses.includes(nativeAddress),
     "Default listeners did not expand to loopback and the physical address");
+    const interfaces = await lab.json<{ name: string; value: string }[]>("app/networkInterfaceList");
+    const selected = interfaces.filter(item => item.name === nativeInterface || item.value === nativeInterface);
+    assert.equal(selected.length, 1, "Physical interface is ambiguous");
+    const destination = join(lab.root, "download");
+    const hash = await lab.add("v1-public", destination);
+    await lab.request("torrents/start", { hashes: hash });
     initialConnection = createConnection({ host: nativeAddress, port: peerPort, localAddress: nativeAddress });
     await new Promise<void>((resolve, reject) => {
         initialConnection!.once("connect", resolve);
@@ -115,9 +121,6 @@ try {
     });
     initialConnection.on("error", () => {});
     initialConnection.write(Buffer.from([19]));
-    const interfaces = await lab.json<{ name: string; value: string }[]>("app/networkInterfaceList");
-    const selected = interfaces.filter(item => item.name === nativeInterface || item.value === nativeInterface);
-    assert.equal(selected.length, 1, "Physical interface is ambiguous");
     assert(!initialConnection.destroyed, "The incoming connection closed before the preference change");
     await lab.request("app/setPreferences", { json: JSON.stringify({
         current_network_interface: selected[0]!.value, current_interface_address: nativeAddress,
@@ -144,9 +147,6 @@ try {
     assert.deepEqual(mixedBindings.peerUdpAddresses, [nativeAddress]);
     assert.equal(mixedBindings.physicalTcpCreatedAt, allInterfaces.physicalTcpCreatedAt);
     assert.equal(mixedBindings.physicalUdpCreatedAt, allInterfaces.physicalUdpCreatedAt);
-    const destination = join(lab.root, "download");
-    const hash = await lab.add("v1-public", destination);
-    await lab.request("torrents/start", { hashes: hash });
     if (transport === "tcp") {
         const privateHash = await lab.add("v1", join(lab.root, "private-download"));
         await lab.request("torrents/start", { hashes: privateHash });
