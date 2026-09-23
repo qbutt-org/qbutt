@@ -6850,59 +6850,14 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>Шлюз сохранён. Подключите узел для его использования.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="565"/>
-        <source>Applying gateway settings…</source>
-        <translation>Применение настроек шлюза…</translation>
-    </message>
-    <message>
-        <location filename="../base/net/pathmanager.cpp" line="570"/>
-        <source>The previous public gateway settings could not be restored. Network paths remain stopped.</source>
-        <translation>Не удалось восстановить прежние настройки публичного шлюза. Сетевые маршруты остаются остановленными.</translation>
-    </message>
-    <message>
-        <location filename="../base/net/pathmanager.cpp" line="573"/>
-        <source>The active paths could not be stopped for a gateway generation change.</source>
-        <translation>Не удалось остановить активные маршруты для смены поколения шлюза.</translation>
-    </message>
-    <message>
         <location filename="../base/net/pathmanager.cpp" line="602"/>
         <source>DNS saved. Reconnect nodes to apply.</source>
         <translation>DNS сохранён. Переподключите узлы для применения.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="795"/>
-        <source>Disconnect all managed paths before changing server groups.</source>
-        <translation>Перед изменением групп серверов отключите все управляемые маршруты.</translation>
-    </message>
-    <message>
-        <location filename="../base/net/pathmanager.cpp" line="800"/>
-        <source>The saved server grouping limit was reached.</source>
-        <translation>Достигнут предел сохранённых групп серверов.</translation>
-    </message>
-    <message>
-        <location filename="../base/net/pathmanager.cpp" line="808"/>
-        <source>Unable to save server grouping in the qbutt profile.</source>
-        <translation>Не удалось сохранить группы серверов в профиле qbutt.</translation>
-    </message>
-    <message>
-        <location filename="../base/net/pathmanager.cpp" line="813"/>
-        <source>Server grouping saved.</source>
-        <translation>Группы серверов сохранены.</translation>
-    </message>
-    <message>
-        <location filename="../base/net/pathmanager.cpp" line="833"/>
-        <source>Select two nodes from the loaded subscription to group their servers.</source>
-        <translation>Выберите два узла из загруженной подписки, чтобы объединить их серверы.</translation>
-    </message>
-    <message>
         <location filename="../base/net/pathmanager.cpp" line="874"/>
         <source>Choose a node and network adapter.</source>
         <translation>Выберите узел и сетевой адаптер.</translation>
-    </message>
-    <message>
-        <location filename="../base/net/pathmanager.cpp" line="881"/>
-        <source>Choose at most three distinct reserve transports for the selected server.</source>
-        <translation>Выберите не более трёх разных резервных транспортов для выбранного сервера.</translation>
     </message>
     <message>
         <location filename="../base/net/pathmanager.cpp" line="886"/>
@@ -6960,6 +6915,10 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>Прямое соединение недоступно. Подключённые узлы остаются активными.</translation>
     </message>
     <message>
+        <source>Unable to restore the saved Mihomo selection after Direct failed.</source>
+        <translation>После сбоя прямого соединения не удалось восстановить сохранённый выбор узлов Mihomo.</translation>
+    </message>
+    <message>
         <location filename="../base/net/pathmanager.cpp" line="1115"/>
         <source>Using connected nodes and the direct connection.</source>
         <translation>Используются подключённые узлы и прямое соединение.</translation>
@@ -7005,11 +6964,6 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>qbutt-net отклонил несогласованную замену транспорта.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="1340"/>
-        <source>The reserve transport could not start. This path remains stopped; other paths are unchanged.</source>
-        <translation>Не удалось запустить резервный транспорт. Этот маршрут остаётся остановленным; остальные маршруты не изменены.</translation>
-    </message>
-    <message>
         <location filename="../base/net/pathmanager.cpp" line="1352"/>
         <source>qbutt-net rejected a path while applying the public gateway settings.</source>
         <translation>qbutt-net отклонил маршрут при применении настроек публичного шлюза.</translation>
@@ -7018,11 +6972,6 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <location filename="../base/net/pathmanager.cpp" line="1429"/>
         <source>qbutt-net returned an unexpected selected node.</source>
         <translation>qbutt-net вернул выбранный узел, не соответствующий запросу.</translation>
-    </message>
-    <message>
-        <location filename="../base/net/pathmanager.cpp" line="1435"/>
-        <source>Choose reserve transports from the same configured or explicitly grouped server.</source>
-        <translation>Выберите резервные транспорты с тем же адресом сервера или из группы, заданной вручную.</translation>
     </message>
     <message>
         <location filename="../base/net/pathmanager.cpp" line="1545"/>
@@ -7196,11 +7145,6 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>Сервер подписки вернул код HTTP %1.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="1503"/>
-        <source>Subscription must contain a Mihomo YAML list of nodes.</source>
-        <translation>Подписка должна содержать список узлов в формате Mihomo YAML.</translation>
-    </message>
-    <message>
         <location filename="../base/net/pathmanager.cpp" line="1505"/>
         <source>Subscription contains too many nodes for one import.</source>
         <translation>В подписке слишком много узлов для одного импорта.</translation>
@@ -7219,11 +7163,6 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <location filename="../base/net/pathmanager.cpp" line="508"/>
         <source>A selected node is missing from the subscription.</source>
         <translation>Выбранный узел отсутствует в подписке.</translation>
-    </message>
-    <message>
-        <location filename="../base/net/pathmanager.cpp" line="514"/>
-        <source>Select at most one node for each configured server.</source>
-        <translation>Выберите не более одного узла для каждого сервера.</translation>
     </message>
     <message>
         <location filename="../base/net/pathmanager.cpp" line="524"/>
@@ -7247,11 +7186,6 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>Не удалось подключить сохранённые узлы Mihomo. Проверьте подписку и сетевой адаптер.</translation>
     </message>
     <message>
-        <location filename="../base/net/pathmanager.cpp" line="498"/>
-        <source>Select up to eight distinct nodes while Mihomo is off.</source>
-        <translation>Выберите не более восьми разных узлов при выключенном Mihomo.</translation>
-    </message>
-    <message>
         <location filename="../base/net/pathmanager.cpp" line="489"/>
         <source>Turn off Mihomo and choose up to three distinct backup nodes.</source>
         <translation>Выключите Mihomo и выберите до трёх разных резервных узлов.</translation>
@@ -7265,6 +7199,78 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <location filename="../base/net/pathmanager.cpp" line="511"/>
         <source>Unable to save the backup nodes.</source>
         <translation>Не удалось сохранить резервные узлы.</translation>
+    </message>
+    <message>
+        <source>Choose a protocol from the selected server.</source>
+        <translation>Выберите протокол выбранного сервера.</translation>
+    </message>
+    <message>
+        <source>Unable to save the preferred protocol.</source>
+        <translation>Не удалось сохранить предпочтительный протокол.</translation>
+    </message>
+    <message>
+        <source>Select distinct nodes from the subscription.</source>
+        <translation>Выберите разные узлы из подписки.</translation>
+    </message>
+    <message>
+        <source>A selected node has no configured server.</source>
+        <translation>Для одного из выбранных узлов не указан сервер.</translation>
+    </message>
+    <message>
+        <source>Select at most eight servers.</source>
+        <translation>Выберите не более восьми серверов.</translation>
+    </message>
+    <message>
+        <source>Too many selected protocols for one control request.</source>
+        <translation>Выбрано слишком много протоколов для одного запроса. Сократите выбор.</translation>
+    </message>
+    <message>
+        <source>The path generation limit was reached. Restart qbutt.</source>
+        <translation>Достигнут предел идентификаторов соединения. Перезапустите qbutt.</translation>
+    </message>
+    <message>
+        <source>The selected protocol could not start. The current connection remains active.</source>
+        <translation>Не удалось подключить выбранный протокол. Текущее соединение остаётся активным.</translation>
+    </message>
+    <message>
+        <source>Subscription must contain supported Mihomo or Base64 nodes.</source>
+        <translation>Подписка должна содержать поддерживаемые узлы в формате Mihomo или Base64.</translation>
+    </message>
+    <message>
+        <source>Choose protocols from the same configured server.</source>
+        <translation>Выберите протоколы одного сервера из подписки.</translation>
+    </message>
+    <message>
+        <source>Returning to Native…</source>
+        <translation>Возврат к обычному соединению…</translation>
+    </message>
+    <message>
+        <source>The selected node uses unsupported masking settings.</source>
+        <translation>Параметры маскировки выбранного узла не поддерживаются.</translation>
+    </message>
+    <message>
+        <source>Choose a server from the loaded subscription before saving its gateway.</source>
+        <translation>Перед сохранением шлюза выберите сервер из загруженной подписки.</translation>
+    </message>
+    <message>
+        <source>The previous public gateway settings could not be restored.</source>
+        <translation>Не удалось восстановить прежние настройки публичного шлюза.</translation>
+    </message>
+    <message>
+        <source>The selected server could not be reconnected for a gateway generation change.</source>
+        <translation>Не удалось переподключить выбранный сервер после изменения настроек шлюза.</translation>
+    </message>
+    <message>
+        <source>Choose distinct protocols from the selected server.</source>
+        <translation>Выберите разные протоколы выбранного сервера.</translation>
+    </message>
+    <message>
+        <source>Unable to apply the replacement network path.</source>
+        <translation>Не удалось применить новый сетевой маршрут.</translation>
+    </message>
+    <message>
+        <source>qbutt-net replaced an unexpected path generation.</source>
+        <translation>qbutt-net заменил не то поколение сетевого маршрута.</translation>
     </message>
 </context>
 <context>
@@ -10096,7 +10102,7 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
     </message>
     <message>
         <source>Path %1, generation %2</source>
-        <translation>Путь %1, поколение %2</translation>
+        <translation>Маршрут %1, поколение %2</translation>
     </message>
     <message>
         <location filename="../gui/properties/peerlistwidget.cpp" line="114"/>
