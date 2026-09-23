@@ -47,6 +47,8 @@ namespace Net
         QString status() const;
         QJsonObject statusData(bool includePeers = false) const;
         QString subscriptionUrl() const;
+        QString subscriptionFormat() const;
+        bool setSubscriptionFormat(const QString &format);
         QString configurationPath() const;
         QString proxyName() const;
         QString interfaceName() const;
@@ -210,6 +212,7 @@ namespace Net
         bool m_rolloverFailed = false;
         QString m_status;
         SettingValue<QString> m_storeSubscriptionUrl;
+        SettingValue<QString> m_storeSubscriptionFormat;
         SettingValue<QString> m_storeConfigurationPath;
         SettingValue<QString> m_storeProxyName;
         SettingValue<QString> m_storeInterfaceName;

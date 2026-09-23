@@ -276,7 +276,11 @@ PathsWidget::PathsWidget(QWidget *parent)
     });
     connect(m_subscriptionFormat, &QComboBox::currentIndexChanged, this, [this]()
     {
-        m_manager->setSubscriptionFormat(m_subscriptionFormat->currentData().toString());
+        if (!m_manager->setSubscriptionFormat(m_subscriptionFormat->currentData().toString()))
+        {
+            const QSignalBlocker blocker(m_subscriptionFormat);
+            m_subscriptionFormat->setCurrentIndex(m_subscriptionFormat->findData(m_manager->subscriptionFormat()));
+        }
     });
     connect(m_nodeFilter, &QLineEdit::textChanged, this, &PathsWidget::filterNodes);
     connect(m_nodes, &QTreeWidget::currentItemChanged, this,

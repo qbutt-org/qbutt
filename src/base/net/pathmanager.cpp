@@ -204,6 +204,7 @@ Net::PathManager::PathManager()
     : m_status {ProxyConfigurationManager::instance()->hasRuntimeProxy()
         ? tr("Connection stopped. Connect a node to resume.") : QString()}
     , m_storeSubscriptionUrl {u"Network/Paths/SubscriptionUrl"_s}
+    , m_storeSubscriptionFormat {u"Network/Paths/SubscriptionFormat"_s}
     , m_storeConfigurationPath {u"Network/Paths/ConfigurationPath"_s}
     , m_storeProxyName {u"Network/Paths/ProxyName"_s}
     , m_storeInterfaceName {u"Network/Paths/InterfaceName"_s}
@@ -482,6 +483,34 @@ QJsonObject Net::PathManager::statusData(const bool includePeers) const
 QString Net::PathManager::subscriptionUrl() const
 {
     return m_storeSubscriptionUrl;
+}
+
+QString Net::PathManager::subscriptionFormat() const
+{
+    return m_storeSubscriptionFormat.get(u"auto"_s);
+}
+
+bool Net::PathManager::setSubscriptionFormat(const QString &format)
+{
+    if ((format != u"auto") && (format != u"mihomo") && (format != u"base64"))
+        return false;
+    const QString previous = subscriptionFormat();
+    if (format == previous)
+        return true;
+    if (controlBusy())
+        return false;
+    m_storeSubscriptionFormat = format;
+    if (!SettingsStorage::instance()->save())
+    {
+        m_storeSubscriptionFormat = previous;
+        reportError(tr("Unable to save the subscription format preference."));
+        return false;
+    }
+    if (!subscriptionUrl().isEmpty())
+        refreshSubscription(subscriptionUrl());
+    else
+        emit changed();
+    return true;
 }
 
 QString Net::PathManager::configurationPath() const
@@ -1017,7 +1046,10 @@ void Net::PathManager::refreshSubscription(const QString &urlText)
     url.setScheme(u"https"_s);
 
     QNetworkRequest request(url);
-    request.setRawHeader("User-Agent", "mihomo");
+    const QString format = subscriptionFormat();
+    request.setRawHeader("User-Agent", (format == u"mihomo") ? "mihomo" : "qbutt");
+    request.setRawHeader("Accept", (format == u"base64") ? "text/plain, */*;q=0.5"
+        : "application/yaml, text/yaml, text/plain;q=0.9, */*;q=0.5");
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     request.setMaximumRedirectsAllowed(5);
     request.setTransferTimeout(15000);
