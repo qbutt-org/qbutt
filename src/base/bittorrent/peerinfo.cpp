@@ -271,6 +271,16 @@ QString PeerInfo::connectionType() const
         : u"Web"_s;
 }
 
+quint64 PeerInfo::routePathId() const
+{
+    return m_nativeInfo.route.path_id;
+}
+
+quint64 PeerInfo::routeGeneration() const
+{
+    return m_nativeInfo.route.generation;
+}
+
 qreal PeerInfo::calcRelevance(const QBitArray &allPieces) const
 {
     const qsizetype localMissing = allPieces.count(false);

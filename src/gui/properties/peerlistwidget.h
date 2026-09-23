@@ -71,6 +71,7 @@ public:
         RELEVANCE,
         DOWNLOADING_PIECE,
         IP_HIDDEN,
+        VIA,
 
         COL_COUNT
     };

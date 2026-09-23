@@ -36,9 +36,12 @@
 #include <QFuture>
 #include <QHeaderView>
 #include <QHostAddress>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QList>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPair>
 #include <QPointer>
 #include <QSet>
 #include <QShortcut>
@@ -54,6 +57,7 @@
 #include "base/global.h"
 #include "base/logger.h"
 #include "base/net/geoipmanager.h"
+#include "base/net/pathmanager.h"
 #include "base/net/reverseresolution.h"
 #include "base/preferences.h"
 #include "base/utils/misc.h"
@@ -68,13 +72,16 @@ struct PeerEndpoint
 {
     BitTorrent::PeerAddress address;
     QString connectionType; // matches return type of `PeerInfo::connectionType()`
+    quint64 routePathId = 0;
+    quint64 routeGeneration = 0;
 
     friend bool operator==(const PeerEndpoint &left, const PeerEndpoint &right) = default;
 };
 
 std::size_t qHash(const PeerEndpoint &peerEndpoint, const std::size_t seed = 0)
 {
-    return qHashMulti(seed, peerEndpoint.address, peerEndpoint.connectionType);
+    return qHashMulti(seed, peerEndpoint.address, peerEndpoint.connectionType
+        , peerEndpoint.routePathId, peerEndpoint.routeGeneration);
 }
 
 namespace
@@ -125,6 +132,7 @@ PeerListWidget::PeerListWidget(PropertiesWidget *parent)
     m_listModel->setHeaderData(PeerListColumns::TOT_UP, Qt::Horizontal, tr("Uploaded", "i.e: total data uploaded"));
     m_listModel->setHeaderData(PeerListColumns::RELEVANCE, Qt::Horizontal, tr("Relevance", "i.e: How relevant this peer is to us. How many pieces it has that we don't."));
     m_listModel->setHeaderData(PeerListColumns::DOWNLOADING_PIECE, Qt::Horizontal, tr("Files", "i.e. files that are being downloaded right now"));
+    m_listModel->setHeaderData(PeerListColumns::VIA, Qt::Horizontal, tr("Via"));
     // Set header text alignment
     m_listModel->setHeaderData(PeerListColumns::PORT, Qt::Horizontal, QVariant(Qt::AlignRight | Qt::AlignVCenter), Qt::TextAlignmentRole);
     m_listModel->setHeaderData(PeerListColumns::PROGRESS, Qt::Horizontal, QVariant(Qt::AlignRight | Qt::AlignVCenter), Qt::TextAlignmentRole);
@@ -141,12 +149,13 @@ PeerListWidget::PeerListWidget(PropertiesWidget *parent)
     setModel(m_proxyModel);
 
     hideColumn(PeerListColumns::IP_HIDDEN);
-    hideColumn(PeerListColumns::COL_COUNT);
 
     // Default hidden columns
     if (!columnLoaded)
     {
         hideColumn(PeerListColumns::PEERID_CLIENT);
+        header()->moveSection(header()->visualIndex(PeerListColumns::VIA)
+            , header()->visualIndex(PeerListColumns::CONNECTION) + 1);
     }
 
     m_resolveCountries = Preferences::instance()->resolvePeerCountries();
@@ -154,7 +163,7 @@ PeerListWidget::PeerListWidget(PropertiesWidget *parent)
         hideColumn(PeerListColumns::COUNTRY);
     // Ensure that at least one column is visible at all times
     bool atLeastOne = false;
-    for (int i = 0; i < PeerListColumns::IP_HIDDEN; ++i)
+    for (int i = 0; i < PeerListColumns::COL_COUNT; ++i)
     {
         if (!isColumnHidden(i))
         {
@@ -167,7 +176,7 @@ PeerListWidget::PeerListWidget(PropertiesWidget *parent)
     // To also mitigate the above issue, we have to resize each column when
     // its size is 0, because explicitly 'showing' the column isn't enough
     // in the above scenario.
-    for (int i = 0; i < PeerListColumns::IP_HIDDEN; ++i)
+    for (int i = 0; i < PeerListColumns::COL_COUNT; ++i)
     {
         if ((columnWidth(i) <= 0) && !isColumnHidden(i))
             resizeColumnToContents(i);
@@ -205,8 +214,10 @@ void PeerListWidget::displayColumnHeaderMenu()
     menu->setTitle(tr("Column visibility"));
     menu->setToolTipsVisible(true);
 
-    for (int i = 0; i < PeerListColumns::IP_HIDDEN; ++i)
+    for (int i = 0; i < PeerListColumns::COL_COUNT; ++i)
     {
+        if (i == PeerListColumns::IP_HIDDEN)
+            continue;
         if ((i == PeerListColumns::COUNTRY) && !Preferences::instance()->resolvePeerCountries())
             continue;
 
@@ -417,6 +428,20 @@ void PeerListWidget::loadPeers(const BitTorrent::Torrent *torrent)
             return;
         }
 
+        QHash<quint64, QPair<quint64, QString>> routeNames;
+        const QJsonArray paths = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
+        for (const QJsonValue &value : paths)
+        {
+            const QJsonObject path = value.toObject();
+            const quint64 pathId = path.value(u"pathId"_s).toString().toULongLong();
+            const qint64 generation = path.value(u"generation"_s).toInteger();
+            if ((pathId == 0) || (generation <= 0))
+                continue;
+            const QString name = path.contains(u"localAddress"_s)
+                ? tr("Direct") : path.value(u"proxyName"_s).toString();
+            routeNames.insert(pathId, {static_cast<quint64>(generation), name});
+        }
+
         // Remove I2P peers since they will be completely reloaded.
         for (const QStandardItem *item : asConst(m_I2PPeerItems))
             m_listModel->removeRow(item->row());
@@ -431,7 +456,8 @@ void PeerListWidget::loadPeers(const BitTorrent::Torrent *torrent)
         const bool hideZeroValues = (pref->getHideZeroValues() && (pref->getHideZeroComboValues() == 0));
         for (const BitTorrent::PeerInfo &peer : peers)
         {
-            const PeerEndpoint peerEndpoint {peer.address(), peer.connectionType()};
+            const PeerEndpoint peerEndpoint {peer.address(), peer.connectionType()
+                , peer.routePathId(), peer.routeGeneration()};
 
             auto itemIter = m_peerItems.find(peerEndpoint);
             const bool isNewPeer = (itemIter == m_peerItems.end());
@@ -467,6 +493,19 @@ void PeerListWidget::loadPeers(const BitTorrent::Torrent *torrent)
             }
 
             updatePeer(row, torrent, peer, hideZeroValues);
+            QString via = tr("Unknown");
+            QString viaToolTip;
+            if ((peer.routePathId() == 0) && (peer.routeGeneration() == 0))
+                via = tr("Default route");
+            else
+            {
+                const auto route = routeNames.constFind(peer.routePathId());
+                if ((route != routeNames.cend()) && (route->first == peer.routeGeneration()) && !route->second.isEmpty())
+                    via = route->second;
+                else
+                    viaToolTip = tr("Path %1, generation %2").arg(peer.routePathId()).arg(peer.routeGeneration());
+            }
+            setModelData(m_listModel, row, PeerListColumns::VIA, via, via, {}, viaToolTip);
         }
 
         // Remove peers that are gone

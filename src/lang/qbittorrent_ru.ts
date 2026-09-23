@@ -10196,6 +10196,26 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
 <context>
     <name>PeerListWidget</name>
     <message>
+        <source>Via</source>
+        <translation>Через</translation>
+    </message>
+    <message>
+        <source>Direct</source>
+        <translation>Напрямую</translation>
+    </message>
+    <message>
+        <source>Default route</source>
+        <translation>Маршрут по умолчанию</translation>
+    </message>
+    <message>
+        <source>Unknown</source>
+        <translation>Неизвестно</translation>
+    </message>
+    <message>
+        <source>Path %1, generation %2</source>
+        <translation>Путь %1, поколение %2</translation>
+    </message>
+    <message>
         <location filename="../gui/properties/peerlistwidget.cpp" line="114"/>
         <source>Country/Region</source>
         <translation>Страна/регион</translation>

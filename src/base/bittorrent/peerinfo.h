@@ -86,6 +86,8 @@ namespace BitTorrent
         qlonglong totalDownload() const;
         QBitArray pieces() const;
         QString connectionType() const;
+        quint64 routePathId() const;
+        quint64 routeGeneration() const;
         qreal relevance() const;
         QString flags() const;
         QString flagsDescription() const;
