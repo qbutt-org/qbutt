@@ -21,6 +21,15 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 - Safe update uses independent staging and recoverable journal steps. Never use ordinary hardlinks for writable staging or silently fall back to in-place. Completion policies run only after data verification and commit; removing a torrent preserves its payload.
 - qbutt has a separate profile. Do not edit live qBittorrent, Koala, router or production service settings, or share an active download directory with another writer.
 
+## Product interface
+
+- Design for people downloading files, not for agents or network operators. Keep primary actions obvious and remove redundant controls, implementation jargon and explanatory paragraphs that merely describe automatic behavior.
+- Keep every settings category visible. Place secondary parameters lower in the same page under a visible `Advanced settings` heading, separated by spacing; do not hide categories or these sections behind disclosure buttons.
+- Use one coherent native Qt visual language: restrained flat surfaces, readable typography, consistent action icons and the `#009df7` accent. Avoid nested framed groups and decorative containers. Reuse existing widgets and theme ownership rather than adding a second UI framework.
+- Offer built-in System, Light and Dark appearance, defaulting to System. Apply appearance changes live and follow OS changes in System mode. Qt rendering styles are implementation details, not a user choice. Verify both schemes and preserve explicit user appearance choices.
+- On Windows, minimize goes to the taskbar, close goes to the tray, and explicit Exit quits without confirmation. Startup at Windows logon is silent. Do not reintroduce configurable variants of these actions.
+- Ordinary torrent addition owns checking and reusing existing destination files. Keep specialized repair actions only for genuinely different work, preserving the storage safety and consent rules above.
+
 ## Working and verification
 
 - Optimize for simple, strong final code across the codebase, not the smallest patch. Remove obsolete state, imports, wrappers and mistaken ownership instead of preserving them behind fallbacks.
@@ -31,7 +40,7 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 - "Работает" недостаточно. После того как довел до рабочего состояния, убедись, что решение встроено в код красиво и без временных подпорок. Если по пути пришлось оставить костыль или фоллбэк, потом обязательно добейся его удаления, даже если для этого надо явно попросить пользователя сделать связанное изменение.
 - Native regressions, incorrect payload, data loss and leaks override throughput claims. Report measured verified bytes separately from relay/wire traffic and identify untested real-network scenarios.
 - The Windows build entrypoint is `./scripts/build-windows.ps1`; it produces a portable bundle and records the source revision/dirty state. Use the isolated fixture setup and `bun run smoke:native`, `smoke:repair`, `smoke:proxy`, and `smoke:network` commands in `tests/README.md`. Set `QBUTT_LAB_PATHS=1` to exercise the bundled transport child. Never use a live profile as a test fixture.
-- Functional visual tests use an isolated Light/Fusion profile with custom themes disabled; use `tests/appearance.ts` (default `QBUTT_LAB_APPEARANCE=functional`). Theme and release-default checks use `QBUTT_LAB_APPEARANCE=product` to exercise the built-in default, which must be dark in the finished product. Assert control state through Qt properties as well as screenshots. Never ship test appearance overrides or overwrite a user's saved layout/theme.
+- Functional visual tests use an isolated Light profile with custom themes disabled; use `tests/appearance.ts` (default `QBUTT_LAB_APPEARANCE=functional`). Theme and release-default checks use `QBUTT_LAB_APPEARANCE=product` to exercise System, Light and Dark, including live switching. System must follow the host appearance. Assert control state through Qt properties as well as screenshots. Never ship test appearance overrides or overwrite a user's saved layout/theme.
 
 ## Git and public delivery
 
