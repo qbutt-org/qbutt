@@ -22,10 +22,9 @@
 #include <QListWidget>
 #include <QNetworkInterface>
 #include <QPushButton>
-#include <QSizePolicy>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QSpinBox>
-#include <QUrl>
 #include <QVBoxLayout>
 
 #include "base/global.h"
@@ -267,17 +266,11 @@ PathsWidget::PathsWidget(QWidget *parent)
 
     connect(m_url, &QLineEdit::editingFinished, this, [this]()
     {
-        if (m_manager->isBusy() || !m_enabled->isChecked())
+        if (m_manager->isBusy() || !m_enabled->isChecked() || !m_url->isModified())
             return;
-        const bool edited = m_url->isModified();
         m_url->setModified(false);
-        QUrl url(m_url->text().trimmed(), QUrl::StrictMode);
-        url.setScheme(u"https"_s);
-        if (edited || (url.toString(QUrl::FullyEncoded) != m_manager->subscriptionUrl()))
-        {
-            m_importPending = true;
-            m_manager->refreshSubscription(m_url->text());
-        }
+        m_importPending = true;
+        m_manager->refreshSubscription(m_url->text());
     });
     connect(m_nodeFilter, &QLineEdit::textChanged, this, [this](const QString &query)
     {
