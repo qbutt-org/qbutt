@@ -159,6 +159,7 @@ for await (const chunk of Bun.stdin.stream()) {
         assert(Number.isSafeInteger(request.id) && Number(request.id) > 0, "Control request id must be a positive safe integer");
         assert.equal(typeof request.method, "string");
         let result: Record<string, unknown> = {};
+        let retiredIngress: Record<string, unknown> | undefined;
         if (request.method === "hello") {
             requireKeys(request, ["id", "method", "v"]);
             evidence.hello++;
@@ -223,9 +224,9 @@ for await (const chunk of Bun.stdin.stream()) {
             evidence.opened.push({ pathId, generation, proxyName: request.proxyName, port: address.port });
             if (old) {
                 // The candidate listener exists before the old generation retires.
-                process.stdout.write(JSON.stringify({ v: protocolVersion, id: 0, event: "incomingTcp",
+                retiredIngress = { v: protocolVersion, id: 0, event: "incomingTcp",
                     pathId, generation: old.generation, remote: "198.51.100.17:2345", publicEndpoint: "127.0.0.1:40000",
-                    relayHost: "127.0.0.1", relayPort: 40001, relayToken: "ab".repeat(32) }) + "\n");
+                    relayHost: "127.0.0.1", relayPort: 40001, relayToken: "ab".repeat(32) };
                 evidence.retiredIngress++;
                 await new Promise<void>(resolve => old.server.close(() => resolve()));
                 servers.delete(oldKey);
@@ -290,6 +291,9 @@ for await (const chunk of Bun.stdin.stream()) {
         }
         save();
         process.stdout.write(JSON.stringify({ v: protocolVersion, id: request.id, result }) + "\n");
+        // Parent activates the new generation while handling the response.
+        if (retiredIngress)
+            process.stdout.write(JSON.stringify(retiredIngress) + "\n");
     }
 }
 
