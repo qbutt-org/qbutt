@@ -173,7 +173,7 @@ try {
             targets.push({ host: "127.0.0.2", port: seed.port,
                 connectHost: seed.host, connectPort: seed.port });
         proxies.push(await startProxy({ ...credentials[side]!, listenAddress: `127.0.0.${side + 20}`,
-            udp: true, targets }));
+            udp: true, targets, remoteAddresses: [nativeAddress] }));
     }
     const configPath = join(lab.root, "nodes.json");
     await writeFile(configPath, JSON.stringify({ proxies: proxies.map((proxy, side) => ({
@@ -223,7 +223,7 @@ try {
         await lab.request("qbuttPaths/open", { configPath, proxyName: `discovery-transition-${side}`,
             interfaceName: loopback });
         await waitFor("discovery tunnel path opens", status,
-            current => !current.busy && current.paths.filter(path => path.open).length === side + 1);
+            current => !current.busy && current.paths.filter(path => path.open && path.edgeId !== "native").length === side + 1);
     }
     const mixed = await status();
     const paths = [0, 1].map(side => mixed.paths.find(path => path.proxyName === `discovery-transition-${side}`)!);

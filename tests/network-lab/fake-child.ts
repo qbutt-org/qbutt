@@ -227,7 +227,9 @@ for await (const chunk of Bun.stdin.stream()) {
         }
         else if (request.method === "close") {
             assert.deepEqual(Object.keys(request).sort(), ["generation", "id", "method", "pathId", "v"]);
-            assert.deepEqual({ pathId: request.pathId, generation: request.generation }, openedPaths.get(request.pathId),
+            const opened = openedPaths.get(request.pathId);
+            assert.deepEqual({ pathId: request.pathId, generation: request.generation },
+                { pathId: opened?.pathId, generation: opened?.generation },
                 "Close did not preserve the opened path generation");
             evidence.closeRequests++;
             saveEvidence();
@@ -250,7 +252,9 @@ for await (const chunk of Bun.stdin.stream()) {
             assert.deepEqual(Object.keys(request).sort(),
                 ["family", "generation", "host", "id", "method", "pathId", "v"]);
             assert(dnsMode, "Authentication fixture unexpectedly received DNS work");
-            assert.deepEqual({ pathId: request.pathId, generation: request.generation }, openedPaths.get(request.pathId),
+            const opened = openedPaths.get(request.pathId);
+            assert.deepEqual({ pathId: request.pathId, generation: request.generation },
+                { pathId: opened?.pathId, generation: opened?.generation },
                 "Lookup did not preserve the opened path generation");
             evidence.resolved++;
             evidence.lookupHostMatched = request.host === specification.lookupHost;
