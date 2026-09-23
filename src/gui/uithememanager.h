@@ -99,6 +99,5 @@ private:
     std::unique_ptr<UIThemeSource> m_themeSource;
     ColorMode m_appliedColorMode = ColorMode::Light;
     mutable QHash<QString, QIcon> m_icons;
-    mutable QHash<QString, QIcon> m_darkModeIcons;
     mutable QHash<QString, QIcon> m_flags;
 };

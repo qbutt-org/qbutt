@@ -34,6 +34,7 @@
 #include <QFile>
 #include <QFont>
 #include <QFontDatabase>
+#include <QIconEngine>
 #include <QPalette>
 #include <QPixmapCache>
 #include <QResource>
@@ -49,6 +50,62 @@
 
 namespace
 {
+    class ColorSchemeIconEngine final : public QIconEngine
+    {
+    public:
+        ColorSchemeIconEngine(const QIcon &lightIcon, const QIcon &darkIcon, const ColorMode *colorMode)
+            : m_lightIcon {lightIcon}
+            , m_darkIcon {darkIcon}
+            , m_colorMode {colorMode}
+        {
+        }
+
+        void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State state) override
+        {
+            currentIcon().paint(painter, rect, Qt::AlignCenter, mode, state);
+        }
+
+        QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State state) override
+        {
+            return currentIcon().pixmap(size, mode, state);
+        }
+
+        QPixmap scaledPixmap(const QSize &size, QIcon::Mode mode, QIcon::State state, qreal scale) override
+        {
+            return currentIcon().pixmap(size, scale, mode, state);
+        }
+
+        QSize actualSize(const QSize &size, QIcon::Mode mode, QIcon::State state) override
+        {
+            return currentIcon().actualSize(size, mode, state);
+        }
+
+        QList<QSize> availableSizes(QIcon::Mode mode, QIcon::State state) override
+        {
+            return currentIcon().availableSizes(mode, state);
+        }
+
+        bool isNull() override
+        {
+            return currentIcon().isNull();
+        }
+
+        QIconEngine *clone() const override
+        {
+            return new ColorSchemeIconEngine(m_lightIcon, m_darkIcon, m_colorMode);
+        }
+
+    private:
+        const QIcon &currentIcon() const
+        {
+            return (*m_colorMode == ColorMode::Dark) ? m_darkIcon : m_lightIcon;
+        }
+
+        const QIcon m_lightIcon;
+        const QIcon m_darkIcon;
+        const ColorMode *const m_colorMode;
+    };
+
     Path resolveThemePath(const Path &themePath)
     {
         return (themePath.isAbsolute() ? themePath : (Profile::instance()->rootPath() / themePath));
@@ -211,26 +268,25 @@ void UIThemeManager::onColorSchemeChanged()
 
 QIcon UIThemeManager::getIcon(const QString &iconId, [[maybe_unused]] const QString &fallback) const
 {
-    const ColorMode colorMode = m_appliedColorMode;
-    auto &icons = (colorMode == ColorMode::Dark) ? m_darkModeIcons : m_icons;
-
-    const auto iter = icons.find(iconId);
-    if (iter != icons.end())
-        return *iter;
-
 #if (defined(Q_OS_UNIX) && !defined(Q_OS_MACOS))
     // Don't cache system icons because users might change them at run time
     if (m_useSystemIcons)
     {
         auto icon = QIcon::fromTheme(iconId);
         if (icon.isNull() || icon.availableSizes().isEmpty())
-            icon = QIcon::fromTheme(fallback, QIcon(m_themeSource->getIconPath(iconId, colorMode).data()));
+            icon = QIcon::fromTheme(fallback, QIcon(m_themeSource->getIconPath(iconId, m_appliedColorMode).data()));
         return icon;
     }
 #endif
 
-    const QIcon icon {m_themeSource->getIconPath(iconId, colorMode).data()};
-    icons[iconId] = icon;
+    const auto iter = m_icons.constFind(iconId);
+    if (iter != m_icons.cend())
+        return *iter;
+
+    const QIcon lightIcon {m_themeSource->getIconPath(iconId, ColorMode::Light).data()};
+    const QIcon darkIcon {m_themeSource->getIconPath(iconId, ColorMode::Dark).data()};
+    const QIcon icon {new ColorSchemeIconEngine(lightIcon, darkIcon, &m_appliedColorMode)};
+    m_icons.insert(iconId, icon);
     return icon;
 }
 
