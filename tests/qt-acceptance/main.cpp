@@ -486,16 +486,23 @@ namespace
         }) && requiredChild<QPushButton>(&widget, u"mihomoSaveGateway"_s)->isEnabled(),
             u"Incoming connection settings did not follow the selected server"_s);
         nodes->setCurrentItem(alpha);
-        for (QTreeWidgetItem *server : {alpha, beta, malicious})
+        for (const QString &host : {u"127.0.0.20"_s, u"127.0.0.21"_s, u"127.0.0.22"_s})
         {
+            QTreeWidgetItem *server = findServer(host);
+            require(server, u"Selected server disappeared from the node tree"_s);
             require(nodes->isEnabled(), u"Mihomo node selection remained disabled after a previous connection"_s);
             server->setCheckState(0, Qt::Checked);
-            waitFor(u"Selected Mihomo server "_s + server->text(0), [&]
+            waitFor(u"Selected Mihomo server "_s + host, [&]
             {
+                const QTreeWidgetItem *current = findServer(host);
                 return !Net::PathManager::instance()->isBusy()
-                    && (server->checkState(0) == Qt::Checked);
+                    && current && (current->checkState(0) == Qt::Checked);
             });
         }
+        alpha = findServer(u"127.0.0.20"_s);
+        beta = findServer(u"127.0.0.21"_s);
+        malicious = findServer(u"127.0.0.22"_s);
+        require(alpha && beta && malicious, u"Selecting servers lost a configured server"_s);
         const QStringList selected = Net::PathManager::instance()->selectedNodes();
         require(enabled->isChecked() && (selected.size() == 4)
                 && selected.contains(u"Alpha"_s) && selected.contains(u"Alpha reserve"_s)
@@ -550,12 +557,16 @@ namespace
         Net::PathManager::instance()->inspectConfiguration(spec.value(u"subscription"_s).toString());
         require(Net::PathManager::instance()->isBusy(),
             u"A foreground Paths action queued behind status was not exposed as busy"_s);
+        const QTreeWidgetItem *pendingBeta = findServer(u"127.0.0.21"_s);
         require(!url->isEnabled() && enabled->isEnabled() && nodes->isEnabled()
-                && filter->isEnabled() && beta->flags().testFlag(Qt::ItemIsUserCheckable),
+                && filter->isEnabled() && pendingBeta && pendingBeta->flags().testFlag(Qt::ItemIsUserCheckable),
             u"Pending refresh made server selection or the network switch unavailable"_s);
         filter->setText(u"Beta"_s);
         QCoreApplication::processEvents();
-        require(!beta->isHidden() && alpha->isHidden(), u"Node search stopped responding during status polling"_s);
+        const QTreeWidgetItem *filteredAlpha = findServer(u"127.0.0.20"_s);
+        const QTreeWidgetItem *filteredBeta = findServer(u"127.0.0.21"_s);
+        require(filteredAlpha && filteredBeta && !filteredBeta->isHidden() && filteredAlpha->isHidden(),
+            u"Node search stopped responding during status polling"_s);
         filter->clear();
         waitFor(u"queued foreground Paths action"_s, [&]
         {
