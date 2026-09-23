@@ -368,6 +368,7 @@ PathsWidget::PathsWidget(QWidget *parent)
                 {
                     auto *item = new QTreeWidgetItem(server, {u"%1 (%2)"_s.arg(name, node.value(u"type"_s).toString())});
                     item->setData(0, Qt::UserRole, name);
+                    item->setFlags(item->flags() & ~Qt::ItemIsUserCheckable);
                 }
             }
             server->setData(0, Qt::UserRole + 1, names);
