@@ -40,6 +40,7 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFuture>
+#include <QHeaderView>
 #include <QList>
 #include <QMenu>
 #include <QMessageBox>
@@ -339,8 +340,14 @@ AddNewTorrentDialog::AddNewTorrentDialog(const BitTorrent::TorrentDescriptor &to
 
     loadState();
 
-    if (const QByteArray state = m_storeTreeHeaderState; !state.isEmpty())
-        m_ui->contentTreeView->header()->restoreState(state);
+    QHeaderView *const contentHeader = m_ui->contentTreeView->header();
+    if (const QByteArray state = m_storeTreeHeaderState; state.isEmpty() || !contentHeader->restoreState(state))
+    {
+        contentHeader->setStretchLastSection(false);
+        contentHeader->setSectionResizeMode(TorrentContentWidget::Name, QHeaderView::Stretch);
+        m_ui->contentTreeView->setColumnWidth(TorrentContentWidget::Priority,
+            std::max(110, contentHeader->sectionSizeHint(TorrentContentWidget::Priority)));
+    }
     // Hide useless columns after loading the header state
     m_ui->contentTreeView->hideColumn(TorrentContentWidget::Progress);
     m_ui->contentTreeView->hideColumn(TorrentContentWidget::Remaining);
