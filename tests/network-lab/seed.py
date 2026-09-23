@@ -40,9 +40,10 @@ if neighbor is not None:
             or type(neighbor["host"]) is not str or type(neighbor["port"]) is not int):
         raise RuntimeError("Invalid fixture neighbor")
     neighbor_address = ipaddress.IPv4Address(neighbor["host"])
-    if (not neighbor_address.is_loopback or neighbor_address == address
-            or not 0 <= neighbor["port"] <= 65535):
-        raise RuntimeError("Fixture neighbor must use a distinct loopback address")
+    if (not 0 <= neighbor["port"] <= 65535
+            or not ((neighbor_address.is_loopback and neighbor_address != address)
+                    or (neighbor_address == address and not address.is_loopback))):
+        raise RuntimeError("Fixture neighbor must use another loopback address or the same bound physical address")
 # libtorrent opens UDP on the TCP listen port even with uTP and DHT disabled.
 # Windows may exclude a port for only one protocol; choose a port both can bind
 # instead of treating a disabled-transport bind failure as a healthy seed.

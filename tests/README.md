@@ -586,19 +586,30 @@ requires the same Native interface variables, transfers a generated public
 torrent through only that route, verifies exact payload, and requires the seed
 to observe the selected source address.
 
+`smoke:managed-native-inbound` and `smoke:managed-native-inbound:utp` keep that
+public torrent in Mixed mode while an independent seed on the selected local
+physical address initiates the only peer connection. They inspect the app's
+actual physical TCP and UDP listeners, require incoming Native route attribution
+and exact verified payload, then require Tunnels Only to retire both listeners.
+
 `smoke:route-policy` drives the standalone libtorrent integration executable.
 Set `QBUTT_POLICY_EXE` to the built `route-policy-integration.exe` and
-`QBUTT_PUBLIC_IPV4` to the public IPv4 identity to advertise; this local fixture
-does not contact that address. It proves live policy
+`QBUTT_PUBLIC_IPV4` to a synthetic IPv4 identity for the SOCKS route; this local
+fixture does not contact that address. Set `QBUTT_LAB_NATIVE_ADDRESS` to a local
+non-loopback IPv4 address when automatic interface selection is unsuitable. It
+proves live policy
 replacement for HTTP/UDP trackers and DHT generations, an authenticated SOCKS
 webseed, an unaffected default session, and automatic managed uTP with exact
-payload bytes and source binding. HTTP and UDP tracker captures require the
-configured public address and generic peer port, reject a hostile session-wide
-announce address, and verify identical peer IDs and keys. DHT uses a distinct UDP
-listener port; an outgoing-only route performs `get_peers` without
-`announce_peer`, and anonymous announces suppress addresses while preserving the
-peer port. The local DHT packet source is loopback, so this proves route-local
-node identity and announced port behavior. Public address correctness and
+payload bytes and source binding. Native HTTP/UDP tracker and DHT captures require
+the actual physical peer listener port instead of a supplied public endpoint;
+the SOCKS route retains its explicit address and port. They reject a hostile
+session-wide announce address and verify identical peer IDs and keys. The
+standard physical UDP listener must answer a DHT ping before managed policy and
+stop answering after the switch. An
+outgoing-only route performs `get_peers` without `announce_peer`, and anonymous
+announces suppress addresses while preserving the peer port. The local DHT
+packet source is loopback, so this proves route-local node identity and
+announced port behavior. Public address correctness and
 reachability require the external gateway scenario.
 Two dual-family SOCKS contexts also announce a hostname tracker exactly once per
 context for each start/stop, retaining the leased public listener and the separate

@@ -648,13 +648,14 @@ SessionImpl::SessionImpl(QObject *parent)
         , this, [this]()
     {
         m_listenInterfaceConfigured = false;
-        if (Net::ProxyConfigurationManager::instance()->hasRuntimeProxy())
+        if (m_isPortMappingEnabled && (m_peerRouteSelector
+            || Net::ProxyConfigurationManager::instance()->hasRuntimeProxy()))
             disablePortMapping();
-        else if (Net::PortForwarder::instance()->isEnabled())
-            enablePortMapping();
         // Queue the native settings before any subsequent async_add_torrent.
         // A deferred Qt callback would leave an old-route window for new jobs.
         configure();
+        if (Net::PortForwarder::instance()->isEnabled())
+            enablePortMapping();
     });
 
     m_freeDiskSpaceChecker->moveToThread(m_ioThread.get());
@@ -2218,15 +2219,31 @@ lt::settings_pack SessionImpl::loadLTSettings() const
         settingsPack.set_bool(lt::settings_pack::proxy_hostnames, false);
         settingsPack.set_bool(lt::settings_pack::enable_dht, isDHTEnabled());
         settingsPack.set_bool(lt::settings_pack::enable_lsd, false);
-        settingsPack.set_bool(lt::settings_pack::enable_incoming_tcp, false);
-        // Libtorrent admits managed uTP only on a live advertised UDP route.
+        const bool nativeInbound = !m_managedNativeListenAddresses.isEmpty();
+        settingsPack.set_bool(lt::settings_pack::enable_incoming_tcp,
+            nativeInbound && (btProtocol() != BTProtocol::UTP));
         settingsPack.set_bool(lt::settings_pack::enable_incoming_utp, btProtocol() != BTProtocol::TCP);
         settingsPack.set_bool(lt::settings_pack::enable_outgoing_utp, btProtocol() != BTProtocol::TCP);
         settingsPack.set_bool(lt::settings_pack::enable_outgoing_tcp, btProtocol() != BTProtocol::UTP);
-        settingsPack.set_bool(lt::settings_pack::enable_upnp, false);
-        settingsPack.set_bool(lt::settings_pack::enable_natpmp, false);
+        settingsPack.set_bool(lt::settings_pack::enable_upnp, nativeInbound && m_isPortMappingEnabled);
+        settingsPack.set_bool(lt::settings_pack::enable_natpmp, nativeInbound && m_isPortMappingEnabled);
         settingsPack.set_str(lt::settings_pack::dht_bootstrap_nodes, "");
-        settingsPack.set_str(lt::settings_pack::listen_interfaces, "127.0.0.1:0");
+        QStringList listenInterfaces;
+        if (nativeInbound)
+        {
+            for (const QString &address : m_managedNativeListenAddresses)
+            {
+                const QHostAddress ip(address);
+                const QString host = (ip.protocol() == QAbstractSocket::IPv6Protocol)
+                    ? (u'[' + address + u']') : address;
+                listenInterfaces.append(host + u':' + QString::number(port()));
+                if (isSSLEnabled())
+                    listenInterfaces.append(host + u':' + QString::number(sslPort()) + u's');
+            }
+        }
+        else
+            listenInterfaces.append(u"127.0.0.1:0"_s);
+        settingsPack.set_str(lt::settings_pack::listen_interfaces, listenInterfaces.join(u',').toStdString());
         settingsPack.set_str(lt::settings_pack::outgoing_interfaces, "127.0.0.1");
 #if TORRENT_USE_I2P
         settingsPack.set_str(lt::settings_pack::i2p_hostname, "");
@@ -3098,7 +3115,8 @@ void SessionImpl::enablePortMapping()
 {
     // Keep mapping policy and its native command order on the session thread.
     // apply_settings() already posts its work to libtorrent's network thread.
-    if (m_isPortMappingEnabled || Net::ProxyConfigurationManager::instance()->hasRuntimeProxy())
+    if (m_isPortMappingEnabled || (m_managedNativeListenAddresses.isEmpty()
+        && (m_peerRouteSelector || Net::ProxyConfigurationManager::instance()->hasRuntimeProxy())))
         return;
 
     lt::settings_pack settingsPack;
@@ -4251,6 +4269,7 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
     std::vector<lt::network_route> allRoutes;
     std::vector<lt::network_route> pinnedRoutes;
     std::vector<lt::udp_route> udpRoutes;
+    QStringList nativeListenAddresses;
     peerRoutes.reserve(endpoints.size());
     allRoutes.reserve(endpoints.size() * 2);
     udpRoutes.reserve(endpoints.size() * 4);
@@ -4277,6 +4296,8 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
             {
                 route.type = lt::peer_route::type_t::native;
                 route.local_endpoint = {address, 0};
+                if (policy == Net::RoutePolicy::Mixed)
+                    nativeListenAddresses.append(QString::fromStdString(address.to_string()));
 #ifdef Q_OS_WIN
                 route.native_interface_index = endpoint.interfaceIndex;
 #endif
@@ -4421,11 +4442,29 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
         m_peerRouteSelector.reset();
         m_nativeSession->set_udp_routes({});
         m_managedUdpRoutes.clear();
+        m_managedNativeListenAddresses.clear();
+        m_listenInterfaceConfigured = false;
+        disablePortMapping();
+        configure();
         LogMsg(tr("Failed to retire superseded managed UDP routes. Reason: \"%1\".")
             .arg(QString::fromStdString(error.message())), Log::WARNING);
         return false;
     }
     m_managedUdpRoutes = std::move(udpRoutes);
+    nativeListenAddresses.removeDuplicates();
+    if (m_managedNativeListenAddresses != nativeListenAddresses)
+    {
+        m_managedNativeListenAddresses = std::move(nativeListenAddresses);
+        m_listenInterfaceConfigured = false;
+        if (m_isPortMappingEnabled)
+            disablePortMapping();
+        // libtorrent handles UPnP before reopening listeners in one settings
+        // update. Queue the physical listener first, then enable its mapping.
+        configure();
+        if (!m_managedNativeListenAddresses.isEmpty()
+            && Net::PortForwarder::instance()->isEnabled())
+            enablePortMapping();
+    }
     return true;
 }
 
@@ -4483,6 +4522,10 @@ bool SessionImpl::resetNetworkRoutes()
         m_nativeSession->set_peer_route_selector({});
     m_peerRouteSelector.reset();
     m_managedUdpRoutes.clear();
+    m_managedNativeListenAddresses.clear();
+    m_listenInterfaceConfigured = false;
+    disablePortMapping();
+    configure();
     return true;
 }
 

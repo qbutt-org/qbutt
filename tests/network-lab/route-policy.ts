@@ -2,15 +2,19 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createSocket } from "node:dgram";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { startProxy } from "./proxy";
 
 const executable = resolve(process.argv[2] ?? process.env.QBUTT_POLICY_EXE ?? "route-policy-integration.exe");
 const publicAddress = process.argv[3] ?? process.env.QBUTT_PUBLIC_IPV4;
 assert(publicAddress && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(publicAddress),
-    "Pass the currently observed public IPv4 address as the second argument or QBUTT_PUBLIC_IPV4");
+    "Pass a synthetic IPv4 identity as the second argument or QBUTT_PUBLIC_IPV4");
+const physicalAddress = process.env.QBUTT_LAB_NATIVE_ADDRESS
+    ?? Object.values(networkInterfaces()).flatMap(addresses => addresses ?? [])
+        .find(address => address.family === "IPv4" && !address.internal)?.address;
+assert(physicalAddress, "A non-loopback local IPv4 address is required for the DHT listener control");
 const root = await mkdtemp(join(tmpdir(), "qbutt-route-policy-"));
 const markers = join(root, "markers");
 await mkdir(markers);
@@ -234,11 +238,52 @@ const dhtPort = (dht.address() as { port: number }).port;
 let failure: unknown;
 try {
     const child = spawn(executable, [root + "-client", String(tracker.port), String(udpTrackerPort),
-        String(dhtPort), String(webseed.port), String(proxy.port), username, password, publicAddress, markers],
+        String(dhtPort), String(webseed.port), String(proxy.port), username, password,
+        publicAddress, markers, physicalAddress],
     { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    const standardDhtProbe = (async () => {
+        const marker = join(markers, "native-standard-udp");
+        for (let attempt = 0; attempt < 1000 && !existsSync(marker); attempt++)
+            await Bun.sleep(10);
+        assert(existsSync(marker), "Physical UDP listener was not reported");
+        const port = Number(await readFile(marker, "utf8"));
+        assert(Number.isInteger(port) && port > 0);
+        const probe = createSocket("udp4");
+        let preManagedReply = false;
+        let managedReply = false;
+        probe.on("message", packet => {
+            const transaction = field(packet, "t").toString();
+            if (transaction === "xx") preManagedReply = true;
+            if (transaction === "yy") managedReply = true;
+        });
+        try {
+            const ping = async (transaction: string) => {
+                const packet = Buffer.concat([Buffer.from("d1:ad2:id20:"), Buffer.alloc(20, 0x61),
+                    Buffer.from(`e1:q4:ping1:t2:${transaction}1:y1:qe`)]);
+                await new Promise<void>((resolve, reject) => probe.send(packet, port, physicalAddress,
+                    error => error ? reject(error) : resolve()));
+            };
+            for (let attempt = 0; attempt < 20 && !preManagedReply; attempt++) {
+                await ping("xx");
+                await Bun.sleep(150);
+            }
+            assert(preManagedReply, "Physical DHT socket did not answer before managed policy");
+            await mark("standard-dht-positive");
+            const managed = join(markers, "managed-dht-active");
+            for (let attempt = 0; attempt < 1000 && !existsSync(managed); attempt++)
+                await Bun.sleep(10);
+            assert(existsSync(managed), "Managed policy was not applied");
+            await ping("yy");
+            await Bun.sleep(600);
+            assert(!managedReply, "Managed physical uTP listener leaked a context-0 DHT response");
+        }
+        finally {
+            probe.close();
+        }
+    })();
     const [exitCode, stdout, stderr] = await Promise.all([
         new Promise<number | null>(resolve => child.once("exit", resolve)),
-        new Response(child.stdout!).text(), new Response(child.stderr!).text(),
+        new Response(child.stdout!).text(), new Response(child.stderr!).text(), standardDhtProbe,
     ]);
     assert.equal(exitCode, 0, `route policy client failed (${exitCode}): ${stderr}\n`
         + JSON.stringify({ httpSources, httpAnnounces, dhtQueries, dhtSources, dhtAnnounces }));
@@ -271,23 +316,30 @@ try {
     assert.deepEqual(new Set(udpSources), new Set(["127.0.0.2", "127.0.0.3"]));
     assert.deepEqual(new Set(dhtSources), new Set(["127.0.0.2", "127.0.0.3", "127.0.0.7"]));
     assert.equal(new Set(dhtIds).size, 3, "DHT generations reused one node identity");
+    const nativePorts = clientEvidence.nativeListeners as {
+        tcpA: number; udpA: number; tcpB: number; udpB: number;
+    };
+    assert(Object.values(nativePorts).every(port => Number.isInteger(port) && port > 0));
+    assert(nativePorts.tcpA !== 41001 && nativePorts.tcpB !== 41002,
+        "Synthetic public endpoint accidentally matched the physical listener");
     const httpA = httpAnnounces.filter(item => item.source === "127.0.0.2");
     const httpB = httpAnnounces.filter(item => item.source === "127.0.0.3" && item.phase === "b");
     const udpA = udpAnnounces.filter(item => item.source === "127.0.0.2");
     const udpB = udpAnnounces.filter(item => item.source === "127.0.0.3" && item.phase === "b");
     assert(httpA.length > 0 && httpA.every(item => item.phase === "a"
-        && item.port === 41001 && item.ip === null && item.ipv4 === publicAddress));
-    assert(httpB.length > 0 && httpB.every(item => item.port === 41002
-        && item.ip === null && item.ipv4 === publicAddress));
+        && item.port === nativePorts.tcpA && item.ip === null && item.ipv4 === null));
+    assert(httpB.length > 0 && httpB.every(item => item.port === nativePorts.tcpB
+        && item.ip === null && item.ipv4 === null));
     assert(udpA.length > 0 && udpA.every(item => item.phase === "a"
-        && item.port === 41001 && item.ipv4 === publicAddress));
-    assert(udpB.length > 0 && udpB.every(item => item.port === 41002 && item.ipv4 === publicAddress));
+        && item.port === nativePorts.tcpA && item.ipv4 === "0.0.0.0"));
+    assert(udpB.length > 0 && udpB.every(item => item.port === nativePorts.tcpB
+        && item.ipv4 === "0.0.0.0"));
     const dhtA = dhtAnnounces.filter(item => item.source === "127.0.0.2");
     const dhtB = dhtAnnounces.filter(item => item.source === "127.0.0.3");
     assert(dhtA.length > 0 && dhtA.every(item => item.phase === "a"
-        && item.port === 42001 && item.impliedPort !== 1));
+        && item.port === nativePorts.tcpA && item.impliedPort !== 1));
     assert(dhtB.length > 0 && dhtB.every(item => item.phase !== "a"
-        && item.port === 42002 && item.impliedPort !== 1));
+        && item.port === nativePorts.tcpB && item.impliedPort !== 1));
     assert(dhtQueries.some(item => item.source === "127.0.0.7" && item.query === "get_peers"));
     assert(!dhtAnnounces.some(item => item.source === "127.0.0.7"),
         "Outgoing-only DHT route published announce_peer");
@@ -296,9 +348,9 @@ try {
         && item.phase === "anonymous");
     const anonymousUdp = udpAnnounces.filter(item => item.source === "127.0.0.3"
         && item.phase === "anonymous");
-    assert(anonymousHttp.length > 0 && anonymousHttp.every(item => item.port === 41002
+    assert(anonymousHttp.length > 0 && anonymousHttp.every(item => item.port === nativePorts.tcpB
         && item.ip === null && item.ipv4 === null));
-    assert(anonymousUdp.length > 0 && anonymousUdp.every(item => item.port === 41002
+    assert(anonymousUdp.length > 0 && anonymousUdp.every(item => item.port === nativePorts.tcpB
         && item.ipv4 === "0.0.0.0"));
     assert.equal(httpB[0].peerId, udpB[0].peerId, "HTTP and UDP trackers used different peer IDs");
     assert.equal(Number.parseInt(httpB[0].key!, 16) >>> 0, udpB[0].key,
@@ -311,7 +363,8 @@ try {
         httpSources: [...new Set(httpSources)], udpSources: [...new Set(udpSources)],
         dhtSources: [...new Set(dhtSources)], dhtNodeIds: [...new Set(dhtIds)],
         httpAnnounces, udpAnnounces, dhtAnnounces,
-        oldTrackerRequestAborted,
+        oldTrackerRequestAborted, standardPhysicalDhtPreManagedResponded: true,
+        standardPhysicalDhtSuppressed: true,
         proxyAuthenticatedConnections: proxy.stats.authenticatedConnections,
         proxyRelayDownloadBytes: proxy.stats.downloadStreamBytes, webSeedRequests: webRequests.length };
     await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2));

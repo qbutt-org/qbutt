@@ -155,11 +155,60 @@ namespace
         }
         return 0;
     }
+
+    struct NativeListeners
+    {
+        int tcpA = 0;
+        int udpA = 0;
+        int tcpB = 0;
+        int udpB = 0;
+        int physicalUdp = 0;
+    };
+
+    NativeListeners waitForNativeListeners(lt::session &session, const lt::address &physicalAddress)
+    {
+        NativeListeners ports;
+        const auto deadline = std::chrono::steady_clock::now() + 10s;
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            std::vector<lt::alert *> alerts;
+            session.pop_alerts(&alerts);
+            for (const lt::alert *alert : alerts)
+            {
+                if (const auto *failed = lt::alert_cast<lt::listen_failed_alert>(alert))
+                {
+                    std::cerr << failed->message() << '\n';
+                    return {};
+                }
+                const auto *ready = lt::alert_cast<lt::listen_succeeded_alert>(alert);
+                if (!ready)
+                    continue;
+                const bool a = ready->address == lt::make_address("127.0.0.2");
+                const bool b = ready->address == lt::make_address("127.0.0.3");
+                const bool physical = ready->address == physicalAddress;
+                if (ready->socket_type == lt::socket_type_t::tcp)
+                {
+                    if (a) ports.tcpA = ready->port;
+                    if (b) ports.tcpB = ready->port;
+                }
+                if (ready->socket_type == lt::socket_type_t::utp)
+                {
+                    if (a) ports.udpA = ready->port;
+                    if (b) ports.udpB = ready->port;
+                    if (physical) ports.physicalUdp = ready->port;
+                }
+            }
+            if (ports.tcpA && ports.udpA && ports.tcpB && ports.udpB && ports.physicalUdp)
+                return ports;
+            std::this_thread::sleep_for(10ms);
+        }
+        return {};
+    }
 }
 
 int main(const int argc, char **argv) try
 {
-    if (argc != 11)
+    if (argc != 12)
         return 2;
     const fs::path root {argv[1]};
     if (fs::exists(root))
@@ -177,6 +226,10 @@ int main(const int argc, char **argv) try
     if (addressError)
         return 4;
     const fs::path markers {argv[10]};
+    const lt::address physicalAddress = lt::make_address(argv[11], addressError);
+    if (addressError || !physicalAddress.is_v4() || physicalAddress.is_loopback()
+        || physicalAddress.is_unspecified())
+        return 4;
 
     std::vector<char> trackerPayload(64 * 1024, 0x31);
     std::vector<char> utpPayload(512 * 1024);
@@ -244,20 +297,28 @@ int main(const int argc, char **argv) try
     outgoingDhtPolicy.pinned = outgoingDhtRoute.binding.context;
 
     lt::settings_pack settings;
-    settings.set_str(lt::settings_pack::listen_interfaces, "");
+    settings.set_str(lt::settings_pack::listen_interfaces,
+        "127.0.0.2:0,127.0.0.3:0," + physicalAddress.to_string() + ":0");
     settings.set_str(lt::settings_pack::dht_bootstrap_nodes, "");
     settings.set_str(lt::settings_pack::announce_ip, "192.0.2.123");
     settings.set_bool(lt::settings_pack::enable_dht, true);
     settings.set_bool(lt::settings_pack::enable_lsd, false);
     settings.set_bool(lt::settings_pack::enable_upnp, false);
     settings.set_bool(lt::settings_pack::enable_natpmp, false);
-    settings.set_bool(lt::settings_pack::enable_incoming_tcp, false);
+    settings.set_bool(lt::settings_pack::enable_incoming_tcp, true);
     settings.set_bool(lt::settings_pack::enable_incoming_utp, false);
     settings.set_bool(lt::settings_pack::enable_outgoing_utp, false);
     settings.set_bool(lt::settings_pack::announce_to_all_trackers, true);
     settings.set_bool(lt::settings_pack::announce_to_all_tiers, true);
     settings.set_int(lt::settings_pack::alert_mask, lt::alert_category::all);
     lt::session session {settings};
+    const NativeListeners nativeListeners = waitForNativeListeners(session, physicalAddress);
+    if (!nativeListeners.tcpA || !nativeListeners.udpA
+        || !nativeListeners.tcpB || !nativeListeners.udpB || !nativeListeners.physicalUdp)
+        return 28;
+    std::ofstream(markers / "native-standard-udp") << nativeListeners.physicalUdp;
+    if (!waitForFile(markers / "standard-dht-positive", 10s))
+        return 29;
     const lt::udp_route udpA = udpRoute(routeA, externalAddress, routeAUdpPublicPort);
     const lt::udp_route udpB = udpRoute(routeB, externalAddress, routeBUdpPublicPort);
     const lt::udp_route outgoingDht = udpRoute(outgoingDhtRoute, externalAddress, 0);
@@ -283,6 +344,7 @@ int main(const int argc, char **argv) try
     };
     if (session.set_torrent_route_policy_selector(selectA))
         return 8;
+    std::ofstream(markers / "managed-dht-active").put('1');
 
     lt::add_torrent_params trackerAdd;
     trackerAdd.ti = trackerInfo;
@@ -637,6 +699,11 @@ int main(const int argc, char **argv) try
         << ",\"defaultHttpTrackerUnaffected\":true"
         << ",\"defaultTcpPort\":" << defaultSession.listen_port()
         << ",\"defaultUdpPort\":" << defaultUdpPort
+        << ",\"nativeListeners\":{\"tcpA\":" << nativeListeners.tcpA
+        << ",\"udpA\":" << nativeListeners.udpA
+        << ",\"tcpB\":" << nativeListeners.tcpB
+        << ",\"udpB\":" << nativeListeners.udpB
+        << ",\"physicalUdp\":" << nativeListeners.physicalUdp << "}"
         << ",\"managedAutomaticUtp\":true"
         << ",\"utpSeedUdpPort\":" << seedUdpPort
         << ",\"utpVerifiedBytes\":" << actualUtp.size()
