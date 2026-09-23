@@ -136,7 +136,6 @@ let compiler: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
 let authenticationAbort: AbortController | undefined;
 let authentication: Promise<void> | undefined;
 let subscriptionServer: ReturnType<typeof Bun.serve> | undefined;
-let subscriptionRequests = 0;
 let failure: unknown;
 let result: Record<string, unknown> | undefined;
 const updateCaches: string[] = [];
@@ -358,10 +357,12 @@ try {
         ]);
         assert.equal(certificateCode, 0, `Cannot create isolated subscription certificate: ${certificateError}`);
         await allowLabNetwork([process.execPath]);
+        const subscriptionHeaders: { userAgent: string | null; accept: string | null }[] = [];
         subscriptionServer = Bun.serve({ hostname: "127.0.0.1", port: 0,
             tls: { cert: Bun.file(certificate), key: Bun.file(key) },
-            fetch() {
-                subscriptionRequests++;
+            fetch(request) {
+                subscriptionHeaders.push({ userAgent: request.headers.get("user-agent"),
+                    accept: request.headers.get("accept") });
                 return new Response("proxies: []\n", { headers: { "content-type": "text/yaml" } });
             },
         });
@@ -399,7 +400,9 @@ try {
             throw authenticationError;
         const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as Record<string, unknown>;
         assert.equal(evidence.status, "passed", `Qt acceptance failed; inspect ${root}`);
-        assert.equal(subscriptionRequests, 1, "Unchanged subscription focus loss repeated the import request");
+        assert.equal(subscriptionHeaders.length, 1, "Unchanged subscription focus loss repeated the import request");
+        assert.deepEqual(subscriptionHeaders[0], { userAgent: "qbutt", accept: "text/plain, */*;q=0.5" },
+            "Base64 response preference did not request text while accepting the fixture's YAML response");
         const transport = JSON.parse(await readFile(childEvidence, "utf8")) as {
             protocol: number; hello: number; listed: number; status: number; authenticated: number; rejectedCredentials: number; retiredIngress: number;
             payloadBoundaries: number; delayedStatus: number; failedReplacements: number; statusPending: boolean;
