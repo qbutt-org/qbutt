@@ -520,9 +520,9 @@ void PathsWidget::refreshState()
             const QJsonObject rate = path.value(u"relayRate"_s).toObject();
             server->setText(2, tr("↓ %1 (%2)  ↑ %3 (%4)").arg(
                 Utils::Misc::friendlyUnit(wire.value(u"relayDownloadBytes"_s).toInteger()),
-                Utils::Misc::friendlyUnit(rate.value(u"downloadBytesPerSecond"_s).toInteger(), true),
+                Utils::Misc::friendlyUnit(static_cast<qint64>(rate.value(u"downloadBytesPerSecond"_s).toDouble()), true),
                 Utils::Misc::friendlyUnit(wire.value(u"relayUploadBytes"_s).toInteger()),
-                Utils::Misc::friendlyUnit(rate.value(u"uploadBytesPerSecond"_s).toInteger(), true)));
+                Utils::Misc::friendlyUnit(static_cast<qint64>(rate.value(u"uploadBytesPerSecond"_s).toDouble()), true)));
             server->setToolTip(2, tr("SOCKS relay bytes for this connection, including protocol overhead; not verified torrent data."));
         }
         else
