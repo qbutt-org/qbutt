@@ -235,6 +235,18 @@ Invoke-Native $cmake (@('-S', $SourceDir, '-B', $BuildRoot) + $common + @(
     '-DMSVC_RUNTIME_DYNAMIC=ON', '-DTESTING=OFF', '-DQBUTT_STAGING_FAULTS=OFF', '-DQBUTT_COMPLETION_FAULTS=OFF'))
 Invoke-Native $cmake @('--build', $BuildRoot, '--parallel', "$Parallel")
 
+$binaryVersion = (Get-Item -LiteralPath (Join-Path $BuildRoot 'qbutt.exe')).VersionInfo
+$expectedParts = $releaseVersion.Split('-')[0].Split('.')
+$expectedFixedVersion = "$($expectedParts[0]).$($expectedParts[1]).$($expectedParts[2]).0"
+$fixedFileVersion = '{0}.{1}.{2}.{3}' -f $binaryVersion.FileMajorPart, $binaryVersion.FileMinorPart,
+    $binaryVersion.FileBuildPart, $binaryVersion.FilePrivatePart
+$fixedProductVersion = '{0}.{1}.{2}.{3}' -f $binaryVersion.ProductMajorPart, $binaryVersion.ProductMinorPart,
+    $binaryVersion.ProductBuildPart, $binaryVersion.ProductPrivatePart
+if ($binaryVersion.FileVersion -ne $releaseVersion -or $binaryVersion.ProductVersion -ne $releaseVersion -or
+    $fixedFileVersion -ne $expectedFixedVersion -or $fixedProductVersion -ne $expectedFixedVersion) {
+    throw "Built qbutt.exe version does not match qbutt-version.txt ($releaseVersion)."
+}
+
 $portable = Join-Path $ArtifactRoot 'portable'
 if (Test-Path -LiteralPath $portable) {
     $resolvedPortable = (Resolve-Path -LiteralPath $portable).Path

@@ -124,6 +124,8 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Windows")
         target_sources(qbt_app PRIVATE ${qBittorrent_SOURCE_DIR}/src/qbittorrent_mingw.rc)
     else()
         target_sources(qbt_app PRIVATE ${qBittorrent_SOURCE_DIR}/src/qbittorrent.rc)
+        set_source_files_properties("${qBittorrent_SOURCE_DIR}/src/qbittorrent.rc" PROPERTIES
+            OBJECT_DEPENDS "${qBittorrent_SOURCE_DIR}/src/base/version.h")
     endif()
     target_sources(qbt_app PRIVATE ${qBittorrent_SOURCE_DIR}/src/qbittorrent.exe.manifest)
 endif()
