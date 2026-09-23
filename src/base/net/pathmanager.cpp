@@ -2599,6 +2599,10 @@ void Net::PathManager::fail(const QString &message)
     if (proxyManager->hasRuntimeProxy())
         proxyManager->setRuntimeProxy(blockedRuntimeProxy());
     shutdown();
+    m_pendingNodes.clear();
+    m_openingNode.clear();
+    m_pendingPreferredEdges.clear();
+    m_pendingEdgeReopen.reset();
     // shutdown preserves the Native routes permitted by Mixed. Continue
     // checking their selected interface even when the transport child failed.
     if (proxyManager->hasRuntimeProxy() && (m_storePolicy.get() == u"mixed"))
