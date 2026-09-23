@@ -484,8 +484,8 @@ namespace
         Net::PathManager::instance()->inspectConfiguration(spec.value(u"subscription"_s).toString());
         require(Net::PathManager::instance()->isBusy(),
             u"A foreground Paths action queued behind status was not exposed as busy"_s);
-        require(!url->isEnabled() && !enabled->isEnabled(),
-            u"Paths controls remained enabled while a foreground request was queued"_s);
+        require(!url->isEnabled() && enabled->isEnabled(),
+            u"Subscription refresh was not blocked or the network off switch became unavailable while busy"_s);
         waitFor(u"queued foreground Paths action"_s, [&]
         {
             const QJsonObject child = tryReadObject(childEvidence);
