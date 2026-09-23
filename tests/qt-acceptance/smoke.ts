@@ -178,6 +178,8 @@ try {
         assert((await stat(layoutDefaults)).isFile(), "Captured default layout is missing");
         const screenshots = join(root, "screenshots");
         await mkdir(screenshots);
+        const watched = join(root, "appearance-watch");
+        await mkdir(watched);
         const retainedState = join(root, "saved-layout.json");
         const results: { phase: string; evidence: string }[] = [];
         for (const phase of ["product", "retained", "functional"] as const) {
@@ -190,7 +192,10 @@ try {
                     "Session\\InterfaceAddress=127.0.0.1", "Session\\AddTorrentStopped=true",
                     "[Network]", "PortForwardingEnabled=false",
                     "[GUI]", "Notifications\\Enabled=false",
+                    "[Core]", `AutoOpenTorrentFolder=${watched.replaceAll("\\", "/")}`,
+                    ...(phase === "product" ? [] : ["AutoOpenTorrentFiles=false"]),
                     "[Preferences]", `General\\Locale=${phase === "product" ? "ru" : "en"}`, "Advanced\\updateCheck=false",
+                    ...(phase === "functional" ? ["Downloads\\AutoRemoveCompletedTorrents=false"] : []),
                     "Connection\\ResolvePeerCountries=false", "Connection\\ResolvePeerHostNames=false",
                     "General\\ExitConfirm=false", "General\\CloseToTray=false", "General\\MinimizeToTray=false",
                     "General\\SystrayEnabled=false", "WebUI\\Enabled=false",
@@ -202,7 +207,7 @@ try {
             const spec = join(root, `${phase}-spec.json`);
             await writeFile(spec, JSON.stringify({ schema: 1, mode: "appearance", appearance: phase,
                 evidencePath, profile, screenshots, layoutDefaults, retainedState }, null, 2));
-            application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash"], {
+            application = Bun.spawn([executable, `--profile=${profile}`], {
                 cwd: bundle, windowsHide: true,
                 env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QT_SCALE_FACTOR: "1",
                     QBUTT_QT_ACCEPTANCE_SPEC: spec },
@@ -242,6 +247,8 @@ try {
         const overlayDestination = join(root, "overlay-download");
         await cp(join(fixtures, "seed"), overlayDestination, { recursive: true });
         await rm(join(overlayDestination, "bundle", "alpha.bin"));
+        const existingDestination = join(root, "existing-download");
+        await cp(join(fixtures, "seed"), existingDestination, { recursive: true });
         const profile = join(root, "profile");
         const config = join(profile, "qbutt", "config");
         await mkdir(config, { recursive: true });
@@ -251,8 +258,10 @@ try {
             "Session\\QueueingSystemEnabled=false", "Session\\InterfaceAddress=127.0.0.1", "Session\\ResumeDataStorageType=SQLite",
             "[Network]", "PortForwardingEnabled=false",
             "[GUI]", "Notifications\\Enabled=false",
+            "[Core]", "AutoOpenTorrentFiles=false",
             "[Preferences]", "General\\Locale=en", "Advanced\\updateCheck=false", "Connection\\ResolvePeerCountries=false",
-            "Connection\\ResolvePeerHostNames=false", "General\\ExitConfirm=false", "General\\CloseToTray=false",
+            "Connection\\ResolvePeerHostNames=false", "Downloads\\AutoRemoveCompletedTorrents=false",
+            "General\\ExitConfirm=false", "General\\CloseToTray=false",
             "General\\MinimizeToTray=false", "General\\SystrayEnabled=false", "WebUI\\Enabled=false", "",
             ...labAppearanceSettings(),
         ].join("\n"));
@@ -279,13 +288,13 @@ try {
         const spec = join(root, "spec.json");
         await writeFile(spec, JSON.stringify({
             schema: 1, evidencePath, childEvidence, torrentPath: join(fixtures, torrent.file),
-            sourceRoot: join(fixtures, "seed"), largeRoot, destination, subscription,
+            sourceRoot: join(fixtures, "seed"), largeRoot, destination, existingDestination, subscription,
             overlayTorrentPath: join(fixtures, overlayTorrent.file), overlayDestination,
             screenshots: join(root, "screenshots"), fixtureRoot: root, profile, bulkRows: 2000,
         }, null, 2));
         await mkdir(join(root, "screenshots"));
 
-        application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash"], {
+        application = Bun.spawn([executable, `--profile=${profile}`], {
             cwd: bundle, windowsHide: true,
             env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: spec,
                 QBUTT_QT_CHILD_EVIDENCE: childEvidence },

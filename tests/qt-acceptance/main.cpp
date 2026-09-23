@@ -60,6 +60,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QStandardPaths>
+#include <QStyleHints>
 #include <QSslCertificate>
 #include <QSslConfiguration>
 #include <QStyle>
@@ -104,7 +105,6 @@
 #include "gui/properties/propertieswidget.h"
 #include "gui/properties/proptabbar.h"
 #include "gui/repairdialog.h"
-#include "gui/repairpreviewdialog.h"
 #include "gui/releaseupdatedialog.h"
 #include "gui/transferlistmodel.h"
 #include "gui/transferlistsortmodel.h"
@@ -565,183 +565,178 @@ namespace
         dialog.reject();
     }
 
-    RepairDialog *findRepairDialog()
-    {
-        for (QWidget *widget : QApplication::topLevelWidgets())
-        {
-            if (auto *dialog = qobject_cast<RepairDialog *>(widget); dialog && dialog->isVisible())
-                return dialog;
-        }
-        return nullptr;
-    }
-
-    void setPreviewPaths(RepairPreviewDialog &dialog, const QJsonObject &spec, const QString &source)
-    {
-        requiredChild<FileSystemPathEdit>(&dialog, u"repairPreviewTorrent"_s)
-            ->setSelectedPath(Path(spec.value(u"torrentPath"_s).toString()));
-        requiredChild<FileSystemPathEdit>(&dialog, u"repairPreviewDestination"_s)
-            ->setSelectedPath(Path(spec.value(u"destination"_s).toString()));
-        requiredChild<QPlainTextEdit>(&dialog, u"repairPreviewRoots"_s)->setPlainText(source);
-    }
-
     void exerciseRepair(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
+        auto *session = BitTorrent::Session::instance();
+        const auto descriptor = BitTorrent::TorrentDescriptor::loadFromFile(Path(spec.value(u"torrentPath"_s).toString()));
+        require(bool(descriptor) && descriptor->info(), u"Cannot load repair fixture metadata"_s);
         const QString source = spec.value(u"sourceRoot"_s).toString();
         const QString destination = spec.value(u"destination"_s).toString();
+        const QString existing = spec.value(u"existingDestination"_s).toString();
         const auto sourceBefore = snapshot(source);
         const auto targetBefore = snapshot(destination);
+        const auto existingBefore = snapshot(existing);
+        const QDir screenshots {spec.value(u"screenshots"_s).toString()};
+
+        const auto addThroughDialog = [&](const QString &savePath,
+            const QList<BitTorrent::DownloadPriority> &priorities, const bool stopped)
+        {
+            BitTorrent::AddTorrentParams params;
+            params.savePath = Path(savePath);
+            params.useAutoTMM = false;
+            params.useDownloadPath = false;
+            params.addStopped = stopped;
+            params.skipChecking = false;
+            params.filePriorities = priorities;
+            AddNewTorrentDialog dialog {*descriptor, params, window};
+            bool added = false;
+            QObject::connect(&dialog, &AddNewTorrentDialog::torrentAccepted, &dialog,
+                [&](const BitTorrent::TorrentDescriptor &accepted, const BitTorrent::AddTorrentParams &selected)
+            {
+                require(accepted.infoHash() == descriptor->infoHash()
+                    && selected.savePath == Path(savePath) && selected.useAutoTMM == false
+                    && !selected.skipChecking && selected.addStopped == stopped
+                    && selected.filePriorities == priorities,
+                    u"Normal Add Torrent dialog changed the reviewed files or checking policy"_s);
+                added = session->addTorrent(accepted, selected);
+            });
+            dialog.show();
+            QCoreApplication::processEvents();
+            requiredChild<QComboBox>(&dialog, u"comboTMM"_s)->setCurrentIndex(0);
+            requiredChild<FileSystemPathEdit>(&dialog, u"savePath"_s)->setSelectedPath(Path(savePath));
+            requiredChild<QCheckBox>(&dialog, u"startTorrentCheckBox"_s)->setChecked(!stopped);
+            requiredChild<QCheckBox>(&dialog, u"skipCheckingCheckBox"_s)->setChecked(false);
+            require(dialog.grab().save(screenshots.filePath(stopped ? u"repair-add.png"_s : u"existing-add.png"_s)),
+                u"Cannot render ordinary Add Torrent dialog"_s);
+            dialog.accept();
+            require(added, u"Ordinary Add Torrent did not add its reviewed metadata"_s);
+            waitFor(u"Accepted torrent appears in session"_s,
+                [&] { return session->findTorrent(descriptor->infoHash()) != nullptr; });
+            return session->findTorrent(descriptor->infoHash());
+        };
+
+        BitTorrent::Torrent *reused = addThroughDialog(existing, {}, false);
+        waitFor(u"Existing files pass native checking"_s,
+            [=] { return !reused->isChecking() && reused->isFinished(); }, 90000);
+        require(reused->totalDownload() == 0 && snapshot(existing) == existingBefore,
+            u"Ordinary Add Torrent downloaded or changed already-complete payload"_s);
+        require(session->removeTorrent(reused->id(), BitTorrent::TorrentRemoveOption::KeepContent),
+            u"Cannot remove completed acceptance torrent"_s);
+        waitFor(u"Completed torrent removed without data deletion"_s,
+            [&] { return !session->findTorrent(descriptor->infoHash()); });
+        require(snapshot(existing) == existingBefore, u"Removing completed torrent changed existing files"_s);
+        addCheck(evidence, {{u"name"_s, u"existing-files"_s}, {u"nativeRecheck"_s, true},
+            {u"downloadedBytes"_s, 0}, {u"payloadPreserved"_s, true}});
+
+        QList<BitTorrent::DownloadPriority> priorities;
+        QSet<QString> wantedPaths;
+        for (const Path &path : descriptor->info()->filePaths())
+        {
+            const QString relative = path.toString();
+            const bool wanted = !relative.endsWith(u"/skip.bin"_s) && !relative.endsWith(u"/empty.bin"_s);
+            priorities.append(wanted ? BitTorrent::DownloadPriority::Normal : BitTorrent::DownloadPriority::Ignored);
+            if (wanted)
+                wantedPaths.insert(relative);
+        }
+        require(priorities.size() == 5 && wantedPaths.size() == 3,
+            u"Selective repair fixture has unexpected files"_s);
+        BitTorrent::Torrent *torrent = addThroughDialog(destination, priorities, true);
+        waitFor(u"Stopped repair torrent is ready"_s, [=] { return torrent->isStopped() && !torrent->isChecking(); });
+        require(torrent->filePriorities() == priorities, u"Normal Add Torrent lost the selected priorities"_s);
+        const auto initializedTarget = snapshot(destination);
+        for (auto it = targetBefore.cbegin(); it != targetBefore.cend(); ++it)
+            require(initializedTarget.value(it.key()) == it.value(),
+                u"Adding the stopped torrent changed an existing destination file"_s);
+
         {
             TreeMutationMonitor sourceMutations {source};
             TreeMutationMonitor largeMutations {spec.value(u"largeRoot"_s).toString(), false};
             TreeMutationMonitor targetMutations {destination};
-            RepairPreviewDialog cancellation(window);
+            RepairDialog cancellation {window, torrent};
             cancellation.show();
-            setPreviewPaths(cancellation, spec, spec.value(u"largeRoot"_s).toString());
-            auto *preview = requiredChild<QPushButton>(&cancellation, u"repairPreviewAnalyze"_s);
+            requiredChild<QToolButton>(&cancellation, u"repairDetails"_s)->click();
+            requiredChild<QPlainTextEdit>(&cancellation, u"repairSourceRoots"_s)
+                ->setPlainText(spec.value(u"largeRoot"_s).toString());
+            auto *analyze = requiredChild<QPushButton>(&cancellation, u"repairAnalyze"_s);
+            waitFor(u"Stopped torrent is ready for repair analysis"_s, [=] { return analyze->isEnabled(); });
             Heartbeat heartbeat;
             heartbeat.start();
-            preview->click();
-            require(!preview->isEnabled(), u"Long preview did not enter a busy state"_s);
-            waitFor(u"Long preview event-loop heartbeat"_s, [&] { return heartbeat.ticks >= 2; }, 5000);
-            require(!preview->isEnabled(), u"Large-tree preview finished before cancellation could be exercised"_s);
+            analyze->click();
+            require(!analyze->isEnabled(), u"Long repair scan did not enter a busy state"_s);
+            waitFor(u"Long repair scan event-loop heartbeat"_s, [&] { return heartbeat.ticks >= 2; }, 5000);
             QElapsedTimer cancelLatency;
             cancelLatency.start();
             cancellation.reject();
             const qint64 immediateLatency = cancelLatency.elapsed();
-            require(immediateLatency <= RESPONSE_LIMIT_MS, u"Cancel blocked the UI thread"_s);
-            waitFor(u"Read-only preview cancellation"_s, [&] { return !cancellation.isVisible(); });
+            require(immediateLatency <= RESPONSE_LIMIT_MS, u"Cancelling repair blocked the UI thread"_s);
+            waitFor(u"Read-only repair cancellation"_s, [&] { return !cancellation.isVisible(); });
             const qint64 completionLatency = cancelLatency.elapsed();
-            require(completionLatency <= 5000, u"Large-tree preview did not acknowledge cancellation promptly"_s);
+            require(completionLatency <= 5000, u"Long repair scan did not acknowledge cancellation"_s);
             heartbeat.stop();
-            require(heartbeat.ticks > 0 && heartbeat.maximumGap <= RESPONSE_LIMIT_MS,
-                u"Source search starved the Qt event loop"_s);
-            require(snapshot(source) == sourceBefore
-                    && snapshot(destination) == targetBefore,
-                u"Cancelled preview changed source or target data"_s);
-            require(!sourceMutations.changed() && !largeMutations.changed() && !targetMutations.changed(),
-                u"Cancelled preview transiently changed a monitored payload tree"_s);
+            require(heartbeat.maximumGap <= RESPONSE_LIMIT_MS, u"Repair search starved the Qt event loop"_s);
+            require(snapshot(source) == sourceBefore && snapshot(destination) == initializedTarget
+                && !sourceMutations.changed() && !largeMutations.changed() && !targetMutations.changed(),
+                u"Cancelled repair analysis changed a monitored payload tree"_s);
             addCheck(evidence, {{u"name"_s, u"repair-cancel"_s}, {u"entries"_s, 30000},
                 {u"cancelReturnMs"_s, immediateLatency}, {u"cancelCompletionMs"_s, completionLatency},
-                {u"eventLoopMaxGapMs"_s, heartbeat.maximumGap},
-                {u"payloadReadOnly"_s, true}});
+                {u"eventLoopMaxGapMs"_s, heartbeat.maximumGap}, {u"payloadReadOnly"_s, true}});
         }
 
         auto sourceMutations = std::make_unique<TreeMutationMonitor>(source);
         auto targetMutations = std::make_unique<TreeMutationMonitor>(destination);
-        RepairPreviewDialog preview(window);
-        preview.show();
+        RepairDialog repair {window, torrent};
+        repair.show();
         QCoreApplication::processEvents();
-        require(!requiredChild<QWidget>(&preview, u"repairPreviewResults"_s)->isVisible(),
-            u"Repair preview displayed empty results"_s);
-        require(preview.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"repair-initial.png"_s)),
-            u"Cannot render initial repair dialog"_s);
-        requiredChild<QToolButton>(&preview, u"repairPreviewDetails"_s)->click();
-        setPreviewPaths(preview, spec, {});
-        require(requiredChild<QComboBox>(&preview, u"repairPreviewMode"_s)->currentIndex() == 0,
-            u"Repair preview did not default to independent staging"_s);
-        chooseFile(requiredChild<QPushButton>(&preview, u"repairPreviewAddRoot"_s), source);
-        require(requiredChild<QPlainTextEdit>(&preview, u"repairPreviewRoots"_s)->toPlainText() == QDir::fromNativeSeparators(source),
-            u"Repair source-directory picker did not update the production form"_s);
-        auto *files = requiredChild<QTableWidget>(&preview, u"repairPreviewFiles"_s);
-        auto *reviewed = requiredChild<QCheckBox>(&preview, u"repairPreviewReviewed"_s);
-        auto *apply = requiredChild<QPushButton>(&preview, u"repairPreviewApply"_s);
-        require(files->rowCount() == 5, u"Target files are not selectable before preview"_s);
-        QSet<QString> wantedPaths;
-        QList<BitTorrent::DownloadPriority> wantedPriorities;
-        for (int row = 0; row < files->rowCount(); ++row)
+        require(repair.grab().save(screenshots.filePath(u"repair-initial.png"_s)),
+            u"Cannot render stopped-torrent repair dialog"_s);
+        requiredChild<QToolButton>(&repair, u"repairDetails"_s)->click();
+        requiredChild<QPlainTextEdit>(&repair, u"repairSourceRoots"_s)->setPlainText(source);
+        auto *files = requiredChild<QTreeWidget>(&repair, u"repairFiles"_s);
+        auto *mode = requiredChild<QComboBox>(&repair, u"repairMode"_s);
+        require(files->topLevelItemCount() == priorities.size() && mode->currentIndex() == 0,
+            u"Advanced repair did not default to an independent copy"_s);
+        files->setCurrentItem(files->topLevelItem(0));
+        QPushButton *chooseSource = nullptr;
+        for (QPushButton *button : repair.findChildren<QPushButton *>())
         {
-            auto *item = files->item(row, 0);
-            const bool wanted = !item->text().endsWith(u"/skip.bin") && !item->text().endsWith(u"/empty.bin");
-            item->setCheckState(wanted ? Qt::Checked : Qt::Unchecked);
-            wantedPriorities.append(wanted ? BitTorrent::DownloadPriority::Normal : BitTorrent::DownloadPriority::Ignored);
-            if (wanted)
-                wantedPaths.insert(item->text());
+            if (button->text().startsWith(u"Choose source for selected file"_s))
+                chooseSource = button;
         }
-        require(wantedPaths.size() == 3, u"The subset fixture did not select exactly three payload files"_s);
-        requiredChild<QPushButton>(&preview, u"repairPreviewAnalyze"_s)->click();
-        waitFor(u"Repair preview"_s, [&] { return (files->rowCount() > 0) && reviewed->isEnabled(); });
-        require(snapshot(source) == sourceBefore && snapshot(destination) == targetBefore,
-            u"Repair preview changed source or target data before consent"_s);
-        require(!apply->isEnabled(), u"Repair preview enabled apply without mapping consent"_s);
-        const QString network = requiredChild<QLabel>(&preview, u"repairPreviewNetwork"_s)->text();
-        const QString verified = requiredChild<QLabel>(&preview, u"repairPreviewVerified"_s)->text();
-        require(!network.contains(u"Not analyzed"_s) && !verified.contains(u"Not analyzed"_s),
-            u"Repair preview did not separate verified and network bytes"_s);
-        require(preview.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"repair-preview.png"_s)),
-            u"Cannot render repair preview offscreen"_s);
-        files->selectRow(0);
-        auto *chooseSource = requiredChild<QPushButton>(&preview, u"repairPreviewChooseSource"_s);
-        waitFor(u"Explicit source mapping action"_s, [=] { return chooseSource->isEnabled(); });
-        const QString mappedSource = QDir(source).filePath(files->item(0, 0)->text());
+        require(chooseSource && chooseSource->isEnabled(), u"Explicit repair source mapping is unavailable"_s);
+        const QString mappedSource = QDir(source).filePath(files->topLevelItem(0)->text(0));
         chooseFile(chooseSource, mappedSource);
-        require((files->rowCount() == 5) && !reviewed->isEnabled() && !reviewed->isChecked() && !apply->isEnabled()
-            && requiredChild<QLabel>(&preview, u"repairPreviewVerified"_s)->text().contains(u"Not analyzed"),
-            u"Explicit mapping did not invalidate analysis and consent while retaining target selection"_s);
-        for (int row = 0; row < files->rowCount(); ++row)
-            require((files->item(row, 0)->checkState() == Qt::Checked) == wantedPaths.contains(files->item(row, 0)->text()),
-                u"Explicit mapping changed target selection"_s);
-        require(snapshot(source) == sourceBefore && snapshot(destination) == targetBefore,
-            u"Choosing an explicit mapping changed source or target data"_s);
-        requiredChild<QPushButton>(&preview, u"repairPreviewAnalyze"_s)->click();
-        waitFor(u"Repair preview with explicit mapping"_s, [&] { return (files->rowCount() > 0) && reviewed->isEnabled(); });
-        require(QDir::cleanPath(files->item(0, 1)->text()) == QDir::cleanPath(mappedSource),
-            u"Repair preview did not retain the explicit source mapping"_s);
-        require(snapshot(source) == sourceBefore && snapshot(destination) == targetBefore,
-            u"Explicit-mapping preview changed source or target data before consent"_s);
-        require(!sourceMutations->changed() && !targetMutations->changed(),
-            u"Read-only preview transiently changed a monitored payload tree"_s);
-        // The separate add-job consent includes libtorrent's initialization of
-        // missing empty files. Existing files stay locked against all writes.
-        auto initializedTarget = targetBefore;
-        for (auto it = sourceBefore.cbegin(); it != sourceBefore.cend(); ++it)
+        require(files->topLevelItem(0)->text(4).contains(mappedSource),
+            u"Repair source picker did not update the reviewed mapping"_s);
+        auto *consent = requiredChild<QCheckBox>(&repair, u"repairConsent"_s);
+        auto *analyze = requiredChild<QPushButton>(&repair, u"repairAnalyze"_s);
+        QLabel *status = requiredChild<QLabel>(&repair, u"repairStatus"_s);
+        analyze->click();
+        waitFor(u"Read-only staged repair analysis"_s, [&]
         {
-            if (!wantedPaths.contains(it.key()) || !it.value().endsWith(u":0"))
-                continue;
-            if (!initializedTarget.contains(it.key()))
-                initializedTarget.insert(it.key(), it.value());
-            QString parent = it.key().section(u'/', 0, -2);
-            while (!parent.isEmpty())
-            {
-                initializedTarget.insert(parent + u'/', u"directory"_s);
-                parent = parent.section(u'/', 0, -2);
-            }
-        }
-        reviewed->setChecked(true);
-        require(apply->isEnabled(), u"Reviewed mappings did not enable the stopped repair job"_s);
-        apply->click();
-        waitFor(u"Managed repair dialog"_s, [] { return findRepairDialog() != nullptr; });
-        RepairDialog *repair = findRepairDialog();
-        require(repair, u"Stopped repair job did not open its production dialog"_s);
-        const auto torrents = BitTorrent::Session::instance()->torrents();
-        require((torrents.size() == 1) && (torrents.constFirst()->filePriorities() == wantedPriorities),
-            u"The new native repair job lost the reviewed wanted priorities"_s);
-        require(requiredChild<QComboBox>(repair, u"repairMode"_s)->currentIndex() == 0,
-            u"Repair flow silently fell back from staging to in-place"_s);
-        auto *consent = requiredChild<QCheckBox>(repair, u"repairConsent"_s);
-        auto *tree = requiredChild<QTreeWidget>(repair, u"repairFiles"_s);
-        QLabel *repairStatus = requiredChild<QLabel>(repair, u"repairStatus"_s);
-        waitFor(u"Exclusive repair analysis"_s, [&]
-        {
-            require(!repairStatus->text().startsWith(u"Repair cannot continue:"), repairStatus->text());
-            return consent->isEnabled() && (tree->topLevelItemCount() > 0);
+            require(!status->text().startsWith(u"Repair cannot continue:"_s), status->text());
+            return consent->isEnabled() && files->topLevelItemCount() == priorities.size();
         }, 90000);
-        require(snapshot(source) == sourceBefore && snapshot(destination) == initializedTarget,
-            u"Stopped initialization or managed analysis changed payload beyond the authorized empty files"_s);
-        require(!sourceMutations->changed(), u"Managed analysis transiently changed source data"_s);
+        const QString verifiedSummary = status->text();
+        require(verifiedSummary.contains(u"Reusable:"_s), u"Repair did not show reusable verified bytes"_s);
+        require(snapshot(source) == sourceBefore && snapshot(destination) == initializedTarget
+            && !sourceMutations->changed() && !targetMutations->changed(),
+            u"Managed analysis changed source or destination before consent"_s);
+        require(repair.grab().save(screenshots.filePath(u"repair-analysis.png"_s)),
+            u"Cannot render analyzed repair dialog"_s);
         sourceMutations.reset();
         targetMutations.reset();
         consent->setChecked(true);
-        QPushButton *prepare = requiredChild<QPushButton>(repair, u"repairPrepare"_s);
+        QPushButton *prepare = requiredChild<QPushButton>(&repair, u"repairPrepare"_s);
         require(prepare->isEnabled(), u"Explicit staging consent did not enable preparation"_s);
         Heartbeat stagingHeartbeat;
         stagingHeartbeat.start();
         prepare->click();
-        QPushButton *commit = requiredChild<QPushButton>(repair, u"repairCommit"_s);
-        auto *service = repair->findChild<BitTorrent::RepairService *>();
+        QPushButton *commit = requiredChild<QPushButton>(&repair, u"repairCommit"_s);
+        auto *service = repair.findChild<BitTorrent::RepairService *>();
         require(service, u"Repair dialog has no service owner"_s);
         waitFor(u"Verified staging"_s, [&]
         {
-            require(!repairStatus->text().startsWith(u"Repair cannot continue:"), repairStatus->text());
+            require(!status->text().startsWith(u"Repair cannot continue:"_s), status->text());
             return service->stagingStatus().value(u"can_commit"_s).toBool()
                 && consent->isEnabled() && !consent->isChecked();
         }, 120000);
@@ -752,33 +747,34 @@ namespace
         consent->setChecked(true);
         require(commit->isEnabled(), u"Verified staging did not require fresh commit consent"_s);
         commit->click();
-        waitFor(u"Staged commit"_s, [&]
-        {
-            return repairStatus->text().startsWith(u"Repair complete."_s);
-        }, 90000);
+        waitFor(u"Staged commit"_s,
+            [&] { return status->text().startsWith(u"Repair complete."_s); }, 90000);
         require(snapshot(source) == sourceBefore, u"Staging changed the selected source tree"_s);
         const auto targetAfter = snapshot(destination);
         require(targetAfter.size() > targetBefore.size() && targetAfter.contains(u"unknown.keep"_s),
             u"Staged commit did not install payload while preserving the unknown file"_s);
         for (const QString &path : wantedPaths)
-            require(targetAfter.value(path) == sourceBefore.value(path), u"Committed selected bytes differ from the verified source"_s);
-        for (int row = 0; row < files->rowCount(); ++row)
+            require(targetAfter.value(path) == sourceBefore.value(path),
+                u"Committed selected bytes differ from the verified source"_s);
+        for (int row = 0; row < files->topLevelItemCount(); ++row)
         {
-            const QString path = files->item(row, 0)->text();
+            const QString path = files->topLevelItem(row)->text(0);
             if (!wantedPaths.contains(path))
-                require(targetAfter.value(path) == targetBefore.value(path), u"Repair changed or created an ignored target file"_s);
-            require(tree->topLevelItem(row)->text(4).contains(u"Not selected for repair") == !wantedPaths.contains(path),
-                u"The managed repair table does not distinguish selected and ignored targets"_s);
+                require(targetAfter.value(path) == initializedTarget.value(path),
+                    u"Repair changed or created an ignored target file"_s);
+            require(files->topLevelItem(row)->text(4).contains(u"Not selected for repair"_s)
+                == !wantedPaths.contains(path),
+                u"Managed repair table does not distinguish selected and ignored targets"_s);
         }
-        require(repair->grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"repair-committed.png"_s)),
+        require(repair.grab().save(screenshots.filePath(u"repair-committed.png"_s)),
             u"Cannot render committed repair state"_s);
-        addCheck(evidence, {{u"name"_s, u"repair-staging"_s}, {u"files"_s, files->rowCount()},
-            {u"sourceReadOnly"_s, true}, {u"noWriteBeforeConsent"_s, true}, {u"unknownPreserved"_s, true},
-            {u"selectedFiles"_s, wantedPaths.size()}, {u"nativePrioritiesPreserved"_s, true}, {u"ignoredPreserved"_s, true},
-            {u"ignoredRowsLabeled"_s, true},
-            {u"stagingMaxGapMs"_s, stagingHeartbeat.maximumGap},
-            {u"networkBytes"_s, network}, {u"verifiedBytes"_s, verified}});
-        repair->close();
+        addCheck(evidence, {{u"name"_s, u"repair-staging"_s}, {u"files"_s, files->topLevelItemCount()},
+            {u"sourceReadOnly"_s, true}, {u"noWriteBeforeConsent"_s, true},
+            {u"unknownPreserved"_s, true}, {u"selectedFiles"_s, wantedPaths.size()},
+            {u"nativePrioritiesPreserved"_s, true}, {u"ignoredPreserved"_s, true},
+            {u"ignoredRowsLabeled"_s, true}, {u"stagingMaxGapMs"_s, stagingHeartbeat.maximumGap},
+            {u"verifiedSummary"_s, verifiedSummary}});
+        repair.close();
     }
 
     void exercisePolicies(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
@@ -1633,7 +1629,13 @@ namespace
         const bool dark = phase == u"product";
         require(dark || (phase == u"retained") || (phase == u"functional"), u"Unknown appearance phase"_s);
         if (dark)
-            require(RepairPreviewDialog::tr("Scan files") != u"Scan files", u"Russian product translation was not loaded"_s);
+        {
+            QApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+            waitFor(u"System dark appearance"_s,
+                [&] { return application.palette().color(QPalette::Base) == QColor(u"#191a1c"_s); });
+        }
+        if (dark)
+            require(RepairDialog::tr("Scan files") != u"Scan files", u"Russian product translation was not loaded"_s);
         require(window->windowTitle().startsWith(u"qbutt ") && !window->windowTitle().contains(u"qBittorrent"),
             u"Window title contains upstream branding"_s);
         window->resize(1704, 1040);
@@ -1666,42 +1668,76 @@ namespace
         const QPalette palette = application.palette();
         require((palette.color(QPalette::Base).lightness() < 127) == dark, u"Unexpected application background palette"_s);
         require((palette.color(QPalette::Text).lightness() > 127) == dark, u"Unexpected application text palette"_s);
-        require(Preferences::instance()->getStyle().compare(u"Fusion", Qt::CaseInsensitive) == 0, u"Appearance style is not Fusion"_s);
+        require(QApplication::style()->name().compare(u"Fusion", Qt::CaseInsensitive) == 0,
+            u"Appearance style is not Fusion"_s);
         require(!Preferences::instance()->useCustomUITheme(), u"Appearance depends on an external theme"_s);
+        QFile builtInStyle {u":/themes/builtin.qss"_s};
+        require(builtInStyle.open(QIODevice::ReadOnly), u"The built-in style is missing"_s);
+        require(application.styleSheet() == QString::fromUtf8(builtInStyle.readAll()),
+            u"The built-in style is not active"_s);
+        require(palette.color(QPalette::Base) == QColor(dark ? u"#191a1c"_s : u"#ffffff"_s)
+                && palette.color(QPalette::Window) == QColor(dark ? u"#202123"_s : u"#f5f6f7"_s)
+                && palette.color(QPalette::Button) == QColor(dark ? u"#2b2d30"_s : u"#ffffff"_s),
+            u"Built-in surfaces do not match the resolved system color scheme"_s);
+        require(palette.color(QPalette::Link) == QColor(dark ? u"#009df7"_s : u"#0879b9"_s),
+            u"Built-in accent color is incorrect"_s);
+        const QDir screenshots {spec.value(u"screenshots"_s).toString()};
+#ifdef QBT_HAS_COLORSCHEME_OPTION
         if (dark)
         {
-            QFile builtInStyle {u":/themes/dark.qss"_s};
-            require(builtInStyle.open(QIODevice::ReadOnly), u"The built-in dark style is missing"_s);
-            require(application.styleSheet() == QString::fromUtf8(builtInStyle.readAll()), u"The built-in dark style is not active"_s);
-            require(palette.color(QPalette::Base) == QColor(u"#191919"_s)
-                    && palette.color(QPalette::Window) == QColor(u"#202020"_s)
-                    && palette.color(QPalette::Button) == QColor(u"#303030"_s), u"Dark surfaces are not neutral charcoal"_s);
-            require(palette.color(QPalette::Link) == QColor(u"#009df7"_s)
-                    && palette.color(QPalette::PlaceholderText).lightness() > 127,
-                u"Product accent or field hint contrast is incorrect"_s);
+            QAction *open = requiredChild<QAction>(window, u"actionOpen"_s);
+            const QIcon retainedIcon = open->icon();
+            const auto iconDigest = [](const QIcon &icon)
+            {
+                const QImage image = icon.pixmap(QSize(28, 28)).toImage();
+                require(!image.isNull(), u"Theme icon did not render"_s);
+                return QCryptographicHash::hash(QByteArray(reinterpret_cast<const char *>(image.constBits()),
+                    image.sizeInBytes()), QCryptographicHash::Sha256);
+            };
+            const QByteArray darkIcon = iconDigest(retainedIcon);
+            {
+                OptionsDialog preview {&application, window};
+                preview.show();
+                auto *previewScheme = requiredChild<QComboBox>(&preview, u"comboColorScheme"_s);
+                require(previewScheme->currentData().value<ColorScheme>() == ColorScheme::System,
+                    u"New profile did not select the system appearance"_s);
+                previewScheme->setCurrentIndex(previewScheme->findData(QVariant::fromValue(ColorScheme::Light)));
+                waitFor(u"Live Light preview"_s,
+                    [&] { return application.palette().color(QPalette::Base) == QColor(u"#ffffff"_s); });
+                require(UIThemeManager::instance()->colorScheme() == ColorScheme::System
+                        && iconDigest(retainedIcon) != darkIcon,
+                    u"Light preview persisted early or left an existing icon dark"_s);
+                require(window->grab().save(screenshots.filePath(u"product-live-light.png"_s)),
+                    u"Cannot render live Light preview"_s);
+                preview.reject();
+                require(UIThemeManager::instance()->colorScheme() == ColorScheme::System,
+                    u"Cancelling appearance preview changed the saved scheme"_s);
+            }
+            QApplication::styleHints()->setColorScheme(Qt::ColorScheme::Light);
+            waitFor(u"System appearance follows Light"_s,
+                [&] { return application.palette().color(QPalette::Base) == QColor(u"#ffffff"_s); });
+            QApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+            waitFor(u"System appearance follows Dark"_s,
+                [&] { return application.palette().color(QPalette::Base) == QColor(u"#191a1c"_s); });
+            require(iconDigest(retainedIcon) == darkIcon,
+                u"A retained toolbar icon did not return to its dark variant"_s);
+            require(window->grab().save(screenshots.filePath(u"product-system-dark.png"_s)),
+                u"Cannot render System dark toolbar"_s);
         }
-        else
-        {
-            require(application.styleSheet().isEmpty()
-                    && QApplication::style()->name().compare(u"Fusion", Qt::CaseInsensitive) == 0,
-                u"Functional Light/Fusion was changed by the product style"_s);
-        }
+#endif
         OptionsDialog options {&application, window};
         options.show();
         QCoreApplication::processEvents();
         auto *custom = requiredChild<QGroupBox>(&options, u"checkUseCustomTheme"_s);
         auto *scheme = requiredChild<QComboBox>(&options, u"comboColorScheme"_s);
-        auto *style = requiredChild<QComboBox>(&options, u"comboStyle"_s);
         require(!custom->isChecked() && custom->isEnabled(), u"Custom theme checkbox does not reflect the default"_s);
 #ifdef QBT_HAS_COLORSCHEME_OPTION
-        const ColorScheme expectedScheme = dark ? ColorScheme::Dark : ColorScheme::Light;
+        const ColorScheme expectedScheme = dark ? ColorScheme::System : ColorScheme::Light;
         require(scheme->currentData().value<ColorScheme>() == expectedScheme
                 && UIThemeManager::instance()->colorScheme() == expectedScheme, u"Color scheme control differs from the live setting"_s);
 #else
         require(false, u"Appearance acceptance requires Qt color scheme support"_s);
 #endif
-        require(style->currentData().toString().compare(u"Fusion", Qt::CaseInsensitive) == 0, u"Style control does not reflect Fusion"_s);
-        const QDir screenshots {spec.value(u"screenshots"_s).toString()};
         if (dark)
         {
             QDialog controls {&options};
@@ -1792,35 +1828,32 @@ namespace
                 }
             };
             auto *pages = requiredChild<QListWidget>(&options, u"tabSelection"_s);
-            auto *more = requiredChild<QToolButton>(&options, u"moreSettingsButton"_s);
-            require(!more->isChecked() && pages->item(4)->isHidden() && pages->item(8)->isHidden(),
-                u"Rare settings are expanded on first use"_s);
+            require(pages->count() == 9, u"The settings navigation lost a category"_s);
+            for (int row = 0; row < pages->count(); ++row)
+                require(!pages->item(row)->isHidden(), u"A settings category is hidden"_s);
+            require(requiredChild<QLabel>(&options, u"verticalLayout_9AdvancedHeading"_s)->isVisible(),
+                u"General advanced settings heading is hidden"_s);
             pages->setCurrentRow(1);
             QCoreApplication::processEvents();
             auto *remove = requiredChild<QCheckBox>(&options, u"checkAutoRemoveCompletedTorrents"_s);
             auto *overlay = requiredChild<QCheckBox>(&options, u"checkDownloadProgressOverlay"_s);
             auto *autoOpen = requiredChild<QGroupBox>(&options, u"groupAutoOpenTorrents"_s);
             require(remove->isVisible() && overlay->isVisible() && autoOpen->isVisible()
-                    && !remove->isChecked() && !overlay->isChecked() && !autoOpen->isChecked(),
-                u"Everyday download options are hidden or enabled by default"_s);
-            require(!requiredChild<QWidget>(&options, u"additionalDownloadSettings"_s)->isVisible(),
-                u"Technical download controls are expanded by default"_s);
+                    && remove->isChecked() == (phase != u"functional") && !overlay->isChecked()
+                    && autoOpen->isChecked() == (phase != u"functional"),
+                u"Everyday download controls do not reflect the isolated profile defaults"_s);
+            require(requiredChild<QLabel>(&options, u"verticalLayoutAdvancedHeading"_s)->isVisible(),
+                u"Download advanced settings heading is hidden"_s);
+            require(requiredChild<FileSystemPathEdit>(&options, u"textSavePath"_s)->selectedPath()
+                    == Path(QStandardPaths::writableLocation(QStandardPaths::DesktopLocation)),
+                u"Default download folder is not Desktop"_s);
             require(options.grab().save(screenshots.filePath(phase + u"-downloads.png"_s)), u"Cannot render download settings"_s);
-            requiredChild<QToolButton>(&options, u"moreDownloadSettingsButton"_s)->click();
-            QCoreApplication::processEvents();
-            require(requiredChild<QWidget>(&options, u"additionalDownloadSettings"_s)->isVisible(),
-                u"Technical download options cannot be reached"_s);
             requireNoOverflow();
-            require(options.grab().save(screenshots.filePath(phase + u"-downloads-expanded.png"_s)), u"Cannot render additional download settings"_s);
-            requiredChild<QToolButton>(&options, u"moreDownloadSettingsButton"_s)->click();
             pages->setCurrentRow(8);
-            require(more->isChecked() && !pages->item(8)->isHidden(), u"Direct navigation left the active page hidden"_s);
-            more->click();
-            require(pages->currentRow() == 0 && pages->item(8)->isHidden(), u"Collapsing additional pages retained an invisible selection"_s);
-            requiredChild<QToolButton>(&options, u"moreGeneralSettingsButton"_s)->click();
+            require(pages->currentRow() == 8 && !pages->item(8)->isHidden(),
+                u"Advanced settings category cannot be reached directly"_s);
+            pages->setCurrentRow(0);
             requireNoOverflow();
-            require(options.grab().save(screenshots.filePath(phase + u"-options-expanded.png"_s)), u"Cannot render additional general settings"_s);
-            requiredChild<QToolButton>(&options, u"moreGeneralSettingsButton"_s)->click();
             if (phase == u"functional")
             {
                 auto *apply = requiredChild<QDialogButtonBox>(&options, u"buttonBox"_s)->button(QDialogButtonBox::Apply);
@@ -1840,16 +1873,10 @@ namespace
             }
             options.showConnectionTab();
             QCoreApplication::processEvents();
+            require(requiredChild<QLabel>(&options, u"verticalLayout_20AdvancedHeading"_s)->isVisible(),
+                u"Connection advanced settings heading is hidden"_s);
             require(options.grab().save(screenshots.filePath(phase + u"-connections.png"_s)), u"Cannot render connection settings"_s);
-            requiredChild<QToolButton>(&options, u"moreConnectionSettingsButton"_s)->click();
             requireNoOverflow();
-            require(options.grab().save(screenshots.filePath(phase + u"-connections-expanded.png"_s)), u"Cannot render additional connection settings"_s);
-            requiredChild<QToolButton>(&options, u"moreConnectionSettingsButton"_s)->click();
-            RepairPreviewDialog repair {window};
-            repair.show();
-            QCoreApplication::processEvents();
-            require(repair.grab().save(screenshots.filePath(phase + u"-repair.png"_s)), u"Cannot render repair start"_s);
-            repair.close();
             ProfileImportDialog importer {window};
             importer.show();
             QCoreApplication::processEvents();
@@ -1895,7 +1922,7 @@ namespace
     void exerciseAutoOpen(Application &application, const QJsonObject &spec, QJsonObject &evidence)
     {
         auto *watcher = TorrentFilesWatcher::instance();
-        require(!watcher->isAutoOpenEnabled(), u"Folder auto-open is not off by default"_s);
+        require(!watcher->isAutoOpenEnabled(), u"Auto-open fixture did not disable Desktop watching"_s);
         OptionsDialog options {&application, application.mainWindow()};
         auto *enabled = requiredChild<QGroupBox>(&options, u"groupAutoOpenTorrents"_s);
         auto *folder = requiredChild<FileSystemPathEdit>(&options, u"autoOpenTorrentFolder"_s);
