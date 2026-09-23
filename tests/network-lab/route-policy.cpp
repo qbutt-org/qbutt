@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -157,6 +158,9 @@ int main(const int argc, char **argv) try
     std::vector<char> utpPayload(512 * 1024);
     for (std::size_t index = 0; index < utpPayload.size(); ++index)
         utpPayload[index] = static_cast<char>((index * 43 + index / 131) & 255);
+    std::vector<char> retryPayload(256 * 1024);
+    for (std::size_t index = 0; index < retryPayload.size(); ++index)
+        retryPayload[index] = static_cast<char>((index * 37 + index / 79) & 255);
     std::vector<char> webPayload(1024 * 1024);
     for (std::size_t index = 0; index < webPayload.size(); ++index)
         webPayload[index] = static_cast<char>((index * 29 + index / 97) & 255);
@@ -172,6 +176,7 @@ int main(const int argc, char **argv) try
         {"http://tracker.invalid:" + std::to_string(httpTrackerPort) + "/announce"},
         "http://webseed.invalid:" + std::to_string(webSeedPort) + "/");
     const auto utpInfo = makeTorrent(root / "utp-seed", "utp.bin", utpPayload, {}, {});
+    const auto retryInfo = makeTorrent(root / "retry-seed", "retry.bin", retryPayload, {}, {});
     const auto outgoingDhtInfo = makeTorrent(root / "outgoing-dht", "outgoing.bin", trackerPayload, {}, {});
 
     constexpr unsigned short routeAPublicPort = 41001;
@@ -493,6 +498,96 @@ int main(const int argc, char **argv) try
         return 21;
     }
 
+    // A proxy refusal must not hold a public peer behind the global reconnect
+    // delay when the same endpoint is reachable on another admitted route.
+    lt::settings_pack retrySeedSettings = defaultSettings;
+    retrySeedSettings.set_str(lt::settings_pack::listen_interfaces, "127.0.0.8:0");
+    retrySeedSettings.set_bool(lt::settings_pack::enable_incoming_utp, false);
+    lt::session retrySeedSession {retrySeedSettings};
+    lt::add_torrent_params retrySeedAdd;
+    retrySeedAdd.ti = retryInfo;
+    retrySeedAdd.save_path = (root / "retry-seed").string();
+    retrySeedAdd.flags &= ~(lt::torrent_flags::paused | lt::torrent_flags::auto_managed);
+    retrySeedAdd.flags |= lt::torrent_flags::disable_dht | lt::torrent_flags::disable_lsd
+        | lt::torrent_flags::disable_pex;
+    const lt::torrent_handle retrySeedTorrent = retrySeedSession.add_torrent(retrySeedAdd);
+    const auto retrySeedDeadline = std::chrono::steady_clock::now() + 15s;
+    while ((!retrySeedTorrent.status().is_seeding || (retrySeedSession.listen_port() == 0))
+        && (std::chrono::steady_clock::now() < retrySeedDeadline))
+        std::this_thread::sleep_for(20ms);
+    if (!retrySeedTorrent.status().is_seeding || (retrySeedSession.listen_port() == 0))
+        return 25;
+
+    lt::network_route failedRoute = socksRoute(proxyPort, username, password);
+    failedRoute.binding.context = {8, 1};
+    const lt::network_route liveRoute = nativeRoute(9, 1, "127.0.0.9", {}, 0);
+    lt::torrent_route_policy retryPolicy;
+    retryPolicy.mode = lt::torrent_route_policy::mode_t::managed;
+    retryPolicy.routes = {failedRoute, liveRoute};
+    std::atomic<int> failedCloses {0};
+    std::atomic<int> liveSelections {0};
+    std::atomic<int> liveConnections {0};
+    lt::settings_pack retryClientSettings = defaultSettings;
+    retryClientSettings.set_str(lt::settings_pack::listen_interfaces, "");
+    retryClientSettings.set_bool(lt::settings_pack::enable_incoming_tcp, false);
+    retryClientSettings.set_bool(lt::settings_pack::enable_incoming_utp, false);
+    retryClientSettings.set_bool(lt::settings_pack::enable_outgoing_utp, false);
+    retryClientSettings.set_int(lt::settings_pack::min_reconnect_time, 120);
+    lt::session retryClient {retryClientSettings};
+    if (retryClient.set_torrent_route_policy_selector(
+        [retryPolicy](const lt::torrent_route_request &) { return retryPolicy; }))
+        return 26;
+    retryClient.set_peer_route_selector(
+        [&](const lt::peer_route_request &)
+        {
+            const lt::network_route &selected = failedCloses.load() ? liveRoute : failedRoute;
+            if (selected.binding.context == liveRoute.binding.context)
+                ++liveSelections;
+            lt::peer_route route;
+            static_cast<lt::route_descriptor &>(route) = selected.binding;
+            return route;
+        },
+        [&](const lt::peer_route_observation &observation)
+        {
+            if ((observation.route == failedRoute.binding.context)
+                && (observation.event == lt::peer_route_observation::event_t::closed)
+                && observation.error && (observation.operation == lt::operation_t::connect))
+                ++failedCloses;
+            if ((observation.route == liveRoute.binding.context)
+                && (observation.event == lt::peer_route_observation::event_t::connected))
+                ++liveConnections;
+        });
+    lt::add_torrent_params retryAdd;
+    retryAdd.ti = retryInfo;
+    retryAdd.save_path = (root / "retry-download").string();
+    retryAdd.flags &= ~(lt::torrent_flags::paused | lt::torrent_flags::auto_managed);
+    retryAdd.flags |= lt::torrent_flags::disable_dht | lt::torrent_flags::disable_lsd
+        | lt::torrent_flags::disable_pex;
+    const lt::torrent_handle retryTorrent = retryClient.add_torrent(retryAdd);
+    const auto retryStarted = std::chrono::steady_clock::now();
+    retryTorrent.connect_peer({lt::make_address("127.0.0.8"), retrySeedSession.listen_port()});
+    const auto retryDeadline = retryStarted + 25s;
+    int maxRetryPeers = 0;
+    while (!retryTorrent.status().is_seeding && (std::chrono::steady_clock::now() < retryDeadline))
+    {
+        maxRetryPeers = std::max(maxRetryPeers, retryTorrent.status().num_peers);
+        std::this_thread::sleep_for(20ms);
+    }
+    const auto retryMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - retryStarted).count();
+    std::ifstream retryDownloaded(root / "retry-download" / "retry.bin", std::ios::binary);
+    const std::vector<char> actualRetry((std::istreambuf_iterator<char>(retryDownloaded)), {});
+    if (!retryTorrent.status().is_seeding || (actualRetry != retryPayload)
+        || !failedCloses.load() || !liveSelections.load() || !liveConnections.load()
+        || (maxRetryPeers > 1))
+    {
+        std::cerr << "alternate route retry: seeding=" << retryTorrent.status().is_seeding
+            << " failed=" << failedCloses.load() << " selected=" << liveSelections.load()
+            << " connected=" << liveConnections.load() << " peers=" << maxRetryPeers
+            << " verified=" << actualRetry.size() << " elapsed_ms=" << retryMilliseconds << '\n';
+        return 27;
+    }
+
     std::cout << "{\"passed\":true,\"httpTrackerTransition\":true"
         << ",\"udpTrackerTransition\":true,\"dhtTransition\":true"
         << ",\"webSeedVerifiedBytes\":" << actual.size()
@@ -501,6 +596,8 @@ int main(const int argc, char **argv) try
         << ",\"defaultHttpTrackerUnaffected\":true"
         << ",\"managedAutomaticUtp\":true"
         << ",\"utpVerifiedBytes\":" << actualUtp.size()
+        << ",\"alternateRouteRetryVerifiedBytes\":" << actualRetry.size()
+        << ",\"alternateRouteRetryMs\":" << retryMilliseconds
         << ",\"hostnameTrackerEndpoints\":[";
     for (std::size_t index = 0; index < hostnameEndpoints.size(); ++index)
     {

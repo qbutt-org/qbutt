@@ -244,6 +244,10 @@ try {
         + JSON.stringify({ httpAnnounces, dhtQueries, dhtSources, dhtAnnounces }));
     const clientEvidence = JSON.parse(stdout);
     assert(clientEvidence.passed && clientEvidence.webSeedVerifiedBytes === payload.length);
+    assert.equal(clientEvidence.alternateRouteRetryVerifiedBytes, 256 * 1024,
+        "The alternate route did not verify the generated torrent payload");
+    assert(clientEvidence.alternateRouteRetryMs < 25_000 && proxy.stats.deniedConnections >= 1,
+        "The failed SOCKS route did not switch promptly to the healthy Native route");
     assert.deepEqual(clientEvidence.hostnameTrackerEndpoints.sort((a: { pathId: number }, b: { pathId: number }) =>
         a.pathId - b.pathId), [
         { pathId: 2, generation: 1, listenerFamily: "ipv4" },
