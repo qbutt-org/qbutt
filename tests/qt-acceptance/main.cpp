@@ -1850,6 +1850,15 @@ namespace
             BitTorrent::Session::instance()->setConfiguredUploadSpeedLimit(765432);
             BitTorrent::Session::instance()->setSpeedLimitEnabled(false);
         }
+        else
+        {
+            auto *session = BitTorrent::Session::instance();
+            require(!session->isSpeedLimitEnabled() && (session->downloadSpeedLimit() == 0)
+                    && (session->uploadSpeedLimit() == 0)
+                    && (session->configuredDownloadSpeedLimit() == 1207 * 1024)
+                    && (session->configuredUploadSpeedLimit() == 749 * 1024),
+                u"Legacy speed caps did not migrate or survive restart in unlimited mode"_s);
+        }
         if (dark)
         {
 #ifdef QBT_HAS_COLORSCHEME_OPTION
@@ -2371,6 +2380,12 @@ namespace
             require(apply && apply->isEnabled(), u"Theme edit did not enable Apply"_s);
             apply->click();
             require(UIThemeManager::instance()->colorScheme() == ColorScheme::Light, u"Options did not save the user theme"_s);
+            auto *session = BitTorrent::Session::instance();
+            require(!session->isSpeedLimitEnabled() && (session->downloadSpeedLimit() == 0)
+                    && (session->uploadSpeedLimit() == 0)
+                    && (session->configuredDownloadSpeedLimit() == 1207 * 1024)
+                    && (session->configuredUploadSpeedLimit() == 749 * 1024),
+                u"Applying the unrelated theme rounded or enabled migrated speed caps"_s);
 #endif
             writeObject(spec.value(u"retainedState"_s).toString(), layout());
         }

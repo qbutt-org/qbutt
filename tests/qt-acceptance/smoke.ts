@@ -196,6 +196,11 @@ try {
                 await writeFile(join(config, "qbutt.ini"), [
                     "[BitTorrent]", "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
                     "Session\\InterfaceAddress=127.0.0.1", "Session\\AddTorrentStopped=true",
+                    ...(phase === "product" ? [
+                        "Session\\GlobalDLSpeedLimit=2048", "Session\\GlobalUPSpeedLimit=1024",
+                        "Session\\AlternativeGlobalDLSpeedLimit=1207", "Session\\AlternativeGlobalUPSpeedLimit=749",
+                        "Session\\UseAlternativeGlobalSpeedLimit=false",
+                    ] : []),
                     "[Network]", "PortForwardingEnabled=false",
                     "[GUI]", "Notifications\\Enabled=false",
                     "[Core]", `AutoOpenTorrentFolder=${watched.replaceAll("\\", "/")}`,
