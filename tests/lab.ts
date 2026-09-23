@@ -121,10 +121,9 @@ export async function createLab(name: string, options: { pex?: boolean; protocol
         `Session\\BTProtocol=${options.protocol ?? "TCP"}`, "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
         "Session\\IgnoreLimitsOnLAN=false", "Session\\AddExtensionToIncompleteFiles=false",
         "Session\\UseUnwantedFolder=false", "Session\\QueueingSystemEnabled=false",
-        "[Network]", "PortForwardingEnabled=false",
-        "[Preferences]", "General\\ExitConfirm=false", "General\\Locale=en",
+        "[Network]", "PortForwardingEnabled=false", "[Core]", "AutoOpenTorrentFiles=false",
+        "[Preferences]", "General\\Locale=en", "Downloads\\AutoRemoveCompletedTorrents=false",
         "Advanced\\updateCheck=false", "Connection\\ResolvePeerCountries=false", "Connection\\ResolvePeerHostNames=false",
-        "General\\CloseToTray=false", "General\\MinimizeToTray=false",
         "WebUI\\Enabled=true", "WebUI\\Address=127.0.0.1", `WebUI\\Port=${port}`,
         "WebUI\\Username=lab", `WebUI\\Password_PBKDF2=@ByteArray(${passwordHash})`,
         "WebUI\\LocalHostAuth=true", "WebUI\\UseUPnP=false",
@@ -159,7 +158,7 @@ export async function createLab(name: string, options: { pex?: boolean; protocol
     async function start() {
         assert(!processHandle, "Lab process is already running");
         ++launch;
-        processHandle = Bun.spawn([executable!, `--profile=${profile}`, `--webui-port=${port}`, "--no-splash"], {
+        processHandle = Bun.spawn([executable!, `--profile=${profile}`, `--webui-port=${port}`], {
             env: { ...process.env, QT_QPA_PLATFORM: "offscreen" },
             stdout: Bun.file(join(root, `app-${launch}.stdout.log`)),
             stderr: Bun.file(join(root, `app-${launch}.stderr.log`)),

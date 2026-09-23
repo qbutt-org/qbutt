@@ -486,7 +486,7 @@ bool ReleaseUpdater::install()
         {
             environment.insert(u"QBUTT_" + option.mid(2).toUpper().replace(u'-', u'_'), argument.mid(separator + 1));
         }
-        else if ((argument == u"--relative-fastresume") || (argument == u"--no-splash"))
+        else if (argument == u"--relative-fastresume")
             environment.insert(u"QBUTT_" + argument.mid(2).toUpper().replace(u'-', u'_'), u"1"_s);
     }
 

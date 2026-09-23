@@ -49,7 +49,7 @@ struct QBtCommandLineParameters
 #endif
     bool relativeFastresumePaths = false;
 #ifndef DISABLE_GUI
-    bool noSplash = false;
+    bool startHidden = false;
 #elif !defined(Q_OS_WIN)
     bool shouldDaemonize = false;
 #endif

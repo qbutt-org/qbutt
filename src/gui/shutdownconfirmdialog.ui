@@ -58,13 +58,6 @@
        </property>
       </widget>
      </item>
-     <item row="1" column="2">
-      <widget class="QCheckBox" name="neverShowAgainCheckbox">
-       <property name="text">
-        <string>Don't show again</string>
-       </property>
-      </widget>
-     </item>
     </layout>
    </item>
    <item>

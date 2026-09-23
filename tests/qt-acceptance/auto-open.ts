@@ -34,11 +34,11 @@ try {
     await writeFile(join(profile, "qbutt", "config", "qbutt.ini"), [
         "[BitTorrent]", "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
         "Session\\InterfaceAddress=127.0.0.1", "Session\\AddTorrentStopped=true",
-        "[Network]", "PortForwardingEnabled=false", "[GUI]", "Notifications\\Enabled=false",
+        "[Network]", "PortForwardingEnabled=false", "[Core]", "AutoOpenTorrentFiles=false",
+        "[GUI]", "Notifications\\Enabled=false",
         "[Preferences]", "General\\Locale=en", "Advanced\\updateCheck=false",
         "Connection\\ResolvePeerCountries=false", "Connection\\ResolvePeerHostNames=false",
-        "General\\ExitConfirm=false", "General\\CloseToTray=false", "General\\MinimizeToTray=false",
-        "General\\SystrayEnabled=false", "WebUI\\Enabled=false", ...labAppearanceSettings("functional"), "",
+        "WebUI\\Enabled=false", ...labAppearanceSettings("functional"), "",
     ].join("\n"));
     const bytes = Buffer.from("qbutt generated legal auto-open fixture\n");
     await writeFile(join(payload, "payload.bin"), bytes);
@@ -50,7 +50,7 @@ try {
     const evidencePath = join(root, "evidence.json");
     const spec = join(root, "spec.json");
     await writeFile(spec, JSON.stringify({ schema: 1, mode: "auto-open", evidencePath, profile, watched, payload, torrent }));
-    application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash"], {
+    application = Bun.spawn([executable, `--profile=${profile}`], {
         cwd: bundle, windowsHide: true, timeout: 90000,
         env: { ...process.env, QBUTT_QT_ACCEPTANCE_SPEC: spec, QT_QPA_PLATFORM: "offscreen", QT_SCALE_FACTOR: "1" },
         stdout: Bun.file(join(root, "stdout.log")), stderr: Bun.file(join(root, "stderr.log")),

@@ -275,7 +275,6 @@ Application::Application(int &argc, char **argv)
     , m_processMemoryPriority(SETTINGS_KEY(u"ProcessMemoryPriority"_s))
 #endif
 #ifndef DISABLE_GUI
-    , m_startUpWindowState(u"GUI/StartUpWindowState"_s)
     , m_storeNotificationTorrentAdded(NOTIFICATIONS_SETTINGS_KEY(u"TorrentAdded"_s))
 #endif
 {
@@ -325,6 +324,12 @@ Application::Application(int &argc, char **argv)
             throw RuntimeError(u"Failed migration of old settings"_s); // Not translatable. Translation isn't configured yet.
         handleChangedDefaults(DefaultPreferencesMode::Legacy);
     }
+
+#if defined(Q_OS_WIN) && !defined(DISABLE_GUI)
+    if (m_instanceManager->isFirstInstance() && m_commandLineArgs.profileDir.isEmpty() && !portableModeEnabled
+        && (firstTimeUser || Preferences::instance()->WinStartup()))
+        Preferences::instance()->setWinStartup(true);
+#endif
 
     initializeTranslation();
 
@@ -376,16 +381,6 @@ DesktopIntegration *Application::desktopIntegration()
 MainWindow *Application::mainWindow()
 {
     return m_window;
-}
-
-WindowState Application::startUpWindowState() const
-{
-    return m_startUpWindowState;
-}
-
-void Application::setStartUpWindowState(const WindowState windowState)
-{
-    m_startUpWindowState = windowState;
 }
 
 bool Application::isTorrentAddedNotificationsEnabled() const
@@ -839,18 +834,12 @@ void Application::allTorrentsFinished()
         action = ShutdownDialogAction::Reboot;
 
 #ifndef DISABLE_GUI
-    // ask confirm
-    if ((action == ShutdownDialogAction::Exit) && (pref->dontConfirmAutoExit()))
-    {
-        // do nothing & skip confirm
-    }
-    else
-    {
-        if (!ShutdownConfirmDialog::askForConfirmation(m_window, action)) return;
-    }
+    if ((action != ShutdownDialogAction::Exit)
+        && !ShutdownConfirmDialog::askForConfirmation(m_window, action))
+        return;
 #endif // DISABLE_GUI
 
-    // The confirmation dialog runs a nested event loop where a repair can start.
+    // A power-action confirmation can run a nested event loop where a repair can start.
     if (!BitTorrent::Session::instance()->canRunCompletionAction())
         return;
 
@@ -933,7 +922,7 @@ int Application::exec()
     });
     desktopIntegrationMenu->addAction(actionExit);
 
-    const bool isHidden = m_desktopIntegration->isActive() && (startUpWindowState() == WindowState::Hidden);
+    const bool isHidden = m_desktopIntegration->isActive() && commandLineArgs().startHidden;
 #else
     const bool isHidden = false;
 #endif
@@ -943,8 +932,6 @@ int Application::exec()
         createStartupProgressDialog();
         // Add a small delay to avoid "flashing" the progress dialog in case there are not many torrents to restore.
         m_startupProgressDialog->setMinimumDuration(1000);
-        if (startUpWindowState() != WindowState::Normal)
-            m_startupProgressDialog->setWindowState(Qt::WindowMinimized);
     }
     else
     {

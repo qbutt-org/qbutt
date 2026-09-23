@@ -147,19 +147,6 @@ void Preferences::setRemoveTorrentContent(const bool remove)
     setValue(u"Preferences/General/DeleteTorrentsFilesAsDefault"_s, remove);
 }
 
-bool Preferences::confirmOnExit() const
-{
-    return value(u"Preferences/General/ExitConfirm"_s, true);
-}
-
-void Preferences::setConfirmOnExit(const bool confirm)
-{
-    if (confirm == confirmOnExit())
-        return;
-
-    setValue(u"Preferences/General/ExitConfirm"_s, confirm);
-}
-
 bool Preferences::speedInTitleBar() const
 {
     return value(u"Preferences/General/SpeedInTitleBar"_s, false);
@@ -238,48 +225,7 @@ void Preferences::setHideZeroComboValues(const int n)
     setValue(u"Preferences/General/HideZeroComboValues"_s, n);
 }
 
-// In Mac OS X the dock is sufficient for our needs so we disable the sys tray functionality.
-// See extensive discussion in https://github.com/qbittorrent/qBittorrent/pull/3018
 #ifndef Q_OS_MACOS
-bool Preferences::systemTrayEnabled() const
-{
-    return value(u"Preferences/General/SystrayEnabled"_s, true);
-}
-
-void Preferences::setSystemTrayEnabled(const bool enabled)
-{
-    if (enabled == systemTrayEnabled())
-        return;
-
-    setValue(u"Preferences/General/SystrayEnabled"_s, enabled);
-}
-
-bool Preferences::minimizeToTray() const
-{
-    return value(u"Preferences/General/MinimizeToTray"_s, false);
-}
-
-void Preferences::setMinimizeToTray(const bool b)
-{
-    if (b == minimizeToTray())
-        return;
-
-    setValue(u"Preferences/General/MinimizeToTray"_s, b);
-}
-
-bool Preferences::closeToTray() const
-{
-    return value(u"Preferences/General/CloseToTray"_s, true);
-}
-
-void Preferences::setCloseToTray(const bool b)
-{
-    if (b == closeToTray())
-        return;
-
-    setValue(u"Preferences/General/CloseToTray"_s, b);
-}
-
 bool Preferences::iconsInMenusEnabled() const
 {
     return value(u"Preferences/Advanced/EnableIconsInMenus"_s, true);
@@ -398,19 +344,6 @@ void Preferences::setStatusbarExternalIPDisplayed(const bool displayed)
     setValue(u"Preferences/General/StatusbarExternalIPDisplayed"_s, displayed);
 }
 
-bool Preferences::isSplashScreenDisabled() const
-{
-    return value(u"Preferences/General/NoSplashScreen"_s, true);
-}
-
-void Preferences::setSplashScreenDisabled(const bool b)
-{
-    if (b == isSplashScreenDisabled())
-        return;
-
-    setValue(u"Preferences/General/NoSplashScreen"_s, b);
-}
-
 // Preventing from system suspend while active torrents are presented.
 bool Preferences::preventFromSuspendWhenDownloading() const
 {
@@ -459,7 +392,7 @@ void Preferences::setWinStartup(const bool b)
     {
         const QString configuration = Profile::instance()->configurationName();
 
-        const auto cmd = uR"("%1" "--profile=%2" "--configuration=%3")"_s
+        const auto cmd = uR"("%1" "--profile=%2" "--configuration=%3" --hidden)"_s
                 .arg(Path(qApp->applicationFilePath()).toString(), profilePath.toString(), configuration);
         settings.setValue(profileID, cmd);
     }
@@ -469,25 +402,6 @@ void Preferences::setWinStartup(const bool b)
     }
 }
 #endif // Q_OS_WIN
-
-QString Preferences::getStyle() const
-{
-#ifdef Q_OS_WIN
-    const QString defaultStyleName = u"Fusion"_s;
-#else
-    const QString defaultStyleName = u"system"_s;
-#endif
-    const auto styleName = value<QString>(u"Appearance/Style"_s);
-    return styleName.isEmpty() ? defaultStyleName : styleName;
-}
-
-void Preferences::setStyle(const QString &styleName)
-{
-    if (styleName == getStyle())
-        return;
-
-    setValue(u"Appearance/Style"_s, styleName);
-}
 
 // Downloads
 bool Preferences::isDownloadProgressOverlayEnabled() const
@@ -505,7 +419,7 @@ void Preferences::setDownloadProgressOverlayEnabled(const bool enabled)
 
 bool Preferences::isAutoRemoveCompletedTorrentsEnabled() const
 {
-    return value(u"Preferences/Downloads/AutoRemoveCompletedTorrents"_s, false);
+    return value(u"Preferences/Downloads/AutoRemoveCompletedTorrents"_s, true);
 }
 
 void Preferences::setAutoRemoveCompletedTorrentsEnabled(const bool enabled)
@@ -1191,32 +1105,6 @@ void Preferences::setDynDNSPassword(const QString &password)
 }
 
 // Advanced settings
-QByteArray Preferences::getUILockPassword() const
-{
-    return value<QByteArray>(u"Locking/password_PBKDF2"_s);
-}
-
-void Preferences::setUILockPassword(const QByteArray &password)
-{
-    if (password == getUILockPassword())
-        return;
-
-    setValue(u"Locking/password_PBKDF2"_s, password);
-}
-
-bool Preferences::isUILocked() const
-{
-    return value(u"Locking/locked"_s, false);
-}
-
-void Preferences::setUILocked(const bool locked)
-{
-    if (locked == isUILocked())
-        return;
-
-    setValue(u"Locking/locked"_s, locked);
-}
-
 bool Preferences::isAutoRunOnTorrentAddedEnabled() const
 {
     return value(u"AutoRun/OnTorrentAdded/Enabled"_s, false);
@@ -1347,19 +1235,6 @@ void Preferences::setShutdownqBTWhenDownloadsComplete(const bool shutdown)
         return;
 
     setValue(u"Preferences/Downloads/AutoShutDownqBTOnCompletion"_s, shutdown);
-}
-
-bool Preferences::dontConfirmAutoExit() const
-{
-    return value(u"ShutdownConfirmDlg/DontConfirmAutoExit"_s, false);
-}
-
-void Preferences::setDontConfirmAutoExit(const bool dontConfirmAutoExit)
-{
-    if (dontConfirmAutoExit == this->dontConfirmAutoExit())
-        return;
-
-    setValue(u"ShutdownConfirmDlg/DontConfirmAutoExit"_s, dontConfirmAutoExit);
 }
 
 bool Preferences::recheckTorrentsOnCompletion() const
@@ -1586,21 +1461,6 @@ void Preferences::setConfirmRemoveTrackerFromAllTorrents(const bool enabled)
 
     setValue(u"GUI/ConfirmActions/RemoveTrackerFromAllTorrents"_s, enabled);
 }
-
-#ifndef Q_OS_MACOS
-TrayIcon::Style Preferences::trayIconStyle() const
-{
-    return value(u"Preferences/Advanced/TrayIconStyle"_s, TrayIcon::Style::Normal);
-}
-
-void Preferences::setTrayIconStyle(const TrayIcon::Style style)
-{
-    if (style == trayIconStyle())
-        return;
-
-    setValue(u"Preferences/Advanced/TrayIconStyle"_s, style);
-}
-#endif
 
 // Stuff that don't appear in the Options GUI but are saved
 // in the same file.

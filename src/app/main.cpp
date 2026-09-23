@@ -49,14 +49,7 @@
 
 #ifndef DISABLE_GUI
 // GUI-only includes
-#include <QColor>
-#include <QFont>
-#include <QIcon>
 #include <QMessageBox>
-#include <QPainter>
-#include <QPen>
-#include <QSplashScreen>
-#include <QTimer>
 
 #ifdef QBT_STATIC_QT
 #include <QtPlugin>
@@ -131,26 +124,6 @@ namespace
         printf("%s %s\n", qUtf8Printable(qApp->applicationName()), QBUTT_VERSION);
     }
 #endif
-
-#ifndef DISABLE_GUI
-    void showSplashScreen()
-    {
-        QPixmap splashImg(350, 180);
-        splashImg.fill(QColor {u"#222222"_s});
-        QPainter painter(&splashImg);
-        painter.drawPixmap(28, 42, QIcon {u":/icons/qbittorrent-tray.svg"_s}.pixmap(96, 96));
-        painter.setPen(QPen(Qt::white));
-        painter.setFont(QFont(u"Arial"_s, 26));
-        painter.drawText(148, 86, u"qbutt"_s);
-        painter.setFont(QFont(u"Arial"_s, 12));
-        painter.drawText(150, 115, QStringLiteral(QBUTT_VERSION));
-        painter.end();
-        QSplashScreen *splash = new QSplashScreen(splashImg);
-        splash->show();
-        QTimer::singleShot(1500ms, Qt::CoarseTimer, splash, &QObject::deleteLater);
-        qApp->processEvents();
-    }
-#endif  // DISABLE_GUI
 
 #ifdef Q_OS_UNIX
     void adjustFileDescriptorLimit()
@@ -292,9 +265,6 @@ int main(int argc, char *argv[])
                 return EXIT_FAILURE;
             }
         }
-#elif !defined(DISABLE_GUI)
-        if (!(params.noSplash || Preferences::instance()->isSplashScreenDisabled()))
-            showSplashScreen();
 #endif
 
         registerSignalHandlers();

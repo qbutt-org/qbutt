@@ -312,8 +312,8 @@ namespace
 #endif
 #if defined(DISABLE_GUI) && !defined(Q_OS_WIN)
     constexpr const BoolOption DAEMON_OPTION {u"daemon", u'd'};
-#else
-    constexpr const BoolOption NO_SPLASH_OPTION {u"no-splash"};
+#elif !defined(DISABLE_GUI)
+    constexpr const BoolOption START_HIDDEN_OPTION {u"hidden"};
 #endif
     constexpr const IntOption WEBUI_PORT_OPTION {u"webui-port"};
     constexpr const IntOption TORRENTING_PORT_OPTION {u"torrenting-port"};
@@ -332,7 +332,7 @@ namespace
 QBtCommandLineParameters::QBtCommandLineParameters(const QProcessEnvironment &env)
     : relativeFastresumePaths(RELATIVE_FASTRESUME.value(env))
 #ifndef DISABLE_GUI
-    , noSplash(NO_SPLASH_OPTION.value(env))
+    , startHidden(START_HIDDEN_OPTION.value(env))
 #elif !defined(Q_OS_WIN)
     , shouldDaemonize(DAEMON_OPTION.value(env))
 #endif
@@ -389,9 +389,9 @@ QBtCommandLineParameters parseCommandLine(const QStringList &args)
                 }
             }
 #ifndef DISABLE_GUI
-            else if (arg == NO_SPLASH_OPTION)
+            else if (arg == START_HIDDEN_OPTION)
             {
-                result.noSplash = true;
+                result.startHidden = true;
             }
 #elif !defined(Q_OS_WIN)
             else if (arg == DAEMON_OPTION)
@@ -487,12 +487,6 @@ QString makeUsage(const QString &prgName)
 {
     const QString indentation {USAGE_INDENTATION, u' '};
 
-#if defined(Q_OS_WIN)
-    const QString noSplashCommand = u"set QBUTT_NO_SPLASH=1 && " + prgName;
-#else
-    const QString noSplashCommand = u"QBUTT_NO_SPLASH=1 " + prgName;
-#endif
-
     const QString text = QCoreApplication::translate("CMD Options", "Usage:") + u'\n'
         + indentation + prgName + u' ' + QCoreApplication::translate("CMD Options", "[options] [(<filename> | <url>)...]") + u'\n'
 
@@ -508,7 +502,7 @@ QString makeUsage(const QString &prgName)
         + wrapText(QCoreApplication::translate("CMD Options", "Change the torrenting port"))
         + u'\n'
 #ifndef DISABLE_GUI
-        + NO_SPLASH_OPTION.usage() + wrapText(QCoreApplication::translate("CMD Options", "Disable splash screen")) + u'\n'
+        + START_HIDDEN_OPTION.usage() + wrapText(QCoreApplication::translate("CMD Options", "Start in the system tray")) + u'\n'
 #elif !defined(Q_OS_WIN)
         + DAEMON_OPTION.usage() + wrapText(QCoreApplication::translate("CMD Options", "Run in daemon-mode (background)")) + u'\n'
 #endif
@@ -542,8 +536,7 @@ QString makeUsage(const QString &prgName)
         + wrapText(QCoreApplication::translate("CMD Options", "Option values may be supplied via environment variables. For option named "
                                 "'parameter-name', environment variable name is 'QBUTT_PARAMETER_NAME' (in upper "
                                 "case, '-' replaced with '_'). To pass flag values, set the variable to '1' or "
-                                "'TRUE'. For example, to disable the splash screen: "), 0) + u'\n'
-        + noSplashCommand + u'\n'
+                                "'TRUE'."), 0) + u'\n'
         + wrapText(QCoreApplication::translate("CMD Options", "Command line parameters take precedence over environment variables"), 0) + u'\n';
 
     return text;

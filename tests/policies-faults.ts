@@ -7,7 +7,7 @@ interface Claim { key: string; status: string }
 interface Repair { id: string; state: string; error?: string }
 
 const selected = process.env.QBUTT_POLICY_CASE;
-assert(!selected || ["before_claim", "claimed", "dispatched", "acknowledged", "queued", "modal", "journal_write"].includes(selected), "Unknown policy fault scenario");
+assert(!selected || ["before_claim", "claimed", "dispatched", "acknowledged", "queued", "journal_write"].includes(selected), "Unknown policy fault scenario");
 for (const point of ["before_claim", "claimed", "dispatched", "acknowledged"].filter(point => !selected || point === selected)) {
     const lab = await createLab(`policies-fault-${point}`);
     let failure: unknown;
@@ -76,17 +76,17 @@ for (const point of ["before_claim", "claimed", "dispatched", "acknowledged"].fi
         throw failure;
 }
 
-// Enter the actual queued application handler / Qt modal loop, admit repair
-// while that loop is live, then let the existing Exit action reach its guard.
+// Enter the queued application handler, admit repair while it is live,
+// then let the Exit action reach its guard.
 // No shutdown, reboot, suspend or hibernate action is configured or called.
-for (const point of ["queued", "modal"].filter(point => !selected || point === selected)) {
+if (!selected || selected === "queued") {
+    const point = "queued";
     const lab = await createLab(`policies-${point}`);
     let failure: unknown;
     try {
         const configPath = join(lab.root, "profile", "qbutt", "config", "qbutt.ini");
         const config = await readFile(configPath, "utf8");
-        await writeFile(configPath, config.replace("[Preferences]\n", "[Preferences]\nGeneral\\Locale=en\nDownloads\\AutoShutDownqBTOnCompletion=true\n")
-            + `[ShutdownConfirmDlg]\nDontConfirmAutoExit=${point === "queued"}\n`);
+        await writeFile(configPath, config.replace("[Preferences]\n", "[Preferences]\nGeneral\\Locale=en\nDownloads\\AutoShutDownqBTOnCompletion=true\n"));
         const gate = join(lab.root, "completion-gate");
         process.env.QBUTT_COMPLETION_GATE = gate;
         process.env.QBUTT_COMPLETION_GATE_POINT = point;
@@ -116,7 +116,7 @@ for (const point of ["queued", "modal"].filter(point => !selected || point === s
             await lab.shutdown();
             const verifiedBytes = await verifyPayload(destination, lab.manifest.payload);
             assert(await verifyPayload(candidate, lab.manifest.payload) === verifiedBytes);
-            await lab.checkpoint({ point, check: "queued-or-modal-completion-rechecks-live-maintenance-owner", verifiedBytes });
+            await lab.checkpoint({ point, check: "queued-completion-rechecks-live-maintenance-owner", verifiedBytes });
         }
         finally { await seed.stop(); }
     }

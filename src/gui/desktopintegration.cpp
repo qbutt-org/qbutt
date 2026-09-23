@@ -39,7 +39,6 @@
 #include <QSystemTrayIcon>
 #endif
 
-#include "base/preferences.h"
 #include "uithememanager.h"
 
 #ifdef Q_OS_MACOS
@@ -84,8 +83,11 @@ DesktopIntegration::DesktopIntegration(QObject *parent)
     MacUtils::overrideDockClickHandler(handleDockClicked);
     m_menu->setAsDockMenu();
 #else
-    if (Preferences::instance()->systemTrayEnabled())
-        createTrayIcon();
+    createTrayIcon();
+    connect(UIThemeManager::instance(), &UIThemeManager::themeChanged, this, [this]
+    {
+        m_systrayIcon->setIcon(getSystrayIcon());
+    });
 
 #ifdef QBT_USES_DBUS
     if (isNotificationsEnabled())
@@ -95,8 +97,6 @@ DesktopIntegration::DesktopIntegration(QObject *parent)
     }
 #endif
 #endif
-
-    connect(Preferences::instance(), &Preferences::changed, this, &DesktopIntegration::onPreferencesChanged);
 }
 
 DesktopIntegration::~DesktopIntegration()
@@ -194,30 +194,6 @@ void DesktopIntegration::showNotification(const QString &title, const QString &m
 #endif
 }
 
-void DesktopIntegration::onPreferencesChanged()
-{
-#ifndef Q_OS_MACOS
-    if (Preferences::instance()->systemTrayEnabled())
-    {
-        if (m_systrayIcon)
-        {
-            // Reload systray icon
-            m_systrayIcon->setIcon(getSystrayIcon());
-        }
-        else
-        {
-            createTrayIcon();
-        }
-    }
-    else
-    {
-        delete m_systrayIcon;
-        m_systrayIcon = nullptr;
-        emit stateChanged();
-    }
-#endif
-}
-
 #ifndef Q_OS_MACOS
 void DesktopIntegration::createTrayIcon()
 {
@@ -241,26 +217,11 @@ void DesktopIntegration::createTrayIcon()
 #endif
 
     m_systrayIcon->show();
-    emit stateChanged();
 }
 
 QIcon DesktopIntegration::getSystrayIcon() const
 {
-    const TrayIcon::Style style = Preferences::instance()->trayIconStyle();
-    QIcon icon;
-    switch (style)
-    {
-    default:
-    case TrayIcon::Style::Normal:
-        icon = UIThemeManager::instance()->getIcon(u"qbittorrent-tray"_s);
-        break;
-    case TrayIcon::Style::MonoDark:
-        icon = UIThemeManager::instance()->getIcon(u"qbittorrent-tray-dark"_s);
-        break;
-    case TrayIcon::Style::MonoLight:
-        icon = UIThemeManager::instance()->getIcon(u"qbittorrent-tray-light"_s);
-        break;
-    }
+    const QIcon icon = UIThemeManager::instance()->getIcon(u"qbittorrent-tray"_s);
 #ifdef Q_OS_UNIX
     // Workaround for invisible tray icon in KDE, https://bugreports.qt.io/browse/QTBUG-53550
     if (qEnvironmentVariable("XDG_CURRENT_DESKTOP").compare(u"KDE", Qt::CaseInsensitive) == 0)

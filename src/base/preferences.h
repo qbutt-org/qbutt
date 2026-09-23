@@ -73,19 +73,6 @@ namespace DNS
     Q_ENUM_NS(Service)
 }
 
-namespace TrayIcon
-{
-    Q_NAMESPACE
-
-    enum class Style : int
-    {
-        Normal = 0,
-        MonoDark = 1,
-        MonoLight = 2
-    };
-    Q_ENUM_NS(Style)
-}
-
 class Preferences final : public QObject
 {
     Q_OBJECT
@@ -107,8 +94,6 @@ public:
     void setCustomUIThemePath(const Path &path);
     bool removeTorrentContent() const;
     void setRemoveTorrentContent(bool remove);
-    bool confirmOnExit() const;
-    void setConfirmOnExit(bool confirm);
     bool speedInTitleBar() const;
     void showSpeedInTitleBar(bool show);
     bool useAlternatingRowColors() const;
@@ -131,14 +116,10 @@ public:
     void setToolbarDisplayed(bool displayed);
     bool isTorrentContentDragEnabled() const;
     void setTorrentContentDragEnabled(bool enabled);
-    bool isSplashScreenDisabled() const;
-    void setSplashScreenDisabled(bool b);
     bool preventFromSuspendWhenDownloading() const;
     void setPreventFromSuspendWhenDownloading(bool b);
     bool preventFromSuspendWhenSeeding() const;
     void setPreventFromSuspendWhenSeeding(bool b);
-    QString getStyle() const;
-    void setStyle(const QString &styleName);
 #ifdef Q_OS_WIN
     bool WinStartup() const;
     void setWinStartup(bool b);
@@ -271,11 +252,6 @@ public:
     void setDynDNSPassword(const QString &password);
 
     // Advanced settings
-    QByteArray getUILockPassword() const;
-    void setUILockPassword(const QByteArray &password);
-    bool isUILocked() const;
-    void setUILocked(bool locked);
-
     bool isAutoRunOnTorrentAddedEnabled() const;
     void setAutoRunOnTorrentAddedEnabled(bool enabled);
     QString getAutoRunOnTorrentAddedProgram() const;
@@ -299,8 +275,6 @@ public:
     void setHibernateWhenDownloadsComplete(bool hibernate);
     bool shutdownqBTWhenDownloadsComplete() const;
     void setShutdownqBTWhenDownloadsComplete(bool shutdown);
-    bool dontConfirmAutoExit() const;
-    void setDontConfirmAutoExit(bool dontConfirmAutoExit);
     bool recheckTorrentsOnCompletion() const;
     void recheckTorrentsOnCompletion(bool recheck);
     bool resolvePeerCountries() const;
@@ -340,14 +314,6 @@ public:
     bool confirmRemoveTrackerFromAllTorrents() const;
     void setConfirmRemoveTrackerFromAllTorrents(bool enabled);
 #ifndef Q_OS_MACOS
-    bool systemTrayEnabled() const;
-    void setSystemTrayEnabled(bool enabled);
-    bool minimizeToTray() const;
-    void setMinimizeToTray(bool b);
-    bool closeToTray() const;
-    void setCloseToTray(bool b);
-    TrayIcon::Style trayIconStyle() const;
-    void setTrayIconStyle(TrayIcon::Style style);
     bool iconsInMenusEnabled() const;
     void setIconsInMenusEnabled(bool enable);
 #endif // Q_OS_MACOS

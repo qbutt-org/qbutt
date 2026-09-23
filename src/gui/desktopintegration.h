@@ -70,10 +70,8 @@ public:
 signals:
     void activationRequested();
     void notificationClicked();
-    void stateChanged();
 
 private:
-    void onPreferencesChanged();
 #ifndef Q_OS_MACOS
     void createTrayIcon();
     QIcon getSystrayIcon() const;

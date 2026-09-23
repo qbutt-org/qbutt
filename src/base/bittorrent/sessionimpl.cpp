@@ -80,6 +80,7 @@
 #include <QNetworkInterface>
 #include <QPromise>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QString>
 #include <QThread>
 #include <QTimer>
@@ -527,7 +528,7 @@ SessionImpl::SessionImpl(QObject *parent)
     , m_storedTags(BITTORRENT_SESSION_KEY(u"Tags"_s))
     , m_shareLimitAction(BITTORRENT_SESSION_KEY(u"ShareLimitAction"_s), ShareLimitAction::Stop
         , [](const ShareLimitAction action) { return (action == ShareLimitAction::Default) ? ShareLimitAction::Stop : action; })
-    , m_savePath(BITTORRENT_SESSION_KEY(u"DefaultSavePath"_s), specialFolderLocation(SpecialFolder::Downloads))
+    , m_savePath(BITTORRENT_SESSION_KEY(u"DefaultSavePath"_s), Path(QStandardPaths::writableLocation(QStandardPaths::DesktopLocation)))
     , m_downloadPath(BITTORRENT_SESSION_KEY(u"TempPath"_s), (savePath() / Path(u"temp"_s)))
     , m_isDownloadPathEnabled(BITTORRENT_SESSION_KEY(u"TempPathEnabled"_s), false)
     , m_useCategoryPathsInManualMode(BITTORRENT_SESSION_KEY(u"UseCategoryPathsInManualMode"_s), false)

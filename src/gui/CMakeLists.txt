@@ -1,7 +1,3 @@
-if (QBUTT_COMPLETION_FAULTS)
-    set_property(SOURCE shutdownconfirmdialog.cpp APPEND PROPERTY COMPILE_DEFINITIONS QBUTT_COMPLETION_FAULTS)
-endif()
-
 find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Widgets Svg Concurrent)
 
 # CMAKE_AUTO_UI causes unnecessary rebuilds

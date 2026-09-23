@@ -87,7 +87,7 @@ private:
     static TorrentFilesWatcher *m_instance;
 
     QHash<Path, WatchedFolderOptions> m_watchedFolders;
-    SettingValue<bool> m_autoOpenEnabled {u"Core/AutoOpenTorrentFiles"_s};
+    SettingValue<bool> m_autoOpenEnabled {u"Core/AutoOpenTorrentFiles"_s, true};
     SettingValue<Path> m_autoOpenFolder {u"Core/AutoOpenTorrentFolder"_s};
 
     Utils::Thread::UniquePtr m_ioThread;

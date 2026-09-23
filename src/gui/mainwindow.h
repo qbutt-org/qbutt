@@ -119,11 +119,7 @@ private slots:
     void loadSettings();
     void saveSplitterSettings() const;
     void tabChanged(int newTab);
-    bool defineUILockPassword();
-    void clearUILockPassword();
-    bool unlockUI();
     void notifyOfUpdate(const QString &);
-    void showConnectionSettings();
     void minimizeWindow();
     // Keyboard shortcuts
     void createKeyboardShortcuts();
@@ -172,7 +168,6 @@ private slots:
     void on_actionOpen_triggered();
     void on_actionDownloadFromURL_triggered();
     void on_actionExit_triggered();
-    void on_actionLock_triggered();
     // Check for non-stopped downloading or seeding torrents and prevent system suspend/sleep according to preferences
     void updatePowerManagementState() const;
 
@@ -205,6 +200,7 @@ private:
     void showFiltersSidebar(bool show);
     void applyTransferListFilter();
     void refreshWindowTitle();
+    void refreshIcons();
     void refreshTrayIconTooltip();
     void showReleaseUpdateDialog();
 
@@ -240,9 +236,6 @@ private:
     TransferListFiltersWidget *m_transferListFiltersWidget = nullptr;
     PropertiesWidget *m_propertiesWidget = nullptr;
     bool m_displaySpeedInTitle = false;
-    bool m_forceExit = false;
-    bool m_uiLocked = false;
-    bool m_unlockDlgShowing = false;
     QWidget *m_columnFilterWidget = nullptr;
     LineEdit *m_columnFilterEdit = nullptr;
     QAction *m_columnFilterAction = nullptr;

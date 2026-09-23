@@ -10,7 +10,7 @@ const lab = await createLab("auto-remove");
 const appName = process.env.QBUTT_LAB_APP_NAME ?? "qbutt";
 assert.equal(appName, "qbutt", "Auto-remove acceptance requires qbutt");
 const configPath = join(lab.root, "profile", appName, "config", `${appName}.ini`);
-const destinations = ["default-off", "enabled", "explicit-stop"].map(name => join(lab.root, name));
+const destinations = ["default-on", "disabled", "explicit-stop"].map(name => join(lab.root, name));
 let failure: unknown;
 
 async function download(name: string, destination: string, mode: "keep" | "remove" | "stop"): Promise<string> {
@@ -52,25 +52,31 @@ async function download(name: string, destination: string, mode: "keep" | "remov
 }
 
 try {
-    assert(!(await readFile(configPath, "utf8")).includes("AutoRemoveCompletedTorrents"),
-        "Default-off control must not preconfigure the new setting");
+    const fixtureConfig = (await readFile(configPath, "utf8")).replaceAll("\r\n", "\n");
+    assert(fixtureConfig.includes("Downloads\\AutoRemoveCompletedTorrents=false\n"),
+        "The shared lab must pin its original keep-torrent behavior");
+    await writeFile(configPath, fixtureConfig.replace("Downloads\\AutoRemoveCompletedTorrents=false\n", ""));
     await lab.start();
-    const retainedHash = await download("v1", destinations[0]!, "keep");
-    assert.deepEqual(await lab.json<Claim[]>("qbuttPolicies/journal"), [], "Default-off completion dispatched an action");
+    const removedHash = await download("v1", destinations[0]!, "remove");
     await lab.shutdown();
 
-    // Only edit the isolated profile while qbutt is stopped. Qt acceptance
-    // separately verifies that the checkbox persists this same setting.
+    // An explicit disabled setting preserves the user's earlier behavior.
     const config = (await readFile(configPath, "utf8")).replaceAll("\r\n", "\n")
         .replace(/^Downloads\\AutoRemoveCompletedTorrents=.*\n/gm, "");
     assert(config.includes("[Preferences]\n"), "The isolated profile has no Preferences section");
     await writeFile(configPath, config.replace("[Preferences]\n",
-        "[Preferences]\nDownloads\\AutoRemoveCompletedTorrents=true\n"));
+        "[Preferences]\nDownloads\\AutoRemoveCompletedTorrents=false\n"));
     await lab.start();
-    await waitFor("restored completed torrent retained after enabling", () => lab.info(retainedHash),
+    const retainedHash = await download("v1-64k", destinations[1]!, "keep");
+    assert.equal((await lab.info(retainedHash)).progress, 1, "Explicit disabled setting removed a completed torrent");
+    await lab.shutdown();
+
+    const disabledConfig = (await readFile(configPath, "utf8")).replaceAll("\r\n", "\n");
+    await writeFile(configPath, disabledConfig.replace("Downloads\\AutoRemoveCompletedTorrents=false\n",
+        "Downloads\\AutoRemoveCompletedTorrents=true\n"));
+    await lab.start();
+    await waitFor("previous completed torrent retained after enabling", () => lab.info(retainedHash),
         item => item.progress === 1);
-    const removedHash = await download("v1-64k", destinations[1]!, "remove");
-    assert.equal((await lab.info(retainedHash)).progress, 1, "Auto-removal also removed an earlier completed torrent");
 
     await lab.request("torrents/createCategory", { category: "keep" });
     await lab.request("qbuttPolicies/configure", { configuration: JSON.stringify({ enabled: true, allow_delete_data: false,
@@ -88,7 +94,7 @@ try {
     await lab.shutdown();
     for (const destination of destinations)
         await verifyPayload(destination, lab.manifest.payload);
-    await lab.checkpoint({ check: "restart-and-final-payload", oldCompletedRetained: true,
+    await lab.checkpoint({ check: "restart-and-final-payload", explicitlyDisabledRetained: true,
         explicitStopRetained: true, removedTorrentAbsent: true, allPayloadsPreserved: true });
 }
 catch (error) { failure = error; }

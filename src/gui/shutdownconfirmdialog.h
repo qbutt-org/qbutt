@@ -54,7 +54,6 @@ protected:
 
 private slots:
     void updateSeconds();
-    void accept() override;
 
 private:
     // Methods

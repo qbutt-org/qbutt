@@ -212,39 +212,6 @@ namespace
         }
     }
 
-    void upgradeTrayIconStyleSettings()
-    {
-        auto *settingsStorage = SettingsStorage::instance();
-        const auto key = u"Preferences/Advanced/TrayIconStyle"_s;
-        if (!settingsStorage->hasKey(key))
-            return;
-
-        const auto value = settingsStorage->loadValue<QString>(key);
-        bool ok = false;
-        const auto number = value.toInt(&ok);
-
-        if (ok)
-        {
-            switch (number)
-            {
-            case 0:
-                settingsStorage->storeValue(key, TrayIcon::Style::Normal);
-                break;
-            case 1:
-                settingsStorage->storeValue(key, TrayIcon::Style::MonoDark);
-                break;
-            case 2:
-                settingsStorage->storeValue(key, TrayIcon::Style::MonoLight);
-                break;
-            default:
-                LogMsg(QCoreApplication::translate("Upgrade", "Invalid value found in configuration file, reverting it to default. Key: \"%1\". Invalid value: \"%2\".")
-                    .arg(key, QString::number(number)), Log::WARNING);
-                settingsStorage->removeValue(key);
-                break;
-            }
-        }
-    }
-
     void migrateSettingKeys()
     {
         struct KeyMapping
@@ -427,18 +394,6 @@ namespace
     }
 #endif
 
-    void migrateStartupWindowState()
-    {
-        auto *settingsStorage = SettingsStorage::instance();
-        if (settingsStorage->hasKey(u"Preferences/General/StartMinimized"_s))
-        {
-            const auto startMinimized = settingsStorage->loadValue<bool>(u"Preferences/General/StartMinimized"_s);
-            const auto minimizeToTray = settingsStorage->loadValue<bool>(u"Preferences/General/MinimizeToTray"_s);
-            const QString windowState = startMinimized ? (minimizeToTray ? u"Hidden"_s : u"Minimized"_s) : u"Normal"_s;
-            settingsStorage->storeValue(u"GUI/StartUpWindowState"_s, windowState);
-        }
-    }
-
     void migrateChineseLocale()
     {
         auto *settingsStorage = SettingsStorage::instance();
@@ -510,7 +465,6 @@ bool upgrade()
             upgradeListenPortSettings();
             upgradeSchedulerDaysSettings();
             upgradeDNSServiceSettings();
-            upgradeTrayIconStyleSettings();
         }
 
         if (version < 2)
@@ -526,7 +480,6 @@ bool upgrade()
 
         if (version < 5)
         {
-            migrateStartupWindowState();
             migrateChineseLocale();
         }
 

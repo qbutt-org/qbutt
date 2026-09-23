@@ -92,7 +92,7 @@ try {
         configPath, interfaceName, torrentPath: join(lab.fixtures, torrent.file), destination,
         dhtPort: dht.address().port, dhtEvidence,
         remotePeer: `127.0.0.9:${seeds[0]!.port}`, nativePeer: `127.0.0.5:${seeds[1]!.port}`}));
-    application = Bun.spawn([executable, `--profile=${profile}`, "--no-splash"], {
+    application = Bun.spawn([executable, `--profile=${profile}`], {
         cwd: dirname(executable), windowsHide: true,
         env: {...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: specPath},
         stdout: Bun.file(join(lab.root, "app.stdout.log")), stderr: Bun.file(join(lab.root, "app.stderr.log")),

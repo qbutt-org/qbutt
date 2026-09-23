@@ -32,15 +32,10 @@
 #include <chrono>
 
 #include <QDialogButtonBox>
-#ifdef QBUTT_COMPLETION_FAULTS
-#include <QFile>
-#include <QFileInfo>
-#endif
 #include <QIcon>
 #include <QPushButton>
 #include <QStyle>
 
-#include "base/preferences.h"
 #include "ui_shutdownconfirmdialog.h"
 #include "utils.h"
 
@@ -56,11 +51,6 @@ ShutdownConfirmDialog::ShutdownConfirmDialog(QWidget *parent, const ShutdownDial
     initText();
     QIcon warningIcon(style()->standardIcon(QStyle::SP_MessageBoxWarning));
     m_ui->warningLabel->setPixmap(warningIcon.pixmap(32));
-
-    if (m_action == ShutdownDialogAction::Exit)
-        m_ui->neverShowAgainCheckbox->setVisible(true);
-    else
-        m_ui->neverShowAgainCheckbox->setVisible(false);
 
     // Cancel Button
     QPushButton *cancelButton = m_ui->buttonBox->button(QDialogButtonBox::Cancel);
@@ -92,25 +82,6 @@ void ShutdownConfirmDialog::showEvent(QShowEvent *event)
 bool ShutdownConfirmDialog::askForConfirmation(QWidget *parent, const ShutdownDialogAction &action)
 {
     ShutdownConfirmDialog dlg(parent, action);
-#ifdef QBUTT_COMPLETION_FAULTS
-    const QString gate = qEnvironmentVariable("QBUTT_COMPLETION_GATE");
-    QTimer poll;
-    if ((action == ShutdownDialogAction::Exit) && !gate.isEmpty()
-        && (qEnvironmentVariable("QBUTT_COMPLETION_GATE_POINT") == u"modal")
-        && (qEnvironmentVariable("QT_QPA_PLATFORM") == u"offscreen"))
-    {
-        QFile entered(gate + u".entered");
-        if (entered.open(QIODevice::WriteOnly))
-            entered.write("modal");
-        entered.close();
-        connect(&poll, &QTimer::timeout, &dlg, [&dlg, gate]
-        {
-            if (QFileInfo::exists(gate))
-                dlg.accept();
-        });
-        poll.start(20);
-    }
-#endif
     return (dlg.exec() == QDialog::Accepted);
 }
 
@@ -125,12 +96,6 @@ void ShutdownConfirmDialog::updateSeconds()
     }
 }
 
-void ShutdownConfirmDialog::accept()
-{
-    Preferences::instance()->setDontConfirmAutoExit(m_ui->neverShowAgainCheckbox->isChecked());
-    QDialog::accept();
-}
-
 void ShutdownConfirmDialog::initText()
 {
     QPushButton *okButton = m_ui->buttonBox->button(QDialogButtonBox::Ok);
@@ -138,10 +103,7 @@ void ShutdownConfirmDialog::initText()
     switch (m_action)
     {
     case ShutdownDialogAction::Exit:
-        m_msg = tr("qbutt will now exit.");
-        okButton->setText(tr("E&xit Now"));
-        setWindowTitle(tr("Exit confirmation"));
-        break;
+        Q_UNREACHABLE();
     case ShutdownDialogAction::Shutdown:
         m_msg = tr("The computer is going to shutdown.");
         okButton->setText(tr("&Shutdown Now"));

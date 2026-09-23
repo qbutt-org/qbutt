@@ -287,10 +287,10 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
         "Session\\BTProtocol=0", "Session\\Interface=", "Session\\InterfaceAddress=", `Session\\Port=${peerPort}`,
         "Session\\QueueingSystemEnabled=false", "Session\\IgnoreLimitsOnLAN=false",
         "Session\\AddExtensionToIncompleteFiles=false", "Session\\UseUnwantedFolder=false",
-        "[Network]", "PortForwardingEnabled=false",
+        "[Network]", "PortForwardingEnabled=false", "[Core]", "AutoOpenTorrentFiles=false",
         "[Preferences]", "Advanced\\updateCheck=false", "Connection\\ResolvePeerCountries=false",
-        "Connection\\ResolvePeerHostNames=false", "General\\ExitConfirm=false", "General\\CloseToTray=false",
-        "General\\MinimizeToTray=false", "WebUI\\Enabled=true", "WebUI\\Address=127.0.0.1", `WebUI\\Port=${webPort}`,
+        "Connection\\ResolvePeerHostNames=false", "Downloads\\AutoRemoveCompletedTorrents=false",
+        "WebUI\\Enabled=true", "WebUI\\Address=127.0.0.1", `WebUI\\Port=${webPort}`,
         "WebUI\\Username=lab", `WebUI\\Password_PBKDF2=@ByteArray(${passwordHash})`, "WebUI\\LocalHostAuth=true",
         "WebUI\\UseUPnP=false", "WebUI\\ServerDomains=127.0.0.1", "WebUI\\HostHeaderValidation=true",
         "WebUI\\CSRFProtection=true", ...labAppearanceSettings(), "",
@@ -298,7 +298,7 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
 
     const origin = `http://127.0.0.1:${webPort}`;
     let cookie = "";
-    const child = Bun.spawn([executable, `--profile=${profile}`, `--webui-port=${webPort}`, "--no-splash"], {
+    const child = Bun.spawn([executable, `--profile=${profile}`, `--webui-port=${webPort}`], {
         env: { ...process.env, QT_QPA_PLATFORM: "offscreen" },
         stdout: Bun.file(join(root, "app.stdout.log")),
         stderr: Bun.file(join(root, "app.stderr.log")), windowsHide: true,

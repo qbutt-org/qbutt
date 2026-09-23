@@ -140,9 +140,6 @@ public:
     DesktopIntegration *desktopIntegration() override;
     MainWindow *mainWindow() override;
 
-    WindowState startUpWindowState() const override;
-    void setStartUpWindowState(WindowState windowState) override;
-
     bool isTorrentAddedNotificationsEnabled() const override;
     void setTorrentAddedNotificationsEnabled(bool value) override;
 #endif
@@ -219,7 +216,6 @@ private:
     AddTorrentManagerImpl *m_addTorrentManager = nullptr;
 
 #ifndef DISABLE_GUI
-    SettingValue<WindowState> m_startUpWindowState;
     SettingValue<bool> m_storeNotificationTorrentAdded;
 
     DesktopIntegration *m_desktopIntegration = nullptr;

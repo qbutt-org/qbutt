@@ -74,10 +74,10 @@ try {
         "[BitTorrent]", "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
         "Session\\InterfaceAddress=127.0.0.1", "Session\\AddTorrentStopped=true", "Session\\ResumeDataStorageType=SQLite",
         "Session\\AddExtensionToIncompleteFiles=false", "Session\\UseUnwantedFolder=false", "Session\\QueueingSystemEnabled=false",
-        "[Network]", "PortForwardingEnabled=false", "[GUI]", "Notifications\\Enabled=false",
+        "[Network]", "PortForwardingEnabled=false", "[Core]", "AutoOpenTorrentFiles=false",
+        "[GUI]", "Notifications\\Enabled=false",
         "[Preferences]", "General\\Locale=en", "Advanced\\updateCheck=false", "Connection\\ResolvePeerCountries=false",
-        "Connection\\ResolvePeerHostNames=false", "General\\ExitConfirm=false", "General\\CloseToTray=false",
-        "General\\MinimizeToTray=false", "General\\SystrayEnabled=false", "WebUI\\Enabled=false",
+        "Connection\\ResolvePeerHostNames=false", "Downloads\\AutoRemoveCompletedTorrents=false", "WebUI\\Enabled=false",
         ...labAppearanceSettings("functional"), "",
     ].join("\n"));
     for (const phase of ["prepare", "recheck", "acknowledge", "replay"]) {
@@ -87,7 +87,7 @@ try {
             fixtureRoot: root, sourceSettings: source.settings, validData: source.data,
             schemaData: join(root, "schema-data"), metadataData: join(root, "metadata-data"),
             receipt: join(root, "acknowledgement.json") }, null, 2));
-        child = Bun.spawn([executable, `--profile=${profile}`, "--no-splash"], {
+        child = Bun.spawn([executable, `--profile=${profile}`], {
             cwd: bundle, env: { ...environment, QBUTT_QT_ACCEPTANCE_SPEC: spec }, windowsHide: true, timeout: 120000,
             stdout: Bun.file(join(root, `${phase}-stdout.log`)), stderr: Bun.file(join(root, `${phase}-stderr.log`)),
         });
