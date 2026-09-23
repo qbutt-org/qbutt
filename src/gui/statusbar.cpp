@@ -29,7 +29,6 @@
 #include "statusbar.h"
 
 #include <QDebug>
-#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -43,89 +42,68 @@
 #include "uithememanager.h"
 #include "utils.h"
 
-namespace
-{
-    QWidget *createSeparator(QWidget *parent)
-    {
-        QFrame *separator = new QFrame(parent);
-        separator->setFrameStyle(QFrame::VLine);
-    #ifndef Q_OS_MACOS
-        separator->setFrameShadow(QFrame::Raised);
-    #endif
-        return separator;
-    }
-}
-
 StatusBar::StatusBar(QWidget *parent)
     : QStatusBar(parent)
 {
 #ifndef Q_OS_MACOS
     // Redefining global stylesheet breaks certain elements on mac like tabs.
     // Qt checks whether the stylesheet class inherits("QMacStyle") and this becomes false.
-    setStyleSheet(u"QStatusBar::item { border-width: 0; }"_s);
+    setStyleSheet(u"QStatusBar::item { border: none; }"
+        u"QStatusBar QPushButton, QStatusBar QPushButton:hover:enabled,"
+        u"QStatusBar QPushButton:pressed { background: transparent; border: none; padding: 2px 4px; }"_s);
 #endif
+    setSizeGripEnabled(false);
+    setContentsMargins(8, 0, 8, 0);
 
     BitTorrent::Session *const session = BitTorrent::Session::instance();
-    connect(session, &BitTorrent::Session::speedLimitModeChanged, this, &StatusBar::updateAltSpeedsBtn);
+    connect(session, &BitTorrent::Session::speedLimitModeChanged, this, &StatusBar::updateSpeedLimitsButton);
     QWidget *container = new QWidget(this);
     auto *layout = new QHBoxLayout(container);
-    layout->setContentsMargins(0,0,0,0);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(4);
 
-    container->setLayout(layout);
-    m_dlSpeedLbl = new QPushButton(this);
+    m_dlSpeedLbl = new QPushButton(container);
+    m_dlSpeedLbl->setObjectName(u"downloadSpeedButton"_s);
     connect(m_dlSpeedLbl, &QAbstractButton::clicked, this, &StatusBar::capSpeed);
     m_dlSpeedLbl->setFlat(true);
     m_dlSpeedLbl->setFocusPolicy(Qt::NoFocus);
     m_dlSpeedLbl->setCursor(Qt::PointingHandCursor);
-    m_dlSpeedLbl->setStyleSheet(u"text-align:left;"_s);
-    m_dlSpeedLbl->setMinimumWidth(200);
+    m_dlSpeedLbl->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
 
-    m_upSpeedLbl = new QPushButton(this);
+    m_upSpeedLbl = new QPushButton(container);
+    m_upSpeedLbl->setObjectName(u"uploadSpeedButton"_s);
     connect(m_upSpeedLbl, &QAbstractButton::clicked, this, &StatusBar::capSpeed);
     m_upSpeedLbl->setFlat(true);
     m_upSpeedLbl->setFocusPolicy(Qt::NoFocus);
     m_upSpeedLbl->setCursor(Qt::PointingHandCursor);
-    m_upSpeedLbl->setStyleSheet(u"text-align:left;"_s);
-    m_upSpeedLbl->setMinimumWidth(200);
+    m_upSpeedLbl->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
 
-    m_freeDiskSpaceLbl = new QLabel(this);
+    m_freeDiskSpaceLbl = new QLabel(container);
     m_freeDiskSpaceLbl->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
-    m_freeDiskSpaceSeparator = createSeparator(this);
 
-    m_altSpeedsBtn = new QPushButton(this);
-    m_altSpeedsBtn->setFlat(true);
-    m_altSpeedsBtn->setFocusPolicy(Qt::NoFocus);
-    m_altSpeedsBtn->setCursor(Qt::PointingHandCursor);
-    connect(m_altSpeedsBtn, &QAbstractButton::clicked, this, &StatusBar::alternativeSpeedsButtonClicked);
+    m_speedLimitsBtn = new QPushButton(container);
+    m_speedLimitsBtn->setObjectName(u"speedLimitsButton"_s);
+    m_speedLimitsBtn->setFlat(true);
+    m_speedLimitsBtn->setFocusPolicy(Qt::NoFocus);
+    m_speedLimitsBtn->setCursor(Qt::PointingHandCursor);
+    connect(m_speedLimitsBtn, &QAbstractButton::clicked, this, &StatusBar::speedLimitsButtonClicked);
 
     // Because on some platforms the default icon size is bigger
     // and it will result in taller/fatter statusbar, even if the
     // icons are actually 16x16
     m_dlSpeedLbl->setIconSize(Utils::Gui::smallIconSize());
     m_upSpeedLbl->setIconSize(Utils::Gui::smallIconSize());
-    m_altSpeedsBtn->setIconSize(QSize(Utils::Gui::mediumIconSize().width(), Utils::Gui::smallIconSize().height()));
+    m_speedLimitsBtn->setIconSize(QSize(Utils::Gui::mediumIconSize().width(), Utils::Gui::smallIconSize().height()));
 
-    // Set to the known maximum width(plus some padding)
-    // so the speed widgets will take the rest of the space
-    m_altSpeedsBtn->setMaximumWidth(Utils::Gui::largeIconSize().width());
     refreshIcons();
     connect(UIThemeManager::instance(), &UIThemeManager::themeChanged, this, &StatusBar::refreshIcons);
 
     layout->addWidget(m_freeDiskSpaceLbl);
-    layout->addWidget(m_freeDiskSpaceSeparator);
-
-    layout->addWidget(m_altSpeedsBtn);
-    layout->addWidget(createSeparator(m_altSpeedsBtn));
-
+    layout->addWidget(m_speedLimitsBtn);
     layout->addWidget(m_dlSpeedLbl);
-    layout->addWidget(createSeparator(m_dlSpeedLbl));
-
     layout->addWidget(m_upSpeedLbl);
 
     addPermanentWidget(container);
-    setStyleSheet(u"QWidget {margin: 0;}"_s);
-    container->adjustSize();
-    adjustSize();
     updateFreeDiskSpaceVisibility();
     refresh();
     connect(session, &BitTorrent::Session::statsUpdated, this, &StatusBar::refresh);
@@ -167,7 +145,6 @@ void StatusBar::updateFreeDiskSpaceVisibility()
 {
     const bool isVisible = Preferences::instance()->isStatusbarFreeDiskSpaceDisplayed();
     m_freeDiskSpaceLbl->setVisible(isVisible);
-    m_freeDiskSpaceSeparator->setVisible(isVisible);
 }
 
 void StatusBar::updateSpeedLabels()
@@ -193,7 +170,7 @@ void StatusBar::refreshIcons()
 {
     m_dlSpeedLbl->setIcon(UIThemeManager::instance()->getIcon(u"downloading"_s, u"downloading_small"_s));
     m_upSpeedLbl->setIcon(UIThemeManager::instance()->getIcon(u"upload"_s, u"seeding"_s));
-    updateAltSpeedsBtn(BitTorrent::Session::instance()->isAltGlobalSpeedLimitEnabled());
+    updateSpeedLimitsButton(BitTorrent::Session::instance()->isSpeedLimitEnabled());
 }
 
 void StatusBar::refresh()
@@ -201,20 +178,11 @@ void StatusBar::refresh()
     updateSpeedLabels();
 }
 
-void StatusBar::updateAltSpeedsBtn(bool alternative)
+void StatusBar::updateSpeedLimitsButton(bool enabled)
 {
-    if (alternative)
-    {
-        m_altSpeedsBtn->setIcon(UIThemeManager::instance()->getIcon(u"slow"_s));
-        m_altSpeedsBtn->setToolTip(tr("Click to switch to regular speed limits"));
-        m_altSpeedsBtn->setDown(true);
-    }
-    else
-    {
-        m_altSpeedsBtn->setIcon(UIThemeManager::instance()->getIcon(u"slow_off"_s));
-        m_altSpeedsBtn->setToolTip(tr("Click to switch to alternative speed limits"));
-        m_altSpeedsBtn->setDown(false);
-    }
+    m_speedLimitsBtn->setIcon(UIThemeManager::instance()->getIcon(enabled ? u"slow"_s : u"slow_off"_s));
+    m_speedLimitsBtn->setToolTip(enabled
+        ? tr("Click to disable speed limits") : tr("Click to enable speed limits"));
     refresh();
 }
 

@@ -144,6 +144,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 #endif // Q_OS_MACOS
 {
     m_ui->setupUi(this);
+    m_ui->toolBar->layout()->setContentsMargins(8, 3, 8, 3);
 
     Preferences *const pref = Preferences::instance();
     m_displaySpeedInTitle = pref->speedInTitleBar();
@@ -178,9 +179,9 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
         refreshTrayIconTooltip();
     });
 
-    updateAltSpeedsBtn(BitTorrent::Session::instance()->isAltGlobalSpeedLimitEnabled());
+    updateSpeedLimitsButton(BitTorrent::Session::instance()->isSpeedLimitEnabled());
 
-    connect(BitTorrent::Session::instance(), &BitTorrent::Session::speedLimitModeChanged, this, &MainWindow::updateAltSpeedsBtn);
+    connect(BitTorrent::Session::instance(), &BitTorrent::Session::speedLimitModeChanged, this, &MainWindow::updateSpeedLimitsButton);
 
     qDebug("create tabWidget");
     m_tabs = new HidableTabWidget(this);
@@ -290,7 +291,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     connect(m_ui->actionDecreaseQueuePos, &QAction::triggered, m_transferListWidget, &TransferListWidget::decreaseQueuePosSelectedTorrents);
     connect(m_ui->actionBottomQueuePos, &QAction::triggered, m_transferListWidget, &TransferListWidget::bottomQueuePosSelectedTorrents);
     connect(m_ui->actionMinimize, &QAction::triggered, this, &MainWindow::minimizeWindow);
-    connect(m_ui->actionUseAlternativeSpeedLimits, &QAction::triggered, this, &MainWindow::toggleAlternativeSpeeds);
+    connect(m_ui->actionUseAlternativeSpeedLimits, &QAction::triggered, this, &MainWindow::toggleSpeedLimits);
 
     m_releaseUpdater = new ReleaseUpdater(this);
     auto *installUpdate = new QToolButton(this);
@@ -1206,7 +1207,7 @@ void MainWindow::showStatusBar(bool show)
     {
         // Create status bar
         m_statusBar = new StatusBar;
-        connect(m_statusBar.data(), &StatusBar::alternativeSpeedsButtonClicked, this, &MainWindow::toggleAlternativeSpeeds);
+        connect(m_statusBar.data(), &StatusBar::speedLimitsButtonClicked, this, &MainWindow::toggleSpeedLimits);
         setStatusBar(m_statusBar);
     }
 }
@@ -1370,9 +1371,11 @@ void MainWindow::populateDesktopIntegrationMenu()
 
 }
 
-void MainWindow::updateAltSpeedsBtn(const bool alternative)
+void MainWindow::updateSpeedLimitsButton(const bool enabled)
 {
-    m_ui->actionUseAlternativeSpeedLimits->setChecked(alternative);
+    m_ui->actionUseAlternativeSpeedLimits->setChecked(enabled);
+    m_ui->actionUseAlternativeSpeedLimits->setToolTip(enabled
+        ? tr("Click to disable speed limits") : tr("Click to enable speed limits"));
 }
 
 PropertiesWidget *MainWindow::propertiesWidget() const
@@ -1495,10 +1498,10 @@ void MainWindow::on_actionDownloadFromURL_triggered()
     }
 }
 
-void MainWindow::toggleAlternativeSpeeds()
+void MainWindow::toggleSpeedLimits()
 {
     BitTorrent::Session *const session = BitTorrent::Session::instance();
-    session->setAltGlobalSpeedLimitEnabled(!session->isAltGlobalSpeedLimitEnabled());
+    session->setSpeedLimitEnabled(!session->isSpeedLimitEnabled());
 }
 
 void MainWindow::on_actionDonateMoney_triggered()

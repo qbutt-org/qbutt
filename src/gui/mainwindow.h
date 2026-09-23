@@ -132,13 +132,13 @@ private slots:
     void reloadTorrentStats(const QList<BitTorrent::Torrent *> &torrents);
     void loadPreferences();
     void optionsSaved();
-    void toggleAlternativeSpeeds();
+    void toggleSpeedLimits();
 
     void addToolbarContextMenu();
     void manageCookies();
 
     void downloadFromURLList(const QStringList &urlList);
-    void updateAltSpeedsBtn(bool alternative);
+    void updateSpeedLimitsButton(bool enabled);
     void updateNbTorrents();
     void handleRSSUnreadCountUpdated(int count);
 

@@ -48,14 +48,14 @@ public:
     ~StatusBar() override;
 
 signals:
-    void alternativeSpeedsButtonClicked();
+    void speedLimitsButtonClicked();
 
 public slots:
     void showRestartRequired();
 
 private slots:
     void refresh();
-    void updateAltSpeedsBtn(bool alternative);
+    void updateSpeedLimitsButton(bool enabled);
     void capSpeed();
     void optionsSaved();
 
@@ -68,6 +68,5 @@ private:
     QPushButton *m_dlSpeedLbl = nullptr;
     QPushButton *m_upSpeedLbl = nullptr;
     QLabel *m_freeDiskSpaceLbl = nullptr;
-    QWidget *m_freeDiskSpaceSeparator = nullptr;
-    QPushButton *m_altSpeedsBtn = nullptr;
+    QPushButton *m_speedLimitsBtn = nullptr;
 };

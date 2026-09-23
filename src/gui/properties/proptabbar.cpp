@@ -31,7 +31,6 @@
 #include <QButtonGroup>
 #include <QKeySequence>
 #include <QPushButton>
-#include <QSpacerItem>
 
 #include "base/global.h"
 #include "gui/uithememanager.h"
@@ -39,7 +38,7 @@
 PropTabBar::PropTabBar(QWidget *parent)
     : QHBoxLayout(parent)
 {
-    setAlignment(Qt::AlignLeft | Qt::AlignCenter);
+    setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     setSpacing(3);
     m_btnGroup = new QButtonGroup(this);
     // General tab
@@ -76,19 +75,9 @@ PropTabBar::PropTabBar(QWidget *parent)
 #endif
             tr("HTTP Sources"), parent);
     URLSeedsButton->setShortcut(Qt::ALT | Qt::Key_B);
+    URLSeedsButton->setObjectName(u"webSeedsTabButton"_s);
     addWidget(URLSeedsButton);
     m_btnGroup->addButton(URLSeedsButton, URLSeedsTab);
-    // Files tab
-    QPushButton *filesButton = new QPushButton(
-#ifndef Q_OS_MACOS
-            UIThemeManager::instance()->getIcon(u"directory"_s),
-#endif
-            tr("Content"), parent);
-    filesButton->setShortcut(Qt::ALT | Qt::Key_Z);
-    addWidget(filesButton);
-    m_btnGroup->addButton(filesButton, FilesTab);
-    // Spacer
-    addItem(new QSpacerItem(0, 0, QSizePolicy::Expanding, QSizePolicy::Fixed));
     // Speed tab
     QPushButton *speedButton = new QPushButton(
 #ifndef Q_OS_MACOS
@@ -96,8 +85,19 @@ PropTabBar::PropTabBar(QWidget *parent)
 #endif
             tr("Speed"), parent);
     speedButton->setShortcut(Qt::ALT | Qt::Key_D);
+    speedButton->setObjectName(u"speedTabButton"_s);
     addWidget(speedButton);
     m_btnGroup->addButton(speedButton, SpeedTab);
+    // Files tab
+    QPushButton *filesButton = new QPushButton(
+#ifndef Q_OS_MACOS
+            UIThemeManager::instance()->getIcon(u"directory"_s),
+#endif
+            tr("Content"), parent);
+    filesButton->setShortcut(Qt::ALT | Qt::Key_Z);
+    filesButton->setObjectName(u"filesTabButton"_s);
+    addWidget(filesButton);
+    m_btnGroup->addButton(filesButton, FilesTab);
     // SIGNAL/SLOT
     connect(m_btnGroup, &QButtonGroup::idClicked
             , this, &PropTabBar::setCurrentIndex);
