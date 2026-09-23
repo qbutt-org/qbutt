@@ -4,6 +4,7 @@ param(
     [string] $BuildRoot = (Join-Path $env:LOCALAPPDATA 'qbutt/build'),
     [string] $ArtifactRoot,
     [string] $DependencyRoot = (Join-Path $env:LOCALAPPDATA 'qbutt/dependencies'),
+    [string] $QtRootOverride,
     [string] $LibtorrentSourceDir,
     [string] $LibtorrentBuildRoot,
     [string] $NetSourceDir,
@@ -79,6 +80,15 @@ New-Item -ItemType Directory -Force $BuildRoot, $DependencyRoot, $ArtifactRoot |
 $lockPath = Join-Path $SourceDir 'upstream-lock.json'
 $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
 $pins = $lock.windows
+$qtRequired = @('bin/qmake.exe', 'bin/windeployqt.exe', 'bin/lrelease.exe',
+    'include/QtGui/qstylehints.h', 'lib/cmake/Qt6/Qt6Config.cmake',
+    'plugins/platforms/qwindows.dll', 'bin/Qt6Core.dll')
+$qtRoot = if ($QtRootOverride) { [IO.Path]::GetFullPath($QtRootOverride) }
+    else { Join-Path $DependencyRoot "Qt/$($pins.qt.version)/$($pins.qt.directory)" }
+$missingQtFiles = @($qtRequired | Where-Object { -not (Test-Path -LiteralPath (Join-Path $qtRoot $_) -PathType Leaf) })
+if ($QtRootOverride -and $missingQtFiles.Count) {
+    throw "Incomplete Qt installation at ${qtRoot}: $($missingQtFiles -join ', ')"
+}
 
 if (-not $InstallerCompiler) {
     $installerTools = Join-Path $DependencyRoot "inno-setup-$($pins.innoSetup.version)"
@@ -150,10 +160,9 @@ if (-not (Test-Path "$boost/lib/cmake/Boost-$($pins.boost.version)/BoostConfig.c
     finally { Pop-Location }
 }
 
-$qtRoot = Join-Path $DependencyRoot "Qt/$($pins.qt.version)/$($pins.qt.directory)"
 $qtArchives = Join-Path $DependencyRoot 'qt-archives'
 $missingQtArchives = @($pins.qt.archives | Where-Object { -not (Test-Path (Join-Path $qtArchives $_.file)) })
-if (-not (Test-Path "$qtRoot/bin/qmake.exe") -or $missingQtArchives.Count) {
+if (-not $QtRootOverride -and ($missingQtFiles.Count -or $missingQtArchives.Count)) {
     $python = Join-Path $DependencyRoot 'python/Scripts/python.exe'
     if (-not (Test-Path -LiteralPath $python)) {
         Invoke-Native python @('-m', 'venv', (Join-Path $DependencyRoot 'python'))
@@ -166,6 +175,15 @@ if (-not (Test-Path "$qtRoot/bin/qmake.exe") -or $missingQtArchives.Count) {
             '--keep', '--archive-dest', $qtArchives)
     }
     finally { Pop-Location }
+}
+foreach ($required in $qtRequired) {
+    if (-not (Test-Path -LiteralPath (Join-Path $qtRoot $required) -PathType Leaf)) {
+        throw "Incomplete Qt installation: $required at $qtRoot"
+    }
+}
+$qtVersion = & (Join-Path $qtRoot 'bin/qmake.exe') -query QT_VERSION
+if ($LASTEXITCODE -ne 0 -or $qtVersion -ne $pins.qt.version) {
+    throw "Qt installation does not match upstream-lock.json: $qtRoot"
 }
 foreach ($archive in $pins.qt.archives) {
     Assert-Sha256 (Join-Path $qtArchives $archive.file) $archive.sha256
