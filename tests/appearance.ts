@@ -4,6 +4,6 @@ export function labAppearanceSettings(mode = process.env.QBUTT_LAB_APPEARANCE ??
 
     return [
         "[Preferences]", "General\\UseCustomUITheme=false",
-        ...(mode === "functional" ? ["[Appearance]", "Style=Fusion", "ColorScheme=Light"] : []),
+        ...(mode === "functional" ? ["[Appearance]", "ColorScheme=Light"] : []),
     ];
 }

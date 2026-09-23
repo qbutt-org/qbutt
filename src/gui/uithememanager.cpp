@@ -32,6 +32,8 @@
 
 #include <QApplication>
 #include <QFile>
+#include <QFont>
+#include <QFontDatabase>
 #include <QPalette>
 #include <QPixmapCache>
 #include <QResource>
@@ -47,13 +49,6 @@
 
 namespace
 {
-    bool isDarkTheme()
-    {
-        const QPalette palette = qApp->palette();
-        const QColor &color = palette.color(QPalette::Active, QPalette::Base);
-        return (color.lightness() < 127);
-    }
-
     Path resolveThemePath(const Path &themePath)
     {
         return (themePath.isAbsolute() ? themePath : (Profile::instance()->rootPath() / themePath));
@@ -78,16 +73,20 @@ UIThemeManager::UIThemeManager()
     : m_useCustomTheme {Preferences::instance()->useCustomUITheme()}
 #ifdef QBT_HAS_COLORSCHEME_OPTION
     , m_colorSchemeSetting {u"Appearance/ColorScheme"_s}
+    , m_activeColorScheme {m_colorSchemeSetting.get(ColorScheme::System)}
 #endif
 #if (defined(Q_OS_UNIX) && !defined(Q_OS_MACOS))
     , m_useSystemIcons {Preferences::instance()->useSystemIcons()}
 #endif
 {
-    if (const QString styleName = Preferences::instance()->getStyle(); styleName.compare(u"system", Qt::CaseInsensitive) != 0)
-    {
-        if (!QApplication::setStyle(styleName))
-            LogMsg(tr("Set app style failed. Unknown style: \"%1\"").arg(styleName), Log::WARNING);
-    }
+#ifdef Q_OS_WIN
+    QApplication::setStyle(u"Fusion"_s);
+    QFont font = qApp->font();
+    if (QFontDatabase::hasFamily(u"Segoe UI Variable"_s))
+        font.setFamily(u"Segoe UI Variable"_s);
+    font.setPointSize(10);
+    qApp->setFont(font);
+#endif
 
 #ifdef QBT_HAS_COLORSCHEME_OPTION
     applyColorScheme();
@@ -116,6 +115,7 @@ UIThemeManager::UIThemeManager()
     if (!m_themeSource)
         m_themeSource = std::make_unique<DefaultThemeSource>();
 
+    m_appliedColorMode = activeColorMode();
     applyPalette();
     applyStyleSheet();
 }
@@ -128,20 +128,29 @@ UIThemeManager *UIThemeManager::instance()
 #ifdef QBT_HAS_COLORSCHEME_OPTION
 ColorScheme UIThemeManager::colorScheme() const
 {
-    return m_colorSchemeSetting.get(ColorScheme::Dark);
+    return m_colorSchemeSetting.get(ColorScheme::System);
+}
+
+void UIThemeManager::previewColorScheme(const ColorScheme value)
+{
+    if (value == m_activeColorScheme)
+        return;
+
+    m_activeColorScheme = value;
+    applyColorScheme();
+    onColorSchemeChanged();
 }
 
 void UIThemeManager::setColorScheme(const ColorScheme value)
 {
-    if (value == colorScheme())
-        return;
-
-    m_colorSchemeSetting = value;
+    if (value != colorScheme())
+        m_colorSchemeSetting = value;
+    previewColorScheme(value);
 }
 
 void UIThemeManager::applyColorScheme() const
 {
-    switch (colorScheme())
+    switch (m_activeColorScheme)
     {
     case ColorScheme::System:
     default:
@@ -157,6 +166,17 @@ void UIThemeManager::applyColorScheme() const
 }
 #endif
 
+ColorMode UIThemeManager::activeColorMode() const
+{
+#ifdef QBT_HAS_COLORSCHEME_OPTION
+    if (m_activeColorScheme == ColorScheme::Dark)
+        return ColorMode::Dark;
+    if (m_activeColorScheme == ColorScheme::Light)
+        return ColorMode::Light;
+#endif
+    return (qApp->styleHints()->colorScheme() == Qt::ColorScheme::Dark) ? ColorMode::Dark : ColorMode::Light;
+}
+
 void UIThemeManager::applyStyleSheet() const
 {
     if (m_useCustomTheme)
@@ -165,14 +185,7 @@ void UIThemeManager::applyStyleSheet() const
         return;
     }
 
-#ifdef QBT_HAS_COLORSCHEME_OPTION
-    if (colorScheme() != ColorScheme::Dark)
-    {
-        qApp->setStyleSheet({});
-        return;
-    }
-#endif
-    QFile styleSheet {u":/themes/dark.qss"_s};
+    QFile styleSheet {u":/themes/builtin.qss"_s};
     if (!styleSheet.open(QIODevice::ReadOnly))
     {
         LogMsg(tr("Failed to load the built-in theme."), Log::WARNING);
@@ -183,6 +196,11 @@ void UIThemeManager::applyStyleSheet() const
 
 void UIThemeManager::onColorSchemeChanged()
 {
+    const ColorMode colorMode = activeColorMode();
+    if (colorMode == m_appliedColorMode)
+        return;
+
+    m_appliedColorMode = colorMode;
     // workaround to refresh styled controls once color scheme is changed
     qApp->setStyleSheet({});
     QApplication::setStyle(QApplication::style()->name());
@@ -193,7 +211,7 @@ void UIThemeManager::onColorSchemeChanged()
 
 QIcon UIThemeManager::getIcon(const QString &iconId, [[maybe_unused]] const QString &fallback) const
 {
-    const auto colorMode = isDarkTheme() ? ColorMode::Dark : ColorMode::Light;
+    const ColorMode colorMode = m_appliedColorMode;
     auto &icons = (colorMode == ColorMode::Dark) ? m_darkModeIcons : m_icons;
 
     const auto iter = icons.find(iconId);
@@ -238,7 +256,8 @@ QPixmap UIThemeManager::getScaledPixmap(const QString &iconId, const int height)
 
     Q_ASSERT(height > 0);
 
-    const QString cacheKey = iconId + u'@' + QString::number(height);
+    const QString cacheKey = u"uitheme:"_s + iconId + u'@' + QString::number(height)
+            + ((m_appliedColorMode == ColorMode::Dark) ? u":dark"_s : u":light"_s);
 
     QPixmap pixmap;
     if (!QPixmapCache::find(cacheKey, &pixmap))
@@ -252,7 +271,7 @@ QPixmap UIThemeManager::getScaledPixmap(const QString &iconId, const int height)
 
 QColor UIThemeManager::getColor(const QString &id) const
 {
-    const QColor color = m_themeSource->getColor(id, (isDarkTheme() ? ColorMode::Dark : ColorMode::Light));
+    const QColor color = m_themeSource->getColor(id, m_appliedColorMode);
     return color;
 }
 
@@ -260,35 +279,40 @@ void UIThemeManager::applyPalette() const
 {
     if (!m_useCustomTheme)
     {
-#ifdef QBT_HAS_COLORSCHEME_OPTION
-        if (colorScheme() != ColorScheme::Dark)
-            return;
-#endif
         QPalette palette;
-        palette.setColor(QPalette::Window, QColor(0x20, 0x20, 0x20));
-        palette.setColor(QPalette::Base, QColor(0x19, 0x19, 0x19));
-        palette.setColor(QPalette::AlternateBase, QColor(0x27, 0x27, 0x27));
-        palette.setColor(QPalette::Button, QColor(0x30, 0x30, 0x30));
-        palette.setColor(QPalette::ToolTipBase, QColor(0x30, 0x30, 0x30));
+        const bool dark = (m_appliedColorMode == ColorMode::Dark);
+        const QColor window = dark ? QColor(u"#202123"_s) : QColor(u"#f5f6f7"_s);
+        const QColor base = dark ? QColor(u"#191a1c"_s) : QColor(u"#ffffff"_s);
+        const QColor alternateBase = dark ? QColor(u"#25272a"_s) : QColor(u"#f1f3f5"_s);
+        const QColor button = dark ? QColor(u"#2b2d30"_s) : QColor(u"#ffffff"_s);
+        const QColor text = dark ? QColor(u"#e8eaed"_s) : QColor(u"#20252b"_s);
+        const QColor disabledText = dark ? QColor(u"#858b92"_s) : QColor(u"#858c94"_s);
+        const QColor border = dark ? QColor(u"#3a3e43"_s) : QColor(u"#d9dde2"_s);
+
+        palette.setColor(QPalette::Window, window);
+        palette.setColor(QPalette::Base, base);
+        palette.setColor(QPalette::AlternateBase, alternateBase);
+        palette.setColor(QPalette::Button, button);
+        palette.setColor(QPalette::ToolTipBase, button);
         for (const QPalette::ColorRole role : {QPalette::WindowText, QPalette::Text,
             QPalette::ButtonText, QPalette::ToolTipText})
         {
-            palette.setColor(role, QColor(0xe7, 0xe7, 0xe7));
-            palette.setColor(QPalette::Disabled, role, QColor(0x8d, 0x8d, 0x8d));
+            palette.setColor(role, text);
+            palette.setColor(QPalette::Disabled, role, disabledText);
         }
         palette.setColor(QPalette::BrightText, Qt::white);
-        palette.setColor(QPalette::PlaceholderText, QColor(0x9c, 0x9c, 0x9c));
-        palette.setColor(QPalette::Highlight, QColor(0x00, 0x70, 0xb0));
-        palette.setColor(QPalette::HighlightedText, Qt::white);
-        palette.setColor(QPalette::Disabled, QPalette::Highlight, QColor(0x3c, 0x3c, 0x3c));
-        palette.setColor(QPalette::Disabled, QPalette::HighlightedText, QColor(0xa0, 0xa0, 0xa0));
-        palette.setColor(QPalette::Link, QColor(0x00, 0x9d, 0xf7));
-        palette.setColor(QPalette::LinkVisited, QColor(0x68, 0xb9, 0xe8));
-        palette.setColor(QPalette::Light, QColor(0x66, 0x66, 0x66));
-        palette.setColor(QPalette::Midlight, QColor(0x3c, 0x3c, 0x3c));
-        palette.setColor(QPalette::Mid, QColor(0x47, 0x47, 0x47));
-        palette.setColor(QPalette::Dark, QColor(0x14, 0x14, 0x14));
-        palette.setColor(QPalette::Shadow, QColor(0x10, 0x10, 0x10));
+        palette.setColor(QPalette::PlaceholderText, dark ? QColor(u"#9aa0a7"_s) : QColor(u"#727b84"_s));
+        palette.setColor(QPalette::Highlight, dark ? QColor(u"#2b4557"_s) : QColor(u"#dceefa"_s));
+        palette.setColor(QPalette::HighlightedText, text);
+        palette.setColor(QPalette::Disabled, QPalette::Highlight, alternateBase);
+        palette.setColor(QPalette::Disabled, QPalette::HighlightedText, disabledText);
+        palette.setColor(QPalette::Link, dark ? QColor(u"#009df7"_s) : QColor(u"#0879b9"_s));
+        palette.setColor(QPalette::LinkVisited, dark ? QColor(u"#82caff"_s) : QColor(u"#536da3"_s));
+        palette.setColor(QPalette::Light, dark ? QColor(u"#51565b"_s) : QColor(u"#c1c9d1"_s));
+        palette.setColor(QPalette::Midlight, dark ? QColor(u"#34373b"_s) : QColor(u"#e9edf0"_s));
+        palette.setColor(QPalette::Mid, border);
+        palette.setColor(QPalette::Dark, dark ? QColor(u"#17191b"_s) : QColor(u"#d0d5db"_s));
+        palette.setColor(QPalette::Shadow, dark ? QColor(u"#101113"_s) : QColor(u"#aeb5bd"_s));
         qApp->setPalette(palette);
         return;
     }
@@ -329,7 +353,7 @@ void UIThemeManager::applyPalette() const
         {u"Palette.ButtonTextDisabled"_s, QPalette::ButtonText, QPalette::Disabled}
     };
 
-    QPalette palette = qApp->palette();
+    QPalette palette = QApplication::style()->standardPalette();
     for (const ColorDescriptor &colorDescriptor : paletteColorDescriptors)
     {
         // For backward compatibility, the palette color overrides are read from the section of the "light mode" colors

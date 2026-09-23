@@ -62,6 +62,7 @@ public:
 
 #ifdef QBT_HAS_COLORSCHEME_OPTION
     ColorScheme colorScheme() const;
+    void previewColorScheme(ColorScheme value);
     void setColorScheme(ColorScheme value);
 #endif
 
@@ -79,6 +80,7 @@ private:
 
     void applyPalette() const;
     void applyStyleSheet() const;
+    ColorMode activeColorMode() const;
     void onColorSchemeChanged();
 
 #ifdef QBT_HAS_COLORSCHEME_OPTION
@@ -89,11 +91,13 @@ private:
     const bool m_useCustomTheme;
 #ifdef QBT_HAS_COLORSCHEME_OPTION
     SettingValue<ColorScheme> m_colorSchemeSetting;
+    ColorScheme m_activeColorScheme;
 #endif
 #if (defined(Q_OS_UNIX) && !defined(Q_OS_MACOS))
     const bool m_useSystemIcons;
 #endif
     std::unique_ptr<UIThemeSource> m_themeSource;
+    ColorMode m_appliedColorMode = ColorMode::Light;
     mutable QHash<QString, QIcon> m_icons;
     mutable QHash<QString, QIcon> m_darkModeIcons;
     mutable QHash<QString, QIcon> m_flags;
