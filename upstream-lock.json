@@ -11,7 +11,7 @@
   },
   "qbuttNet": {
     "repository": "https://github.com/qbutt-org/qbutt-net.git",
-    "commit": "1bb78853570b30e800fb9f683dc6d2e8a2d3b6b7"
+    "commit": "278cec601fd1030812cd129dcc2e480760ca319b"
   },
   "windows": {
     "architecture": "x64",

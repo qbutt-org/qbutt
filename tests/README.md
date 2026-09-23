@@ -56,7 +56,6 @@ bun run smoke:policy-transition-utp
 bun run smoke:direct-transition
 bun run smoke:discovery-transition
 bun run smoke:path-auth
-bun run smoke:server-identity
 bun run smoke:transport-reserves
 bun run smoke:connection-budget
 bun run smoke:idle-peers
@@ -73,7 +72,7 @@ transitions with uTP-only peers, a positive UDP canary, retirement of the exact
 native UDP endpoint, and frozen retired relay datagrams. A selected SOCKS UDP
 association may remain alive for other traffic; it is not a peer connection.
 
-`smoke:transport-reserves` requires `QBUTT_LAB_PATHS=1` and the protocol-7 child.
+`smoke:transport-reserves` requires `QBUTT_LAB_PATHS=1` and the protocol-8 child.
 One generated private torrent starts
 on a primary transport, that endpoint closes, and an explicitly selected
 same-server reserve must continue under a new generation with exact final hashes.
@@ -229,19 +228,12 @@ retention, a new generation on retry, and explicit stop/return to Native. The
 adapter connects only to the lab SOCKS server through the Windows loopback
 interface; this is lifecycle evidence, not a VPS egress probe.
 
-`smoke:server-identity` uses the real child to list and open three subscription
-entries on two configured loopback addresses. Names and ports on one address
-must share an Edge: duplicate active admission is rejected without restarting
-the child; stopping and selecting the alias preserves Path ID and advances its
-generation. The replacement downloads a hash-verified payload. Caller-supplied
-`edgeId` is rejected. A second phase explicitly groups two distinct DNS aliases,
-preserves an unselected server sharing their IP, and checks closed path records,
-duplicate admission, profile restart, renamed nodes, reset and a reserve switch
-with exact payload hashes. Group changes must be rejected while a path is open.
-A 1,024-entry subscription exercises bounded selected-node opening, not full-list
-UI capacity. Different configured hostnames still do not prove distinct physical
-servers or public exits. The component integration suite covers DNS
-case/IDNA, IPv4-mapped/IPv6 normalization and configuration changes before open.
+The qbutt-net component integration covers configured server identity,
+DNS case/IDNA, IPv4-mapped/IPv6 normalization and configuration changes before
+opening a path. Protocols on the same configured hostname or IP share one server;
+different hostnames remain distinct identifiers and do not prove independent
+physical servers or public exits. `smoke:qt` covers grouped server selection,
+preferred protocols and actual route generations in the desktop interface.
 
 `smoke:wan` uses an explicitly selected SSH observer (`QBUTT_WAN_OBSERVER`,
 `QBUTT_WAN_OBSERVER_IP`), three standalone subscription nodes
