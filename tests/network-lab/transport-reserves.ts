@@ -12,6 +12,7 @@ interface Path {
 }
 interface Status {
     busy: boolean; processId: number; paths: Path[];
+    nodes: { name: string; configuredServerId: string; serverHost: string }[];
     peers: { pathId: string; generation: number; infoHash: string; payloadDownload: number;
         peer: string; port: number; localPort: number }[];
 }
@@ -67,15 +68,28 @@ try {
     const status = () => lab.json<Status>("qbuttPaths/status");
     await lab.request("qbuttPaths/dns", { server: `127.0.0.1:${dnsPort}`,
         bootstrapServer: `127.0.0.1:${dnsPort}`, family: "ipv4" });
+    await lab.request("qbuttPaths/list", { configPath });
+    const listed = await waitFor("canonical server identities", status, value => !value.busy && value.nodes.length === 3);
+    const primaryNode = listed.nodes.find(node => node.name === "primary")!;
+    const reserveNode = listed.nodes.find(node => node.name === "reserve")!;
+    const independentNode = listed.nodes.find(node => node.name === "independent")!;
+    assert.equal(primaryNode.serverHost, "127.0.0.20");
+    assert.equal(reserveNode.serverHost, primaryNode.serverHost);
+    assert.equal(independentNode.serverHost, "127.0.0.21");
+    assert.match(primaryNode.configuredServerId, /^[0-9a-f]{64}$/);
+    assert.equal(reserveNode.configuredServerId, primaryNode.configuredServerId,
+        "Two protocols on one server must share an edge");
+    assert.notEqual(independentNode.configuredServerId, primaryNode.configuredServerId);
     await lab.request("qbuttPaths/open", { configPath, proxyName: "primary", reserveNames: JSON.stringify(["reserve"]),
         interfaceName: "Loopback Pseudo-Interface 1" });
     const initial = await waitFor("primary with explicit reserve", status, value => !value.busy && value.paths.some(path => path.open));
     const primary = initial.paths[0]!;
+    assert.equal(primary.edgeId, primaryNode.configuredServerId);
     assert.deepEqual(primary.reserveNames, ["reserve"]);
     await lab.request("qbuttPaths/open", { configPath, proxyName: "independent", interfaceName: "Loopback Pseudo-Interface 1" });
     const both = await waitFor("independent healthy edge", status, value => !value.busy && value.paths.filter(path => path.open).length === 2);
     const independent = both.paths.find(path => path.proxyName === "independent")!;
-    assert.notEqual(independent.edgeId, primary.edgeId);
+    assert.equal(independent.edgeId, independentNode.configuredServerId);
     await lab.request("qbuttPaths/policy", { mode: "tunnels" });
     const publicHash = await lab.add("v1-public", join(lab.root, "public-download"));
     await lab.request("torrents/start", { hashes: publicHash });

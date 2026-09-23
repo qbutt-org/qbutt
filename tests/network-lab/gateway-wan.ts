@@ -13,6 +13,8 @@ import { createLab, waitFor } from "../lab";
 import { allowLabNetwork } from "../windows-firewall";
 import { startProxy } from "./proxy";
 
+const NET_PROTOCOL = 8;
+
 interface Status {
     busy: boolean;
     pinned: boolean;
@@ -362,16 +364,16 @@ try {
             stderr: Bun.file(join(lab.root, "source-child.stderr.log")), windowsHide: true });
         sourceReplies = responses(sourceChild);
         const requestSource = async (id: number, method: string, fields: object = {}) => {
-            sourceChild!.stdin.write(JSON.stringify({ v: 7, id, method, ...fields }) + "\n");
+            sourceChild!.stdin.write(JSON.stringify({ v: NET_PROTOCOL, id, method, ...fields }) + "\n");
             await sourceChild!.stdin.flush();
             const reply = await sourceReplies!.next(`selected source ${method}`);
             assert.equal(reply.id, id);
-            assert.equal(reply.v, 7);
+            assert.equal(reply.v, NET_PROTOCOL);
             assert(!reply.error, `Selected source ${method} failed: ${reply.error?.code}`);
             return reply.result;
         };
         const hello = await requestSource(1, "hello");
-        assert.equal(hello.protocol, 7);
+        assert.equal(hello.protocol, NET_PROTOCOL);
         const listed = await requestSource(2, "list", { configPath: selectedFile, proxyName: "wan-source" });
         assert(Array.isArray(listed?.proxies) && listed.proxies.length === 1
             && listed.proxies[0]?.name === "wan-source"

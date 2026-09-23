@@ -11,6 +11,8 @@ import { Readable } from "node:stream";
 import { sha256 } from "../fixtures/generate";
 import { allowLabNetwork } from "../windows-firewall";
 
+const NET_PROTOCOL = 8;
+
 const binary = process.env.QBUTT_PROBE_EXE ?? "";
 const configuration = process.env.QBUTT_PROBE_CONFIG ?? "";
 const indices = (process.env.QBUTT_PROBE_INDICES ?? "").split(",").map(Number);
@@ -31,7 +33,7 @@ const child = Bun.spawn([binary, "--stdio"], { stdin: "pipe", stdout: "pipe", st
 const diagnostics = new Response(child.stderr).text();
 const lines = createInterface({ input: Readable.from(child.stdout) });
 const replies = lines[Symbol.asyncIterator]();
-const report: Record<string, any> = { status: "running", protocol: 7, binarySha256: sha256(await readFile(binary)),
+const report: Record<string, any> = { status: "running", protocol: NET_PROTOCOL, binarySha256: sha256(await readFile(binary)),
     probes: [], scope: "Point-in-time outbound HTTPS and DNS/UDP over selected adapters; not throughput or physical VPN-bypass proof" };
 let requestId = 0;
 let failure: unknown;
@@ -48,12 +50,12 @@ async function bounded<T>(operation: Promise<T>, milliseconds: number) {
 
 async function request(method: string, fields: object = {}) {
     const id = ++requestId;
-    child.stdin.write(JSON.stringify({ v: 7, id, method, ...fields }) + "\n");
+    child.stdin.write(JSON.stringify({ v: NET_PROTOCOL, id, method, ...fields }) + "\n");
     await child.stdin.flush();
     const next = await bounded(replies.next(), 20000);
     assert(!next.done && next.value.length <= 65536, "invalid_control_reply");
     const reply = JSON.parse(next.value);
-    assert(reply.id === id && reply.v === 7, "invalid_control_identity");
+    assert(reply.id === id && reply.v === NET_PROTOCOL, "invalid_control_identity");
     if (reply.error) throw new Error(`control_${reply.error.code}`);
     return reply.result;
 }
@@ -137,7 +139,7 @@ async function udp(endpoint: Endpoint) {
 }
 
 try {
-    assert.equal((await request("hello")).protocol, 7);
+    assert.equal((await request("hello")).protocol, NET_PROTOCOL);
     const native = await https();
     report.native = { exit: native.exit, http: native.http, validAddress: Boolean(native.address) };
     assert(native.exit === 0 && native.http === 200 && native.address, "native_reference_failed");

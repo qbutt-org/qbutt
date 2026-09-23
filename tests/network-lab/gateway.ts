@@ -11,7 +11,7 @@ import { allowLabNetwork } from "../windows-firewall";
 import { decode, encode, type Value } from "./bencode";
 import { startProxy } from "./proxy";
 
-const PROTOCOL = 7;
+const PROTOCOL = 8;
 const GATEWAY_PROTOCOL = 2;
 const useIPv6 = process.argv.includes("--ipv6");
 const PUBLIC_FIXTURE_ADDRESS = useIPv6
