@@ -424,14 +424,21 @@ namespace
         const QString interfaceName = findPhysicalInterface(interfaces);
         require(!interfaceName.isEmpty(), u"No physical interface is available to exercise Paths"_s);
         url->setFocus();
+        QCoreApplication::processEvents();
+        require(url->hasFocus(), u"Subscription URL did not receive focus"_s);
         url->setText(spec.value(u"subscriptionUrl"_s).toString());
         url->setModified(true);
-        interfaces->setFocus();
+        // A sole physical adapter hides its combo box, so blur to the visible switch.
+        enabled->setFocus();
+        QCoreApplication::processEvents();
+        require(!url->hasFocus(), u"Subscription URL did not lose focus"_s);
         waitFor(u"Path node list"_s, [&] { return !Net::PathManager::instance()->isBusy() && (nodes->count() == 4); });
         require(Net::PathManager::instance()->subscriptionUrl() == spec.value(u"subscriptionUrl"_s).toString(),
             u"Edited subscription URL was not imported on focus loss"_s);
         url->setFocus();
-        interfaces->setFocus();
+        enabled->setFocus();
+        QCoreApplication::processEvents();
+        require(!url->hasFocus(), u"Unchanged subscription URL did not lose focus"_s);
         require(nodes->isVisible(), u"Imported nodes were not shown in Connection settings"_s);
         const auto findNode = [nodes](const QString &name)
         {
