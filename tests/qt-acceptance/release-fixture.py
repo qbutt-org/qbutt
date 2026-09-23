@@ -41,7 +41,8 @@ requests = []
 base = "https://github.com/qbutt-org/qbutt/releases/"
 current_version = (Path(__file__).resolve().parents[2] / "qbutt-version.txt").read_text().strip()
 next_major = int(current_version.split(".")[0]) + 1
-future_version = f"{next_major}.0.0-alpha.3" if "-" in current_version else f"{next_major}.0.3"
+future_version = os.environ.get("QBUTT_UPDATE_FIXTURE_RELEASE_VERSION") or (
+    f"{next_major}.0.0-alpha.3" if "-" in current_version else f"{next_major}.0.3")
 version_9 = future_version.rsplit(".", 1)[0] + ".9"
 version_10 = future_version.rsplit(".", 1)[0] + ".10"
 invalid_version = future_version.rsplit(".", 1)[0] + ".01"
@@ -145,7 +146,8 @@ try:
     with Server(("127.0.0.1", 0), Handler) as server:
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
-        env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "QBUTT_UPDATE_FIXTURE_CA": str(cert),
+        env = {**os.environ, "QT_QPA_PLATFORM": "windows" if os.environ.get("QBUTT_QT_ACCEPTANCE_NATIVE") else "offscreen",
+               "QBUTT_UPDATE_FIXTURE_CA": str(cert),
                "QBUTT_UPDATE_FIXTURE_PORT": str(server.server_address[1]),
                "QBUTT_UPDATE_FIXTURE_CACHE_NAME": root.name}
         try:

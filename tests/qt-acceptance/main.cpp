@@ -65,6 +65,7 @@
 #include <QSslCertificate>
 #include <QSslConfiguration>
 #include <QStyle>
+#include <QSystemTrayIcon>
 #include <QTableWidget>
 #include <QTabWidget>
 #include <QThread>
@@ -97,6 +98,7 @@
 #include "base/torrentfileswatcher.h"
 #include "gui/aboutdialog.h"
 #include "gui/addnewtorrentdialog.h"
+#include "gui/desktopintegration.h"
 #include "gui/fspathedit.h"
 #include "gui/mainwindow.h"
 #include "gui/networkdiagnosticsdialog.h"
@@ -2237,6 +2239,14 @@ namespace
 
     void exerciseInstalledUpdate(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
+        const bool nativeWindow = spec.value(u"nativeWindow"_s).toBool();
+        if (nativeWindow)
+        {
+            require(QSystemTrayIcon::isSystemTrayAvailable(), u"Native system tray is unavailable"_s);
+            require(static_cast<Application *>(qApp)->desktopIntegration()->isActive(), u"Native tray icon is inactive"_s);
+            window->setAttribute(Qt::WA_ShowWithoutActivating);
+            window->move(-32000, -32000);
+        }
         QCoreApplication::setOrganizationName(spec.value(u"cacheOrganization"_s).toString());
         ReleaseUpdater *updater = window->findChild<ReleaseUpdater *>();
         auto *button = requiredChild<QToolButton>(window, u"releaseInstallButton"_s);
@@ -2256,6 +2266,8 @@ namespace
         list->header()->moveSection(list->header()->visualIndex(TransferListModel::TR_AMOUNT_LEFT), 2);
         window->resize(1100, 700);
         window->show();
+        if (nativeWindow)
+            require(window->isVisible(), u"Native main window is not visible"_s);
         bool dialogClosedDuringDownload = false;
         const auto observe = QObject::connect(updater, &ReleaseUpdater::changed, window, [&]
         {
@@ -2279,6 +2291,7 @@ namespace
         require(window->grab().save(screenshot), u"Cannot render update action"_s);
         QJsonObject check {{u"name"_s, u"installed-update"_s}, {u"automaticDownload"_s, true},
             {u"closedDialogContinuedDownload"_s, true}, {u"mainAction"_s, button->text()},
+            {u"nativeSystemTray"_s, nativeWindow && QSystemTrayIcon::isSystemTrayAvailable()},
             {u"infoHash"_s, descriptor->infoHash().toString()},
             {u"headerState"_s, QString::fromLatin1(list->header()->saveState().toBase64())},
             {u"cacheRoot"_s, QStandardPaths::writableLocation(QStandardPaths::CacheLocation)},
@@ -2530,7 +2543,8 @@ void Net::PathManagerAcceptance::run(const QJsonObject &spec, QJsonObject &evide
 
 int main(int argc, char **argv)
 {
-    qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("offscreen"));
+    if (!qEnvironmentVariableIsSet("QBUTT_QT_ACCEPTANCE_NATIVE"))
+        qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("offscreen"));
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     const QString specPath = qEnvironmentVariable("QBUTT_QT_ACCEPTANCE_SPEC");
     if (specPath.isEmpty())

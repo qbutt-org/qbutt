@@ -199,6 +199,16 @@ Use an installer fixture with its own AppId for this process-restart scenario;
 never replace a live installation. `qbutt-version.txt` controls the independent qbutt
 version, UI and archive name.
 
+`tests/qt-acceptance/real-installer-update.py` checks the full native Windows
+handoff with Python `psutil`, the pinned ISCC and the HTTPS fixture. Pass builds of
+`qbutt-qt-acceptance` from v1.0.1 and the fixed source, plus their portable
+bundles, with `--old-driver`, `--fixed-driver`, `--old-bundle`, `--fixed-bundle`,
+`--source`, `--iscc` and `--openssl`. It expects the old tray-active process to
+miss the automatic exit, then verifies that the fixed producer exits for a
+genuine Inno replacement and automatic relaunch. Each setup has a unique test
+AppId. Successful runs remove their install, profile and cache while retaining
+compact evidence; failed runs retain the fixture for diagnosis.
+
 `smoke:qt` launches the real application offscreen with a new profile. It adds
 existing files through the normal torrent dialog, checks them before completion,
 then exercises stopped-torrent repair with source mappings, explicit consent and
