@@ -19,6 +19,7 @@
 #include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
+#include <QChar>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCryptographicHash>
@@ -70,6 +71,7 @@
 #include <QTabWidget>
 #include <QThread>
 #include <QTimer>
+#include <QToolBar>
 #include <QToolButton>
 #include <QTreeWidget>
 
@@ -396,8 +398,14 @@ namespace
         auto *nodes = requiredChild<QListWidget>(&widget, u"mihomoNodes"_s);
         auto *enabled = requiredChild<QCheckBox>(&widget, u"mihomoEnabled"_s);
         auto *url = requiredChild<QLineEdit>(&widget, u"mihomoSubscriptionUrl"_s);
-        require(!enabled->isChecked() && url->isVisible() && nodes->count() == 0 && !nodes->isVisible(),
+        require(!enabled->isChecked() && url->isVisible() && !url->isEnabled()
+                && nodes->count() == 0 && !nodes->isVisible(),
             u"Empty node list was shown before a subscription was loaded"_s);
+        require(enabled->geometry().top() < url->geometry().top(),
+            u"Mihomo master switch must precede subscription settings"_s);
+        require(std::ranges::none_of(widget.findChildren<QPushButton *>(), [](const QPushButton *button)
+        { return button->text() == PathsWidget::tr("Refresh"); }),
+            u"Mihomo settings still expose a manual subscription refresh"_s);
         require(dialog.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"paths-initial.png"_s)),
             u"Cannot render initial connection settings"_s);
         auto *reserves = requiredChild<QListWidget>(&widget, u"mihomoReserveTransports"_s);
@@ -408,10 +416,22 @@ namespace
         auto *interfaces = requiredChild<QComboBox>(&widget, u"mihomoPhysicalInterface"_s);
         auto *paths = requiredChild<QListWidget>(&widget, u"mihomoPaths"_s);
         auto *status = requiredChild<QLabel>(&widget, u"mihomoPathStatus"_s);
+        require(!interfaces->isEnabled(), u"Disabled Mihomo left its adapter editable"_s);
+        enabled->click();
+        require(enabled->isChecked() && url->isEnabled() && interfaces->isEnabled()
+                && !Net::PathManager::instance()->isOpen(),
+            u"Mihomo setup cannot be entered before a node is selected"_s);
         const QString interfaceName = findPhysicalInterface(interfaces);
         require(!interfaceName.isEmpty(), u"No physical interface is available to exercise Paths"_s);
-        Net::PathManager::instance()->inspectConfiguration(spec.value(u"subscription"_s).toString());
+        url->setFocus();
+        url->setText(spec.value(u"subscriptionUrl"_s).toString());
+        url->setModified(true);
+        interfaces->setFocus();
         waitFor(u"Path node list"_s, [&] { return !Net::PathManager::instance()->isBusy() && (nodes->count() == 4); });
+        require(Net::PathManager::instance()->subscriptionUrl() == spec.value(u"subscriptionUrl"_s).toString(),
+            u"Edited subscription URL was not imported on focus loss"_s);
+        url->setFocus();
+        interfaces->setFocus();
         require(nodes->isVisible(), u"Imported nodes were not shown in Connection settings"_s);
         const auto findNode = [nodes](const QString &name)
         {
@@ -447,16 +467,20 @@ namespace
                 require(reserves->item(0)->checkState() == Qt::Unchecked, u"Reserve was selected without user action"_s);
                 reserves->item(0)->setCheckState(Qt::Checked);
             }
+            require(nodes->isEnabled(), u"Mihomo node selection remained disabled after a previous connection"_s);
             nodes->item(row)->setCheckState(Qt::Checked);
-            require(nodes->item(row)->checkState() == Qt::Checked,
-                u"Checking a node outside the highlighted row was reverted"_s);
+            waitFor(u"Selected Mihomo node "_s + node, [&]
+            {
+                return !Net::PathManager::instance()->isBusy()
+                    && Net::PathManager::instance()->selectedNodes().contains(node)
+                    && (nodes->item(row)->checkState() == Qt::Checked);
+            });
         }
-        require(!enabled->isChecked() && Net::PathManager::instance()->selectedNodes().size() == 3,
-            u"Selecting nodes started managed paths before the enable action"_s);
+        require(enabled->isChecked() && Net::PathManager::instance()->selectedNodes().size() == 3,
+            u"Selecting nodes lost the Mihomo setup intent"_s);
         nodes->setCurrentRow(findNode(u"Alpha"_s));
         require(reserves->count() == 1 && reserves->item(0)->checkState() == Qt::Checked,
             u"Explicit reserve was lost when another node was highlighted"_s);
-        enabled->click();
         waitFor(u"Connected selected nodes and direct path"_s, [&]
         {
             const QJsonArray current = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
@@ -467,7 +491,7 @@ namespace
                 && std::ranges::all_of(current, [](const QJsonValue &path) { return path.toObject().value(u"open"_s).toBool(); });
         });
         QJsonArray opened = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
-        require(opened.size() >= 4 && paths->count() == opened.size() && !nodes->isEnabled(),
+        require(opened.size() >= 4 && paths->count() == opened.size() && nodes->isEnabled(),
             u"Paths UI did not retain three selected nodes alongside Direct"_s);
         require(std::ranges::any_of(opened, [](const QJsonValue &value)
         {
@@ -475,13 +499,8 @@ namespace
             return (path.value(u"proxyName"_s) == u"Alpha"_s)
                 && path.value(u"reserveNames"_s).toArray().contains(u"Alpha reserve"_s);
         }), u"Selected backup connection was not applied when managed paths started"_s);
-        require(!sameServer->isEnabled() && !groupServers->isEnabled() && !resetGroups->isEnabled(),
-            u"Server grouping controls remained enabled with live managed paths"_s);
-        const QJsonObject groups = Net::PathManager::instance()->statusData().value(u"serverGroups"_s).toObject();
-        require(!Net::PathManager::instance()->groupServers(u"Alpha"_s, u"Beta"_s)
-                && !Net::PathManager::instance()->resetServerGroups()
-                && Net::PathManager::instance()->statusData().value(u"serverGroups"_s).toObject() == groups,
-            u"Server grouping changed underneath active transports"_s);
+        require(url->isEnabled() && nodes->isEnabled() && sameServer->isEnabled() && resetGroups->isEnabled(),
+            u"Mihomo controls cannot be edited after the first node connects"_s);
         require(std::ranges::all_of(opened, [](const QJsonValue &value)
         {
             if (value.toObject().value(u"edgeId"_s) == u"native"_s)
@@ -536,8 +555,8 @@ namespace
         }
         reserves->setCurrentRow(0);
         require(reserves->item(0)->checkState() == Qt::Checked
-                && !reserves->item(0)->flags().testFlag(Qt::ItemIsUserCheckable),
-            u"An active backup connection could still be edited while managed networking was on"_s);
+                && reserves->item(0)->flags().testFlag(Qt::ItemIsUserCheckable),
+            u"An active backup connection cannot be edited safely"_s);
         waitFor(u"Selected reserve action"_s, [=] { return switchTransport->isEnabled(); });
         switchTransport->click();
         waitFor(u"Same-server transport replacement"_s, [&]
@@ -1715,9 +1734,18 @@ namespace
         const QJsonObject actual = headerState(view);
         const QJsonArray columns = expected.value(u"columns"_s).toArray();
         require(actual.value(u"columns"_s).toArray().size() == columns.size(), name + u" column count differs"_s);
-        for (const QString &key : {u"sortSection"_s, u"sortAscending"_s, u"stretchLastSection"_s})
+        for (const QString &key : {u"sortSection"_s, u"sortAscending"_s})
             require(actual.value(key) == expected.value(key), name + u" "_s + key + u" differs"_s);
-        const bool stretch = expected.value(u"stretchLastSection"_s).toBool();
+        const bool stretch = (name == u"Transfers"_s) || expected.value(u"stretchLastSection"_s).toBool();
+        int lastVisibleVisual = -1;
+        for (const QJsonValue &value : columns)
+        {
+            const QJsonObject column = value.toObject();
+            if (!column.value(u"hidden"_s).toBool())
+                lastVisibleVisual = std::max(lastVisibleVisual, column.value(u"visualIndex"_s).toInt());
+        }
+        require(actual.value(u"stretchLastSection"_s).toBool() == stretch,
+            name + u" stretchLastSection differs"_s);
         const auto widthForLocale = [view, &name](const QJsonObject &column)
         {
             const int captured = column.value(u"width"_s).toInt();
@@ -1733,7 +1761,7 @@ namespace
         {
             const QJsonObject column = value.toObject();
             if (!column.value(u"hidden"_s).toBool()
-                && (column.value(u"visualIndex"_s).toInt() != columns.size() - 1))
+                && (column.value(u"visualIndex"_s).toInt() != lastVisibleVisual))
                 fixedWidth += widthForLocale(column);
         }
         for (const QJsonValue &value : columns)
@@ -1743,10 +1771,10 @@ namespace
             const int logical = column.value(u"logicalIndex"_s).toInt(-1);
             require(logical >= 0 && logical < columns.size(), label + u" has an invalid logical index"_s);
             column[u"width"_s] = widthForLocale(column);
-            if (stretch && (column.value(u"visualIndex"_s).toInt() == columns.size() - 1))
+            if (stretch && (column.value(u"visualIndex"_s).toInt() == lastVisibleVisual))
             {
-                // The captured last Files column expands to the available
-                // viewport; all other widths remain exact logical pixels.
+                // The last visible column expands to the viewport; all other
+                // widths remain exact logical pixels.
                 column[u"width"_s] = std::max(view->header()->minimumSectionSize(), view->viewport()->width() - fixedWidth);
             }
             const QJsonObject actualColumn = actual.value(u"columns"_s).toArray().at(logical).toObject();
@@ -1754,6 +1782,50 @@ namespace
                 + QString::fromUtf8(QJsonDocument {column}.toJson(QJsonDocument::Compact)) + u", actual "_s
                 + QString::fromUtf8(QJsonDocument {actualColumn}.toJson(QJsonDocument::Compact)));
         }
+    }
+
+    void exerciseTransferHeader(MainWindow *window, TransferListWidget *list)
+    {
+        QHeaderView *header = list->header();
+        require(header->stretchLastSection(), u"Transfer header left a blank viewport tail"_s);
+        const QByteArray saved = header->saveState();
+        const auto lastVisible = [header]
+        {
+            for (int visual = header->count() - 1; visual >= 0; --visual)
+            {
+                const int logical = header->logicalIndex(visual);
+                if (!header->isSectionHidden(logical))
+                    return logical;
+            }
+            return -1;
+        };
+        const auto fillsViewport = [&]
+        {
+            QCoreApplication::processEvents();
+            const int last = lastVisible();
+            return (last >= 0) && (header->sectionViewportPosition(last) + header->sectionSize(last)
+                >= list->viewport()->width() - 1);
+        };
+        for (int logical = 0; logical < header->count(); ++logical)
+        {
+            if (!header->isSectionHidden(logical))
+                header->resizeSection(logical, std::max(header->minimumSectionSize(), 60));
+        }
+        window->resize(1500, window->height());
+        require(fillsViewport(), u"Transfer header did not fill the resized viewport"_s);
+        const int formerLast = lastVisible();
+        header->moveSection(header->visualIndex(formerLast), 2);
+        require(fillsViewport(), u"Reordered transfer header left an empty viewport tail"_s);
+        const int hiddenLast = lastVisible();
+        header->hideSection(hiddenLast);
+        require(fillsViewport(), u"Hidden last transfer section left an empty viewport tail"_s);
+        header->showSection(hiddenLast);
+        header->resizeSection(TransferListModel::TR_NAME, list->viewport()->width());
+        QCoreApplication::processEvents();
+        require(list->horizontalScrollBar()->maximum() > 0,
+            u"Wide transfer columns cannot scroll horizontally"_s);
+        require(header->restoreState(saved), u"Cannot restore transfer header"_s);
+        window->resize(1704, 1040);
     }
 
     void exerciseAppearance(Application &application, MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
@@ -1794,6 +1866,18 @@ namespace
         auto *properties = window->propertiesWidget();
         auto *sidebar = requiredChild<QAction>(window, u"actionShowFiltersSidebar"_s);
         require(list && properties, u"Production layout controls are missing"_s);
+        auto *toolbar = requiredChild<QToolBar>(window, u"toolBar"_s);
+        const auto actionCenter = [toolbar, window](const QString &name)
+        {
+            const QRect rect = toolbar->actionGeometry(requiredChild<QAction>(window, name));
+            require(rect.isValid() && rect.width() > 0, u"Missing visible toolbar action "_s + name);
+            return rect.center().x();
+        };
+        const int openGap = actionCenter(u"actionDownloadFromURL"_s) - actionCenter(u"actionOpen"_s);
+        const int deleteGap = actionCenter(u"actionDelete"_s) - actionCenter(u"actionDownloadFromURL"_s);
+        const int separatedGap = actionCenter(u"actionStart"_s) - actionCenter(u"actionDelete"_s);
+        require((openGap >= 30) && (openGap <= 38) && (deleteGap >= 30) && (deleteGap <= 38)
+                && (separatedGap > deleteGap), u"Toolbar icons lost compact spacing or group separation"_s);
         const auto layout = [&]
         {
             return QJsonObject {{u"transfers"_s, headerState(list)},
@@ -1802,7 +1886,33 @@ namespace
                 {u"propertiesTab"_s, properties->tabBar()->currentIndex()}};
         };
         if (phase == u"retained")
-            require(layout() == readObject(spec.value(u"retainedState"_s).toString()), u"Saved user layout was overwritten on restart"_s);
+        {
+            QJsonObject expected = readObject(spec.value(u"retainedState"_s).toString());
+            QJsonObject transfers = expected.value(u"transfers"_s).toObject();
+            transfers[u"stretchLastSection"_s] = true;
+            QJsonArray columns = transfers.value(u"columns"_s).toArray();
+            const QJsonArray actualColumns = layout().value(u"transfers"_s).toObject().value(u"columns"_s).toArray();
+            int lastVisibleVisual = -1;
+            for (const QJsonValue &value : columns)
+            {
+                const QJsonObject column = value.toObject();
+                if (!column.value(u"hidden"_s).toBool())
+                    lastVisibleVisual = std::max(lastVisibleVisual, column.value(u"visualIndex"_s).toInt());
+            }
+            for (int index = 0; index < columns.size(); ++index)
+            {
+                QJsonObject column = columns.at(index).toObject();
+                if (!column.value(u"hidden"_s).toBool()
+                    && (column.value(u"visualIndex"_s).toInt() == lastVisibleVisual))
+                {
+                    column[u"width"_s] = actualColumns.at(index).toObject().value(u"width"_s);
+                    columns[index] = column;
+                }
+            }
+            transfers[u"columns"_s] = columns;
+            expected[u"transfers"_s] = transfers;
+            require(layout() == expected, u"Saved user layout or legacy stretch migration differs"_s);
+        }
         else
         {
             const QJsonObject defaults = readObject(spec.value(u"layoutDefaults"_s).toString());
@@ -1813,6 +1923,7 @@ namespace
             requireDefaultHeader(list, defaults.value(u"transfers"_s).toObject(), u"Transfers"_s);
             requireDefaultHeader(properties->getFilesList(), defaults.value(u"files"_s).toObject(), u"Files"_s);
         }
+        exerciseTransferHeader(window, list);
         require(Preferences::instance()->isFiltersSidebarVisible() == sidebar->isChecked(), u"Sidebar control differs from preferences"_s);
         const QPalette palette = application.palette();
         require((palette.color(QPalette::Base).lightness() < 127) == dark, u"Unexpected application background palette"_s);
@@ -1926,10 +2037,16 @@ namespace
         }
 #endif
         OptionsDialog options {&application, window};
+        options.resize(840, 760);
         options.show();
         QCoreApplication::processEvents();
+        require(options.width() == 840, u"Settings cannot fit an ordinary 840 px dialog"_s);
         auto *custom = requiredChild<QGroupBox>(&options, u"checkUseCustomTheme"_s);
         auto *scheme = requiredChild<QComboBox>(&options, u"comboColorScheme"_s);
+        auto *language = requiredChild<QComboBox>(&options, u"comboLanguage"_s);
+        require(language->mapTo(&options, QPoint()).x() == scheme->mapTo(&options, QPoint()).x()
+                && language->width() == scheme->width(),
+            u"Interface language and appearance fields do not share aligned edges"_s);
         require(!custom->isChecked() && custom->isEnabled(), u"Custom theme checkbox does not reflect the default"_s);
 #ifdef QBT_HAS_COLORSCHEME_OPTION
         const ColorScheme expectedScheme = dark ? ColorScheme::System : ColorScheme::Light;
@@ -2096,13 +2213,28 @@ namespace
                 apply->click();
             }
             options.showConnectionTab();
+            QJsonArray longNodes;
+            for (const QJsonValue &name : spec.value(u"longNodeNames"_s).toArray())
+                longNodes.append(QJsonObject {{u"name"_s, name}, {u"type"_s, u"hysteria2"_s},
+                    {u"configuredServerId"_s, QString(64, QChar(static_cast<char16_t>(u'a' + longNodes.size())))}});
+            require(longNodes.size() == 2, u"Long node name fixture is incomplete"_s);
+            Net::PathManager::instance()->proxiesLoaded(longNodes);
             QCoreApplication::processEvents();
+            auto *nodeList = requiredChild<QListWidget>(&options, u"mihomoNodes"_s);
+            require(nodeList->count() == longNodes.size() && nodeList->isVisible(),
+                u"Settings did not populate the generated long node names"_s);
+            require(nodeList->horizontalScrollBar()->maximum() == 0,
+                u"Long node names created a horizontal list scrollbar"_s);
+            for (int row = 0; row < nodeList->count(); ++row)
+                require(nodeList->item(row)->toolTip().contains(longNodes.at(row).toObject().value(u"name"_s).toString()),
+                    u"An elided node has no full-name tooltip"_s);
             const auto headings = options.findChildren<QLabel *>();
             require(std::ranges::count_if(headings, [](const QLabel *label)
             {
                 return label->isVisible() && (label->text() == PathsWidget::tr("Advanced settings"));
             }) == 1, u"Connection settings need one visible advanced heading"_s);
-            require(options.grab().save(screenshots.filePath(phase + u"-connections.png"_s)), u"Cannot render connection settings"_s);
+            require(options.grab().save(screenshots.filePath(phase + u"-connections-long-nodes.png"_s)),
+                u"Cannot render connection settings with long node names"_s);
             requireNoOverflow();
             ProfileImportDialog importer {window};
             importer.show();
@@ -2126,6 +2258,9 @@ namespace
             list->setColumnHidden(TransferListModel::TR_PROGRESS, true);
             list->setColumnHidden(TransferListModel::TR_UPSPEED, false);
             list->sortByColumn(TransferListModel::TR_SIZE, Qt::DescendingOrder);
+            // Persist a legacy header state with the old non-stretch flag.
+            list->header()->setStretchLastSection(false);
+            list->setColumnWidth(TransferListModel::TR_NAME, 320);
             QTreeView *files = properties->getFilesList();
             files->header()->setStretchLastSection(false);
             files->setColumnWidth(0, 607);
@@ -2565,7 +2700,8 @@ int main(int argc, char **argv)
     try
     {
         Application application(argc, argv);
-        const QString certificate = qEnvironmentVariable("QBUTT_UPDATE_FIXTURE_CA");
+        const QString updateCertificate = qEnvironmentVariable("QBUTT_UPDATE_FIXTURE_CA");
+        const QString certificate = qEnvironmentVariable("QBUTT_QT_ACCEPTANCE_CA", updateCertificate);
         if (!certificate.isEmpty())
         {
             const auto certificates = QSslCertificate::fromPath(certificate);
@@ -2573,8 +2709,9 @@ int main(int argc, char **argv)
             QSslConfiguration configuration = QSslConfiguration::defaultConfiguration();
             configuration.setCaCertificates(certificates);
             QSslConfiguration::setDefaultConfiguration(configuration);
-            QNetworkProxy::setApplicationProxy(QNetworkProxy(QNetworkProxy::HttpProxy, u"127.0.0.1"_s,
-                static_cast<quint16>(qEnvironmentVariableIntValue("QBUTT_UPDATE_FIXTURE_PORT"))));
+            if (!updateCertificate.isEmpty())
+                QNetworkProxy::setApplicationProxy(QNetworkProxy(QNetworkProxy::HttpProxy, u"127.0.0.1"_s,
+                    static_cast<quint16>(qEnvironmentVariableIntValue("QBUTT_UPDATE_FIXTURE_PORT"))));
         }
 #ifdef Q_OS_WIN
         const int font = QFontDatabase::addApplicationFont(QDir(qEnvironmentVariable("WINDIR")).filePath(u"Fonts/segoeui.ttf"_s));

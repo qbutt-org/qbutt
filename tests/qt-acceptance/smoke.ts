@@ -134,6 +134,8 @@ let application: ReturnType<typeof Bun.spawn> | undefined;
 let compiler: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
 let authenticationAbort: AbortController | undefined;
 let authentication: Promise<void> | undefined;
+let subscriptionServer: ReturnType<typeof Bun.serve> | undefined;
+let subscriptionRequests = 0;
 let failure: unknown;
 let result: Record<string, unknown> | undefined;
 try {
@@ -182,6 +184,10 @@ try {
         await mkdir(watched);
         const retainedState = join(root, "saved-layout.json");
         const results: { phase: string; evidence: string }[] = [];
+        const longNodeNames = [
+            "Длинное название узла · северный маршрут · резервный сервер · стабильное соединение · проверка ширины списка",
+            "Long node name · western route · backup server · stable connection · list width acceptance fixture",
+        ];
         for (const phase of ["product", "retained", "functional"] as const) {
             const profile = join(root, phase === "functional" ? "functional-profile" : "product-profile");
             if (phase !== "retained") {
@@ -206,7 +212,7 @@ try {
             const evidencePath = join(root, `${phase}-evidence.json`);
             const spec = join(root, `${phase}-spec.json`);
             await writeFile(spec, JSON.stringify({ schema: 1, mode: "appearance", appearance: phase,
-                evidencePath, profile, screenshots, layoutDefaults, retainedState }, null, 2));
+                evidencePath, profile, screenshots, layoutDefaults, retainedState, longNodeNames }, null, 2));
             application = Bun.spawn([executable, `--profile=${profile}`], {
                 cwd: bundle, windowsHide: true,
                 env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QT_SCALE_FACTOR: "1",
@@ -283,12 +289,32 @@ try {
         ]));
         const subscription = join(root, "subscription.yaml");
         await writeFile(subscription, "proxies: []\n");
+        const certificate = join(root, "subscription-cert.pem");
+        const key = join(root, "subscription-key.pem");
+        const openssl = process.env.QBUTT_OPENSSL ?? join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "usr", "bin", "openssl.exe");
+        const certificateProcess = Bun.spawn([openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", key, "-out", certificate, "-days", "1", "-subj", "/CN=127.0.0.1",
+            "-addext", "subjectAltName=IP:127.0.0.1"],
+            { stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true, timeout: 30000 });
+        const [certificateCode, certificateError] = await Promise.all([
+            certificateProcess.exited, new Response(certificateProcess.stderr).text(),
+        ]);
+        assert.equal(certificateCode, 0, `Cannot create isolated subscription certificate: ${certificateError}`);
+        await allowLabNetwork([process.execPath]);
+        subscriptionServer = Bun.serve({ hostname: "127.0.0.1", port: 0,
+            tls: { cert: Bun.file(certificate), key: Bun.file(key) },
+            fetch() {
+                subscriptionRequests++;
+                return new Response("proxies: []\n", { headers: { "content-type": "text/yaml" } });
+            },
+        });
+        const subscriptionUrl = `https://127.0.0.1:${subscriptionServer.port}/subscription.yaml`;
         const evidencePath = join(root, "evidence.json");
         const childEvidence = join(root, "child-evidence.json");
         const spec = join(root, "spec.json");
         await writeFile(spec, JSON.stringify({
             schema: 1, evidencePath, childEvidence, torrentPath: join(fixtures, torrent.file),
-            sourceRoot: join(fixtures, "seed"), largeRoot, destination, existingDestination, subscription,
+            sourceRoot: join(fixtures, "seed"), largeRoot, destination, existingDestination, subscription, subscriptionUrl,
             overlayTorrentPath: join(fixtures, overlayTorrent.file), overlayDestination,
             screenshots: join(root, "screenshots"), fixtureRoot: root, profile, bulkRows: 2000,
         }, null, 2));
@@ -297,7 +323,7 @@ try {
         application = Bun.spawn([executable, `--profile=${profile}`], {
             cwd: bundle, windowsHide: true,
             env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: spec,
-                QBUTT_QT_CHILD_EVIDENCE: childEvidence },
+                QBUTT_QT_CHILD_EVIDENCE: childEvidence, QBUTT_QT_ACCEPTANCE_CA: certificate },
             stdout: Bun.file(join(root, "stdout.log")), stderr: Bun.file(join(root, "stderr.log")),
             timeout: 600000,
         });
@@ -314,6 +340,7 @@ try {
             throw authenticationError;
         const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as Record<string, unknown>;
         assert.equal(evidence.status, "passed", `Qt acceptance failed; inspect ${root}`);
+        assert.equal(subscriptionRequests, 1, "Unchanged subscription focus loss repeated the import request");
         const transport = JSON.parse(await readFile(childEvidence, "utf8")) as {
             protocol: number; hello: number; listed: number; status: number; authenticated: number; rejectedCredentials: number; retiredIngress: number;
             payloadBoundaries: number; delayedStatus: number; statusPending: boolean;
@@ -368,6 +395,7 @@ try {
 catch (error) { failure = error; }
 finally {
     authenticationAbort?.abort();
+    subscriptionServer?.stop(true);
     const cleanupErrors: unknown[] = [];
     const clean = async (operation: () => Promise<unknown>) => {
         try { await operation(); } catch (error) { cleanupErrors.push(error); }
@@ -383,6 +411,8 @@ finally {
     }
     for (const name of ["fixtures", "large-source", "profile", "destination", "overlay-download", "product-profile", "functional-profile"])
         await clean(() => removeOwnedDirectory(root, name));
+    for (const name of ["subscription-cert.pem", "subscription-key.pem"])
+        await clean(() => rm(join(root, name), { force: true }));
     if (cleanupErrors.length)
         failure = new AggregateError(failure ? [failure, ...cleanupErrors] : cleanupErrors,
             "Qt acceptance cleanup failed");
