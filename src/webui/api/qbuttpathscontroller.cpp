@@ -145,7 +145,7 @@ void QbuttPathsController::dnsAction()
 
 void QbuttPathsController::gatewayAction()
 {
-    requireParams({u"controlAddress"_s, u"datagramAddress"_s, u"serverName"_s,
+    requireParams({u"configuredServerId"_s, u"controlAddress"_s, u"datagramAddress"_s, u"serverName"_s,
         u"caPath"_s, u"certificatePath"_s, u"privateKeyPath"_s, u"port"_s, u"tcp"_s, u"udp"_s});
     requireIdle();
     const QString tcpText = params().value(u"tcp"_s);
@@ -165,7 +165,8 @@ void QbuttPathsController::gatewayAction()
         {u"caPath"_s, params().value(u"caPath"_s)},
         {u"certificatePath"_s, params().value(u"certificatePath"_s)},
         {u"privateKeyPath"_s, params().value(u"privateKeyPath"_s)},
-        {u"port"_s, port}, {u"tcp"_s, tcpText == u"true"}, {u"udp"_s, udpText == u"true"}}))
+        {u"port"_s, port}, {u"tcp"_s, tcpText == u"true"}, {u"udp"_s, udpText == u"true"}},
+        params().value(u"configuredServerId"_s)))
     {
         throw APIError(APIErrorType::BadParams, manager->status());
     }

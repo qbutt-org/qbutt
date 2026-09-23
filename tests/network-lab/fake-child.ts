@@ -7,15 +7,15 @@ import { createServer, type Server, type Socket } from "node:net";
 const specification = JSON.parse(readFileSync(process.env.QBUTT_LAB_CHILD_FIXTURE!, "utf8")) as {
     mode: string; evidencePath: string; dns: Record<string, string>; lookupHost: string;
 };
-const protocolVersion = 7;
+const protocolVersion = 8;
 const upstreamRevision = "d3ec342d441b086ec4318332f59dd05d8a2b5697";
 const configuredServerId = (name: string) => createHash("sha256")
     .update(`qbutt-configured-server-v1\0${name === "fault-fixture-2" ? "127.0.0.21" : "127.0.0.20"}`)
     .digest("hex");
 assert(["no-auth", "wrong-credentials", "incompatible", "dns-success", "dns-request-error", "dns-malformed",
     "dns-nonnumeric", "dns-wrong-family", "dns-too-many", "dns-timeout", "dns-crash", "dns-result-extra",
-    "dns-error-message-extra", "status-delay", "status-delay-extra", "status-decrease", "gateway-rollover",
-    "close-error", "legacy-v4", "legacy-v5", "legacy-v6",
+    "dns-error-message-extra", "status-delay", "status-delay-extra", "status-decrease", "gateway-rollover", "gateway-terminal",
+    "close-error", "legacy-v4", "legacy-v5", "legacy-v6", "legacy-v7",
     "hello-extra", "hello-wrong-upstream", "open-envelope-extra", "open-result-extra", "status-result-extra"]
     .includes(specification.mode));
 const dnsMode = specification.mode.startsWith("dns-");
@@ -34,8 +34,8 @@ catch {}
 evidence.processStarts++;
 const servers: Server[] = [];
 const sockets = new Set<Socket>();
-const openedPaths = new Map<string, { pathId: string; generation: number }>();
-const gatewayPaths = new Map<string, { pathId: string; generation: number }>();
+const openedPaths = new Map<string, { pathId: string; generation: number; configuredServerId: string }>();
+const gatewayPaths = new Map<string, { pathId: string; generation: number; configuredServerId: string }>();
 const gatewayPorts = new Map<string, number>();
 function saveEvidence() {
     writeFileSync(`${specification.evidencePath}.next`, JSON.stringify(evidence));
@@ -52,7 +52,7 @@ for await (const chunk of Bun.stdin.stream()) {
             break;
         const request = JSON.parse(buffered.slice(0, newline));
         buffered = buffered.slice(newline + 1);
-        assert.equal(request.v, protocolVersion, "Parent must use protocol v7");
+        assert.equal(request.v, protocolVersion, "Parent must use protocol v8");
         assert(Number.isSafeInteger(request.id) && request.id > 0, "Parent sent an invalid request identity");
         assert.equal(typeof request.method, "string", "Parent omitted the control method");
         evidence.methods.push(request.method);
@@ -74,7 +74,8 @@ for await (const chunk of Bun.stdin.stream()) {
             const selected = request.proxyNames as string[] | undefined;
             assert(!selected || (selected.length > 0 && selected.length <= 4 && selected.every(name => names.includes(name))));
             result = { proxies: names.filter(name => !selected || selected.includes(name))
-                .map(name => ({ name, type: "socks5", configuredServerId: configuredServerId(name) })) };
+                .map(name => ({ name, type: "socks5", configuredServerId: configuredServerId(name),
+                    serverHost: name === "fault-fixture-2" ? "127.0.0.21" : "127.0.0.20" })) };
         }
         else if (request.method === "open") {
             assert.deepEqual(Object.keys(request).sort(),
@@ -136,9 +137,10 @@ for await (const chunk of Bun.stdin.stream()) {
             assert(endpoint && typeof endpoint !== "string");
             evidence.opened++;
             evidence.ports.push(endpoint.port);
-            openedPaths.set(request.pathId, { pathId: request.pathId, generation: request.generation });
-            if ((specification.mode === "gateway-rollover") && (evidence.processStarts === 2)
-                && (evidence.rolloverEvents === 0) && (gatewayPaths.size === 1)) {
+            openedPaths.set(request.pathId, { pathId: request.pathId, generation: request.generation,
+                configuredServerId: request.configuredServerId });
+            if ((specification.mode === "gateway-terminal") && (evidence.processStarts === 2)
+                && (evidence.rolloverEvents === 1) && (gatewayPaths.size === 1)) {
                 const retired = gatewayPaths.values().next().value!;
                 evidence.rolloverEvents++;
                 saveEvidence();
@@ -156,17 +158,25 @@ for await (const chunk of Bun.stdin.stream()) {
                 result.unexpected = true;
         }
         else if ((request.method === "gateway.open") || (request.method === "gateway.renew")) {
-            assert(specification.mode === "gateway-rollover", "Path-only fixture received an unexpected gateway request");
+            assert(["gateway-rollover", "gateway-terminal"].includes(specification.mode),
+                "Path-only fixture received an unexpected gateway request");
             assert.deepEqual(Object.keys(request).sort(), request.method === "gateway.open"
                 ? ["gateway", "generation", "id", "method", "pathId", "v"]
                 : ["generation", "id", "method", "pathId", "v"]);
             const opened = openedPaths.get(request.pathId);
-            assert.deepEqual({ pathId: request.pathId, generation: request.generation }, opened,
+            assert.deepEqual({ pathId: request.pathId, generation: request.generation },
+                { pathId: opened?.pathId, generation: opened?.generation },
                 "Gateway request did not preserve an opened path generation");
             if (request.method === "gateway.open") {
                 assert.deepEqual(Object.keys(request.gateway).sort(), ["caPath", "certificatePath", "controlAddress",
                     "datagramAddress", "port", "privateKeyPath", "serverName", "tcp", "ttlSeconds", "udp"]);
                 assert(request.gateway.tcp === true && request.gateway.udp === false);
+                const firstServer = opened!.configuredServerId === configuredServerId("fault-fixture");
+                assert.equal(request.gateway.controlAddress, firstServer
+                    ? (request.gateway.port === 45000 ? "127.0.0.1:1" : "127.0.0.1:3")
+                    : "127.0.0.1:2", "Gateway control endpoint crossed server identities");
+                assert(firstServer ? [45000, 45002].includes(request.gateway.port) : request.gateway.port === 45001,
+                    "Gateway public port crossed server identities");
                 gatewayPaths.set(request.pathId, opened!);
                 gatewayPorts.set(request.pathId, request.gateway.port);
             }
@@ -176,11 +186,14 @@ for await (const chunk of Bun.stdin.stream()) {
                 expiresUnixMilli: Date.now() + 90000, relayHost: "127.0.0.1", relayPort: 9 };
         }
         else if (request.method === "gateway.close") {
-            assert(specification.mode === "gateway-rollover", "Path-only fixture received an unexpected gateway close");
+            assert(["gateway-rollover", "gateway-terminal"].includes(specification.mode),
+                "Path-only fixture received an unexpected gateway close");
             assert.deepEqual(Object.keys(request).sort(), ["generation", "id", "method", "pathId", "v"]);
-            assert.deepEqual({ pathId: request.pathId, generation: request.generation }, gatewayPaths.get(request.pathId),
+            const leased = gatewayPaths.get(request.pathId);
+            assert.deepEqual({ pathId: request.pathId, generation: request.generation },
+                { pathId: leased?.pathId, generation: leased?.generation },
                 "Gateway close did not preserve an active lease generation");
-            if (evidence.rolloverEvents === 1) {
+            if ((specification.mode === "gateway-terminal") && (evidence.rolloverEvents === 2)) {
                 const retired = [...gatewayPaths.values()].find(path => path.pathId !== request.pathId)!;
                 evidence.rolloverEvents++;
                 saveEvidence();
@@ -196,7 +209,9 @@ for await (const chunk of Bun.stdin.stream()) {
             assert.deepEqual(Object.keys(request).sort(), ["id", "method", "v"]);
             evidence.status++;
             const decreasing = (specification.mode === "status-decrease") && (evidence.status > 1);
-            result = { paths: [...openedPaths.values()].map(openedPath => ({ ...openedPath,
+            result = { paths: [...openedPaths.values()].map(openedPath => ({
+                pathId: openedPath.pathId, generation: openedPath.generation,
+                health: { state: "reachable", protocol: "tcp-dns", checkedAtUnixMilli: Date.now() },
                 transport: { state: "disabled", recommended: "" }, wire: {
                 relayDownloadBytes: decreasing ? 1 : 11, relayUploadBytes: decreasing ? 2 : 12,
                 carrierDownloadBytes: decreasing ? 3 : 13, carrierUploadBytes: decreasing ? 4 : 14,
@@ -271,11 +286,21 @@ for await (const chunk of Bun.stdin.stream()) {
         }
         saveEvidence();
         const response: Record<string, unknown> = { v: specification.mode === "legacy-v4" ? 4
-            : specification.mode === "legacy-v5" ? 5 : specification.mode === "legacy-v6" ? 6 : protocolVersion,
+            : specification.mode === "legacy-v5" ? 5 : specification.mode === "legacy-v6" ? 6
+                : specification.mode === "legacy-v7" ? 7 : protocolVersion,
             id: request.id, result };
         if ((specification.mode === "open-envelope-extra") && (request.method === "open"))
             response.unexpected = true;
         process.stdout.write(JSON.stringify(response) + "\n");
+        if ((specification.mode === "gateway-terminal") && (evidence.processStarts === 1)
+            && (evidence.rolloverEvents === 0) && (request.method === "gateway.open")
+            && (gatewayPaths.size === 2)) {
+            const retired = gatewayPaths.values().next().value!;
+            evidence.rolloverEvents++;
+            saveEvidence();
+            process.stdout.write(JSON.stringify({ v: protocolVersion, id: 0, event: "gatewayClosed",
+                pathId: retired.pathId, generation: retired.generation, reason: "gateway_closed" }) + "\n");
+        }
     }
 }
 for (const socket of sockets)

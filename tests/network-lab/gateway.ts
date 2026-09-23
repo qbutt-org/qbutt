@@ -675,7 +675,13 @@ try {
         await lab.request("app/setPreferences", { json: JSON.stringify({
             announce_to_all_trackers: true, announce_to_all_tiers: true,
         }) });
+    await lab.request("qbuttPaths/list", { configPath: nodeConfig });
+    const listed = await waitFor("gateway fixture server identity",
+        () => lab.json<{ busy: boolean; nodes: { name: string; configuredServerId: string }[] }>("qbuttPaths/status"),
+        status => !status.busy && status.nodes.length === 1);
+    assert.equal(listed.nodes[0]!.name, "gateway-fixture");
     await lab.request("qbuttPaths/gateway", {
+        configuredServerId: listed.nodes[0]!.configuredServerId,
         controlAddress: ready.control, datagramAddress: useUtp ? ready.datagrams : "", serverName: "127.0.0.1",
         caPath: join(certificates, "ca.pem"), certificatePath: join(certificates, "client.pem"),
         privateKeyPath: join(certificates, "client-key.pem"), port: String(publicPort),

@@ -515,7 +515,13 @@ try {
     const interfaces = await lab.json<{ name: string; value: string }[]>("app/networkInterfaceList");
     const physical = interfaces.filter(item => item.name === nativeInterface || item.value === nativeInterface);
     assert.equal(physical.length, 1, "Physical adapter has no unique application mapping");
-    await lab.request("qbuttPaths/gateway", { controlAddress: `${observerIP}:${ports.control}`,
+    await lab.request("qbuttPaths/list", { configPath: nodeConfig });
+    const listed = await waitFor("WAN gateway server identity",
+        () => lab.json<{ busy: boolean; nodes: { name: string; configuredServerId: string }[] }>("qbuttPaths/status"),
+        status => !status.busy && status.nodes.length === 1);
+    assert.equal(listed.nodes[0]!.name, "wan-gateway");
+    await lab.request("qbuttPaths/gateway", { configuredServerId: listed.nodes[0]!.configuredServerId,
+        controlAddress: `${observerIP}:${ports.control}`,
         datagramAddress: useUtp ? `${observerIP}:${ports.datagrams}` : "", serverName: observerIP, caPath: join(certificates, "ca.pem"),
         certificatePath: join(certificates, "client.pem"), privateKeyPath: join(certificates, "client-key.pem"),
         port: String(ports.listener), tcp: String(!useUtp), udp: String(useUtp) });

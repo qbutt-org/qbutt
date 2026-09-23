@@ -59,9 +59,9 @@ namespace Net
         bool setSelectedNodes(const QStringList &names);
         bool setManagedEnabled(bool enabled, const QString &interfaceName = {});
         QJsonObject dnsPolicy() const;
-        QJsonObject gatewayConfiguration() const;
+        QJsonObject gatewayConfiguration(const QString &configuredServerId) const;
         bool setDnsPolicy(const QString &server, const QString &bootstrapServer, const QString &family);
-        bool setGatewayConfiguration(const QJsonObject &configuration);
+        bool setGatewayConfiguration(const QJsonObject &configuration, const QString &configuredServerId);
         qint64 resolveHost(const QString &pathId, quint64 generation, const QString &host, const QString &family);
         void refreshSubscription(const QString &url);
         void inspectConfiguration(const QString &configPath);
@@ -225,14 +225,6 @@ namespace Net
         SettingValue<QString> m_storeDnsServer;
         SettingValue<QString> m_storeBootstrapServer;
         SettingValue<QString> m_storeDnsFamily;
-        SettingValue<QString> m_storeGatewayControlAddress;
-        SettingValue<QString> m_storeGatewayDatagramAddress;
-        SettingValue<QString> m_storeGatewayServerName;
-        SettingValue<QString> m_storeGatewayCaPath;
-        SettingValue<QString> m_storeGatewayCertificatePath;
-        SettingValue<QString> m_storeGatewayPrivateKeyPath;
-        SettingValue<int> m_storeGatewayPort;
-        SettingValue<bool> m_storeGatewayTcp;
-        SettingValue<bool> m_storeGatewayUdp;
+        SettingValue<QVariantMap> m_storeGatewayByEdge;
     };
 }

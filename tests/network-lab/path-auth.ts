@@ -38,8 +38,10 @@ interface FaultEvidence {
 interface PathStatus {
     busy: boolean; open: boolean; pinned: boolean; processId: number;
     dns: Record<string, string>;
+    nodes: { name: string; configuredServerId: string }[];
     paths: { pathId: string; generation: number; open: boolean; dns: Record<string, string>;
-        capabilities: Record<string, string>; gateway: { state: string; tcp: boolean; udp: boolean };
+        configuredServerId: string; capabilities: Record<string, string>;
+        gateway: { state: string; tcp: boolean; udp: boolean; publicEndpoint?: string };
         wire?: Record<string, number> }[];
     resolution?: { requestId: number; pathId: string; generation: number; family: string;
         state: string; addresses?: string[]; errorCode?: string };
@@ -68,14 +70,15 @@ async function assertListenerClosed(port: number) {
 
 const failures: unknown[] = [];
 try {
-    for (const mode of ["no-auth", "wrong-credentials", "incompatible", "legacy-v4", "legacy-v5", "legacy-v6", "hello-extra", "hello-wrong-upstream",
+    for (const mode of ["no-auth", "wrong-credentials", "incompatible", "legacy-v4", "legacy-v5", "legacy-v6", "legacy-v7", "hello-extra", "hello-wrong-upstream",
         "open-envelope-extra", "open-result-extra", "status-result-extra", "dns-success", "dns-request-error",
         "dns-malformed", "dns-nonnumeric", "dns-wrong-family", "dns-too-many", "dns-timeout", "dns-crash",
         "dns-result-extra", "dns-error-message-extra", "status-delay", "status-delay-extra", "status-decrease",
-        "gateway-rollover", "close-error"] as const) {
+        "gateway-rollover", "gateway-terminal", "close-error"] as const) {
         const dnsMode = mode.startsWith("dns-");
         const gatewayRollover = mode === "gateway-rollover";
-        const handshakeFailure = ["incompatible", "legacy-v4", "legacy-v5", "legacy-v6", "hello-extra", "hello-wrong-upstream"].includes(mode);
+        const gatewayTerminal = mode === "gateway-terminal";
+        const handshakeFailure = ["incompatible", "legacy-v4", "legacy-v5", "legacy-v6", "legacy-v7", "hello-extra", "hello-wrong-upstream"].includes(mode);
         const responseFailure = ["open-envelope-extra", "open-result-extra", "status-result-extra"].includes(mode);
         const lab = await createLab(`path-${mode}`);
         let failure: unknown;
@@ -105,13 +108,25 @@ try {
             await lab.request("qbuttPaths/dns", dns);
             await assert.rejects(lab.request("qbuttPaths/dns", { ...dns, server: "resolver.invalid:53" }), /HTTP 400/);
             assert.deepEqual((await readStatus()).dns, dns, "Invalid DNS policy changed saved settings");
-            const gatewaySettings = (port: number) => ({
-                controlAddress: "127.0.0.1:1", datagramAddress: "", serverName: "127.0.0.1",
+            const gatewaySettings = (configuredServerId: string, controlPort: number, port: number) => ({
+                configuredServerId, controlAddress: `127.0.0.1:${controlPort}`, datagramAddress: "", serverName: "127.0.0.1",
                 caPath: configPath, certificatePath: configPath, privateKeyPath: configPath,
                 port: String(port), tcp: "true", udp: "false",
             });
-            if (gatewayRollover)
-                await lab.request("qbuttPaths/gateway", gatewaySettings(45000));
+            if (gatewayRollover || gatewayTerminal)
+            {
+                await lab.request("qbuttPaths/list", { configPath });
+                const listed = await waitFor("gateway server identities", readStatus, state => !state.busy && state.nodes.length === 2);
+                const firstId = listed.nodes.find(node => node.name === "fault-fixture")!.configuredServerId;
+                const secondId = listed.nodes.find(node => node.name === "fault-fixture-2")!.configuredServerId;
+                assert.match(firstId, /^[0-9a-f]{64}$/);
+                assert.match(secondId, /^[0-9a-f]{64}$/);
+                assert.notEqual(firstId, secondId, "Two fixture servers shared an edge identity");
+                await assert.rejects(lab.request("qbuttPaths/gateway", gatewaySettings("", 1, 45000)), /HTTP 400/);
+                await assert.rejects(lab.request("qbuttPaths/gateway", gatewaySettings("f".repeat(64), 1, 45000)), /HTTP 400/);
+                await lab.request("qbuttPaths/gateway", gatewaySettings(firstId, 1, 45000));
+                await lab.request("qbuttPaths/gateway", gatewaySettings(secondId, 2, 45001));
+            }
             await lab.request("qbuttPaths/open", { configPath, proxyName: "fault-fixture",
                 interfaceName: "Loopback Pseudo-Interface 1" });
             const status = await waitFor("fault child response", readStatus, status =>
@@ -126,39 +141,64 @@ try {
                 const statusEvidence = JSON.parse(await readFile(evidencePath, "utf8")) as FaultEvidence;
                 assert(statusEvidence.status >= 2, "Decreasing counter snapshot was not exercised");
             }
-            else if (gatewayRollover) {
+            else if (gatewayRollover || gatewayTerminal) {
                 assert(status.open && status.processId > 0 && status.paths.length === 1
                     && status.paths[0]!.gateway.state === "leased", "First gateway path was not leased");
                 await lab.request("qbuttPaths/open", { configPath, proxyName: "fault-fixture-2",
                     interfaceName: "Loopback Pseudo-Interface 1" });
                 const beforeRollover = await waitFor("two leased paths", readStatus, state => !state.busy
-                    && state.paths.filter(path => path.open && path.gateway.state === "leased").length === 2);
+                    && state.paths.filter(path => path.open && path.gateway.state === "leased").length === 2
+                    && (!gatewayTerminal || state.processId !== status.processId), 20000);
+                const firstPath = beforeRollover.paths.find(path => path.configuredServerId
+                    === beforeRollover.nodes.find(node => node.name === "fault-fixture")!.configuredServerId)!;
+                const secondPath = beforeRollover.paths.find(path => path.configuredServerId
+                    === beforeRollover.nodes.find(node => node.name === "fault-fixture-2")!.configuredServerId)!;
+                assert.equal(firstPath.gateway.publicEndpoint, "8.8.8.8:45000");
+                assert.equal(secondPath.gateway.publicEndpoint, "8.8.8.8:45001");
                 const malformedPathId = `0${beforeRollover.paths.find(path => path.open)!.pathId}`;
                 await assert.rejects(lab.request("qbuttPaths/stop", { pathId: malformedPathId }), /HTTP 400/);
                 const afterRejectedStop = await readStatus();
                 assert.deepEqual(afterRejectedStop.paths.map(path => [path.pathId, path.generation, path.open]),
                     beforeRollover.paths.map(path => [path.pathId, path.generation, path.open]),
                     "A non-canonical path identity changed active paths");
-                const generations = new Map(beforeRollover.paths.map(path => [path.pathId, path.generation]));
-                await lab.request("qbuttPaths/gateway", gatewaySettings(45001));
-                const recovered = await waitFor("terminal event during multi-path rollover", readStatus, state => !state.busy
-                    && state.paths.filter(path => path.open && path.gateway.state === "leased").length === 2
-                    && state.paths.every(path => path.generation > generations.get(path.pathId)!), 20000);
-                const stoppedPath = recovered.paths[1]!;
-                const retainedPath = recovered.paths[0]!;
-                await lab.request("qbuttPaths/stop", { pathId: stoppedPath.pathId });
-                const stopRecovered = await waitFor("terminal event while another path stops", readStatus, state => !state.busy
-                    && state.paths.some(path => path.pathId === stoppedPath.pathId && !path.open)
-                    && state.paths.some(path => path.pathId === retainedPath.pathId && path.open
-                        && path.generation > retainedPath.generation), 20000);
-                assert.equal(stopRecovered.paths.filter(path => path.open).length, 1,
-                    "Terminal recovery resurrected the explicitly stopped path");
                 const rolloverEvidence = JSON.parse(await readFile(evidencePath, "utf8")) as FaultEvidence;
-                assert(rolloverEvidence.processStarts >= 4 && rolloverEvidence.rolloverEvents === 2,
-                    "Multi-path rollover fixture did not exercise both terminal races");
-                await lab.checkpoint({ check: "multi-path-terminal-rollover-preserves-intent",
-                    processStarts: rolloverEvidence.processStarts, rolloverEvents: rolloverEvidence.rolloverEvents,
-                    stoppedPathId: stoppedPath.pathId, retainedPathId: retainedPath.pathId });
+                if (gatewayTerminal) {
+                    assert(rolloverEvidence.processStarts >= 3 && rolloverEvidence.rolloverEvents === 2,
+                        "Gateway terminal event did not race with reconnecting paths");
+                    await lab.request("qbuttPaths/stop", { pathId: firstPath.pathId });
+                    const recovered = await waitFor("terminal event while another path stops", readStatus, state => !state.busy
+                        && state.paths.some(path => path.pathId === firstPath.pathId && !path.open)
+                        && state.paths.some(path => path.pathId === secondPath.pathId && path.open
+                            && path.generation > secondPath.generation), 20000);
+                    assert.equal(recovered.paths.filter(path => path.open).length, 1,
+                        "Terminal recovery resurrected the explicitly stopped path");
+                    const events = JSON.parse(await readFile(evidencePath, "utf8")) as FaultEvidence;
+                    assert(events.processStarts >= 4 && events.rolloverEvents === 3,
+                        "Gateway terminal event did not race with an explicit stop");
+                    await lab.checkpoint({ check: "multi-path-terminal-rollover-preserves-intent",
+                        processStarts: events.processStarts, rolloverEvents: events.rolloverEvents,
+                        stoppedPathId: firstPath.pathId, retainedPathId: secondPath.pathId });
+                }
+                else {
+                    await lab.request("qbuttPaths/gateway", gatewaySettings(firstPath.configuredServerId, 3, 45002));
+                    const recovered = await waitFor("selected gateway generation replacement", readStatus, state => !state.busy
+                        && state.paths.some(path => path.pathId === firstPath.pathId && path.open
+                            && path.generation > firstPath.generation && path.gateway.publicEndpoint === "8.8.8.8:45002"), 20000);
+                    const retainedPath = recovered.paths.find(path => path.pathId === secondPath.pathId)!;
+                    assert(retainedPath.open && retainedPath.generation === secondPath.generation
+                        && retainedPath.gateway.publicEndpoint === "8.8.8.8:45001",
+                    "Updating one gateway disturbed the other edge's lease");
+                    await lab.request("qbuttPaths/stop", { pathId: firstPath.pathId });
+                    const stopRecovered = await waitFor("selected gateway stop", readStatus, state => !state.busy
+                        && state.paths.some(path => path.pathId === firstPath.pathId && !path.open));
+                    assert(stopRecovered.paths.some(path => path.pathId === secondPath.pathId && path.open
+                        && path.generation === secondPath.generation && path.gateway.publicEndpoint === "8.8.8.8:45001"),
+                    "Stopping one gateway disturbed the other edge's lease");
+                    assert.equal(rolloverEvidence.processStarts, 1, "Updating one gateway restarted the transport child");
+                    await lab.checkpoint({ check: "per-edge-gateway-rollover-preserves-other-lease",
+                        processStarts: rolloverEvidence.processStarts,
+                        updatedPathId: firstPath.pathId, retainedPathId: retainedPath.pathId });
+                }
             }
             else if ((mode === "status-delay") || (mode === "status-delay-extra") || (mode === "close-error")) {
                 assert(status.open && status.processId > 0, "Close-contract fixture path was not opened");
@@ -262,11 +302,11 @@ try {
             }
             await lab.shutdown();
             const observed = JSON.parse(await readFile(evidencePath, "utf8")) as FaultEvidence;
-            assert.equal(observed.protocol, 7, "Fixture evidence did not record protocol v7");
+            assert.equal(observed.protocol, 8, "Fixture evidence did not record protocol v8");
             assert(observed.methods.every(method => ["hello", "list", "open", "resolve", "status", "close",
                 "gateway.open", "gateway.renew", "gateway.close"].includes(method)),
                 "Path-only fixture received a gateway or unrelated control request");
-            assert(observed.hello === (gatewayRollover ? observed.processStarts : 1),
+            assert(observed.hello === observed.processStarts,
                 "Fault scenario handshake count did not match its child processes");
             if (handshakeFailure)
                 assert(observed.opened === 0, "Open was sent after incompatible hello");

@@ -217,15 +217,7 @@ Net::PathManager::PathManager()
     , m_storeDnsServer {u"Network/Paths/DnsServer"_s}
     , m_storeBootstrapServer {u"Network/Paths/BootstrapServer"_s}
     , m_storeDnsFamily {u"Network/Paths/DnsFamily"_s}
-    , m_storeGatewayControlAddress {u"Network/Paths/Gateway/ControlAddress"_s}
-    , m_storeGatewayDatagramAddress {u"Network/Paths/Gateway/DatagramAddress"_s}
-    , m_storeGatewayServerName {u"Network/Paths/Gateway/ServerName"_s}
-    , m_storeGatewayCaPath {u"Network/Paths/Gateway/CaPath"_s}
-    , m_storeGatewayCertificatePath {u"Network/Paths/Gateway/CertificatePath"_s}
-    , m_storeGatewayPrivateKeyPath {u"Network/Paths/Gateway/PrivateKeyPath"_s}
-    , m_storeGatewayPort {u"Network/Paths/Gateway/Port"_s}
-    , m_storeGatewayTcp {u"Network/Paths/Gateway/Tcp"_s}
-    , m_storeGatewayUdp {u"Network/Paths/Gateway/Udp"_s}
+    , m_storeGatewayByEdge {u"Network/Paths/Gateway/ByEdge"_s}
 {
     m_timeout.setSingleShot(true);
     m_timeout.setInterval(15000);
@@ -825,22 +817,24 @@ QJsonObject Net::PathManager::dnsPolicy() const
         {u"family"_s, m_storeDnsFamily.get(u"dual"_s)}};
 }
 
-QJsonObject Net::PathManager::gatewayConfiguration() const
+QJsonObject Net::PathManager::gatewayConfiguration(const QString &configuredServerId) const
 {
-    return {{u"controlAddress"_s, m_storeGatewayControlAddress.get()},
-        {u"datagramAddress"_s, m_storeGatewayDatagramAddress.get()},
-        {u"serverName"_s, m_storeGatewayServerName.get()},
-        {u"caPath"_s, m_storeGatewayCaPath.get()},
-        {u"certificatePath"_s, m_storeGatewayCertificatePath.get()},
-        {u"privateKeyPath"_s, m_storeGatewayPrivateKeyPath.get()},
-        {u"port"_s, m_storeGatewayPort.get()}, {u"tcp"_s, m_storeGatewayTcp.get()},
-        {u"udp"_s, m_storeGatewayUdp.get()}};
+    return QJsonObject::fromVariantMap(m_storeGatewayByEdge.get().value(configuredServerId).toMap());
 }
 
-bool Net::PathManager::setGatewayConfiguration(const QJsonObject &configuration)
+bool Net::PathManager::setGatewayConfiguration(const QJsonObject &configuration, const QString &configuredServerId)
 {
     if (controlBusy())
         return false;
+    static const QRegularExpression serverIdPattern {u"^[0-9a-f]{64}$"_s};
+    if (!serverIdPattern.match(configuredServerId).hasMatch()
+        || std::ranges::none_of(m_proxies, [&configuredServerId](const QJsonValue &value)
+            { return value.toObject().value(u"configuredServerId"_s) == configuredServerId; }))
+    {
+        reportError(tr("Choose a server from the loaded subscription before saving its gateway."));
+        return false;
+    }
+    const QVariantMap previousByEdge = m_storeGatewayByEdge;
     const bool tcp = configuration.value(u"tcp"_s).toBool();
     const bool udp = configuration.value(u"udp"_s).toBool();
     const bool enabled = tcp || udp;
@@ -870,26 +864,16 @@ bool Net::PathManager::setGatewayConfiguration(const QJsonObject &configuration)
         {u"serverName"_s, serverName}, {u"caPath"_s, caPath},
         {u"certificatePath"_s, certificatePath}, {u"privateKeyPath"_s, privateKeyPath},
         {u"port"_s, port}, {u"tcp"_s, tcp}, {u"udp"_s, udp}};
-    const QJsonObject previous = gatewayConfiguration();
+    const QJsonObject previous = QJsonObject::fromVariantMap(previousByEdge.value(configuredServerId).toMap());
     const bool previouslyEnabled = previous.value(u"tcp"_s).toBool() || previous.value(u"udp"_s).toBool();
     if (normalized == previous)
         return true;
-    const auto store = [this](const QJsonObject &values)
-    {
-        m_storeGatewayControlAddress = values.value(u"controlAddress"_s).toString();
-        m_storeGatewayDatagramAddress = values.value(u"datagramAddress"_s).toString();
-        m_storeGatewayServerName = values.value(u"serverName"_s).toString();
-        m_storeGatewayCaPath = values.value(u"caPath"_s).toString();
-        m_storeGatewayCertificatePath = values.value(u"certificatePath"_s).toString();
-        m_storeGatewayPrivateKeyPath = values.value(u"privateKeyPath"_s).toString();
-        m_storeGatewayPort = values.value(u"port"_s).toInt();
-        m_storeGatewayTcp = values.value(u"tcp"_s).toBool();
-        m_storeGatewayUdp = values.value(u"udp"_s).toBool();
-    };
-    store(normalized);
+    QVariantMap byEdge = previousByEdge;
+    byEdge.insert(configuredServerId, normalized.toVariantMap());
+    m_storeGatewayByEdge = byEdge;
     if (!SettingsStorage::instance()->save())
     {
-        store(previous);
+        m_storeGatewayByEdge = previousByEdge;
         reportError(tr("Unable to save public gateway settings."));
         return false;
     }
@@ -901,24 +885,24 @@ bool Net::PathManager::setGatewayConfiguration(const QJsonObject &configuration)
         return true;
     }
 
-    QList<PathRollover> rollover = activePathRollover();
-    if (rollover.isEmpty())
+    const bool affectedActive = std::ranges::any_of(m_paths, [&configuredServerId](const ActivePath &path)
+        { return (path.endpoint.port > 0) && (path.configuredServerId == configuredServerId); });
+    if (!affectedActive)
     {
         m_status = enabled ? tr("Gateway saved. Connect a node to use it.")
             : tr("Public gateway disabled.");
         emit changed();
         return true;
     }
-    if (!beginPathRollover(std::move(rollover),
-        tr("Applying gateway settings…")))
+    if (!reopenSelectedEdge(configuredServerId))
     {
-        store(previous);
+        m_storeGatewayByEdge = previousByEdge;
         if (!SettingsStorage::instance()->save())
         {
-            fail(tr("The previous public gateway settings could not be restored. Network paths remain stopped."));
+            fail(tr("The previous public gateway settings could not be restored."));
             return false;
         }
-        reportError(tr("The active paths could not be stopped for a gateway generation change."));
+        reportError(tr("The selected server could not be reconnected for a gateway generation change."));
         return false;
     }
     return true;
@@ -2416,15 +2400,12 @@ bool Net::PathManager::applyTrustedInboundRoutes()
 
 bool Net::PathManager::queueGatewayOpen(const ActivePath &path)
 {
-    if (path.publicLease || (path.endpoint.port == 0) || (!m_storeGatewayTcp.get() && !m_storeGatewayUdp.get()))
+    if (path.publicLease || (path.endpoint.port == 0))
         return false;
-    const QJsonObject gateway {{u"controlAddress"_s, m_storeGatewayControlAddress.get()},
-        {u"datagramAddress"_s, m_storeGatewayDatagramAddress.get()},
-        {u"serverName"_s, m_storeGatewayServerName.get()}, {u"caPath"_s, m_storeGatewayCaPath.get()},
-        {u"certificatePath"_s, m_storeGatewayCertificatePath.get()},
-        {u"privateKeyPath"_s, m_storeGatewayPrivateKeyPath.get()},
-        {u"port"_s, m_storeGatewayPort.get()}, {u"tcp"_s, m_storeGatewayTcp.get()},
-        {u"udp"_s, m_storeGatewayUdp.get()}, {u"ttlSeconds"_s, GATEWAY_TTL_SECONDS}};
+    QJsonObject gateway = gatewayConfiguration(path.edgeId);
+    if (!gateway.value(u"tcp"_s).toBool() && !gateway.value(u"udp"_s).toBool())
+        return false;
+    gateway.insert(u"ttlSeconds"_s, GATEWAY_TTL_SECONDS);
     m_requestQueue.append({{u"method"_s, u"gateway.open"_s},
         {u"pathId"_s, QString::number(path.endpoint.pathId)},
         {u"generation"_s, static_cast<qint64>(path.endpoint.generation)}, {u"gateway"_s, gateway}});
