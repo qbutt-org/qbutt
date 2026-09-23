@@ -1723,16 +1723,16 @@ namespace
         {
 #ifdef QBT_HAS_COLORSCHEME_OPTION
             const int before = static_cast<int>(QApplication::styleHints()->colorScheme());
-            int signals = 0;
+            int colorSchemeSignals = 0;
             const auto connection = QObject::connect(QApplication::styleHints(), &QStyleHints::colorSchemeChanged,
-                &application, [&] { ++signals; });
+                &application, [&] { ++colorSchemeSignals; });
             QApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
             QCoreApplication::processEvents();
             QObject::disconnect(connection);
             addCheck(evidence, {{u"name"_s, u"offscreen-color-scheme"_s},
                 {u"platform"_s, QApplication::platformName()}, {u"before"_s, before},
                 {u"after"_s, static_cast<int>(QApplication::styleHints()->colorScheme())},
-                {u"signals"_s, signals}, {u"baseAfterOverride"_s, application.palette().color(QPalette::Base).name()}});
+                {u"signals"_s, colorSchemeSignals}, {u"baseAfterOverride"_s, application.palette().color(QPalette::Base).name()}});
             UIThemeManager::instance()->previewColorScheme(ColorScheme::Dark);
             waitFor(u"Dark product preview"_s,
                 [&] { return application.palette().color(QPalette::Base) == QColor(u"#191a1c"_s); });
