@@ -167,7 +167,7 @@ def run_case(args, root, producer_version, incoming_version, driver, producer_bu
            "QBUTT_QT_ACCEPTANCE_SPEC": str(root / "spec.json"),
            "QBUTT_UPDATE_FIXTURE_SETUP": str(incoming_setup),
            "QBUTT_UPDATE_FIXTURE_RELEASE_VERSION": incoming_version,
-           "QBUTT_UPDATE_APPLICATION_ARGS": json.dumps([f"--profile={profile}", "--no-splash"])}
+           "QBUTT_UPDATE_APPLICATION_ARGS": json.dumps([f"--profile={profile}"])}
     command = [sys.executable, str(args.source / "tests/qt-acceptance/release-fixture.py"),
                str(installed_exe), str(args.openssl)]
     old_pid = None
