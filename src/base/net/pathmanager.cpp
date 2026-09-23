@@ -709,6 +709,7 @@ void Net::PathManager::openNextSelectedNode()
 {
     if (!m_storeManagedEnabled || controlBusy())
         return;
+    const bool wasBusy = isBusy();
     const auto edgeForName = [this](const QString &name)
     {
         const auto node = std::ranges::find_if(m_proxies, [&name](const QJsonValue &value)
@@ -761,7 +762,11 @@ void Net::PathManager::openNextSelectedNode()
         }
     }
     if (m_pendingNodes.isEmpty())
+    {
+        if (wasBusy && !isBusy())
+            emit changed();
         return;
+    }
     QString name = m_pendingNodes.takeFirst();
     const QString edge = edgeForName(name);
     QStringList selected = selectedForEdge(edge);
