@@ -5019,6 +5019,10 @@ Minimum requirement: %2.</source>
         <translation>Обновить и перезапустить</translation>
     </message>
     <message>
+        <source>Update: %p%</source>
+        <translation>Обновление: %p%</translation>
+    </message>
+    <message>
         <source>qbutt %1 is ready to install.</source>
         <translation>qbutt %1 готов к установке.</translation>
     </message>

@@ -50,6 +50,7 @@
 #include <QMetaObject>
 #include <QMimeData>
 #include <QProcess>
+#include <QProgressBar>
 #include <QShortcut>
 #include <QSplitter>
 #include <QStatusBar>
@@ -296,14 +297,34 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     auto *installUpdate = new QToolButton(this);
     installUpdate->setObjectName(u"releaseInstallButton"_s);
     installUpdate->setText(tr("Update and restart"));
-    installUpdate->setAutoRaise(true);
-    m_ui->menubar->setCornerWidget(installUpdate, Qt::TopRightCorner);
-    installUpdate->hide();
-    connect(m_releaseUpdater, &ReleaseUpdater::changed, this, [this, installUpdate]()
+    installUpdate->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    installUpdate->setFixedWidth(230);
+    auto *installUpdateAction = m_ui->toolBar->insertWidget(m_columnFilterAction, installUpdate);
+    installUpdateAction->setVisible(false);
+    auto *downloadProgress = new QProgressBar(this);
+    downloadProgress->setObjectName(u"releaseDownloadProgress"_s);
+    downloadProgress->setFixedWidth(230);
+    downloadProgress->setFormat(tr("Update: %p%"));
+    auto *downloadProgressAction = m_ui->toolBar->insertWidget(m_columnFilterAction, downloadProgress);
+    downloadProgressAction->setVisible(false);
+    connect(m_releaseUpdater, &ReleaseUpdater::changed, this, [this, installUpdate, installUpdateAction, downloadProgress, downloadProgressAction]()
     {
-        installUpdate->setVisible(m_releaseUpdater->isInstalled()
-            && (m_releaseUpdater->state() == ReleaseUpdater::State::Ready));
+        const auto state = m_releaseUpdater->state();
+        installUpdateAction->setVisible(m_releaseUpdater->isInstalled() && (state == ReleaseUpdater::State::Ready));
+        downloadProgressAction->setVisible(m_releaseUpdater->isInstalled() && (state == ReleaseUpdater::State::Downloading));
+        if (state == ReleaseUpdater::State::Downloading)
+            downloadProgress->setRange(0, 0);
         installUpdate->setToolTip(tr("qbutt %1 is ready to install.").arg(m_releaseUpdater->version()));
+    });
+    connect(m_releaseUpdater, &ReleaseUpdater::progress, this, [downloadProgress](const qint64 received, const qint64 total)
+    {
+        if (total > 0)
+        {
+            downloadProgress->setRange(0, 100);
+            downloadProgress->setValue(static_cast<int>(received * 100 / total));
+        }
+        else
+            downloadProgress->setRange(0, 0);
     });
     connect(installUpdate, &QToolButton::clicked, this, [this]()
     {

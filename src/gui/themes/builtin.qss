@@ -38,6 +38,25 @@ QToolBar::separator {
 QToolBar QToolButton:hover, QToolBar QToolButton:checked {
     background: palette(midlight);
 }
+QToolBar QToolButton#releaseInstallButton {
+    background: #009df7;
+    color: #ffffff;
+    border: none;
+    padding: 5px 10px;
+    font-weight: 600;
+}
+QToolBar QToolButton#releaseInstallButton:hover {
+    background: #008bd9;
+}
+QToolBar QToolButton#releaseInstallButton:pressed {
+    background: #0075b5;
+}
+QToolBar QProgressBar#releaseDownloadProgress {
+    background: palette(midlight);
+    color: palette(text);
+    min-height: 26px;
+    font-weight: 600;
+}
 QPushButton:hover:enabled, QToolButton:hover:enabled, QComboBox:hover:enabled {
     background: palette(midlight);
     border-color: palette(light);
