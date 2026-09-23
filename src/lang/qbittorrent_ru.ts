@@ -6671,6 +6671,10 @@ Minimum requirement: %2.</source>
         <translation>Не удалось сохранить сетевой режим для следующего запуска.</translation>
     </message>
     <message>
+        <source>Unable to restore Native after the managed startup policy failed.</source>
+        <translation>Не удалось восстановить обычное соединение после ошибки сохранения сетевого режима для следующего запуска.</translation>
+    </message>
+    <message>
         <location filename="../base/net/pathmanager.cpp" line="387"/>
         <source>Unable to save the network policy.</source>
         <translation>Не удалось сохранить сетевой режим.</translation>
@@ -6678,6 +6682,10 @@ Minimum requirement: %2.</source>
     <message>
         <source>Unable to apply the network policy.</source>
         <translation>Не удалось применить сетевой режим.</translation>
+    </message>
+    <message>
+        <source>Unable to restore Native after the network policy failed.</source>
+        <translation>Не удалось восстановить обычное соединение после ошибки применения сетевого режима.</translation>
     </message>
     <message>
         <source>Mixed: public torrents use selected edges and the chosen Native interface. Private torrents stay pinned.</source>

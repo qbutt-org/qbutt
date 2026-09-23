@@ -4526,6 +4526,8 @@ bool SessionImpl::resetNetworkRoutes()
     m_listenInterfaceConfigured = false;
     disablePortMapping();
     configure();
+    if (Net::PortForwarder::instance()->isEnabled())
+        enablePortMapping();
     return true;
 }
 
