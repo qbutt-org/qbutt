@@ -501,7 +501,7 @@ void PathsWidget::refreshState()
             QString connection;
             if (managed && (checked || disconnecting))
             {
-                if (path.value(u"proxyName"_s) == name)
+                if (pathOpen && (path.value(u"proxyName"_s) == name))
                     connection = health == u"reachable"_s ? tr("Active · reachable")
                         : health == u"checking"_s ? tr("Checking")
                         : health == u"failed"_s ? tr("DNS check failed") : tr("Unknown");
@@ -511,7 +511,7 @@ void PathsWidget::refreshState()
                     connection = tr("Connecting");
             }
             node->setText(1, connection);
-            node->setToolTip(1, (path.value(u"proxyName"_s) == name) && dnsCheckFailed
+            node->setToolTip(1, pathOpen && (path.value(u"proxyName"_s) == name) && dnsCheckFailed
                 ? tr("The TCP DNS check through this node failed; existing peer traffic may still work.") : QString());
         }
         const QJsonObject wire = path.value(u"wire"_s).toObject();
