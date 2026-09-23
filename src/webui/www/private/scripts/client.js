@@ -1226,18 +1226,18 @@ window.addEventListener("DOMContentLoaded", async (event) => {
 
     const updateSpeedLimitIcon = (enabled) => {
         if (enabled) {
-            document.getElementById("speedLimitsEnabled").src = "images/slow.svg";
-            document.getElementById("speedLimitsEnabled").alt = "QBT_TR(Speed limits: On)QBT_TR[CONTEXT=MainWindow]";
-            document.getElementById("speedLimitsEnabled").title = "QBT_TR(Speed limits: On)QBT_TR[CONTEXT=MainWindow]";
+            document.getElementById("speedLimitsButton").src = "images/slow.svg";
+            document.getElementById("speedLimitsButton").alt = "QBT_TR(Speed limits: On)QBT_TR[CONTEXT=MainWindow]";
+            document.getElementById("speedLimitsButton").title = "QBT_TR(Speed limits: On)QBT_TR[CONTEXT=MainWindow]";
         }
         else {
-            document.getElementById("speedLimitsEnabled").src = "images/slow_off.svg";
-            document.getElementById("speedLimitsEnabled").alt = "QBT_TR(Speed limits: Off)QBT_TR[CONTEXT=MainWindow]";
-            document.getElementById("speedLimitsEnabled").title = "QBT_TR(Speed limits: Off)QBT_TR[CONTEXT=MainWindow]";
+            document.getElementById("speedLimitsButton").src = "images/slow_off.svg";
+            document.getElementById("speedLimitsButton").alt = "QBT_TR(Speed limits: Off)QBT_TR[CONTEXT=MainWindow]";
+            document.getElementById("speedLimitsButton").title = "QBT_TR(Speed limits: Off)QBT_TR[CONTEXT=MainWindow]";
         }
     };
 
-    document.getElementById("speedLimitsEnabled").addEventListener("click", (event) => {
+    document.getElementById("speedLimitsButton").addEventListener("click", (event) => {
         // Change icon immediately to give some feedback
         updateSpeedLimitIcon(!speedLimitsEnabled);
 
