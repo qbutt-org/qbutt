@@ -663,7 +663,7 @@ namespace
         QSet<QString> wantedPaths;
         for (const Path &path : descriptor->info()->filePaths())
         {
-            const QString relative = path.toString();
+            const QString relative = path.data();
             const bool wanted = !relative.endsWith(u"/skip.bin"_s) && !relative.endsWith(u"/empty.bin"_s);
             priorities.append(wanted ? BitTorrent::DownloadPriority::Normal : BitTorrent::DownloadPriority::Ignored);
             if (wanted)
@@ -789,7 +789,7 @@ namespace
                 u"Committed selected bytes differ from the verified source"_s);
         for (int row = 0; row < files->topLevelItemCount(); ++row)
         {
-            const QString path = files->topLevelItem(row)->text(0);
+            const QString path = QDir::fromNativeSeparators(files->topLevelItem(row)->text(0));
             if (!wantedPaths.contains(path))
                 require(targetAfter.value(path) == initializedTarget.value(path),
                     u"Repair changed or created an ignored target file"_s);
