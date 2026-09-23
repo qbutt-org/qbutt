@@ -3907,7 +3907,7 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
     <message>
         <location filename="../gui/mainwindow.ui" line="238"/>
-        <source>Set speed limits...</source>
+        <source>Speed limits…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -231,9 +231,9 @@
     <string>&amp;Documentation</string>
    </property>
   </action>
-  <action name="actionSetGlobalSpeedLimits">
+  <action name="actionSpeedLimits">
    <property name="text">
-    <string>Set Global Speed Limits...</string>
+    <string>Speed limits…</string>
    </property>
   </action>
   <action name="actionBottomQueuePos">
@@ -280,7 +280,7 @@
     <bool>true</bool>
    </property>
   </action>
-  <action name="actionUseAlternativeSpeedLimits">
+  <action name="actionEnableSpeedLimits">
    <property name="checkable">
     <bool>true</bool>
    </property>

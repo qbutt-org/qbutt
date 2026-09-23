@@ -2306,7 +2306,7 @@ namespace
                         && (session->configuredUploadSpeedLimit() == 570000)
                         && (session->downloadSpeedLimit() == 0),
                     u"Mbit/s inputs changed the effective unlimited mode or converted incorrectly"_s);
-                QAction *toggleLimits = requiredChild<QAction>(window, u"actionUseAlternativeSpeedLimits"_s);
+                QAction *toggleLimits = requiredChild<QAction>(window, u"actionEnableSpeedLimits"_s);
                 toggleLimits->trigger();
                 require(session->isSpeedLimitEnabled() && (session->downloadSpeedLimit() == 1542500)
                         && (session->uploadSpeedLimit() == 570000),

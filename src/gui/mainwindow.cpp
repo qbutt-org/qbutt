@@ -291,7 +291,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     connect(m_ui->actionDecreaseQueuePos, &QAction::triggered, m_transferListWidget, &TransferListWidget::decreaseQueuePosSelectedTorrents);
     connect(m_ui->actionBottomQueuePos, &QAction::triggered, m_transferListWidget, &TransferListWidget::bottomQueuePosSelectedTorrents);
     connect(m_ui->actionMinimize, &QAction::triggered, this, &MainWindow::minimizeWindow);
-    connect(m_ui->actionUseAlternativeSpeedLimits, &QAction::triggered, this, &MainWindow::toggleSpeedLimits);
+    connect(m_ui->actionEnableSpeedLimits, &QAction::triggered, this, &MainWindow::toggleSpeedLimits);
 
     m_releaseUpdater = new ReleaseUpdater(this);
     auto *installUpdate = new QToolButton(this);
@@ -516,7 +516,7 @@ void MainWindow::initializeIcons()
 #endif
     m_ui->actionOpen->setIcon(UIThemeManager::instance()->getIcon(u"list-add"_s));
     m_ui->actionDownloadFromURL->setIcon(UIThemeManager::instance()->getIcon(u"insert-link"_s));
-    m_ui->actionSetGlobalSpeedLimits->setIcon(UIThemeManager::instance()->getIcon(u"speedometer"_s));
+    m_ui->actionSpeedLimits->setIcon(UIThemeManager::instance()->getIcon(u"speedometer"_s));
     m_ui->actionCreateTorrent->setIcon(UIThemeManager::instance()->getIcon(u"torrent-creator"_s, u"document-edit"_s));
     m_ui->actionAbout->setIcon(UIThemeManager::instance()->getIcon(u"help-about"_s));
     m_ui->actionStatistics->setIcon(UIThemeManager::instance()->getIcon(u"view-statistics"_s));
@@ -952,7 +952,7 @@ void MainWindow::displayExecutionLogTab()
 
 // End of keyboard shortcuts slots
 
-void MainWindow::on_actionSetGlobalSpeedLimits_triggered()
+void MainWindow::on_actionSpeedLimits_triggered()
 {
     auto *dialog = new SpeedLimitDialog {this};
     dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -1357,8 +1357,8 @@ void MainWindow::populateDesktopIntegrationMenu()
     menu->addAction(m_ui->actionDownloadFromURL);
     menu->addSeparator();
 
-    menu->addAction(m_ui->actionUseAlternativeSpeedLimits);
-    menu->addAction(m_ui->actionSetGlobalSpeedLimits);
+    menu->addAction(m_ui->actionEnableSpeedLimits);
+    menu->addAction(m_ui->actionSpeedLimits);
     menu->addSeparator();
 
     menu->addAction(m_ui->actionResumeSession);
@@ -1373,8 +1373,8 @@ void MainWindow::populateDesktopIntegrationMenu()
 
 void MainWindow::updateSpeedLimitsButton(const bool enabled)
 {
-    m_ui->actionUseAlternativeSpeedLimits->setChecked(enabled);
-    m_ui->actionUseAlternativeSpeedLimits->setToolTip(enabled
+    m_ui->actionEnableSpeedLimits->setChecked(enabled);
+    m_ui->actionEnableSpeedLimits->setToolTip(enabled
         ? tr("Click to disable speed limits") : tr("Click to enable speed limits"));
 }
 
