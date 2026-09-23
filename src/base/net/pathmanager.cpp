@@ -195,8 +195,7 @@ Net::PathManager *Net::PathManager::m_instance = nullptr;
 
 Net::PathManager::PathManager()
     : m_status {ProxyConfigurationManager::instance()->hasRuntimeProxy()
-        ? tr("Connection stopped. Connect a node to resume.")
-        : tr("Using default connection settings.")}
+        ? tr("Connection stopped. Connect a node to resume.") : QString()}
     , m_storeSubscriptionUrl {u"Network/Paths/SubscriptionUrl"_s}
     , m_storeConfigurationPath {u"Network/Paths/ConfigurationPath"_s}
     , m_storeProxyName {u"Network/Paths/ProxyName"_s}
@@ -1374,7 +1373,7 @@ bool Net::PathManager::useNative()
     }
     m_paths.clear();
     m_nativeEndpoints.clear();
-    m_status = tr("Using default connection settings.");
+    m_status.clear();
     emit changed();
     return true;
 }
@@ -2426,8 +2425,7 @@ void Net::PathManager::stopPath(const QString &pathId)
         return;
     }
     m_status = ProxyConfigurationManager::instance()->hasRuntimeProxy()
-        ? tr("Connection stopped. Connect a node to resume.")
-        : tr("Using default connection settings.");
+        ? tr("Connection stopped. Connect a node to resume.") : QString();
     emit changed();
 }
 

@@ -79,6 +79,8 @@ PathsWidget::PathsWidget(QWidget *parent)
     form->addRow(tr("Nodes:"), m_nodes);
     m_enabled->setObjectName(u"mihomoEnabled"_s);
     form->addRow(QString(), m_enabled);
+    form->setRowVisible(m_nodeFilter, false);
+    form->setRowVisible(m_nodes, false);
     m_interfaces->setObjectName(u"mihomoPhysicalInterface"_s);
     m_interfaces->addItem(tr("Choose a network adapter"), QString());
     const QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
@@ -329,7 +331,7 @@ PathsWidget::PathsWidget(QWidget *parent)
         refreshState();
     });
     connect(m_manager, &Net::PathManager::changed, this, &PathsWidget::refreshState);
-    connect(m_manager, &Net::PathManager::proxiesLoaded, this, [this](const QJsonArray &proxies)
+    connect(m_manager, &Net::PathManager::proxiesLoaded, this, [this, form](const QJsonArray &proxies)
     {
         const QString previous = selectedNode().isEmpty() ? m_manager->proxyName() : selectedNode();
         const QStringList selected = m_manager->selectedNodes();
@@ -361,6 +363,8 @@ PathsWidget::PathsWidget(QWidget *parent)
         for (int row = 0; row < m_nodes->count(); ++row)
             m_nodes->item(row)->setHidden(!m_nodes->item(row)->text().contains(
                 m_nodeFilter->text(), Qt::CaseInsensitive));
+        form->setRowVisible(m_nodeFilter, m_nodes->count() > 0);
+        form->setRowVisible(m_nodes, m_nodes->count() > 0);
         refreshReserves();
         refreshState();
     });
@@ -481,6 +485,7 @@ void PathsWidget::refreshState()
     m_gatewayUdp->setEnabled(!busy);
     m_gatewayApply->setEnabled(!busy);
     m_status->setText(busy ? tr("Working…") : m_manager->status());
+    m_status->setVisible(!m_status->text().isEmpty());
 }
 
 void PathsWidget::refreshReserves()
