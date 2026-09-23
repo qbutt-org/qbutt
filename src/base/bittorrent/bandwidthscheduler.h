@@ -42,12 +42,12 @@ public:
     void start();
 
 signals:
-    void bandwidthLimitRequested(bool alternative);
+    void bandwidthLimitRequested(bool limitsEnabled);
 
 private:
-    bool isTimeForAlternative() const;
+    bool isTimeForSpeedLimits() const;
     void onTimeout();
 
     QTimer m_timer;
-    bool m_lastAlternative = false;
+    bool m_lastLimitsEnabled = false;
 };

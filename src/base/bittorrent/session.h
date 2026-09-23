@@ -515,7 +515,7 @@ namespace BitTorrent
         void restored();
         void paused();
         void resumed();
-        void speedLimitModeChanged(bool alternative);
+        void speedLimitModeChanged(bool enabled);
         void statsUpdated();
         void subcategoriesSupportChanged();
         void tagAdded(const Tag &tag);

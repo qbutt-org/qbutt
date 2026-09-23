@@ -47,15 +47,15 @@ BandwidthScheduler::BandwidthScheduler(QObject *parent)
 
 void BandwidthScheduler::start()
 {
-    m_lastAlternative = isTimeForAlternative();
-    emit bandwidthLimitRequested(m_lastAlternative);
+    m_lastLimitsEnabled = isTimeForSpeedLimits();
+    emit bandwidthLimitRequested(m_lastLimitsEnabled);
 
     // Timeout regularly to accommodate for external system clock changes
     // eg from the user or from a timesync utility
     m_timer.start(30s);
 }
 
-bool BandwidthScheduler::isTimeForAlternative() const
+bool BandwidthScheduler::isTimeForSpeedLimits() const
 {
     const Preferences *const pref = Preferences::instance();
 
@@ -64,12 +64,12 @@ bool BandwidthScheduler::isTimeForAlternative() const
     const QTime now = QTime::currentTime();
     const Scheduler::Days schedulerDays = pref->getSchedulerDays();
     const int day = QDate::currentDate().dayOfWeek();
-    bool alternative = false;
+    bool limitsEnabled = false;
 
     if (start > end)
     {
         std::swap(start, end);
-        alternative = true;
+        limitsEnabled = true;
     }
 
     if ((start <= now) && (end >= now))
@@ -77,7 +77,7 @@ bool BandwidthScheduler::isTimeForAlternative() const
         switch (schedulerDays)
         {
         case Scheduler::Days::EveryDay:
-            alternative = !alternative;
+            limitsEnabled = !limitsEnabled;
             break;
         case Scheduler::Days::Monday:
         case Scheduler::Days::Tuesday:
@@ -90,16 +90,16 @@ bool BandwidthScheduler::isTimeForAlternative() const
                 const int offset = static_cast<int>(Scheduler::Days::Monday) - 1;
                 const int dayOfWeek = static_cast<int>(schedulerDays) - offset;
                 if (day == dayOfWeek)
-                    alternative = !alternative;
+                    limitsEnabled = !limitsEnabled;
             }
             break;
         case Scheduler::Days::Weekday:
             if ((day >= 1) && (day <= 5))
-                alternative = !alternative;
+                limitsEnabled = !limitsEnabled;
             break;
         case Scheduler::Days::Weekend:
             if ((day == 6) || (day == 7))
-                alternative = !alternative;
+                limitsEnabled = !limitsEnabled;
             break;
         default:
             Q_UNREACHABLE();
@@ -107,16 +107,16 @@ bool BandwidthScheduler::isTimeForAlternative() const
         }
     }
 
-    return alternative;
+    return limitsEnabled;
 }
 
 void BandwidthScheduler::onTimeout()
 {
-    const bool alternative = isTimeForAlternative();
+    const bool limitsEnabled = isTimeForSpeedLimits();
 
-    if (alternative != m_lastAlternative)
+    if (limitsEnabled != m_lastLimitsEnabled)
     {
-        m_lastAlternative = alternative;
-        emit bandwidthLimitRequested(alternative);
+        m_lastLimitsEnabled = limitsEnabled;
+        emit bandwidthLimitRequested(limitsEnabled);
     }
 }
