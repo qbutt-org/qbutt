@@ -24,6 +24,8 @@ import psutil
 
 
 PRODUCTION_APP_ID = "64A54F85-79F8-43D3-9B5B-2336052C370E"
+STARTUP_RUN = r"Software\Microsoft\Windows\CurrentVersion\Run"
+STARTUP_APPROVED = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
 
 
 def digest(path):
@@ -95,6 +97,35 @@ def processes_at(path):
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     return result
+
+
+def startup_value(name):
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_RUN, 0,
+                        winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
+        try:
+            return winreg.QueryValueEx(key, name)[0]
+        except FileNotFoundError:
+            return None
+
+
+def remove_fixture_startup(root):
+    profile = root / "profile"
+    executable = root / "install" / "qbutt.exe"
+    name = "qbutt@" + re.sub(r'[\\/:?"*<>|]+', "", str(profile).strip())
+    command = startup_value(name)
+    if command is not None:
+        if not isinstance(command, str) or not command.startswith(f'"{executable}" "--profile={profile}" '):
+            raise RuntimeError(f"Refusing to remove an unexpected startup entry: {name}")
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_RUN, 0,
+                            winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as key:
+            winreg.DeleteValue(key, name)
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_APPROVED, 0,
+                            winreg.KEY_SET_VALUE | winreg.KEY_WOW64_64KEY) as key:
+            winreg.DeleteValue(key, name)
+    except FileNotFoundError:
+        pass
+    return command is not None
 
 
 def wait_for(predicate, seconds, label):
@@ -247,6 +278,20 @@ def run_case(args, root, producer_version, incoming_version, driver, producer_bu
             "registryRemoved": True, "cacheRemoved": not cache_root.exists()}
 
 
+def run_case_with_startup_guard(root, *args):
+    canonical_startup = startup_value("qbutt")
+    try:
+        result = run_case(args[0], root, *args[1:])
+    finally:
+        fixture_startup_removed = remove_fixture_startup(root)
+        if startup_value("qbutt") != canonical_startup:
+            raise RuntimeError("The isolated installer changed the installed qbutt startup entry")
+    if fixture_startup_removed and result["case"] != "baseline":
+        raise RuntimeError("The fixed installer registered its isolated profile for host startup")
+    result["fixtureStartupRemoved"] = fixture_startup_removed
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
@@ -260,10 +305,10 @@ def main():
     root = Path(tempfile.mkdtemp(prefix="qbutt-real-inno-"))
     results = []
     try:
-        results.append(run_case(args, root / "baseline", "1.0.1", "1.1.1", args.old_driver,
-                                args.old_bundle, args.fixed_bundle, 1))
-        results.append(run_case(args, root / "fixed", "1.1.1", "1.1.2", args.fixed_driver,
-                                args.fixed_bundle, args.fixed_bundle, 0))
+        results.append(run_case_with_startup_guard(root / "baseline", args, "1.0.1", "1.1.1", args.old_driver,
+                                                  args.old_bundle, args.fixed_bundle, 1))
+        results.append(run_case_with_startup_guard(root / "fixed", args, "1.1.1", "1.1.2", args.fixed_driver,
+                                                  args.fixed_bundle, args.fixed_bundle, 0))
         evidence_root = root.with_name(root.name + "-evidence")
         evidence_root.mkdir()
         for result in results:

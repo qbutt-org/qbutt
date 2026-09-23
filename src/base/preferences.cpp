@@ -384,6 +384,10 @@ bool Preferences::WinStartup() const
 
 void Preferences::setWinStartup(const bool b)
 {
+    // Qt acceptance runs share the host registry even when their profiles are isolated.
+    if (qEnvironmentVariableIsSet("QBUTT_QT_ACCEPTANCE_SPEC"))
+        return;
+
     const QString profileName = Profile::instance()->profileName();
     const Path profilePath = Profile::instance()->rootPath();
     const QString profileID = makeProfileID(profilePath, profileName);
