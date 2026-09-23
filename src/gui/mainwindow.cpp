@@ -201,15 +201,11 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     m_columnFilterEdit->setFixedWidth(200);
     m_columnFilterEdit->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_columnFilterEdit, &QWidget::customContextMenuRequested, this, &MainWindow::showFilterContextMenu);
-    auto *columnFilterLabel = new QLabel(tr("Filter by:"));
     m_columnFilterComboBox = new QComboBox;
+    m_columnFilterComboBox->setToolTip(tr("Filter by:"));
     QHBoxLayout *columnFilterLayout = new QHBoxLayout(m_columnFilterWidget);
     columnFilterLayout->setContentsMargins(0, 0, 0, 0);
-    auto *columnFilterSpacer = new QWidget(this);
-    columnFilterSpacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    columnFilterLayout->addWidget(columnFilterSpacer);
     columnFilterLayout->addWidget(m_columnFilterEdit);
-    columnFilterLayout->addWidget(columnFilterLabel, 0);
     columnFilterLayout->addWidget(m_columnFilterComboBox, 0);
     m_columnFilterWidget = new QWidget(this);
     m_columnFilterWidget->setLayout(columnFilterLayout);

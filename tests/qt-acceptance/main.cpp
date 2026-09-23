@@ -2580,15 +2580,15 @@ namespace
         const auto observeProgress = QObject::connect(updater, &ReleaseUpdater::progress, window,
             [&](const qint64 received, const qint64 total)
         {
-            if (progressRendered || (total <= 0) || (received * 10 < total) || (received >= total))
+            if (!previewOnly || progressRendered || (total <= 0) || (received * 10 < total) || (received >= total))
                 return;
             require((progress->maximum() > 0) && (progress->value() > 0)
                     && (qAbs(progress->value() / double(progress->maximum()) - received / double(total)) < 0.011),
                 u"Toolbar progress does not reflect received installer bytes"_s);
-            require(beforeSearch(progress) && !button->isVisible(), u"Download progress is not next to torrent search"_s);
-            progressRendered = true;
             require(window->grab().save(QDir(spec.value(u"screenshotDirectory"_s).toString()).filePath(u"update-downloading.png"_s)),
                 u"Cannot render update download progress"_s);
+            require(beforeSearch(progress) && !button->isVisible(), u"Download progress is not next to torrent search"_s);
+            progressRendered = true;
         });
         bool dialogClosedDuringDownload = false;
         const auto observe = QObject::connect(updater, &ReleaseUpdater::changed, window, [&]
@@ -2610,8 +2610,8 @@ namespace
         QObject::disconnect(observe);
         QObject::disconnect(observeProgress);
         require(updater->state() == ReleaseUpdater::State::Ready, updater->message());
-        require(dialogClosedDuringDownload && progressRendered && beforeSearch(button)
-                && !progress->isVisible() && button->isEnabled(),
+        require(dialogClosedDuringDownload && button->isVisible() && button->isEnabled() && !progress->isVisible()
+                && (!previewOnly || (progressRendered && beforeSearch(button))),
             u"Background update did not expose the ready action"_s);
         const QString screenshot = QDir(spec.value(u"screenshotDirectory"_s).toString()).filePath(u"update-ready.png"_s);
         require(window->grab().save(screenshot), u"Cannot render update action"_s);

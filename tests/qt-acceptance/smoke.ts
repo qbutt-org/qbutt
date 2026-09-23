@@ -219,7 +219,7 @@ try {
             assert.equal(evidence.status, "passed");
             const update = evidence.checks.find((check: { name: string }) => check.name === "installed-update");
             assert.equal(update.downloadProgress, true);
-            assert.equal(resolve(update.cacheRoot), resolve(process.env.LOCALAPPDATA!, cacheOrganization, "qbutt"));
+            assert.equal(resolve(update.cacheRoot), resolve(process.env.LOCALAPPDATA!, cacheOrganization, "qbutt", "cache"));
             results.push(evidencePath);
         }
         result = { status: "passed", suite: "update-toolbar", results, screenshots };
