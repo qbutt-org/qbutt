@@ -201,6 +201,7 @@ Net::PathManager::PathManager()
     , m_storeConfigurationPath {u"Network/Paths/ConfigurationPath"_s}
     , m_storeProxyName {u"Network/Paths/ProxyName"_s}
     , m_storeReserveNames {u"Network/Paths/ReserveNames"_s}
+    , m_storeNodeReserves {u"Network/Paths/NodeReserves"_s}
     , m_storeServerGroups {u"Network/Paths/ServerGroups"_s}
     , m_storeInterfaceName {u"Network/Paths/InterfaceName"_s}
     , m_storeSelectedNodes {u"Network/Paths/SelectedNodes"_s}
@@ -471,7 +472,44 @@ QStringList Net::PathManager::reserveNames(const QString &proxyName) const
         if ((path.configurationPath == m_storeConfigurationPath.get()) && (path.proxyName == proxyName))
             return path.reserveNames;
     }
+    const QVariantMap configured = m_storeNodeReserves;
+    if (configured.contains(proxyName))
+        return configured.value(proxyName).toStringList();
     return (proxyName == m_storeProxyName.get()) ? m_storeReserveNames.get() : QStringList {};
+}
+
+bool Net::PathManager::setReserveNames(const QString &proxyName, const QStringList &names)
+{
+    QStringList unique = names;
+    const auto primary = std::ranges::find_if(m_proxies, [&proxyName](const QJsonValue &value)
+    { return value.toObject().value(u"name"_s) == proxyName; });
+    if (controlBusy() || m_storeManagedEnabled || (primary == m_proxies.end())
+        || (names.size() > 3) || names.contains(proxyName) || (unique.removeDuplicates() != 0))
+    {
+        reportError(tr("Turn off Mihomo and choose up to three distinct backup nodes."));
+        return false;
+    }
+    const QString edge = edgeIdForServer(primary->toObject().value(u"configuredServerId"_s).toString());
+    for (const QString &name : names)
+    {
+        const auto reserve = std::ranges::find_if(m_proxies, [&name](const QJsonValue &value)
+        { return value.toObject().value(u"name"_s) == name; });
+        if (reserve == m_proxies.end()
+            || edgeIdForServer(reserve->toObject().value(u"configuredServerId"_s).toString()) != edge)
+        {
+            reportError(tr("Backup nodes must use the same configured or grouped server."));
+            return false;
+        }
+    }
+    const QVariantMap previous = m_storeNodeReserves;
+    QVariantMap configured = previous;
+    configured.insert(proxyName, names);
+    m_storeNodeReserves = configured;
+    if (SettingsStorage::instance()->save())
+        return true;
+    m_storeNodeReserves = previous;
+    reportError(tr("Unable to save the backup nodes."));
+    return false;
 }
 
 QString Net::PathManager::interfaceName() const
@@ -1057,7 +1095,7 @@ void Net::PathManager::openIdentifiedPath(const QString &configPath, const QStri
         {
             if (path.endpoint.port > 0)
             {
-                reportError(tr("This server is already connected. Disconnect it or choose a backup connection."));
+                reportError(tr("This server is already connected."));
                 return;
             }
             if (pathId == 0)
@@ -1066,7 +1104,7 @@ void Net::PathManager::openIdentifiedPath(const QString &configPath, const QStri
     }
     if ((pathId == 0) && (m_paths.size() >= 8))
     {
-        reportError(tr("Eight servers are already selected. Use Default connection to reset them."));
+        reportError(tr("Eight servers are already selected."));
         return;
     }
     const bool enableManagedRoutes = !proxyManager->hasRuntimeProxy();

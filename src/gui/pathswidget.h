@@ -35,9 +35,9 @@ private:
     void refreshReserves();
 
     Net::PathManager *m_manager;
-    QString m_reserveNode;
     QFormLayout *m_transportForm;
     QLineEdit *m_url;
+    QLineEdit *m_nodeFilter;
     QListWidget *m_nodes;
     QCheckBox *m_enabled;
     QComboBox *m_sameServer;

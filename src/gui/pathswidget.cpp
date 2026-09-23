@@ -34,6 +34,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     , m_manager {Net::PathManager::instance()}
     , m_transportForm {new QFormLayout}
     , m_url {new QLineEdit(this)}
+    , m_nodeFilter {new QLineEdit(this)}
     , m_nodes {new QListWidget(this)}
     , m_enabled {new QCheckBox(tr("Use Mihomo"), this)}
     , m_sameServer {new QComboBox(this)}
@@ -72,6 +73,9 @@ PathsWidget::PathsWidget(QWidget *parent)
     m_nodes->setObjectName(u"mihomoNodes"_s);
     m_nodes->setMaximumHeight(150);
     m_nodes->setToolTip(tr("Check the nodes to use alongside the direct connection."));
+    m_nodeFilter->setObjectName(u"mihomoNodeFilter"_s);
+    m_nodeFilter->setPlaceholderText(tr("Find a node"));
+    form->addRow(QString(), m_nodeFilter);
     form->addRow(tr("Nodes:"), m_nodes);
     m_enabled->setObjectName(u"mihomoEnabled"_s);
     form->addRow(QString(), m_enabled);
@@ -249,6 +253,11 @@ PathsWidget::PathsWidget(QWidget *parent)
     {
         m_manager->refreshSubscription(m_url->text());
     });
+    connect(m_nodeFilter, &QLineEdit::textChanged, this, [this](const QString &query)
+    {
+        for (int row = 0; row < m_nodes->count(); ++row)
+            m_nodes->item(row)->setHidden(!m_nodes->item(row)->text().contains(query, Qt::CaseInsensitive));
+    });
     connect(m_nodes, &QListWidget::itemChanged, this, [this](QListWidgetItem *item)
     {
         m_nodes->setCurrentItem(item);
@@ -297,7 +306,28 @@ PathsWidget::PathsWidget(QWidget *parent)
     connect(m_interfaces, &QComboBox::currentIndexChanged, this, &PathsWidget::refreshState);
     connect(m_paths, &QListWidget::currentRowChanged, this, &PathsWidget::refreshState);
     connect(m_reserves, &QListWidget::currentRowChanged, this, &PathsWidget::refreshState);
-    connect(m_reserves, &QListWidget::itemChanged, this, &PathsWidget::refreshState);
+    connect(m_reserves, &QListWidget::itemChanged, this, [this]()
+    {
+        QStringList selected;
+        for (int row = 0; row < m_reserves->count(); ++row)
+        {
+            const QListWidgetItem *item = m_reserves->item(row);
+            if (item->checkState() == Qt::Checked)
+                selected.append(item->data(Qt::UserRole).toString());
+        }
+        if (!m_manager->setReserveNames(selectedNode(), selected))
+        {
+            const QSignalBlocker blocker(m_reserves);
+            const QStringList saved = m_manager->reserveNames(selectedNode());
+            for (int row = 0; row < m_reserves->count(); ++row)
+            {
+                QListWidgetItem *item = m_reserves->item(row);
+                item->setCheckState(saved.contains(item->data(Qt::UserRole).toString())
+                    ? Qt::Checked : Qt::Unchecked);
+            }
+        }
+        refreshState();
+    });
     connect(m_manager, &Net::PathManager::changed, this, &PathsWidget::refreshState);
     connect(m_manager, &Net::PathManager::proxiesLoaded, this, [this](const QJsonArray &proxies)
     {
@@ -328,6 +358,9 @@ PathsWidget::PathsWidget(QWidget *parent)
         }
         if (!m_nodes->currentItem() && (m_nodes->count() > 0))
             m_nodes->setCurrentRow(0);
+        for (int row = 0; row < m_nodes->count(); ++row)
+            m_nodes->item(row)->setHidden(!m_nodes->item(row)->text().contains(
+                m_nodeFilter->text(), Qt::CaseInsensitive));
         refreshReserves();
         refreshState();
     });
@@ -406,6 +439,7 @@ void PathsWidget::refreshState()
     m_transportForm->setRowVisible(m_switch, m_reserves->count() > 0);
     m_url->setEnabled(!busy);
     m_refresh->setEnabled(!busy);
+    m_nodeFilter->setEnabled(m_nodes->count() > 0);
     {
         const QSignalBlocker enabledBlocker(m_enabled);
         m_enabled->setChecked(m_manager->managedEnabled());
@@ -424,6 +458,13 @@ void PathsWidget::refreshState()
     m_nodes->setEnabled(!busy && !m_manager->managedEnabled());
     m_enabled->setEnabled(!busy);
     m_reserves->setEnabled(!busy);
+    const QSignalBlocker reservesBlocker(m_reserves);
+    for (int row = 0; row < m_reserves->count(); ++row)
+    {
+        QListWidgetItem *item = m_reserves->item(row);
+        item->setFlags(m_manager->managedEnabled()
+            ? (item->flags() & ~Qt::ItemIsUserCheckable) : (item->flags() | Qt::ItemIsUserCheckable));
+    }
     m_interfaces->setEnabled(!busy && !m_manager->managedEnabled());
     m_dnsServer->setEnabled(!busy);
     m_bootstrapServer->setEnabled(!busy);
@@ -444,18 +485,9 @@ void PathsWidget::refreshState()
 
 void PathsWidget::refreshReserves()
 {
+    const QSignalBlocker reservesBlocker(m_reserves);
     const QString node = selectedNode();
-    QStringList selected = m_manager->reserveNames(node);
-    if ((m_reserveNode == node) && (m_reserves->count() > 0))
-    {
-        selected.clear();
-        for (int row = 0; row < m_reserves->count(); ++row)
-        {
-            if (m_reserves->item(row)->checkState() == Qt::Checked)
-                selected.append(m_reserves->item(row)->data(Qt::UserRole).toString());
-        }
-    }
-    m_reserveNode = node;
+    const QStringList selected = m_manager->reserveNames(node);
     m_reserves->clear();
     const QSignalBlocker groupingBlocker(m_sameServer);
     const QString previousTarget = m_sameServer->currentData().toString();

@@ -49,6 +49,7 @@ namespace Net
         QString configurationPath() const;
         QString proxyName() const;
         QStringList reserveNames(const QString &proxyName) const;
+        bool setReserveNames(const QString &proxyName, const QStringList &names);
         QString edgeIdForServer(const QString &configuredServerId) const;
         bool groupServers(const QString &proxyName, const QString &sameAsProxyName);
         bool resetServerGroups();
@@ -202,6 +203,7 @@ namespace Net
         SettingValue<QString> m_storeConfigurationPath;
         SettingValue<QString> m_storeProxyName;
         SettingValue<QStringList> m_storeReserveNames;
+        SettingValue<QVariantMap> m_storeNodeReserves;
         SettingValue<QVariantMap> m_storeServerGroups;
         SettingValue<QString> m_storeInterfaceName;
         SettingValue<QStringList> m_storeSelectedNodes;
