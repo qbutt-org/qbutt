@@ -739,13 +739,14 @@ namespace
         waitFor(u"Failed server remains selectable"_s, [&]
         {
             const QJsonObject path = pathByName(Net::PathManager::instance()->statusData().value(u"paths"_s).toArray(), u"Beta"_s);
-            return (path.value(u"health"_s).toObject().value(u"state"_s) == u"failed"_s)
-                && beta->text(1).contains(PathsWidget::tr("Cannot connect"));
+            return path.value(u"open"_s).toBool()
+                && (path.value(u"health"_s).toObject().value(u"state"_s) == u"failed"_s)
+                && beta->text(1).contains(PathsWidget::tr("DNS check failed"));
         });
         require(beta->checkState(0) == Qt::Checked && beta->flags().testFlag(Qt::ItemIsUserCheckable)
                 && nodes->isEnabled(), u"A failed server became impossible to deselect or retry"_s);
-        require(beta->foreground(0).color() != alpha->foreground(0).color(),
-            u"Failed server was not visually distinguished"_s);
+        require(beta->foreground(0).color() == alpha->foreground(0).color(),
+            u"A failed DNS check incorrectly disabled an active connection"_s);
         writeObject(childControl, {});
         waitFor(u"Recovered server health"_s, [&]
         {
