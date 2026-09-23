@@ -9777,20 +9777,92 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
 <context>
     <name>PathsWidget</name>
     <message>
-        <source>Save DNS settings</source>
-        <translation>Сохранить настройки DNS</translation>
+        <source>Mihomo subscription</source>
+        <translation>Подписка Mihomo</translation>
     </message>
     <message>
-        <source>DNS settings…</source>
-        <translation>Настройки DNS…</translation>
+        <source>Use Mihomo</source>
+        <translation>Использовать Mihomo</translation>
     </message>
     <message>
-        <source>Numeric IP:port. Hostname lookups use this DNS server through each selected node.</source>
-        <translation>Числовой IP:порт. Запросы имён к этому DNS-серверу проходят через каждый выбранный узел.</translation>
+        <source>Save DNS</source>
+        <translation>Сохранить DNS</translation>
     </message>
     <message>
-        <source>Numeric IP:port. Only the node's own hostname is resolved through the selected physical interface.</source>
-        <translation>Числовой IP:порт. Через выбранный физический адаптер определяется только адрес самого узла.</translation>
+        <source>TCP</source>
+        <translation>TCP</translation>
+    </message>
+    <message>
+        <source>UDP / uTP / DHT</source>
+        <translation>UDP / uTP / DHT</translation>
+    </message>
+    <message>
+        <source>Save gateway</source>
+        <translation>Сохранить шлюз</translation>
+    </message>
+    <message>
+        <source>Subscription:</source>
+        <translation>Подписка:</translation>
+    </message>
+    <message>
+        <source>Server / protocol</source>
+        <translation>Сервер / протокол</translation>
+    </message>
+    <message>
+        <source>Connection</source>
+        <translation>Соединение</translation>
+    </message>
+    <message>
+        <source>Relay traffic</source>
+        <translation>Трафик прокси</translation>
+    </message>
+    <message>
+        <source>Find a server or protocol</source>
+        <translation>Найти сервер или протокол</translation>
+    </message>
+    <message>
+        <source>Servers:</source>
+        <translation>Серверы:</translation>
+    </message>
+    <message>
+        <source>Choose a network adapter</source>
+        <translation>Выберите сетевой адаптер</translation>
+    </message>
+    <message>
+        <source>Network adapter:</source>
+        <translation>Сетевой адаптер:</translation>
+    </message>
+    <message>
+        <source>Advanced settings</source>
+        <translation>Расширенные настройки</translation>
+    </message>
+    <message>
+        <source>Automatic</source>
+        <translation>Автоматический</translation>
+    </message>
+    <message>
+        <source>Mihomo YAML</source>
+        <translation>Mihomo YAML</translation>
+    </message>
+    <message>
+        <source>Base64 or links</source>
+        <translation>Base64 или ссылки</translation>
+    </message>
+    <message>
+        <source>Subscription format:</source>
+        <translation>Формат подписки:</translation>
+    </message>
+    <message>
+        <source>IP:port. Resolve torrent addresses through the connected node.</source>
+        <translation>IP:порт. Разрешать адреса торрентов через подключённый узел.</translation>
+    </message>
+    <message>
+        <source>IP:port. Resolve the node&apos;s own address through the network adapter.</source>
+        <translation>IP:порт. Разрешать адрес самого узла через сетевой адаптер.</translation>
+    </message>
+    <message>
+        <source>Applies when a node reconnects.</source>
+        <translation>Применяется при переподключении узла.</translation>
     </message>
     <message>
         <source>IPv4 and IPv6</source>
@@ -9817,284 +9889,96 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Адреса назначения:</translation>
     </message>
     <message>
-        <source>The default is Cloudflare DNS (1.1.1.1). Changes apply when connecting a node. Full application DNS isolation has not been verified.</source>
-        <translation>По умолчанию используется Cloudflare DNS (1.1.1.1). Изменения применяются при подключении узла. Полная изоляция DNS приложения пока не проверена.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="43"/>
-        <source>Connect selected node</source>
-        <translation>Подключить узел</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="44"/>
-        <source>Disconnect selected path</source>
-        <translation>Отключить соединение</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="45"/>
-        <source>Use default connection</source>
-        <translation>Обычное соединение</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="55"/>
-        <source>Stored only in your qbutt profile. Refresh uses the regular control network.</source>
-        <translation>Хранится только в вашем профиле qbutt. Подписка обновляется через обычное соединение для служебных запросов.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="59"/>
-        <source>Subscription:</source>
-        <translation>Подписка:</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="64"/>
-        <source>Choose a physical interface</source>
-        <translation>Выберите физический сетевой адаптер</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="90"/>
-        <source>The selected adapter is bound by qbutt-net. Its actual route must still be verified.</source>
-        <translation>qbutt-net привязывает соединение к выбранному адаптеру. Фактический маршрут ещё нужно проверить.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="91"/>
-        <source>Interface:</source>
-        <translation>Сетевой адаптер:</translation>
-    </message>
-    <message>
-        <source>Pinned — first selected edge</source>
-        <translation>Pinned — первый выбранный выход</translation>
-    </message>
-    <message>
-        <source>Tunnels only — selected remote edges</source>
-        <translation>Tunnels only — выбранные удалённые выходы</translation>
-    </message>
-    <message>
-        <source>Mixed — remote edges and Native</source>
-        <translation>Mixed — удалённые выходы и Native</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="95"/>
-        <source>Peer connections:</source>
-        <translation>Соединения с пирами:</translation>
-    </message>
-    <message>
-        <source>All policies share one torrent session. Supported UDP routes carry uTP and UDP trackers. DHT stays disabled until an external route address is verified, and public inbound remains unavailable. Including Native exposes its address to public torrent peers; private torrents stay on the first remote edge.</source>
-        <translation>Все режимы используют одну торрент-сессию. Поддерживаемые UDP-маршруты передают uTP и UDP-трекеры. DHT остаётся отключённым, пока не подтверждён внешний адрес маршрута; входящие подключения из интернета пока недоступны. В режиме Native его адрес виден пирам публичных торрентов; приватные торренты остаются на первом удалённом выходе.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="205"/>
-        <source>Connected</source>
-        <translation>Подключено</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="205"/>
-        <source>Stopped</source>
-        <translation>Остановлено</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="224"/>
-        <source>Working…</source>
-        <translation>Выполняется…</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="35"/>
-        <source>Mihomo subscription</source>
-        <translation>Подписка Mihomo</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="41"/>
-        <source>Group servers</source>
-        <translation>Объединить серверы</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="42"/>
-        <source>Reset grouping</source>
-        <translation>Сбросить объединение</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="49"/>
-        <source>Save DNS</source>
-        <translation>Сохранить DNS</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="57"/>
-        <source>TCP</source>
-        <translation>TCP</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="58"/>
-        <source>UDP / uTP / DHT</source>
-        <translation>UDP / uTP / DHT</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="59"/>
-        <source>Save gateway</source>
-        <translation>Сохранить шлюз</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="65"/>
-        <source>Use selected backup</source>
-        <translation>Использовать выбранный резерв</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="84"/>
-        <source>Choose a network adapter</source>
-        <translation>Выберите сетевой адаптер</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="110"/>
-        <source>Network adapter:</source>
-        <translation>Сетевой адаптер:</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="152"/>
-        <source>Group only nodes you know share one server.</source>
-        <translation>Объединяйте только узлы, о которых известно, что они ведут на один сервер.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="153"/>
-        <source>Remove manual server groups.</source>
-        <translation>Удалить группы серверов, заданные вручную.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="157"/>
-        <source>Same server as:</source>
-        <translation>Тот же сервер, что у:</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="160"/>
-        <source>Choose up to three backup connections to the same server.</source>
-        <translation>Выберите до трёх резервных соединений с тем же сервером.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="161"/>
-        <source>Backup connections:</source>
-        <translation>Резервные соединения:</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="179"/>
-        <source>IP:port. Resolve torrent addresses through the connected node.</source>
-        <translation>IP:порт. Разрешать адреса торрентов через подключённый узел.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="180"/>
-        <source>IP:port. Resolve the node&apos;s own address through the network adapter.</source>
-        <translation>IP:порт. Разрешать адрес самого узла через сетевой адаптер.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="181"/>
-        <source>Applies when a node reconnects.</source>
-        <translation>Применяется при переподключении узла.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="204"/>
         <source>Incoming connections</source>
         <translation>Входящие соединения</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="220"/>
-        <source>Automatic</source>
-        <translation>Автоматический</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="225"/>
         <source>Control endpoint:</source>
         <translation>Адрес управления:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="226"/>
         <source>Datagram endpoint:</source>
         <translation>Адрес для дейтаграмм:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="227"/>
         <source>TLS server name:</source>
         <translation>Имя сервера TLS:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="228"/>
         <source>CA certificate:</source>
         <translation>Сертификат центра сертификации:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="229"/>
         <source>Client certificate:</source>
         <translation>Сертификат клиента:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="230"/>
         <source>Client private key:</source>
         <translation>Закрытый ключ клиента:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="231"/>
         <source>Requested port:</source>
         <translation>Запрашиваемый порт:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="232"/>
         <source>Listeners:</source>
         <translation>Приём соединений:</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="234"/>
         <source>Receive connections through your public gateway.</source>
         <translation>Принимать соединения через ваш публичный шлюз.</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="381"/>
-        <source>Connected, outgoing only</source>
-        <translation>Подключено, только исходящие</translation>
+        <source>Click to prefer this protocol. Click again for automatic selection.</source>
+        <translation>Нажмите, чтобы предпочесть этот протокол. Повторное нажатие вернёт автовыбор.</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="381"/>
-        <source>Connected, public %1</source>
-        <translation>Подключено, публичный адрес %1</translation>
+        <source>Reachable</source>
+        <translation>Доступен</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="384"/>
-        <source>; checking backup connections</source>
-        <translation>; проверка резервных соединений</translation>
+        <source>Connecting</source>
+        <translation>Подключение</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="386"/>
-        <source>; no reachable backup found</source>
-        <translation>; доступный резерв не найден</translation>
+        <source>Disconnecting</source>
+        <translation>Отключение</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="388"/>
-        <source>; settings changed, reconnect to apply</source>
-        <translation>; настройки изменены, для применения переподключитесь</translation>
+        <source>Cannot connect</source>
+        <translation>Нет соединения</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="389"/>
-        <source>Direct connection</source>
-        <translation>Прямое соединение</translation>
+        <source>Unknown</source>
+        <translation>Не проверен</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="462"/>
-        <source>Choose a node on the same server</source>
-        <translation>Выберите узел на том же сервере</translation>
+        <source>Preferred protocol. Click to return to automatic selection.</source>
+        <translation>Предпочтительный протокол. Нажмите, чтобы вернуть автовыбор.</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="75"/>
-        <source>Nodes:</source>
-        <translation>Узлы:</translation>
+        <source>Active · reachable</source>
+        <translation>Активен · доступен</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="74"/>
-        <source>Check the nodes to use alongside the direct connection.</source>
-        <translation>Отметьте узлы, которые будут работать вместе с прямым подключением.</translation>
+        <source>Active · checking</source>
+        <translation>Активен · проверка</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="135"/>
-        <source>Advanced settings</source>
-        <translation>Расширенные настройки</translation>
+        <source>Active · failed</source>
+        <translation>Активен · нет соединения</translation>
     </message>
     <message>
-        <location filename="../gui/pathswidget.cpp" line="38"/>
-        <source>Use Mihomo</source>
-        <translation>Использовать Mihomo</translation>
+        <source>Active · unknown</source>
+        <translation>Активен · не проверен</translation>
+    </message>
+    <message>
+        <source>↓ %1 (%2)  ↑ %3 (%4)</source>
+        <translation>↓ %1 (%2)  ↑ %3 (%4)</translation>
+    </message>
+    <message>
+        <source>SOCKS relay bytes for this connection, including protocol overhead; not verified torrent data.</source>
+        <translation>Байты SOCKS-прокси для этого соединения, включая служебные данные; это не проверенные данные торрента.</translation>
     </message>
     <message>
         <source>Choose a node to connect.</source>
@@ -10103,11 +9987,6 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
     <message>
         <source>Choose a network adapter to connect.</source>
         <translation>Выберите сетевой адаптер для подключения.</translation>
-    </message>
-    <message>
-        <location filename="../gui/pathswidget.cpp" line="77"/>
-        <source>Find a node</source>
-        <translation>Найти узел</translation>
     </message>
 </context>
 <context>

@@ -6,16 +6,14 @@
 #pragma once
 
 #include <QGroupBox>
-#include <QString>
 
 class QCheckBox;
 class QComboBox;
-class QFormLayout;
 class QLabel;
 class QLineEdit;
-class QListWidget;
 class QPushButton;
 class QSpinBox;
+class QTreeWidget;
 
 namespace Net
 {
@@ -30,22 +28,17 @@ public:
     explicit PathsWidget(QWidget *parent = nullptr);
 
 private:
-    QString selectedNode() const;
     void refreshState();
-    void refreshReserves();
     void activateSelection();
-    bool suspendManaged();
+    void saveSelection();
+    void filterNodes();
 
     Net::PathManager *m_manager;
-    QFormLayout *m_transportForm;
     QLineEdit *m_url;
     QLineEdit *m_nodeFilter;
-    QListWidget *m_nodes;
+    QTreeWidget *m_nodes;
     QCheckBox *m_enabled;
-    QComboBox *m_sameServer;
-    QPushButton *m_groupServers;
-    QPushButton *m_resetServerGroups;
-    QListWidget *m_reserves;
+    QComboBox *m_subscriptionFormat;
     QComboBox *m_interfaces;
     QLineEdit *m_dnsServer;
     QLineEdit *m_bootstrapServer;
@@ -61,9 +54,6 @@ private:
     QCheckBox *m_gatewayTcp;
     QCheckBox *m_gatewayUdp;
     QPushButton *m_gatewayApply;
-    QListWidget *m_paths;
-    QPushButton *m_switch;
     QLabel *m_status;
     bool m_setupIntent = false;
-    bool m_importPending = false;
 };
