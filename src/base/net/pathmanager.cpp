@@ -549,10 +549,10 @@ bool Net::PathManager::setSelectedNodes(const QStringList &names)
 
 bool Net::PathManager::setManagedEnabled(const bool enabled, const QString &interfaceName)
 {
-    if (controlBusy())
-        return false;
     if (!enabled)
         return useNative();
+    if (controlBusy())
+        return false;
     if (m_storeSelectedNodes.get().isEmpty() || m_storeConfigurationPath.get().isEmpty()
         || nativeEndpointsForInterface(interfaceName).isEmpty())
     {
@@ -1333,29 +1333,6 @@ bool Net::PathManager::applyRoutes()
 
 bool Net::PathManager::useNative()
 {
-    if (controlBusy())
-        return false;
-    // Terminate accepted sockets before restoring saved connection settings.
-    if (!shutdown())
-    {
-        reportError(tr("The previous qbutt-net process has not stopped. Native was not enabled."));
-        return false;
-    }
-    if (!BitTorrent::Session::instance()->resetNetworkRoutes())
-    {
-        reportError(tr("Unable to restore the default torrent network routes."));
-        return false;
-    }
-    if (!ProxyConfigurationManager::instance()->clearRuntimeProxy())
-    {
-        applyRoutes();
-        fail(tr("Unable to save the Native startup policy. The pinned path remains blocked."));
-        return false;
-    }
-    m_paths.clear();
-    m_nativeEndpoints.clear();
-    m_pendingNodes.clear();
-    m_openingNode.clear();
     const bool previouslyEnabled = m_storeManagedEnabled;
     m_storeManagedEnabled = false;
     if (previouslyEnabled && !SettingsStorage::instance()->save())
@@ -1364,6 +1341,39 @@ bool Net::PathManager::useNative()
         reportError(tr("Unable to save the network selection."));
         return false;
     }
+    const auto restoreSelection = [this, previouslyEnabled]()
+    {
+        m_storeManagedEnabled = previouslyEnabled;
+        return !previouslyEnabled || SettingsStorage::instance()->save();
+    };
+    m_pendingNodes.clear();
+    m_openingNode.clear();
+    // Terminate accepted sockets before restoring saved connection settings.
+    if (!shutdown())
+    {
+        reportError(restoreSelection()
+            ? tr("The previous qbutt-net process has not stopped. Native was not enabled.")
+            : tr("Unable to restore the saved Mihomo selection after Direct failed."));
+        return false;
+    }
+    if (!BitTorrent::Session::instance()->resetNetworkRoutes())
+    {
+        reportError(restoreSelection()
+            ? tr("Unable to restore the default torrent network routes.")
+            : tr("Unable to restore the saved Mihomo selection after Direct failed."));
+        return false;
+    }
+    if (!ProxyConfigurationManager::instance()->clearRuntimeProxy())
+    {
+        const bool selectionRestored = restoreSelection();
+        applyRoutes();
+        fail(tr("Unable to save the Native startup policy. The pinned path remains blocked."));
+        if (!selectionRestored)
+            reportError(tr("Unable to restore the saved Mihomo selection after Direct failed."));
+        return false;
+    }
+    m_paths.clear();
+    m_nativeEndpoints.clear();
     m_status = tr("Using default connection settings.");
     emit changed();
     return true;

@@ -260,7 +260,6 @@ PathsWidget::PathsWidget(QWidget *parent)
     });
     connect(m_nodes, &QListWidget::itemChanged, this, [this](QListWidgetItem *item)
     {
-        m_nodes->setCurrentItem(item);
         QStringList selected;
         for (int row = 0; row < m_nodes->count(); ++row)
         {
@@ -279,6 +278,7 @@ PathsWidget::PathsWidget(QWidget *parent)
                     ? Qt::Checked : Qt::Unchecked);
             }
         }
+        m_nodes->setCurrentItem(item);
     });
     connect(m_enabled, &QCheckBox::toggled, this, [this](const bool enabled)
     {
@@ -456,7 +456,7 @@ void PathsWidget::refreshState()
         }
     }
     m_nodes->setEnabled(!busy && !m_manager->managedEnabled());
-    m_enabled->setEnabled(!busy);
+    m_enabled->setEnabled(!busy || m_manager->managedEnabled());
     m_reserves->setEnabled(!busy);
     const QSignalBlocker reservesBlocker(m_reserves);
     for (int row = 0; row < m_reserves->count(); ++row)
