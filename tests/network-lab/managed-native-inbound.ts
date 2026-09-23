@@ -11,7 +11,8 @@ interface Status {
         payloadDownload: number }[];
 }
 interface Peer { flags: string; downloaded: number }
-interface Listeners { tcp: number[]; udp: number[] }
+interface Listeners { tcp: number[]; udp: number[]; peerTcpAddresses: string[]; peerUdpAddresses: string[];
+    physicalTcpCreatedAt: string; physicalUdpCreatedAt: string }
 interface LogEntry { message: string }
 
 const nativeInterface = process.env.QBUTT_LAB_NATIVE_INTERFACE;
@@ -20,26 +21,39 @@ assert(nativeInterface && nativeAddress, "Set QBUTT_LAB_NATIVE_INTERFACE and QBU
 assert(networkInterfaces()[nativeInterface]?.some(address => address.address === nativeAddress
     && address.family === "IPv4" && !address.internal), "Select a local physical IPv4 address");
 const transport = process.argv.includes("--utp") ? "utp" : "tcp";
-const lab = await createLab(`managed-native-inbound-${transport}`);
+const lab = await createLab(`managed-native-inbound-${transport}`, { interfaceAddress: "" });
 let seed: Awaited<ReturnType<typeof startSeed>> | undefined;
+let initialConnection: ReturnType<typeof createConnection> | undefined;
 let failure: unknown;
 
-async function listeners(): Promise<Listeners> {
+async function listeners(peerPort = 0): Promise<Listeners> {
     const probe = Bun.spawn(["pwsh.exe", "-NoProfile", "-NonInteractive", "-Command", String.raw`
 $ErrorActionPreference = 'Stop'
 $owned = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $env:QBUTT_LAB_EXE -and $_.CommandLine.Contains($env:QBUTT_INBOUND_PROFILE) })
 if ($owned.Count -ne 1) { throw 'Could not identify the single isolated app process' }
-$tcp = @(Get-NetTCPConnection -State Listen -OwningProcess $owned[0].ProcessId -ErrorAction SilentlyContinue | Where-Object LocalAddress -eq $env:QBUTT_INBOUND_ADDRESS | Select-Object -ExpandProperty LocalPort)
-$udp = @(Get-NetUDPEndpoint -OwningProcess $owned[0].ProcessId -ErrorAction SilentlyContinue | Where-Object LocalAddress -eq $env:QBUTT_INBOUND_ADDRESS | Select-Object -ExpandProperty LocalPort)
-@{ tcp = $tcp; udp = $udp } | ConvertTo-Json -Compress
+$tcp = @(Get-NetTCPConnection -State Listen -OwningProcess $owned[0].ProcessId -ErrorAction SilentlyContinue)
+$udp = @(Get-NetUDPEndpoint -OwningProcess $owned[0].ProcessId -ErrorAction SilentlyContinue)
+$peerPort = [int]$env:QBUTT_INBOUND_PEER_PORT
+$physicalTcp = @($tcp | Where-Object { $_.LocalAddress -eq $env:QBUTT_INBOUND_ADDRESS -and $_.LocalPort -eq $peerPort })
+$physicalUdp = @($udp | Where-Object { $_.LocalAddress -eq $env:QBUTT_INBOUND_ADDRESS -and $_.LocalPort -eq $peerPort })
+@{
+    tcp = @($tcp | Where-Object LocalAddress -eq $env:QBUTT_INBOUND_ADDRESS | Select-Object -ExpandProperty LocalPort)
+    udp = @($udp | Where-Object LocalAddress -eq $env:QBUTT_INBOUND_ADDRESS | Select-Object -ExpandProperty LocalPort)
+    peerTcpAddresses = @($tcp | Where-Object LocalPort -eq $peerPort | Select-Object -ExpandProperty LocalAddress)
+    peerUdpAddresses = @($udp | Where-Object LocalPort -eq $peerPort | Select-Object -ExpandProperty LocalAddress)
+    physicalTcpCreatedAt = if ($physicalTcp.Count -eq 1) { $physicalTcp[0].CreationTime.ToUniversalTime().ToString('o') } else { '' }
+    physicalUdpCreatedAt = if ($physicalUdp.Count -eq 1) { $physicalUdp[0].CreationTime.ToUniversalTime().ToString('o') } else { '' }
+} | ConvertTo-Json -Compress
 `], { env: { ...process.env, QBUTT_INBOUND_PROFILE: join(lab.root, "profile"),
-        QBUTT_INBOUND_ADDRESS: nativeAddress }, stdout: "pipe", stderr: "pipe",
+        QBUTT_INBOUND_ADDRESS: nativeAddress, QBUTT_INBOUND_PEER_PORT: String(peerPort) }, stdout: "pipe", stderr: "pipe",
         timeout: 10000, windowsHide: true });
     const [exit, output, error] = await Promise.all([probe.exited,
         new Response(probe.stdout).text(), new Response(probe.stderr).text()]);
     assert.equal(exit, 0, error);
     const result = JSON.parse(output) as Listeners;
-    return { tcp: result.tcp.map(Number), udp: result.udp.map(Number) };
+    return { tcp: result.tcp.map(Number), udp: result.udp.map(Number),
+        peerTcpAddresses: result.peerTcpAddresses, peerUdpAddresses: result.peerUdpAddresses,
+        physicalTcpCreatedAt: result.physicalTcpCreatedAt, physicalUdpCreatedAt: result.physicalUdpCreatedAt };
 }
 
 async function physicalListeners() {
@@ -82,14 +96,54 @@ async function rejectedHandshake(port: number, hash: string) {
 
 try {
     await lab.start();
+    const initial = await waitFor("default all-interface physical listeners", listeners,
+        value => value.tcp.length === 1 && value.udp.length === 1, 30000);
+    const peerPort = initial.tcp[0]!;
+    assert.equal(initial.udp[0], peerPort, "Default TCP and UDP ports differ");
+    const allInterfaces = await listeners(peerPort);
+    assert(allInterfaces.physicalTcpCreatedAt && allInterfaces.physicalUdpCreatedAt,
+        "Initial physical socket creation times are unavailable");
+    assert(allInterfaces.peerTcpAddresses.includes("127.0.0.1")
+        && allInterfaces.peerTcpAddresses.includes(nativeAddress)
+        && allInterfaces.peerUdpAddresses.includes("127.0.0.1")
+        && allInterfaces.peerUdpAddresses.includes(nativeAddress),
+    "Default listeners did not expand to loopback and the physical address");
+    initialConnection = createConnection({ host: nativeAddress, port: peerPort, localAddress: nativeAddress });
+    await new Promise<void>((resolve, reject) => {
+        initialConnection!.once("connect", resolve);
+        initialConnection!.once("error", reject);
+    });
+    initialConnection.on("error", () => {});
+    initialConnection.write(Buffer.from([19]));
+    const interfaces = await lab.json<{ name: string; value: string }[]>("app/networkInterfaceList");
+    const selected = interfaces.filter(item => item.name === nativeInterface || item.value === nativeInterface);
+    assert.equal(selected.length, 1, "Physical interface is ambiguous");
+    assert(!initialConnection.destroyed, "The incoming connection closed before the preference change");
     await lab.request("app/setPreferences", { json: JSON.stringify({
+        current_network_interface: selected[0]!.value, current_interface_address: nativeAddress,
         bittorrent_protocol: 0, dht: false, pex: false, lsd: false,
     }) });
+    const explicit = await waitFor("exclusive physical listener after interface preference", () => listeners(peerPort),
+        value => value.peerTcpAddresses.length === 1 && value.peerTcpAddresses[0] === nativeAddress
+            && value.peerUdpAddresses.length === 1 && value.peerUdpAddresses[0] === nativeAddress, 30000);
+    assert.equal(explicit.physicalTcpCreatedAt, allInterfaces.physicalTcpCreatedAt,
+        "The selected Native TCP listener was needlessly rebound");
+    assert.equal(explicit.physicalUdpCreatedAt, allInterfaces.physicalUdpCreatedAt,
+        "The selected Native UDP listener was needlessly rebound");
+    initialConnection.destroy();
+    initialConnection = undefined;
     await lab.request("qbuttPaths/policy", { mode: "mixed", nativeInterface });
     const mixed = await lab.json<Status>("qbuttPaths/status");
     let native = mixed.paths.find(path => path.edgeId === "native" && path.localAddress === nativeAddress);
     assert(mixed.mode === "mixed" && native?.open, "Mixed did not admit the physical Native route");
     let { bound, tcpPort, udpPort } = await physicalListeners();
+    assert.equal(tcpPort, peerPort, "Mixed changed the retained Native TCP listener port");
+    assert.equal(udpPort, peerPort, "Mixed changed the retained Native UDP listener port");
+    const mixedBindings = await listeners(peerPort);
+    assert.deepEqual(mixedBindings.peerTcpAddresses, [nativeAddress]);
+    assert.deepEqual(mixedBindings.peerUdpAddresses, [nativeAddress]);
+    assert.equal(mixedBindings.physicalTcpCreatedAt, allInterfaces.physicalTcpCreatedAt);
+    assert.equal(mixedBindings.physicalUdpCreatedAt, allInterfaces.physicalUdpCreatedAt);
     const destination = join(lab.root, "download");
     const hash = await lab.add("v1-public", destination);
     await lab.request("torrents/start", { hashes: hash });
@@ -163,6 +217,8 @@ try {
         "Independent seed did not supply the verified payload");
     assert.deepEqual(final.outgoingPeerAddresses, [nativeAddress]);
     await lab.checkpoint({ check: "managed-native-inbound", transport, bound,
+        initialAllInterfaces: allInterfaces.peerTcpAddresses.length,
+        explicitPhysicalOnly: explicit.peerTcpAddresses,
         actualTcpPort: tcpPort, actualUdpPort: udpPort, verifiedBytes,
         route: { pathId: native.pathId, generation: native.generation },
         incoming: true, noContextZero: true,
@@ -174,6 +230,7 @@ catch (error) {
         appLog: (await lab.json<unknown[]>("log/main?normal=true&info=true&warning=true&critical=true&last_known_id=-1")).slice(-30) }); } catch {}
 }
 finally {
+    initialConnection?.destroy();
     try { if (seed) await seed.stop(); } catch (error) { failure ??= error; }
     try { await lab.shutdown(); } catch (error) { failure ??= error; }
 }

@@ -92,7 +92,8 @@ async function freePeerPort(webPort: number): Promise<number> {
     throw new Error("No local peer port available for both TCP and UDP");
 }
 
-export async function createLab(name: string, options: { pex?: boolean; protocol?: "TCP" | "UTP" } = {}) {
+export async function createLab(name: string, options: { pex?: boolean; protocol?: "TCP" | "UTP";
+    interfaceAddress?: string } = {}) {
     const executable = process.env.QBUTT_LAB_EXE;
     const python = process.env.QBUTT_LAB_PYTHON;
     const appName = process.env.QBUTT_LAB_APP_NAME ?? "qbutt";
@@ -118,7 +119,8 @@ export async function createLab(name: string, options: { pex?: boolean; protocol
         "[BitTorrent]",
         `Session\\ResumeDataStorageType=${resumeBackend}`,
         "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", `Session\\PeXEnabled=${options.pex === true}`,
-        `Session\\BTProtocol=${options.protocol ?? "TCP"}`, "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
+        `Session\\BTProtocol=${options.protocol ?? "TCP"}`,
+        `Session\\InterfaceAddress=${options.interfaceAddress ?? "127.0.0.1"}`, `Session\\Port=${peerPort}`,
         "Session\\IgnoreLimitsOnLAN=false", "Session\\AddExtensionToIncompleteFiles=false",
         "Session\\UseUnwantedFolder=false", "Session\\QueueingSystemEnabled=false",
         "[Network]", "PortForwardingEnabled=false", "[Core]", "AutoOpenTorrentFiles=false",
