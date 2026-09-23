@@ -1948,7 +1948,8 @@ namespace
         filesTab->click();
         require(properties->tabBar()->currentIndex() == PropTabBar::FilesTab,
             u"Content tab did not open its page"_s);
-        properties->tabBar()->setCurrentIndex(initialPropertiesTab);
+        if (properties->tabBar()->currentIndex() != initialPropertiesTab)
+            properties->tabBar()->setCurrentIndex(initialPropertiesTab);
         QStatusBar *statusBar = window->statusBar();
         auto *limitsButton = requiredChild<QPushButton>(statusBar, u"speedLimitsButton"_s);
         auto *downloadButton = requiredChild<QPushButton>(statusBar, u"downloadSpeedButton"_s);
