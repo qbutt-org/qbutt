@@ -55,17 +55,17 @@ AboutDialog::AboutDialog(QWidget *parent)
     m_ui->logo->setPixmap(UIThemeManager::instance()->getScaledPixmap(u"qbittorrent-tray"_s, 32));
 
     // About
-    const QString aboutText =
-        u"<p style=\"white-space: pre-wrap;\">"
-        u"qbutt is a fork of qBittorrent " QBT_VERSION u".\n\n"
-        u"%1\n\n"
+    const QString aboutText = (
+        u"<p style=\"white-space: pre-wrap;\">"_s
+        + tr("qbutt is a fork of qBittorrent %1.").arg(QStringLiteral(QBT_VERSION))
+        + u"\n\n%1\n\n"
         u"%2\n\n"
         u"<table>"
         u"<tr><td>%3</td><td><a href=\"https://github.com/qbutt-org/qbutt\">github.com/qbutt-org/qbutt</a></td></tr>"
         u"<tr><td>%4</td><td><a href=\"https://www.qbittorrent.org\">https://www.qbittorrent.org</a></td></tr>"
         u"<tr><td>%5</td><td><a href=\"https://github.com/qbutt-org/qbutt/issues\">https://github.com/qbutt-org/qbutt/issues</a></td></tr>"
         u"</table>"
-        u"</p>"_s
+        u"</p>"_s)
         .arg(tr("A ButtTorrent Client")
             , tr("Copyright %1 2006-2026 The qBittorrent project").arg(C_COPYRIGHT)
             , tr("Home Page:")

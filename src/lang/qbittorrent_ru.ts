@@ -140,6 +140,11 @@
         <translation>Клиент ButtTorrent</translation>
     </message>
     <message>
+        <location filename="../gui/aboutdialog.cpp" line="60"/>
+        <source>qbutt is a fork of qBittorrent %1.</source>
+        <translation>qbutt создан на основе qBittorrent %1.</translation>
+    </message>
+    <message>
         <location filename="../gui/aboutdialog.cpp" line="72"/>
         <source>Upstream:</source>
         <translation>Исходный проект:</translation>
