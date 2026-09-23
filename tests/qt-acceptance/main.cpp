@@ -1974,8 +1974,11 @@ namespace
             }
             options.showConnectionTab();
             QCoreApplication::processEvents();
-            require(requiredChild<QLabel>(&options, u"verticalLayout_20AdvancedHeading"_s)->isVisible(),
-                u"Connection advanced settings heading is hidden"_s);
+            const auto headings = options.findChildren<QLabel *>();
+            require(std::ranges::count_if(headings, [](const QLabel *label)
+            {
+                return label->isVisible() && (label->text() == PathsWidget::tr("Advanced settings"));
+            }) == 1, u"Connection settings need one visible advanced heading"_s);
             require(options.grab().save(screenshots.filePath(phase + u"-connections.png"_s)), u"Cannot render connection settings"_s);
             requireNoOverflow();
             ProfileImportDialog importer {window};
