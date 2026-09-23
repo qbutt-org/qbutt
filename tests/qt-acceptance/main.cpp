@@ -1907,7 +1907,11 @@ namespace
         const QMargins toolbarMargins = toolbar->layout()->contentsMargins();
         require((centralMargins.left() == 8) && (centralMargins.right() == 8)
                 && (toolbarMargins.left() == 8) && (toolbarMargins.right() == 8),
-            u"Toolbar and content lost their matching outer gutters"_s);
+            u"Toolbar and content gutters differ: central %1/%2, toolbar %3/%4, first/last action %5/%6, width %7"_s
+                .arg(centralMargins.left()).arg(centralMargins.right())
+                .arg(toolbarMargins.left()).arg(toolbarMargins.right())
+                .arg(toolbar->actionGeometry(toolbar->actions().first()).left())
+                .arg(toolbar->actionGeometry(toolbar->actions().last()).right()).arg(toolbar->width()));
         auto *webSeedsTab = requiredChild<QPushButton>(properties, u"webSeedsTabButton"_s);
         auto *speedTab = requiredChild<QPushButton>(properties, u"speedTabButton"_s);
         auto *filesTab = requiredChild<QPushButton>(properties, u"filesTabButton"_s);
