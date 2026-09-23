@@ -181,7 +181,7 @@ TorrentFilesWatcher::TorrentFilesWatcher(QObject *parent)
 bool TorrentFilesWatcher::isAutoOpenEnabled() const
 {
 #ifdef Q_OS_WIN
-    return m_autoOpenEnabled;
+    return m_autoOpenEnabled.get(true);
 #else
     return false;
 #endif
