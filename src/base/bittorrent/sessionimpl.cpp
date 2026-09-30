@@ -1982,7 +1982,8 @@ lt::settings_pack SessionImpl::loadLTSettings() const
     // proxy
     settingsPack.set_int(lt::settings_pack::proxy_type, lt::settings_pack::none);
     const auto *proxyManager = Net::ProxyConfigurationManager::instance();
-    const bool managedNetwork = proxyManager->hasRuntimeProxy();
+    // Mixed installs its route selector before saving the runtime proxy marker.
+    const bool managedNetwork = m_peerRouteSelector || proxyManager->hasRuntimeProxy();
     settingsPack.set_bool(lt::settings_pack::proxy_require_authentication, false);
     const Net::ProxyConfiguration proxyConfig = proxyManager->proxyConfiguration();
     if (!managedNetwork && (proxyConfig.type != Net::ProxyType::None)
@@ -4387,8 +4388,8 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
     lt::error_code error = m_nativeSession->set_udp_routes(std::move(transitionRoutes));
     if (error)
     {
-        LogMsg(tr("Failed to register managed UDP routes. Reason: \"%1\".")
-            .arg(QString::fromStdString(error.message())), Log::WARNING);
+        LogMsg(tr("Failed to register managed UDP routes. Reason: \"%1\" (code %2).")
+            .arg(QString::fromStdString(error.message())).arg(error.value()), Log::WARNING);
         return false;
     }
 
@@ -4473,8 +4474,8 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
         m_listenInterfaceConfigured = false;
         disablePortMapping();
         configure();
-        LogMsg(tr("Failed to retire superseded managed UDP routes. Reason: \"%1\".")
-            .arg(QString::fromStdString(error.message())), Log::WARNING);
+        LogMsg(tr("Failed to retire superseded managed UDP routes. Reason: \"%1\" (code %2).")
+            .arg(QString::fromStdString(error.message())).arg(error.value()), Log::WARNING);
         return false;
     }
     m_managedUdpRoutes = std::move(udpRoutes);
