@@ -77,10 +77,17 @@ namespace Net
             bool eventsTruncated = false;
         };
 
+        struct Route
+        {
+            libtorrent::peer_route binding;
+            bool supportsIPv4 = false;
+            bool supportsIPv6 = false;
+        };
+
         class DiagnosticHistory
         {
         public:
-            void configure(const std::vector<libtorrent::peer_route> &routes);
+            void configure(const std::vector<Route> &routes);
             void retire();
             void selected(const libtorrent::peer_route_context &route, Decision decision);
             void observe(const libtorrent::peer_route_observation &observation);
@@ -115,7 +122,7 @@ namespace Net
             mutable std::mutex m_mutex;
         };
 
-        PeerRouteSelector(std::vector<libtorrent::peer_route> routes, bool mixed,
+        PeerRouteSelector(std::vector<Route> routes, bool mixed,
             std::shared_ptr<DiagnosticHistory> diagnostics = {},
             const std::shared_ptr<PeerRouteSelector> &previous = {});
 
@@ -160,7 +167,7 @@ namespace Net
 
         void maintain(Clock::time_point now);
 
-        const std::vector<libtorrent::peer_route> m_routes;
+        const std::vector<Route> m_routes;
         const bool m_mixed;
         const std::shared_ptr<History> m_history;
         const std::shared_ptr<DiagnosticHistory> m_diagnosticHistory;

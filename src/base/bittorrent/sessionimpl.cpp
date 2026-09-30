@@ -4265,7 +4265,7 @@ bool SessionImpl::isRestored() const
 
 bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoints, const Net::RoutePolicy policy)
 {
-    std::vector<lt::peer_route> peerRoutes;
+    std::vector<Net::PeerRouteSelector::Route> peerRoutes;
     std::vector<lt::network_route> allRoutes;
     std::vector<lt::network_route> pinnedRoutes;
     std::vector<lt::udp_route> udpRoutes;
@@ -4303,7 +4303,7 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
 #endif
             }
         }
-        peerRoutes.push_back(route);
+        peerRoutes.push_back({route, endpoint.supportsIPv4, endpoint.supportsIPv6});
         if ((route.type != lt::peer_route::type_t::socks5)
             && (route.type != lt::peer_route::type_t::native))
         {

@@ -234,7 +234,7 @@ int main(const int argc, char **argv)
     settings.set_int(lt::settings_pack::min_reconnect_time, 1);
     settings.set_int(lt::settings_pack::out_enc_policy, lt::settings_pack::pe_disabled);
     settings.set_int(lt::settings_pack::in_enc_policy, lt::settings_pack::pe_disabled);
-    std::vector<lt::peer_route> routes;
+    std::vector<Net::PeerRouteSelector::Route> routes;
     lt::torrent_route_policy torrentPolicy;
     torrentPolicy.mode = lt::torrent_route_policy::mode_t::managed;
     torrentPolicy.pinned = {1, 7};
@@ -248,7 +248,7 @@ int main(const int argc, char **argv)
         networkRoute.binding = route;
         networkRoute.family = lt::route_family::ipv4;
         torrentPolicy.routes.push_back(std::move(networkRoute));
-        routes.push_back(std::move(route));
+        routes.push_back({std::move(route), true, false});
     }
     auto diagnostics = std::make_shared<Net::PeerRouteSelector::DiagnosticHistory>();
     auto selector = std::make_shared<Net::PeerRouteSelector>(std::move(routes), true, diagnostics);
