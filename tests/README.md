@@ -594,23 +594,21 @@ and exact verified payload, then require Tunnels Only to retire both listeners.
 
 `smoke:route-policy` drives the standalone libtorrent integration executable.
 Set `QBUTT_POLICY_EXE` to the built `route-policy-integration.exe` and
-`QBUTT_PUBLIC_IPV4` to a synthetic IPv4 identity for the SOCKS route; this local
+`QBUTT_PUBLIC_IPV4` to a synthetic public IPv4 identity; this local
 fixture does not contact that address. Set `QBUTT_LAB_NATIVE_ADDRESS` to a local
 non-loopback IPv4 address when automatic interface selection is unsuitable. It
-proves live policy
-replacement for HTTP/UDP trackers and DHT generations, an authenticated SOCKS
-webseed, an unaffected default session, and automatic managed uTP with exact
-payload bytes and source binding. Native HTTP/UDP tracker and DHT captures require
-the actual physical peer listener port instead of a supplied public endpoint;
-the SOCKS route retains its explicit address and port. They reject a hostile
-session-wide announce address and verify identical peer IDs and keys. The
-standard physical UDP listener must answer a DHT ping before managed policy and
-stop answering after the switch. An
-outgoing-only route performs `get_peers` without `announce_peer`, and anonymous
-announces suppress addresses while preserving the peer port. The local DHT
-packet source is loopback, so this proves route-local node identity and
-announced port behavior. Public address correctness and
-reachability require the external gateway scenario.
+checks live policy replacement for HTTP/UDP trackers and DHT generations against
+physical Native listeners. Managed DHT answers on its physical UDP socket; DHT
+and UDP tracker packets leave the corresponding listener port. A same-generation
+preferred-port rebind closes the old socket, moves DHT and tracker traffic to the
+new port, and preserves the Native route. After managed routes are detached, the
+retired scoped DHT context rejects a new node and ordinary DHT answers on both
+physical listeners. The fixture also rejects a stale tracker reply, a hostile
+session-wide announce address, and mismatched tracker peer IDs or keys. Anonymous
+announces suppress addresses while preserving the rebound peer port. It checks
+an authenticated SOCKS webseed, an unaffected default session, and managed uTP
+with exact payload bytes and the physical UDP source port. The local DHT packet
+source is loopback; public reachability requires the external gateway scenario.
 Two dual-family SOCKS contexts also announce a hostname tracker exactly once per
 context for each start/stop, retaining the leased public listener and the separate
 outgoing-only context. The hostname maps deterministically to a loopback IPv4

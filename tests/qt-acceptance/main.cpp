@@ -97,6 +97,7 @@
 #include "base/bittorrent/torrentdescriptor.h"
 #include "base/bittorrent/torrentimpl.h"
 #include "base/global.h"
+#include "base/logger.h"
 #include "base/net/pathmanager.h"
 #include "base/path.h"
 #include "base/preferences.h"
@@ -508,15 +509,59 @@ namespace
                 && selected.contains(u"Alpha"_s) && selected.contains(u"Alpha reserve"_s)
                 && selected.contains(u"Beta"_s) && selected.contains(QString {MALICIOUS_PROXY_NAME}),
             u"Selecting nodes lost the Mihomo setup intent"_s);
-        waitFor(u"Connected selected nodes and direct path"_s, [&]
+        try
         {
-            const QJsonArray current = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
-            const int directPaths = std::ranges::count_if(current, [](const QJsonValue &path)
-            { return path.toObject().value(u"edgeId"_s) == u"native"_s; });
-            return !Net::PathManager::instance()->isBusy() && enabled->isChecked()
-                && (directPaths >= 1) && (current.size() == directPaths + 3)
-                && std::ranges::all_of(current, [](const QJsonValue &path) { return path.toObject().value(u"open"_s).toBool(); });
-        });
+            waitFor(u"Connected selected nodes and direct path"_s, [&]
+            {
+                const QJsonArray current = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
+                const int directPaths = std::ranges::count_if(current, [](const QJsonValue &path)
+                { return path.toObject().value(u"edgeId"_s) == u"native"_s; });
+                return !Net::PathManager::instance()->isBusy() && enabled->isChecked()
+                    && (directPaths >= 1) && (current.size() == directPaths + 3)
+                    && std::ranges::all_of(current, [](const QJsonValue &path) { return path.toObject().value(u"open"_s).toBool(); });
+            });
+        }
+        catch (const std::runtime_error &)
+        {
+            const QJsonObject state = Net::PathManager::instance()->statusData();
+            // The fixture has a URL-shaped node name; never write it into evidence.
+            QStringList names = Net::PathManager::instance()->selectedNodes();
+            std::ranges::sort(names, std::greater {}, &QString::size);
+            const QString subscriptionUrl = Net::PathManager::instance()->subscriptionUrl();
+            const auto redact = [&names, &subscriptionUrl](QString text)
+            {
+                for (const QString &name : names)
+                {
+                    if (!name.isEmpty())
+                        text.replace(name, u"[selected node]"_s);
+                }
+                if (!subscriptionUrl.isEmpty())
+                    text.replace(subscriptionUrl, u"[subscription]"_s);
+                return text;
+            };
+            QJsonArray warnings;
+            for (const Log::Msg &message : Logger::instance()->getMessages())
+            {
+                if (message.type == Log::WARNING || message.type == Log::CRITICAL)
+                    warnings.append(redact(message.message));
+            }
+            QJsonArray paths;
+            for (const QJsonValue &value : state.value(u"paths"_s).toArray())
+            {
+                const QJsonObject path = value.toObject();
+                paths.append(QJsonObject {{u"pathId"_s, path.value(u"pathId"_s)},
+                    {u"generation"_s, path.value(u"generation"_s)},
+                    {u"kind"_s, path.value(u"edgeId"_s) == u"native"_s ? u"native"_s : u"managed"_s},
+                    {u"open"_s, path.value(u"open"_s)}});
+            }
+            evidence[u"connectionTimeout"_s] = QJsonObject {{u"status"_s, redact(state.value(u"status"_s).toString())},
+                {u"busy"_s, state.value(u"busy"_s)}, {u"open"_s, state.value(u"open"_s)},
+                {u"processId"_s, state.value(u"processId"_s)}, {u"paths"_s, paths},
+                {u"warnings"_s, warnings},
+                {u"pendingNodeCount"_s, static_cast<int>(state.value(u"pendingNodes"_s).toArray().size())},
+                {u"failedNodeCount"_s, static_cast<int>(state.value(u"failedNodes"_s).toArray().size())}};
+            throw;
+        }
         QJsonArray opened = Net::PathManager::instance()->statusData().value(u"paths"_s).toArray();
         QSet<QString> managedEdges;
         for (const QJsonValue &value : opened)

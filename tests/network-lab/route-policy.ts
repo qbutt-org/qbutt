@@ -19,9 +19,17 @@ const root = await mkdtemp(join(tmpdir(), "qbutt-route-policy-"));
 const markers = join(root, "markers");
 await mkdir(markers);
 const mark = (name: string, data = "") => writeFile(join(markers, name), data);
-const phase = () => existsSync(join(markers, "phase-anonymous"))
-    && !existsSync(join(markers, "phase-anonymous-end"))
-    ? "anonymous" : existsSync(join(markers, "phase-b")) ? "b" : "a";
+const phase = () => {
+    if (existsSync(join(markers, "ordinary-dht-restored")))
+        return "ordinary";
+    if (existsSync(join(markers, "phase-anonymous")))
+        return existsSync(join(markers, "phase-anonymous-end")) ? "after-anonymous" : "anonymous";
+    if (existsSync(join(markers, "phase-rebind")))
+        return "rebind";
+    if (existsSync(join(markers, "phase-rebind-start")))
+        return "rebind-transition";
+    return existsSync(join(markers, "phase-b")) ? "b" : "a";
+};
 function queryBytes(url: string, name: string) {
     const query = url.slice(url.indexOf("?") + 1);
     const encoded = query.split("&").find(item => item.startsWith(`${name}=`))?.slice(name.length + 1);
@@ -40,13 +48,12 @@ function queryBytes(url: string, name: string) {
     }
     return Buffer.from(bytes);
 }
-const httpSources: string[] = [];
+const httpSources: { source: string; phase: string }[] = [];
 const httpAnnounces: { source: string; phase: string; port: number; ip: string | null;
     ipv4: string | null; ipv6: string | null; peerId: string | null; key: string | null;
     host: string | null; infoHash: string | null; event: string | null }[] = [];
 const webRequests: { path: string; range: string | null }[] = [];
 let releaseOldTracker!: () => void;
-let oldTrackerRequestAborted = false;
 const oldTrackerReleased = new Promise<void>(resolve => { releaseOldTracker = resolve; });
 const tracker = Bun.serve({
     hostname: "127.0.0.1",
@@ -61,12 +68,11 @@ const tracker = Bun.serve({
             key: url.searchParams.get("key"), host: request.headers.get("host"),
             infoHash: queryBytes(requestUrl, "info_hash")?.toString("hex") ?? null,
             event: url.searchParams.get("event") };
-        httpSources.push(source);
+        httpSources.push({ source, phase: announce.phase });
         if (source === "127.0.0.2") {
             httpAnnounces.push(announce);
             await mark("http-a");
             await oldTrackerReleased;
-            oldTrackerRequestAborted = request.signal.aborted;
         }
         else if (source === "127.0.0.3") {
             httpAnnounces.push(announce);
@@ -80,6 +86,9 @@ const tracker = Bun.serve({
         }
         else if (source === "127.0.0.4") {
             await mark("http-default");
+        }
+        else if (source === "127.0.0.6" && announce.phase === "ordinary") {
+            httpAnnounces.push(announce);
         }
         else {
             return new Response("unexpected source", { status: 403 });
@@ -127,12 +136,13 @@ const proxy = await startProxy({ username, password, targets: [
     { host: "tracker.invalid", port: tracker.port!, connectHost: "127.0.0.1", connectPort: tracker.port! },
 ] });
 
-const udpSources: string[] = [];
-const udpAnnounces: { source: string; phase: string; port: number; ipv4: string;
+const udpSources: { source: string; phase: string }[] = [];
+const udpAnnounces: { source: string; sourcePort: number; phase: string; port: number; ipv4: string;
     peerId: string; key: number }[] = [];
 const udpTracker = createSocket("udp4");
 udpTracker.on("message", (packet, source) => {
-    udpSources.push(source.address);
+    const packetPhase = phase();
+    udpSources.push({ source: source.address, phase: packetPhase });
     if (packet.length < 16)
         return;
     const action = packet.readUInt32BE(8);
@@ -147,13 +157,17 @@ udpTracker.on("message", (packet, source) => {
         if (packet.length < 98)
             return;
         const address = packet.readUInt32BE(84);
-        const announce = { source: source.address, phase: phase(), port: packet.readUInt16BE(96),
+        const announce = { source: source.address, sourcePort: source.port,
+            phase: packetPhase, port: packet.readUInt16BE(96),
             ipv4: `${address >>> 24}.${address >>> 16 & 255}.${address >>> 8 & 255}.${address & 255}`,
             peerId: packet.subarray(36, 56).toString("hex"), key: packet.readUInt32BE(88) };
         udpAnnounces.push(announce);
-        void mark(announce.phase === "anonymous" ? "udp-anonymous"
-            : source.address === "127.0.0.2" ? "udp-a" : "udp-b");
-        if (source.address !== "127.0.0.3")
+        if (announce.phase !== "ordinary")
+            void mark(announce.phase === "anonymous" ? "udp-anonymous"
+                : announce.phase === "rebind" ? "udp-rebind"
+                    : source.address === "127.0.0.2" ? "udp-a" : "udp-b");
+        if (source.address !== "127.0.0.3"
+            && !(source.address === "127.0.0.6" && announce.phase === "ordinary"))
             return;
         const response = Buffer.alloc(20);
         response.writeUInt32BE(1, 0);
@@ -165,10 +179,9 @@ udpTracker.on("message", (packet, source) => {
 await new Promise<void>(resolve => udpTracker.bind(0, "127.0.0.1", resolve));
 const udpTrackerPort = (udpTracker.address() as { port: number }).port;
 
-const dhtSources: string[] = [];
-const dhtIds: string[] = [];
-const dhtQueries: { source: string; phase: string; query: string }[] = [];
-const dhtAnnounces: { source: string; phase: string; port: number; impliedPort: number | null }[] = [];
+const dhtQueries: { source: string; sourcePort: number; phase: string; query: string; id: string }[] = [];
+const dhtAnnounces: { source: string; sourcePort: number; phase: string;
+    port: number; impliedPort: number | null }[] = [];
 const dht = createSocket("udp4");
 function field(packet: Buffer, name: string) {
     const prefix = Buffer.from(`${name.length}:${name}`);
@@ -198,30 +211,29 @@ function integerField(packet: Buffer, name: string) {
     return Number.isSafeInteger(value) ? value : null;
 }
 dht.on("message", (packet, source) => {
-    dhtSources.push(source.address);
+    const packetPhase = phase();
     const id = field(packet, "id");
-    if (id.length === 20)
-        dhtIds.push(id.toString("hex"));
     const transaction = field(packet, "t");
     if (!transaction.length)
         return;
     const query = field(packet, "q").toString();
-    dhtQueries.push({ source: source.address, phase: phase(), query });
+    dhtQueries.push({ source: source.address, sourcePort: source.port, phase: packetPhase, query,
+        id: id.length === 20 ? id.toString("hex") : "" });
     let response: Buffer;
     if (query === "announce_peer") {
         const port = integerField(packet, "port");
         if (port === null)
             return;
-        dhtAnnounces.push({ source: source.address, phase: phase(), port,
+        dhtAnnounces.push({ source: source.address, sourcePort: source.port, phase: packetPhase, port,
             impliedPort: integerField(packet, "implied_port") });
-        void mark(source.address === "127.0.0.2" ? "dht-a" : "dht-b");
+        if (packetPhase !== "ordinary")
+            void mark(packetPhase === "rebind" ? "dht-rebind"
+                : source.address === "127.0.0.2" ? "dht-a" : "dht-b");
         response = Buffer.concat([Buffer.from("d1:rd2:id20:"), Buffer.alloc(20, 0x42),
             Buffer.from("e1:t"), Buffer.from(String(transaction.length)), Buffer.from(":"), transaction,
             Buffer.from("1:y1:re")]);
     }
     else if (query === "get_peers") {
-        if (source.address === "127.0.0.7")
-            void mark("dht-outgoing");
         response = Buffer.concat([Buffer.from("d1:rd2:id20:"), Buffer.alloc(20, 0x42),
             Buffer.from("5:nodes0:5:token11:route-tokene1:t"),
             Buffer.from(String(transaction.length)), Buffer.from(":"), transaction,
@@ -249,18 +261,44 @@ try {
         const port = Number(await readFile(marker, "utf8"));
         assert(Number.isInteger(port) && port > 0);
         const probe = createSocket("udp4");
+        let physicalPort = port;
         let preManagedReply = false;
         let managedReply = false;
-        probe.on("message", packet => {
+        let routedReply = false;
+        let oldBReply = false;
+        let reboundReply = false;
+        let ordinaryReply = false;
+        const ordinaryResponses: { address: string; port: number }[] = [];
+        let ordinaryBReply = false;
+        let routePort = 0;
+        let oldBPort = 0;
+        let reboundPort = 0;
+        probe.on("message", (packet, source) => {
             const transaction = field(packet, "t").toString();
-            if (transaction === "xx") preManagedReply = true;
+            if (transaction === "xx" && source.address === physicalAddress && source.port === port)
+                preManagedReply = true;
             if (transaction === "yy") managedReply = true;
+            if (transaction === "rr") {
+                ordinaryResponses.push({ address: source.address, port: source.port });
+                if (source.address === physicalAddress && source.port === physicalPort)
+                    ordinaryReply = true;
+            }
+            if (transaction === "zz" && field(packet, "y").toString() === "r"
+                && source.address === "127.0.0.2" && source.port === routePort)
+                routedReply = true;
+            if (transaction === "oo") oldBReply = true;
+            if (transaction === "nn" && field(packet, "y").toString() === "r"
+                && source.address === "127.0.0.3" && source.port === reboundPort)
+                reboundReply = true;
+            if (transaction === "dd" && field(packet, "y").toString() === "r"
+                && source.address === "127.0.0.3" && source.port === reboundPort)
+                ordinaryBReply = true;
         });
         try {
             const ping = async (transaction: string) => {
                 const packet = Buffer.concat([Buffer.from("d1:ad2:id20:"), Buffer.alloc(20, 0x61),
                     Buffer.from(`e1:q4:ping1:t2:${transaction}1:y1:qe`)]);
-                await new Promise<void>((resolve, reject) => probe.send(packet, port, physicalAddress,
+                await new Promise<void>((resolve, reject) => probe.send(packet, physicalPort, physicalAddress,
                     error => error ? reject(error) : resolve()));
             };
             for (let attempt = 0; attempt < 20 && !preManagedReply; attempt++) {
@@ -276,17 +314,92 @@ try {
             await ping("yy");
             await Bun.sleep(600);
             assert(!managedReply, "Managed physical uTP listener leaked a context-0 DHT response");
+            routePort = Number(await readFile(join(markers, "native-route-udp-a"), "utf8"));
+            assert(Number.isInteger(routePort) && routePort > 0);
+            const lookup = (transaction: string) => Buffer.concat([Buffer.from("d1:ad2:id20:"), Buffer.alloc(20, 0x61),
+                Buffer.from("9:info_hash20:"), Buffer.alloc(20, 0x62),
+                Buffer.from(`e1:q9:get_peers1:t2:${transaction}1:y1:qe`)]);
+            for (let attempt = 0; attempt < 20 && !routedReply; attempt++) {
+                await new Promise<void>((resolve, reject) => probe.send(lookup("zz"), routePort, "127.0.0.2",
+                    error => error ? reject(error) : resolve()));
+                await Bun.sleep(150);
+            }
+            assert(routedReply, "Managed Native DHT did not answer get_peers on its physical UDP socket");
+            await mark("managed-dht-replied");
+            const rebound = join(markers, "native-rebound-ports");
+            for (let attempt = 0; attempt < 6000 && !existsSync(rebound); attempt++)
+                await Bun.sleep(10);
+            assert(existsSync(rebound), "Active Native route did not rebind with the preferred peer port");
+            oldBPort = Number(await readFile(join(markers, "native-route-udp-b"), "utf8"));
+            let reboundPorts: number[] = [];
+            for (let attempt = 0; attempt < 50; attempt++) {
+                reboundPorts = (await readFile(rebound, "utf8")).split(",").map(Number);
+                if (reboundPorts.length === 2 && reboundPorts.every(Number.isInteger)) break;
+                await Bun.sleep(10);
+            }
+            reboundPort = reboundPorts[1]!;
+            assert(Number.isInteger(reboundPorts[0]) && reboundPorts[0]! > 0
+                && Number.isInteger(reboundPort) && reboundPort > 0 && reboundPort !== oldBPort);
+            const released = createSocket("udp4");
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    released.once("error", reject);
+                    released.bind(oldBPort, "127.0.0.3", () => {
+                        released.removeListener("error", reject);
+                        resolve();
+                    });
+                });
+            }
+            finally { released.close(); }
+            for (let attempt = 0; attempt < 3; attempt++) {
+                await new Promise<void>((resolve, reject) => probe.send(lookup("oo"), oldBPort, "127.0.0.3",
+                    error => error ? reject(error) : resolve()));
+                await Bun.sleep(150);
+            }
+            await Bun.sleep(600);
+            assert(!oldBReply, "Retired Native UDP listener still answered DHT get_peers");
+            for (let attempt = 0; attempt < 20 && !reboundReply; attempt++) {
+                await new Promise<void>((resolve, reject) => probe.send(lookup("nn"), reboundPort, "127.0.0.3",
+                    error => error ? reject(error) : resolve()));
+                await Bun.sleep(150);
+            }
+            assert(reboundReply, "Rebound Native DHT did not answer on the new physical UDP port");
+            await mark("managed-rebind-dht-replied");
+            const restored = join(markers, "ordinary-dht-restored");
+            for (let attempt = 0; attempt < 12000 && !existsSync(restored)
+                && child.exitCode === null; attempt++)
+                await Bun.sleep(10);
+            assert(existsSync(restored), "Managed Native did not return to ordinary Native policy");
+            physicalPort = Number(await readFile(join(markers, "native-physical-udp-current"), "utf8"));
+            assert(Number.isInteger(physicalPort) && physicalPort > 0);
+            for (let attempt = 0; attempt < 20 && !ordinaryReply; attempt++) {
+                await ping("rr");
+                await Bun.sleep(150);
+            }
+            assert(ordinaryReply, "Ordinary physical DHT did not recover after managed retirement: "
+                + JSON.stringify({ physicalPort, ordinaryResponses }));
+            for (let attempt = 0; attempt < 20 && !ordinaryBReply; ++attempt) {
+                await new Promise<void>((resolve, reject) => probe.send(lookup("dd"), reboundPort, "127.0.0.3",
+                    error => error ? reject(error) : resolve()));
+                await Bun.sleep(150);
+            }
+            assert(ordinaryBReply, "Physical Native listener did not return to ordinary DHT after managed retirement");
+            await mark("ordinary-dht-replied");
         }
         finally {
             probe.close();
         }
     })();
-    const [exitCode, stdout, stderr] = await Promise.all([
+    const [exitCode, stdout, stderr, probeError] = await Promise.all([
         new Promise<number | null>(resolve => child.once("exit", resolve)),
-        new Response(child.stdout!).text(), new Response(child.stderr!).text(), standardDhtProbe,
+        new Response(child.stdout!).text(), new Response(child.stderr!).text(),
+        standardDhtProbe.then(() => null, error => error),
     ]);
     assert.equal(exitCode, 0, `route policy client failed (${exitCode}): ${stderr}\n`
-        + JSON.stringify({ httpSources, httpAnnounces, dhtQueries, dhtSources, dhtAnnounces }));
+        + JSON.stringify({ httpSources, httpAnnounces, udpSources, udpAnnounces, dhtQueries, dhtAnnounces })
+        + (probeError ? `\nprobe: ${probeError}` : ""));
+    if (probeError)
+        throw probeError;
     const clientEvidence = JSON.parse(stdout);
     assert(clientEvidence.passed && clientEvidence.webSeedVerifiedBytes === payload.length);
     assert.equal(clientEvidence.alternateRouteRetryVerifiedBytes, 256 * 1024,
@@ -312,46 +425,77 @@ try {
     for (const field of ["infoHash", "peerId", "key"] as const)
         assert(hostnameAnnounces[0]![field] && new Set(hostnameAnnounces.map(item => item[field])).size === 1,
             `SOCKS tracker contexts used different ${field}`);
-    assert.deepEqual(new Set(httpSources), new Set(["127.0.0.1", "127.0.0.2", "127.0.0.3", "127.0.0.4"]));
-    assert.deepEqual(new Set(udpSources), new Set(["127.0.0.2", "127.0.0.3"]));
-    assert.deepEqual(new Set(dhtSources), new Set(["127.0.0.2", "127.0.0.3", "127.0.0.7"]));
-    assert.equal(new Set(dhtIds).size, 3, "DHT generations reused one node identity");
+    assert.deepEqual(new Set(httpSources.filter(item => item.phase !== "ordinary").map(item => item.source)),
+        new Set(["127.0.0.1", "127.0.0.2", "127.0.0.3", "127.0.0.4"]));
+    assert.deepEqual(new Set(udpSources.filter(item => item.phase !== "ordinary").map(item => item.source)),
+        new Set(["127.0.0.2", "127.0.0.3"]));
+    assert.deepEqual(new Set(dhtQueries.filter(item => item.phase !== "ordinary").map(item => item.source)),
+        new Set(["127.0.0.2", "127.0.0.3"]));
+    assert(httpSources.filter(item => item.source === "127.0.0.6")
+        .every(item => item.phase === "ordinary"), "uTP listener made HTTP tracker requests while managed");
+    assert(udpSources.filter(item => item.source === "127.0.0.6")
+        .every(item => item.phase === "ordinary"), "uTP listener made UDP tracker requests while managed");
+    assert(dhtQueries.filter(item => item.source === "127.0.0.6")
+        .every(item => item.phase === "ordinary"), "uTP listener made DHT requests while managed");
+    const dhtAId = dhtQueries.find(item => item.source === "127.0.0.2" && item.phase === "a")?.id;
+    const dhtBId = dhtQueries.find(item => item.source === "127.0.0.3" && item.phase === "b")?.id;
+    assert(dhtAId && dhtBId && dhtAId !== dhtBId,
+        "Distinct Native route generations reused one DHT node identity");
     const nativePorts = clientEvidence.nativeListeners as {
         tcpA: number; udpA: number; tcpB: number; udpB: number;
+        reboundTcpB: number; reboundUdpB: number; udpUtp: number;
     };
     assert(Object.values(nativePorts).every(port => Number.isInteger(port) && port > 0));
     assert(nativePorts.tcpA !== 41001 && nativePorts.tcpB !== 41002,
         "Synthetic public endpoint accidentally matched the physical listener");
-    const httpA = httpAnnounces.filter(item => item.source === "127.0.0.2");
+    const httpA = httpAnnounces.filter(item => item.source === "127.0.0.2" && item.phase === "a");
     const httpB = httpAnnounces.filter(item => item.source === "127.0.0.3" && item.phase === "b");
-    const udpA = udpAnnounces.filter(item => item.source === "127.0.0.2");
+    const httpRebound = httpAnnounces.filter(item => item.source === "127.0.0.3" && item.phase === "rebind");
+    const udpA = udpAnnounces.filter(item => item.source === "127.0.0.2" && item.phase === "a");
     const udpB = udpAnnounces.filter(item => item.source === "127.0.0.3" && item.phase === "b");
+    const udpRebound = udpAnnounces.filter(item => item.source === "127.0.0.3" && item.phase === "rebind");
     assert(httpA.length > 0 && httpA.every(item => item.phase === "a"
         && item.port === nativePorts.tcpA && item.ip === null && item.ipv4 === null));
     assert(httpB.length > 0 && httpB.every(item => item.port === nativePorts.tcpB
         && item.ip === null && item.ipv4 === null));
+    assert(httpRebound.length > 0 && httpRebound.every(item => item.port === nativePorts.reboundTcpB));
     assert(udpA.length > 0 && udpA.every(item => item.phase === "a"
+        && item.sourcePort === nativePorts.udpA
         && item.port === nativePorts.tcpA && item.ipv4 === "0.0.0.0"));
     assert(udpB.length > 0 && udpB.every(item => item.port === nativePorts.tcpB
-        && item.ipv4 === "0.0.0.0"));
-    const dhtA = dhtAnnounces.filter(item => item.source === "127.0.0.2");
-    const dhtB = dhtAnnounces.filter(item => item.source === "127.0.0.3");
+        && item.sourcePort === nativePorts.udpB && item.ipv4 === "0.0.0.0"));
+    assert(udpRebound.length > 0 && udpRebound.every(item => item.sourcePort === nativePorts.reboundUdpB
+        && item.port === nativePorts.reboundTcpB && item.ipv4 === "0.0.0.0"));
+    const dhtA = dhtAnnounces.filter(item => item.source === "127.0.0.2" && item.phase === "a");
+    const dhtB = dhtAnnounces.filter(item => item.source === "127.0.0.3" && item.phase === "b");
+    const dhtRebound = dhtAnnounces.filter(item => item.source === "127.0.0.3" && item.phase === "rebind");
     assert(dhtA.length > 0 && dhtA.every(item => item.phase === "a"
+        && item.sourcePort === nativePorts.udpA
         && item.port === nativePorts.tcpA && item.impliedPort !== 1));
-    assert(dhtB.length > 0 && dhtB.every(item => item.phase !== "a"
+    assert(dhtB.length > 0 && dhtB.every(item => item.sourcePort === nativePorts.udpB
         && item.port === nativePorts.tcpB && item.impliedPort !== 1));
-    assert(dhtQueries.some(item => item.source === "127.0.0.7" && item.query === "get_peers"));
-    assert(!dhtAnnounces.some(item => item.source === "127.0.0.7"),
-        "Outgoing-only DHT route published announce_peer");
-    assert(oldTrackerRequestAborted, "Retired generation accepted its pending HTTP tracker reply");
+    assert(dhtRebound.length > 0 && dhtRebound.every(item => item.sourcePort === nativePorts.reboundUdpB
+        && item.port === nativePorts.reboundTcpB && item.impliedPort !== 1));
+    assert(dhtQueries.filter(item => item.source === "127.0.0.2" && item.phase !== "ordinary")
+        .every(item => item.phase === "a"), "Retired Native A continued DHT lookups");
+    assert(dhtQueries.some(item => item.source === "127.0.0.2" && item.query === "get_peers"
+        && item.sourcePort === nativePorts.udpA));
+    assert(dhtQueries.some(item => item.source === "127.0.0.3" && item.query === "get_peers"
+        && item.phase === "b" && item.sourcePort === nativePorts.udpB));
+    assert(dhtQueries.some(item => item.source === "127.0.0.3" && item.query === "get_peers"
+        && item.phase === "rebind" && item.sourcePort === nativePorts.reboundUdpB));
+    assert(dhtQueries.filter(item => item.source === "127.0.0.3" && item.phase === "rebind")
+        .every(item => item.sourcePort === nativePorts.reboundUdpB),
+    "Retired Native B socket continued DHT lookups after rebind");
+    assert(clientEvidence.retiredTrackerReplyRejected, "Retired generation accepted an HTTP tracker reply");
     const anonymousHttp = httpAnnounces.filter(item => item.source === "127.0.0.3"
         && item.phase === "anonymous");
     const anonymousUdp = udpAnnounces.filter(item => item.source === "127.0.0.3"
         && item.phase === "anonymous");
-    assert(anonymousHttp.length > 0 && anonymousHttp.every(item => item.port === nativePorts.tcpB
+    assert(anonymousHttp.length > 0 && anonymousHttp.every(item => item.port === nativePorts.reboundTcpB
         && item.ip === null && item.ipv4 === null));
-    assert(anonymousUdp.length > 0 && anonymousUdp.every(item => item.port === nativePorts.tcpB
-        && item.ipv4 === "0.0.0.0"));
+    assert(anonymousUdp.length > 0 && anonymousUdp.every(item => item.port === nativePorts.reboundTcpB
+        && item.sourcePort === nativePorts.reboundUdpB && item.ipv4 === "0.0.0.0"));
     assert.equal(httpB[0].peerId, udpB[0].peerId, "HTTP and UDP trackers used different peer IDs");
     assert.equal(Number.parseInt(httpB[0].key!, 16) >>> 0, udpB[0].key,
         "HTTP and UDP trackers used different keys");
@@ -360,11 +504,14 @@ try {
     assert(webRequests.every(request => request.path.endsWith("/payload.bin")));
     const evidence = { ...clientEvidence, publicIdentityAddress: publicAddress,
         hostnameTrackerResolution: "deterministic-socks-mapping-to-ipv4",
-        httpSources: [...new Set(httpSources)], udpSources: [...new Set(udpSources)],
-        dhtSources: [...new Set(dhtSources)], dhtNodeIds: [...new Set(dhtIds)],
-        httpAnnounces, udpAnnounces, dhtAnnounces,
-        oldTrackerRequestAborted, standardPhysicalDhtPreManagedResponded: true,
-        standardPhysicalDhtSuppressed: true,
+        httpSources: [...new Set(httpSources.map(item => item.source))],
+        udpSources: [...new Set(udpSources.map(item => item.source))],
+        dhtSources: [...new Set(dhtQueries.map(item => item.source))],
+        dhtNodeIds: [...new Set(dhtQueries.map(item => item.id).filter(Boolean))],
+        httpAnnounces, udpAnnounces, dhtQueries, dhtAnnounces,
+        standardPhysicalDhtPreManagedResponded: true,
+        standardPhysicalDhtSuppressed: true, managedNativeDhtResponded: true,
+        reboundNativeDhtResponded: true, ordinaryPhysicalDhtRestored: true,
         proxyAuthenticatedConnections: proxy.stats.authenticatedConnections,
         proxyRelayDownloadBytes: proxy.stats.downloadStreamBytes, webSeedRequests: webRequests.length };
     await writeFile(join(root, "evidence.json"), JSON.stringify(evidence, null, 2));
