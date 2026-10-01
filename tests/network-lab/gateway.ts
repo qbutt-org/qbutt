@@ -444,6 +444,7 @@ const bundle = await mkdtemp(join(tmpdir(), "qbutt-gateway-app-"));
 await cp(dirname(originalExecutable), bundle, { recursive: true, filter: path => {
     if (["profile", ".git"].includes(basename(path))) return false;
     return basename(path) === basename(originalExecutable)
+        || basename(path) === "qt.conf"
         || !extname(path) || [".dll", ".qm", ".json"].includes(extname(path).toLowerCase());
 } });
 const wrapper = join(bundle, "qbutt-net.exe");

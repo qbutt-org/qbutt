@@ -187,9 +187,10 @@ evidence, then releases the lock and removes the owned profile and payload.
 This is process-level Light/Fusion acceptance, not physical desktop interaction.
 
 The `qbutt-update-acceptance` CMake target builds the production update service,
-dialog and a Qt process driver. Run `tests/qt-acceptance/release-fixture.py` with
-the driver and OpenSSL executable paths. Put the Qt SDK `bin` on `PATH`, set
-`QT_PLUGIN_PATH` to its `plugins` directory, and register driver/Python with
+dialog and a Qt process driver. `bun run smoke:qt` stages its Qt runtime before
+running `tests/qt-acceptance/release-fixture.py`. For a manual fixture run, put
+the driver in an isolated copy of the deployed `portable` bundle and pass the
+driver and OpenSSL executable paths. Register driver/Python with
 `bun tests/windows-firewall.ts <driver> <python>` before the socket fixture.
 
 The fixture checks version ordering, GitHub metadata, complete ZIP downloads,

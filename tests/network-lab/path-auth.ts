@@ -14,6 +14,7 @@ await cp(dirname(original), bundle, { recursive: true, filter: path => {
     if (["profile", ".git"].includes(basename(path)))
         return false;
     return basename(path) === basename(original)
+        || basename(path) === "qt.conf"
         || !extname(path) || [".dll", ".qm"].includes(extname(path).toLowerCase());
 } });
 const childPath = join(bundle, "qbutt-net.exe");

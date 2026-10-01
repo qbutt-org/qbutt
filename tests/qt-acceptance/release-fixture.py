@@ -1,8 +1,9 @@
 """Bounded HTTPS release-download acceptance; no system trust or installed files change.
 
 Run firewall preflight for Python and the stable Qt driver before this script.
-Arguments: Qt acceptance executable, openssl executable. Qt DLL/plugin paths must
-already be available in PATH/QT_PLUGIN_PATH. Only generated fixture bytes are served.
+Arguments: deployed Qt acceptance executable, openssl executable. Run through
+smoke.ts or place the executable in an isolated portable bundle with its Qt runtime.
+Only generated fixture bytes are served.
 """
 
 import hashlib
