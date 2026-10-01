@@ -6723,6 +6723,14 @@ Minimum requirement: %2.</source>
         <translation>Не удалось восстановить обычные сетевые маршруты торрентов.</translation>
     </message>
     <message>
+        <source>Unable to prepare Native.</source>
+        <translation>Не удалось подготовить обычное соединение.</translation>
+    </message>
+    <message>
+        <source>Unable to restore the previous network routes.</source>
+        <translation>Не удалось восстановить предыдущие сетевые маршруты.</translation>
+    </message>
+    <message>
         <source>Unable to apply the network routes returned by qbutt-net.</source>
         <translation>Не удалось применить сетевые маршруты, полученные от qbutt-net.</translation>
     </message>

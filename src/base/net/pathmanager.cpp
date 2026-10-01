@@ -1466,12 +1466,27 @@ bool Net::PathManager::useNative()
 {
     if (m_nativePending)
         return true;
+    const bool managedChildRunning = (m_process.state() != QProcess::NotRunning)
+        && ProxyConfigurationManager::instance()->hasRuntimeProxy();
+    // Retire managed peers before child shutdown closes their relay sockets;
+    // otherwise the disconnect looks like a transport failure and delays reconnection.
+    if (managedChildRunning && !BitTorrent::Session::instance()->setNetworkRoutes({}, RoutePolicy::Pinned))
+    {
+        if (!applyRoutes())
+            fail(tr("Unable to restore the previous network routes."));
+        else
+            reportError(tr("Unable to prepare Native."));
+        return false;
+    }
     const bool previouslyEnabled = m_storeManagedEnabled;
     m_storeManagedEnabled = false;
     if (previouslyEnabled && !SettingsStorage::instance()->save())
     {
         m_storeManagedEnabled = true;
-        reportError(tr("Unable to save the network selection."));
+        if (managedChildRunning && !applyRoutes())
+            fail(tr("Unable to restore the previous network routes."));
+        else
+            reportError(tr("Unable to save the network selection."));
         return false;
     }
     m_nativeWasEnabled = previouslyEnabled;
