@@ -9,6 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { generateFixtures, sha256, type FixtureManifest, type PayloadFile } from "./fixtures/generate";
 import { allowLabNetwork } from "./windows-firewall";
 import { labAppearanceSettings } from "./appearance";
+import { assertQtRuntime } from "./qt-runtime";
 
 export interface TorrentStatus {
     hash: string;
@@ -102,6 +103,8 @@ export async function createLab(name: string, options: { pex?: boolean; protocol
     assert(appName === "qbutt" || appName === "qBittorrent", "QBUTT_LAB_APP_NAME must be qbutt or qBittorrent");
     assert(resumeBackend === "Legacy" || resumeBackend === "SQLite", "QBUTT_LAB_RESUME_BACKEND must be Legacy or SQLite");
     assert((await stat(executable)).isFile(), "Native executable is missing");
+    if (appName === "qbutt")
+        assertQtRuntime(dirname(executable));
     const networkChild = join(dirname(executable), "qbutt-net.exe");
     await allowLabNetwork([process.execPath, executable, python, ...(existsSync(networkChild) ? [networkChild] : [])]);
     const root = await mkdtemp(join(tmpdir(), `qbutt-${name}-`));

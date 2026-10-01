@@ -174,11 +174,14 @@ stretched last Files column adapts to its viewport. PNGs and JSON evidence stay
 in the printed temporary directory; successful profiles and the copied Qt
 runtime are removed.
 
-`bun run smoke:diagnostics` uses the same Qt executable and
-`QBUTT_LAB_PYTHON` on Windows x64. It holds a generated file with a Windows
-oplock to block a real asynchronous disk write, and separately applies a real
-per-torrent bandwidth limit. Production counters and Qt reasons must identify
-each wait, clear after release, remain responsive, and finish with exact file
+For `bun run smoke:diagnostics`, copy the Qt driver into an isolated copy of the
+deployed `portable` bundle and point `QBUTT_QT_ACCEPTANCE_EXE` to that driver.
+Set `QBUTT_LAB_PYTHON` on Windows x64. The raw CMake build executable above is
+the source for `smoke:qt`, which stages its own runtime. The diagnostics lab
+holds a generated file with a Windows oplock to block a real asynchronous disk
+write, and separately applies a real per-torrent bandwidth limit. Production
+counters and Qt reasons must identify each wait, clear after release, remain
+responsive, and finish with exact file
 sizes and hashes over one peer connection. It keeps screenshots and compact
 evidence, then releases the lock and removes the owned profile and payload.
 This is process-level Light/Fusion acceptance, not physical desktop interaction.

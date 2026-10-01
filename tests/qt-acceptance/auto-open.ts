@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, sep } from "node:path";
 import { labAppearanceSettings } from "../appearance";
 import { encode } from "../network-lab/bencode";
 import { allowLabNetwork } from "../windows-firewall";
+import { assertQtRuntime } from "../qt-runtime";
 
 const source = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 assert(source, "Set QBUTT_QT_ACCEPTANCE_EXE to the combined Qt acceptance build");
@@ -25,8 +26,7 @@ try {
     } });
     const executable = join(bundle, basename(source));
     await cp(source, executable);
-    for (const dependency of ["Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll", "Qt6Network.dll", "platforms/qoffscreen.dll"])
-        assert((await stat(join(bundle, dependency))).isFile(), `Missing runtime dependency: ${dependency}`);
+    assertQtRuntime(bundle);
     await allowLabNetwork([executable]);
     await mkdir(join(profile, "qbutt", "config"), { recursive: true });
     await mkdir(join(watched, "nested"), { recursive: true });

@@ -10,6 +10,7 @@ import { generateFixtures } from "../fixtures/generate";
 import { freePeerPort } from "../lab";
 import { allowLabNetwork } from "../windows-firewall";
 import { labAppearanceSettings } from "../appearance";
+import { assertQtRuntime } from "../qt-runtime";
 
 const sourceExecutable = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 const appearanceOnly = process.argv.includes("--appearance-only");
@@ -174,6 +175,7 @@ try {
     } });
     const executable = join(bundle, updateToolbarOnly ? "qbutt.exe" : basename(sourceExecutable));
     await cp(sourceExecutable, executable);
+    assertQtRuntime(bundle);
     if (updateToolbarOnly) {
         await allowLabNetwork([executable, python!]);
         const screenshots = join(root, "screenshots");

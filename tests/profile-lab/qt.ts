@@ -6,12 +6,14 @@ import { dirname, join, resolve } from "node:path";
 import { labAppearanceSettings } from "../appearance";
 import { generateFixtures, sha256 } from "../fixtures/generate";
 import { allowLabNetwork } from "../windows-firewall";
+import { assertQtRuntime } from "../qt-runtime";
 
 const executable = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 const service = process.env.QBUTT_PROFILE_DRIVER;
 const python = process.env.QBUTT_LAB_PYTHON;
 assert(executable && service && python, "Set QBUTT_QT_ACCEPTANCE_EXE, QBUTT_PROFILE_DRIVER and QBUTT_LAB_PYTHON");
 const bundle = resolve(process.env.QBUTT_QT_ACCEPTANCE_BUNDLE ?? dirname(executable));
+assertQtRuntime(bundle);
 const root = await mkdtemp(join(await realpath(tmpdir()), "qbutt-profile-qt-"));
 const profile = join(root, "profile");
 const screenshots = join(root, "screenshots");

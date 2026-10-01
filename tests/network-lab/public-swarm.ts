@@ -8,6 +8,7 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { allowLabNetwork } from "../windows-firewall";
 import { labAppearanceSettings } from "../appearance";
+import { assertQtRuntime } from "../qt-runtime";
 
 type Mode = "upstream-native" | "qbutt-native" | "qbutt-one-tunnel" | "qbutt-mixed";
 
@@ -529,6 +530,7 @@ async function run(mode: Mode, round: number, ordinal: number, attempt: number, 
 
 if (!qbuttOnly) assert((await stat(controlExecutable)).isFile(), "Upstream control executable is missing");
 if (qbuttExecutable) assert((await stat(qbuttExecutable)).isFile(), "qbutt executable is missing");
+if (qbuttExecutable) assertQtRuntime(dirname(qbuttExecutable));
 if (proxyConfig) assert((await stat(proxyConfig)).isFile(), "Mihomo proxy config is missing");
 const executables = [...(qbuttOnly ? [] : [controlExecutable]), ...(qbuttExecutable ? [qbuttExecutable] : [])];
 const executableHashes = new Map<string, string>();
