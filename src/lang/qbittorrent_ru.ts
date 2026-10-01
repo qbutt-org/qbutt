@@ -9875,12 +9875,12 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
         <translation>Автоматический</translation>
     </message>
     <message>
-        <source>Mihomo YAML</source>
-        <translation>Mihomo YAML</translation>
+        <source>Mihomo (YAML)</source>
+        <translation>Mihomo (YAML)</translation>
     </message>
     <message>
-        <source>Base64 or links</source>
-        <translation>Base64 или ссылки</translation>
+        <source>Node list (base64)</source>
+        <translation>Список узлов (base64)</translation>
     </message>
     <message>
         <source>Subscription format:</source>

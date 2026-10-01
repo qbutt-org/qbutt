@@ -180,8 +180,8 @@ PathsWidget::PathsWidget(QWidget *parent)
     dnsForm->setRowWrapPolicy(QFormLayout::WrapLongRows);
     m_subscriptionFormat->setObjectName(u"mihomoSubscriptionFormat"_s);
     m_subscriptionFormat->addItem(tr("Automatic"), u"auto"_s);
-    m_subscriptionFormat->addItem(tr("Mihomo YAML"), u"mihomo"_s);
-    m_subscriptionFormat->addItem(tr("Base64 or links"), u"base64"_s);
+    m_subscriptionFormat->addItem(tr("Mihomo (YAML)"), u"mihomo"_s);
+    m_subscriptionFormat->addItem(tr("Node list (base64)"), u"base64"_s);
     m_subscriptionFormat->setCurrentIndex(m_subscriptionFormat->findData(m_manager->subscriptionFormat()));
     dnsForm->addRow(tr("Subscription format:"), m_subscriptionFormat);
     m_dnsServer->setObjectName(u"mihomoDnsServer"_s);
