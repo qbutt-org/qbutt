@@ -6,18 +6,23 @@
 #include "pathmanager.h"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cmath>
 #include <functional>
 #include <utility>
+#include <vector>
 
 #ifdef Q_OS_WIN
 #include <winsock2.h>
 #include <ws2ipdef.h>
 #include <iphlpapi.h>
+#include <windows.h>
 #endif
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -29,6 +34,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSignalBlocker>
+#include <QScopeGuard>
 #include <QUrl>
 
 #include "base/bittorrent/session.h"
@@ -40,6 +46,81 @@
 
 namespace
 {
+#ifdef Q_OS_WIN
+    // Only Qt's stdio handles belong to this child. An inherited Native socket
+    // would survive in the helper after libtorrent retires its route.
+    DWORD startNetworkHelper(QProcess &process, const QString &program)
+    {
+        SIZE_T bytes = 0;
+        InitializeProcThreadAttributeList(nullptr, 1, 0, &bytes);
+        if (bytes == 0)
+            return ERROR_INVALID_DATA;
+        std::vector<std::max_align_t> storage(
+            (bytes + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t));
+        auto *attributes = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(storage.data());
+        if (!InitializeProcThreadAttributeList(attributes, 1, 0, &bytes))
+            return GetLastError();
+        [[maybe_unused]] const auto cleanup = qScopeGuard([&process, attributes]
+        {
+            process.setCreateProcessArgumentsModifier({});
+            DeleteProcThreadAttributeList(attributes);
+        });
+
+        STARTUPINFOEXW startupInfo {};
+        std::array<HANDLE, 3> handles {};
+        DWORD launchError = ERROR_SUCCESS;
+        process.setCreateProcessArgumentsModifier([&](QProcess::CreateProcessArguments *args)
+        {
+            args->inheritHandles = false;
+            if (!(args->startupInfo->dwFlags & STARTF_USESTDHANDLES))
+            {
+                launchError = ERROR_INVALID_HANDLE;
+                return;
+            }
+            size_t count = 0;
+            for (const HANDLE handle : {args->startupInfo->hStdInput,
+                     args->startupInfo->hStdOutput, args->startupInfo->hStdError})
+            {
+                DWORD flags = 0;
+                if (!handle || (handle == INVALID_HANDLE_VALUE))
+                {
+                    launchError = ERROR_INVALID_HANDLE;
+                    return;
+                }
+                if (!GetHandleInformation(handle, &flags))
+                {
+                    launchError = GetLastError();
+                    return;
+                }
+                if (!(flags & HANDLE_FLAG_INHERIT))
+                {
+                    launchError = ERROR_INVALID_HANDLE;
+                    return;
+                }
+                if (std::find(handles.begin(), handles.begin() + count, handle)
+                    == handles.begin() + count)
+                {
+                    handles[count++] = handle;
+                }
+            }
+            if (!UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                handles.data(), count * sizeof(HANDLE), nullptr, nullptr))
+            {
+                launchError = GetLastError();
+                return;
+            }
+            startupInfo.StartupInfo = *args->startupInfo;
+            startupInfo.StartupInfo.cb = sizeof(startupInfo);
+            startupInfo.lpAttributeList = attributes;
+            args->startupInfo = &startupInfo.StartupInfo;
+            args->flags |= EXTENDED_STARTUPINFO_PRESENT;
+            args->inheritHandles = true;
+        });
+        process.start(program, {u"--stdio"_s});
+        return launchError;
+    }
+#endif
+
     constexpr int MAX_FRAME_BYTES = 65536;
     constexpr int MAX_SUBSCRIPTION_BYTES = 2 * 1024 * 1024;
     constexpr int PROTOCOL_VERSION = 8;
@@ -1813,8 +1894,16 @@ void Net::PathManager::request(QJsonObject message)
         QString program = QDir(QCoreApplication::applicationDirPath()).filePath(u"qbutt-net"_s);
 #ifdef Q_OS_WIN
         program += u".exe"_s;
-#endif
+        const DWORD startError = startNetworkHelper(m_process, program);
+        if (startError != ERROR_SUCCESS)
+        {
+            qWarning() << "qbutt-net handle restriction failed with Windows error" << startError;
+            fail(tr("Unable to run the bundled qbutt-net process."));
+            return;
+        }
+#else
         m_process.start(program, {u"--stdio"_s});
+#endif
         m_timeout.start();
     }
     else
