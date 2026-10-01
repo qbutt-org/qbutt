@@ -60,7 +60,7 @@ async function freePort(): Promise<number> {
     return address.port;
 }
 
-async function freePeerPort(webPort: number): Promise<number> {
+export async function freePeerPort(webPort = 0): Promise<number> {
     for (let attempt = 0; attempt < 32; ++attempt) {
         // Port 0 may repeatedly pick the other protocol's reserved range.
         const port = randomInt(40000, 49152);

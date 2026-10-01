@@ -7,6 +7,7 @@ import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { generateFixtures } from "../fixtures/generate";
+import { freePeerPort } from "../lab";
 import { allowLabNetwork } from "../windows-firewall";
 import { labAppearanceSettings } from "../appearance";
 
@@ -314,10 +315,12 @@ try {
         const profile = join(root, "profile");
         const config = join(profile, "qbutt", "config");
         await mkdir(config, { recursive: true });
+        const peerPort = await freePeerPort();
         await writeFile(join(config, "qbutt.ini"), [
             "[BitTorrent]", "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
             "Session\\AddTorrentStopped=true", "Session\\AddExtensionToIncompleteFiles=false", "Session\\UseUnwantedFolder=false",
-            "Session\\QueueingSystemEnabled=false", "Session\\InterfaceAddress=127.0.0.1", "Session\\ResumeDataStorageType=SQLite",
+            "Session\\QueueingSystemEnabled=false", "Session\\InterfaceAddress=127.0.0.1", `Session\\Port=${peerPort}`,
+            "Session\\ResumeDataStorageType=SQLite",
             "[Network]", "PortForwardingEnabled=false",
             "[GUI]", "Notifications\\Enabled=false",
             "[Core]", "AutoOpenTorrentFiles=false",
