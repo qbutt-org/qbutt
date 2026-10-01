@@ -39,6 +39,7 @@
     "smoke:policy-transition": "bun tests/network-lab/policy-transition.ts",
     "smoke:policy-transition-utp": "bun tests/network-lab/policy-transition.ts --utp",
     "smoke:direct-transition": "bun tests/network-lab/direct-transition.ts",
+    "smoke:direct-transition-utp": "bun tests/network-lab/direct-transition.ts --utp",
     "benchmark:network": "bun tests/network-lab/benchmark.ts",
     "benchmark:public-swarm": "bun tests/network-lab/public-swarm.ts",
     "smoke:path-auth": "bun tests/network-lab/path-auth.ts",

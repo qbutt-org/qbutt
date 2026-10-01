@@ -55,6 +55,7 @@ bun run smoke:route-policy
 bun run smoke:policy-transition
 bun run smoke:policy-transition-utp
 bun run smoke:direct-transition
+bun run smoke:direct-transition-utp
 bun run smoke:discovery-transition
 bun run smoke:path-auth
 bun run smoke:transport-reserves
@@ -108,7 +109,12 @@ torrent starts with ordinary Direct networking and no child, switches to
 fail-closed Tunnels only, then returns to Direct. It verifies useful TCP payload
 in each mode, closure of the original native socket, a reachable native canary
 that receives no managed-mode connection, child/listener retirement, and exact
-final hashes. There is no torrent stop/start between policy changes.
+final hashes. Returning to Direct must reconnect the original peer and verify
+another piece within 20 seconds without adding that peer again. The
+`smoke:direct-transition-utp` variant first passes through Mixed Native,
+then observes Tunnels without a ready relay before opening one. It checks the
+same bounded return over µTP.
+Neither variant stops or restarts the torrent between policy changes.
 
 The shared lab selects its peer port by checking both UDP and TCP binds:
 Windows can reserve different port ranges for each protocol.
