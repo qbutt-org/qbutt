@@ -460,6 +460,7 @@ namespace BitTorrent
         virtual CompletionPolicy *completionPolicy() const = 0;
         virtual bool setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &routes, Net::RoutePolicy policy) = 0;
         virtual bool resetNetworkRoutes() = 0;
+        virtual void retryPolicyPeers() = 0;
         virtual bool setTrustedInboundRoutes(const QList<Net::TrustedInboundRoute> &routes) = 0;
         virtual bool acceptTrustedInbound(const Net::TrustedInboundRoute &route,
             const QString &remoteAddress, quint16 remotePort, const QByteArray &token) = 0;

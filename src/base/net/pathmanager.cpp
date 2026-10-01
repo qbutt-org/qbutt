@@ -1415,6 +1415,8 @@ bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInt
             : tr("Unable to restore Native after the managed startup policy failed."));
         return false;
     }
+    if (enteringMixed)
+        BitTorrent::Session::instance()->retryPolicyPeers();
     for (const PeerRouteEndpoint &endpoint : oldNativeEndpoints)
     {
         if (!std::ranges::any_of(m_nativeEndpoints, [&](const PeerRouteEndpoint &current)
@@ -1452,7 +1454,12 @@ bool Net::PathManager::applyRoutes()
         endpoints.append(m_nativeEndpoints);
     const RoutePolicy policy = (mode == u"mixed") ? RoutePolicy::Mixed
         : ((mode == u"tunnels") ? RoutePolicy::TunnelsOnly : RoutePolicy::Pinned);
-    return BitTorrent::Session::instance()->setNetworkRoutes(endpoints, policy);
+    auto *session = BitTorrent::Session::instance();
+    if (!session->setNetworkRoutes(endpoints, policy))
+        return false;
+    if (ProxyConfigurationManager::instance()->hasRuntimeProxy())
+        session->retryPolicyPeers();
+    return true;
 }
 
 bool Net::PathManager::useNative()
@@ -1529,6 +1536,7 @@ bool Net::PathManager::finishUseNative()
             reportError(tr("Unable to restore the saved Mihomo selection after Direct failed."));
         return false;
     }
+    BitTorrent::Session::instance()->retryPolicyPeers();
     m_paths.clear();
     m_nativeEndpoints.clear();
     m_status.clear();

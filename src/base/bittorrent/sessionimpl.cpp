@@ -4511,18 +4511,18 @@ bool SessionImpl::addDHTRouteNode(const quint64 pathId, const quint64 generation
 
 bool SessionImpl::resetNetworkRoutes()
 {
-    if (const lt::error_code error = m_nativeSession->set_trusted_inbound_routes({}))
+    // Context-zero selection remains blocked by the managed torrent policy
+    // until that policy retires its established peers. Retire the policy before
+    // draining managed sockets so reconnectable incoming and uTP peers receive
+    // the same treatment as TCP peers.
+    if (m_peerRouteDiagnosticHistory)
     {
-        LogMsg(tr("Failed to retire trusted incoming routes. Reason: \"%1\".")
-            .arg(QString::fromStdString(error.message())), Log::WARNING);
-        return false;
+        const auto diagnostics = m_peerRouteDiagnosticHistory;
+        m_nativeSession->set_peer_route_selector({},
+            [diagnostics](const lt::peer_route_observation &observation) { diagnostics->observe(observation); });
     }
-    if (const lt::error_code error = m_nativeSession->set_udp_routes({}))
-    {
-        LogMsg(tr("Failed to retire managed UDP routes. Reason: \"%1\".")
-            .arg(QString::fromStdString(error.message())), Log::WARNING);
-        return false;
-    }
+    else
+        m_nativeSession->set_peer_route_selector({});
     const lt::error_code error = m_nativeSession->set_torrent_route_policy_selector({});
     if (error)
     {
@@ -4531,15 +4531,20 @@ bool SessionImpl::resetNetworkRoutes()
         return false;
     }
     if (m_peerRouteDiagnosticHistory)
-    {
         m_peerRouteDiagnosticHistory->retire();
-        const auto diagnostics = m_peerRouteDiagnosticHistory;
-        m_nativeSession->set_peer_route_selector({},
-            [diagnostics](const lt::peer_route_observation &observation) { diagnostics->observe(observation); });
-    }
-    else
-        m_nativeSession->set_peer_route_selector({});
     m_peerRouteSelector.reset();
+    if (const lt::error_code inboundError = m_nativeSession->set_trusted_inbound_routes({}))
+    {
+        LogMsg(tr("Failed to retire trusted incoming routes. Reason: \"%1\".")
+            .arg(QString::fromStdString(inboundError.message())), Log::WARNING);
+        return false;
+    }
+    if (const lt::error_code udpError = m_nativeSession->set_udp_routes({}))
+    {
+        LogMsg(tr("Failed to retire managed UDP routes. Reason: \"%1\".")
+            .arg(QString::fromStdString(udpError.message())), Log::WARNING);
+        return false;
+    }
     m_managedUdpRoutes.clear();
     m_managedNativeListenAddresses.clear();
     m_listenInterfaceConfigured = false;
@@ -4548,6 +4553,11 @@ bool SessionImpl::resetNetworkRoutes()
     if (Net::PortForwarder::instance()->isEnabled())
         enablePortMapping();
     return true;
+}
+
+void SessionImpl::retryPolicyPeers()
+{
+    m_nativeSession->retry_policy_peers();
 }
 
 bool SessionImpl::setTrustedInboundRoutes(const QList<Net::TrustedInboundRoute> &routes)
