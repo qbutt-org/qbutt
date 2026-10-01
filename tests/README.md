@@ -109,8 +109,9 @@ torrent starts with ordinary Direct networking and no child, switches to
 fail-closed Tunnels only, then returns to Direct. It verifies useful TCP payload
 in each mode, closure of the original native socket, a reachable native canary
 that receives no managed-mode connection, child/listener retirement, and exact
-final hashes. Returning to Direct must reconnect the original peer and verify
-another piece within 20 seconds without adding that peer again. The
+final hashes. Returning to Direct must complete a new handshake with the original
+peer, receive at least 16 KiB of fresh payload from it, and verify another piece
+within 20 seconds without adding that peer again. The
 `smoke:direct-transition-utp` variant first passes through Mixed Native,
 then observes Tunnels without a ready relay before opening one. It checks the
 same bounded return over µTP.

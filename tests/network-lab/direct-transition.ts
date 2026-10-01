@@ -17,7 +17,8 @@ interface Status {
     peers: { infoHash: string; pathId: string; generation: number; peer: string; port: number;
         payloadDownload: number }[];
 }
-interface Peer { ip: string; port: number; downloaded: number; connection: string; flags: string }
+interface Peer { ip: string; port: number; downloaded: number; client: string; progress: number;
+    connection: string; flags: string }
 interface TcpSocket { LocalAddress: string; LocalPort: number; RemoteAddress: string; RemotePort: number; OwningProcess: number }
 
 const nativeInterface = process.env.QBUTT_LAB_NATIVE_INTERFACE;
@@ -200,19 +201,39 @@ try {
         nativeCanaryConnectionsAfterProbe: canaryHits - 1, observationMs: Date.now() - canarySince, relay: { ...proxy.stats } });
     assert((await lab.info(hash)).progress < 1, "Torrent completed before returning to Direct");
 
+    const returnedAt = Date.now();
+    const returnDeadline = returnedAt + 20000;
+    const returnTimeLeft = () => {
+        const remaining = returnDeadline - Date.now();
+        assert(remaining > 0, "Native reconnect exceeded the 20-second deadline");
+        return remaining;
+    };
     await lab.request("qbuttPaths/native", {});
     await waitFor("managed path and sockets retire", status, current => !current.busy && !current.pinned
         && current.paths.length === 0 && current.peers.length === 0 && current.processId === 0
-        && proxy!.stats.activeConnections === 0, 15000);
+        && proxy!.stats.activeConnections === 0, returnTimeLeft());
     const retiredRelay = { ...proxy.stats };
     assert(!(await lab.info(hash)).state.startsWith("stopped"), "Restoring Direct stopped the active torrent");
-    const beforeReturn = await verifiedPieces();
-    const returnedAt = Date.now();
+    let lastVerified = -1;
+    let stableSamples = 0;
+    const beforeReturn = await waitFor("queued relay pieces settle after Native return", async () => {
+        await Bun.sleep(250);
+        return verifiedPieces();
+    }, count => {
+        stableSamples = (count === lastVerified) ? stableSamples + 1 : 1;
+        lastVerified = count;
+        return stableSamples >= 3;
+    }, returnTimeLeft());
+    const nativePeer = (peer: Peer) => peer.ip === nativeAddress && peer.port === seeds[0]!.port
+        && peer.connection === (useUtp ? "μTP" : "BT") && peer.flags.includes("P") === useUtp
+        && peer.client.startsWith("libtorrent/") && peer.progress === 1;
+    const firstNative = await waitFor("Native seed completes a new peer handshake", peers,
+        current => current.some(nativePeer), returnTimeLeft());
+    const downloadedBefore = firstNative.find(nativePeer)!.downloaded;
     const resumed = await waitFor("same Native peer reconnects and verifies without addPeers", async () =>
         ({ peers: await peers(), verifiedPieces: await verifiedPieces() }), current =>
         current.verifiedPieces > beforeReturn && current.peers.some(peer =>
-            peer.ip === nativeAddress && peer.port === seeds[0]!.port && peer.downloaded > 16384
-            && peer.flags.includes("P") === useUtp), 20000);
+            nativePeer(peer) && peer.downloaded >= downloadedBefore + 16384), returnTimeLeft());
     const recoveryMs = Date.now() - returnedAt;
     assert(recoveryMs <= 20000, `Native reconnect and verification took ${recoveryMs} ms`);
     const newSockets = useUtp ? [] : await nativeSockets(seeds[0]!.port);
@@ -233,7 +254,9 @@ try {
     assert.equal((await lab.json<unknown[]>("torrents/info")).length, 1, "Transition replaced the original torrent");
     await lab.checkpoint({ check: "active-tunnels-to-direct-verified", hash, verifiedBytes, exactSizesAndHashes: true,
         peers: resumed.peers, sockets: newSockets, retiredRelay, stopStartCyclesDuringTransitions: 0,
-        verifiedPiecesBefore: beforeReturn, verifiedPiecesAfter: resumed.verifiedPieces, recoveryMs,
+        verifiedPiecesBefore: beforeReturn, verifiedPiecesAfter: resumed.verifiedPieces,
+        nativePeerDownloadedBefore: downloadedBefore,
+        nativePeerDownloadedAfter: resumed.peers.find(nativePeer)!.downloaded, recoveryMs,
         scope: `Controlled local ${useUtp ? "UTP" : "TCP"}; no WAN, discovery or physical TUN bypass claim` });
 }
 catch (error) { failure = error; }
