@@ -238,12 +238,16 @@ libtorrent::peer_route Net::PeerRouteSelector::select(const libtorrent::peer_rou
     // first peers keep the same pinned identity until metadata says otherwise.
     if (!m_mixed || request.private_torrent || !request.has_metadata)
     {
-        if (!eligible(m_routes.front()))
+        const auto pinned = std::ranges::find_if(m_routes, [&](const Route &entry)
+        {
+            return (entry.binding.context == m_routes.front().binding.context) && eligible(entry);
+        });
+        if (pinned == m_routes.end())
         {
             m_diagnosticHistory->selected({}, Decision::BlockedNoRoute);
             return blocked;
         }
-        const libtorrent::peer_route &route = m_routes.front().binding;
+        const libtorrent::peer_route &route = pinned->binding;
         const RouteKey key {route.context.path_id, route.context.generation};
         RouteHistory &history = m_history->routes.at(key);
         history.decay(now);

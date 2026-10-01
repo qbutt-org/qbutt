@@ -34,6 +34,7 @@
 #include "base/bittorrent/session.h"
 #include "base/global.h"
 #include "base/path.h"
+#include "base/preferences.h"
 #include "base/profile.h"
 #include "proxyconfigurationmanager.h"
 
@@ -271,7 +272,9 @@ Net::PathManager::PathManager()
             m_ignoreProcessExit = false;
             return;
         }
-        fail(tr("qbutt-net stopped. The pinned path remains blocked."));
+        fail(ProxyConfigurationManager::instance()->hasRuntimeProxy()
+            ? tr("qbutt-net stopped. The pinned path remains blocked.")
+            : tr("Network helper stopped."));
     });
     connect(&m_gatewayRenewal, &QTimer::timeout, this, [this]()
     {
@@ -312,6 +315,10 @@ Net::PathManager::PathManager()
             const QString nativeInterface = m_storeNativeInterface;
             applyPolicy(u"mixed"_s, nativeInterface, nativeEndpointsForInterface(nativeInterface));
         }
+        else if (!m_storeManagedEnabled && !ProxyConfigurationManager::instance()->hasRuntimeProxy())
+            refreshNativeRoute();
+        if (!m_dhtBootstrap.isEmpty())
+            processDhtBootstrap();
         if ((m_process.state() == QProcess::Running) && (m_pendingId == 0) && !controlBusy()
             && std::ranges::any_of(m_paths, [](const ActivePath &path) { return path.endpoint.port > 0; }))
         {
@@ -338,6 +345,11 @@ Net::PathManager::PathManager()
     connect(this, &PathManager::changed, this, &PathManager::restoreSelectedNodes, Qt::QueuedConnection);
     connect(BitTorrent::Session::instance(), &BitTorrent::Session::restored,
         this, &PathManager::restoreSelectedNodes);
+    connect(Preferences::instance(), &Preferences::changed,
+        this, [this]()
+        {
+            refreshNativeRoute(m_nativeEndpoints.isEmpty());
+        });
     if (BitTorrent::Session::instance()->isRestored())
         QMetaObject::invokeMethod(this, &PathManager::restoreSelectedNodes, Qt::QueuedConnection);
     connect(BitTorrent::Session::instance(), &BitTorrent::Session::dhtSettingsChanged, this, [this]()
@@ -377,6 +389,10 @@ Net::PathManager::PathManager()
         if (!applyRoutes())
             m_status = tr("Unable to restore the saved managed network policy.");
     }
+    else
+        refreshNativeRoute(true);
+    if (!m_statusRefresh.isActive())
+        m_statusRefresh.start();
 }
 
 Net::PathManager::~PathManager()
@@ -458,12 +474,18 @@ QJsonObject Net::PathManager::statusData(const bool includePeers) const
             data.insert(u"relayRate"_s, path.relayRate);
         paths.append(data);
     }
-    for (const PeerRouteEndpoint &endpoint : m_nativeEndpoints)
+    if (!m_nativeEndpoints.isEmpty())
     {
-        paths.append(QJsonObject {{u"pathId"_s, QString::number(endpoint.pathId)},
-            {u"generation"_s, static_cast<qint64>(endpoint.generation)}, {u"edgeId"_s, u"native"_s},
-            {u"proxyName"_s, tr("Native")}, {u"interfaceName"_s, m_storeNativeInterface.get()},
-            {u"open"_s, true}, {u"localAddress"_s, endpoint.localAddress}});
+        const PeerRouteEndpoint &native = m_nativeEndpoints.front();
+        QJsonArray localAddresses;
+        for (const PeerRouteEndpoint &endpoint : m_nativeEndpoints)
+            localAddresses.append(endpoint.localAddress);
+        paths.append(QJsonObject {{u"pathId"_s, QString::number(native.pathId)},
+            {u"generation"_s, static_cast<qint64>(native.generation)}, {u"edgeId"_s, u"native"_s},
+            {u"proxyName"_s, tr("Native")},
+            {u"interfaceName"_s, QNetworkInterface::interfaceFromIndex(native.interfaceIndex).name()},
+            {u"open"_s, true}, {u"localAddress"_s, native.localAddress},
+            {u"localAddresses"_s, localAddresses}});
     }
     return {{u"v"_s, 1}, {u"busy"_s, isBusy()}, {u"open"_s, isOpen()},
         {u"pinned"_s, ProxyConfigurationManager::instance()->hasRuntimeProxy()},
@@ -923,16 +945,20 @@ bool Net::PathManager::setDnsPolicy(const QString &server, const QString &bootst
     return true;
 }
 
-const Net::PeerRouteEndpoint *Net::PathManager::findEndpoint(const quint64 pathId, const quint64 generation) const
+const Net::PeerRouteEndpoint *Net::PathManager::findEndpoint(const quint64 pathId,
+    const quint64 generation, const std::optional<bool> ipv6) const
 {
     for (const ActivePath &path : m_paths)
     {
-        if ((path.endpoint.pathId == pathId) && (path.endpoint.generation == generation) && (path.endpoint.port > 0))
+        if ((path.endpoint.pathId == pathId) && (path.endpoint.generation == generation)
+            && (path.endpoint.port > 0)
+            && (!ipv6 || (ipv6.value() ? path.endpoint.supportsIPv6 : path.endpoint.supportsIPv4)))
             return &path.endpoint;
     }
     for (const PeerRouteEndpoint &endpoint : m_nativeEndpoints)
     {
-        if ((endpoint.pathId == pathId) && (endpoint.generation == generation))
+        if ((endpoint.pathId == pathId) && (endpoint.generation == generation)
+            && (!ipv6 || (ipv6.value() ? endpoint.supportsIPv6 : endpoint.supportsIPv4)))
             return &endpoint;
     }
     return nullptr;
@@ -963,7 +989,8 @@ void Net::PathManager::processDhtBootstrap()
     while (!m_dhtBootstrap.isEmpty())
     {
         DhtBootstrap &bootstrap = m_dhtBootstrap.front();
-        if (!findEndpoint(bootstrap.pathId, bootstrap.generation) || (bootstrap.nodeIndex >= nodes.size()))
+        if (!findEndpoint(bootstrap.pathId, bootstrap.generation, bootstrap.ipv6)
+            || (bootstrap.nodeIndex >= nodes.size()))
         {
             m_dhtBootstrap.removeFirst();
             continue;
@@ -995,7 +1022,9 @@ qint64 Net::PathManager::resolveHost(const QString &pathId, const quint64 genera
 {
     if (controlBusy())
         return 0;
-    const PeerRouteEndpoint *endpoint = findEndpoint(pathId.toULongLong(), generation);
+    const PeerRouteEndpoint *endpoint = findEndpoint(pathId.toULongLong(), generation,
+        family == u"dual"_s ? std::optional<bool> {}
+            : std::optional<bool> {family == u"ipv6"_s});
     if (!endpoint
         || (QString::number(endpoint->pathId) != pathId)
         || host.isEmpty() || (host.toUtf8().size() > 1024) || !validDnsFamily(family))
@@ -1268,7 +1297,8 @@ bool Net::PathManager::setPolicy(const QString &mode, const QString &nativeInter
     return applyPolicy(mode, mixed ? nativeInterface : QString(), std::move(nativeEndpoints));
 }
 
-QList<Net::PeerRouteEndpoint> Net::PathManager::nativeEndpointsForInterface(const QString &interfaceName) const
+QList<Net::PeerRouteEndpoint> Net::PathManager::nativeEndpointsForInterface(const QString &interfaceName,
+    const QHostAddress &preferred) const
 {
     QList<PeerRouteEndpoint> nativeEndpoints;
     if (!interfaceName.isEmpty())
@@ -1293,11 +1323,13 @@ QList<Net::PeerRouteEndpoint> Net::PathManager::nativeEndpointsForInterface(cons
             // when temporary IPv6 addresses or enumeration order change.
             std::ranges::stable_sort(addresses, std::greater {}, [&](const QNetworkAddressEntry &entry)
             {
+                if (entry.ip() == preferred)
+                    return 2;
                 return std::ranges::any_of(m_nativeEndpoints, [&](const PeerRouteEndpoint &endpoint)
                 {
                     return (endpoint.interfaceIndex == static_cast<quint32>(iface.index()))
                         && (QHostAddress(endpoint.localAddress) == entry.ip());
-                });
+                }) ? 1 : 0;
             });
             for (const QNetworkAddressEntry &entry : addresses)
             {
@@ -1308,7 +1340,7 @@ QList<Net::PeerRouteEndpoint> Net::PathManager::nativeEndpointsForInterface(cons
                     continue;
                 PeerRouteEndpoint endpoint;
                 endpoint.type = PeerRouteEndpoint::Type::Native;
-                endpoint.pathId = ipv6 ? 2 : 1;
+                endpoint.pathId = 1;
                 endpoint.localAddress = address.toString();
                 endpoint.interfaceIndex = static_cast<quint32>(iface.index());
                 endpoint.supportsIPv4 = !ipv6;
@@ -1320,8 +1352,189 @@ QList<Net::PeerRouteEndpoint> Net::PathManager::nativeEndpointsForInterface(cons
             break;
         }
     }
-    std::ranges::sort(nativeEndpoints, {}, &PeerRouteEndpoint::pathId);
+    std::ranges::sort(nativeEndpoints, std::greater {}, &PeerRouteEndpoint::supportsIPv4);
     return nativeEndpoints;
+}
+
+bool Net::PathManager::hasNativeBindingIntent() const
+{
+    auto *session = BitTorrent::Session::instance();
+    const auto proxy = ProxyConfigurationManager::instance()->savedProxyConfiguration();
+    if (session->isI2PEnabled() || ((proxy.type != ProxyType::None)
+        && Preferences::instance()->useProxyForBT()))
+        return false;
+    const QString address = session->networkInterfaceAddress();
+    if ((address == u"0.0.0.0"_s) || (address == u"::"_s))
+        return false;
+    if (!address.isEmpty() && QHostAddress(address).isNull())
+        return true; // An invalid explicit listener must stay fail-closed.
+    QString interfaceName = session->networkInterface();
+    if (interfaceName.isEmpty())
+        interfaceName = m_storeNativeInterface;
+    const QHostAddress boundAddress(address);
+    if (interfaceName.isEmpty())
+    {
+        if (boundAddress.isNull())
+            return false;
+        for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces())
+        {
+            const QList<PeerRouteEndpoint> routes = nativeEndpointsForInterface(iface.name(), boundAddress);
+            if (std::ranges::any_of(routes, [&](const PeerRouteEndpoint &route)
+                { return QHostAddress(route.localAddress) == boundAddress; }))
+                return true;
+        }
+        return false; // Virtual or unsupported explicit BT address.
+    }
+    const QList<PeerRouteEndpoint> routes = nativeEndpointsForInterface(interfaceName, boundAddress);
+    if (routes.isEmpty())
+        return interfaceName == m_storeNativeInterface.get(); // Saved physical owner is offline.
+    const QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
+    const auto iface = std::ranges::find_if(interfaces,
+        [&](const QNetworkInterface &entry)
+        { return (entry.name() == interfaceName) || (entry.humanReadableName() == interfaceName); });
+    if (iface == interfaces.end())
+        return false;
+    if (!boundAddress.isNull())
+    {
+        if (std::ranges::any_of(routes, [&](const PeerRouteEndpoint &route)
+            { return QHostAddress(route.localAddress) == boundAddress; }))
+            return true;
+        const bool addressStillPresent = std::ranges::any_of(iface->addressEntries(),
+            [&](const QNetworkAddressEntry &entry) { return entry.ip() == boundAddress; });
+        return !addressStillPresent && (interfaceName == m_storeNativeInterface.get());
+    }
+    int ipv4 = 0;
+    int ipv6 = 0;
+    for (const QNetworkAddressEntry &entry : iface->addressEntries())
+    {
+        const QHostAddress ip = entry.ip();
+        if (ip.isNull() || ip.isLoopback() || ip.isLinkLocal())
+            continue;
+        (ip.protocol() == QAbstractSocket::IPv6Protocol ? ipv6 : ipv4)++;
+    }
+    if ((ipv4 <= 1) && (ipv6 <= 1))
+        return true;
+    // An explicit BT interface-only multihomed binding stays legacy. A
+    // saved physical Paths owner is a deliberate single-address-per-family
+    // selection and stays stable when its adapter has extra addresses.
+    return (interfaceName == m_storeNativeInterface.get())
+        && (session->networkInterface().isEmpty() || !m_nativeEndpoints.isEmpty());
+}
+
+QList<Net::PeerRouteEndpoint> Net::PathManager::nativeEndpointsForSessionBinding() const
+{
+    auto *session = BitTorrent::Session::instance();
+    if (!hasNativeBindingIntent())
+        return {};
+    const QString addressText = session->networkInterfaceAddress();
+    const QHostAddress boundAddress(addressText);
+    if (!addressText.isEmpty() && boundAddress.isNull())
+        return {}; // Keep an invalid explicit listener fail-closed.
+    QString interfaceName = session->networkInterface();
+    if (interfaceName.isEmpty() && !boundAddress.isNull())
+    {
+        for (const QNetworkInterface &iface : QNetworkInterface::allInterfaces())
+        {
+            if (std::ranges::any_of(iface.addressEntries(), [&](const QNetworkAddressEntry &entry)
+                { return entry.ip() == boundAddress; }))
+            {
+                if (!interfaceName.isEmpty())
+                    return {}; // An ambiguous address does not identify one physical owner.
+                interfaceName = iface.name();
+            }
+        }
+    }
+    if (interfaceName.isEmpty())
+        interfaceName = m_storeNativeInterface;
+    QList<PeerRouteEndpoint> endpoints = nativeEndpointsForInterface(interfaceName, boundAddress);
+    if (!boundAddress.isNull())
+    {
+        endpoints.removeIf([&](const PeerRouteEndpoint &endpoint)
+            { return QHostAddress(endpoint.localAddress) != boundAddress; });
+    }
+    return endpoints;
+}
+
+void Net::PathManager::assignNativeGeneration(QList<PeerRouteEndpoint> &endpoints)
+{
+    if (endpoints.isEmpty())
+        return;
+    const bool retainedAddress = std::ranges::any_of(endpoints, [this](const PeerRouteEndpoint &endpoint)
+    {
+        return std::ranges::any_of(m_nativeEndpoints, [&](const PeerRouteEndpoint &current)
+            { return (current.interfaceIndex == endpoint.interfaceIndex)
+                && (current.localAddress == endpoint.localAddress); });
+    });
+    const bool changedFamily = std::ranges::any_of(endpoints, [this](const PeerRouteEndpoint &endpoint)
+    {
+        return std::ranges::any_of(m_nativeEndpoints, [&](const PeerRouteEndpoint &current)
+            { return (current.supportsIPv4 == endpoint.supportsIPv4)
+                && ((current.interfaceIndex != endpoint.interfaceIndex)
+                    || (current.localAddress != endpoint.localAddress)); });
+    });
+    const quint64 generation = (retainedAddress && !changedFamily)
+        ? m_nativeEndpoints.front().generation : ++m_nativeGeneration;
+    for (PeerRouteEndpoint &endpoint : endpoints)
+        endpoint.generation = generation;
+}
+
+bool Net::PathManager::refreshNativeRoute(const bool force)
+{
+    if (m_storeManagedEnabled || m_nativePending
+        || ProxyConfigurationManager::instance()->hasRuntimeProxy())
+    {
+        return true;
+    }
+    QList<PeerRouteEndpoint> endpoints = nativeEndpointsForSessionBinding();
+    const auto sameEndpoint = [](const PeerRouteEndpoint &left, const PeerRouteEndpoint &right)
+    {
+        return (left.pathId == right.pathId) && (left.localAddress == right.localAddress)
+            && (left.interfaceIndex == right.interfaceIndex);
+    };
+    if (!force && std::ranges::equal(m_nativeEndpoints, endpoints, sameEndpoint))
+        return true;
+    const QList<PeerRouteEndpoint> previous = m_nativeEndpoints;
+    assignNativeGeneration(endpoints);
+    m_nativeEndpoints = std::move(endpoints);
+    auto *session = BitTorrent::Session::instance();
+    const bool applied = !hasNativeBindingIntent()
+        ? session->resetNetworkRoutes() : applyRoutes();
+    if (!applied)
+    {
+        m_nativeEndpoints.clear();
+        session->setNetworkRoutes({}, RoutePolicy::Pinned);
+        reportError(tr("Unable to apply the physical Native route."));
+        return false;
+    }
+    if (!previous.isEmpty() && (m_nativeEndpoints.isEmpty()
+        || (previous.front().generation != m_nativeEndpoints.front().generation)))
+    {
+        session->invalidateNetworkRoute(previous.front().pathId, previous.front().generation);
+    }
+    emit changed();
+    return true;
+}
+
+void Net::PathManager::restoreNativeDhtBootstrap()
+{
+    if (!BitTorrent::Session::instance()->isDHTEnabled())
+        return;
+    const auto add = [this](const PeerRouteEndpoint &endpoint, const bool ipv6)
+    {
+        if (!std::ranges::any_of(m_dhtBootstrap, [&](const DhtBootstrap &entry)
+            { return (entry.pathId == endpoint.pathId)
+                && (entry.generation == endpoint.generation) && (entry.ipv6 == ipv6); }))
+        {
+            m_dhtBootstrap.append({endpoint.pathId, endpoint.generation, ipv6});
+        }
+    };
+    for (const PeerRouteEndpoint &endpoint : m_nativeEndpoints)
+    {
+        if (endpoint.supportsUdp && endpoint.supportsIPv4)
+            add(endpoint, false);
+        if (endpoint.supportsUdp && endpoint.supportsIPv6)
+            add(endpoint, true);
+    }
 }
 
 bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInterface,
@@ -1335,6 +1548,7 @@ bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInt
     const QString currentMode = m_storePolicy.get(u"pinned"_s);
     const QString currentInterface = m_storeNativeInterface;
     if ((currentMode == mode) && (currentInterface == nativeInterface)
+        && ProxyConfigurationManager::instance()->hasRuntimeProxy()
         && std::ranges::equal(m_nativeEndpoints, nativeEndpoints, sameNativeEndpoint))
     {
         if ((mode == u"mixed") && !m_statusRefresh.isActive())
@@ -1365,23 +1579,17 @@ bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInt
         reportError(tr("Unable to save the network policy."));
         return false;
     }
-    const QList<PeerRouteEndpoint> oldNativeEndpoints = std::move(m_nativeEndpoints);
-    for (PeerRouteEndpoint &endpoint : nativeEndpoints)
-    {
-        const auto previousEndpoint = std::ranges::find_if(oldNativeEndpoints,
-            [&](const PeerRouteEndpoint &candidate) { return sameNativeEndpoint(candidate, endpoint); });
-        endpoint.generation = (previousEndpoint != oldNativeEndpoints.end())
-            ? previousEndpoint->generation : ++m_nativeGeneration;
-    }
+    const QList<PeerRouteEndpoint> oldNativeEndpoints = m_nativeEndpoints;
+    assignNativeGeneration(nativeEndpoints);
     m_nativeEndpoints = std::move(nativeEndpoints);
-    if (!applyRoutes())
+    if (!applyRoutes(enteringMixed))
     {
         if (enteringMixed)
         {
-            const bool routesRestored = BitTorrent::Session::instance()->resetNetworkRoutes();
             m_nativeEndpoints = oldNativeEndpoints;
             m_storePolicy = previous;
             m_storeNativeInterface = previousInterface;
+            const bool routesRestored = applyRoutes();
             reportError(routesRestored ? tr("Unable to apply the network policy.")
                 : tr("Unable to restore Native after the network policy failed."));
             return false;
@@ -1406,10 +1614,10 @@ bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInt
     {
         // The managed torrent selector was installed synchronously before
         // changing the proxy; restore ordinary Native if that change cannot persist.
-        const bool routesRestored = BitTorrent::Session::instance()->resetNetworkRoutes();
         m_nativeEndpoints = oldNativeEndpoints;
         m_storePolicy = previous;
         m_storeNativeInterface = previousInterface;
+        const bool routesRestored = applyRoutes();
         reportError(routesRestored
             ? tr("Unable to save the managed startup policy.")
             : tr("Unable to restore Native after the managed startup policy failed."));
@@ -1441,8 +1649,18 @@ bool Net::PathManager::applyPolicy(const QString &mode, const QString &nativeInt
     return true;
 }
 
-bool Net::PathManager::applyRoutes()
+bool Net::PathManager::applyRoutes(const bool activateManaged)
 {
+    auto *session = BitTorrent::Session::instance();
+    if (!activateManaged && !m_storeManagedEnabled
+        && !ProxyConfigurationManager::instance()->hasRuntimeProxy())
+    {
+        if (m_nativeEndpoints.isEmpty())
+            return hasNativeBindingIntent()
+                ? session->setNetworkRoutes({}, RoutePolicy::Pinned)
+                : session->resetNetworkRoutes();
+        return session->setNetworkRoutes(m_nativeEndpoints, RoutePolicy::Mixed);
+    }
     QList<PeerRouteEndpoint> endpoints;
     for (const ActivePath &path : m_paths)
         endpoints.append(path.endpoint);
@@ -1454,7 +1672,6 @@ bool Net::PathManager::applyRoutes()
         endpoints.append(m_nativeEndpoints);
     const RoutePolicy policy = (mode == u"mixed") ? RoutePolicy::Mixed
         : ((mode == u"tunnels") ? RoutePolicy::TunnelsOnly : RoutePolicy::Pinned);
-    auto *session = BitTorrent::Session::instance();
     if (!session->setNetworkRoutes(endpoints, policy))
         return false;
     if (ProxyConfigurationManager::instance()->hasRuntimeProxy())
@@ -1470,7 +1687,8 @@ bool Net::PathManager::useNative()
         && ProxyConfigurationManager::instance()->hasRuntimeProxy();
     // Retire managed peers before child shutdown closes their relay sockets;
     // otherwise the disconnect looks like a transport failure and delays reconnection.
-    if (managedChildRunning && !BitTorrent::Session::instance()->setNetworkRoutes({}, RoutePolicy::Pinned))
+    if (managedChildRunning && !BitTorrent::Session::instance()->setNetworkRoutes(
+        m_nativeEndpoints, m_nativeEndpoints.isEmpty() ? RoutePolicy::Pinned : RoutePolicy::Mixed))
     {
         if (!applyRoutes())
             fail(tr("Unable to restore the previous network routes."));
@@ -1535,7 +1753,8 @@ bool Net::PathManager::finishUseNative()
             : tr("Unable to restore the saved Mihomo selection after Direct failed."));
         return false;
     }
-    if (!BitTorrent::Session::instance()->resetNetworkRoutes())
+    const bool legacyProxy = !hasNativeBindingIntent();
+    if (legacyProxy && !BitTorrent::Session::instance()->resetNetworkRoutes())
     {
         reportError(restoreSelection()
             ? tr("Unable to restore the default torrent network routes.")
@@ -1551,11 +1770,16 @@ bool Net::PathManager::finishUseNative()
             reportError(tr("Unable to restore the saved Mihomo selection after Direct failed."));
         return false;
     }
-    BitTorrent::Session::instance()->retryPolicyPeers();
     m_paths.clear();
-    m_nativeEndpoints.clear();
+    if (legacyProxy)
+        m_nativeEndpoints.clear();
+    else if (!refreshNativeRoute(true))
+        return false;
+    m_statusRefresh.start();
+    BitTorrent::Session::instance()->retryPolicyPeers();
     m_status.clear();
     emit changed();
+    restoreNativeDhtBootstrap();
     return true;
 }
 
@@ -2629,9 +2853,13 @@ void Net::PathManager::fail(const QString &message)
     m_pendingEdgeReopen.reset();
     // shutdown preserves the Native routes permitted by Mixed. Continue
     // checking their selected interface even when the transport child failed.
-    if (proxyManager->hasRuntimeProxy() && (m_storePolicy.get() == u"mixed"))
+    if ((proxyManager->hasRuntimeProxy() && (m_storePolicy.get() == u"mixed"))
+        || (!proxyManager->hasRuntimeProxy() && hasNativeBindingIntent()))
+    {
         m_statusRefresh.start();
+    }
     reportError(message);
+    restoreNativeDhtBootstrap();
 }
 
 void Net::PathManager::reportError(const QString &message)
@@ -2678,7 +2906,7 @@ void Net::PathManager::stopPath(const QString &pathId)
         return;
     if (!pathId.isEmpty())
     {
-        if ((pathId == u"1") || (pathId == u"2"))
+        if (pathId == u"1")
         {
             setPolicy(u"tunnels"_s);
             return;

@@ -7292,6 +7292,14 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <source>qbutt-net replaced an unexpected path generation.</source>
         <translation>qbutt-net заменил не то поколение сетевого маршрута.</translation>
     </message>
+    <message>
+        <source>Network helper stopped.</source>
+        <translation>Сетевой процесс остановился.</translation>
+    </message>
+    <message>
+        <source>Unable to apply the physical Native route.</source>
+        <translation>Не удалось применить маршрут через физический адаптер.</translation>
+    </message>
 </context>
 <context>
     <name>Net::Smtp</name>

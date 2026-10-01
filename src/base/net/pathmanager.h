@@ -99,10 +99,16 @@ namespace Net
         void reportError(const QString &message);
         bool shutdown();
         bool finishUseNative();
-        QList<PeerRouteEndpoint> nativeEndpointsForInterface(const QString &interfaceName) const;
+        QList<PeerRouteEndpoint> nativeEndpointsForInterface(const QString &interfaceName,
+            const QHostAddress &preferred = {}) const;
+        bool hasNativeBindingIntent() const;
+        QList<PeerRouteEndpoint> nativeEndpointsForSessionBinding() const;
+        void assignNativeGeneration(QList<PeerRouteEndpoint> &endpoints);
+        bool refreshNativeRoute(bool force = false);
+        void restoreNativeDhtBootstrap();
         bool applyPolicy(const QString &mode, const QString &nativeInterface,
             QList<PeerRouteEndpoint> nativeEndpoints);
-        bool applyRoutes();
+        bool applyRoutes(bool activateManaged = false);
         bool applyTrustedInboundRoutes();
         void finishResolution(const QList<QHostAddress> &addresses, const QString &errorCode = {});
         void sendQueuedRequest();
@@ -119,7 +125,8 @@ namespace Net
         void startNextPathRollover();
         bool finishStopPath(const QString &pathId);
         bool revokePath(ActivePath &path);
-        const PeerRouteEndpoint *findEndpoint(quint64 pathId, quint64 generation) const;
+        const PeerRouteEndpoint *findEndpoint(quint64 pathId, quint64 generation,
+            std::optional<bool> ipv6 = {}) const;
         void queueDhtBootstrap(quint64 pathId, quint64 generation, bool ipv6);
         void processDhtBootstrap();
 

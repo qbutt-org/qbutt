@@ -13,13 +13,15 @@ interface Status {
     pinned: boolean;
     mode: string;
     processId: number;
-    paths: { pathId: string; generation: number; edgeId: string; open: boolean }[];
+    paths: { pathId: string; generation: number; edgeId: string; open: boolean;
+        localAddress?: string; localAddresses?: string[] }[];
     peers: { infoHash: string; pathId: string; generation: number; peer: string; port: number;
         payloadDownload: number }[];
 }
 interface Peer { ip: string; port: number; downloaded: number; client: string; progress: number;
     connection: string; flags: string }
 interface TcpSocket { LocalAddress: string; LocalPort: number; RemoteAddress: string; RemotePort: number; OwningProcess: number }
+interface UdpSocket { LocalAddress: string; LocalPort: number; OwningProcess: number }
 
 const nativeInterface = process.env.QBUTT_LAB_NATIVE_INTERFACE;
 const nativeAddress = process.env.QBUTT_LAB_NATIVE_ADDRESS;
@@ -52,6 +54,23 @@ async function nativeSockets(port: number): Promise<TcpSocket[]> {
     assert.equal(exit, 0, `Owned TCP socket inspection failed: ${error}`);
     const sockets = JSON.parse(output);
     assert(Array.isArray(sockets), "TCP inspection did not return an array");
+    return sockets;
+}
+
+async function nativeUdpSockets(): Promise<UdpSocket[]> {
+    const owner = lab.pid;
+    assert(owner, "Native UDP socket inspection needs the running app process");
+    const script = `ConvertTo-Json -Compress -InputObject @(Get-NetUDPEndpoint `
+        + `-LocalAddress '${nativeAddress}' -ErrorAction SilentlyContinue | `
+        + `Where-Object { $_.OwningProcess -eq ${owner} } | `
+        + "Select-Object LocalAddress,LocalPort,OwningProcess)";
+    const child = Bun.spawn(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], {
+        stdout: "pipe", stderr: "pipe", timeout: 10000, windowsHide: true });
+    const [exit, output, error] = await Promise.all([child.exited,
+        new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    assert.equal(exit, 0, `Owned UDP socket inspection failed: ${error}`);
+    const sockets = JSON.parse(output);
+    assert(Array.isArray(sockets), "UDP inspection did not return an array");
     return sockets;
 }
 
@@ -115,9 +134,12 @@ try {
         && preferences.bittorrent_protocol === (useUtp ? 2 : 1)
         && preferences.enable_multi_connections_from_same_ip);
     const status = () => lab.json<Status>("qbuttPaths/status");
-    const initial = await status();
-    assert(!initial.pinned && initial.paths.length === 0 && initial.processId === 0,
-        "Initial Direct state unexpectedly contains managed routes");
+    const initial = await waitFor("Native context before first torrent dial", status, current =>
+        !current.pinned && current.paths.length === 1 && current.paths[0]!.edgeId === "native"
+        && current.paths[0]!.open && current.paths[0]!.localAddresses?.includes(nativeAddress), 15000);
+    const nativePath = initial.paths[0]!;
+    assert.equal(nativePath.pathId, "1");
+    assert(nativePath.generation > 0, "Native route has no generation");
     const destination = join(lab.root, "download");
     const hash = await lab.add("v1-public", destination);
     const peers = async () => Object.values((await lab.json<{ peers: Record<string, Peer> }>(
@@ -132,31 +154,62 @@ try {
         && peer.flags.includes("P") === useUtp),
         "Direct fixture used the wrong peer transport");
     const oldSockets = useUtp ? [] : await nativeSockets(seeds[0]!.port);
+    const oldUdpSockets = useUtp ? await nativeUdpSockets() : [];
     if (!useUtp)
         assert(oldSockets.length > 0, "Direct payload has no owned physical TCP socket");
-    await lab.checkpoint({ check: "active-direct-before-transition", hash, peers: direct, sockets: oldSockets });
-    assert((await lab.info(hash)).progress < 1, "Torrent completed before Direct to Tunnels");
+    else
+        assert(oldUdpSockets.length > 0, "Direct payload has no owned physical UDP socket");
+    const sameSocket = (socket: TcpSocket) => oldSockets.some(old => old.LocalAddress === socket.LocalAddress
+        && old.LocalPort === socket.LocalPort && old.RemoteAddress === socket.RemoteAddress
+        && old.RemotePort === socket.RemotePort && old.OwningProcess === socket.OwningProcess);
+    const sameUdpSocket = (socket: UdpSocket) => oldUdpSockets.some(old => old.LocalAddress === socket.LocalAddress
+        && old.LocalPort === socket.LocalPort && old.OwningProcess === socket.OwningProcess);
+    const routePeer = (current: Status) => current.peers.find(peer => peer.infoHash === hash
+        && peer.peer === nativeAddress && peer.port === seeds[0]!.port
+        && peer.pathId === nativePath.pathId && peer.generation === nativePath.generation);
+    const beforeMixed = await waitFor("warm Native route carries payload", status,
+        current => (routePeer(current)?.payloadDownload ?? 0) > 32768, 15000);
+    const warmPayload = routePeer(beforeMixed)!.payloadDownload;
+    const verifiedBeforeMixed = await verifiedPieces();
+    await lab.checkpoint({ check: "active-native-before-transition", hash, route: nativePath,
+        peers: beforeMixed.peers, sockets: oldSockets, udpSockets: oldUdpSockets });
+    assert((await lab.info(hash)).progress < 1, "Torrent completed before Native to Mixed");
 
-    if (useUtp) {
-        const beforeMixed = await verifiedPieces();
-        await lab.request("qbuttPaths/policy", { mode: "mixed", nativeInterface });
-        const mixed = await waitFor("Mixed Native route ready", status, current => current.mode === "mixed"
-            && current.paths.some(path => path.edgeId === "native" && path.open), 15000);
-        const nativePath = mixed.paths.find(path => path.edgeId === "native")!;
-        const recovered = await waitFor("same peer resumes and verifies over managed Native", async () =>
-            ({ status: await status(), verifiedPieces: await verifiedPieces() }), current =>
-            current.verifiedPieces > beforeMixed && current.status.peers.some(peer =>
-                peer.infoHash === hash && peer.peer === nativeAddress
-                && peer.port === seeds[0]!.port && peer.pathId === nativePath.pathId
-                && peer.generation === nativePath.generation && peer.payloadDownload > 16384), 20000);
-        await lab.checkpoint({ check: "active-direct-to-mixed-native-utp", hash, route: nativePath,
-            peers: recovered.status.peers, verifiedPiecesBefore: beforeMixed,
-            verifiedPiecesAfter: recovered.verifiedPieces });
-        assert((await lab.info(hash)).progress < 1, "Torrent completed before Mixed to Tunnels");
-    }
+    await lab.request("qbuttPaths/policy", { mode: "mixed", nativeInterface });
+    await waitFor("Mixed keeps Native context and physical peer", status, current => current.mode === "mixed"
+        && current.paths.length === 1 && current.paths[0]!.edgeId === "native"
+        && current.paths[0]!.pathId === nativePath.pathId
+        && current.paths[0]!.generation === nativePath.generation
+        && (routePeer(current)?.payloadDownload ?? 0) > warmPayload, 15000);
+    await lab.request("qbuttPaths/open", { configPath, proxyName: "transition",
+        interfaceName: "Loopback Pseudo-Interface 1" });
+    const competing = await waitFor("relay competes with retained Native peer", status,
+        current => !current.busy && current.paths.length === 2
+            && current.paths.some(path => path.edgeId === "native" && path.open
+                && path.pathId === nativePath.pathId && path.generation === nativePath.generation)
+            && current.paths.some(path => path.edgeId !== "native" && path.open)
+            && (routePeer(current)?.payloadDownload ?? 0) > warmPayload + 8192, 20000);
+    const mixedRelay = competing.paths.find(path => path.edgeId !== "native")!;
+    if (useUtp)
+        assert((await nativeUdpSockets()).some(sameUdpSocket), "Mixed replaced the physical uTP UDP owner");
+    else
+        assert((await nativeSockets(seeds[0]!.port)).some(sameSocket),
+            "Mixed retired the productive Native TCP socket");
+    const verifiedInMixed = await waitFor("Mixed verifies retained Native payload", verifiedPieces,
+        count => count > verifiedBeforeMixed, 20000);
+    await lab.checkpoint({ check: "native-to-mixed-retains-physical-peer", hash,
+        route: nativePath, relay: mixedRelay, peers: competing.peers, sockets: oldSockets,
+        udpSockets: oldUdpSockets, verifiedPiecesBefore: verifiedBeforeMixed,
+        verifiedPiecesAfter: verifiedInMixed });
+    await lab.request("qbuttPaths/stop", { pathId: mixedRelay.pathId });
+    await waitFor("competing relay closes without Native retirement", status,
+        current => !current.busy && current.paths.some(path => path.pathId === mixedRelay.pathId && !path.open)
+            && current.paths.some(path => path.edgeId === "native" && path.open
+                && path.generation === nativePath.generation)
+            && routePeer(current) !== undefined, 15000);
+    assert((await lab.info(hash)).progress < 1, "Torrent completed before Mixed to Tunnels");
 
-    // Select fail-closed Tunnels before opening the remote path. The UTP
-    // variant first proves the same warm peer survives ordinary Native to Mixed.
+    // Select fail-closed Tunnels after closing the competing relay.
     await lab.request("qbuttPaths/policy", { mode: "tunnels" });
     if (!useUtp)
         await waitFor("old Direct socket closed", () => nativeSockets(seeds[0]!.port), sockets => sockets.length === 0, 15000);
@@ -167,7 +220,8 @@ try {
     if (useUtp) {
         await Bun.sleep(2500);
         const blocked = await status();
-        assert(blocked.paths.length === 0 && !blocked.peers.some(peer => peer.infoHash === hash),
+        assert(blocked.paths.every(path => !path.open)
+            && !blocked.peers.some(peer => peer.infoHash === hash),
             "Unready Tunnels resumed a peer before a relay was available");
     }
     await lab.request("qbuttPaths/open", { configPath, proxyName: "transition", interfaceName: "Loopback Pseudo-Interface 1" });
@@ -209,8 +263,13 @@ try {
         return remaining;
     };
     await lab.request("qbuttPaths/native", {});
-    await waitFor("managed path and sockets retire", status, current => !current.busy && !current.pinned
-        && current.paths.length === 0 && current.peers.length === 0 && current.processId === 0
+    await waitFor("relay retires and Native gets a fresh generation", status, current =>
+        !current.busy && !current.pinned && current.paths.length === 1
+        && current.paths[0]!.edgeId === "native" && current.paths[0]!.open
+        && current.paths[0]!.pathId === nativePath.pathId
+        && current.paths[0]!.generation > nativePath.generation
+        && current.paths[0]!.localAddresses?.includes(nativeAddress)
+        && !current.peers.some(peer => peer.infoHash === hash && peer.pathId === path.pathId)
         && proxy!.stats.activeConnections === 0, returnTimeLeft());
     const retiredRelay = { ...proxy.stats };
     assert(!(await lab.info(hash)).state.startsWith("stopped"), "Restoring Direct stopped the active torrent");

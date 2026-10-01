@@ -104,18 +104,17 @@ payload demand time or verified credit. Only the choked peer accrues choke time.
 Releasing it must complete the exact payload over the original connection. This
 bounded fixture does not establish idle-timeout or long-term stability behavior.
 
-`smoke:direct-transition` uses the same physical-interface settings. One active
-torrent starts with ordinary Direct networking and no child, switches to
-fail-closed Tunnels only, then returns to Direct. It verifies useful TCP payload
-in each mode, closure of the original native socket, a reachable native canary
-that receives no managed-mode connection, child/listener retirement, and exact
-final hashes. Returning to Direct must complete a new handshake with the original
-peer, receive at least 16 KiB of fresh payload from it, and verify another piece
-within 20 seconds without adding that peer again. The
-`smoke:direct-transition-utp` variant first passes through Mixed Native,
-then observes Tunnels without a ready relay before opening one. It checks the
-same bounded return over µTP.
-Neither variant stops or restarts the torrent between policy changes.
+`smoke:direct-transition` and `smoke:direct-transition-utp` use the same physical
+interface settings. An active torrent starts with a managed Native identity,
+adds a competing relay in Mixed, and must retain its productive Native TCP or
+uTP connection and UDP listener while verifying new pieces. Both variants then
+enter fail-closed Tunnels only and return to Native with a fresh generation.
+A reachable Native canary must receive no Tunnels-only connection. Returning to
+Native must complete a new handshake with the original peer, receive at least
+16 KiB of fresh payload, and verify another piece within 20 seconds without
+adding the peer again. Final sizes and hashes must match; the torrent is never
+stopped or restarted. Native remains visible in the path API after relay
+retirement. An idle DNS helper may remain; its PID does not imply an active relay.
 
 The shared lab selects its peer port by checking both UDP and TCP binds:
 Windows can reserve different port ranges for each protocol.

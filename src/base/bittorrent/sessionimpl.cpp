@@ -1984,6 +1984,8 @@ lt::settings_pack SessionImpl::loadLTSettings() const
     const auto *proxyManager = Net::ProxyConfigurationManager::instance();
     // Mixed installs its route selector before saving the runtime proxy marker.
     const bool managedNetwork = m_peerRouteSelector || proxyManager->hasRuntimeProxy();
+    const bool nativeOnly = m_peerRouteSelector && !proxyManager->hasRuntimeProxy()
+        && !m_managedNativeListenAddresses.isEmpty();
     settingsPack.set_bool(lt::settings_pack::proxy_require_authentication, false);
     const Net::ProxyConfiguration proxyConfig = proxyManager->proxyConfiguration();
     if (!managedNetwork && (proxyConfig.type != Net::ProxyType::None)
@@ -2219,7 +2221,7 @@ lt::settings_pack SessionImpl::loadLTSettings() const
         settingsPack.set_bool(lt::settings_pack::proxy_tracker_connections, false);
         settingsPack.set_bool(lt::settings_pack::proxy_hostnames, false);
         settingsPack.set_bool(lt::settings_pack::enable_dht, isDHTEnabled());
-        settingsPack.set_bool(lt::settings_pack::enable_lsd, false);
+        settingsPack.set_bool(lt::settings_pack::enable_lsd, nativeOnly && isLSDEnabled());
         const bool nativeInbound = !m_managedNativeListenAddresses.isEmpty();
         settingsPack.set_bool(lt::settings_pack::enable_incoming_tcp,
             nativeInbound && (btProtocol() != BTProtocol::UTP));
@@ -4297,8 +4299,7 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
             {
                 route.type = lt::peer_route::type_t::native;
                 route.local_endpoint = {address, 0};
-                if (policy == Net::RoutePolicy::Mixed)
-                    nativeListenAddresses.append(QString::fromStdString(address.to_string()));
+                nativeListenAddresses.append(QString::fromStdString(address.to_string()));
 #ifdef Q_OS_WIN
                 route.native_interface_index = endpoint.interfaceIndex;
 #endif
@@ -4430,15 +4431,19 @@ bool SessionImpl::setNetworkRoutes(const QList<Net::PeerRouteEndpoint> &endpoint
     {
         if (m_isPortMappingEnabled)
             disablePortMapping();
-        std::vector<lt::udp_route> remoteRoutes;
+        std::vector<lt::udp_route> retainedRoutes;
         for (const lt::udp_route &route : udpRoutes)
         {
-            if (route.route.type != lt::peer_route::type_t::native)
-                remoteRoutes.push_back(route);
+            const QString address = QString::fromStdString(route.route.local_endpoint.address().to_string());
+            if ((route.route.type != lt::peer_route::type_t::native)
+                || m_managedNativeListenAddresses.contains(address))
+            {
+                retainedRoutes.push_back(route);
+            }
         }
-        // Retire the old Native socket owner before changing its physical
-        // listener. The managed selector already rejects context-zero traffic.
-        error = m_nativeSession->set_udp_routes(std::move(remoteRoutes));
+        // Keep unchanged Native socket owners while listeners for added or
+        // removed address families are reconfigured.
+        error = m_nativeSession->set_udp_routes(std::move(retainedRoutes));
         if (!error)
         {
             m_managedNativeListenAddresses = nativeListenAddresses;
