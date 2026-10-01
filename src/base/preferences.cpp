@@ -410,7 +410,7 @@ void Preferences::setWinStartup(const bool b)
 // Downloads
 bool Preferences::isDownloadProgressOverlayEnabled() const
 {
-    return value(u"GUI/DownloadProgressOverlayEnabled"_s, false);
+    return value(u"GUI/DownloadProgressOverlayEnabled"_s, true);
 }
 
 void Preferences::setDownloadProgressOverlayEnabled(const bool enabled)

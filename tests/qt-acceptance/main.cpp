@@ -1444,15 +1444,12 @@ namespace
         }
         auto *preferences = Preferences::instance();
         auto *session = BitTorrent::Session::instance();
-        require(overlay && !preferences->isDownloadProgressOverlayEnabled() && !overlay->isVisible(),
-            u"Download overlay is not disabled by default"_s);
+        require(overlay && preferences->isDownloadProgressOverlayEnabled() && !overlay->isVisible(),
+            u"Download overlay is not enabled by default or appears while idle"_s);
         const auto flags = overlay->windowFlags();
         require(flags.testFlag(Qt::WindowStaysOnTopHint) && flags.testFlag(Qt::WindowTransparentForInput)
                 && flags.testFlag(Qt::WindowDoesNotAcceptFocus) && overlay->testAttribute(Qt::WA_ShowWithoutActivating),
             u"Overlay can steal input or does not stay above other windows"_s);
-        preferences->setDownloadProgressOverlayEnabled(true);
-        preferences->apply();
-        require(!overlay->isVisible(), u"Idle overlay is visible"_s);
         const auto descriptor = BitTorrent::TorrentDescriptor::loadFromFile(Path(spec.value(u"overlayTorrentPath"_s).toString()));
         require(bool(descriptor), u"Missing progress fixture"_s);
         const QString destination = spec.value(u"overlayDestination"_s).toString();
@@ -2384,8 +2381,13 @@ namespace
         require(options.width() == 840, u"Settings cannot fit an ordinary 840 px dialog"_s);
         auto *custom = requiredChild<QGroupBox>(&options, u"checkUseCustomTheme"_s);
         auto *scheme = requiredChild<QComboBox>(&options, u"comboColorScheme"_s);
+        auto *overlaySetting = requiredChild<QCheckBox>(&options, u"checkDownloadProgressOverlay"_s);
         auto *language = requiredChild<QComboBox>(&options, u"comboLanguage"_s);
         auto *certificateLink = requiredChild<QLabel>(&options, u"lblWebUICertInfo"_s);
+        const bool overlayEnabled = phase != u"retained"_s;
+        require(Preferences::instance()->isDownloadProgressOverlayEnabled() == overlayEnabled
+                && overlaySetting->isChecked() == overlayEnabled,
+            u"Download overlay default or saved choice differs from the settings control"_s);
         require(language->mapTo(&options, QPoint()).x() == scheme->mapTo(&options, QPoint()).x()
                 && language->width() == scheme->width(),
             u"Interface language and appearance fields do not share aligned edges"_s);
@@ -2539,10 +2541,9 @@ namespace
             pages->setCurrentRow(1);
             QCoreApplication::processEvents();
             auto *remove = requiredChild<QCheckBox>(&options, u"checkAutoRemoveCompletedTorrents"_s);
-            auto *overlay = requiredChild<QCheckBox>(&options, u"checkDownloadProgressOverlay"_s);
             auto *autoOpen = requiredChild<QGroupBox>(&options, u"groupAutoOpenTorrents"_s);
-            require(remove->isVisible() && overlay->isVisible() && autoOpen->isVisible()
-                    && remove->isChecked() == (phase != u"functional") && !overlay->isChecked()
+            require(remove->isVisible() && overlaySetting->isVisible() && autoOpen->isVisible()
+                    && remove->isChecked() == (phase != u"functional") && overlaySetting->isChecked()
                     && autoOpen->isChecked() == (phase != u"functional"),
                 u"Everyday download controls do not reflect the isolated profile defaults"_s);
             require(requiredChild<QLabel>(&options, u"verticalLayoutAdvancedHeading"_s)->isVisible(),
@@ -2561,7 +2562,6 @@ namespace
             {
                 auto *apply = requiredChild<QDialogButtonBox>(&options, u"buttonBox"_s)->button(QDialogButtonBox::Apply);
                 remove->setChecked(true);
-                overlay->setChecked(true);
                 apply->click();
                 require(Preferences::instance()->isAutoRemoveCompletedTorrentsEnabled()
                         && Preferences::instance()->isDownloadProgressOverlayEnabled(), u"Download checkboxes did not save"_s);
@@ -2577,8 +2577,13 @@ namespace
                     u"Saved download options did not survive reopening"_s);
                 reopened.close();
                 remove->setChecked(false);
-                overlay->setChecked(false);
+                overlaySetting->setChecked(false);
                 apply->click();
+                OptionsDialog disabled {&application, window};
+                require(!Preferences::instance()->isDownloadProgressOverlayEnabled()
+                        && !requiredChild<QCheckBox>(&disabled, u"checkDownloadProgressOverlay"_s)->isChecked(),
+                    u"Explicitly disabled download overlay did not survive reopening"_s);
+                disabled.close();
                 pages->setCurrentRow(3);
                 downloadLimit->setValue(12.34);
                 uploadLimit->setValue(4.56);
@@ -2666,10 +2671,13 @@ namespace
             sidebar->trigger();
 #ifdef QBT_HAS_COLORSCHEME_OPTION
             scheme->setCurrentIndex(scheme->findData(QVariant::fromValue(ColorScheme::Light)));
+            overlaySetting->setChecked(false);
             auto *apply = requiredChild<QDialogButtonBox>(&options, u"buttonBox"_s)->button(QDialogButtonBox::Apply);
             require(apply && apply->isEnabled(), u"Theme edit did not enable Apply"_s);
             apply->click();
             require(UIThemeManager::instance()->colorScheme() == ColorScheme::Light, u"Options did not save the user theme"_s);
+            require(!Preferences::instance()->isDownloadProgressOverlayEnabled(),
+                u"Options did not save the user's disabled download overlay"_s);
             auto *session = BitTorrent::Session::instance();
             require(!session->isSpeedLimitEnabled() && (session->downloadSpeedLimit() == 0)
                     && (session->uploadSpeedLimit() == 0)
