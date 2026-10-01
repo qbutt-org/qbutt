@@ -106,10 +106,13 @@ try {
     await waitFor("positive Direct canary", async () => canaryHits, hits => hits === 1, 1000);
 
     await lab.start();
-    await lab.request("app/setPreferences", { json: JSON.stringify({ current_interface_address: nativeAddress }) });
-    const preferences = await lab.json<{ current_interface_address: string; bittorrent_protocol: number }>("app/preferences");
+    await lab.request("app/setPreferences", { json: JSON.stringify({ current_interface_address: nativeAddress,
+        enable_multi_connections_from_same_ip: true }) });
+    const preferences = await lab.json<{ current_interface_address: string; bittorrent_protocol: number;
+        enable_multi_connections_from_same_ip: boolean }>("app/preferences");
     assert(preferences.current_interface_address === nativeAddress
-        && preferences.bittorrent_protocol === (useUtp ? 2 : 1));
+        && preferences.bittorrent_protocol === (useUtp ? 2 : 1)
+        && preferences.enable_multi_connections_from_same_ip);
     const status = () => lab.json<Status>("qbuttPaths/status");
     const initial = await status();
     assert(!initial.pinned && initial.paths.length === 0 && initial.processId === 0,
