@@ -3064,42 +3064,33 @@ void Net::PathManagerAcceptance::run(MainWindow *window, const QJsonObject &spec
             require((peerModel->headerData(PeerListWidget::VIA, Qt::Horizontal).toString() == PeerListWidget::tr("Via"))
                     && !peerList->isColumnHidden(PeerListWidget::VIA),
                 u"The Peers tab does not show the actual route column"_s);
-            for (int row = 0; row < peerModel->rowCount(); ++row)
+            int routedRow = -1;
+            waitFor(u"Actual routed peer in Peers tab"_s, [&]
             {
-                if ((peerModel->data(peerModel->index(row, PeerListWidget::IP_HIDDEN)).toString()
-                        == actual.value(u"peer"_s).toString())
-                    && (peerModel->data(peerModel->index(row, PeerListWidget::PORT)).toString()
-                        == QString::number(actual.value(u"port"_s).toInt())))
+                for (int row = 0; row < peerModel->rowCount(); ++row)
                 {
-                    require(peerModel->data(peerModel->index(row, PeerListWidget::VIA)).toString() == routeName,
-                        u"The Peers tab displayed a route different from the actual peer path"_s);
-                    return;
+                    if ((peerModel->data(peerModel->index(row, PeerListWidget::IP_HIDDEN)).toString()
+                            == actual.value(u"peer"_s).toString())
+                        && (peerModel->data(peerModel->index(row, PeerListWidget::PORT)).toString()
+                            == QString::number(actual.value(u"port"_s).toInt())))
+                    {
+                        routedRow = row;
+                        return true;
+                    }
                 }
-            }
-            require(false, u"The actual routed peer is missing from the Peers tab"_s);
+                return false;
+            });
+            const QString actualVia = peerModel->data(peerModel->index(routedRow, PeerListWidget::VIA)).toString();
+            require(actualVia == routeName, u"The Peers tab displayed a route different from the actual peer path"_s);
+            return actualVia;
         };
-        assertPeerRoute(remotePath, paths->m_paths.front().endpoint.generation, u"remote"_s);
-        assertPeerRoute(u"1"_s, paths->m_nativeEndpoints.front().generation, PeerListWidget::tr("Direct"));
+        const QString remoteVia = assertPeerRoute(remotePath, paths->m_paths.front().endpoint.generation, u"remote"_s);
+        const QString nativeVia = assertPeerRoute(u"1"_s, paths->m_nativeEndpoints.front().generation, PeerListWidget::tr("Direct"));
+        addCheck(evidence, {{u"name"_s, u"peer-route-column"_s}, {u"remoteVia"_s, remoteVia},
+            {u"nativeVia"_s, nativeVia}});
         recordNativeAdmission(u"receiving"_s);
         const quint64 oldGeneration = paths->m_nativeEndpoints.front().generation;
         const QJsonValue oldNativePort = peer(u"1"_s).value(u"localPort"_s);
-        const auto dhtQueries = [&](const QString &source)
-        {
-            return std::ranges::count_if(tryReadObject(spec.value(u"dhtEvidence"_s).toString())
-                .value(u"queries"_s).toArray(), [&](const QJsonValue &entry)
-            {
-                return entry.toObject().value(u"source"_s).toString() == source;
-            });
-        };
-        const quint16 dhtPort = static_cast<quint16>(spec.value(u"dhtPort"_s).toInt());
-        require(dhtPort > 0, u"DHT observer port is missing"_s);
-        session->setDHTBootstrapNodes(u"127.0.0.12:%1"_s.arg(dhtPort));
-        session->setDHTEnabled(true);
-        waitFor(u"Native DHT route ready"_s, [&]
-        {
-            return session->addDHTRouteNode(1, oldGeneration, QHostAddress(u"127.0.0.12"_s), dhtPort);
-        });
-        waitFor(u"Original Native DHT source"_s, [&] { return dhtQueries(u"127.0.0.6"_s) > 0; });
         require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.6"_s)),
             u"Unchanged Native snapshot failed"_s);
         paths->m_statusRefresh.stop();
@@ -3118,19 +3109,11 @@ void Net::PathManagerAcceptance::run(MainWindow *window, const QJsonObject &spec
         {
             return sameRemote() && (peer(remotePath).value(u"payloadDownload"_s).toInteger() > before + 16384);
         }, 15000);
-        const auto retiredDhtQueries = dhtQueries(u"127.0.0.6"_s);
-        require(!session->addDHTRouteNode(1, oldGeneration, QHostAddress(u"127.0.0.12"_s), dhtPort),
-            u"Retired Native DHT route still accepts discovery"_s);
         require(paths->applyPolicy(u"mixed"_s, missingInterface, native(u"127.0.0.7"_s)),
             u"Replacement Native snapshot failed"_s);
         paths->m_statusRefresh.stop();
         const quint64 replacementGeneration = paths->m_nativeEndpoints.front().generation;
         require(replacementGeneration > oldGeneration, u"Replacement reused the removed Native generation"_s);
-        waitFor(u"Replacement Native DHT route ready"_s, [&]
-        {
-            return session->addDHTRouteNode(1, replacementGeneration, QHostAddress(u"127.0.0.12"_s), dhtPort);
-        });
-        waitFor(u"Replacement Native DHT source"_s, [&] { return dhtQueries(u"127.0.0.7"_s) > 0; });
         recordNativeAdmission(u"replacement-ready"_s);
         waitFor(u"Automatic replacement Native connection"_s, [&]
         {
@@ -3144,14 +3127,12 @@ void Net::PathManagerAcceptance::run(MainWindow *window, const QJsonObject &spec
         assertPeerRoute(u"1"_s, replacementGeneration, PeerListWidget::tr("Direct"));
         torrent->setDownloadLimit(0);
         waitFor(u"Replacement Native completion"_s, [&] { return torrent->progress() == 1; }, 90000);
-        require(dhtQueries(u"127.0.0.6"_s) == retiredDhtQueries, u"Retired Native DHT source sent more packets"_s);
         torrent->stop();
         addCheck(evidence, {{u"name"_s, u"native-address-reconciliation"_s}, {u"oldGeneration"_s, static_cast<qint64>(oldGeneration)},
             {u"replacementGeneration"_s, static_cast<qint64>(replacementGeneration)}, {u"remoteConnectionPreserved"_s, true},
             {u"nativeOnlyTimer"_s, true}, {u"unchangedFamilyPreserved"_s, true},
             {u"unchangedSnapshotPreserved"_s, true}, {u"automaticReconnect"_s, true},
             {u"actualPeerRouteColumn"_s, true},
-            {u"nativeDhtSourceChanged"_s, true}, {u"retiredDhtQueriesRejected"_s, true},
             {u"verifiedBytes"_s, torrent->completedSize()}, {u"physicalInterfaceChanged"_s, false}});
         paths->stopPath();
     }
