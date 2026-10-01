@@ -14,12 +14,13 @@ UpdateRegistryFixture::UpdateRegistryFixture(const QString &applicationDirectory
 {
 #ifdef Q_OS_WIN
     m_path = u"Software\\qbutt-update-acceptance-%1"_s.arg(QCoreApplication::applicationPid());
+    // QSettings creates nonvolatile children, which a volatile root cannot contain.
     if (RegCreateKeyExW(HKEY_CURRENT_USER, reinterpret_cast<LPCWSTR>(m_path.utf16()), 0, nullptr,
-            REG_OPTION_VOLATILE, KEY_ALL_ACCESS, nullptr, &m_root, nullptr) != ERROR_SUCCESS)
+            REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, nullptr, &m_root, nullptr) != ERROR_SUCCESS)
         return;
     HKEY installation = nullptr;
     const auto key = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{64A54F85-79F8-43D3-9B5B-2336052C370E}_is1";
-    if (RegCreateKeyExW(m_root, key, 0, nullptr, REG_OPTION_VOLATILE,
+    if (RegCreateKeyExW(m_root, key, 0, nullptr, REG_OPTION_NON_VOLATILE,
             KEY_ALL_ACCESS | KEY_WOW64_64KEY, nullptr, &installation, nullptr) != ERROR_SUCCESS)
         return;
     const QString path = QDir::toNativeSeparators(applicationDirectory);

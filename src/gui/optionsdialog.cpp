@@ -557,6 +557,18 @@ void OptionsDialog::loadDownloadsTabOptions()
     m_ui->checkAutoRemoveCompletedTorrents->setChecked(pref->isAutoRemoveCompletedTorrentsEnabled());
     m_ui->checkDownloadProgressOverlay->setChecked(pref->isDownloadProgressOverlayEnabled());
 
+#ifdef Q_OS_WIN
+    connect(m_ui->buttonRegisterMagnetLinks, &QAbstractButton::clicked, this, [this]()
+    {
+        if (!Utils::OS::registerMagnetLinkAssociation(Path(QCoreApplication::applicationFilePath())))
+            QMessageBox::warning(this, tr("Magnet links"), tr("Could not register magnet links."));
+        else
+            QMessageBox::information(this, tr("Magnet links"), tr("Magnet links registered for qbutt."));
+    });
+#else
+    m_ui->buttonRegisterMagnetLinks->hide();
+#endif
+
     m_ui->comboSavingMode->setCurrentIndex(!session->isAutoTMMDisabledByDefault());
     m_ui->comboTorrentCategoryChanged->setCurrentIndex(session->isDisableAutoTMMWhenCategoryChanged());
     m_ui->comboCategoryChanged->setCurrentIndex(session->isDisableAutoTMMWhenCategorySavePathChanged());

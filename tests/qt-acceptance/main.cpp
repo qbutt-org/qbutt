@@ -62,6 +62,7 @@
 #include <QScrollBar>
 #include <QScreen>
 #include <QSet>
+#include <QSettings>
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSpinBox>
@@ -2553,6 +2554,40 @@ namespace
                 u"Default download folder is not Desktop"_s);
             require(options.grab().save(screenshots.filePath(phase + u"-downloads.png"_s)), u"Cannot render download settings"_s);
             requireNoOverflow();
+#ifdef Q_OS_WIN
+            auto *registerMagnet = requiredChild<QPushButton>(&options, u"buttonRegisterMagnetLinks"_s);
+            require(registerMagnet->isVisible() && registerMagnet->text() == (russian
+                    ? u"Перерегистрировать magnet-ссылки"_s : u"Register magnet links again"_s),
+                u"Magnet registration action is hidden or untranslated"_s);
+            if (phase == u"functional")
+            {
+                require(spec.value(u"registryFixture"_s).toBool(), u"Magnet registration requires an isolated registry"_s);
+                QSettings registry {u"HKEY_CURRENT_USER\\Software"_s, QSettings::NativeFormat};
+                const QString choice = u"Microsoft/Windows/Shell/Associations/UrlAssociations/magnet/UserChoice/"_s;
+                registry.setValue(choice + u"ProgId", u"Other.Magnet"_s);
+                registry.setValue(choice + u"Hash", u"protected-choice-fixture"_s);
+                registry.setValue(u"Classes/magnet/shell/open/command/Default"_s, u"broken-handler.exe \"%1\""_s);
+                registry.sync();
+                answerMessageBox(&options, QMessageBox::Ok);
+                registerMagnet->click();
+                registry.sync();
+                const QString executable = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+                const QString command = u'"' + executable + u"\" \"%1\"";
+                require(registry.value(u"Classes/magnet/shell/open/command/Default"_s).toString() == command
+                        && registry.value(u"Classes/qbutt.Magnet/shell/open/command/Default"_s).toString() == command,
+                    u"Magnet commands differ from %1: fallback=%2, ProgID=%3"_s.arg(command,
+                        registry.value(u"Classes/magnet/shell/open/command/Default"_s).toString(),
+                        registry.value(u"Classes/qbutt.Magnet/shell/open/command/Default"_s).toString()));
+                require(registry.value(u"qbutt/Capabilities/URLAssociations/magnet"_s).toString() == u"qbutt.Magnet"
+                        && registry.value(u"RegisteredApplications/qbutt"_s).toString() == u"Software\\qbutt\\Capabilities",
+                    u"Magnet registration is missing Windows application capabilities"_s);
+                require(registry.value(choice + u"ProgId").toString() == u"Other.Magnet"
+                        && registry.value(choice + u"Hash").toString() == u"protected-choice-fixture",
+                    u"Magnet registration changed the protected choice"_s);
+                addCheck(evidence, {{u"name"_s, u"magnet-registration"_s}, {u"handlerRepaired"_s, true},
+                    {u"protectedChoicePreserved"_s, true}});
+            }
+#endif
             pages->setCurrentRow(8);
             require(pages->currentRow() == 8 && !pages->item(8)->isHidden(),
                 u"Advanced settings category cannot be reached directly"_s);

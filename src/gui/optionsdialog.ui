@@ -856,6 +856,30 @@
              </widget>
             </item>
             <item>
+             <layout class="QHBoxLayout" name="horizontalLayoutMagnetAssociation">
+              <item>
+               <widget class="QPushButton" name="buttonRegisterMagnetLinks">
+                <property name="text">
+                 <string>Register magnet links again</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="magnetAssociationSpacer">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>20</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
              <spacer name="verticalLayoutAdvancedGap">
               <property name="orientation">
                <enum>Qt::Orientation::Vertical</enum>

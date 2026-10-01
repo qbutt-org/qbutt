@@ -52,6 +52,9 @@
 
 #ifdef Q_OS_WIN
 #include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QSettings>
 #endif // Q_OS_WIN
 
 #include "base/global.h"
@@ -226,6 +229,38 @@ void Utils::OS::shutdownComputer([[maybe_unused]] const ShutdownDialogAction &ac
 }
 
 #ifdef Q_OS_WIN
+bool Utils::OS::registerMagnetLinkAssociation(const Path &executable)
+{
+    const QString filename = QDir::toNativeSeparators(executable.toString());
+    if (!QFileInfo(filename).isFile())
+        return false;
+
+    const QString command = u'"' + filename + u"\" \"%1\"";
+    const QString icon = u'"' + filename + u"\",0";
+    QSettings registry {u"HKEY_CURRENT_USER\\Software"_s, QSettings::NativeFormat};
+    // Keep the ProgID and capabilities in sync with dist/windows/qbutt.iss.
+    registry.setValue(u"Classes/qbutt.Magnet/Default"_s, u"qbutt magnet link"_s);
+    registry.setValue(u"Classes/qbutt.Magnet/URL Protocol"_s, QString {});
+    registry.setValue(u"Classes/qbutt.Magnet/DefaultIcon/Default"_s, icon);
+    registry.setValue(u"Classes/qbutt.Magnet/shell/open/command/Default"_s, command);
+    registry.setValue(u"qbutt/Capabilities/ApplicationName"_s, u"qbutt"_s);
+    registry.setValue(u"qbutt/Capabilities/ApplicationDescription"_s, u"qbutt BitTorrent client"_s);
+    registry.setValue(u"qbutt/Capabilities/URLAssociations/magnet"_s, u"qbutt.Magnet"_s);
+    registry.setValue(u"RegisteredApplications/qbutt"_s, u"Software\\qbutt\\Capabilities"_s);
+    registry.setValue(u"Microsoft/Windows/CurrentVersion/App Paths/qbutt.exe/Default"_s, filename);
+    registry.setValue(u"Classes/magnet/Default"_s, u"URL:Magnet URI"_s);
+    registry.setValue(u"Classes/magnet/URL Protocol"_s, QString {});
+    registry.setValue(u"Classes/magnet/DefaultIcon/Default"_s, icon);
+    registry.setValue(u"Classes/magnet/shell/open/command/Default"_s, command);
+    registry.sync();
+    if (registry.status() != QSettings::NoError)
+        return false;
+
+    // Windows retains the user's protected UserChoice, if one exists.
+    ::SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+    return true;
+}
+
 Path Utils::OS::windowsSystemPath()
 {
     static const Path path = []() -> Path

@@ -7852,6 +7852,22 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
 <context>
     <name>OptionsDialog</name>
     <message>
+        <source>Register magnet links again</source>
+        <translation>Перерегистрировать magnet-ссылки</translation>
+    </message>
+    <message>
+        <source>Magnet links</source>
+        <translation>Magnet-ссылки</translation>
+    </message>
+    <message>
+        <source>Could not register magnet links.</source>
+        <translation>Не удалось зарегистрировать magnet-ссылки.</translation>
+    </message>
+    <message>
+        <source>Magnet links registered for qbutt.</source>
+        <translation>Magnet-ссылки зарегистрированы для qbutt.</translation>
+    </message>
+    <message>
         <source>General</source>
         <translation>Основные</translation>
     </message>

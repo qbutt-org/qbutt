@@ -271,6 +271,7 @@ try {
             const evidencePath = join(root, `${phase}-evidence.json`);
             const spec = join(root, `${phase}-spec.json`);
             await writeFile(spec, JSON.stringify({ schema: 1, mode: "appearance", appearance: phase,
+                registryFixture: phase === "functional",
                 evidencePath, profile, screenshots, layoutDefaults, retainedState, longNodeNames }, null, 2));
             application = Bun.spawn([executable, `--profile=${profile}`], {
                 cwd: bundle, windowsHide: true,
