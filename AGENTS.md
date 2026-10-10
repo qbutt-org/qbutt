@@ -9,7 +9,7 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 - `docs/qbutt-architecture.md` defines the target architecture; `docs/implementation.md` defines the staged acceptance criteria. Planned APIs and capabilities in these documents are not evidence that they exist.
 - `upstream-lock.json` records exact source and dependency revisions once verified. Never substitute a mutable branch or `latest` in release builds.
 - `CMakeLists.txt`, `cmake/`, and `.github/workflows/` define the actual build. Document only commands that were run, or explicitly label them unverified.
-- Study the relevant implementation before deciding. Keep one owner for every contract and avoid copying session state into another backend.
+- Before deciding, inspect the relevant implementation, data flow, runtime behavior and project scripts. Reuse established components and workflows; keep one owner for each contract and state. If a contract remains ambiguous after investigation, ask instead of adding speculative fallbacks, compatibility branches, wrappers or runtime checks.
 
 ## Architecture and safety
 
@@ -23,24 +23,37 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 
 ## Product interface
 
-- Design for people downloading files, not for agents or network operators. Keep primary actions obvious and remove redundant controls, implementation jargon and explanatory paragraphs that merely describe automatic behavior.
+- Design for people downloading files, not for agents or network operators. Keep primary actions obvious and remove redundant controls, implementation jargon and explanatory paragraphs that merely describe automatic behavior. Fix unclear composition, labels or behavior before adding help; retain help needed to understand a constraint, error, consequence or next action.
+- Preserve the user's explicit taste, approved references and existing product behavior. Apply visual cleanup to the changed area without starting an unrelated redesign. Show only real data, states and working actions; do not present planned or unavailable capabilities as ready.
 - Keep every settings category visible. Place secondary parameters lower in the same page under a visible `Advanced settings` heading, separated by spacing; do not hide categories or these sections behind disclosure buttons.
-- Use one coherent native Qt visual language: restrained flat surfaces, readable typography, consistent action icons and the `#009df7` accent. Avoid nested framed groups and decorative containers. Reuse existing widgets and theme ownership rather than adding a second UI framework.
-- Offer built-in System, Light and Dark appearance, defaulting to System. Apply appearance changes live and follow OS changes in System mode. Qt rendering styles are implementation details, not a user choice. Verify both schemes and preserve explicit user appearance choices.
+- Use one coherent native Qt visual language: restrained flat surfaces, readable typography, consistent action icons and the `#009df7` accent. Reuse existing widgets, assets and theme ownership rather than adding a second UI framework. Build hierarchy through content order, typography, alignment and spacing; fix layout from the parent container before adjusting children.
+- Do not add EYEBROW labels, decorative numbered sections, nested framed groups or repeated status indicators. Containers and dividers need a semantic purpose; empty space alone does not justify decoration. A step indicator must represent necessary process progress.
+- Offer built-in System, Light and Dark appearance, defaulting to System. Apply appearance changes live and follow OS changes in System mode. Qt rendering styles are implementation details, not a user choice. Preserve explicit user appearance choices.
 - On Windows, minimize goes to the taskbar, close goes to the tray, and explicit Exit quits without confirmation. Startup at Windows logon is silent. Do not reintroduce configurable variants of these actions.
 - Ordinary torrent addition owns checking and reusing existing destination files. Keep specialized repair actions only for genuinely different work, preserving the storage safety and consent rules above.
 
 ## Working and verification
 
-- Optimize for simple, strong final code across the codebase, not the smallest patch. Remove obsolete state, imports, wrappers and mistaken ownership instead of preserving them behind fallbacks.
+- Optimize for clean, simple, strong final code across the codebase. Minimality means no unnecessary code, state, abstractions or misplaced ownership, not the fewest changed lines. Remove obsolete code rather than preserving it behind fallbacks.
+- Write product code, scripts, configuration and agent tooling for the person who will read, understand and maintain them. An agent's ability to search dense code or a huge file does not make that representation convenient for a developer.
+- Keep a consistent style and meaningful visual rhythm: order related code by reading and execution flow, separate independent logical blocks with blank lines, and expand complex expressions and control flow. Do not save lines at the expense of readability or combine multiple actions into long one-liners. Formatting is a baseline check, not a substitute for thoughtful structure.
+- Split files by coherent responsibilities so people can navigate without constant search. Do not mix unrelated scenarios in one file or fragment cohesive logic into wrappers without benefit. Keep manually edited configuration indented and multiline.
 - Preserve unrelated dirty work. Use separate worktrees for concurrent subsystem implementations. Keep temporary backups and generated research/build artifacts outside tracked source.
 - Clean up obsolete builds, duplicated test runtimes and generated payloads as soon as they are no longer needed. Retain compact diagnostic evidence and dependencies/builds needed for unfinished work; verify cleanup paths and release owned processes and test volumes before deletion.
 - Do not write unit tests. Use generated legal fixtures and integration, end-to-end and fault scenarios appropriate to the change. A timeout or empty output is not a successful check; inspect exit status and artifacts.
-- Review the diff after each change. After a working result, perform an ablation pass: remove each unnecessary abstraction, state, wrapper, fallback and special case, then repeat applicable checks. Preserve clear architectural boundaries and useful diagnostics.
-- "Работает" недостаточно. После того как довел до рабочего состояния, убедись, что решение встроено в код красиво и без временных подпорок. Если по пути пришлось оставить костыль или фоллбэк, потом обязательно добейся его удаления, даже если для этого надо явно попросить пользователя сделать связанное изменение.
 - Native regressions, incorrect payload, data loss and leaks override throughput claims. Report measured verified bytes separately from relay/wire traffic and identify untested real-network scenarios.
 - The Windows build entrypoint is `./scripts/build-windows.ps1`; it produces a portable bundle and records the source revision/dirty state. Use the isolated fixture setup and `bun run smoke:native`, `smoke:repair`, `smoke:proxy`, and `smoke:network` commands in `tests/README.md`. Set `QBUTT_LAB_PATHS=1` to exercise the bundled transport child. Never use a live profile as a test fixture.
-- Functional visual tests use an isolated Light profile with custom themes disabled; use `tests/appearance.ts` (default `QBUTT_LAB_APPEARANCE=functional`). Theme and release-default checks use `QBUTT_LAB_APPEARANCE=product` to exercise System, Light and Dark, including live switching. System must follow the host appearance. Assert control state through Qt properties as well as screenshots. Never ship test appearance overrides or overwrite a user's saved layout/theme.
+- Functional visual tests use an isolated Light profile with custom themes disabled; use `tests/appearance.ts` (default `QBUTT_LAB_APPEARANCE=functional`). Theme and release-default checks use `QBUTT_LAB_APPEARANCE=product` to exercise System, Light and Dark, including live switching. Assert control state through Qt properties as well as screenshots. Never ship test appearance overrides or overwrite a user's saved layout/theme.
+- For GUI changes, inspect the running native interface and perform the affected actions with real pointer input. Check representative window sizes, the minimum size with scrollbars, long labels, growing lists, affected themes and relevant loading/empty/error states. Check changed motion in operation, including entry and exit. For significant UI changes, use a fresh read-only reviewer in a clean context when subagents are available: provide only the brief, applicable instructions, final sources/diff and verified renders; ask for provable requirement violations. Verify findings yourself and repeat affected checks after fixes; the reviewer cannot override the user's taste.
+
+## Review and ablation
+
+- After each meaningful edit, review the diff for unused methods, imports and files; unnecessary state, fallbacks and wrappers; incorrect layer ownership; one-line helpers without semantic value; abandoned hypotheses; and simplifications that preserve readability. If removing a temporary workaround requires an out-of-scope change, explain the concrete dependency and request that change.
+- После получения рабочего результата проведи абляционный проход: поочерёдно убирай добавленные абстракции, состояния, fallback-ветки, обёртки и специальный код, затем повторяй применимые проверки. Всё, без чего требуемое поведение и долгосрочная поддерживаемость сохраняются, удали. Не упрощай ценой потери ясных архитектурных границ, диагностируемости или доказанной будущей расширяемости.
+- After a working UI render, remove auxiliary text, decorative markers, containers, dividers, repeated states and effects one at a time. After each removal, inspect the render and perform the affected action at the relevant window sizes and themes. Keep it removed when understanding, action discoverability, feedback and confirmed product identity survive; otherwise restore the necessary minimum or fix composition. Remove handlers, styles and dependencies that lose their consumer.
+- When editing instructions, remove duplicates, situational exceptions, obsolete examples and paraphrases one at a time. Give each rule one owner and check representative decisions against the remaining guidance. Do not move a duplicate into another file or weaken an explicit preference to shorten the text.
+
+Keep ablation within the changed area. Repeat each pass until a full review finds nothing dispensable; after the final removal, repeat the main scenario and affected checks. Ablation requires actual removal and verification, not only a mental assessment. If you did not inspect the running interface yourself, report source review and leave visual ablation unverified.
 
 ## Git and public delivery
 
@@ -53,6 +66,4 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 
 ## Maintaining instructions
 
-Если пользователь в ходе работы даёт новые устойчивые правила по стилю кода, структуре или процессу, то их надо кратко и по делу сразу добавлять в этот файл `AGENTS.md`, если это реально полезно будущим агентам.
-
-Правила в `AGENTS.md` добавлять только если пользователь явно просит сохранить что-то универсальное и долговременное. Ситуативные договорённости, временные приоритеты и очередность задач держать в плане реализации.
+Обновляй проектные инструкции, когда меняется их контракт или пользователь явно просит сохранить универсальное долговременное правило. Обновляй существующее правило у его владельца и удаляй устаревшее в том же изменении. Ситуативные договорённости, временные приоритеты и очередность задач держи в плане реализации.
