@@ -18690,4 +18690,76 @@ Please choose a different name and try again.</source>
         <translation>Закрыть</translation>
     </message>
 </context>
+<context>
+    <name>SearchPage</name>
+    <message>
+        <source>Search anime</source>
+        <translation>Поиск аниме</translation>
+    </message>
+    <message>
+        <source>Stop</source>
+        <translation>Остановить</translation>
+    </message>
+    <message>
+        <source>Search</source>
+        <translation>Поиск</translation>
+    </message>
+    <message>
+        <source>No titles found</source>
+        <translation>Ничего не найдено</translation>
+    </message>
+</context>
+<context>
+    <name>WorkDelegate</name>
+    <message>
+        <source>Anime</source>
+        <translation>Аниме</translation>
+    </message>
+</context>
+<context>
+    <name>WorkPane</name>
+    <message>
+        <source>Download</source>
+        <translation>Скачать</translation>
+    </message>
+    <message>
+        <source>Variant</source>
+        <translation>Вариант</translation>
+    </message>
+    <message>
+        <source>Source</source>
+        <translation>Источник</translation>
+    </message>
+    <message>
+        <source>Size</source>
+        <translation>Размер</translation>
+    </message>
+    <message>
+        <source>Seeds</source>
+        <translation>Сиды</translation>
+    </message>
+    <message>
+        <source>No downloads available</source>
+        <translation>Нет доступных загрузок</translation>
+    </message>
+</context>
+<context>
+    <name>ContentController</name>
+    <message>
+        <source>Could not start content services.</source>
+        <translation>Не удалось запустить поиск.</translation>
+    </message>
+    <message>
+        <source>Search could not be completed.</source>
+        <translation>Не удалось завершить поиск.</translation>
+    </message>
+    <message>
+        <source>Could not load variants.</source>
+        <translation>Не удалось загрузить варианты.</translation>
+    </message>
+    <message>
+        <source>Could not start the download.</source>
+        <translation>Не удалось начать загрузку.</translation>
+    </message>
+</context>
 </TS>

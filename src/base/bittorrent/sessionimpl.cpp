@@ -3262,6 +3262,10 @@ bool SessionImpl::downloadMetadata(const TorrentDescriptor &torrentDescr)
                     m_downloadedMetadata[altID] = alert->handle;
                 }
             }
+            else
+            {
+                m_nativeSession->remove_torrent(alert->handle);
+            }
         }
     });
 

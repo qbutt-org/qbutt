@@ -9,6 +9,7 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QList>
 #include <QLocale>
 #include <QMainWindow>
 #include <QPointer>
@@ -19,6 +20,7 @@
 #include <QStyleHints>
 #include <QThread>
 #include <QTimer>
+#include <QTranslator>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVariant>
@@ -97,6 +99,8 @@ namespace
         QPointer<QAbstractItemModel> works = modelProperty(controller, "works");
         QPointer<QAbstractItemModel> variants = modelProperty(controller, "variants");
         require(works != variants, u"Work and variant collections share one model"_s);
+        Qbutt::ContentController startCancelled;
+        QAbstractItemModel *cancelledWorks = modelProperty(&startCancelled, "works");
 
         QObject observation;
         std::atomic_bool wrongThread = false;
@@ -108,7 +112,7 @@ namespace
             else
                 ++modelChanges;
         };
-        for (QAbstractItemModel *model : {works.data(), variants.data()})
+        for (QAbstractItemModel *model : {works.data(), variants.data(), cancelledWorks})
         {
             QObject::connect(model, &QAbstractItemModel::rowsInserted, &observation, changed, Qt::DirectConnection);
             QObject::connect(model, &QAbstractItemModel::rowsRemoved, &observation, changed, Qt::DirectConnection);
@@ -116,15 +120,56 @@ namespace
             QObject::connect(model, &QAbstractItemModel::dataChanged, &observation, changed, Qt::DirectConnection);
         }
 
+        bool lateStartupMutation = false;
+        const auto changedAfterStartCancellation = [&]
+        {
+            if (QThread::currentThread() != qApp->thread())
+                wrongThread.store(true);
+            else
+                lateStartupMutation = true;
+        };
+        QObject::connect(cancelledWorks, &QAbstractItemModel::rowsInserted, &observation, changedAfterStartCancellation, Qt::DirectConnection);
+        QObject::connect(cancelledWorks, &QAbstractItemModel::rowsRemoved, &observation, changedAfterStartCancellation, Qt::DirectConnection);
+        QObject::connect(cancelledWorks, &QAbstractItemModel::modelReset, &observation, changedAfterStartCancellation, Qt::DirectConnection);
+        QObject::connect(cancelledWorks, &QAbstractItemModel::dataChanged, &observation, changedAfterStartCancellation, Qt::DirectConnection);
+        QObject::connect(&startCancelled, &Qbutt::ContentController::errorTextChanged, &observation, changedAfterStartCancellation, Qt::DirectConnection);
+        int startBusyNotifications = 0;
+        QObject::connect(&startCancelled, &Qbutt::ContentController::busyChanged, &observation, [&]
+        {
+            if (QThread::currentThread() != qApp->thread())
+            {
+                wrongThread.store(true);
+                return;
+            }
+            ++startBusyNotifications;
+            if (startCancelled.property("busy").toBool())
+                startCancelled.cancelSearch();
+        }, Qt::DirectConnection);
+        startCancelled.search(u"Naruto"_s);
+        require((startBusyNotifications == 2) && !startCancelled.property("busy").toBool(),
+            u"Cancellation inside the starting notification did not stop search"_s);
+
         controller->search(u"Naruto"_s);
         require(controller->property("busy").toBool(), u"Search did not enter its busy state"_s);
         controller->cancelSearch();
         require(!controller->property("busy").toBool(), u"Cancel did not leave the busy state"_s);
 
-        controller->search(u"Frieren"_s);
+        bool changedQueryFromRows = false;
+        bool replacementQueryStarted = false;
+        const auto restartConnection = QObject::connect(works, &QAbstractItemModel::rowsInserted, &observation, [&]
+        {
+            if (changedQueryFromRows || (QThread::currentThread() != qApp->thread()))
+                return;
+            changedQueryFromRows = true;
+            controller->search(u"Frieren"_s);
+            replacementQueryStarted = controller->property("busy").toBool();
+        }, Qt::DirectConnection);
+        controller->search(u"Naruto"_s);
         require(controller->property("busy").toBool(), u"New search did not start after cancellation"_s);
-        waitFor([&] { return !controller || !controller->property("busy").toBool(); }, 50'000, u"Live AniLiberty search"_s);
+        waitFor([&] { return !controller || !controller->property("busy").toBool(); }, 100'000, u"Live AniLiberty search"_s);
+        QObject::disconnect(restartConnection);
         require(controller, u"Window closed during search"_s);
+        require(changedQueryFromRows && replacementQueryStarted, u"Synchronous result notification did not start the replacement query"_s);
         require(controller->property("errorText").toString().isEmpty(),
             u"Search failed: %1"_s.arg(controller->property("errorText").toString()));
         require(!wrongThread.load(), u"Model mutation was emitted outside the GUI thread"_s);
@@ -132,6 +177,8 @@ namespace
 
         QSet<QString> identities;
         QString selectedWork;
+        QString selectedTitle;
+        QString otherWork;
         role(works, "year");
         for (int row = 0; row < works->rowCount(); ++row)
         {
@@ -145,16 +192,42 @@ namespace
             require(value(works, row, "category") == u"anime", u"Incorrect work category role"_s);
             identities.insert(id);
             if (id == u"aniliberty:9542")
+            {
                 selectedWork = id;
+                selectedTitle = title;
+            }
+            else
+                otherWork = id;
         }
         require(!selectedWork.isEmpty(), u"Live catalog did not return the expected publication 9542"_s);
+        require(!otherWork.isEmpty(), u"Live catalog needs a second publication for selection replacement"_s);
 
         QPointer<QObject> resultView = view->rootObject()->findChild<QObject *>(u"contentResults"_s);
         require(resultView, u"The production results view is missing"_s);
         waitFor([&] { return !resultView || (resultView->property("count").toInt() == works->rowCount()); }, 2'000, u"Work model binding"_s);
         require(resultView, u"Window closed before work model binding"_s);
 
-        controller->selectWork(selectedWork);
+        bool replacedFromIdentity = false;
+        QString replacementDescription;
+        const auto identityConnection = QObject::connect(controller, &Qbutt::ContentController::selectedWorkIdChanged, &observation, [&]
+        {
+            if (QThread::currentThread() != qApp->thread())
+            {
+                wrongThread.store(true);
+                return;
+            }
+            if (replacedFromIdentity || (controller->property("selectedWorkId").toString() != otherWork))
+                return;
+            replacedFromIdentity = true;
+            controller->selectWork(selectedWork);
+            replacementDescription = controller->property("selectedWorkDescription").toString();
+        }, Qt::DirectConnection);
+        controller->selectWork(otherWork);
+        QObject::disconnect(identityConnection);
+        require(replacedFromIdentity && (controller->property("selectedWorkId").toString() == selectedWork)
+            && (controller->property("selectedWorkTitle").toString() == selectedTitle)
+            && (controller->property("selectedWorkDescription").toString() == replacementDescription),
+            u"Interrupted selection overwrote replacement identity or metadata"_s);
         waitFor([&] { return !controller || !controller->property("inspecting").toBool(); }, 50'000, u"Publication inspection"_s);
         require(controller, u"Window closed during inspection"_s);
         require(controller->property("errorText").toString().isEmpty(),
@@ -162,6 +235,53 @@ namespace
         require(controller->property("selectedWorkId").toString() == selectedWork, u"Inspection changed publication identity"_s);
         require(!controller->property("selectedWorkTitle").toString().isEmpty(), u"Inspected title is missing"_s);
         require(variants->rowCount() > 0, u"Inspection did not expose torrent variants"_s);
+        const QString inspectedTitle = controller->property("selectedWorkTitle").toString();
+        const QString inspectedDescription = controller->property("selectedWorkDescription").toString();
+
+        bool replacedFromInspection = false;
+        const auto inspectionConnection = QObject::connect(controller, &Qbutt::ContentController::inspectingChanged, &observation, [&]
+        {
+            if (QThread::currentThread() != qApp->thread())
+            {
+                wrongThread.store(true);
+                return;
+            }
+            if (replacedFromInspection || !controller->property("inspecting").toBool())
+                return;
+            replacedFromInspection = true;
+            controller->selectWork(selectedWork);
+        }, Qt::DirectConnection);
+        controller->selectWork(otherWork);
+        QObject::disconnect(inspectionConnection);
+        require(replacedFromInspection && !controller->property("inspecting").toBool()
+            && (controller->property("selectedWorkId").toString() == selectedWork)
+            && (controller->property("selectedWorkTitle").toString() == inspectedTitle)
+            && (controller->property("selectedWorkDescription").toString() == inspectedDescription)
+            && controller->property("errorText").toString().isEmpty(),
+            u"Replacement inside the starting inspection notification did not take ownership"_s);
+
+        bool lateInspectionMutation = false;
+        const auto changedAfterReplacement = [&]
+        {
+            if (QThread::currentThread() != qApp->thread())
+                wrongThread.store(true);
+            else
+                lateInspectionMutation = true;
+        };
+        const QList<QMetaObject::Connection> inspectionMutations {
+            QObject::connect(works, &QAbstractItemModel::dataChanged, &observation, changedAfterReplacement, Qt::DirectConnection),
+            QObject::connect(variants, &QAbstractItemModel::dataChanged, &observation, changedAfterReplacement, Qt::DirectConnection),
+            QObject::connect(variants, &QAbstractItemModel::modelReset, &observation, changedAfterReplacement, Qt::DirectConnection),
+            QObject::connect(variants, &QAbstractItemModel::rowsInserted, &observation, changedAfterReplacement, Qt::DirectConnection),
+            QObject::connect(variants, &QAbstractItemModel::rowsRemoved, &observation, changedAfterReplacement, Qt::DirectConnection),
+            QObject::connect(controller, &Qbutt::ContentController::errorTextChanged, &observation, changedAfterReplacement, Qt::DirectConnection),
+            QObject::connect(controller, &Qbutt::ContentController::selectedWorkIdChanged, &observation, changedAfterReplacement, Qt::DirectConnection),
+            QObject::connect(controller, &Qbutt::ContentController::selectedWorkTitleChanged, &observation, changedAfterReplacement, Qt::DirectConnection),
+            QObject::connect(controller, &Qbutt::ContentController::selectedWorkDescriptionChanged, &observation, changedAfterReplacement, Qt::DirectConnection),
+            QObject::connect(controller, &Qbutt::ContentController::inspectingChanged, &observation, changedAfterReplacement, Qt::DirectConnection)
+        };
+        QElapsedTimer cancelledOperationAge;
+        cancelledOperationAge.start();
 
         identities.clear();
         for (const QByteArray &name : {QByteArray("quality"), QByteArray("sizeText"), QByteArray("seedersText"), QByteArray("infoHash")})
@@ -210,8 +330,49 @@ namespace
             u"Native handoff changed the selected torrent identity"_s);
         require((modelChanges > 0) && !wrongThread.load(), u"Model signal thread checks failed"_s);
 
+        const auto cancellationViolated = [&]
+        {
+            return !controller || wrongThread.load() || (startBusyNotifications != 2)
+                || (cancelledWorks->rowCount() != 0) || startCancelled.property("busy").toBool()
+                || !startCancelled.property("errorText").toString().isEmpty() || lateStartupMutation || lateInspectionMutation
+                || !controller->property("errorText").toString().isEmpty()
+                || controller->property("inspecting").toBool()
+                || (controller->property("selectedWorkId").toString() != selectedWork)
+                || (controller->property("selectedWorkTitle").toString() != inspectedTitle)
+                || (controller->property("selectedWorkDescription").toString() != inspectedDescription);
+        };
+        // The native HTTP operation is bounded to 45 seconds; allow its queued completion to settle.
+        waitFor([&] { return cancellationViolated() || (cancelledOperationAge.elapsed() >= 46'000); },
+            47'000, u"Cancelled startup operations"_s);
+        require(!cancellationViolated(), u"An operation cancelled during startup published a late state change"_s);
+        for (const auto &connection : inspectionMutations)
+            QObject::disconnect(connection);
+
         const int workCount = works->rowCount();
         const int variantCount = variants->rowCount();
+
+        bool cancelledFromResolution = false;
+        const auto cancelConnection = QObject::connect(controller, &Qbutt::ContentController::resolvingChanged, &observation, [&]
+        {
+            if (QThread::currentThread() != qApp->thread())
+            {
+                wrongThread.store(true);
+                return;
+            }
+            if (controller->property("resolving").toBool() || !controller->property("errorText").toString().isEmpty())
+                return;
+            cancelledFromResolution = true;
+            controller->search(QString {});
+        }, Qt::DirectConnection);
+        controller->resolveVariant(selectedVariant);
+        waitFor([&] { return !controller || !controller->property("resolving").toBool(); }, 50'000, u"Synchronous resolution cancellation"_s);
+        QObject::disconnect(cancelConnection);
+        require(controller, u"Window closed during resolution cancellation"_s);
+        require(controller->property("errorText").toString().isEmpty(),
+            u"Second resolution failed: %1"_s.arg(controller->property("errorText").toString()));
+        require(cancelledFromResolution && (works->rowCount() == 0) && (torrentSignals == 1),
+            u"Cancelled resolution emitted a stale torrent handoff"_s);
+
         controller->search(u"One Piece"_s);
         require(controller->property("busy").toBool(), u"Shutdown scenario has no pending request"_s);
         bool closedWithPendingSearch = false;
@@ -228,7 +389,7 @@ namespace
         QTimer::singleShot(500, &drain, &QEventLoop::quit);
         drain.exec();
         require(!wrongThread.load(), u"A late model callback used the wrong thread"_s);
-        qInfo().noquote() << u"PASS works=%1 variants=%2 cancel_restart=ok exact_magnet=ok close_pending=ok"_s
+        qInfo().noquote() << u"PASS works=%1 variants=%2 cancel_restart=ok startup_cancel=ok exact_magnet=ok reentrant_cancel=ok close_pending=ok"_s
             .arg(workCount).arg(variantCount);
     }
 }
@@ -249,8 +410,13 @@ int main(int argc, char *argv[])
     parser.process(application);
 
     QLocale::setDefault(QLocale(parser.value(u"lang"_s)));
-    if (parser.isSet(u"dark"_s))
-        QGuiApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+    QTranslator translator;
+    if ((QLocale().language() == QLocale::Russian)
+        && translator.load(u":/lang/qbittorrent_ru.qm"_s))
+    {
+        application.installTranslator(&translator);
+    }
+    QGuiApplication::styleHints()->setColorScheme(parser.isSet(u"dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
     application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s));
 
     auto *window = new QMainWindow;
@@ -259,15 +425,16 @@ int main(int argc, char *argv[])
     window->resize(1280, 760);
     auto *view = new Content::ContentView(window);
     window->setCentralWidget(view);
-    QObject::connect(view, &Content::ContentView::torrentReady, window, [window](const QString &)
+    QObject::connect(view, &Content::ContentView::torrentReady, window, [window](const QString &magnet)
     {
-        window->statusBar()->showMessage(u"Torrent handoff received; this acceptance host does not download files."_s, 5'000);
+        window->statusBar()->showMessage(u"Torrent handoff received; this acceptance host does not download files."_s);
+        qInfo().noquote() << u"TORRENT_HANDOFF"_s << QUrlQuery(QUrl(magnet)).queryItemValue(u"xt"_s);
     });
     window->show();
 
     if (parser.isSet(u"exercise"_s))
     {
-        QTimer::singleShot(180'000, &application, [&application]
+        QTimer::singleShot(360'000, &application, [&application]
         {
             qCritical("Acceptance exceeded its overall time limit");
             application.exit(1);

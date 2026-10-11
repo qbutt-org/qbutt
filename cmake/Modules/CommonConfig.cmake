@@ -2,11 +2,8 @@
 # that some or all other targets will link to, either directly or transitively,
 # to consume common compile options/definitions
 
-# treat value specified by the CXX_STANDARD target property as a requirement by default
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTORCC_OPTIONS --compress-algo best --threshold 5)
 

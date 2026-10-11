@@ -43,6 +43,20 @@ is present. For QML, enable **Languages & Frameworks / QML / QML language
 server** and use the SDK's `bin/qmlls.exe`; CMake generates the QML module and
 language-server metadata as those modules are configured.
 
+The CXX-Qt headers, including `qbutt_quick/src/controller.cxxqt.h`, are generated
+by the first build. Build `qbt_quick` before judging missing generated-header
+diagnostics in a fresh checkout.
+
+CLion 2026.2's built-in QML parser incorrectly reports `Singleton expected` for
+`pragma ComponentBehavior: Bound` ([CPP-42122](https://youtrack.jetbrains.com/issue/CPP-42122)).
+Use Qt's language server for QML diagnostics and completion; this does not
+guarantee that the older parser's underline disappears. Under the QML settings,
+select the `windows` profile, the SDK's `bin` directory for **Qt binaries** and
+its `qml` directory for **QML imports**. Enable completion from the language
+server and reopen QML editors.
+
+## Terminal build
+
 The same configuration works from a regular terminal:
 
 ```powershell

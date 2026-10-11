@@ -4,6 +4,8 @@ add_executable(qbutt-qt-acceptance
     add-torrent-layout.h
     content-library.cpp
     content-library.h
+    metadata-cancel.cpp
+    metadata-cancel.h
     modal-overlay.cpp
     modal-overlay.h
     reader-flow.cpp
@@ -56,7 +58,6 @@ set_target_properties(qbutt-qt-acceptance PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 
-find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Widgets Network)
 add_executable(qbutt-update-acceptance
     release-updater.cpp
     update-registry.cpp

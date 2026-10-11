@@ -22,6 +22,51 @@ implementation is used. The default torrents are private with no public tracker.
 `v1-public` exists for Mixed routing tests; the isolated application and seed
 sessions disable public discovery and use only explicitly added controlled peers.
 
+## Rust and Qt Quick content
+
+The production `ContentView` and Rust controller have a separate process-level
+acceptance target. Prepare the local Windows preset as described in
+[development setup](../docs/development.md), then run:
+
+```powershell
+cmake --preset windows -DQBUTT_QT_ACCEPTANCE=ON
+cmake --build --preset windows --target qbutt-quick-acceptance --parallel 8
+$env:PATH = 'C:/Tools/Qt/6.12.0/msvc2022_64/bin;' + $env:PATH
+$env:QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES = '1'
+$env:QT_QPA_PLATFORM = 'offscreen'
+$env:QT_QUICK_BACKEND = 'software'
+$quick = Start-Process ./build/dev/qbutt-quick-acceptance.exe -ArgumentList '--exercise' -WindowStyle Hidden -Wait -PassThru -RedirectStandardError "$env:TEMP/qbutt-quick-acceptance.log"
+Get-Content "$env:TEMP/qbutt-quick-acceptance.log"
+if ($quick.ExitCode -ne 0) { throw "Quick acceptance failed: $($quick.ExitCode)" }
+```
+
+Require exit code zero and the `PASS` line. The scenario uses live AniLiberty
+metadata, verifies typed model bindings and GUI-thread notifications, replaces
+a query during result insertion, checks the selected infohash in the emitted
+magnet, cancels during resolution notification and closes with a pending request.
+It does not download a payload or exercise `AddTorrentManager`.
+
+For native inspection in the VM, deploy this executable using `windeployqt
+--qmldir src/gui/quick/qml`. Run it without `--exercise` or the offscreen
+environment; use `--lang ru` for Russian and `--dark` for Dark. The default is
+English and Light. This host uses an isolated application identity and does not
+open an existing qbutt profile.
+
+The metadata cancellation scenario uses a generated private torrent and an
+isolated loopback session. It cancels before the first native add callback,
+then adds the same hash stopped and checks its destination and handle cleanup:
+
+```powershell
+cmake --build --preset windows --target qbutt-qt-acceptance --parallel 8
+$env:QBUTT_QT_ACCEPTANCE_EXE = "$PWD/build/dev/qbutt-qt-acceptance.exe"
+$env:QBUTT_QT_ACCEPTANCE_BUNDLE = 'C:/VMShared/qbutt-p1-package/portable'
+bun tests/qt-acceptance/metadata-cancel.ts
+```
+
+Use your deployed portable directory for `QBUTT_QT_ACCEPTANCE_BUNDLE`. The runner
+requires exit zero and a passing evidence file; it removes its temporary profile
+and payload directory after the application exits.
+
 ## Content, reading and playback
 
 The Windows build bundles `qbutt-content.exe`, `qbutt-search.exe` and the qbutt

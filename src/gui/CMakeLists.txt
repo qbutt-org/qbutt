@@ -1,6 +1,5 @@
-find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Widgets Svg Concurrent)
-
 # CMAKE_AUTO_UI causes unnecessary rebuilds
+set(CMAKE_AUTOUIC OFF)
 qt_wrap_ui(UI_HEADERS
     aboutdialog.ui
     addnewtorrentdialog.ui
@@ -279,9 +278,12 @@ target_sources(qbt_gui INTERFACE about.qrc themes.qrc content/reader.qrc)
 # UI headers will be generated in ${CMAKE_CURRENT_BINARY_DIR}
 target_include_directories(qbt_gui PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
+add_subdirectory(quick)
+
 target_link_libraries(qbt_gui
     PRIVATE
         qbt_base
+        qbt_quick
         Qt::Concurrent
     PUBLIC
         Qt::Gui Qt::Widgets
