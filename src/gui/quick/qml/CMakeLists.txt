@@ -4,6 +4,7 @@ qt_add_qml_module(qbt_quick_ui STATIC
     IMPORT_PATH "${CMAKE_CURRENT_BINARY_DIR}/../cxxqt/qml_modules"
     QML_FILES
         ActionButton.qml
+        NavigationTab.qml
         QueryField.qml
         SearchPage.qml
         Theme.qml

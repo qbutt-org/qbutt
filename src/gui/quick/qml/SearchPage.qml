@@ -10,6 +10,7 @@ Page {
     objectName: "contentQuickSearch"
 
     required property ContentController backend
+    readonly property WorkModel activeWorks: backend.listMode === Search.Favorites ? backend.favorites : backend.works
 
     implicitWidth: 1200
     implicitHeight: 560
@@ -26,6 +27,7 @@ Page {
         sequences: [StandardKey.Find]
         enabled: root.visible
         onActivated: {
+            root.backend.setListMode(Search.Search);
             query.forceActiveFocus();
             query.selectAll();
         }
@@ -36,6 +38,7 @@ Page {
         if (text.length === 0)
             return;
 
+        backend.setListMode(Search.Search);
         backend.search(text);
     }
 
@@ -48,6 +51,30 @@ Page {
 
         RowLayout {
             spacing: 12
+
+            TabBar {
+                objectName: "contentModes"
+                Layout.preferredWidth: searchMode.implicitWidth + favoritesMode.implicitWidth + spacing
+                spacing: 8
+                currentIndex: root.backend.listMode === Search.Favorites ? 1 : 0
+                onCurrentIndexChanged: root.backend.setListMode(currentIndex === 1 ? Search.Favorites : Search.Search)
+
+                background: Item {}
+
+                NavigationTab {
+                    id: searchMode
+                    objectName: "contentSearchMode"
+                    theme: appearance
+                    text: qsTr("Search")
+                }
+
+                NavigationTab {
+                    id: favoritesMode
+                    objectName: "contentFavoritesMode"
+                    theme: appearance
+                    text: qsTr("Favorites")
+                }
+            }
 
             QueryField {
                 id: query
@@ -91,6 +118,15 @@ Page {
             textFormat: Text.PlainText
         }
 
+        Label {
+            objectName: "contentLibraryError"
+            Layout.fillWidth: true
+            visible: root.backend.libraryErrorText !== ""
+            text: root.backend.libraryErrorText
+            wrapMode: Text.Wrap
+            textFormat: Text.PlainText
+        }
+
         SplitView {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -112,8 +148,8 @@ Page {
                     anchors.fill: parent
                     anchors.rightMargin: 16
                     clip: true
-                    model: root.backend.works
-                    currentIndex: -1
+                    model: root.activeWorks
+                    currentIndex: count > 0 ? root.activeWorks.indexOfId(root.backend.selectedWorkId) : -1
                     spacing: 4
                     activeFocusOnTab: true
                     keyNavigationEnabled: true
@@ -125,29 +161,28 @@ Page {
                         theme: appearance
                         highlighted: root.backend.selectedWorkId === work.workId
                         onClicked: {
-                            works.currentIndex = work.index;
                             works.forceActiveFocus();
                             root.backend.selectWork(work.workId);
                         }
                     }
 
                     function selectCurrentWork(): void {
-                        const selected = currentItem as WorkDelegate;
-                        if (activeFocus && selected)
-                            root.backend.selectWork(selected.workId);
+                        if (activeFocus && currentIndex >= 0)
+                            root.backend.selectWork(root.activeWorks.idAt(currentIndex));
                     }
 
                     Keys.onReturnPressed: selectCurrentWork()
                     Keys.onEnterPressed: selectCurrentWork()
                     Keys.onPressed: event => {
                         if (count > 0 && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
-                            currentIndex = event.key === Qt.Key_Home ? 0 : count - 1;
-                            positionViewAtIndex(currentIndex, event.key === Qt.Key_Home ? ListView.Beginning : ListView.End);
+                            const index = event.key === Qt.Key_Home ? 0 : count - 1;
+                            root.backend.selectWork(root.activeWorks.idAt(index));
+                            positionViewAtIndex(index, event.key === Qt.Key_Home ? ListView.Beginning : ListView.End);
                             event.accepted = true;
                         }
                     }
                     Keys.onReleased: event => {
-                        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Home || event.key === Qt.Key_End) {
+                        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
                             selectCurrentWork();
                         }
                     }
@@ -157,11 +192,18 @@ Page {
                     objectName: "contentEmptyResults"
                     anchors.centerIn: parent
                     width: parent.width - 32
-                    visible: root.backend.searchState === Search.Succeeded && works.count === 0
-                    text: qsTr("No titles found")
+                    visible: works.count === 0 && (root.backend.listMode === Search.Favorites
+                        ? root.backend.libraryState === Library.Ready : root.backend.searchState === Search.Succeeded)
+                    text: root.backend.listMode === Search.Favorites ? qsTr("No favorites") : qsTr("No titles found")
                     color: appearance.muted
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
+                }
+
+                BusyIndicator {
+                    anchors.centerIn: parent
+                    visible: root.backend.listMode === Search.Favorites && root.backend.libraryState === Library.Loading
+                    running: visible
                 }
             }
 

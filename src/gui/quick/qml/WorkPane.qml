@@ -18,17 +18,8 @@ Pane {
     readonly property int seedersWidth: 48
 
     function downloadSelected(): void {
-        const selected = variants.currentItem as VariantDelegate;
-        if (selected && !backend.resolving)
-            backend.resolveVariant(selected.variantId);
-    }
-
-    Connections {
-        target: root.backend
-
-        function onSelectedWorkIdChanged(): void {
-            variants.currentIndex = -1;
-        }
+        if (backend.selectedVariantState === Search.Available && !backend.resolving)
+            backend.resolveVariant(backend.selectedVariantId);
     }
 
     background: Item {}
@@ -37,16 +28,49 @@ Pane {
         visible: root.backend.selectedWorkId !== ""
         spacing: 16
 
-        Label {
-            objectName: "contentTitle"
-            Layout.fillWidth: true
-            text: root.backend.selectedWorkTitle
-            font.pixelSize: 24
-            font.weight: Font.DemiBold
-            wrapMode: Text.Wrap
-            maximumLineCount: 3
-            elide: Text.ElideRight
-            textFormat: Text.PlainText
+        RowLayout {
+            Layout.fillWidth: false
+            Layout.maximumWidth: root.availableWidth
+            Layout.alignment: Qt.AlignLeft
+            spacing: 12
+
+            Label {
+                objectName: "contentTitle"
+                Layout.fillWidth: true
+                text: root.backend.selectedWorkTitle
+                font.pixelSize: 24
+                font.weight: Font.DemiBold
+                wrapMode: Text.Wrap
+                maximumLineCount: 3
+                elide: Text.ElideRight
+                textFormat: Text.PlainText
+            }
+
+            ToolButton {
+                id: bookmark
+                objectName: "contentFavorite"
+                Layout.alignment: Qt.AlignTop
+                display: AbstractButton.IconOnly
+                icon.source: root.backend.selectedFavorite ? "qrc:/icons/bookmark-active.svg" : root.theme.iconSource("bookmark")
+                icon.color: "transparent"
+                text: root.backend.selectedFavorite ? qsTr("Remove from favorites") : qsTr("Add to favorites")
+                Accessible.checkable: true
+                Accessible.checked: root.backend.selectedFavorite
+                enabled: root.backend.libraryState === Library.Ready && !root.backend.libraryPending && !root.backend.inspecting
+                opacity: enabled ? 1 : 0.45
+                onClicked: root.backend.setSelectedFavorite(!root.backend.selectedFavorite)
+                ToolTip.visible: hovered
+                ToolTip.text: text
+
+                background: Rectangle {
+                    implicitWidth: root.theme.controlHeight
+                    implicitHeight: root.theme.controlHeight
+                    radius: root.theme.radius
+                    color: bookmark.down ? root.theme.controlPressed : bookmark.hovered ? root.theme.hover : "transparent"
+                    border.width: bookmark.visualFocus ? 2 : 0
+                    border.color: root.theme.accent
+                }
+            }
         }
 
         RowLayout {
@@ -58,7 +82,7 @@ Pane {
                 text: qsTr("Download")
                 icon.source: root.theme.iconSource("download")
                 highlighted: true
-                enabled: variants.currentItem !== null && !root.backend.resolving
+                enabled: root.backend.selectedVariantState === Search.Available && !root.backend.resolving
                 onClicked: root.downloadSelected()
             }
 
@@ -68,6 +92,15 @@ Pane {
                 visible: root.backend.resolving
                 running: visible
             }
+        }
+
+        Label {
+            objectName: "contentUnavailableVariant"
+            Layout.fillWidth: true
+            visible: root.backend.selectedVariantState === Search.Unavailable
+            text: qsTr("Saved variant is unavailable. Choose another.")
+            wrapMode: Text.Wrap
+            textFormat: Text.PlainText
         }
 
         Label {
@@ -129,26 +162,32 @@ Pane {
             Layout.fillHeight: true
             clip: true
             model: root.backend.variants
-            currentIndex: -1
+            currentIndex: count > 0 && root.backend.selectedVariantState === Search.Available
+                ? root.backend.variants.indexOfId(root.backend.selectedVariantId) : -1
             spacing: 2
             activeFocusOnTab: true
             keyNavigationEnabled: true
             reuseItems: true
             ScrollBar.vertical: ScrollBar {}
 
-            onCountChanged: {
-                if (count > 0 && currentIndex < 0)
-                    currentIndex = 0;
+            function selectCurrentVariant(): void {
+                if (activeFocus && currentIndex >= 0)
+                    root.backend.selectVariant(root.backend.variants.idAt(currentIndex));
             }
 
             Keys.onReturnPressed: root.downloadSelected()
             Keys.onEnterPressed: root.downloadSelected()
             Keys.onPressed: event => {
                 if (count > 0 && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
-                    currentIndex = event.key === Qt.Key_Home ? 0 : count - 1;
-                    positionViewAtIndex(currentIndex, event.key === Qt.Key_Home ? ListView.Beginning : ListView.End);
+                    const index = event.key === Qt.Key_Home ? 0 : count - 1;
+                    root.backend.selectVariant(root.backend.variants.idAt(index));
+                    positionViewAtIndex(index, event.key === Qt.Key_Home ? ListView.Beginning : ListView.End);
                     event.accepted = true;
                 }
+            }
+            Keys.onReleased: event => {
+                if (event.key === Qt.Key_Up || event.key === Qt.Key_Down)
+                    selectCurrentVariant();
             }
 
             delegate: VariantDelegate {
@@ -157,9 +196,10 @@ Pane {
                 sourceWidth: root.sourceWidth
                 sizeWidth: root.sizeWidth
                 seedersWidth: root.seedersWidth
+                highlighted: root.backend.selectedVariantState === Search.Available && root.backend.selectedVariantId === variant.variantId
                 onClicked: {
-                    variants.currentIndex = variant.index;
                     variants.forceActiveFocus();
+                    root.backend.selectVariant(variant.variantId);
                 }
 
                 onDoubleClicked: root.downloadSelected()
@@ -167,7 +207,7 @@ Pane {
 
             Label {
                 anchors.centerIn: parent
-                visible: !root.backend.inspecting && variants.count === 0 && root.backend.errorText === ""
+                visible: root.backend.selectedVariantState === Search.None && variants.count === 0 && root.backend.errorText === ""
                 text: qsTr("No downloads available")
                 color: root.theme.muted
             }

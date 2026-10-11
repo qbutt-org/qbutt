@@ -6,7 +6,6 @@ import QtQuick.Layouts
 ItemDelegate {
     id: root
 
-    required property int index
     required property string variantId
     required property string label
     required property string source
@@ -22,7 +21,6 @@ ItemDelegate {
     width: ListView.view.width
     padding: 12
     focusPolicy: Qt.NoFocus
-    highlighted: ListView.isCurrentItem
     Accessible.name: label
 
     contentItem: RowLayout {

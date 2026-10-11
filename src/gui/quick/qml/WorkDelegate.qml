@@ -6,7 +6,6 @@ import QtQuick.Layouts
 ItemDelegate {
     id: root
 
-    required property int index
     required property string workId
     required property string title
     required property string source

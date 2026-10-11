@@ -18757,6 +18757,14 @@ Please choose a different name and try again.</source>
         <source>No titles found</source>
         <translation>Ничего не найдено</translation>
     </message>
+    <message>
+        <source>Favorites</source>
+        <translation>Избранное</translation>
+    </message>
+    <message>
+        <source>No favorites</source>
+        <translation>Избранное пусто</translation>
+    </message>
 </context>
 <context>
     <name>WorkDelegate</name>
@@ -18790,6 +18798,18 @@ Please choose a different name and try again.</source>
     <message>
         <source>No downloads available</source>
         <translation>Нет доступных загрузок</translation>
+    </message>
+    <message>
+        <source>Add to favorites</source>
+        <translation>В избранное</translation>
+    </message>
+    <message>
+        <source>Remove from favorites</source>
+        <translation>Убрать из избранного</translation>
+    </message>
+    <message>
+        <source>Saved variant is unavailable. Choose another.</source>
+        <translation>Сохранённый вариант недоступен. Выберите другой.</translation>
     </message>
 </context>
 <context>
