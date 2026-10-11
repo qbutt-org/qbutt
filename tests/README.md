@@ -85,6 +85,15 @@ use `--library --lang ru` to check localized library errors. Require exit zero
 and the `PASS library` line with every reported check passing. This backend
 scenario does not replace native bookmark/tab acceptance.
 
+Run `--worklist --lang ru` with the same isolated offscreen environment to check
+the production results delegates. It scrolls the live metadata list, saves an
+exact translation, switches Search/Favorites, invokes the row action and removes the favorite,
+then repeatedly swaps equal-count models with different row order. It compares
+every instantiated row's five model roles, rendered title, accessible name and
+selection state with the active model. Require exit zero and `PASS worklist`
+with every reported check passing. This process scenario does not establish
+native pointer interaction.
+
 Run `--reader --lang ru` with the same isolated offscreen environment for the
 native MangaDex path. It searches both source classes, inspects a publication,
 selects its exact Russian translation and invokes the production QML reading

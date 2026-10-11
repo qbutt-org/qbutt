@@ -155,7 +155,6 @@ Page {
                     spacing: 4
                     activeFocusOnTab: true
                     keyNavigationEnabled: true
-                    reuseItems: true
                     ScrollBar.vertical: ScrollBar {}
 
                     function restoreSelection(): void {
