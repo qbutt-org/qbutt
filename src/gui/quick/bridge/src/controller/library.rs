@@ -23,12 +23,20 @@ pub enum LibraryAction {
 }
 
 pub enum LibraryUpdate {
-    Loaded(Vec<LibraryEntry>),
-    Changed(Box<LibraryEntry>),
+    Loaded(LibraryResult<Vec<LibraryEntry>>),
+    Changed {
+        result: LibraryResult<Box<LibraryEntry>>,
+        error_generation: u64,
+    },
+}
+
+struct LibraryRequest {
+    action: LibraryAction,
+    error_generation: u64,
 }
 
 pub struct LibraryWorker {
-    sender: Sender<LibraryAction>,
+    sender: Sender<LibraryRequest>,
 }
 
 impl LibraryWorker {
@@ -37,29 +45,33 @@ impl LibraryWorker {
         profile: PathBuf,
         qt_thread: CxxQtThread<ContentController>,
     ) -> Self {
-        let (sender, mut receiver) = mpsc::channel::<LibraryAction>(64);
+        let (sender, mut receiver) = mpsc::channel::<LibraryRequest>(64);
         runtime.spawn_blocking(move || {
-            let mut library = match Library::open(profile) {
-                Ok(library) => library,
+            let (mut library, entries) = match Library::open(profile).and_then(|library| {
+                let entries = library.entries(LibraryView::All)?;
+                Ok((library, entries))
+            }) {
+                Ok(loaded) => loaded,
                 Err(error) => {
                     let _ = qt_thread.queue(move |controller| {
-                        controller.complete_library(Err(error));
+                        controller.complete_library(LibraryUpdate::Loaded(Err(error)));
                     });
                     return;
                 }
             };
-            let entries = library.entries(LibraryView::All).map(LibraryUpdate::Loaded);
             let _ = qt_thread.queue(move |controller| {
-                controller.complete_library(entries);
+                controller.complete_library(LibraryUpdate::Loaded(Ok(entries)));
             });
 
             // This is the sole connection owner. Accepted commands stay in FIFO
             // order and finish even when selection changes or the QObject closes.
             while let Some(request) = receiver.blocking_recv() {
-                let result = apply(&mut library, request)
-                    .map(|entry| LibraryUpdate::Changed(Box::new(entry)));
+                let result = apply(&mut library, request.action).map(Box::new);
                 let _ = qt_thread.queue(move |controller| {
-                    controller.complete_library(result);
+                    controller.complete_library(LibraryUpdate::Changed {
+                        result,
+                        error_generation: request.error_generation,
+                    });
                 });
             }
             // Connection close also runs outside the GUI thread.
@@ -67,9 +79,12 @@ impl LibraryWorker {
         Self { sender }
     }
 
-    pub fn submit(&self, action: LibraryAction) -> Result<(), &'static str> {
+    pub fn submit(&self, action: LibraryAction, error_generation: u64) -> Result<(), &'static str> {
         self.sender
-            .try_send(action)
+            .try_send(LibraryRequest {
+                action,
+                error_generation,
+            })
             .map_err(|_| "The content library command queue is full or closed")
     }
 }
@@ -104,116 +119,153 @@ impl ffi::ContentController {
             return;
         }
         self.as_mut().rust_mut().library_state = ffi::LibraryState::Loading;
-        self.as_mut().library_state_changed();
         let worker = LibraryWorker::start(
             &self.services.as_ref().unwrap().runtime,
             profile,
             self.qt_thread(),
         );
         self.as_mut().rust_mut().library_worker = Some(worker);
+        self.as_mut().library_state_changed();
     }
 
     pub(super) fn set_library_error(mut self: Pin<&mut Self>, error: QString) {
+        if !error.is_empty() {
+            self.as_mut().rust_mut().library_error_generation =
+                self.library_error_generation.wrapping_add(1);
+        }
         if self.library_error_text != error {
             self.as_mut().rust_mut().library_error_text = error;
             self.as_mut().library_error_text_changed();
         }
     }
 
-    pub(super) fn complete_library(mut self: Pin<&mut Self>, result: LibraryResult<LibraryUpdate>) {
-        let initial = self.library_state == ffi::LibraryState::Loading;
-        self.as_mut().rust_mut().library_revision = self.library_revision.wrapping_add(1);
-        let revision = self.library_revision;
+    pub(super) fn complete_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
         let was_pending = self.is_library_pending();
-        if !initial {
+        if matches!(update, LibraryUpdate::Changed { .. }) {
             self.as_mut().rust_mut().library_pending -= 1;
         }
+        self.as_mut().rust_mut().library_updates.push_back(update);
+        if self.publishing_library {
+            // I/O has completed, but a Qt begin/end notification is still open.
+            // Let its observer return before applying another model mutation.
+            if was_pending != self.is_library_pending() {
+                self.as_mut().library_pending_changed();
+            }
+            return;
+        }
+        self.as_mut().rust_mut().publishing_library = true;
+        loop {
+            let update = self.as_mut().rust_mut().library_updates.pop_front();
+            let Some(update) = update else {
+                break;
+            };
+            self.as_mut().publish_library(update);
+        }
+        self.as_mut().rust_mut().publishing_library = false;
+        if was_pending != self.is_library_pending() {
+            self.as_mut().library_pending_changed();
+        }
+    }
+
+    fn publish_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
+        let (initial, error_generation, result) = match update {
+            LibraryUpdate::Loaded(result) => {
+                let result = result.map(|entries| {
+                    for entry in &entries {
+                        self.as_mut()
+                            .rust_mut()
+                            .work_preferences
+                            .entry(entry.work.reference.clone())
+                            .or_insert_with(|| entry.preferences.clone());
+                    }
+                    for entry in entries.into_iter().filter(|entry| entry.favorite) {
+                        self.as_mut()
+                            .rust_mut()
+                            .favorites
+                            .pin_mut()
+                            .update(entry.work);
+                    }
+                });
+                (true, 0, result)
+            }
+            LibraryUpdate::Changed {
+                result,
+                error_generation,
+            } => {
+                let result = result.map(|entry| {
+                    if entry.favorite {
+                        self.as_mut()
+                            .rust_mut()
+                            .favorites
+                            .pin_mut()
+                            .update(entry.work);
+                    } else {
+                        self.as_mut()
+                            .rust_mut()
+                            .favorites
+                            .pin_mut()
+                            .remove(&entry.work.reference);
+                    }
+                });
+                (false, error_generation, result)
+            }
+        };
         match result {
-            Ok(update) => {
-                match update {
-                    LibraryUpdate::Loaded(entries) => {
-                        let favorites: Vec<_> = entries
-                            .iter()
-                            .filter(|entry| entry.favorite)
-                            .map(|entry| entry.work.clone())
-                            .collect();
-                        self.as_mut().rust_mut().library_entries = entries;
-                        for work in favorites {
-                            self.as_mut().rust_mut().favorites.pin_mut().update(work);
-                            if self.library_revision != revision {
-                                return;
-                            }
-                        }
-                    }
-                    LibraryUpdate::Changed(entry) => {
-                        let entry = *entry;
-                        let reference = entry.work.reference.clone();
-                        let work = entry.favorite.then(|| entry.work.clone());
-                        {
-                            let mut state = self.as_mut().rust_mut();
-                            if let Some(saved) = state
-                                .library_entries
-                                .iter_mut()
-                                .find(|saved| saved.work.reference == reference)
-                            {
-                                *saved = entry;
-                            } else {
-                                state.library_entries.push(entry);
-                            }
-                        }
-                        if let Some(work) = work {
-                            self.as_mut().rust_mut().favorites.pin_mut().update(work);
-                        } else {
-                            self.as_mut()
-                                .rust_mut()
-                                .favorites
-                                .pin_mut()
-                                .remove(&reference);
-                        }
-                    }
-                }
-                if self.library_revision != revision {
-                    return;
-                }
+            Ok(()) => {
                 self.as_mut().refresh_selected_favorite();
-                if self.library_revision != revision {
-                    return;
-                }
-                self.as_mut().set_library_error(QString::default());
-                if self.library_revision != revision {
-                    return;
+                if self.library_error_generation == error_generation {
+                    self.as_mut().set_library_error(QString::default());
                 }
                 if initial {
                     self.as_mut().rust_mut().library_state = ffi::LibraryState::Ready;
+                    let generation = self.inspection.generation;
+                    if let Some(work) = self.selected_work.clone()
+                        && self.as_mut().set_selection(Some(&work), generation)
+                    {
+                        self.as_mut().selected_variant_state_changed();
+                        if self.inspection.generation == generation && !self.inspecting {
+                            if self.selected_variant_id.is_empty() {
+                                self.as_mut().select_initial_variant();
+                            } else {
+                                self.as_mut().save_selected_preferences();
+                            }
+                        }
+                    }
                     self.as_mut().library_state_changed();
                 }
             }
             Err(error) => {
+                if initial {
+                    let mut state = self.as_mut().rust_mut();
+                    state.library_state = ffi::LibraryState::Failed;
+                    state.library_pending = 0;
+                }
                 ffi::log_content_error(
                     &QString::from("library"),
                     &QString::from(error.to_string()),
                 );
                 self.as_mut()
                     .set_library_error(ffi::content_error(if initial { 4 } else { 5 }));
-                if self.library_revision != revision {
-                    return;
-                }
                 if initial {
-                    self.as_mut().rust_mut().library_state = ffi::LibraryState::Failed;
                     self.as_mut().library_state_changed();
                 }
             }
         }
-        if self.library_revision == revision && was_pending != self.is_library_pending() {
-            self.as_mut().library_pending_changed();
-        }
     }
 
     pub(super) fn submit_library(mut self: Pin<&mut Self>, action: LibraryAction) {
-        if self.library_state != ffi::LibraryState::Ready {
+        if !matches!(
+            self.library_state,
+            ffi::LibraryState::Loading | ffi::LibraryState::Ready
+        ) {
             return;
         }
-        match self.library_worker.as_ref().unwrap().submit(action) {
+        match self
+            .library_worker
+            .as_ref()
+            .unwrap()
+            .submit(action, self.library_error_generation)
+        {
             Ok(()) => {
                 let was_pending = self.is_library_pending();
                 self.as_mut().rust_mut().library_pending += 1;
@@ -230,9 +282,9 @@ impl ffi::ContentController {
 
     pub(super) fn refresh_selected_favorite(mut self: Pin<&mut Self>) {
         let favorite = self.selected_work.as_ref().is_some_and(|work| {
-            self.library_entries
-                .iter()
-                .any(|entry| entry.favorite && entry.work.reference == work.reference)
+            self.favorites
+                .find(&models::work_id(&work.reference))
+                .is_some()
         });
         if self.selected_favorite != favorite {
             self.as_mut().rust_mut().selected_favorite = favorite;
@@ -278,13 +330,38 @@ impl ffi::ContentController {
         let Some(variant) = self.variants.find(&id.to_string()) else {
             return;
         };
+        let Some(work) = self.selected_work.clone() else {
+            return;
+        };
         let reference = variant.reference.clone();
         let generation = self.inspection.generation;
-        self.as_mut().rust_mut().resolution.cancel();
+        let was_resolving = self.resolving;
+        let preferences = {
+            let mut state = self.as_mut().rust_mut();
+            state.resolution.cancel();
+            state.resolving = false;
+            state.selected_variant_id = id.clone();
+            let preferences = state
+                .work_preferences
+                .entry(work.reference.clone())
+                .or_default();
+            preferences.selected = Some(reference);
+            preferences.clone()
+        };
         let resolution_generation = self.resolution.generation;
-        self.as_mut().rust_mut().selected_preferences.selected = Some(reference);
-        self.as_mut().rust_mut().selected_variant_id = id.clone();
-        self.as_mut().set_resolving(false);
+        // Accept the captured per-work intent before any notification can select
+        // another work. An acknowledgement never owns the current UI choice.
+        self.as_mut()
+            .submit_library(LibraryAction::Preferences { work, preferences });
+        if self.inspection.generation != generation
+            || self.resolution.generation != resolution_generation
+            || self.selected_variant_id != id
+        {
+            return;
+        }
+        if was_resolving {
+            self.as_mut().resolving_changed();
+        }
         if self.inspection.generation != generation
             || self.resolution.generation != resolution_generation
             || self.selected_variant_id != id
@@ -292,24 +369,33 @@ impl ffi::ContentController {
             return;
         }
         self.as_mut().selected_variant_id_changed();
-        if self.inspection.generation != generation
-            || self.resolution.generation != resolution_generation
-            || self.selected_variant_id != id
-        {
-            return;
-        }
-        self.as_mut().selected_variant_state_changed();
         if self.inspection.generation == generation
             && self.resolution.generation == resolution_generation
             && self.selected_variant_id == id
         {
-            self.as_mut().save_selected_preferences();
+            self.as_mut().selected_variant_state_changed();
+        }
+    }
+
+    pub(super) fn select_initial_variant(mut self: Pin<&mut Self>) {
+        if self.library_state == ffi::LibraryState::Ready
+            && !self.inspecting
+            && self.selected_variant_id.is_empty()
+        {
+            let id = self.variants.id_at(0);
+            if !id.is_empty() {
+                self.as_mut().select_variant(id);
+            }
         }
     }
 
     pub(super) fn save_selected_preferences(mut self: Pin<&mut Self>) {
         if let Some(work) = self.selected_work.clone() {
-            let preferences = self.selected_preferences.clone();
+            let preferences = self
+                .work_preferences
+                .get(&work.reference)
+                .cloned()
+                .unwrap_or_default();
             self.as_mut()
                 .submit_library(LibraryAction::Preferences { work, preferences });
         }

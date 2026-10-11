@@ -1,17 +1,18 @@
+use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{AniLiberty, LibraryEntry, ResolvedContent, VariantPreferences, Work};
+use qbutt_content::{AniLiberty, PublicationRef, ResolvedContent, VariantPreferences, Work};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
 mod library;
 
 use crate::models::{self, variant_id, work_id};
-use library::LibraryWorker;
+use library::{LibraryUpdate, LibraryWorker};
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
@@ -207,14 +208,15 @@ pub struct ContentControllerRust {
     selected_favorite: bool,
     selected_variant_id: QString,
     selected_work: Option<Work>,
-    selected_preferences: VariantPreferences,
+    work_preferences: HashMap<PublicationRef, VariantPreferences>,
 
     library_state: ffi::LibraryState,
     library_pending: usize,
-    library_revision: u64,
+    library_error_generation: u64,
+    library_updates: VecDeque<LibraryUpdate>,
+    publishing_library: bool,
     library_error_text: QString,
     library_worker: Option<LibraryWorker>,
-    library_entries: Vec<LibraryEntry>,
 
     services: Option<Services>,
     search: Pending,
@@ -266,14 +268,15 @@ impl Default for ContentControllerRust {
             selected_favorite: false,
             selected_variant_id: QString::default(),
             selected_work: None,
-            selected_preferences: VariantPreferences::default(),
+            work_preferences: HashMap::new(),
 
             library_state: ffi::LibraryState::Uninitialized,
             library_pending: 0,
-            library_revision: 0,
+            library_error_generation: 0,
+            library_updates: VecDeque::new(),
+            publishing_library: false,
             library_error_text: QString::default(),
             library_worker: None,
-            library_entries: Vec::new(),
 
             services,
             search: Pending::default(),
@@ -485,20 +488,9 @@ impl ffi::ContentController {
             ),
             None => (QString::default(), QString::default(), QString::default()),
         };
-        let preferences = if self.selected_work_id != id {
-            work.and_then(|work| {
-                self.library_entries
-                    .iter()
-                    .find(|entry| entry.work.reference == work.reference)
-            })
-            .map(|entry| entry.preferences.clone())
-            .unwrap_or_default()
-        } else {
-            self.selected_preferences.clone()
-        };
-        let variant_id = preferences
-            .selected
-            .as_ref()
+        let variant_id = work
+            .and_then(|work| self.work_preferences.get(&work.reference))
+            .and_then(|preferences| preferences.selected.as_ref())
             .map(variant_id)
             .map(QString::from)
             .unwrap_or_default();
@@ -514,7 +506,6 @@ impl ffi::ContentController {
             state.selected_work_title = title;
             state.selected_work_description = description;
             state.selected_work = work.cloned();
-            state.selected_preferences = preferences;
             state.selected_variant_id = variant_id;
             changed
         };
@@ -602,6 +593,7 @@ impl ffi::ContentController {
             return;
         }
         if !work.needs_inspection {
+            self.as_mut().select_initial_variant();
             return;
         }
         if self.services.is_none() {
@@ -627,9 +619,6 @@ impl ffi::ContentController {
                         if controller.works.find(&work_id(&work.reference)).is_some() {
                             controller.as_mut().rust_mut().works.pin_mut().update(work);
                         }
-                        if controller.inspection.generation == generation {
-                            controller.as_mut().save_selected_preferences();
-                        }
                     }
                     Err(error) => {
                         ffi::log_content_error(
@@ -641,6 +630,15 @@ impl ffi::ContentController {
                 }
                 if controller.inspection.generation == generation {
                     controller.as_mut().set_inspecting(false);
+                    if controller.inspection.generation == generation
+                        && controller.error_text.is_empty()
+                    {
+                        if controller.selected_variant_id.is_empty() {
+                            controller.as_mut().select_initial_variant();
+                        } else {
+                            controller.as_mut().save_selected_preferences();
+                        }
+                    }
                 }
             });
         });

@@ -29,6 +29,7 @@
 #include <QUrlQuery>
 
 #include "qbutt_quick/src/controller.cxxqt.h"
+#include "qbutt_quick/src/models.cxxqt.h"
 
 using namespace Qt::Literals::StringLiterals;
 
@@ -161,13 +162,125 @@ void exerciseLibrary()
     inspect(*controller, publication);
     variantCount = variants->rowCount();
     require(variantCount >= 2, u"Two exact variants are required"_s);
+    const auto *typedWorks = qobject_cast<Qbutt::WorkModel *>(works);
+    const auto *typedVariants = qobject_cast<Qbutt::VariantModel *>(variants);
+    require(typedWorks && typedVariants
+        && (typedWorks->idAt(typedWorks->indexOfId(publication)) == publication)
+        && typedWorks->idAt(-1).isEmpty() && typedWorks->idAt(works->rowCount()).isEmpty()
+        && (typedWorks->indexOfId(u"missing-work"_s) == -1)
+        && (typedVariants->idAt(0) == controller->property("selectedVariantId").toString())
+        && (controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
+            == Qbutt::Search::VariantSelectionState::Available), u"Typed lookup or initial native selection failed"_s);
     selectedVariant = value(variants, variantCount - 1, "variantId");
+    require((typedVariants->idAt(typedVariants->indexOfId(selectedVariant)) == selectedVariant)
+        && typedVariants->idAt(-1).isEmpty() && typedVariants->idAt(variantCount).isEmpty()
+        && (typedVariants->indexOfId(u"missing-variant"_s) == -1), u"Typed variant lookup failed"_s);
     expectedHash = value(variants, variantCount - 1, "infoHash");
     controller->selectVariant(selectedVariant);
     controller->setSelectedFavorite(true);
     saved(*controller);
     require(controller->property("selectedFavorite").toBool() && (favorites->rowCount() == 1),
         u"Favorite did not retain the selected whole work"_s);
+
+    controller->setSelectedFavorite(false);
+    saved(*controller);
+    {
+        QSqlDatabase boundary = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"quick-library-boundary"_s);
+        boundary.setDatabaseName(QDir(profile.path()).filePath(u"content-library.sqlite"_s));
+        require(boundary.open(), boundary.lastError().text());
+        QSqlQuery lock(boundary);
+        bool rejected = false;
+        bool erasedRejectedError = false;
+        bool committedFavoritePublished = false;
+        std::exception_ptr rejectionError;
+        const auto rejectionConnection = QObject::connect(favorites, &QAbstractItemModel::rowsAboutToBeInserted,
+            &observation, [&]
+        {
+            if (rejected)
+                return;
+            try
+            {
+                require(lock.exec(u"BEGIN IMMEDIATE"_s), lock.lastError().text());
+                for (int request = 0; request < 67; ++request)
+                    controller->setSelectedFavorite(false);
+                rejected = !controller->property("libraryErrorText").toString().isEmpty();
+                require(rejected, u"Bounded queue did not reject saturation"_s);
+                require(lock.exec(u"ROLLBACK"_s), lock.lastError().text());
+            }
+            catch (...)
+            {
+                rejectionError = std::current_exception();
+            }
+        }, Qt::DirectConnection);
+        const auto errorConnection = QObject::connect(controller.get(), &Qbutt::ContentController::libraryErrorTextChanged,
+            &observation, [&]
+        {
+            erasedRejectedError |= rejected && controller->property("libraryErrorText").toString().isEmpty()
+                && controller->property("selectedFavorite").toBool();
+        }, Qt::DirectConnection);
+        const auto favoriteConnection = QObject::connect(controller.get(), &Qbutt::ContentController::selectedFavoriteChanged,
+            &observation, [&]
+        {
+            committedFavoritePublished |= rejected && controller->property("selectedFavorite").toBool();
+        }, Qt::DirectConnection);
+        controller->setSelectedFavorite(true);
+        waitFor([&] { return !controller->property("libraryPending").toBool(); }, 15'000, u"Queue saturation acknowledgements"_s);
+        QObject::disconnect(rejectionConnection);
+        QObject::disconnect(errorConnection);
+        QObject::disconnect(favoriteConnection);
+        if (rejectionError)
+            std::rethrow_exception(rejectionError);
+        require(rejected && !erasedRejectedError, u"Older successful acknowledgement erased queue rejection"_s);
+        require(committedFavoritePublished, u"Queue rejection interrupted committed favorite publication"_s);
+        require(!controller->property("libraryErrorText").toString().isEmpty(), u"Older queued writes hid rejected intent"_s);
+        lock = QSqlQuery();
+        boundary.close();
+    }
+    QSqlDatabase::removeDatabase(u"quick-library-boundary"_s);
+    controller->setSelectedFavorite(true);
+    saved(*controller);
+
+    controller->setSelectedFavorite(false);
+    saved(*controller);
+    bool removedDuringInsert = false;
+    std::exception_ptr insertionError;
+    const auto removeDuringInsert = QObject::connect(favorites, &QAbstractItemModel::rowsAboutToBeInserted,
+        &observation, [&]
+    {
+        if (removedDuringInsert)
+            return;
+        removedDuringInsert = true;
+        try
+        {
+            controller->setSelectedFavorite(false);
+            waitFor([&] { return !controller->property("libraryPending").toBool(); }, 10'000, u"Nested remove before insert"_s);
+        }
+        catch (...)
+        {
+            insertionError = std::current_exception();
+        }
+    }, Qt::DirectConnection);
+    controller->setSelectedFavorite(true);
+    saved(*controller);
+    QObject::disconnect(removeDuringInsert);
+    if (insertionError)
+        std::rethrow_exception(insertionError);
+    require(removedDuringInsert && (favorites->rowCount() == 0)
+        && !controller->property("selectedFavorite").toBool(), u"Nested acknowledgement left a stale favorite row"_s);
+    controller->setSelectedFavorite(true);
+    saved(*controller);
+
+    const QString previousVariant = value(variants, 0, "variantId");
+    controller->selectVariant(previousVariant);
+    saved(*controller);
+    controller->selectVariant(selectedVariant);
+    controller->selectWork(other);
+    controller->selectWork(publication);
+    require(controller->property("selectedVariantId").toString() == selectedVariant,
+        u"Pending exact preference was lost before Qt completion"_s);
+    saved(*controller);
+    require(controller->property("selectedVariantId").toString() == selectedVariant,
+        u"Earlier acknowledgement replaced the latest exact preference"_s);
 
     const int searchCount = works->rowCount();
     int searchNotifications = 0;
@@ -219,6 +332,62 @@ void exerciseLibrary()
         u"Resolution or torrentReady fabricated history"_s);
     controller.reset();
 
+    QSqlQuery loadLock(database);
+    for (const bool explicitDuringLoad : {false, true})
+    {
+        controller = std::make_unique<Qbutt::ContentController>();
+        search(*controller);
+        inspect(*controller, publication);
+        require(loadLock.exec(u"BEGIN IMMEDIATE"_s), loadLock.lastError().text());
+        QString choiceDuringLoad;
+        bool heldLoading = false;
+        std::exception_ptr loadingError;
+        const auto loadingConnection = QObject::connect(controller.get(), &Qbutt::ContentController::libraryStateChanged,
+            &observation, [&]
+        {
+            if (controller->property("libraryState").value<Qbutt::Library::LibraryState>()
+                != Qbutt::Library::LibraryState::Loading)
+            {
+                return;
+            }
+            try
+            {
+                controller->selectWork(other);
+                controller->selectWork(publication);
+                if (explicitDuringLoad)
+                    controller->selectVariant(previousVariant);
+                choiceDuringLoad = controller->property("selectedVariantId").toString();
+                QEventLoop loop;
+                QTimer::singleShot(100, &loop, &QEventLoop::quit);
+                loop.exec();
+                heldLoading = controller->property("libraryState").value<Qbutt::Library::LibraryState>()
+                    == Qbutt::Library::LibraryState::Loading;
+                require(loadLock.exec(u"ROLLBACK"_s), loadLock.lastError().text());
+            }
+            catch (...)
+            {
+                loadingError = std::current_exception();
+            }
+        }, Qt::DirectConnection);
+        readyLibrary(*controller, profile.path());
+        QObject::disconnect(loadingConnection);
+        if (loadingError)
+            std::rethrow_exception(loadingError);
+        const auto expectedChoice = explicitDuringLoad ? previousVariant : selectedVariant;
+        require(heldLoading && (controller->property("selectedVariantId").toString() == expectedChoice),
+            u"Delayed library load replaced saved exact preference"_s);
+        require(explicitDuringLoad ? (choiceDuringLoad == previousVariant) : choiceDuringLoad.isEmpty(),
+            u"Automatic preference was accepted before library load"_s);
+        saved(*controller);
+        require(entry(database, u"9542"_s).value(u"preferences"_s).toObject().value(u"selected"_s).toObject()
+            .value(u"selector"_s).toObject().value(u"torrent"_s).toObject().value(u"id"_s)
+            == expectedChoice.section(u':', -1).toInt(), u"Explicit choice during Loading did not persist"_s);
+        controller->selectVariant(selectedVariant);
+        saved(*controller);
+        controller.reset();
+    }
+    loadLock = QSqlQuery();
+
     controller = std::make_unique<Qbutt::ContentController>();
     readyLibrary(*controller, profile.path());
     search(*controller);
@@ -229,6 +398,8 @@ void exerciseLibrary()
         && (model(*controller, "variants")->rowCount() == variantCount), u"Reopen lost exact preferences after favorite removal"_s);
 
     QSqlQuery lock(database);
+    controller->selectVariant(previousVariant);
+    saved(*controller);
     bool nestedFailure = false;
     std::exception_ptr nestedError;
     const auto nestedConnection = QObject::connect(controller.get(), &Qbutt::ContentController::selectedFavoriteChanged,
@@ -240,7 +411,11 @@ void exerciseLibrary()
         try
         {
             require(lock.exec(u"BEGIN IMMEDIATE"_s), lock.lastError().text());
-            controller->setSelectedFavorite(false);
+            controller->selectVariant(selectedVariant);
+            controller->selectWork(other);
+            controller->selectWork(publication);
+            require(controller->property("selectedVariantId").toString() == selectedVariant,
+                u"Locked preference was lost during reentrant selection"_s);
             waitFor([&] { return !controller->property("libraryPending").toBool(); }, 10'000, u"Reentrant library completion"_s);
             require(lock.exec(u"ROLLBACK"_s), lock.lastError().text());
         }
@@ -255,9 +430,32 @@ void exerciseLibrary()
     if (nestedError)
         std::rethrow_exception(nestedError);
     require(nestedFailure && controller->property("selectedFavorite").toBool()
-        && !controller->property("libraryErrorText").toString().isEmpty(), u"Earlier completion hid a reentrant write failure"_s);
+        && !controller->property("libraryErrorText").toString().isEmpty()
+        && (controller->property("selectedVariantId").toString() == selectedVariant),
+        u"Earlier completion hid a reentrant preference failure or changed intent"_s);
+    require(entry(database, u"9542"_s).value(u"preferences"_s).toObject().value(u"selected"_s).toObject()
+        .value(u"selector"_s).toObject().value(u"torrent"_s).toObject().value(u"id"_s)
+        == previousVariant.section(u':', -1).toInt(), u"Locked preference unexpectedly committed"_s);
+    controller->selectWork(other);
+    controller->selectWork(publication);
+    require(controller->property("selectedVariantId").toString() == selectedVariant,
+        u"Failed preference lost latest intent after switching work"_s);
+    controller->setListMode(Qbutt::Search::ListMode::Favorites);
+    inspect(*controller, publication);
+    saved(*controller);
+    require(controller->property("selectedVariantId").toString() == selectedVariant,
+        u"Forced inspection replaced failed but accepted preference"_s);
+    controller->setListMode(Qbutt::Search::ListMode::Search);
     controller->setSelectedFavorite(false);
     saved(*controller);
+    controller.reset();
+    controller = std::make_unique<Qbutt::ContentController>();
+    readyLibrary(*controller, profile.path());
+    search(*controller);
+    inspect(*controller, publication);
+    saved(*controller);
+    require(controller->property("selectedVariantId").toString() == selectedVariant,
+        u"Preference recovery did not persist across reopen"_s);
 
     require(lock.exec(u"BEGIN IMMEDIATE"_s), lock.lastError().text());
     controller->setSelectedFavorite(true);
@@ -315,6 +513,67 @@ void exerciseLibrary()
     database = QSqlDatabase();
     QSqlDatabase::removeDatabase(u"quick-library-fixture"_s);
 
+    for (const bool corruptEntry : {false, true})
+    {
+        QTemporaryDir corruptProfile;
+        require(corruptProfile.isValid(), u"Corrupt profile fixture failed"_s);
+        if (corruptEntry)
+        {
+            Qbutt::ContentController seed;
+            readyLibrary(seed, corruptProfile.path());
+        }
+        {
+            QSqlDatabase startup = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"quick-library-startup-fault"_s);
+            startup.setDatabaseName(QDir(corruptProfile.path()).filePath(u"content-library.sqlite"_s));
+            require(startup.open(), startup.lastError().text());
+            QSqlQuery fault(startup);
+            require(fault.exec(corruptEntry
+                ? u"INSERT INTO library VALUES ('generated-corrupt', 'not-json', 0)"_s
+                : u"CREATE TABLE foreign_profile (value TEXT)"_s), fault.lastError().text());
+            require(fault.exec(u"BEGIN IMMEDIATE"_s), fault.lastError().text());
+            controller = std::make_unique<Qbutt::ContentController>();
+            search(*controller);
+            inspect(*controller, publication);
+            bool acceptedLoadingChoice = false;
+            std::exception_ptr startupError;
+            const auto startupConnection = QObject::connect(controller.get(), &Qbutt::ContentController::libraryStateChanged,
+                &observation, [&]
+            {
+                if (controller->property("libraryState").value<Qbutt::Library::LibraryState>()
+                    != Qbutt::Library::LibraryState::Loading)
+                {
+                    return;
+                }
+                try
+                {
+                    controller->selectVariant(selectedVariant);
+                    acceptedLoadingChoice = controller->property("libraryPending").toBool();
+                    require(fault.exec(u"ROLLBACK"_s), fault.lastError().text());
+                }
+                catch (...)
+                {
+                    startupError = std::current_exception();
+                }
+            }, Qt::DirectConnection);
+            controller->initLibrary(corruptProfile.path());
+            waitFor([&]
+            {
+                return controller->property("libraryState").value<Qbutt::Library::LibraryState>()
+                    == Qbutt::Library::LibraryState::Failed;
+            }, 10'000, u"Accepted choice at startup failure"_s);
+            QObject::disconnect(startupConnection);
+            if (startupError)
+                std::rethrow_exception(startupError);
+            require(acceptedLoadingChoice && !controller->property("libraryPending").toBool()
+                && !controller->property("libraryErrorText").toString().isEmpty(),
+                u"Startup failure left an accepted choice pending or hid its error"_s);
+            controller.reset();
+            fault = QSqlQuery();
+            startup.close();
+        }
+        QSqlDatabase::removeDatabase(u"quick-library-startup-fault"_s);
+    }
+
     QTemporaryDir failureProfile;
     QFile file(QDir(failureProfile.path()).filePath(u"not-a-directory"_s));
     require(file.open(QIODevice::WriteOnly), u"Failure fixture file could not be created"_s);
@@ -332,5 +591,5 @@ void exerciseLibrary()
     require(relative.property("libraryState").value<Qbutt::Library::LibraryState>() == Qbutt::Library::LibraryState::Failed,
         u"Relative profile reached filesystem initialization"_s);
     require(!wrongThread.load(), u"Library model mutated outside GUI thread"_s);
-    qInfo().noquote() << u"PASS library favorites=ok search_retained=ok exact_preference=ok fresh_inspection=ok missing_exact=ok stale_completion=ok history_absent=ok reopen=ok io_failure=ok reentrant_completion=ok close_pending=ok variants=%1"_s.arg(variantCount);
+    qInfo().noquote() << u"PASS library favorites=ok search_retained=ok exact_preference=ok pending_choice=ok nested_model=ok error_order=ok typed_lookup=ok delayed_load=ok explicit_loading=ok startup_failure=ok fresh_inspection=ok missing_exact=ok stale_completion=ok history_absent=ok reopen=ok io_failure=ok reentrant_preference=ok close_pending=ok variants=%1"_s.arg(variantCount);
 }

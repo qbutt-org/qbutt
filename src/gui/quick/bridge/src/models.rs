@@ -31,6 +31,13 @@ pub mod ffi {
         #[base = QAbstractListModel]
         type WorkModel = super::WorkModelRust;
 
+        #[qinvokable]
+        #[cxx_name = "idAt"]
+        fn id_at(&self, row: i32) -> QString;
+        #[qinvokable]
+        #[cxx_name = "indexOfId"]
+        fn index_of_id(&self, id: QString) -> i32;
+
         #[cxx_override]
         #[rust_name = "row_count"]
         fn rowCount(&self, parent: &QModelIndex) -> i32;
@@ -77,6 +84,13 @@ pub mod ffi {
         #[qml_uncreatable]
         #[base = QAbstractListModel]
         type VariantModel = super::VariantModelRust;
+
+        #[qinvokable]
+        #[cxx_name = "idAt"]
+        fn id_at(&self, row: i32) -> QString;
+        #[qinvokable]
+        #[cxx_name = "indexOfId"]
+        fn index_of_id(&self, id: QString) -> i32;
 
         #[cxx_override]
         #[rust_name = "row_count"]
@@ -162,6 +176,22 @@ pub struct WorkModelRust {
 }
 
 impl ffi::WorkModel {
+    pub fn id_at(&self, row: i32) -> QString {
+        self.rows
+            .get(row as usize)
+            .map(|work| QString::from(work_id(&work.reference)))
+            .unwrap_or_default()
+    }
+
+    pub fn index_of_id(&self, id: QString) -> i32 {
+        let id = id.to_string();
+        self.rows
+            .iter()
+            .position(|work| work_id(&work.reference) == id)
+            .map(|row| row as i32)
+            .unwrap_or(-1)
+    }
+
     fn row_count(&self, parent: &QModelIndex) -> i32 {
         if parent.is_valid() {
             0
@@ -253,6 +283,22 @@ pub struct VariantModelRust {
 }
 
 impl ffi::VariantModel {
+    pub fn id_at(&self, row: i32) -> QString {
+        self.rows
+            .get(row as usize)
+            .map(|variant| QString::from(variant_id(&variant.reference)))
+            .unwrap_or_default()
+    }
+
+    pub fn index_of_id(&self, id: QString) -> i32 {
+        let id = id.to_string();
+        self.rows
+            .iter()
+            .position(|variant| variant_id(&variant.reference) == id)
+            .map(|row| row as i32)
+            .unwrap_or(-1)
+    }
+
     fn row_count(&self, parent: &QModelIndex) -> i32 {
         if parent.is_valid() {
             0
