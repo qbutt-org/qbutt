@@ -204,6 +204,13 @@ pub mod ffi {
             NOTIFY = reader_changed
         )]
         #[qproperty(
+            f64,
+            reader_scroll_offset,
+            cxx_name = "readerScrollOffset",
+            READ = reader_scroll_offset,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
             ReaderFit,
             reader_fit,
             cxx_name = "readerFit",
@@ -304,6 +311,7 @@ pub mod ffi {
         fn reader_page_url(&self) -> &QUrl;
         fn reader_page_index(&self) -> &i32;
         fn reader_page_count(&self) -> &i32;
+        fn reader_scroll_offset(&self) -> &f64;
         fn reader_fit(&self) -> &ReaderFit;
         fn chapter_query(&self) -> &QString;
 
@@ -350,6 +358,9 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "initLibrary"]
         fn init_library(self: Pin<&mut Self>, profile_dir: QString);
+        #[qinvokable]
+        #[cxx_name = "retryLibrary"]
+        fn retry_library(self: Pin<&mut Self>) -> bool;
         #[qinvokable]
         #[cxx_name = "setListMode"]
         fn set_list_mode(self: Pin<&mut Self>, mode: ListMode);

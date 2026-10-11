@@ -14,7 +14,7 @@ use qbutt_content::{
 use tempfile::{NamedTempFile, TempDir, TempPath};
 use tokio::sync::watch;
 
-use super::library::LibraryAction;
+use super::library::{LibraryAction, ReaderSave};
 use super::{Pending, ffi};
 use crate::reader_models;
 
@@ -34,6 +34,7 @@ pub(super) struct ReaderState {
     progress_generation: u64,
     progress_pending: bool,
     progress_error: QString,
+    progress_save: Option<ReaderSave>,
     fit: ffi::ReaderFit,
     query: QString,
     loading: Pending,
@@ -59,6 +60,7 @@ impl Default for ReaderState {
             progress_generation: 0,
             progress_pending: false,
             progress_error: QString::default(),
+            progress_save: None,
             fit: ffi::ReaderFit::Height,
             query: QString::default(),
             loading: Pending::default(),
@@ -76,6 +78,7 @@ impl ReaderState {
         self.progress_generation = self.progress_generation.wrapping_add(1);
         self.progress_pending = false;
         self.progress_error = QString::default();
+        self.progress_save = None;
     }
 }
 
@@ -108,9 +111,32 @@ impl ffi::ContentController {
         self.reader.progress_pending
     }
 
-    pub(super) fn reader_library_failed(mut self: Pin<&mut Self>) {
-        if self.reader.reference.is_none() || !self.reader.chapter_id.is_empty() {
+    pub(super) fn reader_retry_generation(&self) -> Option<u64> {
+        (self.reader.reference.is_some() && self.reader.chapter_id.is_empty())
+            .then_some(self.reader.loading.generation)
+    }
+
+    pub(super) fn resume_reader_after_library_retry(self: Pin<&mut Self>, generation: u64) {
+        if self.reader_retry_generation() == Some(generation) {
+            self.load_reader_resume();
+        }
+    }
+
+    pub(super) fn prepare_reader_library_retry(mut self: Pin<&mut Self>, generation: u64) {
+        if self.reader_retry_generation() != Some(generation) {
             return;
+        }
+        {
+            let mut state = self.as_mut().rust_mut();
+            state.reader.busy = true;
+            state.reader.error = QString::default();
+        }
+        self.reader_changed();
+    }
+
+    pub(super) fn reader_library_failed(mut self: Pin<&mut Self>) -> bool {
+        if self.reader.reference.is_none() || !self.reader.chapter_id.is_empty() {
+            return false;
         }
         {
             let mut state = self.as_mut().rust_mut();
@@ -118,7 +144,7 @@ impl ffi::ContentController {
             state.reader.busy = false;
             state.reader.error = ffi::content_error(4);
         }
-        self.reader_changed();
+        true
     }
 
     pub(super) fn reader_title(&self) -> &QString {
@@ -143,6 +169,10 @@ impl ffi::ContentController {
 
     pub(super) fn reader_page_count(&self) -> &i32 {
         &self.reader.page_count
+    }
+
+    pub(super) fn reader_scroll_offset(&self) -> &f64 {
+        &self.reader.scroll_offset
     }
 
     pub(super) fn reader_fit(&self) -> &ffi::ReaderFit {
@@ -470,11 +500,8 @@ impl ffi::ContentController {
     }
 
     pub fn retry_reader_progress(self: Pin<&mut Self>) {
-        if self.reader.page_shown
-            && !self.reader.progress_pending
-            && !self.reader.progress_error.is_empty()
-        {
-            self.save_reader_position();
+        if !self.reader.progress_pending && !self.reader.progress_error.is_empty() {
+            self.submit_reader_progress();
         }
     }
 
@@ -490,6 +517,9 @@ impl ffi::ContentController {
             } else {
                 ffi::reader_error(5)
             };
+            if saved {
+                state.reader.progress_save = None;
+            }
         }
         self.reader_changed();
     }
@@ -517,18 +547,27 @@ impl ffi::ContentController {
             page: self.reader.page_index as u32,
             scroll_offset: self.reader.scroll_offset,
         };
+        self.as_mut().rust_mut().reader.progress_save = Some(ReaderSave {
+            work,
+            preferences,
+            progress,
+        });
+        self.submit_reader_progress();
+    }
+
+    fn submit_reader_progress(mut self: Pin<&mut Self>) {
+        let Some(save) = self.reader.progress_save.clone() else {
+            return;
+        };
         let generation = self.reader.progress_generation.wrapping_add(1);
         {
             let mut state = self.as_mut().rust_mut();
             state.reader.progress_generation = generation;
             state.reader.progress_pending = true;
         }
-        let accepted = self.as_mut().submit_library(LibraryAction::ReaderProgress {
-            work,
-            preferences,
-            progress,
-            generation,
-        });
+        let accepted = self
+            .as_mut()
+            .submit_library(LibraryAction::ReaderProgress { save, generation });
         if self.reader.progress_generation != generation || self.reader.reference.is_none() {
             return;
         }
@@ -565,6 +604,10 @@ impl ffi::ContentController {
 
     pub fn retry_reader(self: Pin<&mut Self>) {
         if self.reader.reference.is_none() || self.reader.busy {
+            return;
+        }
+        if self.library_state == ffi::LibraryState::Failed {
+            self.retry_library();
             return;
         }
         if self.reader.chapter_id.is_empty() {

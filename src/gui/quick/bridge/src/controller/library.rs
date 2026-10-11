@@ -24,9 +24,7 @@ pub enum LibraryAction {
         preferences: VariantPreferences,
     },
     ReaderProgress {
-        work: Work,
-        preferences: VariantPreferences,
-        progress: ReaderProgress,
+        save: ReaderSave,
         generation: u64,
     },
     ReaderResume {
@@ -35,8 +33,21 @@ pub enum LibraryAction {
     },
 }
 
+/// The exact confirmed reading intent retained until its write is acknowledged.
+/// Navigation cannot replace it; a later confirmed render can.
+#[derive(Clone)]
+pub struct ReaderSave {
+    pub work: Work,
+    pub preferences: VariantPreferences,
+    pub progress: ReaderProgress,
+}
+
 pub enum LibraryUpdate {
-    Loaded(LibraryResult<Vec<LibraryEntry>>),
+    Loaded {
+        result: LibraryResult<Vec<LibraryEntry>>,
+        error_generation: u64,
+        reader_generation: Option<u64>,
+    },
     Changed {
         result: LibraryResult<Box<LibraryEntry>>,
         error_generation: u64,
@@ -53,8 +64,16 @@ struct LibraryRequest {
     error_generation: u64,
 }
 
+enum LibraryCommand {
+    Request(Box<LibraryRequest>),
+    Retry {
+        error_generation: u64,
+        reader_generation: Option<u64>,
+    },
+}
+
 pub struct LibraryWorker {
-    sender: Sender<LibraryRequest>,
+    sender: Sender<LibraryCommand>,
 }
 
 impl LibraryWorker {
@@ -63,7 +82,7 @@ impl LibraryWorker {
         profile: PathBuf,
         qt_thread: CxxQtThread<ContentController>,
     ) -> Self {
-        let (sender, mut receiver) = mpsc::channel::<LibraryRequest>(64);
+        let (sender, mut receiver) = mpsc::channel::<LibraryCommand>(64);
         runtime.spawn_blocking(move || {
             // Loading permits commands only after this blocking job has entered.
             // A queued job can still be cancelled by runtime shutdown.
@@ -71,42 +90,77 @@ impl LibraryWorker {
                 controller.as_mut().rust_mut().library_state = ffi::LibraryState::Loading;
                 controller.as_mut().library_state_changed();
             });
-            let (mut library, entries) = match Library::open(profile).and_then(|library| {
-                let entries = library.entries(LibraryView::All)?;
-                Ok((library, entries))
-            }) {
-                Ok(loaded) => loaded,
-                Err(error) => {
-                    let _ = qt_thread.queue(move |controller| {
-                        controller.complete_library(LibraryUpdate::Loaded(Err(error)));
-                    });
-                    return;
-                }
-            };
-            let _ = qt_thread.queue(move |controller| {
-                controller.complete_library(LibraryUpdate::Loaded(Ok(entries)));
-            });
-
-            // This is the sole connection owner. Accepted commands stay in FIFO
-            // order and finish even when selection changes or the QObject closes.
-            while let Some(request) = receiver.blocking_recv() {
-                let update = apply(&mut library, request);
+            let mut error_generation = 0;
+            let mut reader_generation = None;
+            loop {
+                let (mut library, result) = match Library::open(&profile).and_then(|library| {
+                    let entries = library.entries(LibraryView::All)?;
+                    Ok((library, entries))
+                }) {
+                    Ok((library, entries)) => (Some(library), Ok(entries)),
+                    Err(error) => (None, Err(error)),
+                };
                 let _ = qt_thread.queue(move |controller| {
-                    controller.complete_library(update);
+                    controller.complete_library(LibraryUpdate::Loaded {
+                        result,
+                        error_generation,
+                        reader_generation,
+                    });
                 });
+
+                // This job remains the sole connection owner after a failed
+                // open. An explicit retry reopens the same profile in FIFO order.
+                loop {
+                    let Some(command) = receiver.blocking_recv() else {
+                        return;
+                    };
+                    match command {
+                        LibraryCommand::Retry {
+                            error_generation: retry_error_generation,
+                            reader_generation: retry_reader_generation,
+                        } => {
+                            error_generation = retry_error_generation;
+                            reader_generation = retry_reader_generation;
+                            break;
+                        }
+                        LibraryCommand::Request(request) => {
+                            if let Some(library) = &mut library {
+                                let update = apply(library, *request);
+                                let _ = qt_thread.queue(move |controller| {
+                                    controller.complete_library(update);
+                                });
+                            }
+                            // Initial failure terminates all accepted commands
+                            // through Loaded; discard them before the next retry.
+                        }
+                    }
+                }
+                // Drop the old connection before another open attempt.
             }
-            // Connection close also runs outside the GUI thread.
         });
         Self { sender }
     }
 
     pub fn submit(&self, action: LibraryAction, error_generation: u64) -> Result<(), &'static str> {
         self.sender
-            .try_send(LibraryRequest {
+            .try_send(LibraryCommand::Request(Box::new(LibraryRequest {
                 action,
                 error_generation,
-            })
+            })))
             .map_err(|_| "The content library command queue is full or closed")
+    }
+
+    fn retry(
+        &self,
+        error_generation: u64,
+        reader_generation: Option<u64>,
+    ) -> Result<(), &'static str> {
+        self.sender
+            .try_send(LibraryCommand::Retry {
+                error_generation,
+                reader_generation,
+            })
+            .map_err(|_| "The content library retry queue is full or closed")
     }
 }
 
@@ -116,13 +170,8 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
         LibraryAction::Preferences { work, preferences } => {
             (library.save_preferences(&work, preferences), None)
         }
-        LibraryAction::ReaderProgress {
-            work,
-            preferences,
-            progress,
-            generation,
-        } => (
-            library.save_reader_progress(&work, preferences, progress),
+        LibraryAction::ReaderProgress { save, generation } => (
+            library.save_reader_progress(&save.work, save.preferences, save.progress),
             Some(generation),
         ),
         LibraryAction::ReaderResume {
@@ -172,6 +221,33 @@ impl ffi::ContentController {
         self.as_mut().rust_mut().library_worker = Some(worker);
     }
 
+    pub fn retry_library(mut self: Pin<&mut Self>) -> bool {
+        if self.library_state != ffi::LibraryState::Failed {
+            return false;
+        }
+        let Some(worker) = &self.library_worker else {
+            return false;
+        };
+        let reader_generation = self.reader_retry_generation();
+        match worker.retry(self.library_error_generation, reader_generation) {
+            Ok(()) => {
+                // The blocking owner has already entered and remains alive;
+                // FIFO requests can be accepted behind this reopen command.
+                self.as_mut().rust_mut().library_state = ffi::LibraryState::Loading;
+                if let Some(generation) = reader_generation {
+                    self.as_mut().prepare_reader_library_retry(generation);
+                }
+                self.as_mut().library_state_changed();
+                true
+            }
+            Err(error) => {
+                ffi::log_content_error(&QString::from("library retry"), &QString::from(error));
+                self.as_mut().set_library_error(ffi::content_error(4));
+                false
+            }
+        }
+    }
+
     pub(super) fn set_library_error(mut self: Pin<&mut Self>, error: QString) {
         if !error.is_empty() {
             self.as_mut().rust_mut().library_error_generation =
@@ -185,7 +261,7 @@ impl ffi::ContentController {
 
     pub(super) fn complete_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
         let was_pending = self.is_library_pending();
-        if !matches!(update, LibraryUpdate::Loaded(_)) {
+        if !matches!(update, LibraryUpdate::Loaded { .. }) {
             self.as_mut().rust_mut().library_pending -= 1;
         }
         self.as_mut().rust_mut().library_updates.push_back(update);
@@ -212,12 +288,16 @@ impl ffi::ContentController {
     }
 
     fn publish_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
-        let (initial, error_generation, result) = match update {
+        let (initial, error_generation, reader_generation, result) = match update {
             LibraryUpdate::ReaderResume { result, generation } => {
                 self.complete_reader_resume(result, generation);
                 return;
             }
-            LibraryUpdate::Loaded(result) => {
+            LibraryUpdate::Loaded {
+                result,
+                error_generation,
+                reader_generation,
+            } => {
                 let result = result.map(|entries| {
                     for entry in &entries {
                         self.as_mut()
@@ -234,7 +314,7 @@ impl ffi::ContentController {
                             .update(entry.work);
                     }
                 });
-                (true, 0, result)
+                (true, error_generation, reader_generation, result)
             }
             LibraryUpdate::Changed {
                 result,
@@ -260,7 +340,7 @@ impl ffi::ContentController {
                             .remove(&entry.work.reference);
                     }
                 });
-                (false, error_generation, result)
+                (false, error_generation, None, result)
             }
         };
         match result {
@@ -285,21 +365,29 @@ impl ffi::ContentController {
                         }
                     }
                     self.as_mut().library_state_changed();
+                    if let Some(generation) = reader_generation {
+                        self.as_mut().resume_reader_after_library_retry(generation);
+                    }
                 }
             }
             Err(error) => {
-                if initial {
+                let reader_failed = if initial {
                     let mut state = self.as_mut().rust_mut();
                     state.library_state = ffi::LibraryState::Failed;
                     state.library_pending = 0;
-                    self.as_mut().reader_library_failed();
-                }
+                    self.as_mut().reader_library_failed()
+                } else {
+                    false
+                };
                 ffi::log_content_error(
                     &QString::from("library"),
                     &QString::from(error.to_string()),
                 );
                 self.as_mut()
                     .set_library_error(ffi::content_error(if initial { 4 } else { 5 }));
+                if reader_failed {
+                    self.as_mut().reader_changed();
+                }
                 if initial {
                     self.as_mut().library_state_changed();
                 }

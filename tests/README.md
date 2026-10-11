@@ -107,8 +107,10 @@ the native progress bridge without QML acknowledgement. The consumer confirms
 each local page only after `QImageReader` has decoded it. Require exit zero and
 `PASS reader_progress`. It checks exact reopen and controller restart, duplicate
 confirmation, stale URLs and completions, finite scroll bounds, SQLite write
-abort and queue rejection followed by retry of the same displayed page, failed
-resume reads, initial worker failure and missing saved chapter/page recovery.
+abort and queue rejection followed by exact write retry, including navigation to
+an unconfirmed page and failed acquisition of another chapter. It checks failed
+resume reads, locked startup and invalid initial metadata followed by explicit
+reopen of the same SQLite owner, and missing saved chapter/page recovery.
 An explicitly selected other branch starts independently. Acquisition alone
 must leave history empty; confirmed reading retains the full known work and
 current choices. This scenario does not establish QML `Image.Ready`, native
