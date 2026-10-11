@@ -1,6 +1,5 @@
 # qbutt
 
-Актуальное уточнение: qbutt независим от частного сервиса. Обычная Mihomo-подписка и базовый выбор узла не требуют аккаунта, частного API или фиксированных серверов. S1/S2/S3 в этой архитектуре обозначают примеры выходов для лаборатории. Реализованный первый срез и его отличия от целевой архитектуры описаны в `adr/0001-first-slice.md` и корневом `README.md`.
 ## Архитектура и план реализации
 
 **Редакция:** 0.1, 12 сентября 2026 года.  
@@ -32,17 +31,7 @@ qbutt сохраняет удобство нативного qBittorrent и ра
 
 ### Контентная подсистема
 
-Это контракт модулей текущего исходного дерева; подтверждённые сценарии перечисляются отдельно в `implementation.md` и `../tests/README.md`.
-
-- `src/gui/content` отвечает за нативные Search, Saved, History, Downloads и Reader. `src/base/content/client` владеет временем жизни дочернего `qbutt-content.exe` и ограниченным JSON-lines IPC. Один запрос имеет один terminal event; отмена не меняет выбранный вариант.
-- `components/content` объединяет источники и библиотеку SQLite, управляет чтением, переводом и очередью прямых загрузок. `contracts.ts` задаёт обмен данными; `references.ts` отделяет публичные ссылки и метаданные от защищённых acquisition URLs. Временные media URLs повторно разрешаются при открытии сохранённого варианта.
-- `components/search-engine` собирается в `qbutt-search.exe`: Cardigann definitions, нативные адаптеры, обнаружение источников и обновление definitions непосредственно из upstream. Встроенный snapshot закреплён в `upstream-lock.json`; runtime updater атомарно заменяет проверенный snapshot и сохраняет пользовательские настройки отдельно.
-- Авторизация источников хранится через Windows DPAPI. Browser bridge использует официальные extension cookies и native messaging, а не расшифровку браузерных баз. Его private named pipe доступен текущему Windows SID. Однократное подключение расширения выполняется из Sources; выбор браузера по умолчанию и явный выбор имеют одного владельца в bridge.
-- Ссылка `qbutt://` содержит публичное произведение либо конкретную публикацию. Exact link сохраняет источник, версию, озвучку и серию; получатель проверяет публикацию заново. Исчезнувший вариант требует явного выбора другого. Credentials и временные acquisition URLs не входят в ссылку.
-- `src/base/media` владеет mpv и HTTP Range для торрент-файлов. Торрентный поток получает только проверенные bytes через libtorrent `read_piece`; приоритеты и deadlines накладываются в единственном `TorrentImpl` и снимаются при завершении lease. Новый picker, отдельная torrent session и чтение непроверенных sparse files не создаются.
-- `components/content/media-runtime.ts` проверяет mpv, FFmpeg, ffprobe и yt-dlp из `media/` в комплекте приложения. Точные upstream URL, размеры и SHA-256 закреплены в `resources/media/component-lock.json`; упаковщик проверяет скачанные архивы и выбранные файлы, а content-процесс проверяет исполняемые файлы перед первым запуском. Player получает пути через существующий content IPC. Подготовленный профиль проигрывателя входит в установщик и portable ZIP вместе с инструментами. Интеграционные fixtures задают отдельный `QBUTT_MEDIA_RUNTIME_DIR` только вместе с `QBUTT_LAB_PATHS=1`.
-- Прямые загрузки имеют одну очередь и независимый staging. ModernX передаёт команду в эту очередь; плеер не запускает второго writer. Media profile, runtime и модели отделены от пользовательского mpv.
-- Reader сохраняет оригинал, позицию и кеш глав независимо от перевода. Перевод/OCR и ручные исправления образуют обратимый слой. Ahead scheduler использует реальную позицию чтения, ограничивает окно и отменяет устаревшую работу. Codex подключается через установленный app-server с существующей авторизацией, без инструментов и MCP; другие AI providers настраиваются явно.
+Контракт разделяет qbutt и самостоятельные qplay/qcatch. Статус реализации и практической приёмки ведётся в `implementation.md`, включая этап 9.6; команды проверок — в `../tests/README.md`. [Инструкции контентных модулей](agents/content.md) задают их устойчивые ограничения.
 
 ## 2. Что установлено исследованием
 
@@ -61,7 +50,6 @@ qbutt сохраняет удобство нативного qBittorrent и ра
 | autotorrent2 | Поиск и сопоставление локальных данных с torrent metadata | Алгоритмический референс и набор сценариев поиска, не обязательный Python runtime. [S10] |
 | cross-seed | Сопоставление похожих раздач, связывание файлов и recheck, включая частичные совпадения | Взять UX и тестовые случаи; не смешивать cross-seeding с патчами произвольной версии игры. [S11, S12] |
 | qbit_manage | Правила категорий, лимитов раздачи, удаления, dry run и уборки | Встроить небольшой набор наиболее полезных политик без отдельного сервиса. [S13] |
-| WinSparkle | Windows updater с подписанными обновлениями | Исследовательская ссылка, не выбранная зависимость: пользователь предпочёл поздний простой поток через GitHub Releases. [S14] |
 | libtorrent simulation/fuzzing, torrenttools | Сетевые сценарии, fuzzing и генерация torrent fixtures | Использовать в CI вместо набора только happy-path тестов. [S15, S16, S17] |
 | FRP | Обратное проксирование и доставка исходного адреса при поддержке принимающей стороны | Референс/инструмент для проверки inbound; не считать простой проброс порта полной BitTorrent-интеграцией. [S18] |
 
@@ -78,10 +66,6 @@ qbutt сохраняет удобство нативного qBittorrent и ра
 **Существующий SOCKS UDP relay не равен публичному входящему порту.** `ListenPacketContext` у адаптера является интерфейсом UDP-проксирования. Возможности устойчивого внешнего mapping и приёма незапрошенных пакетов устанавливаются отдельной проверкой. [S08, S19]
 
 **Отдельный процесс без TUN не гарантирует обход чужого системного TUN.** Сосуществование с Koala проверяется на реальном хосте для всех типов трафика.
-
-### 2.3. Что пока неизвестно
-
-Исходники пользовательских форков Mihomo/Xray и их точные revision не предоставлены. Скриншот подтверждает используемые имена узлов и транспортов, но не доказывает их внутренние API, возможности обратного listen, сохранение UDP mapping или доступность расширенной телеметрии. Первый этап реализации должен сформировать capability report из реальных сборок, а не предположений по upstream.
 
 ## 3. Компоненты
 
@@ -145,7 +129,7 @@ Application services принимают пользовательские реш�
 
 Опциональный небольшой серверный агент, не торрент-клиент. Нужен для выдачи публичных TCP/UDP endpoints, доставки входящих соединений, сохранения настоящего remote endpoint и проверки доступности.
 
-Сначала использовать существующие транспортные серверы без модификации. Добавление qbutt-edge не должно требовать переезда всех клиентов сервиса «Свои сети» на новую серверную сборку.
+Сначала использовать существующие транспортные серверы без модификации.
 
 ## 4. База, репозитории, состояния
 
@@ -153,26 +137,26 @@ Application services принимают пользовательские реш�
 
 Контрольная стабильная база на дату исследования: qBittorrent 5.2.3 и зафиксированная совместимая ревизия libtorrent 2.0.x, используемая для контрольной сборки. В публичных релизах уже есть libtorrent 2.1.1, а qBittorrent 5.3 beta использует ветку 2.1. Переход допустим отдельным изменением, но не должен незаметно совпасть с первым multipath-патчем и лишить нас корректного сравнения. [S21, S22]
 
-Первый PR обязан записать реальные commit SHA, compiler, Qt, OpenSSL, Boost и Go в lock manifest. Приведённые здесь названия веток являются исследовательскими ссылками, не заменой lockfile.
-
 ### 4.2. Организация workspace
 
 ```text
 qbutt/
-  app/                 fork qBittorrent
-  deps/libtorrent/     fork libtorrent, pinned revision
-  net/                 fork Mihomo / qbutt-net entrypoint
-  edge/                optional reverse gateway
-  contracts/           IPC schemas, semantic definitions
-  tests/fixtures/      torrents and generated data, no copyrighted game dumps
-  tests/network-lab/   namespaces, path shaping, mock peers and trackers
-  tests/repair/        crash, layouts, truncation, rollback
+  src/base/            application services, libtorrent integration
+  src/gui/             native Qt presentation
+  components/content/ providers, library, reader, AI and product integration
+  components/search-engine/ Cardigann and native indexers
+  scripts/             local build and packaging
+  tests/               isolated integration and native acceptance fixtures
   docs/adr/            architectural decisions
   upstream-lock.json
-  build/
+
+qplay/                 independent launcher, media engine, profile and GPU runtime
+qcatch/                independent extension, native host and capture/downloads
+qbutt-net/             Mihomo integration
+qbutt-libtorrent/      pinned libtorrent fork
 ```
 
-Это описание логического workspace. Необязательно физически переносить все upstream-файлы в один Git repository: submodules или workspace manifest допустимы. Каждый компонент должен собираться отдельно и иметь тестовый контракт.
+Это отдельные публичные репозитории `qbutt-org`; локальные пути checkout не являются API. qbutt закрепляет релизы самостоятельных продуктов вместо копирования их исходников в своё дерево. Совместимость установленных версий проверяется по протоколу и минимальной версии; это не ослабляет точные build pins.
 
 ### 4.3. Данные приложения
 
@@ -213,7 +197,7 @@ Edge S2
 
 ### 5.2. Контракты управления и передачи данных
 
-**Управление:** versioned IPC по named pipe на Windows, local socket на Linux. Первоначально достаточно небольших сообщений с сериализацией JSON и ограничением размера. Нет необходимости вводить gRPC, service discovery и отдельный message broker.
+**Управление:** versioned JSON IPC по приватным унаследованным stdin/stdout pipes дочернего процесса, с ограничением размера сообщений. Контракт и причины выбора зафиксированы в [ADR](adr/0001-first-slice.md#transport-boundary).
 
 Предлагаемые операции, которых нельзя считать существующим upstream API:
 
@@ -496,7 +480,7 @@ rules:
 
 ### 7.4. Обновление и восстановление профиля
 
-Обновление реализуется последним: простой поток получения готового bundle из GitHub Releases по примеру `element-max`, без отдельного backend или сложного updater-фреймворка. В `element-max` локальный release-скрипт публикует готовые assets, а клиент использует стандартный Squirrel updater со статическим feed; детали Electron не переносятся в Qt. Различать «нет новой версии» и «проверка не удалась», проверять целостность скачанного bundle и не придумывать собственную криптографию.
+Обновление получает готовый bundle из GitHub Releases. Различать «нет новой версии» и «проверка не удалась», проверять целостность скачанного bundle.
 
 qbutt.exe, libtorrent внутри сборки и qbutt-net выпускаются согласованным bundle. Не обновлять ядро из случайного upstream URL независимо от приложения. Hello/capability handshake отклоняет несовместимую пару.
 
@@ -557,7 +541,7 @@ Torrenttools и существующие libtorrent test facilities исполь
 - Несколько одинаковых aliases одного VPS не создают swarm amplification.
 - Поддельные remote metadata отвергаются до открытия соединения.
 
-Для unit/simulation использовать libtorrent simulation. Для реальных TCP/UDP/QUIC flows использовать Linux namespaces и netem. Toxiproxy удобен для TCP, но не заменяет UDP/QUIC испытания. [S15, S16, S31, S32]
+Для воспроизводимых сетевых сценариев использовать libtorrent simulation. Для реальных TCP/UDP/QUIC flows использовать Linux namespaces и netem. Toxiproxy удобен для TCP, но не заменяет UDP/QUIC испытания. [S15, S16, S31, S32]
 
 ### 9.3. Сравниваемые режимы
 
@@ -594,22 +578,12 @@ Torrenttools и существующие libtorrent test facilities исполь
 | C. Общий multipath TCP | Несколько peer routes в одной session, один picker, общие лимиты | Пиры за разными выходами одновременно кормят одну загрузку без дублирующих клиентов |
 | D. Полный сетевой контур | UDP/uTP, DHT, trackers/DNS/webseeds, policy transitions, private handling | Tunnels only действительно закрыт; корректные endpoint identities и capabilities |
 | E. Safe update и inbound | Staging/journal/rollback, reverse gateway и внешние проверки | Crash recovery; достижимость реальных TCP/UDP listeners через CGNAT |
-| F. Адаптация и продукт | RouteSelector, доказанные метрики, policies, UI, signed update и import/export | Проход release gates; воспроизводимый bundle и диагностический отчёт |
+| F. Адаптация и продукт | RouteSelector, доказанные метрики, policies, UI, обновление и import/export | Проход release gates; воспроизводимый bundle и диагностический отчёт |
 | G. Независимые дополнения | Streaming, расширенный file matching; затем при пользе same-file multi-swarm | Каждая функция имеет отдельные тесты и не усложняет обязательный путь |
 
 B1 и B2 удобно выполнять параллельно после A. Safe update можно вести параллельно сетевым C/D; inbound требует устойчивого path context. Не привязывать план к произвольным «неделям»: прогресс определяется завершёнными проверками и работающими срезами.
 
-## 11. Работа агентами
-
-Четыре независимых направления: application/storage, libtorrent paths, net/edge, UI/integration. У каждого отдельный worktree и маленькие проверяемые PR. Контракты меняются отдельным согласованным PR, а не в четырёх несовместимых реализациях.
-
-До изменения каждого subsystem агент должен перечислить существующие механизмы, которые сохраняются, и показать тест, в котором новой функции ещё нет. После изменения: diff, build, tests, failure cases и сведения о том, что не проверено на реальной сети.
-
-Не начинать с команды «перепиши networking». Начать с команды «сделай два controlled peers, достижимых через разные paths, и заставь одну session скачать от них один torrent с проверенным payload». Следующий этап добавляет реальную сложность только там, где она нужна этому результату.
-
-Использовать долгие автономные серии тестов и fault injection для проверки инвариантов. Количество созданных строк и число агентов не являются метрикой готовности.
-
-## 12. Отложенные гипотезы
+## 11. Отложенные гипотезы
 
 **Удалённые BitTorrent workers:** рассматривать, если измерения показывают ограничение именно BitTorrent request pipeline/локальной обработки и relay с настроенными очередями не решает задачу. Тогда потребуется учёт upload fairness, caching, availability, verified delivery, cancellation и отказов. Это отдельный architecture decision, не просто следующий транспорт.
 
@@ -619,7 +593,7 @@ B1 и B2 удобно выполнять параллельно после A. Sa
 
 **Много transport variants одного edge одновременно:** только если один transport ограничивает скорость или устойчивость и эксперимент показывает выигрыш, а не просто создаёт больше competing flows.
 
-## 13. Источники
+## 12. Источники
 
 Ссылки являются публичными первичными источниками. Воспроизводимая реализация должна закреплять revision исходников; mutable branch URL не является такой фиксацией.
 
@@ -636,7 +610,6 @@ B1 и B2 удобно выполнять параллельно после A. Sa
 - [S11] cross-seed partial matching: `https://www.cross-seed.org/docs/tutorials/partial-matching`
 - [S12] cross-seed linking: `https://www.cross-seed.org/docs/tutorials/linking`
 - [S13] qbit_manage configuration: `https://github.com/StuffAnThings/qbit_manage/wiki/Config-Setup`
-- [S14] WinSparkle: `https://github.com/vslavik/winsparkle`
 - [S15] libtorrent simulation example: `https://raw.githubusercontent.com/arvidn/libtorrent/RC_2_1/simulation/test_transfer.cpp`
 - [S16] libtorrent fuzzing: `https://libtorrent.org/fuzzing.html`
 - [S17] torrenttools: `https://github.com/fbdtemme/torrenttools`
@@ -658,13 +631,13 @@ B1 и B2 удобно выполнять параллельно после A. Sa
 - [S33] qBittorrent 5.2.3 session integration: `https://raw.githubusercontent.com/qbittorrent/qBittorrent/release-5.2.3/src/base/bittorrent/sessionimpl.cpp`
 - [S34] Mihomo README / licensing and distribution notice: `https://raw.githubusercontent.com/MetaCubeX/mihomo/Meta/README.md`
 
-## 14. Release checklist
+## 13. Release checklist
 
 - Известны исходные и пользовательские fork revisions всех компонентов.
 - Пройдены capability probes реальных Hysteria2/ShadowQUIC/VLESS сборок.
 - Пройдены native, mixed, pinned, tunnels-only и Koala coexistence tests.
 - Пройдены repair, crash recovery, policy/delete и resume regression suites.
-- Подпись обновления проверяется; mismatch/migration failure имеет понятное восстановление.
+- Целостность обновления проверяется; mismatch/migration failure имеет понятное восстановление.
 - Диагностический экспорт не содержит секретов и персональных сетевых данных без явного выбора.
 - Сохранены лицензии, copyright notices и необходимые материалы исходных проектов; перед распространением проверены требования конкретных форков и зависимостей.
 - Пользовательская документация не обещает обход любого DPI, ускорение любой раздачи, суммирование четырёх физических каналов или универсальный binary delta.
