@@ -42,7 +42,12 @@ ItemDelegate {
 
             Label {
                 Layout.fillWidth: true
-                text: root.quality.length > 0 ? qsTr("%1 [%2]").arg(root.label).arg(root.quality) : root.label
+                text: {
+                    if (root.quality.length === 0 || root.label.toLowerCase().includes(root.quality.toLowerCase()))
+                        return root.label;
+
+                    return qsTr("%1 [%2]").arg(root.label).arg(root.quality);
+                }
                 wrapMode: Text.Wrap
                 maximumLineCount: 2
                 elide: Text.ElideRight
