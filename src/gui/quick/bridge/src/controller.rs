@@ -16,7 +16,7 @@ mod reader;
 
 use crate::models::{self, variant_id, work_id};
 use library::{LibraryUpdate, LibraryWorker};
-use reader::ReaderState;
+use reader::{ReaderState, RetiredReaderCache, clean_retired_reader_cache};
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
@@ -96,6 +96,14 @@ pub mod ffi {
         fn chapterTitle(number: &QString, volume: &QString, title: &QString) -> QString;
         #[rust_name = "validated_image_url"]
         fn validatedImageUrl(path: &QString) -> QString;
+        #[rust_name = "retire_reader_cache"]
+        fn retireReaderCache(cache: Box<RetiredReaderCache>);
+    }
+
+    extern "Rust" {
+        type RetiredReaderCache;
+        #[cxx_name = "cleanRetiredReaderCache"]
+        fn clean_retired_reader_cache(cache: &RetiredReaderCache);
     }
 
     extern "RustQt" {

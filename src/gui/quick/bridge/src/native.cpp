@@ -4,12 +4,22 @@
 #include <QImageReader>
 #include <QLocale>
 #include <QLoggingCategory>
+#include <QThreadPool>
 #include <QUrl>
 
 #include "qbutt_quick/src/models.cxxqt.h"
+#include "qbutt_quick/src/controller.cxxqt.h"
 #include "qbutt_quick/src/reader_models.cxxqt.h"
 
 Q_LOGGING_CATEGORY(contentLog, "qbutt.content")
+
+void Qbutt::retireReaderCache(::rust::Box<RetiredReaderCache> cache)
+{
+    QThreadPool::globalInstance()->start([cache = std::move(cache)]
+    {
+        cleanRetiredReaderCache(*cache);
+    });
+}
 
 std::unique_ptr<Qbutt::WorkModel> Qbutt::createWorkModel()
 {

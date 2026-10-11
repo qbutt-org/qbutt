@@ -5,12 +5,14 @@
 #include <memory>
 
 #include <QString>
+#include "rust/cxx.h"
 
 namespace Qbutt
 {
     class WorkModel;
     class VariantModel;
     class ChapterModel;
+    struct RetiredReaderCache;
 
     std::unique_ptr<WorkModel> createWorkModel();
     std::unique_ptr<VariantModel> createVariantModel();
@@ -23,6 +25,7 @@ namespace Qbutt
     QString readerError(std::int32_t operation);
     QString chapterTitle(const QString &number, const QString &volume, const QString &title);
     QString validatedImageUrl(const QString &path);
+    void retireReaderCache(::rust::Box<RetiredReaderCache> cache);
 }
 
 #endif

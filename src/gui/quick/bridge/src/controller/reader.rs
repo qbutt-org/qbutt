@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, btree_map::Entry};
 use std::io::Write;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtThread, CxxQtType, Threading};
@@ -336,8 +338,64 @@ impl ffi::ContentController {
 }
 
 struct CachedPage {
-    _file: TempPath,
+    file: TempPath,
     url: String,
+}
+
+impl Drop for CachedPage {
+    fn drop(&mut self) {
+        self.file.disable_cleanup(true);
+        ffi::retire_reader_cache(Box::new(RetiredReaderCache {
+            path: self.file.to_path_buf(),
+            directory: false,
+        }));
+    }
+}
+
+struct ReaderDirectory(TempDir);
+
+impl Drop for ReaderDirectory {
+    fn drop(&mut self) {
+        self.0.disable_cleanup(true);
+        ffi::retire_reader_cache(Box::new(RetiredReaderCache {
+            path: self.0.path().to_path_buf(),
+            directory: true,
+        }));
+    }
+}
+
+pub(crate) struct RetiredReaderCache {
+    path: PathBuf,
+    directory: bool,
+}
+
+pub(super) fn clean_retired_reader_cache(cache: &RetiredReaderCache) {
+    // Qt may still be decoding the retired file asynchronously. The global
+    // pool owns cleanup after the controller and its Tokio runtime are gone.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let result = if cache.directory {
+            std::fs::remove_dir_all(&cache.path)
+        } else {
+            std::fs::remove_file(&cache.path)
+        };
+        let Err(error) = result else {
+            return;
+        };
+        if error.kind() == std::io::ErrorKind::NotFound {
+            return;
+        }
+        let sharing_violation = cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33));
+        if sharing_violation && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+            continue;
+        }
+        ffi::log_content_error(
+            &QString::from("reader cache cleanup"),
+            &QString::from(format!("{}: {error}", cache.path.display())),
+        );
+        return;
+    }
 }
 
 async fn read_chapter(
@@ -384,26 +442,31 @@ async fn read_chapter(
         }
     });
     let directory = match tokio::task::spawn_blocking(|| {
-        tempfile::Builder::new().prefix("qbutt-reader-").tempdir()
+        tempfile::Builder::new()
+            .prefix("qbutt-reader-")
+            .tempdir()
+            .map(|directory| Arc::new(ReaderDirectory(directory)))
     })
     .await
+    .map_err(|error| error.to_string())
+    .and_then(|result| result.map_err(|error| error.to_string()))
     {
-        Ok(Ok(directory)) => Arc::new(directory),
-        result => {
+        Ok(directory) => directory,
+        Err(error) => {
             publish_error(
                 &qt_thread,
                 generation,
                 Some(*position.borrow()),
                 2,
-                &format!("Could not create reader cache: {result:?}"),
+                &format!("Could not create reader cache: {error}"),
             );
             return;
         }
     };
     let mut cache = BTreeMap::<usize, CachedPage>::new();
 
-    // The async task alone owns cached files. The GUI holds URLs and the watch
-    // sender, so cancellation and cache pruning never delete files on the GUI.
+    // The async task owns cached paths. Pruning and cancellation retire them
+    // to Qt's pool, so cleanup survives this task and runtime shutdown.
     'position: loop {
         let target = *position.borrow_and_update();
         cache.retain(|index, _| *index >= target && *index <= target.saturating_add(2));
@@ -463,7 +526,7 @@ async fn load_page(
     manga: &MangaDex,
     pages: &ChapterPages,
     index: usize,
-    directory: Arc<TempDir>,
+    directory: Arc<ReaderDirectory>,
 ) -> Result<CachedPage, String> {
     let bytes = manga
         .image_bytes(&pages.images[index])
@@ -471,7 +534,7 @@ async fn load_page(
         .map_err(|error| error.to_string())?;
     tokio::task::spawn_blocking(move || {
         let mut file =
-            NamedTempFile::new_in(directory.path()).map_err(|error| error.to_string())?;
+            NamedTempFile::new_in(directory.0.path()).map_err(|error| error.to_string())?;
         file.write_all(&bytes).map_err(|error| error.to_string())?;
         file.flush().map_err(|error| error.to_string())?;
         let path = QString::from(file.path().to_string_lossy().as_ref());
@@ -480,7 +543,7 @@ async fn load_page(
             return Err("The source returned an invalid or oversized image".into());
         }
         Ok(CachedPage {
-            _file: file.into_temp_path(),
+            file: file.into_temp_path(),
             url,
         })
     })
