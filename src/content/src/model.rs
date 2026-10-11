@@ -16,6 +16,23 @@ pub struct PublicationRef {
     pub id: String,
 }
 
+impl PublicationRef {
+    /// The current source uses nonzero canonical decimal release IDs.
+    pub(crate) fn aniliberty_id(&self) -> crate::Result<u64> {
+        if self.source != Source::AniLiberty {
+            return Err(crate::Error::InvalidReference);
+        }
+        let id = self
+            .id
+            .parse::<u64>()
+            .map_err(|_| crate::Error::InvalidReference)?;
+        if id == 0 || self.id != id.to_string() {
+            return Err(crate::Error::InvalidReference);
+        }
+        Ok(id)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VideoQuality {
@@ -40,6 +57,22 @@ pub enum VariantSelector {
     Torrent { id: u64 },
     Episode { id: String, quality: VideoQuality },
     Rutube { episode_id: String },
+}
+
+impl VariantSelector {
+    pub(crate) fn validate(&self) -> crate::Result<()> {
+        let valid = match self {
+            Self::Torrent { id } => *id != 0,
+            Self::Episode { id, .. } | Self::Rutube { episode_id: id } => {
+                !id.is_empty() && id.len() <= 128
+            }
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(crate::Error::InvalidReference)
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

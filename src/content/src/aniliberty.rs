@@ -56,6 +56,7 @@ impl AniLiberty {
     /// Refetch the publication and resolve this exact selector. Missing variants
     /// fail rather than falling back to a different episode, quality or torrent.
     pub async fn resolve(&self, selected: &VariantRef) -> Result<ResolvedContent> {
+        selected.selector.validate()?;
         let release = self.release(&selected.publication).await?;
         match &selected.selector {
             VariantSelector::Torrent { id } => {
@@ -110,16 +111,7 @@ impl AniLiberty {
     }
 
     async fn release(&self, publication: &PublicationRef) -> Result<Release> {
-        if publication.source != Source::AniLiberty {
-            return Err(Error::InvalidReference);
-        }
-        let id = publication
-            .id
-            .parse::<u64>()
-            .map_err(|_| Error::InvalidReference)?;
-        if id == 0 || publication.id != id.to_string() {
-            return Err(Error::InvalidReference);
-        }
+        let id = publication.aniliberty_id()?;
 
         let mut url = self.origin.clone();
         url.set_path(&format!("/api/v1/anime/releases/{id}"));

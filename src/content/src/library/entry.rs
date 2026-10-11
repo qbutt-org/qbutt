@@ -72,6 +72,25 @@ impl LibraryEntry {
 
     pub(super) fn refresh(&mut self, work: &Work) {
         let mut refreshed = work.clone();
+        // Search metadata is partial; an inspected publication is authoritative.
+        if work.needs_inspection {
+            refreshed.description = refreshed
+                .description
+                .or_else(|| self.work.description.clone());
+            refreshed.cover = refreshed.cover.or_else(|| self.work.cover.clone());
+            refreshed.year = work.year.or(self.work.year);
+            for alias in &self.work.aliases {
+                if !refreshed.aliases.contains(alias) {
+                    refreshed.aliases.push(alias.clone());
+                }
+            }
+            for (key, value) in &self.work.identifiers {
+                refreshed
+                    .identifiers
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
+            }
+        }
         let known = work
             .variants
             .iter()
@@ -87,8 +106,11 @@ impl LibraryEntry {
 }
 
 fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
-    if work.reference.id.trim().is_empty() || work.title.trim().is_empty() {
-        return Err("the work identity or title is missing");
+    work.reference
+        .aniliberty_id()
+        .map_err(|_| "the publication reference is invalid")?;
+    if work.title.trim().is_empty() {
+        return Err("the work title is missing");
     }
     if !public_url(&work.url) || work.cover.as_ref().is_some_and(|url| !public_url(url)) {
         return Err("the work contains a nonpublic URL");
@@ -99,6 +121,11 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
         if variant.reference.publication != work.reference {
             return Err("a variant belongs to another publication");
         }
+        variant
+            .reference
+            .selector
+            .validate()
+            .map_err(|_| "an exact variant selector is invalid")?;
         if !known.insert(&variant.reference) {
             return Err("the work contains duplicate exact variants");
         }

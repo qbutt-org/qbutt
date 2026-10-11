@@ -19,7 +19,8 @@ fn main() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
     if args.next().as_deref() == Some(std::ffi::OsStr::new("--reopen")) {
         let profile = args.next().ok_or("missing isolated profile")?;
-        verify_reopened(Path::new(&profile))?;
+        let partial = args.next().as_deref() == Some(std::ffi::OsStr::new("partial"));
+        verify_reopened(Path::new(&profile), partial)?;
         return Ok(());
     }
 
@@ -29,9 +30,10 @@ fn main() -> Result<()> {
     let result = exercise(&root);
     std::fs::remove_dir_all(&root)?;
     result?;
-    println!(
-        "reopen=ok full_variants=ok exact_selection=ok filters=ok favorite_history=independent rejected_update=unchanged sqlite_abort=unchanged corrupt_metadata=rejected unsupported_schema=rejected unrelated_data=preserved"
-    );
+    println!("reopen=ok partial_metadata=preserved full_metadata=authoritative full_variants=ok");
+    println!("exact_refs=validated exact_selection=ok filters=ok favorite_history=independent");
+    println!("rejected_update=unchanged sqlite_abort=unchanged corrupt_metadata=rejected");
+    println!("unsupported_schema=rejected malformed_schema=rejected unrelated_data=preserved");
     Ok(())
 }
 
@@ -69,6 +71,12 @@ fn exercise(root: &Path) -> Result<()> {
     let mut library = Library::open(&profile)?;
     let mut partial = work.clone();
     partial.title = "Refreshed generated title".into();
+    partial.needs_inspection = true;
+    partial.description = None;
+    partial.cover = None;
+    partial.year = None;
+    partial.aliases = vec!["New generated alias".into()];
+    partial.identifiers = BTreeMap::from([("new".into(), "2".into())]);
     partial.variants.truncate(1);
     library.set_favorite(&partial, false)?;
     let entry = library.get(&work.reference)?.ok_or("missing saved work")?;
@@ -82,6 +90,28 @@ fn exercise(root: &Path) -> Result<()> {
     );
     assert_eq!(library.entries(LibraryView::History)?.len(), 1);
     assert!(library.entries(LibraryView::Favorites)?.is_empty());
+    drop(library);
+    let status = Command::new(std::env::current_exe()?)
+        .arg("--reopen")
+        .arg(&profile)
+        .arg("partial")
+        .status()?;
+    assert!(
+        status.success(),
+        "partial known metadata did not survive process reopen"
+    );
+
+    let mut library = Library::open(&profile)?;
+    let mut authoritative = partial.clone();
+    authoritative.needs_inspection = false;
+    authoritative.aliases.clear();
+    authoritative.identifiers.clear();
+    let replaced = library.set_favorite(&authoritative, false)?;
+    assert!(replaced.work.description.is_none());
+    assert!(replaced.work.cover.is_none());
+    assert!(replaced.work.year.is_none());
+    assert!(replaced.work.aliases.is_empty());
+    assert!(replaced.work.identifiers.is_empty());
 
     library.set_favorite(&work, true)?;
     let entry = library
@@ -99,6 +129,26 @@ fn exercise(root: &Path) -> Result<()> {
     invalid.selected.as_mut().unwrap().publication.id = "another-publication".into();
     assert!(matches!(
         library.save_preferences(&partial, invalid),
+        Err(LibraryError::InvalidEntry(_))
+    ));
+    assert_eq!(library.get(&work.reference)?.unwrap(), before);
+
+    for id in ["not-a-publication-id", "0", "01"] {
+        let mut invalid_work = work.clone();
+        invalid_work.reference.id = id.into();
+        for variant in &mut invalid_work.variants {
+            variant.reference.publication = invalid_work.reference.clone();
+        }
+        assert!(matches!(
+            library.set_favorite(&invalid_work, true),
+            Err(LibraryError::InvalidEntry(_))
+        ));
+        assert_eq!(library.get(&work.reference)?.unwrap(), before);
+    }
+    let mut zero_torrent = work.clone();
+    zero_torrent.variants[1].reference.selector = VariantSelector::Torrent { id: 0 };
+    assert!(matches!(
+        library.set_favorite(&zero_torrent, false),
         Err(LibraryError::InvalidEntry(_))
     ));
     assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -187,8 +237,48 @@ fn exercise(root: &Path) -> Result<()> {
         metadata
     );
     drop(library);
+
+    let mut corrupt_id = before.clone();
+    corrupt_id.work.reference.id = "not-a-publication-id".into();
+    for variant in &mut corrupt_id.work.variants {
+        variant.reference.publication = corrupt_id.work.reference.clone();
+    }
+    raw.execute(
+        "UPDATE library SET reference = ?1, entry = ?2",
+        rusqlite::params![
+            serde_json::to_string(&corrupt_id.work.reference)?,
+            serde_json::to_string(&corrupt_id)?,
+        ],
+    )?;
+    let library = Library::open(&profile)?;
+    assert!(matches!(
+        library.get(&corrupt_id.work.reference),
+        Err(LibraryError::CorruptEntry(_))
+    ));
+    assert!(matches!(
+        library.entries(LibraryView::All),
+        Err(LibraryError::CorruptEntry(_))
+    ));
+    drop(library);
+
+    let mut corrupt_torrent = before.clone();
+    corrupt_torrent.work = zero_torrent;
+    raw.execute(
+        "UPDATE library SET reference = ?1, entry = ?2",
+        rusqlite::params![
+            serde_json::to_string(&work.reference)?,
+            serde_json::to_string(&corrupt_torrent)?,
+        ],
+    )?;
+    let library = Library::open(&profile)?;
+    assert!(matches!(
+        library.get(&work.reference),
+        Err(LibraryError::CorruptEntry(_))
+    ));
+    drop(library);
     drop(raw);
 
+    verify_malformed_schemas(root)?;
     let foreign_profile = root.join("foreign-profile");
     std::fs::create_dir(&foreign_profile)?;
     let foreign = Connection::open(foreign_profile.join("content-library.sqlite"))?;
@@ -211,24 +301,84 @@ fn exercise(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn verify_reopened(profile: &Path) -> Result<()> {
-    let work = fixture();
+fn verify_malformed_schemas(root: &Path) -> Result<()> {
+    let schemas = [
+        "CREATE TABLE library (
+            reference TEXT NOT NULL,
+            entry TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        ) STRICT;",
+        "CREATE TABLE library (
+            reference TEXT PRIMARY KEY NOT NULL,
+            entry TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );",
+        "CREATE TABLE library (
+            reference TEXT PRIMARY KEY NOT NULL,
+            entry TEXT,
+            updated_at INTEGER
+        ) STRICT;",
+        "CREATE TABLE library (
+            reference TEXT PRIMARY KEY NOT NULL,
+            entry BLOB NOT NULL,
+            updated_at INTEGER NOT NULL
+        ) STRICT;",
+    ];
+    for (index, schema) in schemas.into_iter().enumerate() {
+        let malformed_profile = root.join(format!("malformed-schema-{index}"));
+        std::fs::create_dir(&malformed_profile)?;
+        let malformed = Connection::open(malformed_profile.join("content-library.sqlite"))?;
+        malformed.execute_batch(schema)?;
+        malformed.pragma_update(None, "application_id", 0x51424c42)?;
+        malformed.pragma_update(None, "user_version", 1)?;
+        let before_schema: String = malformed.query_row(
+            "SELECT sql FROM sqlite_schema WHERE name = 'library'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert!(matches!(
+            Library::open(&malformed_profile),
+            Err(LibraryError::InvalidSchema)
+        ));
+        let after_schema: String = malformed.query_row(
+            "SELECT sql FROM sqlite_schema WHERE name = 'library'",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(after_schema, before_schema);
+    }
+
+    Ok(())
+}
+
+fn verify_reopened(profile: &Path, partial: bool) -> Result<()> {
+    let mut work = fixture();
+    if partial {
+        work.title = "Refreshed generated title".into();
+        work.needs_inspection = true;
+        work.aliases.insert(0, "New generated alias".into());
+        work.identifiers.insert("new".into(), "2".into());
+    }
     let library = Library::open(profile)?;
     let entry = library
         .get(&work.reference)?
         .ok_or("missing reopened work")?;
     assert_eq!(entry.work, work);
     assert_eq!(entry.preferences, preferences(&work, 1));
-    assert!(entry.favorite);
+    assert_eq!(entry.favorite, !partial);
     assert_eq!(
         entry.last_opened.as_ref().unwrap().variant,
         work.variants[0].reference
     );
     assert!(entry.last_opened.as_ref().unwrap().at_unix_millis > 0);
-    assert_eq!(
-        library.entries(LibraryView::Favorites)?,
-        vec![entry.clone()]
-    );
+    if !partial {
+        assert_eq!(
+            library.entries(LibraryView::Favorites)?,
+            vec![entry.clone()]
+        );
+    } else {
+        assert!(library.entries(LibraryView::Favorites)?.is_empty());
+    }
     assert_eq!(library.entries(LibraryView::History)?, vec![entry]);
     println!(
         "second_process: saved Work, all variants, choices, favorite and exact history restored"

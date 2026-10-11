@@ -26,6 +26,8 @@ pub enum LibraryError {
     ForeignDatabase,
     #[error("Content library schema {0} is unsupported")]
     UnsupportedSchema(i64),
+    #[error("The content library schema is invalid")]
+    InvalidSchema,
     #[error("The content library contains invalid saved metadata")]
     Metadata(#[from] serde_json::Error),
     #[error("The content library contains a corrupt entry: {0}")]
@@ -86,7 +88,28 @@ impl Library {
         } else if version != SCHEMA_VERSION {
             return Err(LibraryError::UnsupportedSchema(version));
         }
-        transaction.prepare("SELECT reference, entry, updated_at FROM library LIMIT 0")?;
+        let table_valid: bool = transaction.query_row(
+            "SELECT EXISTS (
+                SELECT 1 FROM pragma_table_list
+                WHERE schema = 'main' AND name = 'library'
+                    AND type = 'table' AND ncol = 3 AND strict = 1
+            )",
+            [],
+            |row| row.get(0),
+        )?;
+        let columns_valid: i64 = transaction.query_row(
+            "SELECT count(*) FROM pragma_table_xinfo('library')
+             WHERE hidden = 0 AND \"notnull\" = 1 AND (
+                 (cid = 0 AND name = 'reference' AND type = 'TEXT' AND pk = 1)
+                 OR (cid = 1 AND name = 'entry' AND type = 'TEXT' AND pk = 0)
+                 OR (cid = 2 AND name = 'updated_at' AND type = 'INTEGER' AND pk = 0)
+             )",
+            [],
+            |row| row.get(0),
+        )?;
+        if !table_valid || columns_valid != 3 {
+            return Err(LibraryError::InvalidSchema);
+        }
         transaction.commit()?;
         Ok(Self { connection })
     }

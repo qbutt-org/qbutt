@@ -3,12 +3,33 @@
 
 use std::collections::HashSet;
 
-use qbutt_content::{AniLiberty, Error, ResolvedContent, VariantRef, VariantSelector};
+use qbutt_content::{
+    AniLiberty, Error, PublicationRef, ResolvedContent, Source, VariantRef, VariantSelector,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let query = std::env::args().nth(1).unwrap_or_else(|| "Frieren".into());
     let catalog = AniLiberty::new()?;
+    let invalid_publication = PublicationRef {
+        source: Source::AniLiberty,
+        id: "01".into(),
+    };
+    assert!(matches!(
+        catalog.inspect(&invalid_publication).await,
+        Err(Error::InvalidReference)
+    ));
+    let invalid_selector = VariantRef {
+        publication: PublicationRef {
+            source: Source::AniLiberty,
+            id: "1".into(),
+        },
+        selector: VariantSelector::Torrent { id: 0 },
+    };
+    assert!(matches!(
+        catalog.resolve(&invalid_selector).await,
+        Err(Error::InvalidReference)
+    ));
     let works = catalog.search(&query).await?;
     let selected = works.first().ok_or("no catalog results")?;
     let work = catalog.inspect(&selected.reference).await?;
