@@ -1,4 +1,7 @@
 .vscode/
+.idea/
+CMakeUserPresets.json
+.qmlls.ini
 
 src/gui/geoip/GeoIP.dat
 src/gui/geoip/GeoIP.dat.gz
@@ -41,3 +44,4 @@ src/icons/skin/build-icons/icons/*.png
 
 # CMake build directory
 build/
+cmake-build-*/
