@@ -381,10 +381,16 @@ impl ffi::ContentController {
             return;
         }
 
-        self.as_mut().set_resolving(true);
-        self.as_mut().set_error_text(QString::default());
         self.as_mut().rust_mut().resolution.cancel();
         let generation = self.resolution.generation;
+        self.as_mut().set_error_text(QString::default());
+        if self.resolution.generation != generation {
+            return;
+        }
+        self.as_mut().set_resolving(true);
+        if self.resolution.generation != generation {
+            return;
+        }
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let source = Arc::clone(&services.source);
@@ -395,26 +401,19 @@ impl ffi::ContentController {
                     return;
                 }
                 controller.as_mut().rust_mut().resolution.task = None;
-                controller.as_mut().set_resolving(false);
-                if controller.resolution.generation != generation {
-                    return;
-                }
-                match result {
+                let magnet = match result {
                     Ok(ResolvedContent::Torrent {
                         reference: resolved,
                         magnet,
                         ..
-                    }) if resolved == reference => {
-                        controller
-                            .as_mut()
-                            .torrent_ready(QString::from(magnet.as_str()));
-                    }
+                    }) if resolved == reference => Some(QString::from(magnet.as_str())),
                     Err(error) => {
                         ffi::log_content_error(
                             &QString::from("resolve"),
                             &QString::from(error.to_string()),
                         );
                         controller.as_mut().set_error_text(ffi::content_error(3));
+                        None
                     }
                     Ok(_) => {
                         ffi::log_content_error(
@@ -422,7 +421,17 @@ impl ffi::ContentController {
                             &QString::from("Resolved variant does not match the selected torrent"),
                         );
                         controller.as_mut().set_error_text(ffi::content_error(3));
+                        None
                     }
+                };
+                if controller.resolution.generation != generation {
+                    return;
+                }
+                controller.as_mut().set_resolving(false);
+                if controller.resolution.generation == generation
+                    && let Some(magnet) = magnet
+                {
+                    controller.as_mut().torrent_ready(magnet);
                 }
             });
         });
