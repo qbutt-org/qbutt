@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
 use std::io::Write;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -321,13 +321,14 @@ impl ffi::ContentController {
             let chapter = self.reader.chapter_id.clone();
             self.select_chapter(chapter);
         } else {
-            let mut state = self.as_mut().rust_mut();
-            state.reader.error = QString::default();
-            state.reader.busy = true;
-            if let Some(position) = &state.reader.position {
-                position.send_replace(state.reader.page_index as usize);
+            {
+                let mut state = self.as_mut().rust_mut();
+                state.reader.error = QString::default();
+                state.reader.busy = true;
+                if let Some(position) = &state.reader.position {
+                    position.send_replace(state.reader.page_index as usize);
+                }
             }
-            drop(state);
             self.as_mut().reader_changed();
         }
     }
@@ -394,7 +395,7 @@ async fn read_chapter(
         let target = *position.borrow_and_update();
         cache.retain(|index, _| *index >= target && *index <= target.saturating_add(2));
         for index in target..(target.saturating_add(3)).min(pages.images.len()) {
-            if !cache.contains_key(&index) {
+            if let Entry::Vacant(entry) = cache.entry(index) {
                 let load = load_page(&manga, &pages, index, Arc::clone(&directory));
                 let result = tokio::select! {
                     result = load => result,
@@ -405,7 +406,7 @@ async fn read_chapter(
                 };
                 match result {
                     Ok(page) => {
-                        cache.insert(index, page);
+                        entry.insert(page);
                     }
                     Err(error) => {
                         if index == target {
@@ -429,11 +430,12 @@ async fn read_chapter(
                     {
                         return;
                     }
-                    let mut state = controller.as_mut().rust_mut();
-                    state.reader.page_url = QString::from(url);
-                    state.reader.busy = false;
-                    state.reader.error = QString::default();
-                    drop(state);
+                    {
+                        let mut state = controller.as_mut().rust_mut();
+                        state.reader.page_url = QString::from(url);
+                        state.reader.busy = false;
+                        state.reader.error = QString::default();
+                    }
                     controller.as_mut().reader_changed();
                 });
             }
@@ -488,10 +490,11 @@ fn publish_error(
         {
             return;
         }
-        let mut state = controller.as_mut().rust_mut();
-        state.reader.error = ffi::reader_error(operation);
-        state.reader.busy = false;
-        drop(state);
+        {
+            let mut state = controller.as_mut().rust_mut();
+            state.reader.error = ffi::reader_error(operation);
+            state.reader.busy = false;
+        }
         controller.as_mut().reader_changed();
     });
 }
