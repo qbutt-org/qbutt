@@ -1,9 +1,10 @@
 [CmdletBinding()]
 param(
     [string] $SourceDir = (Split-Path $PSScriptRoot -Parent),
-    [string] $BuildRoot = (Join-Path $env:LOCALAPPDATA 'qbutt/build'),
+    [string] $BuildRoot = 'C:/Tools/qbutt/build',
     [string] $ArtifactRoot,
-    [string] $DependencyRoot = (Join-Path $env:LOCALAPPDATA 'qbutt/dependencies'),
+    [string] $DependencyRoot = 'C:/Tools/qbutt/dependencies',
+    [switch] $DependenciesOnly,
     [string] $QtRootOverride,
     [string] $LibtorrentSourceDir,
     [string] $LibtorrentBuildRoot,
@@ -15,6 +16,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$env:QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES = '1'
 $releaseVersion = (Get-Content -LiteralPath (Join-Path $SourceDir 'qbutt-version.txt') -Raw).Trim()
 if ($releaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
     throw 'Invalid qbutt release version.'
@@ -43,6 +45,44 @@ function Save-VerifiedDownload([string] $Path, [string] $Url, [string] $Sha256) 
         finally { if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial } }
     }
     Assert-Sha256 $Path $Sha256
+}
+
+function Initialize-Qt([string] $Root, $Pin, [string] $ArchiveDirectory, [switch] $External) {
+    $required = @('bin/qmake.exe', 'bin/windeployqt.exe', 'bin/lrelease.exe',
+        'include/QtGui/qstylehints.h', 'lib/cmake/Qt6/Qt6Config.cmake',
+        'lib/cmake/Qt6Quick/Qt6QuickConfig.cmake', 'lib/cmake/Qt6QuickWidgets/Qt6QuickWidgetsConfig.cmake',
+        'lib/cmake/Qt6QuickControls2/Qt6QuickControls2Config.cmake',
+        'lib/cmake/Qt6ShaderTools/Qt6ShaderToolsConfig.cmake',
+        'qml/QtQuick/Controls/qmldir', 'qml/Qt/labs/StyleKit/qmldir',
+        'plugins/platforms/qwindows.dll', 'bin/Qt6Core.dll')
+    $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $Root $_) -PathType Leaf) })
+
+    if (-not $External) {
+        New-Item -ItemType Directory -Force $Root, $ArchiveDirectory | Out-Null
+        $receipt = Join-Path $Root '.qbutt-qt-archives'
+        $expected = ($Pin.archives | ForEach-Object { "$($_.sha256)  $($_.file)" }) -join "`n"
+        $installed = if (Test-Path -LiteralPath $receipt) { (Get-Content -LiteralPath $receipt -Raw).TrimEnd() } else { '' }
+        foreach ($archive in $Pin.archives) {
+            $path = Join-Path $ArchiveDirectory $archive.file
+            Save-VerifiedDownload $path $archive.url $archive.sha256
+            if ($missing.Count -or $installed -ne $expected) {
+                # Qt 6.12 archives contain the kit contents directly, without a version directory.
+                Invoke-Native tar.exe @('-xf', $path, '-C', $Root)
+            }
+        }
+        "[Paths]`nPrefix=.." | Set-Content -LiteralPath (Join-Path $Root 'bin/qt.conf') -Encoding ascii
+        $expected | Set-Content -LiteralPath $receipt -Encoding ascii
+    }
+
+    foreach ($file in $required) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Root $file) -PathType Leaf)) {
+            throw "Incomplete Qt installation: $file at $Root"
+        }
+    }
+    $version = & (Join-Path $Root 'bin/qmake.exe') -query QT_VERSION
+    if ($LASTEXITCODE -ne 0 -or $version -ne $Pin.version) {
+        throw "Qt installation does not match upstream-lock.json: $Root"
+    }
 }
 
 function Initialize-Source([string] $Path, $Pin) {
@@ -82,28 +122,8 @@ $lockPath = Join-Path $SourceDir 'upstream-lock.json'
 $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
 Assert-Sha256 (Join-Path $SourceDir 'resources/fonts/Neucha.ttf') $lock.fonts.neucha.sha256
 $pins = $lock.windows
-$qtRequired = @('bin/qmake.exe', 'bin/windeployqt.exe', 'bin/lrelease.exe',
-    'include/QtGui/qstylehints.h', 'lib/cmake/Qt6/Qt6Config.cmake',
-    'plugins/platforms/qwindows.dll', 'bin/Qt6Core.dll')
 $qtRoot = if ($QtRootOverride) { [IO.Path]::GetFullPath($QtRootOverride) }
-    else { Join-Path $DependencyRoot "Qt/$($pins.qt.version)/$($pins.qt.directory)" }
-$missingQtFiles = @($qtRequired | Where-Object { -not (Test-Path -LiteralPath (Join-Path $qtRoot $_) -PathType Leaf) })
-if ($QtRootOverride -and $missingQtFiles.Count) {
-    throw "Incomplete Qt installation at ${qtRoot}: $($missingQtFiles -join ', ')"
-}
-
-if (-not $InstallerCompiler) {
-    $installerTools = Join-Path $DependencyRoot "inno-setup-$($pins.innoSetup.version)"
-    $InstallerCompiler = Join-Path $installerTools 'ISCC.exe'
-    if (-not (Test-Path -LiteralPath $InstallerCompiler)) {
-        $installerDownload = Join-Path $DependencyRoot "innosetup-$($pins.innoSetup.version).exe"
-        Save-VerifiedDownload $installerDownload $pins.innoSetup.url $pins.innoSetup.sha256
-        $installerProcess = Start-Process -FilePath $installerDownload -ArgumentList @(
-            '/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/NOICONS', '/TASKS=',
-            "/DIR=`"$installerTools`"") -WindowStyle Hidden -Wait -PassThru
-        if ($installerProcess.ExitCode -ne 0) { throw "Inno Setup installation failed: $($installerProcess.ExitCode)" }
-    }
-}
+    else { Join-Path 'C:/Tools/Qt' "$($pins.qt.version)/$($pins.qt.directory)" }
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $visualStudio = & $vswhere -latest -version '[17.0,18.0)' -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -124,19 +144,6 @@ foreach ($line in $environment) {
 }
 $env:PATH = "${env:ProgramFiles}\CMake\bin;${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
 $cmake = (Get-Command $CMakePath -ErrorAction Stop).Source
-$bunArchive = Join-Path $DependencyRoot "bun-$($pins.bun.version)-windows-x64-baseline.zip"
-Save-VerifiedDownload $bunArchive $pins.bun.url $pins.bun.sha256
-$bunToolchain = Join-Path $DependencyRoot "bun-$($pins.bun.version)"
-$bun = Join-Path $bunToolchain "$($pins.bun.directory)/bun.exe"
-if (-not (Test-Path -LiteralPath $bun)) {
-    Expand-Archive -LiteralPath $bunArchive -DestinationPath $bunToolchain
-}
-$bunVersion = & $bun --version
-if ($LASTEXITCODE -ne 0 -or $bunVersion -ne $pins.bun.version) {
-    throw 'Bun does not match upstream-lock.json.'
-}
-$bunLicense = Join-Path $bunToolchain 'LICENSE.md'
-Save-VerifiedDownload $bunLicense $pins.bun.licenseUrl $pins.bun.licenseSha256
 $env:VCPKG_MAX_CONCURRENCY = "$Parallel"
 
 $ninjaArchive = Join-Path $DependencyRoot 'ninja-win.zip'
@@ -174,43 +181,8 @@ if (-not (Test-Path "$boost/lib/cmake/Boost-$($pins.boost.version)/BoostConfig.c
     finally { Pop-Location }
 }
 
-$qtArchives = Join-Path $DependencyRoot 'qt-archives'
-$missingQtArchives = @($pins.qt.archives | Where-Object { -not (Test-Path (Join-Path $qtArchives $_.file)) })
-if (-not $QtRootOverride -and ($missingQtFiles.Count -or $missingQtArchives.Count)) {
-    $python = Join-Path $DependencyRoot 'python/Scripts/python.exe'
-    if (-not (Test-Path -LiteralPath $python)) {
-        Invoke-Native python @('-m', 'venv', (Join-Path $DependencyRoot 'python'))
-    }
-    Invoke-Native $python @('-m', 'pip', 'install', "aqtinstall==$($pins.aqtinstall)")
-    Push-Location $DependencyRoot
-    try {
-        Invoke-Native $python @('-m', 'aqt', 'install-qt', 'windows', 'desktop', $pins.qt.version, $pins.qt.architecture,
-            '--archives', 'qtbase', 'qtsvg', 'qttools', 'qttranslations', '--modules', 'qtimageformats', '--outputdir', (Join-Path $DependencyRoot 'Qt'),
-            '--keep', '--archive-dest', $qtArchives)
-    }
-    finally { Pop-Location }
-}
-foreach ($required in $qtRequired) {
-    if (-not (Test-Path -LiteralPath (Join-Path $qtRoot $required) -PathType Leaf)) {
-        throw "Incomplete Qt installation: $required at $qtRoot"
-    }
-}
-$qtVersion = & (Join-Path $qtRoot 'bin/qmake.exe') -query QT_VERSION
-if ($LASTEXITCODE -ne 0 -or $qtVersion -ne $pins.qt.version) {
-    throw "Qt installation does not match upstream-lock.json: $qtRoot"
-}
-foreach ($archive in $pins.qt.archives) {
-    Assert-Sha256 (Join-Path $qtArchives $archive.file) $archive.sha256
-}
-$qtLicenses = Join-Path $DependencyRoot 'qt-licenses'
-New-Item -ItemType Directory -Force $qtLicenses | Out-Null
-$qtLicensePaths = @(foreach ($license in $pins.qt.licenseFiles) {
-    if ([IO.Path]::GetFileName($license.file) -ne $license.file) { throw "Unsafe Qt license filename: $($license.file)" }
-    $licensePath = Join-Path $qtLicenses $license.file
-    Save-VerifiedDownload $licensePath $license.url $license.sha256
-    $licensePath
-})
-
+$qtArchives = Join-Path $DependencyRoot "qt-archives/$($pins.qt.version)"
+Initialize-Qt $qtRoot $pins.qt $qtArchives -External:([bool]$QtRootOverride)
 $webviewArchive = Join-Path $DependencyRoot "Microsoft.Web.WebView2.$($pins.webview2.version).nupkg"
 Save-VerifiedDownload $webviewArchive $pins.webview2.url $pins.webview2.sha256
 $webviewSdk = Join-Path $DependencyRoot "WebView2/$($pins.webview2.version)"
@@ -228,6 +200,43 @@ Invoke-Native $cmake (@('-S', $libtorrent, '-B', "$libtorrentBuild/build") + $co
     '-DBUILD_SHARED_LIBS=OFF', '-Ddeprecated-functions=OFF', '-Dstatic_runtime=OFF'))
 Invoke-Native $cmake @('--build', "$libtorrentBuild/build", '--parallel', "$Parallel")
 Invoke-Native $cmake @('--install', "$libtorrentBuild/build")
+
+if ($DependenciesOnly) { return }
+
+if (-not $InstallerCompiler) {
+    $installerTools = Join-Path $DependencyRoot "inno-setup-$($pins.innoSetup.version)"
+    $InstallerCompiler = Join-Path $installerTools 'ISCC.exe'
+    if (-not (Test-Path -LiteralPath $InstallerCompiler)) {
+        $installerDownload = Join-Path $DependencyRoot "innosetup-$($pins.innoSetup.version).exe"
+        Save-VerifiedDownload $installerDownload $pins.innoSetup.url $pins.innoSetup.sha256
+        $installerProcess = Start-Process -FilePath $installerDownload -ArgumentList @(
+            '/CURRENTUSER', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/NOICONS', '/TASKS=',
+            "/DIR=`"$installerTools`"") -WindowStyle Hidden -Wait -PassThru
+        if ($installerProcess.ExitCode -ne 0) { throw "Inno Setup installation failed: $($installerProcess.ExitCode)" }
+    }
+}
+
+$bunArchive = Join-Path $DependencyRoot "bun-$($pins.bun.version)-windows-x64-baseline.zip"
+Save-VerifiedDownload $bunArchive $pins.bun.url $pins.bun.sha256
+$bunToolchain = Join-Path $DependencyRoot "bun-$($pins.bun.version)"
+$bun = Join-Path $bunToolchain "$($pins.bun.directory)/bun.exe"
+if (-not (Test-Path -LiteralPath $bun)) {
+    Expand-Archive -LiteralPath $bunArchive -DestinationPath $bunToolchain
+}
+$bunVersion = & $bun --version
+if ($LASTEXITCODE -ne 0 -or $bunVersion -ne $pins.bun.version) {
+    throw 'Bun does not match upstream-lock.json.'
+}
+$bunLicense = Join-Path $bunToolchain 'LICENSE.md'
+Save-VerifiedDownload $bunLicense $pins.bun.licenseUrl $pins.bun.licenseSha256
+$qtLicenses = Join-Path $DependencyRoot "qt-licenses/$($pins.qt.version)"
+New-Item -ItemType Directory -Force $qtLicenses | Out-Null
+$qtLicensePaths = @(foreach ($license in $pins.qt.licenseFiles) {
+    if ([IO.Path]::GetFileName($license.file) -ne $license.file) { throw "Unsafe Qt license filename: $($license.file)" }
+    $licensePath = Join-Path $qtLicenses $license.file
+    Save-VerifiedDownload $licensePath $license.url $license.sha256
+    $licensePath
+})
 
 $net = if ($NetSourceDir) { [IO.Path]::GetFullPath($NetSourceDir) } else { Join-Path $DependencyRoot 'qbutt-net' }
 Initialize-Source $net $lock.qbuttNet
@@ -300,7 +309,8 @@ Copy-Item -LiteralPath (Join-Path $BuildRoot 'qbutt.exe'), (Join-Path $BuildRoot
     (Join-Path $BuildRoot 'qbutt-content.exe'), (Join-Path $BuildRoot 'qbutt-search.exe'),
     (Join-Path $BuildRoot 'qbutt-webview.exe') -Destination $portable
 Invoke-Native "$qtRoot/bin/windeployqt.exe" @('--release', '--no-compiler-runtime', '--include-plugins', 'qoffscreen',
-    '--exclude-plugins', 'qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql', '--dir', $portable, (Join-Path $portable 'qbutt.exe'))
+    '--exclude-plugins', 'qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql',
+    '--qmldir', (Join-Path $SourceDir 'src/gui/quick/qml'), '--dir', $portable, (Join-Path $portable 'qbutt.exe'))
 Copy-Item -Path (Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT/*.dll') -Destination $portable
 Copy-Item -LiteralPath (Join-Path $SourceDir 'COPYING'), (Join-Path $SourceDir 'COPYING.GPLv2'), (Join-Path $SourceDir 'COPYING.GPLv3'),
     (Join-Path $SourceDir 'AUTHORS') -Destination $portable
