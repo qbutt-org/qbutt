@@ -18,7 +18,14 @@ if ($version -notmatch '^(\d+\.\d+\.\d+)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$
 }
 $fileVersion = $matches[1]
 $lock = Get-Content -LiteralPath (Join-Path $SourceDir 'upstream-lock.json') -Raw | ConvertFrom-Json
-foreach ($required in @('qbutt.exe', 'qbutt-net.exe', 'Qt6Core.dll', 'platforms/qwindows.dll', 'THIRD-PARTY-NOTICES.txt')) {
+foreach ($required in @('qbutt.exe', 'qbutt-net.exe', 'qbutt-content.exe', 'qbutt-search.exe',
+    'Qt6Core.dll', 'platforms/qwindows.dll', 'THIRD-PARTY-NOTICES.txt',
+    'browser/private-pipe.ps1', 'browser-extension/chromium/manifest.json', 'browser-extension/firefox/manifest.json',
+    'browser-extension/chromium/parser.js', 'browser-extension/chromium/parser.html',
+    'browser-extension/firefox/parser.js', 'browser-extension/firefox/parser.html',
+    'scripts/register-content-browser.ps1', 'media/component-lock.json', 'media/mpv.exe', 'media/tools/ffmpeg.exe',
+    'media/tools/yt-dlp.exe', 'media/profile/tools/bin/ffprobe.exe', 'media/profile/mpv.conf',
+    'media/profile/scripts/modernx.lua', 'licenses/qbutt-content-notices.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $BundleDir $required) -PathType Leaf)) {
         throw "Incomplete application bundle: $required"
     }

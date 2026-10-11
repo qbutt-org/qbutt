@@ -273,9 +273,10 @@ bool GUIAddTorrentManager::showTorrent(const QString &source
 
         addTorrentToSession(source, torrentDescr, addTorrentParams);
     });
-    connect(dlg, &AddNewTorrentDialog::torrentRejected, this, [this, source]
+    connect(dlg, &AddNewTorrentDialog::torrentRejected, this, [this, source, infoHash]
     {
         releaseTorrentFileGuard(source);
+        emit addTorrentCancelled(infoHash);
     });
     connect(dlg, &QDialog::finished, this, [this, infoHash]
     {

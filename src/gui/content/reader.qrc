@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/reader">
+        <file alias="Neucha.ttf">../../../resources/fonts/Neucha.ttf</file>
+        <file alias="Neucha-OFL.txt">../../../resources/fonts/Neucha-OFL.txt</file>
+    </qresource>
+</RCC>

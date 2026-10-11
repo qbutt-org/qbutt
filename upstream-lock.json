@@ -13,6 +13,24 @@
     "repository": "https://github.com/qbutt-org/qbutt-net.git",
     "commit": "7f77346048bc6a091432223e81ab30ba12a5ea9a"
   },
+  "searchEngine": {
+    "harbrr": {
+      "repository": "https://github.com/nitrobass24/harbrr.git",
+      "commit": "e2463f4b5475879fa9cf2bb477e065634bac05b4"
+    },
+    "jackett": {
+      "repository": "https://github.com/Jackett/Jackett.git",
+      "commit": "d3cf2f5026bbb2f509325902db0a85e48f37ea17"
+    }
+  },
+  "fonts": {
+    "neucha": {
+      "repository": "https://github.com/google/fonts.git",
+      "commit": "bd8f81ddb5c74d5c8897b36ad88b440266245103",
+      "path": "ofl/neucha/Neucha-Regular.ttf",
+      "sha256": "7927bd6ce090fa032857dcbc3ad0e8b765c462d0a72a8779068132496b4e087d"
+    }
+  },
   "windows": {
     "architecture": "x64",
     "validatedHostTools": {
@@ -22,6 +40,17 @@
       "bun": "1.4.0"
     },
     "aqtinstall": "3.3.0",
+    "bun": {
+      "version": "1.4.2",
+      "commit": "744846f844374847c902b5e7fd59b4342a51ef99",
+      "target": "bun-windows-x64-baseline",
+      "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-windows-x64-baseline.zip",
+      "directory": "bun-windows-x64-baseline",
+      "sha256": "78c221c2376f79731ccf4e4af0b3bb46d81fefa3296c5abee09ad8a1b21e68c6",
+      "sourceUrl": "https://github.com/oven-sh/bun/tree/744846f844374847c902b5e7fd59b4342a51ef99",
+      "licenseUrl": "https://raw.githubusercontent.com/oven-sh/bun/744846f844374847c902b5e7fd59b4342a51ef99/LICENSE.md",
+      "licenseSha256": "b9caf52728691b4057e371232c221a132883198be2f3d2ddf92c90404c984b1a"
+    },
     "innoSetup": {
       "version": "6.7.3",
       "url": "https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe",

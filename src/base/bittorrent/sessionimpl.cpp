@@ -1920,6 +1920,7 @@ lt::settings_pack SessionImpl::loadLTSettings() const
         | (isPerformanceWarningEnabled() ? lt::alert::performance_warning : lt::alert_category_t())
         | lt::alert::port_mapping_notification
         | lt::alert::status_notification
+        | lt::alert_category::piece_progress
         | lt::alert::storage_notification
         | lt::alert::tracker_notification;
     settingsPack.set_int(lt::settings_pack::alert_mask, alertMask);
@@ -4733,6 +4734,7 @@ bool SessionImpl::canRunCompletionAction() const
         && std::ranges::all_of(asConst(m_torrents), [](const TorrentImpl *torrent)
         {
             return !torrent->isCompletionPolicyPreview() && !torrent->hasExclusiveFileOperation()
+                && !torrent->hasStreamingLease()
                 && !torrent->isMoving() && !torrent->isChecking()
                 && (torrent->isFinished() || torrent->isStopped() || torrent->isErrored());
         });
@@ -6273,6 +6275,24 @@ void SessionImpl::handleAlert(lt::alert *alert)
     {
         switch (alert->type())
         {
+        case lt::piece_finished_alert::alert_type:
+            {
+                const auto *piece = static_cast<const lt::piece_finished_alert *>(alert);
+                if (TorrentImpl *torrent = getTorrent(piece->handle); torrent && (torrent->nativeHandle() == piece->handle))
+                    torrent->handleStreamingPieceAvailable(static_cast<int>(piece->piece_index));
+            }
+            break;
+        case lt::read_piece_alert::alert_type:
+            {
+                const auto *piece = static_cast<const lt::read_piece_alert *>(alert);
+                if (TorrentImpl *torrent = getTorrent(piece->handle); torrent && (torrent->nativeHandle() == piece->handle))
+                {
+                    const QByteArray data = piece->buffer ? QByteArray(piece->buffer.get(), piece->size) : QByteArray();
+                    torrent->handleStreamingPiece(static_cast<int>(piece->piece), data
+                        , piece->error ? QString::fromStdString(piece->error.message()) : QString());
+                }
+            }
+            break;
         case lt::udp_route_alert::alert_type:
             {
                 const auto *route = static_cast<const lt::udp_route_alert *>(alert);
@@ -6920,7 +6940,10 @@ void SessionImpl::handleTorrentConflictAlert(const lt::torrent_conflict_alert *a
 void SessionImpl::handleFilePrioAlert(const lt::file_prio_alert *alert)
 {
     if (TorrentImpl *torrent = getTorrent(alert->handle)) [[likely]]
+    {
+        torrent->handleFilePrioritiesApplied();
         torrent->deferredRequestResumeData();
+    }
 }
 
 void SessionImpl::handleTorrentCheckedAlert(const lt::torrent_checked_alert *alert)

@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include <QAbstractButton>
@@ -80,6 +81,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeWidget>
+#include <QUrl>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -99,6 +101,9 @@
 #include "base/bittorrent/torrentimpl.h"
 #include "base/global.h"
 #include "base/logger.h"
+#include "base/media/streamserver.h"
+#include "media-playback.h"
+#include "subtitles-playback.h"
 #include "base/net/pathmanager.h"
 #include "base/path.h"
 #include "base/preferences.h"
@@ -125,6 +130,9 @@
 #include "gui/transferlistsortmodel.h"
 #include "gui/transferlistwidget.h"
 #include "gui/uithememanager.h"
+#include "add-torrent-layout.h"
+#include "content-library.h"
+#include "reader-flow.h"
 #include "update-registry.h"
 
 namespace Net
@@ -1499,6 +1507,195 @@ namespace
             {u"clickThrough"_s, true}, {u"noFocus"_s, true}, {u"minimizedVisible"_s, true}, {u"pauseHides"_s, true}});
     }
 
+    void exerciseMediaStreaming(const QJsonObject &spec, QJsonObject &evidence)
+    {
+        auto *session = BitTorrent::Session::instance();
+        const auto descriptor = BitTorrent::TorrentDescriptor::loadFromFile(Path(spec.value(u"torrentPath"_s).toString()));
+        require(bool(descriptor), u"Cannot read generated media torrent"_s);
+        require(descriptor->info() && (descriptor->info()->filesCount() == 3),
+            u"Generated media fixture must contain the three expected containers"_s);
+        BitTorrent::AddTorrentParams params;
+        params.savePath = Path(spec.value(u"destination"_s).toString());
+        params.useAutoTMM = false;
+        params.addStopped = false;
+        params.sequential = true;
+        params.downloadLimit = 32768;
+        params.filePriorities.fill(BitTorrent::DownloadPriority::Normal, descriptor->info()->filesCount());
+        params.filePriorities[1] = BitTorrent::DownloadPriority::High;
+        require(session->addTorrent(*descriptor, params), u"Cannot add generated media torrent"_s);
+        BitTorrent::Torrent *torrent = nullptr;
+        waitFor(u"Generated media torrent checked"_s, [&]
+        {
+            torrent = session->findTorrent(descriptor->infoHash());
+            return torrent && !torrent->isChecking() && torrent->isDownloading();
+        });
+        require(torrent->connectPeer(BitTorrent::PeerAddress::parse(spec.value(u"peer"_s).toString())),
+            u"Cannot connect generated media seed"_s);
+        auto *nativeTorrent = static_cast<BitTorrent::TorrentImpl *>(torrent);
+        auto expectedPiecePriorities = nativeTorrent->nativeHandle().get_piece_priorities();
+        const auto originalFilePriorities = torrent->filePriorities();
+        const bool originalSequential = torrent->isSequentialDownload();
+        auto *server = Media::StreamServer::instance();
+        QMap<int, QUrl> streams;
+        const auto closeStreams = qScopeGuard([&]
+        {
+            for (const QUrl &url : std::as_const(streams))
+                server->closeStream(url);
+        });
+        const auto state = [&]
+        {
+            QJsonArray pieces;
+            const auto available = nativeTorrent->nativeHandle().status(lt::torrent_handle::query_pieces).pieces;
+            for (int index = 0; index < available.size(); ++index)
+                pieces.append(available[lt::piece_index_t(index)]);
+            const bool restored = (nativeTorrent->nativeHandle().get_piece_priorities() == expectedPiecePriorities)
+                && (torrent->filePriorities() == originalFilePriorities)
+                && (torrent->isSequentialDownload() == originalSequential);
+            return QJsonObject {{u"pieces"_s, pieces},
+                {u"prioritiesRestored"_s, restored}, {u"sequential"_s, torrent->isSequentialDownload()},
+                {u"completedBytes"_s, torrent->completedSize()}, {u"progress"_s, torrent->progress()},
+                {u"openStreams"_s, streams.size()}, {u"completionReady"_s, nativeTorrent->isReadyForCompletion()},
+                {u"completionActionReady"_s, static_cast<BitTorrent::SessionImpl *>(session)->canRunCompletionAction()}};
+        };
+        const QString commandPath = spec.value(u"commandPath"_s).toString();
+        const QString statePath = spec.value(u"statePath"_s).toString();
+        QJsonObject initial = state();
+        QJsonArray files;
+        const BitTorrent::TorrentInfo info = torrent->info();
+        const auto nativeIndexes = info.nativeIndexes();
+        for (int index = 0; index < info.filesCount(); ++index)
+        {
+            files.append(QJsonObject {{u"fileIndex"_s, index}, {u"nativeIndex"_s, static_cast<int>(nativeIndexes[index])},
+                {u"path"_s, info.filePath(index).toString().replace(u'\\', u'/')},
+                {u"offset"_s, info.fileOffset(index)}, {u"size"_s, info.fileSize(index)}});
+        }
+        initial[u"files"_s] = files;
+        initial[u"commandId"_s] = 0;
+        initial[u"phase"_s] = u"ready"_s;
+        writeObject(statePath, initial);
+        int lastCommand = 0;
+        for (;;)
+        {
+            QJsonObject command;
+            waitFor(u"Media streaming runner command"_s, [&]
+            {
+                command = tryReadObject(commandPath);
+                return command.value(u"commandId"_s).toInt() > lastCommand;
+            }, 120000);
+            lastCommand = command.value(u"commandId"_s).toInt();
+            const QString action = command.value(u"action"_s).toString();
+            QJsonObject response;
+            if (action == u"open")
+            {
+                // libtorrent discards its piece picker after completion. Take
+                // the seed's baseline before testing cached playback.
+                if (streams.isEmpty() && (torrent->progress() == 1))
+                    expectedPiecePriorities = nativeTorrent->nativeHandle().get_piece_priorities();
+                const int fileIndex = command.value(u"fileIndex"_s).toInt(-1);
+                require((fileIndex >= 0) && (fileIndex < torrent->filesCount()) && !streams.contains(fileIndex),
+                    u"Invalid media fixture file selection"_s);
+                waitFor(u"Media completion operations finished"_s, [&]
+                {
+                    return !nativeTorrent->hasExclusiveFileOperation() && !torrent->isChecking();
+                });
+                const QUrl url = server->openTorrent(torrent, fileIndex);
+                require(url.isValid() && !url.isEmpty(), u"Production stream server rejected generated media"_s);
+                streams.insert(fileIndex, url);
+                response[u"url"_s] = url.toString(QUrl::FullyEncoded);
+            }
+            else if (action == u"close")
+            {
+                const int fileIndex = command.value(u"fileIndex"_s).toInt(-1);
+                require(streams.contains(fileIndex), u"Cannot close an unopened media fixture"_s);
+                server->closeStream(streams.take(fileIndex));
+                if (streams.isEmpty())
+                {
+                    waitFor(u"Streaming restores ordinary torrent priorities"_s, [&]
+                    {
+                        return state().value(u"prioritiesRestored"_s).toBool();
+                    }, 5000);
+                }
+            }
+            else if (action == u"rate")
+            {
+                const int limit = command.value(u"bytesPerSecond"_s).toInt(-1);
+                require(limit >= 0, u"Invalid generated media download limit"_s);
+                torrent->setDownloadLimit(limit);
+            }
+            else if (action == u"priority")
+            {
+                const int index = command.value(u"fileIndex"_s).toInt(-1);
+                const int priority = command.value(u"priority"_s).toInt(-1);
+                require((index >= 0) && (index < torrent->filesCount()) && ((priority == 0) || (priority == 1)),
+                    u"Invalid generated media file priority"_s);
+                auto priorities = originalFilePriorities;
+                priorities[index] = static_cast<BitTorrent::DownloadPriority>(priority);
+                torrent->prioritizeFiles(priorities);
+            }
+            else if (action == u"cancel-read-burst")
+            {
+                require((torrent->progress() == 1) && !streams.isEmpty(), u"Cancelled read burst requires cached playback"_s);
+                QObject consumer;
+                int returnedReads = 0;
+                const auto connection = QObject::connect(nativeTorrent, &BitTorrent::TorrentImpl::streamingPieceReady,
+                    &consumer, [&](int, const QByteArray &, const QString &) { ++returnedReads; });
+                nativeTorrent->setStreamingRange(&consumer, 0, 0, 64 * torrent->pieceLength());
+                for (int piece = 0; piece < 64; ++piece)
+                    nativeTorrent->requestStreamingPiece(piece);
+                nativeTorrent->clearStreamingRange(&consumer);
+                QElapsedTimer settling;
+                settling.start();
+                waitFor(u"Cancelled native reads settle"_s, [&] { return settling.elapsed() >= 1000; }, 2000);
+                QObject::disconnect(connection);
+                require((returnedReads > 0) && (returnedReads <= 8),
+                    u"Cancelled cached reads exceeded the native in-flight bound"_s);
+                response[u"cancelledNativeReads"_s] = returnedReads;
+            }
+            else if (action == u"reload-pending-reads")
+            {
+                require((torrent->progress() == 1) && !streams.isEmpty(), u"Reload fault requires cached playback"_s);
+                const auto oldHandle = nativeTorrent->nativeHandle();
+                QObject consumer;
+                nativeTorrent->setStreamingRange(&consumer, 0, 0, 64 * torrent->pieceLength());
+                for (int piece = 0; piece < 64; ++piece)
+                    nativeTorrent->requestStreamingPiece(piece);
+                // Exercise the real recovery path before the event loop can
+                // deliver outstanding reads from the retired native handle.
+                nativeTorrent->handleFastResumeRejected();
+                torrent->start();
+                streams.clear();
+                require(nativeTorrent->nativeHandle() != oldHandle, u"Resume recovery did not replace the native handle"_s);
+                waitFor(u"Reloaded media payload verified"_s, [&]
+                {
+                    return (torrent->progress() == 1) && !torrent->isChecking() && !nativeTorrent->hasExclusiveFileOperation();
+                });
+                response[u"nativeHandleReplaced"_s] = true;
+            }
+            else if (action == u"finish")
+            {
+                require(streams.isEmpty() && state().value(u"prioritiesRestored"_s).toBool(),
+                    u"Streaming left modified ordinary torrent priorities"_s);
+                require(torrent->progress() == 1, u"Ordinary media download did not complete"_s);
+                torrent->stop();
+                addCheck(evidence, {{u"name"_s, u"generated-media-http-streaming"_s},
+                    {u"restoredNativePriorities"_s, true}, {u"restoredFilePriorities"_s, true},
+                    {u"restoredSequentialDownload"_s, true}, {u"verifiedBytes"_s, torrent->completedSize()}});
+            }
+            else
+            {
+                require(action == u"snapshot", u"Unknown media fixture command"_s);
+            }
+            const QJsonObject snapshot = state();
+            for (auto it = snapshot.begin(); it != snapshot.end(); ++it)
+                response[it.key()] = it.value();
+            response[u"commandId"_s] = lastCommand;
+            response[u"phase"_s] = action;
+            writeObject(statePath, response);
+            if (action == u"finish")
+                return;
+        }
+    }
+
     void exerciseDiagnosticWaits(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
         auto *session = static_cast<BitTorrent::SessionImpl *>(BitTorrent::Session::instance());
@@ -2792,6 +2989,7 @@ namespace
         waitFor(u"Normal Add Torrent dialog and source removal"_s
             , [&] { return (dialogs().size() == 1) && !QFileInfo::exists(first); }, 15000);
         require((handoffs == 1) && sourceLocked, u"Metadata handoff did not protect the exact source file"_s);
+        AddTorrentLayoutAcceptance::run(dialogs().constFirst(), spec, evidence);
         require(QFile::copy(fixture, watched.filePath(u"duplicate.torrent"_s)), u"Cannot create duplicate fixture"_s);
         waitFor(u"Duplicate source consumed"_s
             , [&] { return !QFileInfo::exists(watched.filePath(u"duplicate.torrent"_s)); }, 15000);
@@ -2812,6 +3010,7 @@ namespace
         require(QFileInfo::exists(locked) && dialogs().isEmpty(), u"An active writer was consumed"_s);
         writer.close();
         waitFor(u"Closed writer auto-opened"_s, [&] { return (dialogs().size() == 1) && !QFileInfo::exists(locked); }, 15000);
+        AddTorrentLayoutAcceptance::verifyRestored(dialogs().constFirst(), evidence);
         requiredChild<FileSystemPathEdit>(dialogs().constFirst(), u"savePath"_s)->setSelectedPath(Path(spec.value(u"payload"_s).toString()));
         requiredChild<QCheckBox>(dialogs().constFirst(), u"startTorrentCheckBox"_s)->setChecked(false);
         dialogs().constFirst()->accept();
@@ -2946,6 +3145,16 @@ namespace
     {
         MainWindow *window = application.mainWindow();
         require(window && BitTorrent::Session::instance()->isRestored(), u"Production application did not finish startup"_s);
+        if (spec.value(u"mode"_s).toString() == u"reader-flow")
+        {
+            exerciseReaderFlow(window, spec, evidence);
+            return;
+        }
+        if (spec.value(u"mode"_s).toString() == u"content-library")
+        {
+            exerciseContentLibrary(window, spec, evidence);
+            return;
+        }
         if (spec.value(u"mode"_s).toString() == u"installed-update")
         {
             exerciseInstalledUpdate(window, spec, evidence);
@@ -2966,6 +3175,24 @@ namespace
         {
             window->hide();
             exerciseDiagnosticWaits(window, spec, evidence);
+            return;
+        }
+        if (spec.value(u"mode"_s).toString() == u"media-streaming")
+        {
+            window->hide();
+            exerciseMediaStreaming(spec, evidence);
+            return;
+        }
+        if (spec.value(u"mode"_s).toString() == u"media-playback")
+        {
+            window->hide();
+            MediaPlaybackAcceptance::run(window, spec, evidence);
+            return;
+        }
+        if (spec.value(u"mode"_s).toString() == u"subtitles-playback")
+        {
+            window->hide();
+            SubtitlesPlaybackAcceptance::run(window, spec, evidence);
             return;
         }
         if (spec.value(u"mode"_s).toString() == u"profile-import")

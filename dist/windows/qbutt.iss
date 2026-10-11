@@ -36,13 +36,17 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "\profile,\profile\*,\build-manifest.json,\upstream-lock.json"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "\profile,\profile\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\qbutt"; Filename: "{app}\qbutt.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\qbutt"; Filename: "{app}\qbutt.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
+Root: HKA; Subkey: "Software\Classes\qbutt"; ValueType: string; ValueName: ""; ValueData: "URL:qbutt content"
+Root: HKA; Subkey: "Software\Classes\qbutt"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\qbutt\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\qbutt.exe"",0"
+Root: HKA; Subkey: "Software\Classes\qbutt\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\qbutt.exe"" ""%1"""
 Root: HKA; Subkey: "Software\Classes\qbutt.Magnet"; ValueType: string; ValueName: ""; ValueData: "qbutt magnet link"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\qbutt.Magnet"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKA; Subkey: "Software\Classes\qbutt.Magnet\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\qbutt.exe"",0"
@@ -50,6 +54,7 @@ Root: HKA; Subkey: "Software\Classes\qbutt.Magnet\shell\open\command"; ValueType
 Root: HKA; Subkey: "Software\qbutt\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "qbutt"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\qbutt\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "qbutt BitTorrent client"
 Root: HKA; Subkey: "Software\qbutt\Capabilities\URLAssociations"; ValueType: string; ValueName: "magnet"; ValueData: "qbutt.Magnet"
+Root: HKA; Subkey: "Software\qbutt\Capabilities\URLAssociations"; ValueType: string; ValueName: "qbutt"; ValueData: "qbutt"
 Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "qbutt"; ValueData: "Software\qbutt\Capabilities"; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\qbutt.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\qbutt.exe"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\magnet"; ValueType: string; ValueName: ""; ValueData: "URL:Magnet URI"; Check: CanRegisterMagnetFallback
@@ -87,6 +92,9 @@ var
 begin
     if CurUninstallStep <> usPostUninstall then
         Exit;
+    if RegQueryStringValue(HKCU64, 'Software\Classes\qbutt\shell\open\command', '', Command)
+        and (CompareText(Command, ExpandConstant('"{app}\qbutt.exe" "%1"')) = 0) then
+        RegDeleteKeyIncludingSubkeys(HKCU64, 'Software\Classes\qbutt');
     if RegQueryStringValue(HKCU64, 'Software\Classes\magnet\shell\open\command', '', Command)
         and (CompareText(Command, ExpandConstant('"{app}\qbutt.exe" "%1"')) = 0) then
     begin

@@ -205,6 +205,34 @@ QAbstractItemView {
 QAbstractItemView::item:hover {
     background: palette(midlight);
 }
+QTableView#contentResults, QTableView#contentVariants {
+    background: palette(window);
+    border: none;
+}
+QTextBrowser#contentNotes {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+}
+QPushButton#contentOpen {
+    background: #009df7;
+    border-color: #009df7;
+    color: white;
+}
+QPushButton#contentOpen:hover:enabled {
+    background: palette(highlight);
+}
+QPushButton#contentOpen:disabled {
+    background: palette(midlight);
+    border-color: palette(midlight);
+    color: palette(disabled, button-text);
+}
+QPushButton#contentSave:checked {
+    background: palette(button);
+    border-color: palette(link);
+    color: palette(text);
+}
 QListWidget#tabSelection {
     background: palette(window);
     border: none;

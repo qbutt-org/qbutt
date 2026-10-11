@@ -86,6 +86,9 @@ using namespace BitTorrent;
 
 namespace
 {
+    constexpr int MAX_STREAMING_WINDOW_PIECES = 64;
+    constexpr int MAX_STREAMING_READS = 8;
+
     static_assert(TrackerPeerSource == static_cast<std::uint8_t>(lt::peer_info::tracker));
     static_assert(DHTPeerSource == static_cast<std::uint8_t>(lt::peer_info::dht));
     static_assert(PeXPeerSource == static_cast<std::uint8_t>(lt::peer_info::pex));
@@ -370,7 +373,7 @@ TorrentImpl::TorrentImpl(SessionImpl *session, const lt::torrent_handle &nativeH
     updateState();
 
     if (hasMetadata())
-        applyFirstLastPiecePriority(m_hasFirstLastPiecePriority);
+        applyPiecePriorities();
 
     if (QFileInfo::exists(StagingOperation::journalPath(id().toString())))
         m_maintenanceJob = MaintenanceJob::StagingRecovery;
@@ -1757,6 +1760,7 @@ void TorrentImpl::doForceRecheck()
     if (!hasMetadata())
         return;
 
+    stopStreaming();
     m_nativeHandle.force_recheck();
 
     invalidatePieceState();
@@ -1819,7 +1823,7 @@ void TorrentImpl::setFirstLastPiecePriority(const bool enabled)
 
     m_hasFirstLastPiecePriority = enabled;
     if (hasMetadata())
-        applyFirstLastPiecePriority(enabled);
+        applyPiecePriorities();
 
     LogMsg(tr("Download first and last piece first: %1, torrent: '%2'")
         .arg((enabled ? tr("On") : tr("Off")), name()));
@@ -1827,41 +1831,190 @@ void TorrentImpl::setFirstLastPiecePriority(const bool enabled)
     deferredRequestResumeData();
 }
 
-void TorrentImpl::applyFirstLastPiecePriority(const bool enabled)
+std::vector<lt::download_priority_t> TorrentImpl::normalPiecePriorities() const
 {
     Q_ASSERT(hasMetadata());
-
-    // Download first and last pieces first for every file in the torrent
-
     auto piecePriorities = std::vector<lt::download_priority_t>(m_torrentInfo.piecesCount(), LT::toNative(DownloadPriority::Ignored));
-
-    // Updating file priorities is an async operation in libtorrent, when we just updated it and immediately query it
-    // we might get the old/wrong values, so we rely on `updatedFilePrio` in this case.
     for (qsizetype fileIndex = 0; fileIndex < m_filePriorities.size(); ++fileIndex)
     {
         const DownloadPriority filePrio = m_filePriorities[fileIndex];
-        if (filePrio <= DownloadPriority::Ignored)
+        if ((filePrio <= DownloadPriority::Ignored) || (fileSize(fileIndex) == 0))
             continue;
-
-        // Determine the priority to set
-        const lt::download_priority_t piecePrio = LT::toNative(enabled ? DownloadPriority::Maximum : filePrio);
         const TorrentInfo::PieceRange pieceRange = m_torrentInfo.filePieces(fileIndex);
-
-        // worst case: AVI index = 1% of total file size (at the end of the file)
-        const int numPieces = std::ceil(fileSize(fileIndex) * 0.01 / pieceLength());
-        for (int i = 0; i < numPieces; ++i)
+        const int edgePieces = m_hasFirstLastPiecePriority
+            ? std::min<int>(std::ceil(fileSize(fileIndex) * 0.01 / pieceLength()), pieceRange.last() - pieceRange.first() + 1)
+            : 0;
+        for (int piece = pieceRange.first(); piece <= pieceRange.last(); ++piece)
         {
-            piecePriorities[pieceRange.first() + i] = piecePrio;
-            piecePriorities[pieceRange.last() - i] = piecePrio;
+            const bool edge = ((piece - pieceRange.first()) < edgePieces) || ((pieceRange.last() - piece) < edgePieces);
+            const auto priority = LT::toNative(edge ? DownloadPriority::Maximum : filePrio);
+            piecePriorities[piece] = std::max(piecePriorities[piece], priority);
         }
-
-        const int firstPiece = pieceRange.first() + numPieces;
-        const int lastPiece = pieceRange.last() - numPieces;
-        for (int pieceIndex = firstPiece; pieceIndex <= lastPiece; ++pieceIndex)
-            piecePriorities[pieceIndex] = LT::toNative(filePrio);
     }
+    return piecePriorities;
+}
 
-    m_nativeHandle.prioritize_pieces(piecePriorities);
+void TorrentImpl::applyPiecePriorities(const bool refreshDeadlines)
+{
+    if (!hasMetadata())
+        return;
+
+    auto priorities = normalPiecePriorities();
+    QMap<int, int> deadlines;
+    QSet<int> activePieces;
+    for (const StreamingRange &range : std::as_const(m_streamingRanges))
+    {
+        for (int piece = range.first; piece <= range.last; ++piece)
+        {
+            activePieces.insert(piece);
+            const auto priority = LT::toNative(range.urgent ? DownloadPriority::Maximum : DownloadPriority::Normal);
+            priorities[piece] = std::max(priorities[piece], priority);
+            if (range.urgent)
+            {
+                // Space deadlines by bytes: one second per tiny piece starves
+                // libtorrent's time-critical scheduler on small-piece torrents.
+                const int deadline = qint64(piece - range.first) * pieceLength() * 1000 / (1024 * 1024);
+                if (!deadlines.contains(piece) || (deadline < deadlines[piece]))
+                    deadlines[piece] = deadline;
+            }
+        }
+    }
+    m_verifiedStreamingPieces.intersect(activePieces);
+
+    for (auto it = m_streamingDeadlines.cbegin(); it != m_streamingDeadlines.cend(); ++it)
+    {
+        if (!deadlines.contains(it.key()))
+            m_nativeHandle.reset_piece_deadline(lt::piece_index_t(it.key()));
+    }
+    m_nativeHandle.prioritize_pieces(priorities);
+    for (auto it = deadlines.cbegin(); it != deadlines.cend(); ++it)
+    {
+        if (refreshDeadlines || !m_streamingDeadlines.contains(it.key()) || (m_streamingDeadlines[it.key()] != it.value()))
+            m_nativeHandle.set_piece_deadline(lt::piece_index_t(it.key()), it.value());
+    }
+    m_streamingDeadlines = std::move(deadlines);
+}
+
+void TorrentImpl::acquireStreamingLease()
+{
+    ++m_streamingLeases;
+}
+
+void TorrentImpl::releaseStreamingLease()
+{
+    Q_ASSERT(m_streamingLeases > 0);
+    --m_streamingLeases;
+}
+
+bool TorrentImpl::hasStreamingLease() const
+{
+    return m_streamingLeases > 0;
+}
+
+void TorrentImpl::setStreamingRange(QObject *consumer, const int fileIndex, const qint64 offset, const qint64 length, const bool urgent)
+{
+    if (!consumer || !hasMetadata() || (fileIndex < 0) || (fileIndex >= filesCount())
+        || (offset < 0) || (length <= 0) || (offset >= fileSize(fileIndex)) || hasExclusiveFileOperation() || isChecking())
+        return;
+
+    const qint64 absoluteOffset = m_torrentInfo.fileOffset(fileIndex) + offset;
+    const qint64 availableLength = std::min(length, fileSize(fileIndex) - offset);
+    const int first = absoluteOffset / pieceLength();
+    const int last = std::min<qint64>((absoluteOffset + availableLength - 1) / pieceLength()
+        , first + MAX_STREAMING_WINDOW_PIECES - 1);
+    const auto previous = m_streamingRanges.constFind(consumer);
+    if ((previous != m_streamingRanges.cend()) && (previous->first == first) && (previous->last == last) && (previous->urgent == urgent))
+        return;
+    if (previous == m_streamingRanges.cend())
+        connect(consumer, &QObject::destroyed, this, [this, consumer] { clearStreamingRange(consumer); });
+    m_streamingRanges.insert(consumer, {first, last, urgent});
+    applyPiecePriorities();
+}
+
+void TorrentImpl::clearStreamingRange(QObject *consumer)
+{
+    if (!m_streamingRanges.remove(consumer))
+        return;
+    applyPiecePriorities();
+    for (auto it = m_pendingStreamingReads.begin(); it != m_pendingStreamingReads.end();)
+    {
+        const int piece = *it;
+        const bool needed = std::ranges::any_of(m_streamingRanges, [piece](const StreamingRange &range)
+        {
+            return (piece >= range.first) && (piece <= range.last);
+        });
+        if (!needed)
+            it = m_pendingStreamingReads.erase(it);
+        else
+            ++it;
+    }
+}
+
+void TorrentImpl::requestStreamingPiece(const int piece)
+{
+    if ((piece < 0) || (piece >= piecesCount()) || hasExclusiveFileOperation() || isChecking())
+        return;
+    m_pendingStreamingReads.insert(piece);
+    dispatchStreamingReads();
+}
+
+void TorrentImpl::dispatchStreamingReads()
+{
+    for (const int piece : std::as_const(m_pendingStreamingReads))
+    {
+        if (m_streamingReads.size() >= MAX_STREAMING_READS)
+            break;
+        const bool verified = m_verifiedStreamingPieces.contains(piece)
+            || ((piece < m_pieces.size()) && m_pieces.testBit(piece));
+        if (verified && !m_streamingReads.contains(piece))
+        {
+            m_streamingReads.insert(piece);
+            m_nativeHandle.read_piece(lt::piece_index_t(piece));
+        }
+    }
+}
+
+void TorrentImpl::handleStreamingPieceAvailable(const int piece)
+{
+    const bool wanted = std::ranges::any_of(m_streamingRanges, [piece](const StreamingRange &range)
+    {
+        return (piece >= range.first) && (piece <= range.last);
+    });
+    if (!wanted || hasExclusiveFileOperation() || isChecking())
+        return;
+
+    // Piece completion is hash verified. Retain only the active read windows
+    // so playback never waits for the slower user-interface status refresh.
+    m_verifiedStreamingPieces.insert(piece);
+    dispatchStreamingReads();
+}
+
+void TorrentImpl::handleStreamingPiece(const int piece, const QByteArray &data, const QString &error)
+{
+    if (!m_streamingReads.remove(piece))
+        return;
+    m_pendingStreamingReads.remove(piece);
+    emit streamingPieceReady(piece, data, error);
+    dispatchStreamingReads();
+}
+
+void TorrentImpl::handleFilePrioritiesApplied()
+{
+    // Ignoring a file removes its native time-critical pieces. Restore every
+    // active deadline even when our playback window has not changed.
+    applyPiecePriorities(true);
+}
+
+void TorrentImpl::stopStreaming()
+{
+    if (m_streamingLeases == 0)
+        return;
+    m_streamingRanges.clear();
+    m_pendingStreamingReads.clear();
+    // Native reads cannot be cancelled. Keep their slots until their alerts
+    // arrive so repeated seeks and cancellation retain the same memory bound.
+    applyPiecePriorities();
+    emit streamingStopped();
 }
 
 TrackerEntryStatus TorrentImpl::updateTrackerEntryStatus(const lt::announce_entry &announceEntry, const QHash<TrackerEndpointID, int> &updateInfo)
@@ -1970,7 +2123,7 @@ void TorrentImpl::endReceivedMetadataHandling(const Path &savePath, const PathLi
     // If first/last piece priority was specified when adding this torrent,
     // we should apply it now that we have metadata:
     if (m_hasFirstLastPiecePriority)
-        applyFirstLastPiecePriority(true);
+        applyPiecePriorities();
 
     m_maintenanceJob = MaintenanceJob::None;
     prepareResumeData(std::move(p));
@@ -1980,6 +2133,7 @@ void TorrentImpl::endReceivedMetadataHandling(const Path &savePath, const PathLi
 
 void TorrentImpl::reload()
 {
+    stopStreaming();
     try
     {
         lt::add_torrent_params p = m_ltAddTorrentParams;
@@ -2004,6 +2158,8 @@ void TorrentImpl::reload()
         const auto queuePos = m_nativeHandle.queue_position();
 
         m_nativeHandle = m_session->reloadTorrent(m_nativeHandle, std::move(p));
+        // Read alerts from the retired handle are discarded by the session.
+        m_streamingReads.clear();
         m_nativeStatus = static_cast<ExtensionData *>(m_nativeHandle.userdata())->status;
 
         if (queuePos >= lt::queue_position_t {})
@@ -2257,6 +2413,11 @@ void TorrentImpl::handleTorrentFinished()
 
 void TorrentImpl::handleSaveResumeData(lt::add_torrent_params params)
 {
+    // Streaming is a transient overlay. Persist the user's policy even if the
+    // process exits while a player is waiting on a different part of the file.
+    if (hasMetadata())
+        params.piece_priorities = normalPiecePriorities();
+
     if (m_ltAddTorrentParams.url_seeds != params.url_seeds)
     {
         // URL seed list have been changed by libtorrent for some reason, so we need to update cached one.
@@ -2605,6 +2766,7 @@ nonstd::expected<void, QString> TorrentImpl::beginRepair(const bool recover)
     // A stopped torrent can remain in checking_files until it is resumed.
     // Keep that pending check paused; RepairService drains its disk jobs before
     // opening the data, without running a check that could initialize files.
+    stopStreaming();
     m_maintenanceJob = MaintenanceJob::Repair;
     setAutoManaged(false);
     m_nativeHandle.pause();
@@ -2697,6 +2859,7 @@ bool TorrentImpl::hasExclusiveFileOperation() const
 bool TorrentImpl::isReadyForCompletion() const
 {
     return hasMetadata() && m_nativeStatus.is_finished && !isChecking() && !isMoving() && !hasError()
+        && (m_streamingLeases == 0)
         && (m_renameCount == 0) && (m_maintenanceJob == MaintenanceJob::None)
         && (m_nativeStatus.state != lt::torrent_status::checking_resume_data)
         && !m_session->hasPendingStorageJobs();
@@ -2709,6 +2872,7 @@ bool TorrentImpl::beginCompletion(const bool preview)
         || m_session->isDataPathLocked(actualStorageLocation(), this))
         return false;
     const bool wasRunning = !isStopped();
+    stopStreaming();
     stop();
     m_maintenanceJob = MaintenanceJob::Completion;
     m_resumeAfterCompletion = wasRunning;
@@ -2809,6 +2973,8 @@ void TorrentImpl::updateStatus(const lt::torrent_status &nativeStatus)
 
     if (m_nativeStatus.num_pieces != oldStatus.num_pieces)
         updateProgress();
+
+    dispatchStreamingReads();
 
     if (m_nativeStatus.completed_time != oldStatus.completed_time)
         m_completedTime = (m_nativeStatus.completed_time > 0) ? QDateTime::fromSecsSinceEpoch(m_nativeStatus.completed_time) : QDateTime();
@@ -3227,9 +3393,8 @@ void TorrentImpl::prioritizeFiles(const QList<DownloadPriority> &priorities)
     m_nativeHandle.prioritize_files(nativePriorities);
 
     m_filePriorities = priorities;
-    // Restore first/last piece first option if necessary
-    if (m_hasFirstLastPiecePriority)
-        applyFirstLastPiecePriority(true);
+    // libtorrent applies file priorities asynchronously. Its file_prio_alert
+    // reapplies both first/last and streaming priorities after that operation.
     manageActualFilePaths();
 }
 

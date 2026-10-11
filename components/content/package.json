@@ -1,0 +1,14 @@
+{
+    "name": "qbutt-content",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "bun build --compile --target=bun-windows-x64 ./main.ts --outfile qbutt-content.exe"
+    },
+    "dependencies": {
+        "cheerio": "1.1.2",
+        "fflate": "0.8.2",
+        "iconv-lite": "0.6.3",
+        "tough-cookie": "6.0.0"
+    }
+}

@@ -43,10 +43,12 @@
 class QCloseEvent;
 class QComboBox;
 class QFileSystemWatcher;
+class QProgressDialog;
 class QSplitter;
 class QString;
 class QTabWidget;
 class QTimer;
+class QUrl;
 
 class AboutDialog;
 class DownloadFromURLDialog;
@@ -59,7 +61,6 @@ class PropertiesWidget;
 class RSSWidget;
 class ReleaseUpdateDialog;
 class ReleaseUpdater;
-class SearchWidget;
 class StatsDialog;
 class StatusBar;
 class TorrentCreatorDialog;
@@ -74,9 +75,9 @@ namespace MacUtils
 }
 #endif
 
-namespace Net
+namespace Content
 {
-    struct DownloadResult;
+    class LibraryWidget;
 }
 
 namespace Ui
@@ -111,6 +112,7 @@ public:
 
     void activate();
     void cleanup();
+    void acceptSharedLink(const QUrl &url);
 
 private slots:
     void showFilterContextMenu();
@@ -182,9 +184,6 @@ private slots:
 #else
     void toggleVisibility();
 #endif
-#ifdef Q_OS_WIN
-    void pythonDownloadFinished(const Net::DownloadResult &result);
-#endif
 
 private:
     void populateDesktopIntegrationMenu();
@@ -197,17 +196,13 @@ private:
     void displaySearchTab(bool enable);
     void createTorrentTriggered(const Path &path);
     void showStatusBar(bool show);
+    void updateContextControls();
     void showFiltersSidebar(bool show);
     void applyTransferListFilter();
     void refreshWindowTitle();
     void initializeIcons();
     void refreshTrayIconTooltip();
     void showReleaseUpdateDialog();
-
-#ifdef Q_OS_WIN
-    void installPython();
-    bool verifyPythonInstaller(const Path &installerPath) const;
-#endif
 
     Ui::MainWindow *m_ui = nullptr;
 
@@ -225,6 +220,7 @@ private:
     QPointer<AboutDialog> m_aboutDlg;
     QPointer<StatsDialog> m_statsDlg;
     QPointer<ReleaseUpdateDialog> m_releaseUpdateDialog;
+    QPointer<QProgressDialog> m_playerPreparationDialog;
     ReleaseUpdater *m_releaseUpdater = nullptr;
     QPointer<TorrentCreatorDialog> m_createTorrentDlg;
     QPointer<DownloadFromURLDialog> m_downloadFromURLDialog;
@@ -244,7 +240,7 @@ private:
     QAction *m_queueSeparator = nullptr;
     QAction *m_queueSeparatorMenu = nullptr;
     QSplitter *m_splitter = nullptr;
-    QPointer<SearchWidget> m_searchWidget;
+    QPointer<Content::LibraryWidget> m_searchWidget;
     QPointer<RSSWidget> m_rssWidget;
     QPointer<ExecutionLogWidget> m_executionLog;
     // Power Management

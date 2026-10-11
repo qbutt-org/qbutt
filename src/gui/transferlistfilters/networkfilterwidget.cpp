@@ -119,8 +119,8 @@ void NetworkFilterWidget::refreshPaths()
             QString label = path.value(u"proxyName"_s).toString();
             if (label.isEmpty())
                 label = path.value(u"edgeId"_s).toString();
-            m_paths->addItem(label.isEmpty() ? tr("Path %1 · generation %2").arg(pathId).arg(generation)
-                                            : tr("%1 · generation %2").arg(label).arg(generation), pathKey);
+            m_paths->addItem(label.isEmpty() ? tr("Path %1 [generation %2]").arg(pathId).arg(generation)
+                                            : tr("%1 [generation %2]").arg(label).arg(generation), pathKey);
             addedPaths.insert(pathKey);
         }
         for (const QString &pathKey : m_transferList->getSourceModel()->networkPaths())
@@ -132,7 +132,7 @@ void NetworkFilterWidget::refreshPaths()
                 continue;
             const QString pathId = pathKey.first(separator);
             const QString generation = pathKey.sliced(separator + 1);
-            m_paths->addItem(tr("Observed path %1 · generation %2").arg(pathId, generation), pathKey);
+            m_paths->addItem(tr("Observed path %1 [generation %2]").arg(pathId, generation), pathKey);
             addedPaths.insert(pathKey);
         }
         m_paths->addItem(tr("No active path"), NO_ACTIVE_PATH);

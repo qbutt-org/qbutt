@@ -19,6 +19,7 @@ $releaseVersion = (Get-Content -LiteralPath (Join-Path $SourceDir 'qbutt-version
 if ($releaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$') {
     throw 'Invalid qbutt release version.'
 }
+$expectedFixedVersion = "$($releaseVersion.Split('-')[0]).0"
 
 function Invoke-Native([string] $Program, [string[]] $CommandArguments) {
     & $Program @CommandArguments
@@ -79,6 +80,7 @@ $DependencyRoot = [IO.Path]::GetFullPath($DependencyRoot)
 New-Item -ItemType Directory -Force $BuildRoot, $DependencyRoot, $ArtifactRoot | Out-Null
 $lockPath = Join-Path $SourceDir 'upstream-lock.json'
 $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
+Assert-Sha256 (Join-Path $SourceDir 'resources/fonts/Neucha.ttf') $lock.fonts.neucha.sha256
 $pins = $lock.windows
 $qtRequired = @('bin/qmake.exe', 'bin/windeployqt.exe', 'bin/lrelease.exe',
     'include/QtGui/qstylehints.h', 'lib/cmake/Qt6/Qt6Config.cmake',
@@ -122,7 +124,19 @@ foreach ($line in $environment) {
 }
 $env:PATH = "${env:ProgramFiles}\CMake\bin;${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
 $cmake = (Get-Command $CMakePath -ErrorAction Stop).Source
-$bun = (Get-Command bun.exe -ErrorAction Stop).Source
+$bunArchive = Join-Path $DependencyRoot "bun-$($pins.bun.version)-windows-x64-baseline.zip"
+Save-VerifiedDownload $bunArchive $pins.bun.url $pins.bun.sha256
+$bunToolchain = Join-Path $DependencyRoot "bun-$($pins.bun.version)"
+$bun = Join-Path $bunToolchain "$($pins.bun.directory)/bun.exe"
+if (-not (Test-Path -LiteralPath $bun)) {
+    Expand-Archive -LiteralPath $bunArchive -DestinationPath $bunToolchain
+}
+$bunVersion = & $bun --version
+if ($LASTEXITCODE -ne 0 -or $bunVersion -ne $pins.bun.version) {
+    throw 'Bun does not match upstream-lock.json.'
+}
+$bunLicense = Join-Path $bunToolchain 'LICENSE.md'
+Save-VerifiedDownload $bunLicense $pins.bun.licenseUrl $pins.bun.licenseSha256
 $env:VCPKG_MAX_CONCURRENCY = "$Parallel"
 
 $ninjaArchive = Join-Path $DependencyRoot 'ninja-win.zip'
@@ -230,14 +244,30 @@ try {
 }
 finally { Pop-Location }
 
+$searchEngine = Join-Path $SourceDir 'components/search-engine'
+Push-Location $searchEngine
+try {
+    Invoke-Native $go @('build', '-mod=readonly', '-trimpath', '-o', (Join-Path $BuildRoot 'qbutt-search.exe'), './cmd/qbutt-search')
+}
+finally { Pop-Location }
+
+$content = Join-Path $SourceDir 'components/content'
+Push-Location $content
+try {
+    Invoke-Native $bun @('install', '--frozen-lockfile', '--ignore-scripts')
+    Invoke-Native $bun @('build', '--compile', "--target=$($pins.bun.target)", "--compile-executable-path=$bun",
+        '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig', '--windows-hide-console',
+        '--windows-title=qbutt Content', '--windows-publisher=The qbutt Project', "--windows-version=$expectedFixedVersion",
+        './main.ts', '--outfile', (Join-Path $BuildRoot 'qbutt-content.exe'))
+}
+finally { Pop-Location }
+
 Invoke-Native $cmake (@('-S', $SourceDir, '-B', $BuildRoot) + $common + @(
     "-DLibtorrentRasterbar_DIR=$libtorrentBuild/install/lib/cmake/LibtorrentRasterbar", "-DCMAKE_PREFIX_PATH=$qtRoot",
     '-DMSVC_RUNTIME_DYNAMIC=ON', '-DTESTING=OFF', '-DQBUTT_STAGING_FAULTS=OFF', '-DQBUTT_COMPLETION_FAULTS=OFF'))
 Invoke-Native $cmake @('--build', $BuildRoot, '--parallel', "$Parallel")
 
 $binaryVersion = (Get-Item -LiteralPath (Join-Path $BuildRoot 'qbutt.exe')).VersionInfo
-$expectedParts = $releaseVersion.Split('-')[0].Split('.')
-$expectedFixedVersion = "$($expectedParts[0]).$($expectedParts[1]).$($expectedParts[2]).0"
 $fixedFileVersion = '{0}.{1}.{2}.{3}' -f $binaryVersion.FileMajorPart, $binaryVersion.FileMinorPart,
     $binaryVersion.FileBuildPart, $binaryVersion.FilePrivatePart
 $fixedProductVersion = '{0}.{1}.{2}.{3}' -f $binaryVersion.ProductMajorPart, $binaryVersion.ProductMinorPart,
@@ -255,12 +285,13 @@ if (Test-Path -LiteralPath $portable) {
         ((Get-Item -LiteralPath $portable).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         throw 'Portable output must be a regular directory directly inside ArtifactRoot.'
     }
-    Remove-Item -LiteralPath $resolvedPortable -Recurse -Force
+    [IO.Directory]::Delete($resolvedPortable, $true)
 }
 New-Item -ItemType Directory -Path $portable | Out-Null
 New-Item -ItemType Directory -Path "$portable/profile" | Out-Null
 'This directory keeps qbutt settings and session data next to the application.' | Set-Content "$portable/profile/README.txt"
-Copy-Item -LiteralPath (Join-Path $BuildRoot 'qbutt.exe'), (Join-Path $BuildRoot 'qbutt-net.exe') -Destination $portable
+Copy-Item -LiteralPath (Join-Path $BuildRoot 'qbutt.exe'), (Join-Path $BuildRoot 'qbutt-net.exe'),
+    (Join-Path $BuildRoot 'qbutt-content.exe'), (Join-Path $BuildRoot 'qbutt-search.exe') -Destination $portable
 Invoke-Native "$qtRoot/bin/windeployqt.exe" @('--release', '--no-compiler-runtime', '--include-plugins', 'qoffscreen',
     '--exclude-plugins', 'qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql', '--dir', $portable, (Join-Path $portable 'qbutt.exe'))
 Copy-Item -Path (Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT/*.dll') -Destination $portable
@@ -279,6 +310,15 @@ $qtPortableLicenses = Join-Path $licenses 'qt'
 New-Item -ItemType Directory -Path $qtPortableLicenses | Out-Null
 Copy-Item -LiteralPath $qtLicensePaths -Destination $qtPortableLicenses
 Copy-Item -Path "$qtRoot/sbom/*.spdx.json" -Destination $licenses
+Copy-Item -LiteralPath $bunLicense -Destination "$licenses/bun.txt"
+Copy-Item -LiteralPath (Join-Path $SourceDir 'resources/fonts/Neucha-OFL.txt') -Destination "$licenses/Neucha-OFL.txt"
+New-Item -ItemType Directory -Path "$portable/browser", "$portable/scripts" | Out-Null
+Copy-Item -LiteralPath (Join-Path $content 'browser/private-pipe.ps1') -Destination "$portable/browser"
+Copy-Item -LiteralPath (Join-Path $SourceDir 'scripts/register-content-browser.ps1') -Destination "$portable/scripts"
+Invoke-Native $bun @((Join-Path $SourceDir 'components/browser-extension/build.ts'), (Join-Path $portable 'browser-extension'))
+Invoke-Native $bun @((Join-Path $SourceDir 'scripts/package-media.ts'), '--destination', (Join-Path $portable 'media'),
+    '--cache', (Join-Path $DependencyRoot 'media'))
+Invoke-Native $bun @((Join-Path $SourceDir 'scripts/collect-content-notices.ts'), '--bundle', $portable, '--go', $go)
 Push-Location $net
 try {
     Invoke-Native $bun @('scripts/collect-notices.ts', (Join-Path $portable 'qbutt-net.exe'), $licenses, $go)
@@ -288,11 +328,28 @@ finally { Pop-Location }
 qbutt is a fork of qBittorrent; see COPYING, COPYING.GPLv2, COPYING.GPLv3 and AUTHORS.
 Source and build instructions: https://github.com/qbutt-org/qbutt
 
+Neucha by Jovanny Lemonad is bundled under the SIL Open Font License 1.1.
+License: licenses/Neucha-OFL.txt. Pinned source:
+$($lock.fonts.neucha.repository -replace '\.git$', '')/blob/$($lock.fonts.neucha.commit)/$($lock.fonts.neucha.path)
+
 qbutt-net is a separate process under GPLv3 (licenses/qbutt-net.txt).
 Source: $($lock.qbuttNet.repository -replace '\.git$', '')/tree/$($lock.qbuttNet.commit)
 Linked dependency attributions: licenses/qbutt-net-notices.txt and licenses/qbutt-net-notices.json.
 Go runtime license: licenses/go.txt. Pinned toolchain and standard library source:
 $($pins.go.url)
+
+qbutt-content and qbutt-search are bundled private worker processes.
+Their exact dependency versions, source archives and license texts are recorded in
+licenses/qbutt-content-notices.json and licenses/qbutt-content-notices.txt.
+qbutt-search includes the Harbrr Cardigann engine and the bundled Jackett definitions,
+under GPL version 2 or later. The selected source revisions are recorded in upstream-lock.json.
+The Bun $($pins.bun.version) runtime and its dependencies are described in licenses/bun.txt.
+Pinned Bun source and relinking instructions: $($pins.bun.sourceUrl)
+The browser extension carries its own LICENSE and NOTICE in browser-extension/.
+Media components carry their own source pins and notices in media/component-lock.json,
+media/licenses/ and media/profile/tools/. They use a separate qbutt profile.
+The pinned mpv, FFmpeg, ffprobe and yt-dlp executables and the prepared player
+profile are included in the application and verified with SHA256.
 
 Qt $($pins.qt.version) is dynamically linked under LGPLv3 (licenses/qt/qtbase-LGPL-3.0-only.txt).
 Qt library and bundled third-party notices are recorded in licenses/*.spdx.json;
@@ -313,6 +370,22 @@ Their license texts are included in licenses/.
 Microsoft Visual C++ runtime libraries are redistributed from Visual Studio's
 Microsoft.VC143.CRT directory under the Visual Studio redistributable terms.
 "@ | Set-Content (Join-Path $portable 'THIRD-PARTY-NOTICES.txt')
+$mediaLockPath = Join-Path $SourceDir 'resources/media/component-lock.json'
+$mediaLock = Get-Content -LiteralPath $mediaLockPath -Raw | ConvertFrom-Json
+$mediaSourceCache = Join-Path $DependencyRoot 'media/sources'
+New-Item -ItemType Directory -Force $mediaSourceCache | Out-Null
+$mediaSourcePin = $mediaLock.sourceArchive
+$mediaSourceName = "qbutt-$releaseVersion-media-sources.zip"
+if ([IO.Path]::GetFileName(([Uri] $mediaSourcePin.url).AbsolutePath) -ne $mediaSourceName) {
+    throw 'The media source archive does not match the release version.'
+}
+$cachedMediaSources = Join-Path $mediaSourceCache $mediaSourceName
+Save-VerifiedDownload $cachedMediaSources $mediaSourcePin.url $mediaSourcePin.sha256
+if ((Get-Item -LiteralPath $cachedMediaSources).Length -ne $mediaSourcePin.size) {
+    throw 'Media source archive differs from the pinned size.'
+}
+$mediaSourceArchive = Join-Path $ArtifactRoot $mediaSourceName
+Copy-Item -LiteralPath $cachedMediaSources -Destination $mediaSourceArchive -Force
 $sourceRevision = & git -C $SourceDir rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Cannot record source revision.' }
 $sourceChanges = & git -C $SourceDir status --porcelain
@@ -328,14 +401,30 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
     cmake = (& $cmake --version | Select-Object -First 1)
     ninja = (& "$ninja/ninja.exe" --version)
     go = $goVersion
-    bun = (& $bun --version)
+    bun = $bunVersion
     qt = $pins.qt.version
     innoSetup = $pins.innoSetup.version
     dependencyLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    contentDependencyLockSha256 = (Get-FileHash -LiteralPath (Join-Path $content 'bun.lock') -Algorithm SHA256).Hash.ToLowerInvariant()
+    searchDependencyLockSha256 = (Get-FileHash -LiteralPath (Join-Path $searchEngine 'go.sum') -Algorithm SHA256).Hash.ToLowerInvariant()
+    mediaComponentLockSha256 = (Get-FileHash -LiteralPath (Join-Path $SourceDir 'resources/media/component-lock.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+    mediaSourceArchive = [ordered]@{
+        name = (Split-Path $mediaSourceArchive -Leaf)
+        size = (Get-Item -LiteralPath $mediaSourceArchive).Length
+        sha256 = (Get-FileHash -LiteralPath $mediaSourceArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    binaries = [ordered]@{
+        qbutt = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+        content = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-content.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+        search = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-search.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+        net = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-net.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
 } | ConvertTo-Json | Set-Content (Join-Path $ArtifactRoot 'build-manifest.json')
+Copy-Item -LiteralPath (Join-Path $ArtifactRoot 'build-manifest.json'), $lockPath -Destination $portable
 $archive = Join-Path $ArtifactRoot "qbutt-$releaseVersion-windows-x64.zip"
 Compress-Archive -Path "$portable/*" -DestinationPath $archive -Force
 & (Join-Path $SourceDir 'scripts/build-installer.ps1') -SourceDir $SourceDir -BundleDir $portable `
     -OutputDir $ArtifactRoot -CompilerPath $InstallerCompiler
 Write-Output "Portable build: $portable"
 Write-Output "Portable archive: $archive"
+Write-Output "Media source archive: $mediaSourceArchive"

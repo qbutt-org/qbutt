@@ -354,6 +354,8 @@ namespace BitTorrent
         virtual void setFirstLastPiecePriority(bool enabled) = 0;
         virtual void stop() = 0;
         virtual void start(TorrentOperatingMode mode = TorrentOperatingMode::AutoManaged) = 0;
+        virtual void acquireStreamingLease() = 0;
+        virtual void releaseStreamingLease() = 0;
         virtual void forceReannounce(int index = -1) = 0;
         virtual void forceDHTAnnounce() = 0;
         virtual void forceRecheck() = 0;

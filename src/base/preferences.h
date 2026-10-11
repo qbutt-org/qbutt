@@ -33,6 +33,7 @@
 #include <QtSystemDetection>
 #include <QObject>
 
+#include "base/content/readersettings.h"
 #include "base/pathfwd.h"
 #include "base/utils/net.h"
 
@@ -84,6 +85,10 @@ public:
     static void initInstance();
     static void freeInstance();
     static Preferences *instance();
+
+    // Reader
+    Content::ReaderSettings readerSettings() const;
+    void setReaderSettings(const Content::ReaderSettings &settings);
 
     // General options
     QString getLocale() const;
@@ -164,14 +169,6 @@ public:
     // Search
     bool isSearchEnabled() const;
     void setSearchEnabled(bool enabled);
-
-    // Search UI
-    int searchHistoryLength() const;
-    void setSearchHistoryLength(int length);
-    bool storeOpenedSearchTabs() const;
-    void setStoreOpenedSearchTabs(bool enabled);
-    bool storeOpenedSearchTabResults() const;
-    void setStoreOpenedSearchTabResults(bool enabled);
 
     // HTTP Server
     bool isWebUIEnabled() const;
@@ -356,10 +353,6 @@ public:
     void setRssSideSplitterState(const QByteArray &state);
     QByteArray getRssMainSplitterState() const;
     void setRssMainSplitterState(const QByteArray &state);
-    QByteArray getSearchTabHeaderState() const;
-    void setSearchTabHeaderState(const QByteArray &state);
-    bool getRegexAsFilteringPatternForSearchJob() const;
-    void setRegexAsFilteringPatternForSearchJob(bool checked);
     QStringList getSearchEngDisabled() const;
     void setSearchEngDisabled(const QStringList &engines);
     QString getTorImportLastContentDir() const;
@@ -428,6 +421,7 @@ public slots:
 
 signals:
     void changed();
+    void readerSettingsChanged();
 
 private:
     static Preferences *m_instance;

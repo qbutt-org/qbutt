@@ -3748,6 +3748,867 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
 </context>
 <context>
+    <name>Content::Client</name>
+    <message>
+        <location filename="../base/content/client.cpp" line="48"/>
+        <source>The content service could not start: %1</source>
+        <translation>Не удалось запустить сервис содержимого: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="53"/>
+        <source>The content service stopped. Try again.</source>
+        <translation>Сервис содержимого остановлен. Попробуйте ещё раз.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="82"/>
+        <source>Too many requests or content is too large.</source>
+        <translation>Слишком много запросов или слишком большой объём содержимого.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="115"/>
+        <source>The source took too long. Try again.</source>
+        <translation>Источник не ответил вовремя. Попробуйте ещё раз.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="142"/>
+        <source>The content service returned too much data.</source>
+        <translation>Сервис содержимого вернул слишком большой объём данных.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="157"/>
+        <source>The content service returned an invalid response.</source>
+        <translation>Сервис содержимого вернул некорректный ответ.</translation>
+    </message>
+</context>
+<context>
+    <name>Content::DownloadsWidget</name>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="25"/>
+        <source>File</source>
+        <translation>Файл</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="25"/>
+        <source>Status</source>
+        <translation>Состояние</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="25"/>
+        <source>Progress</source>
+        <translation>Прогресс</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="42"/>
+        <source>Open folder</source>
+        <translation>Открыть папку</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="43"/>
+        <source>Stop download</source>
+        <translation>Остановить загрузку</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="62"/>
+        <source>Download stopped</source>
+        <translation>Загрузка остановлена</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="72"/>
+        <source>Download queued</source>
+        <translation>Загрузка добавлена в очередь</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="74"/>
+        <source>Preparing download…</source>
+        <translation>Подготовка загрузки…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="125"/>
+        <source>Queued</source>
+        <translation>В очереди</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="127"/>
+        <source>Downloading</source>
+        <translation>Загружается</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="129"/>
+        <source>Complete</source>
+        <translation>Завершено</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="131"/>
+        <source>Stopped</source>
+        <translation>Остановлено</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="133"/>
+        <source>Failed</source>
+        <translation>Ошибка</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/downloadswidget.cpp" line="137"/>
+        <source>%1%</source>
+        <translation>%1%</translation>
+    </message>
+</context>
+<context>
+    <name>Content::LibraryWidget</name>
+    <message>
+        <source>All episodes</source>
+        <translation>Все серии</translation>
+    </message>
+    <message>
+        <source>All voices</source>
+        <translation>Все озвучки</translation>
+    </message>
+    <message>
+        <source>All sources</source>
+        <translation>Все источники</translation>
+    </message>
+    <message>
+        <source>Episode not specified</source>
+        <translation>Серия не указана</translation>
+    </message>
+    <message>
+        <source>Voice not specified</source>
+        <translation>Озвучка не указана</translation>
+    </message>
+    <message>
+        <source>Episode %1</source>
+        <translation>Серия %1</translation>
+    </message>
+    <message>
+        <source>Season %1, %2</source>
+        <translation>Сезон %1, %2</translation>
+    </message>
+    <message>
+        <source>Show episodes / versions</source>
+        <translation>Показать серии / варианты</translation>
+    </message>
+    <message>
+        <source>Torrent</source>
+        <translation>Торрент</translation>
+    </message>
+    <message>
+        <source>Video</source>
+        <translation>Видео</translation>
+    </message>
+    <message>
+        <source>Include reported ads</source>
+        <translation>Показать варианты с отмеченной рекламой</translation>
+    </message>
+    <message>
+        <source>Loading versions…</source>
+        <translation>Загрузка вариантов…</translation>
+    </message>
+    <message>
+        <source>Show versions</source>
+        <translation>Показать варианты</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="49"/>
+        <source>Games</source>
+        <translation>Игры</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="51"/>
+        <source>Movies</source>
+        <translation>Фильмы</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="53"/>
+        <source>Series</source>
+        <translation>Сериалы</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="55"/>
+        <source>Anime</source>
+        <translation>Аниме</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="57"/>
+        <source>Software</source>
+        <translation>Программы</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="59"/>
+        <source>Books</source>
+        <translation>Книги</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="61"/>
+        <source>Manga</source>
+        <translation>Манга</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="62"/>
+        <source>All</source>
+        <translation>Все</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="120"/>
+        <source>Search games, films, anime, books…</source>
+        <translation>Поиск игр, фильмов, аниме, книг…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="131"/>
+        <location filename="../gui/content/librarywidget.cpp" line="141"/>
+        <location filename="../gui/content/librarywidget.cpp" line="282"/>
+        <location filename="../gui/content/librarywidget.cpp" line="374"/>
+        <location filename="../gui/content/librarywidget.cpp" line="904"/>
+        <source>Search</source>
+        <translation>Поиск</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="134"/>
+        <source>Sources</source>
+        <translation>Источники</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="142"/>
+        <source>Saved</source>
+        <comment>Library tab</comment>
+        <translation>Сохранённое</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="143"/>
+        <source>History</source>
+        <translation>История</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="144"/>
+        <source>Downloads</source>
+        <translation>Загрузки</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="163"/>
+        <source>Versions</source>
+        <translation>Версии</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="163"/>
+        <source>Details</source>
+        <translation>Подробности</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n version(s)</source>
+        <translation>
+            <numerusform>%n версия</numerusform>
+            <numerusform>%n версии</numerusform>
+            <numerusform>%n версий</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="178"/>
+        <source>Open source</source>
+        <translation>Открыть источник</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="181"/>
+        <source>Retry</source>
+        <translation>Повторить</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="184"/>
+        <source>Search more</source>
+        <translation>Искать ещё</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="223"/>
+        <location filename="../gui/content/librarywidget.cpp" line="616"/>
+        <source>Source</source>
+        <translation>Источник</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="223"/>
+        <source>Version / voice</source>
+        <translation>Версия / озвучка</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="223"/>
+        <source>Size</source>
+        <translation>Размер</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="223"/>
+        <source>Seeds</source>
+        <translation>Сиды</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="235"/>
+        <source>Open</source>
+        <translation>Открыть</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="239"/>
+        <location filename="../gui/content/librarywidget.cpp" line="631"/>
+        <source>Download</source>
+        <translation>Скачать</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="242"/>
+        <location filename="../gui/content/librarywidget.cpp" line="593"/>
+        <location filename="../gui/content/librarywidget.cpp" line="944"/>
+        <location filename="../gui/content/librarywidget.cpp" line="1036"/>
+        <source>Save</source>
+        <translation>Сохранить</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="246"/>
+        <source>Share</source>
+        <translation>Поделиться</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="250"/>
+        <source>Share this version</source>
+        <translation>Поделиться этой версией</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="251"/>
+        <source>Share title</source>
+        <translation>Поделиться произведением</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="254"/>
+        <source>Remove</source>
+        <translation>Удалить</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/content/librarywidget.cpp" line="283"/>
+        <source>Search stopped: %n title(s)</source>
+        <translation>
+            <numerusform>Поиск остановлен: %n название</numerusform>
+            <numerusform>Поиск остановлен: %n названия</numerusform>
+            <numerusform>Поиск остановлен: %n названий</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="318"/>
+        <location filename="../gui/content/librarywidget.cpp" line="833"/>
+        <source>Watch cancelled</source>
+        <translation>Просмотр отменён</translation>
+    </message>
+    <message>
+        <source>Cancel watch</source>
+        <translation>Отменить просмотр</translation>
+    </message>
+    <message>
+        <source>Find a version…</source>
+        <translation>Найти версию…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="381"/>
+        <source>Opening shared title…</source>
+        <translation>Открытие произведения по ссылке…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="424"/>
+        <source>Stop</source>
+        <translation>Остановить</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="425"/>
+        <location filename="../gui/content/librarywidget.cpp" line="451"/>
+        <source>Searching…</source>
+        <translation>Поиск…</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/content/librarywidget.cpp" line="451"/>
+        <location filename="../gui/content/librarywidget.cpp" line="909"/>
+        <location filename="../gui/content/librarywidget.cpp" line="937"/>
+        <source>%n title(s)</source>
+        <translation>
+            <numerusform>%n название</numerusform>
+            <numerusform>%n названия</numerusform>
+            <numerusform>%n названий</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="461"/>
+        <source>Loading library…</source>
+        <translation>Загрузка библиотеки…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="567"/>
+        <source>Co-op</source>
+        <translation>Совместная игра</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="570"/>
+        <source>Patch</source>
+        <translation>Патч</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="572"/>
+        <source>Fix</source>
+        <translation>Исправление</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="574"/>
+        <source>Optional</source>
+        <translation>Дополнительно</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="576"/>
+        <source>Archive part</source>
+        <translation>Часть архива</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="593"/>
+        <location filename="../gui/content/librarywidget.cpp" line="944"/>
+        <location filename="../gui/content/librarywidget.cpp" line="1036"/>
+        <source>Saved</source>
+        <translation>Сохранено</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="609"/>
+        <source>Advertising reported in this release</source>
+        <translation>Сообщалось о рекламе в этом релизе</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="630"/>
+        <location filename="../gui/content/librarywidget.cpp" line="830"/>
+        <source>Watch</source>
+        <translation>Смотреть</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="631"/>
+        <source>Read</source>
+        <translation>Читать</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="674"/>
+        <source>Opening %1…</source>
+        <translation>Открытие %1…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="748"/>
+        <source>Add the torrent to watch.</source>
+        <translation>Добавьте торрент для просмотра.</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="786"/>
+        <source>Opened %1</source>
+        <translation>Открыто: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="796"/>
+        <source>Waiting for torrent metadata…</source>
+        <translation>Ожидание метаданных торрента…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="803"/>
+        <source>Checking existing files before playback…</source>
+        <translation>Проверка существующих файлов перед воспроизведением…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="823"/>
+        <source>This torrent has no playable media files.</source>
+        <translation>В этом торренте нет медиафайлов для воспроизведения.</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="830"/>
+        <source>File or episode</source>
+        <translation>Файл или серия</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/content/librarywidget.cpp" line="893"/>
+        <source>Searching… %n title(s)</source>
+        <translation>
+            <numerusform>Поиск… %n название</numerusform>
+            <numerusform>Поиск… %n названия</numerusform>
+            <numerusform>Поиск… %n названий</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/content/librarywidget.cpp" line="908"/>
+        <source>%n title(s), some sources unavailable</source>
+        <translation>
+            <numerusform>%n название, часть источников недоступна</numerusform>
+            <numerusform>%n названия, часть источников недоступна</numerusform>
+            <numerusform>%n названий, часть источников недоступна</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="1000"/>
+        <source>Shared title [exact release]</source>
+        <translation>Произведение по ссылке [точный релиз]</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="1014"/>
+        <source>Link copied</source>
+        <translation>Ссылка скопирована</translation>
+    </message>
+</context>
+<context>
+    <name>Content::ReaderSettingsDialog</name>
+    <message>
+        <source>Reader settings</source>
+        <translation>Настройки чтения</translation>
+    </message>
+    <message>
+        <source>Reading mode:</source>
+        <translation>Режим чтения:</translation>
+    </message>
+    <message>
+        <source>Page by page</source>
+        <translation>Постраничный</translation>
+    </message>
+    <message>
+        <source>Continuous vertical</source>
+        <translation>Непрерывный по вертикали</translation>
+    </message>
+    <message>
+        <source>Fit image:</source>
+        <translation>Вместить изображение:</translation>
+    </message>
+    <message>
+        <source>Screen height</source>
+        <translation>По высоте экрана</translation>
+    </message>
+    <message>
+        <source>Width</source>
+        <translation>По ширине</translation>
+    </message>
+    <message>
+        <source>Enlarge small images</source>
+        <translation>Увеличивать маленькие изображения</translation>
+    </message>
+    <message>
+        <source>Brightness:</source>
+        <translation>Яркость:</translation>
+    </message>
+    <message>
+        <source>Page gap:</source>
+        <translation>Отступ между страницами:</translation>
+    </message>
+    <message>
+        <source>Content width:</source>
+        <translation>Ширина страницы:</translation>
+    </message>
+    <message>
+        <source>%</source>
+        <translation>%</translation>
+    </message>
+    <message>
+        <source> px</source>
+        <translation> пкс</translation>
+    </message>
+</context>
+<context>
+    <name>Content::ReaderWidget</name>
+    <message>
+        <source>Reader settings</source>
+        <translation>Настройки чтения</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="91"/>
+        <source>The content could not be loaded.</source>
+        <translation>Не удалось загрузить содержимое.</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="209"/>
+        <source>Image unavailable</source>
+        <translation>Изображение недоступно</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="267"/>
+        <source>Right-click to correct the translation</source>
+        <translation>Нажмите правой кнопкой, чтобы исправить перевод</translation>
+    </message>
+    <message>
+        <source>Previous page</source>
+        <translation>Предыдущая страница</translation>
+    </message>
+    <message>
+        <source>Next page</source>
+        <translation>Следующая страница</translation>
+    </message>
+    <message>
+        <source>%1 / %2</source>
+        <translation>%1 / %2</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="283"/>
+        <source>Title glossary</source>
+        <translation>Словарь произведения</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="288"/>
+        <source>遥 = Haruka
+蓮 = Ren</source>
+        <translation>遥 = Харука
+蓮 = Рэн</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="295"/>
+        <location filename="../gui/content/readerwidget.cpp" line="489"/>
+        <source>Retry</source>
+        <translation>Повторить</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="348"/>
+        <source>Loading…</source>
+        <translation>Загрузка…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="364"/>
+        <source>Write each term as: original = translation.</source>
+        <translation>Запишите каждый термин в формате: оригинал = перевод.</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="369"/>
+        <source>The term “%1” appears twice.</source>
+        <translation>Термин «%1» указан дважды.</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="377"/>
+        <source>Saving…</source>
+        <translation>Сохранение…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="404"/>
+        <source>Back</source>
+        <translation>Назад</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="417"/>
+        <location filename="../gui/content/readerwidget.cpp" line="563"/>
+        <source>Reader</source>
+        <translation>Читалка</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="431"/>
+        <source>Previous chapter</source>
+        <translation>Предыдущая глава</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="442"/>
+        <source>Next chapter</source>
+        <translation>Следующая глава</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="454"/>
+        <source>Original</source>
+        <translation>Оригинал</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="457"/>
+        <source>Show original</source>
+        <translation>Показать оригинал</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="460"/>
+        <source>Glossary</source>
+        <translation>Словарь</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="465"/>
+        <source>Text size</source>
+        <translation>Размер текста</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="496"/>
+        <source>Choose a book or manga to read.</source>
+        <translation>Выберите книгу или мангу для чтения.</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="581"/>
+        <source>Open a book or comic</source>
+        <translation>Открыть книгу или комикс</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="582"/>
+        <source>Books and comics (*.epub *.cbz *.zip *.html *.htm *.txt *.fb2 *.png *.jpg *.jpeg *.webp *.gif *.bmp);;All files (*)</source>
+        <translation>Книги и комиксы (*.epub *.cbz *.zip *.html *.htm *.txt *.fb2 *.png *.jpg *.jpeg *.webp *.gif *.bmp);;Все файлы (*)</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="602"/>
+        <source>Loading chapter…</source>
+        <translation>Загрузка главы…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="602"/>
+        <source>Opening…</source>
+        <translation>Открытие…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="635"/>
+        <source>Connecting to the translation service…</source>
+        <translation>Подключение к сервису перевода…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="637"/>
+        <source>Recognizing text…</source>
+        <translation>Распознавание текста…</translation>
+    </message>
+    <message>
+        <source>Preparing translated page…</source>
+        <translation>Подготовка переведённой страницы…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="639"/>
+        <source>Translating…</source>
+        <translation>Перевод…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="643"/>
+        <source>: %1 of %2</source>
+        <translation>: %1 из %2</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="716"/>
+        <source>This title has no available chapters yet.</source>
+        <translation>В этом произведении пока нет доступных глав.</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="804"/>
+        <source>Translation cancelled.</source>
+        <translation>Перевод отменён.</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="839"/>
+        <source>Correct translation</source>
+        <translation>Исправить перевод</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="840"/>
+        <source>Original: %1</source>
+        <translation>Оригинал: %1</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="905"/>
+        <source>Stop translation</source>
+        <translation>Остановить перевод</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="906"/>
+        <source>Translate pages</source>
+        <translation>Перевести страницы</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/readerwidget.cpp" line="906"/>
+        <source>Translate chapters</source>
+        <translation>Перевести главы</translation>
+    </message>
+</context>
+<context>
+    <name>Content::SourcesDialog</name>
+    <message>
+        <source>Browser</source>
+        <translation>Браузер</translation>
+    </message>
+    <message>
+        <source>AI translation</source>
+        <translation>AI-перевод</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="24"/>
+        <source>Sources</source>
+        <translation>Источники</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="32"/>
+        <source>Find a source</source>
+        <translation>Найти источник</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="53"/>
+        <source>Use in search</source>
+        <translation>Использовать в поиске</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="59"/>
+        <source>Install browser extension…</source>
+        <translation>Установить расширение…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="62"/>
+        <source>Save</source>
+        <translation>Сохранить</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="70"/>
+        <source>Loading sources…</source>
+        <translation>Загрузка источников…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="74"/>
+        <source>Update sources</source>
+        <translation>Обновить источники</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="82"/>
+        <source>Updating sources…</source>
+        <translation>Обновление источников…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="90"/>
+        <source>Opening extension setup…</source>
+        <translation>Открытие установки расширения…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="155"/>
+        <source>Advanced settings</source>
+        <translation>Дополнительные настройки</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="191"/>
+        <location filename="../gui/content/sourcesdialog.cpp" line="305"/>
+        <source>Saved</source>
+        <translation>Сохранено</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="193"/>
+        <source>Clear saved value</source>
+        <translation>Очистить сохранённое значение</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="198"/>
+        <source>Will be cleared</source>
+        <translation>Будет очищено</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="229"/>
+        <location filename="../gui/content/sourcesdialog.cpp" line="303"/>
+        <source>Saving…</source>
+        <translation>Сохранение…</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="245"/>
+        <source>Connected</source>
+        <translation>Подключено</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/sourcesdialog.cpp" line="245"/>
+        <source>Not connected</source>
+        <translation>Не подключено</translation>
+    </message>
+    <message>
+        <source>Connected to %1</source>
+        <translation>Подключено к %1</translation>
+    </message>
+    <message>
+        <source>Open %1 in the browser (Ctrl+L). Turn on Developer mode, choose Load unpacked, and select this folder:</source>
+        <translation>Откройте %1 в браузере (Ctrl+L). Включите «Режим разработчика», нажмите «Загрузить распакованное расширение» и выберите эту папку:</translation>
+    </message>
+    <message>
+        <source>In Firefox, choose Load Temporary Add-on… and select manifest.json in this folder:</source>
+        <translation>В Firefox нажмите «Загрузить временное дополнение…» и выберите manifest.json в этой папке:</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../gui/content/sourcesdialog.cpp" line="287"/>
+        <source>%n source(s)</source>
+        <translation>
+            <numerusform>%n источник</numerusform>
+            <numerusform>%n источника</numerusform>
+            <numerusform>%n источников</numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>CookiesDialog</name>
     <message>
         <location filename="../gui/cookiesdialog.ui" line="14"/>
@@ -4344,6 +5205,31 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
 </context>
 <context>
     <name>MainWindow</name>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="136"/>
+        <source>Open media…</source>
+        <translation>Открыть медиафайл…</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="141"/>
+        <source>Open media</source>
+        <translation>Открыть медиафайл</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="142"/>
+        <source>Media files (*.mkv *.mp4 *.webm *.avi *.mov *.m4v *.wmv *.mpeg *.mpg *.ts *.m2ts *.mp3 *.flac *.wav *.ogg *.opus *.m4a *.aac);;All files (*)</source>
+        <translation>Медиафайлы (*.mkv *.mp4 *.webm *.avi *.mov *.m4v *.wmv *.mpeg *.mpg *.ts *.m2ts *.mp3 *.flac *.wav *.ogg *.opus *.m4a *.aac);;Все файлы (*)</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="149"/>
+        <source>Read file…</source>
+        <translation>Читать файл…</translation>
+    </message>
+    <message>
+        <location filename="../gui/mainwindow.cpp" line="159"/>
+        <source>Playback</source>
+        <translation>Воспроизведение</translation>
+    </message>
     <message>
         <source>Completion policies…</source>
         <translation>Правила завершения…</translation>
@@ -5025,6 +5911,155 @@ Minimum requirement: %2.</source>
     <message>
         <source>qbutt %1 is ready to install.</source>
         <translation>qbutt %1 готов к установке.</translation>
+    </message>
+</context>
+<context>
+    <name>Media::Player</name>
+    <message>
+        <source>Preparing player…</source>
+        <translation>Подготовка проигрывателя…</translation>
+    </message>
+    <message>
+        <source>Translating subtitles…</source>
+        <translation>Перевод субтитров…</translation>
+    </message>
+    <message>
+        <source>Russian [AI translation]</source>
+        <translation>Русский [AI-перевод]</translation>
+    </message>
+    <message>
+        <source>Russian subtitles ready</source>
+        <translation>Русские субтитры готовы</translation>
+    </message>
+    <message>
+        <source>The player could not identify the subtitle timing. Choose an external subtitle file.</source>
+        <translation>Не удалось определить время субтитров. Выберите отдельный файл субтитров.</translation>
+    </message>
+    <message>
+        <source>The subtitle translation returned an invalid time window.</source>
+        <translation>Перевод субтитров вернул некорректный временной интервал.</translation>
+    </message>
+    <message>
+        <source>The subtitle translation returned an invalid cached file.</source>
+        <translation>Не удалось прочитать сохранённый перевод субтитров.</translation>
+    </message>
+    <message>
+        <source>The player could not load translated subtitles. Choose the original subtitle track.</source>
+        <translation>Не удалось загрузить перевод субтитров. Выберите исходную дорожку субтитров.</translation>
+    </message>
+    <message>
+        <source>The player could not find the translated subtitle track. Choose the original subtitle track.</source>
+        <translation>Не удалось найти дорожку с переводом. Выберите исходную дорожку субтитров.</translation>
+    </message>
+    <message>
+        <source>The player could not select translated subtitles. Choose the original subtitle track.</source>
+        <translation>Не удалось включить перевод субтитров. Выберите исходную дорожку субтитров.</translation>
+    </message>
+    <message>
+        <source>Subtitle translation is unavailable. Sign in to Codex or choose an AI provider in Reading settings.</source>
+        <translation>Перевод субтитров недоступен. Войдите в Codex или выберите AI-провайдера в настройках чтения.</translation>
+    </message>
+    <message>
+        <source>The video source returned incomplete voice information. Choose the voice again.</source>
+        <translation>Источник видео вернул неполные сведения об озвучке. Выберите озвучку ещё раз.</translation>
+    </message>
+    <message>
+        <source>The selected voice “%1” is unavailable or ambiguous in this stream. Choose another voice or open the source player.</source>
+        <translation>В этом потоке озвучка «%1» отсутствует или ей соответствуют несколько дорожек. Выберите другую озвучку или откройте проигрыватель источника.</translation>
+    </message>
+    <message>
+        <source>The player could not select the requested voice. Choose another voice or open the source player.</source>
+        <translation>Проигрыватель не смог выбрать нужную озвучку. Выберите другую озвучку или откройте проигрыватель источника.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="74"/>
+        <source>The player could not start: %1</source>
+        <translation>Не удалось запустить проигрыватель: %1</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="82"/>
+        <source>The player stopped unexpectedly (exit code %1).</source>
+        <translation>Проигрыватель неожиданно завершил работу (код выхода %1).</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="131"/>
+        <source>Choose a local media file or an HTTP video stream.</source>
+        <translation>Выберите локальный медиафайл или HTTP-поток видео.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="136"/>
+        <source>Choose a local audio or video file.</source>
+        <translation>Выберите локальный аудио- или видеофайл.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="149"/>
+        <source>The video source returned an invalid audio or subtitle URL.</source>
+        <translation>Источник видео вернул некорректную ссылку на аудио или субтитры.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="159"/>
+        <source>The video source did not provide a protected connection. Try opening it again.</source>
+        <translation>Источник видео не предоставил защищённое соединение. Попробуйте открыть его ещё раз.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="169"/>
+        <source>This video source requires an unsupported authorization header.</source>
+        <translation>Этот источник видео требует неподдерживаемый заголовок авторизации.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="174"/>
+        <source>The video source returned an invalid HTTP header.</source>
+        <translation>Источник видео вернул некорректный HTTP-заголовок.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="198"/>
+        <source>Choose a media file in the torrent.</source>
+        <translation>Выберите медиафайл в торренте.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="233"/>
+        <source>The player is missing. Try opening the video again.</source>
+        <translation>Проигрыватель отсутствует. Попробуйте открыть видео ещё раз.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="269"/>
+        <source>The player data folder could not be created.</source>
+        <translation>Не удалось создать папку данных проигрывателя.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="297"/>
+        <source>The video source returned cookies without an HTTP host.</source>
+        <translation>Источник видео вернул куки без HTTP-хоста.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="314"/>
+        <source>The video source returned an invalid cookie.</source>
+        <translation>Источник видео вернул некорректные куки.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="331"/>
+        <source>The temporary video cookies could not be created.</source>
+        <translation>Не удалось создать временные куки для видео.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="389"/>
+        <source>The player did not become ready. Try opening the video again.</source>
+        <translation>Проигрыватель не запустился вовремя. Попробуйте открыть видео ещё раз.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="457"/>
+        <source>The player sent an invalid response.</source>
+        <translation>Проигрыватель вернул некорректный ответ.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="474"/>
+        <source>The bundled player rejected a playback command.</source>
+        <translation>Встроенный проигрыватель отклонил команду воспроизведения.</translation>
+    </message>
+    <message>
+        <location filename="../base/media/player.cpp" line="491"/>
+        <source>The video could not be opened. Check that the source is still available.</source>
+        <translation>Не удалось открыть видео. Проверьте, доступен ли источник.</translation>
     </message>
 </context>
 <context>
@@ -7578,8 +8613,8 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
     </message>
     <message>
         <location filename="../gui/networkdiagnosticsdialog.cpp" line="236"/>
-        <source>Connections · all torrents</source>
-        <translation>Соединения · все торренты</translation>
+        <source>Connections [all torrents]</source>
+        <translation>Соединения [все торренты]</translation>
     </message>
     <message>
         <location filename="../gui/networkdiagnosticsdialog.cpp" line="237"/>
@@ -7603,8 +8638,8 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
     </message>
     <message>
         <location filename="../gui/networkdiagnosticsdialog.cpp" line="574"/>
-        <source>Download: %1 · Upload: %2 · Peers: %L3</source>
-        <translation>Приём: %1 · Отдача: %2 · Пиры: %L3</translation>
+        <source>Download: %1, Upload: %2, Peers: %L3</source>
+        <translation>Приём: %1, Отдача: %2, Пиры: %L3</translation>
     </message>
     <message>
         <location filename="../gui/networkdiagnosticsdialog.cpp" line="578"/>
@@ -7623,8 +8658,8 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
     </message>
     <message>
         <location filename="../gui/networkdiagnosticsdialog.cpp" line="608"/>
-        <source>Pinned %1 · scored %2 · exploration %3 · denied %4</source>
-        <translation>Закреплено: %1 · по оценке: %2 · пробных: %3 · отклонено: %4</translation>
+        <source>Pinned %1, scored %2, exploration %3, denied %4</source>
+        <translation>Закреплено: %1, по оценке: %2, пробных: %3, отклонено: %4</translation>
     </message>
     <message>
         <location filename="../gui/networkdiagnosticsdialog.cpp" line="613"/>
@@ -7830,18 +8865,18 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
     </message>
     <message>
         <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="122"/>
-        <source>Path %1 · generation %2</source>
-        <translation>Маршрут %1 · поколение %2</translation>
+        <source>Path %1 [generation %2]</source>
+        <translation>Маршрут %1 [поколение %2]</translation>
     </message>
     <message>
         <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="123"/>
-        <source>%1 · generation %2</source>
-        <translation>%1 · поколение %2</translation>
+        <source>%1 [generation %2]</source>
+        <translation>%1 [поколение %2]</translation>
     </message>
     <message>
         <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="135"/>
-        <source>Observed path %1 · generation %2</source>
-        <translation>Обнаруженный маршрут %1 · поколение %2</translation>
+        <source>Observed path %1 [generation %2]</source>
+        <translation>Обнаруженный маршрут %1 [поколение %2]</translation>
     </message>
     <message>
         <location filename="../gui/transferlistfilters/networkfilterwidget.cpp" line="138"/>

@@ -1,9 +1,13 @@
 core.eol=lf
 * text eol=lf
+*.dll binary
+*.exe binary
 *.icns binary
 *.ico binary
 *.png binary
+*.onnx binary
 *.qm binary
+*.ttf binary
 *.zip binary
 
 test/testdata/crlf.txt text eol=crlf

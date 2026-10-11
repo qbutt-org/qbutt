@@ -20,10 +20,6 @@ qt_wrap_ui(UI_HEADERS
     rss/automatedrssdownloader.ui
     rss/rssfeeddialog.ui
     rss/rsswidget.ui
-    search/pluginselectdialog.ui
-    search/pluginsourcedialog.ui
-    search/searchjobwidget.ui
-    search/searchwidget.ui
     shutdownconfirmdialog.ui
     speedlimitdialog.ui
     statsdialog.ui
@@ -48,6 +44,12 @@ add_library(qbt_gui STATIC
     banlistoptionsdialog.h
     color.h
     colorscheme.h
+    content/downloadswidget.h
+    content/librarywidget.h
+    content/readerimages.h
+    content/readersettingsdialog.h
+    content/readerwidget.h
+    content/sourcesdialog.h
     cookiesdialog.h
     cookiesmodel.h
     deletionconfirmationdialog.h
@@ -99,11 +101,6 @@ add_library(qbt_gui STATIC
     rss/htmlbrowser.h
     rss/rssfeeddialog.h
     rss/rsswidget.h
-    search/pluginselectdialog.h
-    search/pluginsourcedialog.h
-    search/searchjobwidget.h
-    search/searchsortmodel.h
-    search/searchwidget.h
     shutdownconfirmdialog.h
     speedlimitdialog.h
     statsdialog.h
@@ -162,6 +159,12 @@ add_library(qbt_gui STATIC
     advancedsettings.cpp
     autoexpandabledialog.cpp
     banlistoptionsdialog.cpp
+    content/downloadswidget.cpp
+    content/librarywidget.cpp
+    content/readerimages.cpp
+    content/readersettingsdialog.cpp
+    content/readerwidget.cpp
+    content/sourcesdialog.cpp
     cookiesdialog.cpp
     cookiesmodel.cpp
     deletionconfirmationdialog.cpp
@@ -210,11 +213,6 @@ add_library(qbt_gui STATIC
     rss/htmlbrowser.cpp
     rss/rssfeeddialog.cpp
     rss/rsswidget.cpp
-    search/pluginselectdialog.cpp
-    search/pluginsourcedialog.cpp
-    search/searchjobwidget.cpp
-    search/searchsortmodel.cpp
-    search/searchwidget.cpp
     shutdownconfirmdialog.cpp
     speedlimitdialog.cpp
     statsdialog.cpp
@@ -268,7 +266,7 @@ add_library(qbt_gui STATIC
     ${UI_HEADERS}
 )
 
-target_sources(qbt_gui INTERFACE about.qrc themes.qrc)
+target_sources(qbt_gui INTERFACE about.qrc themes.qrc content/reader.qrc)
 
 # UI headers will be generated in ${CMAKE_CURRENT_BINARY_DIR}
 target_include_directories(qbt_gui PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

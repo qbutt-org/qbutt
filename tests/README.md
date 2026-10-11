@@ -22,6 +22,59 @@ implementation is used. The default torrents are private with no public tracker.
 `v1-public` exists for Mixed routing tests; the isolated application and seed
 sessions disable public discovery and use only explicitly added controlled peers.
 
+## Content, reading and playback
+
+The Windows build bundles `qbutt-content.exe`, `qbutt-search.exe`, browser bridge
+assets, the pinned mpv player with its prepared profile, FFmpeg, ffprobe and
+yt-dlp. Content tests create their own profiles and bridge discovery files; they
+do not use a signed-in application profile. Copy the verified bundled tools into
+a separate directory for the generated media fixtures.
+
+```powershell
+$env:QBUTT_CONTENT_APP_DIR = 'C:/path/to/portable'
+$env:QBUTT_CONTENT_BIN = "$env:QBUTT_CONTENT_APP_DIR/qbutt-content.exe"
+$env:QBUTT_SEARCH_BIN = "$env:QBUTT_CONTENT_APP_DIR/qbutt-search.exe"
+$env:QBUTT_MEDIA_RUNTIME_DIR = "$env:TEMP/qbutt-lab-media-$([Guid]::NewGuid())"
+bun scripts/prepare-media-lab.ts --app-dir $env:QBUTT_CONTENT_APP_DIR --destination $env:QBUTT_MEDIA_RUNTIME_DIR
+$env:QBUTT_LAB_PATHS = '1'
+$env:QBUTT_LAB_FFMPEG = "$env:QBUTT_MEDIA_RUNTIME_DIR/tools/ffmpeg.exe"
+$env:QBUTT_LAB_FFPROBE = "$env:QBUTT_MEDIA_RUNTIME_DIR/profile/tools/bin/ffprobe.exe"
+bun run smoke:content
+bun run smoke:content-search
+bun tests/content-search/catalog.ts
+bun run smoke:content-online
+bun run smoke:content-reading
+bun run smoke:content-downloads
+bun run smoke:content-browser
+bun tests/content-browser/catalog-cookies.ts
+bun tests/content-downloads/networkproxy.ts
+bun tests/content-reading/ipc-integration.ts
+bun tests/content-reading/scheduler-integration.ts
+bun tests/content-reading/originals-integration.ts
+bun tests/content-reading/branches-integration.ts
+bun tests/content-reading/glossary-integration.ts
+bun tests/content-reading/loading-integration.ts
+```
+
+Search, online-source and original-language tests make bounded real upstream
+requests. A blocked source is an error, not evidence of an unavailable account
+working. Browser IPC tests use generated fixtures; the separate Edge fixture
+requires an isolated VM browser profile and native-host registration.
+
+The download fixture verifies exact bytes, cancellation, restart and local
+HLS remuxing with video, audio and subtitles. The network proxy fixture also
+runs the pinned extractor: redirects to local addresses must make zero
+requests, and session cookies must remain scoped to their source host.
+
+For torrent playback, deploy `qbutt-qt-acceptance.exe` beside the bundled Qt and
+player profile, set `QBUTT_QT_ACCEPTANCE_EXE` to it, retain the explicit
+`QBUTT_MEDIA_RUNTIME_DIR` above, and run `bun run smoke:media`.
+Use the Python fixture environment above. The fixture checks incomplete MP4/MKV
+ranges, actual decoding and seeking, restored priorities, cancellation,
+completion leases and replay after the seed stops for v1, v2 and hybrid torrents.
+Native pointer, appearance and hardware playback checks remain separate VM
+acceptance; a headless decoder does not establish those results.
+
 On Windows, run the lab from an elevated terminal with PowerShell 7 available.
 Before launching a fixture, the shared runner registers persistent inbound firewall
 rules for its canonical executable paths, including Bun and the actual Python

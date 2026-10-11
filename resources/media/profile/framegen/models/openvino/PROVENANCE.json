@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "artifact": {
+    "path": "rife_v2/rife_v4.26.onnx",
+    "bytes": 22751073,
+    "sha256": "3A958289369A5645339B2FBD5F3A228BC82075866C2B4723E4CA485FDA72FC6B",
+    "contract": "mpv-rife-v426-lowres-motion-fullres-warp-v1",
+    "input": "float32 [B,7,H,W]",
+    "output": "float32 [B,3,H,W]"
+  },
+  "purpose": "Intel Arc runtime: run RIFE motion estimation at half resolution, then upscale flow and mask and warp/blend the original full-resolution endpoints",
+  "source_model": {
+    "archive_url": "https://github.com/AmusementClub/vs-mlrt/releases/download/external-models/rife_v4.26.7z",
+    "archive_bytes": 19591599,
+    "archive_sha256": "DFDABD84A2A3DB773F87604B8CC255E94A6A72F13550D910CCD3B4EE2606CD4F",
+    "member": "rife_v2/rife_v4.26.onnx",
+    "member_bytes": 22748049,
+    "member_sha256": "AF25762DFEC02A4BBB949DECEA63988B01FA56C46C0FF9DC66AC8E2F12CBB661"
+  },
+  "upstream": {
+    "Practical-RIFE": {
+      "repository": "https://github.com/hzwer/Practical-RIFE",
+      "commit": "0fa2b515e0a067a04a82a52c8dad077cff5eb3c5",
+      "license": "MIT"
+    },
+    "vs-rife": {
+      "repository": "https://github.com/HolyWu/vs-rife",
+      "export_commit": "3488617283db7c428a83ba4a19382285da698b6a",
+      "license": "MIT"
+    },
+    "vs-mlrt": {
+      "repository": "https://github.com/AmusementClub/vs-mlrt",
+      "runtime_snapshot": "8cd6cf266a430fdb9f6d797a4e33ab2952d52ce2"
+    }
+  },
+  "rewrite": {
+    "script": "../../../tools/framegen-models/rife426_arc_s0p5.py",
+    "script_bytes": 28525,
+    "script_sha256": "73354902AB780C805C1975B6B0D09315E0E519F9D81636315036D91AE455A3EF",
+    "command": "uv run tools/framegen-models/rife426_arc_s0p5.py rewrite --source rife_v4.26.onnx --output framegen/models/openvino/rife_v2/rife_v4.26.onnx",
+    "deterministic": true,
+    "weights": "all 158 source initializer payloads are preserved byte-for-byte; 26 shape/grid constants are added"
+  },
+  "verification": {
+    "command": "uv run tools/framegen-models/rife426_arc_s0p5.py verify --source rife_v4.26.onnx --target framegen/models/openvino/rife_v2/rife_v4.26.onnx",
+    "whole_file_reconstruction": "byte-identical",
+    "onnx_checker": "passed",
+    "semantic_reference": {
+      "359x641": { "max_abs": 0.0000580, "psnr_db": 125.36 },
+      "1280x720": { "max_abs": 0.000104, "psnr_db": 124.11 },
+      "1920x1080": { "max_abs": 0.000193, "psnr_db": 128.57 }
+    }
+  },
+  "notices": [
+    "../../../tools/framegen-manager/notices/Practical-RIFE-MIT.txt",
+    "../../../tools/framegen-manager/notices/vs-rife-MIT.txt"
+  ]
+}

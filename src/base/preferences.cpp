@@ -62,6 +62,18 @@ namespace
         SettingsStorage::instance()->storeValue(key, value);
     }
 
+    Content::ReaderSettings normalizedReaderSettings(Content::ReaderSettings settings)
+    {
+        settings.mode = static_cast<Content::ReaderMode>(std::clamp(static_cast<int>(settings.mode),
+            static_cast<int>(Content::ReaderMode::Paged), static_cast<int>(Content::ReaderMode::Continuous)));
+        settings.imageFit = static_cast<Content::ImageFit>(std::clamp(static_cast<int>(settings.imageFit),
+            static_cast<int>(Content::ImageFit::Height), static_cast<int>(Content::ImageFit::Width)));
+        settings.brightness = std::clamp(settings.brightness, 30, 100);
+        settings.pageGap = std::clamp(settings.pageGap, 0, 48);
+        settings.contentWidth = std::clamp(settings.contentWidth, 50, 100);
+        return settings;
+    }
+
 #ifdef Q_OS_WIN
     QString makeProfileID(const Path &profilePath, const QString &profileName)
     {
@@ -91,6 +103,33 @@ void Preferences::freeInstance()
 {
     delete m_instance;
     m_instance = nullptr;
+}
+
+Content::ReaderSettings Preferences::readerSettings() const
+{
+    Content::ReaderSettings settings;
+    settings.mode = static_cast<Content::ReaderMode>(value(u"Reader/Mode"_s, static_cast<int>(settings.mode)));
+    settings.imageFit = static_cast<Content::ImageFit>(value(u"Reader/ImageFit"_s, static_cast<int>(settings.imageFit)));
+    settings.enlargeSmallImages = value(u"Reader/EnlargeSmallImages"_s, settings.enlargeSmallImages);
+    settings.brightness = value(u"Reader/Brightness"_s, settings.brightness);
+    settings.pageGap = value(u"Reader/PageGap"_s, settings.pageGap);
+    settings.contentWidth = value(u"Reader/ContentWidth"_s, settings.contentWidth);
+    return normalizedReaderSettings(settings);
+}
+
+void Preferences::setReaderSettings(const Content::ReaderSettings &settings)
+{
+    const Content::ReaderSettings normalized = normalizedReaderSettings(settings);
+    if (normalized == readerSettings())
+        return;
+
+    setValue(u"Reader/Mode"_s, static_cast<int>(normalized.mode));
+    setValue(u"Reader/ImageFit"_s, static_cast<int>(normalized.imageFit));
+    setValue(u"Reader/EnlargeSmallImages"_s, normalized.enlargeSmallImages);
+    setValue(u"Reader/Brightness"_s, normalized.brightness);
+    setValue(u"Reader/PageGap"_s, normalized.pageGap);
+    setValue(u"Reader/ContentWidth"_s, normalized.contentWidth);
+    emit readerSettingsChanged();
 }
 
 // General options
@@ -620,7 +659,7 @@ void Preferences::setSchedulerDays(const Scheduler::Days days)
 // Search
 bool Preferences::isSearchEnabled() const
 {
-    return value(u"Preferences/Search/SearchEnabled"_s, false);
+    return value(u"Preferences/Search/SearchEnabled"_s, true);
 }
 
 void Preferences::setSearchEnabled(const bool enabled)
@@ -629,47 +668,6 @@ void Preferences::setSearchEnabled(const bool enabled)
         return;
 
     setValue(u"Preferences/Search/SearchEnabled"_s, enabled);
-}
-
-int Preferences::searchHistoryLength() const
-{
-    const int val = value(u"Search/HistoryLength"_s, 50);
-    return std::clamp(val, 0, 99);
-}
-
-void Preferences::setSearchHistoryLength(const int length)
-{
-    const int clampedLength = std::clamp(length, 0, 99);
-    if (clampedLength == searchHistoryLength())
-        return;
-
-    setValue(u"Search/HistoryLength"_s, clampedLength);
-}
-
-bool Preferences::storeOpenedSearchTabs() const
-{
-    return value(u"Search/StoreOpenedSearchTabs"_s, false);
-}
-
-void Preferences::setStoreOpenedSearchTabs(const bool enabled)
-{
-    if (enabled == storeOpenedSearchTabs())
-        return;
-
-    setValue(u"Search/StoreOpenedSearchTabs"_s, enabled);
-}
-
-bool Preferences::storeOpenedSearchTabResults() const
-{
-    return value(u"Search/StoreOpenedSearchTabResults"_s, false);
-}
-
-void Preferences::setStoreOpenedSearchTabResults(const bool enabled)
-{
-    if (enabled == storeOpenedSearchTabResults())
-        return;
-
-    setValue(u"Search/StoreOpenedSearchTabResults"_s, enabled);
 }
 
 bool Preferences::isWebUIEnabled() const
@@ -1662,32 +1660,6 @@ void Preferences::setRssMainSplitterState(const QByteArray &state)
         return;
 
     setValue(u"GUI/Qt6/RSSWidget/MainSplitterState"_s, state);
-}
-
-QByteArray Preferences::getSearchTabHeaderState() const
-{
-    return value<QByteArray>(u"GUI/Qt6/SearchTab/HeaderState"_s);
-}
-
-void Preferences::setSearchTabHeaderState(const QByteArray &state)
-{
-    if (state == getSearchTabHeaderState())
-        return;
-
-    setValue(u"GUI/Qt6/SearchTab/HeaderState"_s, state);
-}
-
-bool Preferences::getRegexAsFilteringPatternForSearchJob() const
-{
-    return value(u"SearchTab/UseRegexAsFilteringPattern"_s, false);
-}
-
-void Preferences::setRegexAsFilteringPatternForSearchJob(const bool checked)
-{
-    if (checked == getRegexAsFilteringPatternForSearchJob())
-        return;
-
-    setValue(u"SearchTab/UseRegexAsFilteringPattern"_s, checked);
 }
 
 QStringList Preferences::getSearchEngDisabled() const

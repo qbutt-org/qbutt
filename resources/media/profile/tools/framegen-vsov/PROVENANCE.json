@@ -1,0 +1,176 @@
+{
+  "schema_version": 2,
+  "artifact": {
+    "filename": "vsov.dll",
+    "bytes": 4231168,
+    "sha256": "25229F2263D6DFE2794E7140C8CDC6093E40C24F5FC840225B73E974DB65CD22",
+    "architecture": "x86_64-windows",
+    "authenticode": "not-signed",
+    "direct_imports": ["KERNEL32.dll", "dbghelp.dll"],
+    "delay_load_imports": ["openvino.dll"]
+  },
+  "vs_mlrt": {
+    "repository": "https://github.com/AmusementClub/vs-mlrt",
+    "tag": "v15.16",
+    "commit": "885e8bb827fc431fce8e3109e7d60b0c38aa2035",
+    "license": "GPL-3.0",
+    "source_archive": {
+      "path": "source/vs-mlrt-v15.16-source.zip",
+      "bytes": 166377,
+      "sha256": "1BE96BA225BABDC28212CC7695B7538001AE4ABBC0117E8C72C8720C38C1032F",
+      "archive_root": "vs-mlrt-v15.16",
+      "contents": "git archive of the complete upstream v15.16 tagged source tree"
+    },
+    "local_modification": {
+      "modified_by": "mpv-config",
+      "modified_on": "2026-08-15",
+      "notice": "source/MODIFICATIONS.md",
+      "notice_sha256": "5A268C095FFA42D5B06FE5CB71712DAE148CE174E20337173FFC5CAFFDE14A06",
+      "patch": "source/deterministic-vcs-tag.patch",
+      "patch_sha256": "36878605EAA5C08008EB810942B284A2B82B4BE6D583743AE6A3FFC55EDF7A4B",
+      "purpose": "replace checkout-dependent git describe with the equivalent immutable v15.16 identity; runtime code is unchanged"
+    }
+  },
+  "vapoursynth_headers": [
+    {
+      "name": "VapourSynth.h",
+      "repository": "https://github.com/vapoursynth/vapoursynth",
+      "tag": "R54",
+      "commit": "32d503e362e3434ab6483290843a2cc0f3756ae8",
+      "path": "source/VapourSynth-R54-VapourSynth.h",
+      "bytes": 15848,
+      "sha256": "FAE4948F3FA8317A55287FB7D6586A73BD579933D595D376B60536CDD04CCAED",
+      "license": "LGPL-2.1-or-later",
+      "license_file": "licenses/VapourSynth-R54-LGPL-2.1.txt",
+      "license_sha256": "92A759EC0FEBDE4750821736BBDE642A3B835C0604FC81BEE62F9E428F86981F"
+    },
+    {
+      "name": "VSHelper.h",
+      "repository": "https://github.com/vapoursynth/vapoursynth",
+      "tag": "R54",
+      "commit": "32d503e362e3434ab6483290843a2cc0f3756ae8",
+      "path": "source/VapourSynth-R54-VSHelper.h",
+      "bytes": 5685,
+      "sha256": "79037D7E012295E67A0572BCDEA372B50D635479D3FD281764306A9DD49622BF",
+      "license": "WTFPL-2.0",
+      "license_file": "licenses/VapourSynth-R54-VSHelper-WTFPL-2.0.txt",
+      "license_sha256": "96F17857F3EB28A7D93DAD930BC099A3CB65A9A2AFB37069BFD1BA5EC5964389"
+    }
+  ],
+  "openvino": {
+    "source_repository": "https://github.com/openvinotoolkit/openvino",
+    "tag": "2026.2.1",
+    "commit": "ede283a88e35465f0d680dabbf1f44080f8fc387",
+    "product_version": "2026.2.1-21919-ede283a88e3-releases/2026/2",
+    "license": "Apache-2.0",
+    "source_archive": {
+      "url": "https://github.com/openvinotoolkit/openvino/archive/ede283a88e35465f0d680dabbf1f44080f8fc387.tar.gz",
+      "bytes": 26714352,
+      "sha256": "41729E3E1AC4E679948D59A8837F767D3D5C4BE4B67A1C636EC98581D0378DBF",
+      "sha512": "11D567E9DC196634A57C4AA574A37C100B863BDD4184833C4D8BC5869E02BA449237FBEC076DF1508AFB30E91C298CBC1322E88A4E6DDF6CFD71C48A18016192",
+      "directions": "source/SOURCE-DOWNLOADS.json"
+    },
+    "wheel": {
+      "filename": "openvino-2026.2.1-21919-cp313-cp313-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/ee/e5/13b9bfc20c02706d015e96e5b3e932227d658b3826b4aa5007cdc2455ed4/openvino-2026.2.1-21919-cp313-cp313-win_amd64.whl",
+      "bytes": 76171396,
+      "sha256": "197435104D18657A7CC4D05850615B913618EBB0D3BAAEC052FDA25A2D831C74"
+    }
+  },
+  "static_dependencies": {
+    "vcpkg_commit": "62739e5f7b27f2e04abd051a61c4848940204d93",
+    "target_triplet": "x64-windows-static-mpv",
+    "host_triplet": "x64-windows-mpv-host",
+    "binary_cache": "disabled",
+    "download_cache": "content-verified source archives and vcpkg tools only",
+    "manifest": "source/vcpkg.json",
+    "manifest_sha256": "55FE5AA5FAF2ACFC9CC543B90CD6A53BC3229F17EF07C8F051CB44C130EB70E3",
+    "bundled_port_snapshot": "source/vcpkg-ports",
+    "exact_source_directions": "source/SOURCE-DOWNLOADS.json",
+    "source_directions_sha256": "4EF875BE86E1C5CDCF8515D0FC590533D503D0B7711BB5C0D0E746C78FB77BA7",
+    "packages": [
+      {
+        "name": "onnx",
+        "version": "1.19.0",
+        "license": "Apache-2.0",
+        "license_file": "licenses/onnx-Apache-2.0.txt",
+        "license_sha256": "CFC7749B96F63BD31C3C42B5C471BF756814053E847C10F3EB003417BC523D30"
+      },
+      {
+        "name": "protobuf",
+        "version": "6.33.4#2",
+        "license": "BSD-3-Clause",
+        "license_file": "licenses/protobuf-BSD-3-Clause.txt",
+        "license_sha256": "6E5E117324AFD944DCF67F36CF329843BC1A92229A8CD9BB573D7A83130FEA7D"
+      },
+      {
+        "name": "abseil",
+        "version": "20260107.1#3",
+        "license": "Apache-2.0",
+        "license_file": "licenses/abseil-Apache-2.0.txt",
+        "license_sha256": "C79A7FEA0E3CAC04CD43F20E7B648E5A0FF8FA5344E644B0EE09CA1162B62747"
+      },
+      {
+        "name": "utf8-range",
+        "version": "6.33.4",
+        "license": "MIT",
+        "license_file": "licenses/utf8-range-MIT.txt",
+        "license_sha256": "02DE69B64FC36D9E938F418E52723E42F0B2B226D58A9CB3C8DCBDF7059F5074"
+      }
+    ]
+  },
+  "corresponding_source_inventory": {
+    "upstream_complete_source": "source/vs-mlrt-v15.16-source.zip",
+    "modification_notice": "source/MODIFICATIONS.md",
+    "build_patch": "source/deterministic-vcs-tag.patch",
+    "build_script": "source/build-vsov.ps1",
+    "build_script_sha256": "D3D204EF6208E94412EC4FFCA349BF620CEA6F3C1ED9641123A15E608990FFFF",
+    "dependency_manifest": "source/vcpkg.json",
+    "dependency_port_snapshot": "source/vcpkg-ports",
+    "dependency_source_directions": "source/SOURCE-DOWNLOADS.json",
+    "interface_headers": [
+      "source/VapourSynth-R54-VapourSynth.h",
+      "source/VapourSynth-R54-VSHelper.h"
+    ],
+    "license_inventory": [
+      "licenses/vs-mlrt-GPL-3.0.txt",
+      "licenses/VapourSynth-R54-LGPL-2.1.txt",
+      "licenses/VapourSynth-R54-VSHelper-WTFPL-2.0.txt",
+      "licenses/onnx-Apache-2.0.txt",
+      "licenses/protobuf-BSD-3-Clause.txt",
+      "licenses/abseil-Apache-2.0.txt",
+      "licenses/utf8-range-MIT.txt"
+    ],
+    "scope": "The complete modified VSOV source, every local change and build recipe, both interface headers, exact port patches, license texts, and content-hashed no-charge source retrieval directions for every static dependency and the required delay-loaded OpenVINO library accompany the conveyed DLL."
+  },
+  "toolchain": {
+    "visual_studio": "2022 17.11.4 (17.11.35312.102)",
+    "msvc": "19.41.34120.0",
+    "platform_toolset": "v143",
+    "windows_sdk": "10.0.22621.0",
+    "cmake": "3.26.0",
+    "configuration": "Release",
+    "compiler_flags": "/O2 /Ob2 /DNDEBUG plus exact per-process CL=/Brepro /experimental:deterministic and quoted /pathmap mappings for <download-cache>, <work>, <vcpkg>, and <corresponding-source>",
+    "linker_flags": "/INCREMENTAL:NO /Brepro",
+    "runtime_library": "MultiThreaded"
+  },
+  "reproducibility": {
+    "path_independent": true,
+    "normalization": "Controlled per-process CL reaches target, host and top-level MSVC compiles; quoted /pathmap arguments normalize the download cache, per-run work root, fresh vcpkg checkout and corresponding-source checkout; linker uses /Brepro",
+    "fresh_dependency_roots": true,
+    "vcpkg_binary_cache": "disabled",
+    "shared_download_cache": "content-verified source archives and vcpkg tools only",
+    "independent_builds": [
+      {
+        "label": "final-clean-i",
+        "output_bytes": 4231168,
+        "output_sha256": "25229F2263D6DFE2794E7140C8CDC6093E40C24F5FC840225B73E974DB65CD22"
+      },
+      {
+        "label": "final-clean-space-j",
+        "output_bytes": 4231168,
+        "output_sha256": "25229F2263D6DFE2794E7140C8CDC6093E40C24F5FC840225B73E974DB65CD22"
+      }
+    ]
+  }
+}

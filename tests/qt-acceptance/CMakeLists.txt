@@ -1,7 +1,17 @@
 add_executable(qbutt-qt-acceptance
     main.cpp
+    add-torrent-layout.cpp
+    add-torrent-layout.h
+    content-library.cpp
+    content-library.h
+    reader-flow.cpp
+    reader-flow.h
     update-registry.cpp
     update-registry.h
+    media-playback.cpp
+    media-playback.h
+    subtitles-playback.cpp
+    subtitles-playback.h
     ${qBittorrent_SOURCE_DIR}/src/app/application.h
     ${qBittorrent_SOURCE_DIR}/src/app/application.cpp
     ${qBittorrent_SOURCE_DIR}/src/app/applicationinstancemanager.h

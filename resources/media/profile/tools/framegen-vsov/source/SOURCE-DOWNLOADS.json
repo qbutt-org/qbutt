@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "purpose": "Exact no-charge source retrieval directions for the conveyed VSOV binary's static dependencies and required delay-loaded OpenVINO library",
+  "vcpkg": {
+    "repository": "https://github.com/microsoft/vcpkg",
+    "commit": "62739e5f7b27f2e04abd051a61c4848940204d93",
+    "archive_url": "https://github.com/microsoft/vcpkg/archive/62739e5f7b27f2e04abd051a61c4848940204d93.tar.gz",
+    "archive_bytes": 5364943,
+    "archive_sha256": "DDAAF9A16738075A59B1DE5DBB2B530D05901CB3D99D989AC955AFD7F1F7D15B",
+    "archive_sha512": "9C58F87E57413E547F95D5A5D0D794E771BD0842ACDBD0A206EDF88B792E31D420C00FEE7A1C696B4A8DDB90BAE32DEDDCE17E76A90C2ED152932B8A2C7B399F",
+    "bundled_port_snapshot": "vcpkg-ports"
+  },
+  "sources": [
+    {
+      "packages": ["openvino"],
+      "version": "2026.2.1",
+      "tag": "2026.2.1",
+      "commit": "ede283a88e35465f0d680dabbf1f44080f8fc387",
+      "archive_url": "https://github.com/openvinotoolkit/openvino/archive/ede283a88e35465f0d680dabbf1f44080f8fc387.tar.gz",
+      "archive_bytes": 26714352,
+      "archive_sha256": "41729E3E1AC4E679948D59A8837F767D3D5C4BE4B67A1C636EC98581D0378DBF",
+      "archive_sha512": "11D567E9DC196634A57C4AA574A37C100B863BDD4184833C4D8BC5869E02BA449237FBEC076DF1508AFB30E91C298CBC1322E88A4E6DDF6CFD71C48A18016192",
+      "relationship": "source for the exact OpenVINO 2026.2.1 library delay-loaded by vsov.dll"
+    },
+    {
+      "packages": ["onnx"],
+      "version": "1.19.0",
+      "tag": "v1.19.0",
+      "commit": "57b9c6a4f6eebb09ae1b34cfb632078518f72832",
+      "archive_url": "https://github.com/onnx/onnx/archive/refs/tags/v1.19.0.tar.gz",
+      "archive_bytes": 13125229,
+      "archive_sha256": "2C2AC5A078B0350A0723FAC606BE8CD9E9E8CBD4C99BAB1BFFE2623B188FD236",
+      "archive_sha512": "E6F7B5782A43A91783607549E4D0F0A9CBD46DFB67A602F81AAFFC7BCDD8F450FE9C225F0BC314704F2923E396F0DF5B03EA91AF4A7887203C0B8372BC2749D0",
+      "port": "vcpkg-ports/onnx"
+    },
+    {
+      "packages": ["protobuf", "utf8-range"],
+      "version": "6.33.4",
+      "tag": "v33.4",
+      "commit": "edaa823d8b36a8656d7b2b9241b7d0bfe50af878",
+      "archive_url": "https://github.com/protocolbuffers/protobuf/archive/refs/tags/v33.4.tar.gz",
+      "archive_bytes": 6889595,
+      "archive_sha256": "136A07AAD488CC502B11C4416FE4A7DF2DFDEA1D0833A7A8211000BF952728BA",
+      "archive_sha512": "540059A93721447CF4723BCCA06E91C43A4399CB366C05BF84E9D8E2C439F3107BA17803F9D912549B54C471F2DCC4C9FC834145EC441DFF31CA24F9A3543AA9",
+      "ports": ["vcpkg-ports/protobuf", "vcpkg-ports/utf8-range"],
+      "utf8_range_source": "third_party/utf8_range"
+    },
+    {
+      "packages": ["abseil"],
+      "version": "20260107.1",
+      "tag": "20260107.1",
+      "commit": "255c84dadd029fd8ad25c5efb5933e47beaa00c7",
+      "archive_url": "https://github.com/abseil/abseil-cpp/archive/refs/tags/20260107.1.tar.gz",
+      "archive_bytes": 2301097,
+      "archive_sha256": "4314E2A7CBAC89CAC25A2F2322870F343D81579756CEFF7F431803C2C9090195",
+      "archive_sha512": "F5012885D6B6844A9CF5ED92AD5468B8757DB33DFE1364BFB232FFF928E06C550C7EB4557F45186A8AC4D18B178DF9BE267681ABAB4A6DE40823B574AFBE9960",
+      "port": "vcpkg-ports/abseil"
+    }
+  ],
+  "verification": "Download each archive from its listed URL and reject it unless the byte count, SHA-256 and SHA-512 match. For vcpkg-managed sources, the SHA-512 values are also the exact hashes enforced by the pinned portfiles."
+}

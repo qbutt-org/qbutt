@@ -31,6 +31,7 @@
 
 #include <functional>
 #include <memory>
+#include <vector>
 
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/fwd.hpp>
@@ -45,6 +46,7 @@
 #include <QMap>
 #include <QObject>
 #include <QQueue>
+#include <QSet>
 #include <QString>
 
 #include "base/path.h"
@@ -289,6 +291,16 @@ namespace BitTorrent
         // Session interface
         lt::torrent_handle nativeHandle() const;
 
+        void acquireStreamingLease() override;
+        void releaseStreamingLease() override;
+        bool hasStreamingLease() const;
+        void setStreamingRange(QObject *consumer, int fileIndex, qint64 offset, qint64 length, bool urgent = true);
+        void clearStreamingRange(QObject *consumer);
+        void requestStreamingPiece(int piece);
+        void handleStreamingPieceAvailable(int piece);
+        void handleStreamingPiece(int piece, const QByteArray &data, const QString &error);
+        void handleFilePrioritiesApplied();
+
         int fileIndexFromNative(lt::file_index_t nativeFileIndex) const;
 
         void handleStateUpdate(const lt::torrent_status &nativeStatus);
@@ -313,6 +325,8 @@ namespace BitTorrent
 
     signals:
         void repairStorageChanged(const QString &error);
+        void streamingPieceReady(int piece, const QByteArray &data, const QString &error);
+        void streamingStopped();
 
     private:
         using EventTrigger = std::function<void ()>;
@@ -335,7 +349,10 @@ namespace BitTorrent
         void doRenameFile(int index, const Path &path);
         void moveStorage(const Path &newPath, MoveStorageContext context);
         void manageActualFilePaths();
-        void applyFirstLastPiecePriority(bool enabled);
+        std::vector<lt::download_priority_t> normalPiecePriorities() const;
+        void applyPiecePriorities(bool refreshDeadlines = false);
+        void dispatchStreamingReads();
+        void stopStreaming();
 
         void prepareResumeData(lt::add_torrent_params resumeData);
         void endReceivedMetadataHandling(const Path &savePath, const PathList &fileNames);
@@ -354,6 +371,18 @@ namespace BitTorrent
         PathList m_filePaths;
         QHash<lt::file_index_t, int> m_indexMap;
         QList<DownloadPriority> m_filePriorities;
+        struct StreamingRange
+        {
+            int first = 0;
+            int last = 0;
+            bool urgent = true;
+        };
+        QHash<QObject *, StreamingRange> m_streamingRanges;
+        int m_streamingLeases = 0;
+        QMap<int, int> m_streamingDeadlines;
+        QSet<int> m_verifiedStreamingPieces;
+        QSet<int> m_pendingStreamingReads;
+        QSet<int> m_streamingReads;
         QBitArray m_completedFiles;
         SpeedMonitor m_payloadRateMonitor;
 

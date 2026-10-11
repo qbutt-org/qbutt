@@ -36,20 +36,32 @@ try {
         "Session\\InterfaceAddress=127.0.0.1", "Session\\AddTorrentStopped=true",
         "[Network]", "PortForwardingEnabled=false", "[Core]", "AutoOpenTorrentFiles=false",
         "[GUI]", "Notifications\\Enabled=false",
-        "[Preferences]", "General\\Locale=en", "Advanced\\updateCheck=false",
+        "[Preferences]", "General\\Locale=ru", "Advanced\\updateCheck=false",
         "Connection\\ResolvePeerCountries=false", "Connection\\ResolvePeerHostNames=false",
         "WebUI\\Enabled=false", ...labAppearanceSettings("functional"), "",
     ].join("\n"));
     const bytes = Buffer.from("qbutt generated legal auto-open fixture\n");
-    await writeFile(join(payload, "payload.bin"), bytes);
+    const name = "qbutt original fixture";
+    const originalRoot = join(payload, name);
+    const files = [
+        ["Original folder", "First.txt"],
+        ["Original folder", "Second original fixture with a long filename for horizontal scrolling.txt"],
+        ["Readme.txt"],
+    ];
+    for (const parts of files) {
+        await mkdir(join(originalRoot, ...parts.slice(0, -1)), { recursive: true });
+        await writeFile(join(originalRoot, ...parts), bytes);
+    }
     const torrent = join(root, "fixture.torrent");
-    await writeFile(torrent, encode({ info: { length: bytes.length, name: Buffer.from("payload.bin"),
-        "piece length": 16384, pieces: createHash("sha1").update(bytes).digest() } }));
+    await writeFile(torrent, encode({ info: { name: Buffer.from(name), private: 1,
+        files: files.map(parts => ({ length: bytes.length, path: parts.map(part => Buffer.from(part)) })),
+        "piece length": 16384, pieces: createHash("sha1").update(Buffer.concat(files.map(() => bytes))).digest() } }));
     await cp(torrent, join(watched, "nested", "ignored.torrent"));
     await writeFile(join(watched, "invalid.torrent"), "not a torrent");
     const evidencePath = join(root, "evidence.json");
     const spec = join(root, "spec.json");
-    await writeFile(spec, JSON.stringify({ schema: 1, mode: "auto-open", evidencePath, profile, watched, payload, torrent }));
+    await writeFile(spec, JSON.stringify({ schema: 1, mode: "auto-open", evidencePath, profile, watched, payload, torrent,
+        screenshots: root }));
     application = Bun.spawn([executable, `--profile=${profile}`], {
         cwd: bundle, windowsHide: true, timeout: 90000,
         env: { ...process.env, QBUTT_QT_ACCEPTANCE_SPEC: spec, QT_QPA_PLATFORM: "offscreen", QT_SCALE_FACTOR: "1" },
@@ -59,7 +71,9 @@ try {
     const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
     assert.equal(evidence.status, "passed");
     assert(evidence.checks.some((check: { name: string }) => check.name === "auto-open"));
-    assert.deepEqual(await readFile(join(payload, "payload.bin")), bytes, "Auto-open changed or deleted payload");
+    assert(evidence.checks.some((check: { name: string }) => check.name === "add-torrent-fresh-layout"));
+    for (const parts of files)
+        assert.deepEqual(await readFile(join(originalRoot, ...parts)), bytes, "Auto-open changed or deleted payload");
     const saved = await readFile(join(profile, "qbutt", "config", "qbutt.ini"), "utf8");
     assert(saved.includes("AutoOpenTorrentFiles=false"), "Disabled setting was not persisted");
     assert(saved.includes("AutoOpenTorrentFolder="), "Selected folder was not persisted");

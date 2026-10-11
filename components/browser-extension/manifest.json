@@ -1,0 +1,25 @@
+{
+    "manifest_version": 3,
+    "name": "qbutt Browser Connection",
+    "version": "1.0.0",
+    "description": "Connect browser sessions and selected video players to qbutt.",
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwK1Tcx1kpdf48qnDI5Pm9v9df1K4UxUOaZNoK5vtpCxQbKpwWyz2Rg+GQcX/GLLohi/QojXV7EvuTYlmxzVrEYFP+tRgH6yvnEBLyWcJ85chqlRyKxJ2u7qc1aIk8XQGF++5+yIAtpFp/I6oxaJGUK++e+Hzx4L5E9Psfc+OaRberuaOgFidC5nIXMarzWtT+HvrlGNlLTTrSuFsjQHCWJs9t/e+H0UR3HtkjdgnuBn5zskugSmtM3WzoYSz8yCH18vS2S9ZJl8zgaw5PbGl+jSeTWiHYVmw2f9YoqoEHQQa1E4m89t2SMSaBSmFzXqyw20a/ZtxUYuIqK82QvSfbQIDAQAB",
+    "permissions": ["cookies", "nativeMessaging", "tabs", "webRequest", "alarms"],
+    "host_permissions": ["http://*/*", "https://*/*"],
+    "background": { "service_worker": "background.js" },
+    "content_scripts": [
+        {
+            "all_frames": true,
+            "matches": ["http://*/*", "https://*/*"],
+            "js": ["sniffer.js"],
+            "run_at": "document_start",
+            "world": "MAIN"
+        },
+        {
+            "all_frames": true,
+            "matches": ["http://*/*", "https://*/*"],
+            "js": ["content.js"],
+            "run_at": "document_start"
+        }
+    ]
+}

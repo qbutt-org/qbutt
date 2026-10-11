@@ -49,6 +49,7 @@
 #include "base/bittorrent/trackerentrystatus.h"
 #include "base/global.h"
 #include "base/logger.h"
+#include "base/media/player.h"
 #include "base/path.h"
 #include "base/preferences.h"
 #include "base/torrentfilter.h"
@@ -99,7 +100,7 @@ namespace
 
         for (const Path &filePath : asConst(torrent->filePaths()))
         {
-            if (Utils::Misc::isPreviewable(filePath))
+            if (Utils::Misc::isPreviewable(filePath) && !Media::Player::isMediaFile(filePath.toString()))
                 return true;
         }
 
@@ -1016,6 +1017,42 @@ void TransferListWidget::displayListMenu()
     auto *listMenu = new QMenu(this);
     listMenu->setAttribute(Qt::WA_DeleteOnClose);
     listMenu->setToolTipsVisible(true);
+
+    if (selectedIndexes.size() == 1)
+    {
+        QPointer<BitTorrent::Torrent> torrent = m_listModel->torrentHandle(mapToSource(selectedIndexes.first()));
+        if (torrent && torrent->hasMetadata())
+        {
+            QList<int> mediaFiles;
+            const PathList paths = torrent->filePaths();
+            for (qsizetype i = 0; i < paths.size(); ++i)
+            {
+                if (Media::Player::isMediaFile(paths[i].toString()))
+                    mediaFiles.append(i);
+            }
+            if (mediaFiles.size() == 1)
+            {
+                listMenu->addAction(UIThemeManager::instance()->getIcon(u"media-playback-start"_s), tr("Watch"), this
+                    , [torrent, file = mediaFiles.first()]
+                {
+                    if (torrent)
+                        Media::Player::instance()->playTorrent(torrent, file);
+                });
+            }
+            else if (!mediaFiles.isEmpty())
+            {
+                auto *watchMenu = listMenu->addMenu(UIThemeManager::instance()->getIcon(u"media-playback-start"_s), tr("Watch"));
+                for (const int file : mediaFiles)
+                {
+                    watchMenu->addAction(paths[file].toString(), this, [torrent, file]
+                    {
+                        if (torrent)
+                            Media::Player::instance()->playTorrent(torrent, file);
+                    });
+                }
+            }
+        }
+    }
 
     // Create actions
 

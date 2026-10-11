@@ -66,6 +66,9 @@ public:
     bool addTorrent(const QString &source, const BitTorrent::AddTorrentParams &params = {}, AddTorrentOption option = AddTorrentOption::Default);
     bool showTorrent(const QString &source, const BitTorrent::TorrentDescriptor &torrentDescr, const BitTorrent::AddTorrentParams &params = {});
 
+signals:
+    void addTorrentCancelled(const BitTorrent::InfoHash &infoHash);
+
 private:
     void onDownloadFinished(const Net::DownloadResult &result);
     void onMetadataDownloaded(const BitTorrent::TorrentInfo &metadata);

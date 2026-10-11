@@ -40,6 +40,8 @@
 #include <QWheelEvent>
 
 #include "base/bittorrent/torrentcontenthandler.h"
+#include "base/bittorrent/torrent.h"
+#include "base/media/player.h"
 #include "base/path.h"
 #include "base/utils/string.h"
 #include "autoexpandabledialog.h"
@@ -420,7 +422,10 @@ void TorrentContentWidget::displayContextMenu()
 
         if (!contentHandler()->actualStorageLocation().isEmpty())
         {
-            menu->addAction(UIThemeManager::instance()->getIcon(u"folder-documents"_s), tr("Open")
+            const bool media = (getFileIndex(index) >= 0) && Media::Player::isMediaFile(getItemPath(index).toString())
+                && qobject_cast<BitTorrent::Torrent *>(contentHandler());
+            menu->addAction(UIThemeManager::instance()->getIcon(media ? u"media-playback-start"_s : u"folder-documents"_s)
+                            , media ? tr("Watch") : tr("Open")
                             , this, [this, index]() { openItem(index); });
             menu->addAction(UIThemeManager::instance()->getIcon(u"directory"_s), tr("Open containing folder")
                             , this, [this, index]() { openParentFolder(index); });
@@ -487,6 +492,16 @@ void TorrentContentWidget::openItem(const QModelIndex &index) const
 {
     if (!index.isValid())
         return;
+
+    if (auto *torrent = qobject_cast<BitTorrent::Torrent *>(m_model->contentHandler()))
+    {
+        const int fileIndex = getFileIndex(index);
+        if ((fileIndex >= 0) && Media::Player::isMediaFile(torrent->filePaths().at(fileIndex).toString()))
+        {
+            Media::Player::instance()->playTorrent(torrent, fileIndex);
+            return;
+        }
+    }
 
     m_model->contentHandler()->flushCache();  // Flush data
     Utils::Gui::openPath(getFullPath(index));

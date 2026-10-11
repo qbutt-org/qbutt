@@ -164,7 +164,11 @@ export async function createLab(name: string, options: { pex?: boolean; protocol
         assert(!processHandle, "Lab process is already running");
         ++launch;
         processHandle = Bun.spawn([executable!, `--profile=${profile}`, `--webui-port=${port}`], {
-            env: { ...process.env, QT_QPA_PLATFORM: "offscreen" },
+            env: {
+                ...process.env,
+                QT_QPA_PLATFORM: "offscreen",
+                QBUTT_BROWSER_BRIDGE_DISCOVERY: join(root, "browser-bridge.json"),
+            },
             stdout: Bun.file(join(root, `app-${launch}.stdout.log`)),
             stderr: Bun.file(join(root, `app-${launch}.stderr.log`)),
         });

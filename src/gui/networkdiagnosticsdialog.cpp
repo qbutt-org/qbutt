@@ -233,7 +233,7 @@ NetworkDiagnosticsDialog::NetworkDiagnosticsDialog(QWidget *parent, BitTorrent::
     auto *detailsLayout = new QVBoxLayout {details};
     detailsLayout->setContentsMargins(0, 0, 0, 0);
     detailsLayout->addWidget(m_summary);
-    auto *pathScope = new QLabel {tr("Connections · all torrents"), details};
+    auto *pathScope = new QLabel {tr("Connections [all torrents]"), details};
     pathScope->setToolTip(tr("Verified bytes count downloaded data after a successful hash check, excluding padding, "
         "duplicate copies and existing files. Inactive connection totals expire after 15 minutes."));
     detailsLayout->addWidget(pathScope);
@@ -571,7 +571,7 @@ void NetworkDiagnosticsDialog::render(const QJsonObject &snapshot)
 {
     const QJsonObject torrent = snapshot.value(u"torrent"_s).toObject();
     const QJsonObject peers = snapshot.value(u"peers"_s).toObject();
-    m_transfer->setText(tr("Download: %1 · Upload: %2 · Peers: %L3")
+    m_transfer->setText(tr("Download: %1, Upload: %2, Peers: %L3")
         .arg(Utils::Misc::friendlyUnit(torrent.value(u"payloadDownloadRate"_s).toInteger(), true),
             Utils::Misc::friendlyUnit(torrent.value(u"payloadUploadRate"_s).toInteger(), true))
         .arg(torrent.value(u"establishedPeers"_s).toInt()));
@@ -605,7 +605,7 @@ void NetworkDiagnosticsDialog::render(const QJsonObject &snapshot)
         .arg(Utils::Misc::friendlyUnit(carrierDownload), Utils::Misc::friendlyUnit(carrierUpload))
         : tr("Not reported");
     const QJsonObject decisions = snapshot.value(u"selector"_s).toObject().value(u"recentDecisions"_s).toObject();
-    const QString decisionCounts = tr("Pinned %1 · scored %2 · exploration %3 · denied %4")
+    const QString decisionCounts = tr("Pinned %1, scored %2, exploration %3, denied %4")
         .arg(decisions.value(u"pinned"_s).toInt()).arg(decisions.value(u"best-score"_s).toInt())
         .arg(decisions.value(u"exploration"_s).toInt())
         .arg(decisions.value(u"blocked-no-route"_s).toInt() + decisions.value(u"blocked-cooldown"_s).toInt());

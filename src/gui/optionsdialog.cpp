@@ -68,6 +68,7 @@
 #include "addnewtorrentdialog.h"
 #include "advancedsettings.h"
 #include "banlistoptionsdialog.h"
+#include "content/sourcesdialog.h"
 #include "interfaces/iguiapplication.h"
 #include "ipsubnetwhitelistoptionsdialog.h"
 #include "pathswidget.h"
@@ -204,7 +205,12 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, QWidget *parent)
     loadSpeedTabOptions();
     loadBittorrentTabOptions();
     loadRSSTabOptions();
-    loadSearchTabOptions();
+    connect(m_ui->sourcesSettingsButton, &QPushButton::clicked, this, [this]
+    {
+        auto *dialog = new Content::SourcesDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->open();
+    });
 #ifndef DISABLE_WEBUI
     loadWebUITabOptions();
 #endif
@@ -1273,28 +1279,6 @@ void OptionsDialog::saveRSSTabOptions() const
     autoDownloader->setDownloadRepacks(m_ui->checkSmartFilterDownloadRepacks->isChecked());
 }
 
-void OptionsDialog::loadSearchTabOptions()
-{
-    const auto *pref = Preferences::instance();
-
-    m_ui->groupStoreOpenedTabs->setChecked(pref->storeOpenedSearchTabs());
-    m_ui->checkStoreTabsSearchResults->setChecked(pref->storeOpenedSearchTabResults());
-    m_ui->searchHistoryLengthSpinBox->setValue(pref->searchHistoryLength());
-
-    connect(m_ui->groupStoreOpenedTabs, &QGroupBox::toggled, this, &OptionsDialog::enableApplyButton);
-    connect(m_ui->checkStoreTabsSearchResults, &QCheckBox::toggled, this, &OptionsDialog::enableApplyButton);
-    connect(m_ui->searchHistoryLengthSpinBox, qSpinBoxValueChanged, this, &OptionsDialog::enableApplyButton);
-}
-
-void OptionsDialog::saveSearchTabOptions() const
-{
-    auto *pref = Preferences::instance();
-
-    pref->setStoreOpenedSearchTabs(m_ui->groupStoreOpenedTabs->isChecked());
-    pref->setStoreOpenedSearchTabResults(m_ui->checkStoreTabsSearchResults->isChecked());
-    pref->setSearchHistoryLength(m_ui->searchHistoryLengthSpinBox->value());
-}
-
 #ifndef DISABLE_WEBUI
 void OptionsDialog::loadWebUITabOptions()
 {
@@ -1565,7 +1549,6 @@ void OptionsDialog::saveOptions() const
     saveSpeedTabOptions();
     saveBittorrentTabOptions();
     saveRSSTabOptions();
-    saveSearchTabOptions();
 #ifndef DISABLE_WEBUI
     saveWebUITabOptions();
 #endif

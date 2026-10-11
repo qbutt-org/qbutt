@@ -1,12 +1,13 @@
 # qbutt
 
-qbutt is a public Windows-first native Qt fork of qBittorrent. Keep the upstream source layout: `src/base` owns application/session services, `src/gui` owns Qt presentation, and libtorrent owns peer I/O, piece selection and verification. Bun/TypeScript is preferred for new build and integration tooling. Read `CODING_GUIDELINES.md` before C++ changes.
+qbutt is a public Windows-first native Qt fork of qBittorrent for torrents, content search, video playback and reading. Keep the upstream source layout: `src/base` owns application services, `src/gui` owns Qt presentation, and libtorrent owns peer I/O, piece selection and verification. Bun/TypeScript is preferred for new build and integration tooling. Read `CODING_GUIDELINES.md` before C++ changes.
 
 qbutt is architecturally independent from the private Svoiseti service. Its network settings accept an ordinary Mihomo subscription and expose basic node selection and enable/disable controls. Do not require service accounts, private APIs, fixed servers, provisioning or service-specific formats. Existing private projects are architectural references only.
 
 ## Sources of truth
 
 - `docs/qbutt-architecture.md` defines the target architecture; `docs/implementation.md` defines the staged acceptance criteria. Planned APIs and capabilities in these documents are not evidence that they exist.
+- [Content contracts](docs/agents/content.md) define search, browser connection, playback and reading ownership. Apply them when changing those subsystems.
 - `upstream-lock.json` records exact source and dependency revisions once verified. Never substitute a mutable branch or `latest` in release builds.
 - `CMakeLists.txt`, `cmake/`, and `.github/workflows/` define the actual build. Document only commands that were run, or explicitly label them unverified.
 - Before deciding, inspect the relevant implementation, data flow, runtime behavior and project scripts. Reuse established components and workflows; keep one owner for each contract and state. If a contract remains ambiguous after investigation, ask instead of adding speculative fallbacks, compatibility branches, wrappers or runtime checks.
@@ -19,18 +20,20 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 - Do not claim Tunnels only for a TCP prototype. It requires evidence for all peer, tracker, DNS, DHT, webseed and policy-transition traffic. A SOCKS relay is not proof of public inbound.
 - Read-only repair analysis must not write. Managed in-place repair requires explicit consent, correct mappings, exclusive ownership and drained I/O; reuse libtorrent truncate/recheck. Verify hashes and exact sizes, preserve unknown files, reject unsafe paths and hardlink aliases.
 - Safe update uses independent staging and recoverable journal steps. Never use ordinary hardlinks for writable staging or silently fall back to in-place. Completion policies run only after data verification and commit; removing a torrent preserves its payload.
-- qbutt has a separate profile. Do not edit live qBittorrent, Koala, router or production service settings, or share an active download directory with another writer.
+- qbutt has a separate profile. Do not edit live qBittorrent, Koala or router settings, or share an active download directory with another writer.
 
 ## Product interface
 
-- Design for people downloading files, not for agents or network operators. Keep primary actions obvious and remove redundant controls, implementation jargon and explanatory paragraphs that merely describe automatic behavior. Fix unclear composition, labels or behavior before adding help; retain help needed to understand a constraint, error, consequence or next action.
+- Design for people finding, downloading, watching and reading content. Keep primary actions obvious and remove redundant controls, implementation jargon and explanatory paragraphs that merely describe automatic behavior. Fix unclear composition, labels or behavior before adding help; retain help needed to understand a constraint, error, consequence or next action.
 - Preserve the user's explicit taste, approved references and existing product behavior. Apply visual cleanup to the changed area without starting an unrelated redesign. Show only real data, states and working actions; do not present planned or unavailable capabilities as ready.
 - Keep every settings category visible. Place secondary parameters lower in the same page under a visible `Advanced settings` heading, separated by spacing; do not hide categories or these sections behind disclosure buttons.
 - Use one coherent native Qt visual language: restrained flat surfaces, readable typography, consistent action icons and the `#009df7` accent. Reuse existing widgets, assets and theme ownership rather than adding a second UI framework. Build hierarchy through content order, typography, alignment and spacing; fix layout from the parent container before adjusting children.
 - Do not add EYEBROW labels, decorative numbered sections, nested framed groups or repeated status indicators. Containers and dividers need a semantic purpose; empty space alone does not justify decoration. A step indicator must represent necessary process progress.
+- Do not use the middle dot `·` in product UI. Format source/player combinations as `YummyAnime [CVH]`.
 - Offer built-in System, Light and Dark appearance, defaulting to System. Apply appearance changes live and follow OS changes in System mode. Qt rendering styles are implementation details, not a user choice. Preserve explicit user appearance choices.
 - On Windows, minimize goes to the taskbar, close goes to the tray, and explicit Exit quits without confirmation. Startup at Windows logon is silent. Do not reintroduce configurable variants of these actions.
 - Ordinary torrent addition owns checking and reusing existing destination files. Keep specialized repair actions only for genuinely different work, preserving the storage safety and consent rules above.
+- New profiles save downloads to the Windows Desktop. Preserve an explicitly saved destination.
 
 ## Working and verification
 
@@ -42,7 +45,7 @@ qbutt is architecturally independent from the private Svoiseti service. Its netw
 - Clean up obsolete builds, duplicated test runtimes and generated payloads as soon as they are no longer needed. Retain compact diagnostic evidence and dependencies/builds needed for unfinished work; verify cleanup paths and release owned processes and test volumes before deletion.
 - Do not write unit tests. Use generated legal fixtures and integration, end-to-end and fault scenarios appropriate to the change. A timeout or empty output is not a successful check; inspect exit status and artifacts.
 - Native regressions, incorrect payload, data loss and leaks override throughput claims. Report measured verified bytes separately from relay/wire traffic and identify untested real-network scenarios.
-- The Windows build entrypoint is `./scripts/build-windows.ps1`; it produces a portable bundle and records the source revision/dirty state. Use the isolated fixture setup and `bun run smoke:native`, `smoke:repair`, `smoke:proxy`, and `smoke:network` commands in `tests/README.md`. Set `QBUTT_LAB_PATHS=1` to exercise the bundled transport child. Never use a live profile as a test fixture.
+- The Windows build entrypoint is `./scripts/build-windows.ps1`; it produces a portable bundle, installer and media source archive, and records the source revision/dirty state. `tests/README.md` owns the isolated fixture setup and integration commands. Select the affected torrent, content, browser, reader and media scenarios; never use a live profile as a test fixture.
 - Functional visual tests use an isolated Light profile with custom themes disabled; use `tests/appearance.ts` (default `QBUTT_LAB_APPEARANCE=functional`). Theme and release-default checks use `QBUTT_LAB_APPEARANCE=product` to exercise System, Light and Dark, including live switching. Assert control state through Qt properties as well as screenshots. Never ship test appearance overrides or overwrite a user's saved layout/theme.
 - For GUI changes, inspect the running native interface and perform the affected actions with real pointer input. Check representative window sizes, the minimum size with scrollbars, long labels, growing lists, affected themes and relevant loading/empty/error states. Check changed motion in operation, including entry and exit. For significant UI changes, use a fresh read-only reviewer in a clean context when subagents are available: provide only the brief, applicable instructions, final sources/diff and verified renders; ask for provable requirement violations. Verify findings yourself and repeat affected checks after fixes; the reviewer cannot override the user's taste.
 

@@ -14,6 +14,8 @@ add_library(qbt_base STATIC
     algorithm.h
     applicationcomponent.h
     asyncfilestorage.h
+    content/client.h
+    content/readersettings.h
     bittorrent/abstractfilestorage.h
     bittorrent/addtorrenterror.h
     bittorrent/addtorrentparams.h
@@ -83,6 +85,8 @@ add_library(qbt_base STATIC
     indexrange.h
     interfaces/iapplication.h
     logger.h
+    media/player.h
+    media/streamserver.h
     net/dnsupdater.h
     net/downloadhandlerimpl.h
     net/downloadmanager.h
@@ -147,6 +151,7 @@ add_library(qbt_base STATIC
     addtorrentmanager.cpp
     applicationcomponent.cpp
     asyncfilestorage.cpp
+    content/client.cpp
     bittorrent/abstractfilestorage.cpp
     bittorrent/addtorrentparams.cpp
     bittorrent/bandwidthscheduler.cpp
@@ -196,6 +201,8 @@ add_library(qbt_base STATIC
     http/responsegenerator.cpp
     http/server.cpp
     logger.cpp
+    media/player.cpp
+    media/streamserver.cpp
     net/dnsupdater.cpp
     net/downloadhandlerimpl.cpp
     net/downloadmanager.cpp

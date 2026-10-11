@@ -43,14 +43,16 @@
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QFileSystemWatcher>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QMimeData>
-#include <QProcess>
 #include <QProgressBar>
+#include <QProgressDialog>
 #include <QShortcut>
 #include <QSplitter>
 #include <QStatusBar>
@@ -58,24 +60,18 @@
 #include <QTimer>
 #include <QToolButton>
 
-#ifdef Q_OS_WIN
-#include <QCryptographicHash>
-#include <QScopeGuard>
-#endif
-
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/sessionstatus.h"
 #include "base/global.h"
-#include "base/net/downloadmanager.h"
+#include "base/media/player.h"
 #include "base/path.h"
 #include "base/preferences.h"
 #include "base/rss/rss_folder.h"
 #include "base/rss/rss_session.h"
-#include "base/utils/foreignapps.h"
-#include "base/utils/fs.h"
 #include "base/utils/misc.h"
 #include "base/version.h"
 #include "aboutdialog.h"
+#include "content/librarywidget.h"
 #include "cookiesdialog.h"
 #include "desktopintegration.h"
 #include "downloadfromurldialog.h"
@@ -93,7 +89,6 @@
 #include "properties/propertieswidget.h"
 #include "properties/proptabbar.h"
 #include "rss/rsswidget.h"
-#include "search/searchwidget.h"
 #include "speedlimitdialog.h"
 #include "statsdialog.h"
 #include "statusbar.h"
@@ -121,12 +116,6 @@ namespace
 #define EXECUTIONLOG_SETTINGS_KEY(name) (SETTINGS_KEY(u"Log/"_s) name)
 
     const std::chrono::seconds PREVENT_SUSPEND_INTERVAL {60};
-
-#ifdef Q_OS_WIN
-    const QString PYTHON_INSTALLER_URL = u"https://www.python.org/ftp/python/3.14.2/python-3.14.2-amd64.exe"_s;
-    const QByteArray PYTHON_INSTALLER_MD5 = QByteArrayLiteral("c887e19e66e66e6961c444283dafaa33");
-    const QByteArray PYTHON_INSTALLER_SHA3_512 = QByteArrayLiteral("b5d83ec914dcb0c3892a521d0cbd96bf9bcb267bdee36ea4ee48a54c53fabd0aea98531eda81d1c1db31be8830f7b94430e0c838f5c2f2f8999a273f2833e450");
-#endif
 }
 
 MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, const QString &titleSuffix)
@@ -145,6 +134,89 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 #endif // Q_OS_MACOS
 {
     m_ui->setupUi(this);
+    auto *openMedia = new QAction(tr("Open media…"), this);
+    openMedia->setObjectName(u"actionOpenMedia"_s);
+    m_ui->menuFile->insertAction(m_ui->actionCloseWindow, openMedia);
+    connect(openMedia, &QAction::triggered, this, [this]
+    {
+        const QString path = QFileDialog::getOpenFileName(this, tr("Open media"), {},
+            tr("Media files (*.mkv *.mp4 *.webm *.avi *.mov *.m4v *.wmv *.mpeg *.mpg *.ts *.m2ts *.mp3 *.flac *.wav *.ogg *.opus *.m4a *.aac);;All files (*)"));
+        if (!path.isEmpty())
+        {
+            const QUrl url = QUrl::fromLocalFile(path);
+            Media::Player::instance()->playUrl(url, url.fileName());
+        }
+    });
+    auto *readFile = new QAction(tr("Read file…"), this);
+    readFile->setObjectName(u"actionReadFile"_s);
+    m_ui->menuFile->insertAction(m_ui->actionCloseWindow, readFile);
+    connect(readFile, &QAction::triggered, this, [this]
+    {
+        displaySearchTab(true);
+        if (m_searchWidget->openLocalFile())
+            m_tabs->setCurrentWidget(m_searchWidget);
+    });
+    connect(Media::Player::instance(), &Media::Player::error, this, [this](const QString &message)
+    {
+        QMessageBox::warning(this, tr("Playback"), message);
+    }, Qt::QueuedConnection);
+    connect(Media::Player::instance(), &Media::Player::preparationChanged, this, [this](const QString &message)
+    {
+        if (message.isEmpty())
+        {
+            if (m_playerPreparationDialog)
+            {
+                m_playerPreparationDialog->hide();
+                m_playerPreparationDialog->deleteLater();
+                m_playerPreparationDialog.clear();
+            }
+            return;
+        }
+
+        if (!m_playerPreparationDialog)
+        {
+            m_playerPreparationDialog = new QProgressDialog(this);
+            m_playerPreparationDialog->setObjectName(u"playerPreparationDialog"_s);
+            m_playerPreparationDialog->setWindowTitle(tr("Playback"));
+            m_playerPreparationDialog->setWindowModality(Qt::NonModal);
+            m_playerPreparationDialog->setRange(0, 0);
+            connect(m_playerPreparationDialog, &QProgressDialog::canceled,
+                Media::Player::instance(), &Media::Player::stop);
+        }
+
+        m_playerPreparationDialog->setLabelText(message);
+        m_playerPreparationDialog->show();
+    });
+    connect(Media::Player::instance(), &Media::Player::downloadRequested, this,
+        [this](const QUrl &url, const QString &title, const Media::PlaybackOptions &options)
+    {
+        if (options.identity.startsWith(u"torrent:"))
+        {
+            displayTransferTab();
+            activate();
+            return;
+        }
+
+        QJsonObject headers;
+        for (auto it = options.headers.cbegin(); it != options.headers.cend(); ++it)
+            headers.insert(it.key(), it.value());
+        QJsonArray subtitles;
+        for (const QUrl &subtitle : options.subtitles)
+            subtitles.append(QJsonObject {{u"url"_s, subtitle.toString()}});
+        QJsonObject resolved {{u"kind"_s, u"video"_s}, {u"url"_s, url.toString()},
+            {u"headers"_s, headers}, {u"audioUrl"_s, options.audioUrl.toString()},
+            {u"proxyUrl"_s, options.proxyUrl.toString()}, {u"subtitles"_s, subtitles}};
+        if (!options.audioTrack.title.isEmpty())
+        {
+            resolved.insert(u"audioTrack"_s, QJsonObject {{u"title"_s, options.audioTrack.title},
+                {u"type"_s, options.audioTrack.type}, {u"language"_s, options.audioTrack.language},
+                {u"codec"_s, options.audioTrack.codec}, {u"channels"_s, options.audioTrack.channels}});
+        }
+        const QJsonObject playback {{u"contentKind"_s, options.contentKind}, {u"identity"_s, options.identity},
+            {u"startPosition"_s, options.startPosition}};
+        displaySearchTab(true);
+        m_searchWidget->downloadMedia({{u"resolved"_s, resolved}, {u"title"_s, title}, {u"options"_s, playback}});
+    });
 
     Preferences *const pref = Preferences::instance();
     m_displaySpeedInTitle = pref->speedInTitleBar();
@@ -403,7 +475,11 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     on_actionWarningMessages_triggered(m_ui->actionWarningMessages->isChecked());
     on_actionCriticalMessages_triggered(m_ui->actionCriticalMessages->isChecked());
     if (m_ui->actionSearchWidget->isChecked())
-        QMetaObject::invokeMethod(this, &MainWindow::on_actionSearchWidget_triggered, Qt::QueuedConnection);
+    {
+        displaySearchTab(true);
+        if (BitTorrent::Session::instance()->torrents().isEmpty())
+            m_tabs->setCurrentWidget(m_searchWidget);
+    }
     // Auto shutdown actions
     auto *autoShutdownGroup = new QActionGroup(this);
     autoShutdownGroup->setExclusive(true);
@@ -735,14 +811,15 @@ void MainWindow::showFilterContextMenu()
 
 void MainWindow::displaySearchTab(bool enable)
 {
+    m_ui->actionSearchWidget->setChecked(enable);
     Preferences::instance()->setSearchEnabled(enable);
     if (enable)
     {
-        // RSS tab
         if (!m_searchWidget)
         {
-            m_searchWidget = new SearchWidget(app(), this);
-            connect(m_searchWidget, &SearchWidget::searchFinished, this, [this](const bool failed)
+            m_searchWidget = new Content::LibraryWidget(app(), this);
+            connect(m_searchWidget, &Content::LibraryWidget::readerActiveChanged, this, &MainWindow::updateContextControls);
+            connect(m_searchWidget, &Content::LibraryWidget::searchFinished, this, [this](const bool failed)
             {
                 if (app()->desktopIntegration()->isNotificationsEnabled() && (currentTabWidget() != m_searchWidget))
                 {
@@ -791,6 +868,8 @@ void MainWindow::on_actionDocumentation_triggered() const
 
 void MainWindow::tabChanged([[maybe_unused]] const int newTab)
 {
+    updateContextControls();
+
     // We cannot rely on the index newTab
     // because the tab order is undetermined now
     if (m_tabs->currentWidget() == m_splitter)
@@ -802,7 +881,7 @@ void MainWindow::tabChanged([[maybe_unused]] const int newTab)
     }
     m_columnFilterAction->setVisible(false);
 
-    if (m_tabs->currentWidget() == m_searchWidget)
+    if (m_searchWidget && (m_tabs->currentWidget() == m_searchWidget) && !m_searchWidget->isReading())
     {
         qDebug("Changed tab to search engine, giving focus to search input");
         m_searchWidget->giveFocusToSearchInput();
@@ -936,10 +1015,7 @@ void MainWindow::displayTransferTab() const
 void MainWindow::displaySearchTab()
 {
     if (!m_searchWidget)
-    {
-        m_ui->actionSearchWidget->setChecked(true);
         displaySearchTab(true);
-    }
 
     m_tabs->setCurrentWidget(m_searchWidget);
 }
@@ -1228,6 +1304,14 @@ void MainWindow::showStatusBar(bool show)
     }
 }
 
+void MainWindow::updateContextControls()
+{
+    const bool contentActive = m_searchWidget && (m_tabs->currentWidget() == m_searchWidget);
+    m_ui->toolBar->setVisible(Preferences::instance()->isToolbarDisplayed() && !contentActive);
+    if (m_statusBar)
+        m_statusBar->setVisible(!contentActive || !m_searchWidget->isReading());
+}
+
 void MainWindow::showFiltersSidebar(const bool show)
 {
     if (show && !m_transferListFiltersWidget)
@@ -1255,18 +1339,14 @@ void MainWindow::loadPreferences()
     const Preferences *pref = Preferences::instance();
 
     // General
-    if (pref->isToolbarDisplayed())
-    {
-        m_ui->toolBar->setVisible(true);
-    }
-    else
+    if (!pref->isToolbarDisplayed())
     {
         // Clear search filter before hiding the top toolbar
         m_columnFilterEdit->clear();
-        m_ui->toolBar->setVisible(false);
     }
 
     showStatusBar(pref->isStatusbarDisplayed());
+    updateContextControls();
 
     m_transferListWidget->setAlternatingRowColors(pref->useAlternatingRowColors());
     m_propertiesWidget->getFilesList()->setAlternatingRowColors(pref->useAlternatingRowColors());
@@ -1417,8 +1497,8 @@ void MainWindow::on_actionOptions_triggered()
 void MainWindow::on_actionTopToolBar_triggered()
 {
     const bool isVisible = static_cast<QAction *>(sender())->isChecked();
-    m_ui->toolBar->setVisible(isVisible);
     Preferences::instance()->setToolbarDisplayed(isVisible);
+    updateContextControls();
 }
 
 void MainWindow::on_actionShowStatusbar_triggered()
@@ -1426,6 +1506,7 @@ void MainWindow::on_actionShowStatusbar_triggered()
     const bool isVisible = static_cast<QAction *>(sender())->isChecked();
     Preferences::instance()->setStatusbarDisplayed(isVisible);
     showStatusBar(isVisible);
+    updateContextControls();
 }
 
 void MainWindow::on_actionShowFiltersSidebar_triggered(const bool checked)
@@ -1450,55 +1531,14 @@ void MainWindow::on_actionRSSReader_triggered()
 
 void MainWindow::on_actionSearchWidget_triggered()
 {
-    if (m_ui->actionSearchWidget->isChecked())
-    {
-        const Utils::ForeignApps::PythonInfo pyInfo = Utils::ForeignApps::pythonInfo();
-
-        // Not found
-        if (!pyInfo.isValid())
-        {
-            m_ui->actionSearchWidget->setChecked(false);
-            Preferences::instance()->setSearchEnabled(false);
-
-#ifdef Q_OS_WIN
-            const QMessageBox::StandardButton buttonPressed = QMessageBox::question(this, tr("Missing Python Runtime")
-                , tr("Python is required to use the search engine but it does not seem to be installed.\nDo you want to install it now?")
-                , (QMessageBox::Yes | QMessageBox::No), QMessageBox::Yes);
-            if (buttonPressed == QMessageBox::Yes)
-                installPython();
-#else
-            QMessageBox::information(this, tr("Missing Python Runtime")
-                , tr("Python is required to use the search engine but it does not seem to be installed."));
-#endif
-            return;
-        }
-
-        // Check version requirement
-        if (!pyInfo.isSupportedVersion())
-        {
-            m_ui->actionSearchWidget->setChecked(false);
-            Preferences::instance()->setSearchEnabled(false);
-
-#ifdef Q_OS_WIN
-            const QMessageBox::StandardButton buttonPressed = QMessageBox::question(this, tr("Old Python Runtime")
-                , tr("Your Python version (%1) is outdated. Minimum requirement: %2.\nDo you want to install a newer version now?")
-                    .arg(pyInfo.version.toString(), Utils::ForeignApps::PythonInfo::MINIMUM_SUPPORTED_VERSION.toString())
-                , (QMessageBox::Yes | QMessageBox::No), QMessageBox::Yes);
-            if (buttonPressed == QMessageBox::Yes)
-                installPython();
-#else
-            QMessageBox::information(this, tr("Old Python Runtime")
-                , tr("Your Python version (%1) is outdated. Please upgrade to latest version for search engines to work.\nMinimum requirement: %2.")
-                .arg(pyInfo.version.toString(), Utils::ForeignApps::PythonInfo::MINIMUM_SUPPORTED_VERSION.toString()));
-#endif
-            return;
-        }
-
-        m_ui->actionSearchWidget->setChecked(true);
-        Preferences::instance()->setSearchEnabled(true);
-    }
-
     displaySearchTab(m_ui->actionSearchWidget->isChecked());
+}
+
+void MainWindow::acceptSharedLink(const QUrl &url)
+{
+    displaySearchTab();
+    m_searchWidget->acceptSharedLink(url);
+    activate();
 }
 
 // Display an input dialog to prompt user for
@@ -1681,118 +1721,3 @@ void MainWindow::refreshTrayIconTooltip()
         app()->desktopIntegration()->setToolTip(tr("Paused"));
     }
 }
-
-#ifdef Q_OS_WIN
-void MainWindow::installPython()
-{
-    m_ui->actionSearchWidget->setEnabled(false);
-    m_ui->actionSearchWidget->setToolTip(tr("Python installation in progress..."));
-    setCursor(Qt::WaitCursor);
-    // Download python
-    Net::DownloadManager::instance()->download(
-            Net::DownloadRequest(PYTHON_INSTALLER_URL).saveToFile(true)
-            , Preferences::instance()->useProxyForGeneralPurposes()
-            , this, &MainWindow::pythonDownloadFinished);
-}
-
-bool MainWindow::verifyPythonInstaller(const Path &installerPath) const
-{
-    // Verify installer hash
-    // Python.org only provides MD5 hash but MD5 is already broken and doesn't guarantee file is not tampered.
-    // Therefore, MD5 is only included to prove that the hash is still the same with upstream and we rely on
-    // SHA3-512 for the main check.
-
-    QFile file {installerPath.data()};
-    if (!file.open(QIODevice::ReadOnly))
-    {
-        LogMsg((tr("Failed to open Python installer. File: \"%1\".").arg(installerPath.toString())), Log::WARNING);
-        return false;
-    }
-
-    QCryptographicHash md5Hash {QCryptographicHash::Md5};
-    md5Hash.addData(&file);
-    if (const QByteArray hashHex = md5Hash.result().toHex(); hashHex != PYTHON_INSTALLER_MD5)
-    {
-        LogMsg((tr("Failed MD5 hash check for Python installer. File: \"%1\". Result hash: \"%2\". Expected hash: \"%3\".")
-                .arg(installerPath.toString(), QString::fromLatin1(hashHex), QString::fromLatin1(PYTHON_INSTALLER_MD5)))
-            , Log::WARNING);
-        return false;
-    }
-
-    file.seek(0);
-
-    QCryptographicHash sha3Hash {QCryptographicHash::Sha3_512};
-    sha3Hash.addData(&file);
-    if (const QByteArray hashHex = sha3Hash.result().toHex(); hashHex != PYTHON_INSTALLER_SHA3_512)
-    {
-        LogMsg((tr("Failed SHA3-512 hash check for Python installer. File: \"%1\". Result hash: \"%2\". Expected hash: \"%3\".")
-                .arg(installerPath.toString(), QString::fromLatin1(hashHex), QString::fromLatin1(PYTHON_INSTALLER_SHA3_512)))
-            , Log::WARNING);
-        return false;
-    }
-
-    return true;
-}
-
-void MainWindow::pythonDownloadFinished(const Net::DownloadResult &result)
-{
-    auto restoreWidgetsGuard = qScopeGuard([this]
-    {
-        m_ui->actionSearchWidget->setEnabled(true);
-        m_ui->actionSearchWidget->setToolTip({});
-        setCursor(Qt::ArrowCursor);
-    });
-
-    if (result.status != Net::DownloadStatus::Success)
-    {
-        QMessageBox::warning(
-                    this, tr("Download error")
-                    , tr("Python installer could not be downloaded. Error: %1.\nPlease install it manually.")
-                    .arg(result.errorString));
-        return;
-    }
-
-    const Path exePath = result.filePath + u".exe";
-    if (!Utils::Fs::renameFile(result.filePath, exePath))
-    {
-        LogMsg(tr("Rename Python installer failed. Source: \"%1\". Destination: \"%2\".")
-                .arg(result.filePath.toString(), exePath.toString())
-            , Log::WARNING);
-        return;
-    }
-
-    if (!verifyPythonInstaller(exePath))
-        return;
-
-    // launch installer
-    auto *installer = new QProcess(this);
-    installer->connect(installer, &QProcess::finished, this, [this, exePath, installer, restoreWidgetsGuard = std::move(restoreWidgetsGuard)](const int exitCode, const QProcess::ExitStatus exitStatus)
-    {
-        installer->deleteLater();
-
-        if ((exitStatus == QProcess::NormalExit) && (exitCode == 0))
-        {
-            LogMsg(tr("Python installation success."), Log::INFO);
-
-            // Delete installer
-            Utils::Fs::removeFile(exePath);
-
-            // Reload search engine
-            if (Utils::ForeignApps::pythonInfo().isSupportedVersion())
-            {
-                m_ui->actionSearchWidget->setChecked(true);
-                displaySearchTab(true);
-            }
-        }
-        else
-        {
-            const QString errorInfo = (exitStatus == QProcess::NormalExit)
-                ? tr("Exit code: %1.").arg(QString::number(exitCode))
-                : tr("Reason: installer crashed.");
-            LogMsg(u"%1 %2"_s.arg(tr("Python installation failed."), errorInfo), Log::WARNING);
-        }
-    });
-    LogMsg(tr("Launching Python installer. File: \"%1\".").arg(exePath.toString()), Log::INFO);
-    installer->start(exePath.toString(), {u"/passive"_s});
-}
-#endif // Q_OS_WIN

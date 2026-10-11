@@ -342,7 +342,7 @@
     <bool>true</bool>
    </property>
    <property name="text">
-    <string>Search &amp;Engine</string>
+    <string>&amp;Search</string>
    </property>
   </action>
   <action name="actionDonateMoney">

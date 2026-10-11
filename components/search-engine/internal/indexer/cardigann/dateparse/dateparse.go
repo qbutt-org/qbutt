@@ -1,0 +1,262 @@
+package dateparse
+
+import (
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// canonicalLayout is the canonical RFC3339 output both ParseDate and
+// ParseRelTime emit (2006-01-02T15:04:05Z07:00). The engine's normalizer and the
+// Torznab serializer consume this single shape; Jackett emits RFC1123Z, but
+// harbrr standardizes on RFC3339 internally and serializes per-protocol later.
+const canonicalLayout = time.RFC3339
+
+// ErrUnparseable is the sentinel for a value the parser could not interpret with
+// the given layout (or as any relative form). It mirrors Jackett's FormatException
+// path; callers (the filter stage) decide whether to surface or swallow it.
+var ErrUnparseable = errors.New("dateparse: value not parseable")
+
+// Parser translates and parses Cardigann date filter values. It is built once
+// per definition by the engine from the def's `language:` field and is
+// safe for reuse across rows. The clock is injectable so relative-time and
+// missing-year resolution are deterministic in tests.
+type Parser struct {
+	now  func() time.Time
+	lang string
+}
+
+// Option configures a Parser.
+type Option func(*Parser)
+
+// WithLanguage sets the CultureInfo-style language code (e.g. "ru-RU") used to
+// recognize localized month/day names. When unset, the parser uses English names
+// only, matching Jackett's InvariantCulture dateparse behavior exactly.
+func WithLanguage(code string) Option {
+	return func(p *Parser) { p.lang = code }
+}
+
+// WithClock injects the reference clock used for missing-year defaulting and all
+// relative-time math. Defaults to time.Now. Tests pass a fixed clock for
+// deterministic assertions.
+func WithClock(fn func() time.Time) Option {
+	return func(p *Parser) { p.now = fn }
+}
+
+// New builds a Parser. Unset options default to time.Now and English names.
+func New(opts ...Option) *Parser {
+	p := &Parser{now: time.Now}
+	for _, opt := range opts {
+		opt(p)
+	}
+	if p.now == nil {
+		p.now = time.Now
+	}
+	return p
+}
+
+// ParseDate implements the search.FilterRegistry ParseDate seam: it parses value using
+// the .NET-style layout and returns a canonical RFC3339 string.
+//
+// Flow (verified against Jackett DateTimeUtil.ParseDateTimeGoLang +
+// CardigannIndexer applyFilters):
+//  1. Collapse internal whitespace + NBSP (a deliberate lenient divergence from
+//     Jackett's trim-only NormalizeSpace; see normalizeSpace).
+//  2. Translate the .NET layout to a Go layout (TranslateLayout).
+//  3. If the layout carries an AM/PM designator, uppercase it in the value:
+//     .NET ParseExact matches designators case-INsensitively ("3pm" parses),
+//     Go's "PM" reference token is uppercase-only.
+//  4. time.Parse the ORIGINAL value with the translated layout (parseAttempt,
+//     which also accepts colon-less zzz offsets). This is Jackett's
+//     InvariantCulture parse, so English names always win.
+//  5. Only if that fails, a language is set, and the layout carries month/day
+//     NAME tokens: substitute localized names -> English and parse again. This
+//     is harbrr's opt-in enhancement (Jackett has no culture fallback at all);
+//     parsing the original first keeps English values byte-for-byte Jackett
+//     while localized names remain usable.
+//  6. Default the date components the layout omitted (.NET DateTimeParse
+//     terminal-state defaults; see defaultMissingDate).
+//
+// Unlike the timeago/fuzzytime path, dateparse has NO fuzzy fallback in Jackett:
+// a ParseExact failure throws FormatException (logged, value unchanged). We
+// surface ErrUnparseable so the filter stage can decide; it must never silently
+// pass the raw value through.
+func (p *Parser) ParseDate(value, layout string) (string, error) {
+	value = normalizeSpace(value)
+
+	goLayout, err := TranslateLayout(layout)
+	if err != nil {
+		return "", err
+	}
+
+	if strings.Contains(goLayout, "PM") {
+		value = normalizeAMPM(value)
+	}
+
+	// InvariantCulture first, exactly as Jackett: the original value is parsed
+	// before any localization, so an English name always wins even when a locale
+	// table shares the spelling (fr "mar" = mardi vs English "Mar"). Localized
+	// names remain usable through the retry.
+	t, ok := parseAttempt(goLayout, value)
+	if loc, hasLoc := lookupLocale(p.lang); !ok && hasLoc && layoutHasNameToken(goLayout) {
+		t, ok = parseAttempt(goLayout, localizeValue(value, loc))
+	}
+	if !ok {
+		return "", unparseable(value, layout, goLayout, "")
+	}
+
+	now := p.now()
+	t, ok = defaultMissingDate(t, layout, goLayout, now)
+	if !ok {
+		return "", unparseable(value, layout, goLayout, fmt.Sprintf("day does not exist in %d", now.Year()))
+	}
+	t = rollbackFutureYearless(t, layout, goLayout, now)
+
+	return t.Format(canonicalLayout), nil
+}
+
+// parseAttempt runs time.Parse with goLayout and, on failure, once more with a
+// colon-less offset element: .NET's zzz parser treats the colon as optional
+// ("+0000" parses under Jackett's ParseExact) while Go's "-07:00" requires it.
+// The value is never regex-normalized: no-space corpus layouts
+// ("yyyy-MM-ddHH:mm:ss zzz") would false-match inside it. The boolean is false
+// when neither form parses; ParseDate builds the ErrUnparseable itself.
+func parseAttempt(goLayout, value string) (time.Time, bool) {
+	if t, err := time.Parse(goLayout, value); err == nil {
+		return t, true
+	}
+	if !strings.Contains(goLayout, "-07:00") {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(strings.Replace(goLayout, "-07:00", "-0700", 1), value)
+	return t, err == nil
+}
+
+// unparseable wraps ErrUnparseable with the value and both layouts; reason, when
+// non-empty, names the specific rejection.
+func unparseable(value, netLayout, goLayout, reason string) error {
+	err := fmt.Errorf("%w: value %q layout %q (go %q)", ErrUnparseable, value, netLayout, goLayout)
+	if reason == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, reason)
+}
+
+// rollbackFutureYearless reproduces the tail of Jackett's
+// DateTimeUtil.ParseDateTimeGoLang: a yearless date that lands in the future is
+// rolled back one year. Jackett only REACHES that tail when the layout misses
+// its early return: `commonStandardFormats = {"y","h","d"}; if
+// (commonStandardFormats.Any(layout.ContainsIgnoreCase) && TryParseExact(...))
+// return;`. So any layout containing y/h/d (case-insensitive) that parses
+// directly never rolls back. Every vendored yearless layout (MM.dd, HH:mm,
+// HH:mm zzz, htt MMM. d, MM-dd, MM/dd HH:mm) contains d or h, so this rollback
+// is DORMANT for the current corpus and harbrr matches Jackett's non-rollback
+// there. It activates only for a letterless, yearless layout (e.g. a bare
+// "MMM"), matching Jackett's ParseDateTimeGoLangTest.
+func rollbackFutureYearless(t time.Time, netLayout, goLayout string, ref time.Time) time.Time {
+	if strings.ContainsAny(strings.ToLower(netLayout), "yhd") {
+		return t // Jackett's commonStandardFormats early return: no rollback.
+	}
+	if strings.Contains(goLayout, "2006") || strings.Contains(goLayout, "06") {
+		return t // has a year; Jackett checks !format.Contains("yy").
+	}
+	if t.After(ref) {
+		// A yearless future date rolls back one year. Go's AddDate normalizes
+		// Feb 29 -> Mar 1 where .NET AddYears clamps to Feb 28; unreachable in the
+		// current corpus (every dateparse layout is .NET-style with y/h/d, gated
+		// out above — only a hypothetical Go-style day-bearing layout could carry
+		// Feb 29 here).
+		return t.AddDate(-1, 0, 0)
+	}
+	return t
+}
+
+// ampmRe matches an AM/PM designator in any case, standalone or attached to a
+// digit ("3pm"), but never inside a word — the boundary guards keep a name like
+// "Samstag" intact. RE2-safe (no lookarounds needed: the guards consume one
+// non-letter, which is fine since designators never abut letters).
+var ampmRe = regexp.MustCompile(`(?i)(^|[^a-zA-Z])([ap]m)([^a-zA-Z]|$)`)
+
+// normalizeAMPM uppercases AM/PM designators so a lowercase or mixed-case value
+// ("3:04 pm", "03:04 Pm") parses against Go's uppercase-only PM token, matching
+// .NET ParseExact's case-insensitive designator match (Jackett accepts these).
+// Applied only when the layout carries a designator token; the surrounding
+// boundary characters it consumes are non-letters, unaffected by ToUpper.
+func normalizeAMPM(value string) string {
+	return ampmRe.ReplaceAllStringFunc(value, strings.ToUpper)
+}
+
+// layoutHasNameToken reports whether a translated Go layout contains a
+// month-name or weekday-name token (the only tokens needing localization).
+func layoutHasNameToken(goLayout string) bool {
+	return strings.Contains(goLayout, "Jan") || strings.Contains(goLayout, "Mon")
+}
+
+// defaultMissingDate fills the date components the layout omitted, mirroring
+// .NET DateTimeParse's terminal-state defaults (DateTimeParse.CheckDefaultDateTime,
+// the ParseExact path Jackett rides):
+//
+//   - NO year/month/day token at all (a time-only layout like torrentqq's
+//     "HH:mm") → the full date comes from the reference clock (today).
+//   - SOME date tokens present → a missing year defaults to the current year;
+//     a missing month/day defaults to 1 — which is exactly Go's zero value
+//     (January 1), so only the year needs correcting.
+//
+// Weekday-name tokens (ddd/dddd) are not date components: they parse a name
+// without setting year/month/day, in .NET and Go alike.
+//
+// The boolean is false when the defaulted date does not exist (see
+// defaultMissingYear).
+func defaultMissingDate(t time.Time, netLayout, goLayout string, ref time.Time) (time.Time, bool) {
+	if !layoutHasDateTokens(netLayout) {
+		return time.Date(ref.Year(), ref.Month(), ref.Day(), t.Hour(), t.Minute(),
+			t.Second(), t.Nanosecond(), t.Location()), true
+	}
+	return defaultMissingYear(t, goLayout, ref)
+}
+
+// defaultMissingYear sets the year to ref.Year() when the layout omitted a year
+// token, mirroring .NET ParseExact's behavior (an absent year defaults to the
+// current year rather than year 0). Go's time.Parse defaults a missing year to
+// year 0, so we correct it explicitly.
+//
+// Go accepts Feb 29 in the parse (year 0 is a leap year) and time.Date would
+// then normalize Feb 29 of a non-leap ref year to Mar 1. .NET's ParseExact
+// validates the day against the defaulted year and throws instead, so the
+// boolean is false when the rebuilt month/day differ from the parsed ones.
+func defaultMissingYear(t time.Time, goLayout string, ref time.Time) (time.Time, bool) {
+	if strings.Contains(goLayout, "2006") || strings.Contains(goLayout, "06") {
+		return t, true
+	}
+	d := time.Date(ref.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(),
+		t.Second(), t.Nanosecond(), t.Location())
+	return d, d.Month() == t.Month() && d.Day() == t.Day()
+}
+
+// normalizeSpace trims the ends AND collapses internal whitespace runs (including
+// NBSP, via strings.Fields) to a single ASCII space. This is a DELIBERATE lenient
+// divergence from Jackett, NOT a match of its ParseUtil.NormalizeSpace:
+//
+//   - Jackett's date path calls ParseUtil.NormalizeSpace, which is TRIM-ONLY
+//     (`s?.Trim() ?? ""`, mirrored in selector.normalizeSpace), then
+//     DateTime.ParseExact with DateTimeStyles.None (no AllowWhiteSpaces). A value
+//     with an internal double space or NBSP ("Jan  2 2023") therefore throws
+//     FormatException in Jackett, which its dateparse filter swallows — passing
+//     the RAW value through (CardigannIndexer.applyFilters) so a date field can
+//     still recover the instant via DateTimeUtil.FromUnknown's fuzzy fallback.
+//   - harbrr surfaces a ParseExact failure as an error, which the search stage
+//     turns into a row DROP rather than a raw passthrough (see ParseDate's doc and
+//     search/fields.go). Selector extraction is trim-only (matching Jackett), so
+//     scraped internal whitespace reaches ParseDate verbatim; collapsing it here
+//     keeps such values parseable — to the same instant Jackett resolves WHERE its
+//     fuzzy fallback succeeds (a double space: .NET DateTime.Parse is space-
+//     tolerant; an internal NBSP is not guaranteed, so there Jackett may itself
+//     drop the field — still lenient-direction, as harbrr keeps the row and never
+//     yields a wrong date). The divergence is thus a strict superset (lenient) with
+//     no wrong-date in the corpus; a trim-only port would REGRESS those rows into
+//     drops. Pinned by dateparse_test.go's TestParseDateInternalWhitespaceLenient.
+func normalizeSpace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}

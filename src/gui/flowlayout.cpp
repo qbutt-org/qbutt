@@ -146,6 +146,9 @@ int FlowLayout::doLayout(const QRect &rect, const bool testOnly) const
     QHash<QLayoutItem *, QPoint> lineItems;
     for (QLayoutItem *item : asConst(m_itemList))
     {
+        if (item->isEmpty())
+            continue;
+
         const QWidget *wid = item->widget();
 
         int spaceX = horizontalSpacing();

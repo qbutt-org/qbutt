@@ -77,9 +77,11 @@
 #include "base/bittorrent/infohash.h"
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/torrent.h"
+#include "base/content/client.h"
 #include "base/exceptions.h"
 #include "base/global.h"
 #include "base/logger.h"
+#include "base/media/player.h"
 #include "base/net/downloadmanager.h"
 #include "base/net/geoipmanager.h"
 #include "base/net/pathmanager.h"
@@ -877,7 +879,13 @@ void Application::processParams(const QBtCommandLineParameters &params)
     if (params.skipDialog.has_value())
         addTorrentOption = params.skipDialog.value() ? AddTorrentOption::SkipDialog : AddTorrentOption::ShowDialog;
     for (const QString &torrentSource : params.torrentSources)
-        m_addTorrentManager->addTorrent(torrentSource, params.addTorrentParams, addTorrentOption);
+    {
+        const QUrl url {torrentSource};
+        if (url.scheme() == u"qbutt")
+            m_window->acceptSharedLink(url);
+        else
+            m_addTorrentManager->addTorrent(torrentSource, params.addTorrentParams, addTorrentOption);
+    }
 #else
     for (const QString &torrentSource : params.torrentSources)
         m_addTorrentManager->addTorrent(torrentSource, params.addTorrentParams);
@@ -1472,6 +1480,8 @@ void Application::cleanup()
 #ifdef DISABLE_GUI
     delete m_addTorrentManager;
 #endif
+    Media::Player::freeInstance();
+    Content::Client::freeInstance();
     Net::PathManager::freeInstance();
     BitTorrent::Session::freeInstance();
     Net::ReverseResolution::freeInstance();

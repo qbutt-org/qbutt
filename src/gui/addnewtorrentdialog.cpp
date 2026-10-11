@@ -344,7 +344,7 @@ AddNewTorrentDialog::AddNewTorrentDialog(const BitTorrent::TorrentDescriptor &to
     if (const QByteArray state = m_storeTreeHeaderState; state.isEmpty() || !contentHeader->restoreState(state))
     {
         contentHeader->setStretchLastSection(false);
-        contentHeader->setSectionResizeMode(TorrentContentWidget::Name, QHeaderView::Stretch);
+        contentHeader->setSectionResizeMode(TorrentContentWidget::Name, QHeaderView::ResizeToContents);
         m_ui->contentTreeView->setColumnWidth(TorrentContentWidget::Priority,
             std::max(110, contentHeader->sectionSizeHint(TorrentContentWidget::Priority)));
     }

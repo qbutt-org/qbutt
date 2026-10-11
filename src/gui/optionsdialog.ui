@@ -3219,66 +3219,11 @@ Disable encryption: Only connect to peers without protocol encryption</string>
             </rect>
            </property>
            <layout class="QVBoxLayout" name="searchPageScrollAreaWidgetContentsLayout">
-            <item>
-             <widget class="QGroupBox" name="groupSearchUI">
-              <property name="title">
-               <string>Search UI</string>
+            <item alignment="Qt::AlignmentFlag::AlignLeft">
+             <widget class="QPushButton" name="sourcesSettingsButton">
+              <property name="text">
+               <string>Sources…</string>
               </property>
-              <layout class="QVBoxLayout" name="groupSearchUILayout">
-               <item>
-                <widget class="QGroupBox" name="groupStoreOpenedTabs">
-                 <property name="title">
-                  <string>Store opened tabs</string>
-                 </property>
-                 <property name="checkable">
-                  <bool>true</bool>
-                 </property>
-                 <property name="checked">
-                  <bool>false</bool>
-                 </property>
-                 <layout class="QVBoxLayout" name="groupStoreOpenedTabsLayout">
-                  <item>
-                   <widget class="QCheckBox" name="checkStoreTabsSearchResults">
-                    <property name="text">
-                     <string>Also store search results</string>
-                    </property>
-                   </widget>
-                  </item>
-                 </layout>
-                </widget>
-               </item>
-               <item>
-                <layout class="QHBoxLayout" name="searchHistoryLayout">
-                 <item>
-                  <widget class="QLabel" name="searchHistoryLengthLabel">
-                   <property name="text">
-                    <string>History length</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QSpinBox" name="searchHistoryLengthSpinBox">
-                   <property name="maximum">
-                    <number>99</number>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <spacer name="searchHistoryLengthSpacer">
-                   <property name="orientation">
-                    <enum>Qt::Orientation::Horizontal</enum>
-                   </property>
-                   <property name="sizeHint" stdset="0">
-                    <size>
-                     <width>40</width>
-                     <height>20</height>
-                    </size>
-                   </property>
-                  </spacer>
-                 </item>
-                </layout>
-               </item>
-              </layout>
              </widget>
             </item>
             <item>

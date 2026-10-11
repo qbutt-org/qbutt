@@ -1,0 +1,17 @@
+This component reuses the Cardigann execution engine, definition corpus and HTTP
+support from Harbrr, copyright Harbrr contributors, GNU GPL version 2 or later.
+Upstream: https://github.com/nitrobass24/harbrr
+Revision: e2463f4b5475879fa9cf2bb477e065634bac05b4
+
+Files under internal/indexer/cardigann, internal/indexer/definitions,
+and internal/http retain the upstream execution, login and parsing core. Module
+imports were adapted; unused daemon entities, service HTTP clients and the
+external FlareSolverr integration were removed. qbutt supplies its own bounded
+transport, private stdio protocol, settings and browser-session integration.
+The embedded definitions originate in Jackett (GNU GPL version 2 or later):
+https://github.com/Jackett/Jackett
+Revision: d3cf2f5026bbb2f509325902db0a85e48f37ea17
+The upstream LICENSE is included. Each source's original notices are retained.
+
+qbutt integration code is copyright 2026 qbutt contributors, GNU GPL version 2
+or later. Go modules retain their own licenses in the Go module distribution.

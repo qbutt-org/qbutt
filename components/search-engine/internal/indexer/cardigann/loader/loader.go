@@ -1,0 +1,464 @@
+package loader
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"maps"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+	"sync"
+
+	yaml "go.yaml.in/yaml/v3"
+
+	"qbutt.org/search-engine/internal/indexer/definitions"
+)
+
+// vendorDir is the subdirectory of the embedded definitions FS that holds the
+// vendored Jackett snapshot.
+const vendorDir = "vendor"
+
+// ErrNotFound is returned by Load when no definition with the requested id
+// exists in either the drop-in directory or the vendored snapshot.
+var ErrNotFound = errors.New("definition not found")
+
+// ProbeID returns a definition's declared id: without schema-validating or
+// decoding the rest of the document — the cheap read for callers that only need
+// to key a definition the way harbrr does (by content id, which for a handful of
+// Jackett files differs from the filename: darkpeers.yml carries darkpeers-api).
+// It returns "" when the document will not decode or declares no id:, leaving the
+// caller to fall back; it deliberately does not error, since a broken definition
+// is Parse's problem to report, not this probe's. The same YamlDotNet escape
+// compatibility Parse applies is applied here.
+func ProbeID(data []byte) string {
+	var probe struct {
+		ID string `yaml:"id"`
+	}
+	if err := unmarshalYAML(data, &probe); err != nil {
+		return ""
+	}
+	return probe.ID
+}
+
+// Parse decodes a single Cardigann definition from its YAML bytes. It
+// schema-validates the document before decoding into the typed model, so an
+// invalid definition fails fast with a readable, secret-free error.
+func Parse(data []byte) (*Definition, error) {
+	var generic any
+	if err := unmarshalYAML(data, &generic); err != nil {
+		return nil, fmt.Errorf("parsing definition YAML: %w", err)
+	}
+
+	if err := validate(toJSONValue(generic)); err != nil {
+		return nil, err
+	}
+
+	var def Definition
+	if err := unmarshalYAML(data, &def); err != nil {
+		return nil, fmt.Errorf("decoding definition into typed model: %w", err)
+	}
+	return &def, nil
+}
+
+// unmarshalYAML decodes a definition, absorbing one YamlDotNet compatibility
+// difference: Jackett's .NET YAML parser resolves the escape sequence "\/" in
+// double-quoted scalars to "/", whereas go-yaml (YAML 1.2) rejects it as an
+// unknown escape. Definitions written against Jackett rely on that leniency
+// (e.g. regex/selector args like "torrent-category-(\\d+)\/"). When and only
+// when go-yaml trips on that escape, we retry with "\/" rewritten to "/",
+// reproducing Jackett's result. The difference is absorbed here in the engine,
+// never by hand-editing the vendored def.
+func unmarshalYAML(data []byte, out any) error {
+	err := yaml.Unmarshal(data, out)
+	if err == nil {
+		return nil
+	}
+	if !strings.Contains(err.Error(), "found unknown escape character") {
+		return fmt.Errorf("yaml unmarshal: %w", err)
+	}
+	if retryErr := yaml.Unmarshal(rewriteSlashEscapes(data), out); retryErr != nil {
+		return fmt.Errorf("yaml unmarshal (after \\/ rewrite): %w", retryErr)
+	}
+	return nil
+}
+
+// rewriteSlashEscapes replaces the YAML "\/" escape with a literal "/",
+// matching YamlDotNet semantics. It is only applied as a fallback after
+// go-yaml rejects the escape.
+//
+// It is backslash-run aware: an escaping backslash is one that terminates an
+// odd-length run of backslashes. So "\/" (lone backslash, escapes the slash)
+// becomes "/", while "\\/" (escaped backslash, then a literal slash) is left
+// intact. A naive string replace would corrupt the latter.
+func rewriteSlashEscapes(data []byte) []byte {
+	out := make([]byte, 0, len(data))
+	backslashRun := 0
+	for i := range data {
+		c := data[i]
+		if c == '\\' {
+			backslashRun++
+			out = append(out, c)
+			continue
+		}
+		if c == '/' && backslashRun%2 == 1 {
+			// The last backslash escapes this slash; drop it.
+			out = out[:len(out)-1]
+		}
+		out = append(out, c)
+		backslashRun = 0
+	}
+	return out
+}
+
+// Loader resolves and parses Cardigann definitions, applying drop-in
+// precedence over the embedded vendored snapshot.
+type Loader struct {
+	dropinDir string
+}
+
+// vendorContentIdx maps a vendored definition's content id: to its embedded path,
+// but ONLY for the handful of files whose name differs from their id (e.g.
+// darkpeers.yml -> id darkpeers-api). It is built lazily on the first content-id
+// fallback, so the common filename==id path never pays for it.
+//
+// Package scope, not per-Loader. It is derived entirely from definitions.Vendored,
+// an embed.FS fixed at compile time, and takes no drop-in input -- so every Loader
+// in a process would otherwise rebuild an identical 550-file index. Caching the
+// error alongside it is safe for the same reason: reading an embedded FS is
+// deterministic, so a failure here cannot be transient. (Contrast the drop-in
+// half of the loader, which reads a live directory and must never be cached.)
+var vendorContentIdx = sync.OnceValues(buildVendorContentIndex)
+
+// New constructs a Loader. dropinDir is the on-disk directory of user override
+// definitions; an empty string disables drop-ins (vendored-only).
+func New(dropinDir string) *Loader {
+	return &Loader{dropinDir: dropinDir}
+}
+
+// Load resolves a definition by id with precedence dropin > vendored. Each
+// source is tried by filename first and by content id: second — drop-ins as
+// <dropinDir>/<id>.yml then any drop-in declaring id:, the vendored snapshot as
+// vendor/<id>.yml then any vendored file declaring id: — so the handful of
+// Jackett files whose name differs from their id resolve identically from both.
+// If neither source has it, Load returns an error wrapping ErrNotFound.
+func (l *Loader) Load(id string) (*Definition, error) {
+	def, _, err := l.load(id)
+	return def, err
+}
+
+// load is Load plus the origin the attempt actually selected, reported on the
+// failure path too so a caller can name the file the operator must go fix. A
+// drop-in that exists wins outright — unreadable or unparseable it still
+// reports OriginDropin and never falls back to the vendored copy, which is the
+// behaviour that makes a typo'd drop-in remove a working tracker. Origin is
+// empty only when no source was reached at all (a rejected id).
+func (l *Loader) load(id string) (*Definition, Origin, error) {
+	if err := validateID(id); err != nil {
+		return nil, "", err
+	}
+
+	if l.dropinDir != "" {
+		data, ok, err := l.readDropinFor(id)
+		if err != nil {
+			return nil, OriginDropin, err
+		}
+		if ok {
+			def, err := Parse(data)
+			if err != nil {
+				return nil, OriginDropin, fmt.Errorf("loading drop-in definition %q: %w", id, err)
+			}
+			return def, OriginDropin, nil
+		}
+	}
+
+	data, err := l.readVendored(id)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, OriginVendored, fmt.Errorf("%q: %w", id, ErrNotFound)
+		}
+		return nil, OriginVendored, err
+	}
+
+	def, err := Parse(data)
+	if err != nil {
+		return nil, OriginVendored, fmt.Errorf("loading vendored definition %q: %w", id, err)
+	}
+	return def, OriginVendored, nil
+}
+
+// readVendored returns the raw bytes of the vendored definition for id. It
+// resolves first by filename (vendor/<id>.yml, the common case where a file is
+// named for its id), then falls back to content-id resolution for the handful
+// of Jackett files whose name differs from their internal id: (e.g.
+// darkpeers.yml carries id darkpeers-api). Jackett keys definitions by content
+// id, and so does harbrr's own catalog (LoadAll indexes by the parsed id:), so
+// resolving the same way here keeps every id the catalog offers Load-able.
+// Returns a wrapped fs.ErrNotExist when neither resolution finds a file.
+func (l *Loader) readVendored(id string) ([]byte, error) {
+	data, err := definitions.Vendored.ReadFile(vendorPath(id))
+	if err == nil {
+		return data, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("reading vendored definition %q: %w", id, err)
+	}
+
+	// Fall back to content-id resolution: the index maps the id: of each
+	// vendored file whose name differs from it to that file's embedded path.
+	idx, idxErr := vendorContentIdx()
+	if idxErr != nil {
+		return nil, idxErr
+	}
+	path, ok := idx[id]
+	if !ok {
+		// Preserve fs.ErrNotExist so Load maps it to ErrNotFound.
+		return nil, fmt.Errorf("%q: %w", id, err)
+	}
+	data, err = definitions.Vendored.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading vendored definition %q: %w", id, err)
+	}
+	return data, nil
+}
+
+// Origin says where a definition was resolved from. It matters on a failure:
+// precedence is dropin > vendored and a failing drop-in never falls back, so a
+// broken drop-in for an existing id removes the working vendored definition —
+// and the operator needs to be told which file to go fix.
+type Origin string
+
+const (
+	OriginDropin   Origin = "dropin"
+	OriginVendored Origin = "vendored"
+)
+
+// SkipEntry records a definition that could not be loaded, so failures are
+// surfaced explicitly rather than silently dropped. Reason is the load error
+// text, which for a schema violation carries the validator's instance pointer
+// (e.g. /search/fields/title) and never the offending value (see schema.go).
+type SkipEntry struct {
+	ID     string
+	Origin Origin
+	Reason string
+}
+
+// LoadAll loads every vendored definition plus any drop-in override, applying
+// dropin > vendored precedence by id. Per-definition parse/validation failures
+// are collected into skipped (visible, never silent); err is reserved for
+// catastrophic filesystem errors that prevent enumeration.
+func (l *Loader) LoadAll() (defs []*Definition, skipped []SkipEntry, err error) {
+	// A schema-compile failure is systemic, not per-definition: it would
+	// otherwise surface identically as a "skip" for every id, masking the real
+	// root cause. Probe it once and treat it as a catastrophic error.
+	if _, err := schema(); err != nil {
+		return nil, nil, fmt.Errorf("compiling Cardigann schema: %w", err)
+	}
+
+	ids, err := l.allIDs()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Indexed slots, not appends: results are written by position so `defs` stays
+	// sorted by id and `skipped` keeps ids' order, exactly as the serial loop left
+	// them. Each id's outcome is independent -- nothing short-circuits -- so there
+	// is no first-error semantic to preserve.
+	type slot struct {
+		def    *Definition
+		origin Origin
+		err    error
+	}
+	slots := make([]slot, len(ids))
+	workers := min(runtime.GOMAXPROCS(0), len(ids))
+	var wg sync.WaitGroup
+	next := make(chan int)
+	for range workers {
+		wg.Go(func() {
+			for i := range next {
+				slots[i].def, slots[i].origin, slots[i].err = l.load(ids[i])
+			}
+		})
+	}
+	for i := range ids {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+
+	for i, id := range ids {
+		if slots[i].err != nil {
+			skipped = append(skipped, SkipEntry{ID: id, Origin: slots[i].origin, Reason: slots[i].err.Error()})
+			continue
+		}
+		defs = append(defs, slots[i].def)
+	}
+	return defs, skipped, nil
+}
+
+// allIDs returns the sorted union of vendored ids and drop-in ids.
+func (l *Loader) allIDs() ([]string, error) {
+	set := map[string]struct{}{}
+
+	entries, err := definitions.Vendored.ReadDir(vendorDir)
+	if err != nil {
+		return nil, fmt.Errorf("enumerating vendored definitions: %w", err)
+	}
+	for _, e := range entries {
+		if id, ok := definitionID(e.Name(), e.IsDir()); ok {
+			set[id] = struct{}{}
+		}
+	}
+
+	if err := l.collectDropinIDs(set); err != nil {
+		return nil, err
+	}
+
+	return slices.Sorted(maps.Keys(set)), nil
+}
+
+func (l *Loader) collectDropinIDs(set map[string]struct{}) error {
+	if l.dropinDir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(l.dropinDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("enumerating drop-in definitions: %w", err)
+	}
+	for _, e := range entries {
+		if id, ok := definitionID(e.Name(), e.IsDir()); ok {
+			set[id] = struct{}{}
+		}
+	}
+	return nil
+}
+
+// validateID rejects ids that are not a bare definition name. Without this an
+// id like "../../etc/foo" would escape dropinDir via filepath.Join and turn
+// Load into an arbitrary-file-read primitive. The embedded vendored FS already
+// rejects traversal, but the on-disk drop-in path does not, so the guard runs
+// for every Load. Definition ids are bare filenames (no separators), so this
+// rejects nothing legitimate.
+func validateID(id string) error {
+	if id == "" || id == "." || id == ".." ||
+		id != filepath.Base(id) || strings.ContainsAny(id, `/\`) {
+		return fmt.Errorf("invalid definition id %q: must be a bare name without path separators", id)
+	}
+	return nil
+}
+
+// readDropin reads <dropinDir>/<id>.yml. ok is false (with nil error) when the
+// file does not exist. id is validated by validateID on the single path that
+// reaches here (load), which rejects separators and "..", so the join can never
+// escape dropinDir.
+func (l *Loader) readDropin(id string) (data []byte, ok bool, err error) {
+	path := filepath.Join(l.dropinDir, id+".yml")
+	data, err = os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("reading drop-in definition %q: %w", id, err)
+	}
+	return data, true, nil
+}
+
+// readDropinFor resolves the drop-in for id the same way the catalog does:
+// first <dropinDir>/<id>.yml, then any drop-in file whose content id: equals id.
+// The second step matters for the vendored files whose filename differs from
+// their id (darkpeers.yml carries darkpeers-api, and five siblings): an operator
+// copies that file into the drop-in dir under its own name, LoadAll keys the
+// result by the parsed id: and advertises the override in the catalog, so
+// Load(darkpeers-api) — how every indexer instance is built — must honour it too
+// rather than falling through to the unmodified vendored copy.
+func (l *Loader) readDropinFor(id string) (data []byte, ok bool, err error) {
+	data, ok, err = l.readDropin(id)
+	if err != nil || ok {
+		return data, ok, err
+	}
+	return l.dropinByContentID(id)
+}
+
+// dropinByContentID scans the drop-in directory for a definition whose content
+// id: equals id. Unlike the vendored index this is never cached: the drop-in
+// directory is live on disk and an operator's edit must take effect on the next
+// Load. It runs only after the filename lookup misses, and a drop-in directory
+// holds a handful of hand-placed overrides, so the scan stays cheap. A file that
+// cannot be read or carries no id: is skipped — LoadAll is where a malformed
+// drop-in surfaces as a visible skip; one bad file must not break resolution for
+// every other id.
+func (l *Loader) dropinByContentID(id string) (data []byte, ok bool, err error) {
+	entries, err := os.ReadDir(l.dropinDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("enumerating drop-in definitions: %w", err)
+	}
+	for _, e := range entries {
+		fileID, isDef := definitionID(e.Name(), e.IsDir())
+		if !isDef || fileID == id {
+			// The filename match was already tried by readDropin.
+			continue
+		}
+		candidate, err := os.ReadFile(filepath.Join(l.dropinDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		if ProbeID(candidate) == id {
+			return candidate, true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+// definitionID extracts a definition id from a filename, returning ok=false for
+// directories and non-.yml files (e.g. schema.json, .jackett-ref).
+func definitionID(name string, isDir bool) (string, bool) {
+	if isDir {
+		return "", false
+	}
+	if !strings.HasSuffix(name, ".yml") {
+		return "", false
+	}
+	return strings.TrimSuffix(name, ".yml"), true
+}
+
+func vendorPath(id string) string {
+	return vendorDir + "/" + id + ".yml"
+}
+
+// buildVendorContentIndex scans the vendored snapshot and maps each definition's
+// content id: to its embedded path, but only for files whose name differs from
+// their id (the filename==id majority is already resolved by direct lookup, so
+// indexing them would only add cost). A file that cannot be parsed for its id is
+// skipped, not fatal — LoadAll is the place that surfaces a malformed definition
+// as a visible skip; the index must not fail the whole fallback over one bad file.
+func buildVendorContentIndex() (map[string]string, error) {
+	entries, err := definitions.Vendored.ReadDir(vendorDir)
+	if err != nil {
+		return nil, fmt.Errorf("enumerating vendored definitions: %w", err)
+	}
+
+	idx := map[string]string{}
+	for _, e := range entries {
+		fileID, ok := definitionID(e.Name(), e.IsDir())
+		if !ok {
+			continue
+		}
+		path := vendorDir + "/" + e.Name()
+		data, err := definitions.Vendored.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("reading vendored definition %q: %w", e.Name(), err)
+		}
+		if id := ProbeID(data); id != "" && id != fileID {
+			idx[id] = path
+		}
+	}
+	return idx, nil
+}

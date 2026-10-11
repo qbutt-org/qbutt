@@ -1,0 +1,22 @@
+diff --git a/vsov/CMakeLists.txt b/vsov/CMakeLists.txt
+index 1dbf122..8154d77 100644
+--- a/vsov/CMakeLists.txt
++++ b/vsov/CMakeLists.txt
+@@ -58,13 +58,10 @@ target_include_directories(vsov PUBLIC
+     "${PROJECT_BINARY_DIR}"
+ )
+ 
+-find_package(Git REQUIRED)
+-execute_process(
+-    COMMAND ${GIT_EXECUTABLE} describe --tags --long --always
+-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+-    OUTPUT_VARIABLE VCS_TAG
+-)
+-string(STRIP ${VCS_TAG} VCS_TAG)
++# Modified by mpv-config on 2026-08-15: replace the checkout-dependent
++# git-describe result with the immutable upstream v15.16 identity so the
++# complete source archive produces the same binary from any build directory.
++set(VCS_TAG "v15.16-0-g885e8bb")
+ configure_file(config.h.in config.h)
+ 
+ install(TARGETS vsov
