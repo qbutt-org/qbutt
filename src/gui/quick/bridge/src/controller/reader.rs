@@ -339,6 +339,7 @@ impl ffi::ContentController {
 
 struct CachedPage {
     file: TempPath,
+    directory: Arc<ReaderDirectory>,
     url: String,
 }
 
@@ -346,8 +347,10 @@ impl Drop for CachedPage {
     fn drop(&mut self) {
         self.file.disable_cleanup(true);
         ffi::retire_reader_cache(Box::new(RetiredReaderCache {
-            path: self.file.to_path_buf(),
-            directory: false,
+            path: RetiredReaderPath::File {
+                path: self.file.to_path_buf(),
+                _directory: Arc::clone(&self.directory),
+            },
         }));
     }
 }
@@ -358,26 +361,35 @@ impl Drop for ReaderDirectory {
     fn drop(&mut self) {
         self.0.disable_cleanup(true);
         ffi::retire_reader_cache(Box::new(RetiredReaderCache {
-            path: self.0.path().to_path_buf(),
-            directory: true,
+            path: RetiredReaderPath::Directory(self.0.path().to_path_buf()),
         }));
     }
 }
 
 pub(crate) struct RetiredReaderCache {
-    path: PathBuf,
-    directory: bool,
+    path: RetiredReaderPath,
+}
+
+enum RetiredReaderPath {
+    File {
+        path: PathBuf,
+        _directory: Arc<ReaderDirectory>,
+    },
+    Directory(PathBuf),
 }
 
 pub(super) fn clean_retired_reader_cache(cache: &RetiredReaderCache) {
     // Qt may still be decoding the retired file asynchronously. The global
     // pool owns cleanup after the controller and its Tokio runtime are gone.
+    // File jobs retain the directory, so its cleanup cannot race their unlink.
+    let path = match &cache.path {
+        RetiredReaderPath::File { path, .. } | RetiredReaderPath::Directory(path) => path,
+    };
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
-        let result = if cache.directory {
-            std::fs::remove_dir_all(&cache.path)
-        } else {
-            std::fs::remove_file(&cache.path)
+        let result = match &cache.path {
+            RetiredReaderPath::File { .. } => std::fs::remove_file(path),
+            RetiredReaderPath::Directory(_) => std::fs::remove_dir_all(path),
         };
         let Err(error) = result else {
             return;
@@ -392,7 +404,7 @@ pub(super) fn clean_retired_reader_cache(cache: &RetiredReaderCache) {
         }
         ffi::log_content_error(
             &QString::from("reader cache cleanup"),
-            &QString::from(format!("{}: {error}", cache.path.display())),
+            &QString::from(format!("{}: {error}", path.display())),
         );
         return;
     }
@@ -544,6 +556,7 @@ async fn load_page(
         }
         Ok(CachedPage {
             file: file.into_temp_path(),
+            directory,
             url,
         })
     })
