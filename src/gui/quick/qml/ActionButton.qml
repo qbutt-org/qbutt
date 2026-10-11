@@ -8,7 +8,6 @@ Button {
     required property Theme theme
 
     horizontalPadding: 16
-    verticalPadding: 10
     spacing: 8
     hoverEnabled: true
     font.pixelSize: theme.controlFontSize

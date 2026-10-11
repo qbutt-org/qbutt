@@ -68,6 +68,15 @@ environment; use `--lang ru` for Russian and `--dark` for Dark. The default is
 English and Light. This host uses an isolated application identity and does not
 open an existing qbutt profile.
 
+The same executable's `--library` scenario uses a temporary profile and checks
+the native Favorites model, exact selection across reopening, fresh inspection,
+missing preferred variants, SQLite lock failure/retry, reentrant completion and
+shutdown with an accepted write. It verifies that selection, resolution and
+`torrentReady` leave history empty. Run it with the same offscreen environment;
+use `--library --lang ru` to check localized library errors. Require exit zero
+and the `PASS library=ok` line. This backend scenario does not replace native
+bookmark/tab acceptance.
+
 The standalone acceptance target enables `QT_QML_DEBUG` for development preview;
 the shipping application does not inherit it. The project-local `qt-preview`
 MCP launches this host, but its tool response alone does not prove hot reload.
