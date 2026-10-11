@@ -3,12 +3,13 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Qbutt.Content
 
 Pane {
     id: root
     objectName: "contentWorkPane"
 
-    required property QtObject backend
+    required property ContentController backend
     required property Theme theme
     padding: 0
 
@@ -33,7 +34,7 @@ Pane {
     background: Item {}
 
     contentItem: ColumnLayout {
-        visible: root.backend.selectedWorkId.length > 0
+        visible: root.backend.selectedWorkId !== ""
         spacing: 16
 
         Label {
@@ -160,7 +161,7 @@ Pane {
 
             Label {
                 anchors.centerIn: parent
-                visible: !root.backend.inspecting && variants.count === 0
+                visible: !root.backend.inspecting && variants.count === 0 && root.backend.errorText === ""
                 text: qsTr("No downloads available")
                 color: root.theme.muted
             }

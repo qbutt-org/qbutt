@@ -3,12 +3,13 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
+import Qbutt.Content
 
 Page {
     id: root
     objectName: "contentQuickSearch"
 
-    required property QtObject backend
+    required property ContentController backend
     property bool searchStarted: false
 
     implicitWidth: 1200
@@ -85,7 +86,7 @@ Page {
         Label {
             objectName: "contentError"
             Layout.fillWidth: true
-            visible: root.backend.errorText.length > 0
+            visible: root.backend.errorText !== ""
             text: root.backend.errorText
             wrapMode: Text.Wrap
             textFormat: Text.PlainText
@@ -127,27 +128,29 @@ Page {
                         onClicked: {
                             works.currentIndex = work.index;
                             works.forceActiveFocus();
-                            if (root.backend.selectedWorkId !== work.workId)
-                                root.backend.selectWork(work.workId);
+                            root.backend.selectWork(work.workId);
                         }
                     }
 
                     function selectCurrentWork(): void {
                         const selected = currentItem as WorkDelegate;
-                        if (activeFocus && selected && root.backend.selectedWorkId !== selected.workId)
+                        if (activeFocus && selected)
                             root.backend.selectWork(selected.workId);
                     }
 
-                    onCurrentItemChanged: selectCurrentWork()
-                    onActiveFocusChanged: selectCurrentWork()
                     Keys.onReturnPressed: selectCurrentWork()
                     Keys.onEnterPressed: selectCurrentWork()
+                    Keys.onReleased: event => {
+                        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Home || event.key === Qt.Key_End || event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) {
+                            selectCurrentWork();
+                        }
+                    }
                 }
 
                 Label {
                     anchors.centerIn: parent
                     width: parent.width - 32
-                    visible: root.searchStarted && !root.backend.busy && works.count === 0 && root.backend.errorText.length === 0
+                    visible: root.searchStarted && !root.backend.busy && works.count === 0 && root.backend.errorText === ""
                     text: qsTr("No titles found")
                     color: appearance.muted
                     horizontalAlignment: Text.AlignHCenter
