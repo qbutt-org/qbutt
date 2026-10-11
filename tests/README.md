@@ -88,7 +88,9 @@ decodes actual cached pages, filters chapters without discarding the full list,
 changes the query during a native model reset, rejects invalid page indices,
 switches fit, cancels stale chapter work and reopens the exact translation.
 It also makes the temporary cache destination a file, restores the environment
-and verifies that retry reloads the same chapter. Live publication availability
+and verifies that retry reloads the same chapter. It checks deletion of the
+retired page file and chapter directories after Back, reopening and retry.
+Live publication availability
 is an external prerequisite; a timeout is a failure.
 
 This process scenario does not establish pointer interaction, popup blur,

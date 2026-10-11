@@ -1,4 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 #include "qbutt_quick/native.h"
+
+#include <utility>
 
 #include <QCoreApplication>
 #include <QImageReader>
@@ -7,8 +10,8 @@
 #include <QThreadPool>
 #include <QUrl>
 
-#include "qbutt_quick/src/models.cxxqt.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
+#include "qbutt_quick/src/models.cxxqt.h"
 #include "qbutt_quick/src/reader_models.cxxqt.h"
 
 Q_LOGGING_CATEGORY(contentLog, "qbutt.content")

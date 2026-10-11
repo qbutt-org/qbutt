@@ -5,6 +5,7 @@
 #include <memory>
 
 #include <QString>
+
 #include "rust/cxx.h"
 
 namespace Qbutt

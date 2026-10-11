@@ -59,9 +59,12 @@ Item {
                     acceptedButtons: Qt.LeftButton
                     enabled: page.visible
                     onTapped: eventPoint => {
-                        if (eventPoint.position.x < page.width * 0.22)
+                        const sideWidth = (page.width - page.paintedWidth) / 2
+                            + page.paintedWidth * 0.22;
+
+                        if (eventPoint.position.x < sideWidth)
                             root.backend.turnReaderPage(-1);
-                        else if (eventPoint.position.x > page.width * 0.78)
+                        else if (eventPoint.position.x > page.width - sideWidth)
                             root.backend.turnReaderPage(1);
                     }
                 }

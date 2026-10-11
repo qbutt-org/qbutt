@@ -175,6 +175,7 @@ void exerciseReader(Content::ContentView *view)
     const QString secondPage = readyPage(controller);
     require((controller->property("readerPageIndex").toInt() == 1) && (firstPage != secondPage),
         u"Page turn did not acquire the exact second page"_s);
+    waitFor([&] { return !QFileInfo::exists(firstPage); }, u"Retired page cache cleanup"_s);
     controller->setReaderFit(Qbutt::Reader::ReaderFit::Width);
     require(controller->property("readerFit").value<Qbutt::Reader::ReaderFit>() == Qbutt::Reader::ReaderFit::Width,
         u"Width fitting did not reach the backend"_s);
@@ -195,6 +196,8 @@ void exerciseReader(Content::ContentView *view)
     controller->closeReader();
     require(!controller->property("readerOpen").toBool() && controller->property("readerPageUrl").toString().isEmpty(),
         u"Back did not close and release the reading session"_s);
+    const QString firstDirectory = QFileInfo(firstPage).absolutePath();
+    waitFor([&] { return !QFileInfo::exists(firstDirectory); }, u"Closed chapter cache cleanup"_s);
     controller->openReader();
     const QString reopened = readyPage(controller);
     require((controller->property("selectedVariantId").toString() == exact) && !reopened.isEmpty(),
@@ -202,6 +205,8 @@ void exerciseReader(Content::ContentView *view)
     require(controller->property("chapterQuery").toString().isEmpty() && (chapters->rowCount() == chapterCount),
         u"New reading session inherited a stale chapter query"_s);
     controller->closeReader();
+    const QString reopenedDirectory = QFileInfo(reopened).absolutePath();
+    waitFor([&] { return !QFileInfo::exists(reopenedDirectory); }, u"Reopened chapter cache cleanup"_s);
 
     QTemporaryDir fault;
     require(fault.isValid(), u"Could not create the isolated cache fault"_s);
@@ -225,9 +230,11 @@ void exerciseReader(Content::ContentView *view)
     qputenv("TEMP", originalTemp);
     qputenv("TMP", originalTmp);
     controller->retryReader();
-    readyPage(controller);
+    const QString retried = readyPage(controller);
     require(controller->property("readerChapterId").toString() == firstChapter,
         u"Cache failure retry substituted another chapter"_s);
     controller->closeReader();
-    qInfo().noquote() << u"PASS reader mixed_search=ok exact_translation=ok qml_action=ok decoded_pages=2 chapter_filter=ok reentrant_filter=ok fit=ok stale_chapter=ok bounds=ok cancel_reopen=ok cache_failure_retry=ok chapters=%1"_s.arg(chapterCount);
+    const QString retriedDirectory = QFileInfo(retried).absolutePath();
+    waitFor([&] { return !QFileInfo::exists(retriedDirectory); }, u"Retried chapter cache cleanup"_s);
+    qInfo().noquote() << u"PASS reader mixed_search=ok exact_translation=ok qml_action=ok decoded_pages=2 chapter_filter=ok reentrant_filter=ok fit=ok stale_chapter=ok bounds=ok cancel_reopen=ok cache_failure_retry=ok cache_cleanup=ok chapters=%1"_s.arg(chapterCount);
 }
