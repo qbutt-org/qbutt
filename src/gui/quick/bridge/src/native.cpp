@@ -16,6 +16,13 @@
 
 Q_LOGGING_CATEGORY(contentLog, "qbutt.content")
 
+void Qbutt::retireContentServices(::rust::Box<Services> services)
+{
+    // The captured owner is destroyed on the pool thread. Runtime destruction
+    // waits for blocking jobs while this runnable keeps Qt's shutdown drain open.
+    QThreadPool::globalInstance()->start([services = std::move(services)] {});
+}
+
 void Qbutt::retireReaderCache(::rust::Box<RetiredReaderCache> cache)
 {
     QThreadPool::globalInstance()->start([cache = std::move(cache)]

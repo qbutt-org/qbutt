@@ -98,9 +98,12 @@ pub mod ffi {
         fn validatedImageUrl(path: &QString) -> QString;
         #[rust_name = "retire_reader_cache"]
         fn retireReaderCache(cache: Box<RetiredReaderCache>);
+        #[rust_name = "retire_content_services"]
+        fn retireContentServices(services: Box<Services>);
     }
 
     extern "Rust" {
+        type Services;
         type RetiredReaderCache;
         #[cxx_name = "cleanRetiredReaderCache"]
         fn clean_retired_reader_cache(cache: &RetiredReaderCache);
@@ -407,7 +410,7 @@ impl Pending {
     }
 }
 
-struct Services {
+pub struct Services {
     runtime: Runtime,
     source: Arc<AniLiberty>,
     manga: Arc<MangaDex>,
@@ -522,8 +525,9 @@ impl Drop for ContentControllerRust {
         // Closing the sender drains accepted writes and closes SQLite on its worker.
         self.library_worker.take();
         if let Some(services) = self.services.take() {
-            // QObject destruction must not wait for network work on the GUI thread.
-            services.runtime.shutdown_background();
+            // Qt's pool drains the runtime and accepted blocking work after this
+            // QObject closes, including cache retirement during application Exit.
+            ffi::retire_content_services(Box::new(services));
         }
     }
 }
