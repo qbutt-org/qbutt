@@ -111,7 +111,7 @@ pub mod ffi {
     }
 
     unsafe extern "C++" {
-        include!("qbutt-quick/native.h");
+        include!("qbutt_quick/native.h");
         #[rust_name = "create_work_model"]
         fn createWorkModel() -> UniquePtr<WorkModel>;
         #[rust_name = "create_variant_model"]

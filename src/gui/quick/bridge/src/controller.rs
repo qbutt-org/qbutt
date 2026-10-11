@@ -19,10 +19,10 @@ pub mod ffi {
     }
 
     unsafe extern "C++" {
-        include!("qbutt-quick/src/models.cxxqt.h");
+        include!("qbutt_quick/src/models.cxxqt.h");
         type WorkModel = crate::models::ffi::WorkModel;
         type VariantModel = crate::models::ffi::VariantModel;
-        include!("qbutt-quick/native.h");
+        include!("qbutt_quick/native.h");
         #[rust_name = "content_error"]
         fn contentError(operation: i32) -> QString;
         #[rust_name = "log_content_error"]

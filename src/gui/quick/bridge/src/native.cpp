@@ -1,10 +1,10 @@
-#include "qbutt-quick/native.h"
+#include "qbutt_quick/native.h"
 
 #include <QCoreApplication>
 #include <QLocale>
 #include <QLoggingCategory>
 
-#include "qbutt-quick/src/models.cxxqt.h"
+#include "qbutt_quick/src/models.cxxqt.h"
 
 Q_LOGGING_CATEGORY(contentLog, "qbutt.content")
 
