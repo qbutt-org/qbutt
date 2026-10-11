@@ -29,7 +29,7 @@ QString Qbutt::contentError(const std::int32_t operation)
     case 2:
         return QCoreApplication::translate("ContentController", "Could not load variants.");
     default:
-        return QCoreApplication::translate("ContentController", "The selected download is no longer available.");
+        return QCoreApplication::translate("ContentController", "Could not start the download.");
     }
 }
 
