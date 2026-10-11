@@ -6,6 +6,7 @@ The paths below describe the current implementation, not a requirement to retain
 
 - Until replaced, `src/base/content/client.*` owns the bounded private stdio connection to `qbutt-content.exe`, `components/content/contracts.ts` its protocol, and `src/gui/content/` presentation. Preserve request identity, one terminal outcome, cancellation and shutdown while this connection exists; do not reproduce its serialization or process machinery inside the Rust API.
 - `components/content/` currently owns providers, SQLite library/history, exact publication references, direct downloads, browser broker, reader and subtitle services. `components/search-engine/` builds `qbutt-search.exe` for Cardigann/native indexers. Move these responsibilities into Rust, preserving pinned definitions and separating their updates from user settings.
+- The native slice in `src/content/` owns AniLiberty, typed publication/variant models and the new `Library` SQLite API. `src/gui/quick/bridge/` owns its asynchronous Qt controller and list models. The existing main window still calls the older runtime; an accepted native API does not establish that its product screen has replaced that consumer.
 - `src/base/media/` owns qbutt's playback session/IPC, position reporting, translated subtitle attachment and torrent HTTP Range streaming. Use verified libtorrent `read_piece` bytes and the existing `TorrentImpl` priority/deadline lease; restore priorities when playback ends. Do not create another picker, torrent session or writer.
 
 ## Works and exact versions

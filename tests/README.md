@@ -24,6 +24,20 @@ sessions disable public discovery and use only explicitly added controlled peers
 
 ## Rust and Qt Quick content
 
+Native library storage has an isolated process integration scenario with generated
+public metadata. It creates and removes its temporary profile, reopens the database
+in another process, and checks exact selection, full variants and filters,
+partial/full metadata, independent favorites/history, rejected writes, SQLite
+abort and corrupt references/schema. It never reads an existing profile or starts
+a download:
+
+```powershell
+cargo run --locked --offline -p qbutt-content --example library
+```
+
+Require exit code zero and every reported check to pass. This checks storage;
+it does not establish that Favorites or history are wired into the UI.
+
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in
 [development setup](../docs/development.md), then run:
@@ -49,7 +63,7 @@ with a pending request.
 It does not download a payload or exercise `AddTorrentManager`.
 
 For native inspection in the VM, deploy this executable using `windeployqt
---qmldir src/gui/quick/qml`. Run it without `--exercise` or the offscreen
+--quickwidgets --qmldir src/gui/quick/qml`. Run it without `--exercise` or the offscreen
 environment; use `--lang ru` for Russian and `--dark` for Dark. The default is
 English and Light. This host uses an isolated application identity and does not
 open an existing qbutt profile.
