@@ -4,16 +4,21 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{AniLiberty, ResolvedContent, Work};
+use qbutt_content::{AniLiberty, LibraryEntry, ResolvedContent, VariantPreferences, Work};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
-use crate::models::{self, work_id};
+mod library;
+
+use crate::models::{self, variant_id, work_id};
+use library::LibraryWorker;
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
     #[qml_element]
     qnamespace!("Qbutt::Search");
+    #[qml_element]
+    qnamespace!("Qbutt::Library");
 
     #[qenum]
     #[namespace = "Qbutt::Search"]
@@ -23,6 +28,31 @@ pub mod ffi {
         Succeeded,
         Cancelled,
         Failed,
+    }
+
+    #[qenum]
+    #[namespace = "Qbutt::Search"]
+    enum ListMode {
+        Search,
+        Favorites,
+    }
+
+    #[qenum]
+    #[namespace = "Qbutt::Library"]
+    enum LibraryState {
+        Uninitialized,
+        Loading,
+        Ready,
+        Failed,
+    }
+
+    #[qenum]
+    #[namespace = "Qbutt::Search"]
+    enum VariantSelectionState {
+        None,
+        Inspecting,
+        Available,
+        Unavailable,
     }
 
     #[namespace = ""]
@@ -46,7 +76,39 @@ pub mod ffi {
         #[qobject]
         #[qml_element]
         #[qproperty(*mut WorkModel, works, READ = works_model, CONSTANT)]
+        #[qproperty(*mut WorkModel, favorites, READ = favorites_model, CONSTANT)]
         #[qproperty(*mut VariantModel, variants, READ = variants_model, CONSTANT)]
+        #[qproperty(ListMode, list_mode, cxx_name = "listMode", READ, NOTIFY)]
+        #[qproperty(LibraryState, library_state, cxx_name = "libraryState", READ, NOTIFY)]
+        #[qproperty(
+            bool,
+            library_pending,
+            cxx_name = "libraryPending",
+            READ = is_library_pending,
+            NOTIFY
+        )]
+        #[qproperty(
+            QString,
+            library_error_text,
+            cxx_name = "libraryErrorText",
+            READ,
+            NOTIFY
+        )]
+        #[qproperty(bool, selected_favorite, cxx_name = "selectedFavorite", READ, NOTIFY)]
+        #[qproperty(
+            QString,
+            selected_variant_id,
+            cxx_name = "selectedVariantId",
+            READ,
+            NOTIFY
+        )]
+        #[qproperty(
+            VariantSelectionState,
+            selected_variant_state,
+            cxx_name = "selectedVariantState",
+            READ = variant_selection_state,
+            NOTIFY
+        )]
         #[qproperty(bool, busy, READ = is_searching, NOTIFY)]
         #[qproperty(SearchState, search_state, cxx_name = "searchState", READ, NOTIFY)]
         #[qproperty(bool, inspecting, READ, NOTIFY)]
@@ -71,6 +133,22 @@ pub mod ffi {
 
         fn works_model(&self) -> *mut WorkModel;
         fn variants_model(&self) -> *mut VariantModel;
+        fn favorites_model(&self) -> *mut WorkModel;
+        fn is_library_pending(&self) -> bool;
+        fn variant_selection_state(&self) -> VariantSelectionState;
+
+        #[qinvokable]
+        #[cxx_name = "initLibrary"]
+        fn init_library(self: Pin<&mut Self>, profile_dir: QString);
+        #[qinvokable]
+        #[cxx_name = "setListMode"]
+        fn set_list_mode(self: Pin<&mut Self>, mode: ListMode);
+        #[qinvokable]
+        #[cxx_name = "setSelectedFavorite"]
+        fn set_selected_favorite(self: Pin<&mut Self>, favorite: bool);
+        #[qinvokable]
+        #[cxx_name = "selectVariant"]
+        fn select_variant(self: Pin<&mut Self>, id: QString);
         fn is_searching(&self) -> bool;
 
         #[qinvokable]
@@ -115,7 +193,10 @@ struct Services {
 
 pub struct ContentControllerRust {
     works: UniquePtr<models::ffi::WorkModel>,
+    favorites: UniquePtr<models::ffi::WorkModel>,
     variants: UniquePtr<models::ffi::VariantModel>,
+    list_mode: ffi::ListMode,
+
     search_state: ffi::SearchState,
     inspecting: bool,
     resolving: bool,
@@ -123,6 +204,18 @@ pub struct ContentControllerRust {
     selected_work_id: QString,
     selected_work_title: QString,
     selected_work_description: QString,
+    selected_favorite: bool,
+    selected_variant_id: QString,
+    selected_work: Option<Work>,
+    selected_preferences: VariantPreferences,
+
+    library_state: ffi::LibraryState,
+    library_pending: usize,
+    library_revision: u64,
+    library_error_text: QString,
+    library_worker: Option<LibraryWorker>,
+    library_entries: Vec<LibraryEntry>,
+
     services: Option<Services>,
     search: Pending,
     inspection: Pending,
@@ -159,7 +252,10 @@ impl Default for ContentControllerRust {
 
         Self {
             works: models::ffi::create_work_model(),
+            favorites: models::ffi::create_work_model(),
             variants: models::ffi::create_variant_model(),
+            list_mode: ffi::ListMode::Search,
+
             search_state: ffi::SearchState::Idle,
             inspecting: false,
             resolving: false,
@@ -167,6 +263,18 @@ impl Default for ContentControllerRust {
             selected_work_id: QString::default(),
             selected_work_title: QString::default(),
             selected_work_description: QString::default(),
+            selected_favorite: false,
+            selected_variant_id: QString::default(),
+            selected_work: None,
+            selected_preferences: VariantPreferences::default(),
+
+            library_state: ffi::LibraryState::Uninitialized,
+            library_pending: 0,
+            library_revision: 0,
+            library_error_text: QString::default(),
+            library_worker: None,
+            library_entries: Vec::new(),
+
             services,
             search: Pending::default(),
             inspection: Pending::default(),
@@ -180,6 +288,8 @@ impl Drop for ContentControllerRust {
         self.search.cancel();
         self.inspection.cancel();
         self.resolution.cancel();
+        // Closing the sender drains accepted writes and closes SQLite on its worker.
+        self.library_worker.take();
         if let Some(services) = self.services.take() {
             // QObject destruction must not wait for network work on the GUI thread.
             services.runtime.shutdown_background();
@@ -210,6 +320,7 @@ impl ffi::ContentController {
         if self.inspecting != value {
             self.as_mut().rust_mut().inspecting = value;
             self.as_mut().inspecting_changed();
+            self.as_mut().selected_variant_state_changed();
         }
     }
 
@@ -354,6 +465,7 @@ impl ffi::ContentController {
         };
         if inspecting_changed {
             self.as_mut().inspecting_changed();
+            self.as_mut().selected_variant_state_changed();
         }
         if resolving_changed {
             self.as_mut().resolving_changed();
@@ -373,27 +485,64 @@ impl ffi::ContentController {
             ),
             None => (QString::default(), QString::default(), QString::default()),
         };
-        let (id_changed, title_changed, description_changed) = {
+        let preferences = if self.selected_work_id != id {
+            work.and_then(|work| {
+                self.library_entries
+                    .iter()
+                    .find(|entry| entry.work.reference == work.reference)
+            })
+            .map(|entry| entry.preferences.clone())
+            .unwrap_or_default()
+        } else {
+            self.selected_preferences.clone()
+        };
+        let variant_id = preferences
+            .selected
+            .as_ref()
+            .map(variant_id)
+            .map(QString::from)
+            .unwrap_or_default();
+        let (id_changed, title_changed, description_changed, variant_changed) = {
             let mut state = self.as_mut().rust_mut();
             let changed = (
                 state.selected_work_id != id,
                 state.selected_work_title != title,
                 state.selected_work_description != description,
+                state.selected_variant_id != variant_id,
             );
             state.selected_work_id = id;
             state.selected_work_title = title;
             state.selected_work_description = description;
+            state.selected_work = work.cloned();
+            state.selected_preferences = preferences;
+            state.selected_variant_id = variant_id;
             changed
         };
         if id_changed {
             self.as_mut().selected_work_id_changed();
         }
+        if self.inspection.generation != generation {
+            return false;
+        }
         if title_changed {
             self.as_mut().selected_work_title_changed();
+        }
+        if self.inspection.generation != generation {
+            return false;
         }
         if description_changed {
             self.as_mut().selected_work_description_changed();
         }
+        if self.inspection.generation != generation {
+            return false;
+        }
+        if variant_changed {
+            self.as_mut().selected_variant_id_changed();
+        }
+        if self.inspection.generation != generation {
+            return false;
+        }
+        self.as_mut().refresh_selected_favorite();
         self.inspection.generation == generation
     }
 
@@ -402,13 +551,22 @@ impl ffi::ContentController {
             return false;
         }
         self.as_mut().rust_mut().variants.pin_mut().update(work);
+        if self.inspection.generation != generation {
+            return false;
+        }
+        self.as_mut().selected_variant_state_changed();
         self.inspection.generation == generation
     }
 
     pub fn select_work(mut self: Pin<&mut Self>, id: QString) {
-        let Some(work) = self.works.find(&id.to_string()).cloned() else {
+        let stored = self.list_mode == ffi::ListMode::Favorites;
+        let model = if stored { &self.favorites } else { &self.works };
+        let Some(mut work) = model.find(&id.to_string()).cloned() else {
             return;
         };
+        if stored {
+            work.needs_inspection = true;
+        }
         if self.selected_work_id == id && (self.inspecting || !work.needs_inspection) {
             return;
         }
@@ -427,6 +585,9 @@ impl ffi::ContentController {
                 return;
             }
         }
+        let should_inspect = work.needs_inspection && self.services.is_some();
+        // Cached variants cannot become actionable during synchronous selection notifications.
+        self.as_mut().rust_mut().inspecting = should_inspect;
         if !self.as_mut().show_work(&work, generation) {
             return;
         }
@@ -434,8 +595,9 @@ impl ffi::ContentController {
         if self.inspection.generation != generation {
             return;
         }
-        let should_inspect = work.needs_inspection && self.services.is_some();
-        self.as_mut().set_inspecting(should_inspect);
+        if should_inspect {
+            self.as_mut().inspecting_changed();
+        }
         if self.inspection.generation != generation {
             return;
         }
@@ -462,7 +624,12 @@ impl ffi::ContentController {
                         if !controller.as_mut().show_work(&work, generation) {
                             return;
                         }
-                        controller.as_mut().rust_mut().works.pin_mut().update(work);
+                        if controller.works.find(&work_id(&work.reference)).is_some() {
+                            controller.as_mut().rust_mut().works.pin_mut().update(work);
+                        }
+                        if controller.inspection.generation == generation {
+                            controller.as_mut().save_selected_preferences();
+                        }
                     }
                     Err(error) => {
                         ffi::log_content_error(
@@ -481,13 +648,18 @@ impl ffi::ContentController {
     }
 
     pub fn resolve_variant(mut self: Pin<&mut Self>, id: QString) {
-        if self.resolving {
+        if self.resolving || self.inspecting {
             return;
         }
         let Some(variant) = self.variants.find(&id.to_string()) else {
             return;
         };
         let reference = variant.reference.clone();
+        let selection_generation = self.inspection.generation;
+        self.as_mut().select_variant(id.clone());
+        if self.inspection.generation != selection_generation || self.selected_variant_id != id {
+            return;
+        }
         if self.services.is_none() {
             self.as_mut().set_error_text(ffi::content_error(0));
             return;

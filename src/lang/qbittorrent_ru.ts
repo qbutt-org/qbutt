@@ -18746,6 +18746,14 @@ Please choose a different name and try again.</source>
 <context>
     <name>ContentController</name>
     <message>
+        <source>Could not open the content library.</source>
+        <translation>Не удалось открыть библиотеку.</translation>
+    </message>
+    <message>
+        <source>Could not save the content library.</source>
+        <translation>Не удалось сохранить библиотеку.</translation>
+    </message>
+    <message>
         <source>Could not start content services.</source>
         <translation>Не удалось запустить поиск.</translation>
     </message>

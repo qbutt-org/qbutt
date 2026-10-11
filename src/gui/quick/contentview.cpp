@@ -3,11 +3,12 @@
 
 #include "qbutt_quick/src/controller.cxxqt.h"
 
-Content::ContentView::ContentView(QWidget *parent)
+Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     : QQuickWidget(parent)
 {
     auto *controller = new Qbutt::ContentController;
     controller->setParent(this);
+    controller->initLibrary(profileDir);
     controller->setObjectName(QStringLiteral("contentController"));
     connect(controller, &Qbutt::ContentController::torrentReady, this, &ContentView::torrentReady);
 

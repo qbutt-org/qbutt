@@ -28,8 +28,12 @@ QString Qbutt::contentError(const std::int32_t operation)
         return QCoreApplication::translate("ContentController", "Search could not be completed.");
     case 2:
         return QCoreApplication::translate("ContentController", "Could not load variants.");
-    default:
+    case 3:
         return QCoreApplication::translate("ContentController", "Could not start the download.");
+    case 4:
+        return QCoreApplication::translate("ContentController", "Could not open the content library.");
+    default:
+        return QCoreApplication::translate("ContentController", "Could not save the content library.");
     }
 }
 

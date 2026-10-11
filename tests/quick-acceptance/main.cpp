@@ -19,12 +19,15 @@
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QStyleHints>
+#include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
 #include <QTranslator>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVariant>
+
+#include "library.h"
 
 #include "gui/quick/contentview.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
@@ -449,6 +452,7 @@ int main(int argc, char *argv[])
     parser.setApplicationDescription(u"Runs the production Qt Quick content view with an isolated application identity."_s);
     parser.addHelpOption();
     parser.addOption({u"exercise"_s, u"Run the bounded live metadata acceptance scenario and exit."_s});
+    parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
     parser.addOption({u"dark"_s, u"Use the dark system color scheme for visual inspection."_s});
     parser.addOption({u"lang"_s, u"Set the locale for this process."_s, u"locale"_s, u"en"_s});
     parser.process(application);
@@ -463,11 +467,28 @@ int main(int argc, char *argv[])
     QGuiApplication::styleHints()->setColorScheme(parser.isSet(u"dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
     application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s));
 
+    if (parser.isSet(u"library"_s))
+    {
+        try
+        {
+            exerciseLibrary();
+            return 0;
+        }
+        catch (const std::exception &error)
+        {
+            qCritical().noquote() << "FAIL" << error.what();
+            return 1;
+        }
+    }
+
+    QTemporaryDir profile;
+    if (!profile.isValid())
+        return 1;
     auto *window = new QMainWindow;
     window->setAttribute(Qt::WA_DeleteOnClose);
     window->setWindowTitle(u"qbutt — Qt Quick acceptance"_s);
     window->resize(1280, 760);
-    auto *view = new Content::ContentView(window);
+    auto *view = new Content::ContentView(profile.path(), window);
     window->setCentralWidget(view);
     QObject::connect(view, &Content::ContentView::torrentReady, window, [window](const QString &magnet)
     {

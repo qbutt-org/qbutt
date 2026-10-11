@@ -8,13 +8,17 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
     set(minQt6Version 6.12)
 
-    find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Quick QuickControls2 QuickWidgets LinguistTools)
+    find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Quick QuickControls2 QuickWidgets LinguistTools Sql)
     qt_standard_project_setup(REQUIRES 6.12)
 
     add_subdirectory("../../src/gui/quick" "quick")
 endif()
 
-qt_add_executable(qbutt-quick-acceptance main.cpp)
+qt_add_executable(qbutt-quick-acceptance
+    main.cpp
+    library.cpp
+    library.h
+)
 target_compile_definitions(qbutt-quick-acceptance PRIVATE QT_QML_DEBUG)
 set_target_properties(qbutt-quick-acceptance PROPERTIES AUTORCC ON)
 target_sources(qbutt-quick-acceptance PRIVATE "../../src/icons/icons.qrc")
@@ -28,6 +32,7 @@ target_link_libraries(qbutt-quick-acceptance
     PRIVATE
         qbt_quick
         qbutt_quick
+        Qt::Sql
 )
 target_include_directories(qbutt-quick-acceptance PRIVATE "../../src")
 

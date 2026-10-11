@@ -29,6 +29,7 @@
 #include "base/bittorrent/torrentdescriptor.h"
 #include "base/net/portforwarder.h"
 #include "base/preferences.h"
+#include "base/profile.h"
 #include "base/utils/fs.h"
 #include "gui/addnewtorrentdialog.h"
 #include "gui/fspathedit.h"
@@ -98,7 +99,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(screenshots.exists(), u"Screenshot directory is missing"_s);
 
     application.mainWindow()->hide();
-    Content::ContentView view;
+    Content::ContentView view(specialFolderLocation(SpecialFolder::Data).toString());
     view.setWindowTitle(u"qbutt"_s);
     view.resize(1280, 760);
     view.show();

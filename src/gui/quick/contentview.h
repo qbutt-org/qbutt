@@ -10,7 +10,7 @@ namespace Content
         Q_OBJECT
 
     public:
-        explicit ContentView(QWidget *parent = nullptr);
+        explicit ContentView(const QString &profileDir, QWidget *parent = nullptr);
 
     signals:
         void torrentReady(const QString &magnet);

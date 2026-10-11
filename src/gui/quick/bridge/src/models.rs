@@ -2,7 +2,9 @@ use std::pin::Pin;
 
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QByteArray, QHash, QModelIndex, QString, QVariant, QVector};
-use qbutt_content::{Category, PublicationRef, Source, Transport, Variant, VariantSelector, Work};
+use qbutt_content::{
+    Category, PublicationRef, Source, Transport, Variant, VariantRef, VariantSelector, Work,
+};
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
@@ -50,6 +52,12 @@ pub mod ffi {
         #[inherit]
         #[rust_name = "end_insert_rows"]
         fn endInsertRows(self: Pin<&mut Self>);
+        #[inherit]
+        #[rust_name = "begin_remove_rows"]
+        fn beginRemoveRows(self: Pin<&mut Self>, parent: &QModelIndex, first: i32, last: i32);
+        #[inherit]
+        #[rust_name = "end_remove_rows"]
+        fn endRemoveRows(self: Pin<&mut Self>);
         #[inherit]
         fn index(&self, row: i32, column: i32, parent: &QModelIndex) -> QModelIndex;
         #[inherit]
@@ -129,9 +137,9 @@ pub fn work_id(reference: &PublicationRef) -> String {
     }
 }
 
-pub fn variant_id(variant: &Variant) -> String {
-    let publication = work_id(&variant.reference.publication);
-    match &variant.reference.selector {
+pub fn variant_id(reference: &VariantRef) -> String {
+    let publication = work_id(&reference.publication);
+    match &reference.selector {
         VariantSelector::Torrent { id } => format!("{publication}:torrent:{id}"),
         VariantSelector::Episode { id, quality } => {
             format!("{publication}:episode:{id}:{}", quality.height())
@@ -201,6 +209,19 @@ impl ffi::WorkModel {
         self.as_mut().end_reset_model();
     }
 
+    pub fn remove(mut self: Pin<&mut Self>, reference: &PublicationRef) {
+        if let Some(row) = self
+            .rows
+            .iter()
+            .position(|work| &work.reference == reference)
+        {
+            self.as_mut()
+                .begin_remove_rows(&QModelIndex::default(), row as i32, row as i32);
+            self.as_mut().rust_mut().rows.remove(row);
+            self.as_mut().end_remove_rows();
+        }
+    }
+
     pub fn update(mut self: Pin<&mut Self>, work: Work) {
         let parent = QModelIndex::default();
         if let Some(row) = self
@@ -208,6 +229,9 @@ impl ffi::WorkModel {
             .iter()
             .position(|item| item.reference == work.reference)
         {
+            if self.rows[row] == work {
+                return;
+            }
             self.as_mut().rust_mut().rows[row] = work;
             let index = self.index(row as i32, 0, &parent);
             self.as_mut()
@@ -249,7 +273,7 @@ impl ffi::VariantModel {
             return QVariant::from(&size);
         }
         let text = match role - USER_ROLE {
-            0 => variant_id(variant),
+            0 => variant_id(&variant.reference),
             1 => variant
                 .title
                 .clone()
@@ -283,7 +307,9 @@ impl ffi::VariantModel {
     }
 
     pub fn find(&self, id: &str) -> Option<&Variant> {
-        self.rows.iter().find(|variant| variant_id(variant) == id)
+        self.rows
+            .iter()
+            .find(|variant| variant_id(&variant.reference) == id)
     }
 
     pub fn clear(mut self: Pin<&mut Self>) {
