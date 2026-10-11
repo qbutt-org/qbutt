@@ -14,6 +14,8 @@ ItemDelegate {
     required property string year
     required property Theme theme
 
+    readonly property string categoryText: category === "anime" ? qsTr("Anime") : category
+
     width: ListView.view.width
     padding: 12
     focusPolicy: Qt.NoFocus
@@ -35,7 +37,7 @@ ItemDelegate {
         Label {
             Layout.fillWidth: true
             color: root.theme.muted
-            text: root.year.length > 0 ? qsTr("%1, %2").arg(root.category).arg(root.year) : root.category
+            text: root.year.length > 0 ? qsTr("%1, %2").arg(root.categoryText).arg(root.year) : root.categoryText
             elide: Text.ElideRight
             textFormat: Text.PlainText
         }

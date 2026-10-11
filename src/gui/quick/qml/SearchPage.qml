@@ -12,7 +12,7 @@ Page {
     property bool searchStarted: false
 
     implicitWidth: 1200
-    implicitHeight: 720
+    implicitHeight: 560
     padding: 24
     palette.highlight: appearance.accent
 
@@ -23,7 +23,7 @@ Page {
     }
 
     Shortcut {
-        sequence: StandardKey.Find
+        sequences: [StandardKey.Find]
         enabled: root.visible
         onActivated: {
             query.forceActiveFocus();
@@ -96,6 +96,11 @@ Page {
             Layout.fillHeight: true
             spacing: 0
 
+            handle: Rectangle {
+                implicitWidth: 8
+                color: SplitHandle.hovered || SplitHandle.pressed ? appearance.hover : "transparent"
+            }
+
             Item {
                 SplitView.minimumWidth: 280
                 SplitView.preferredWidth: 340
@@ -127,11 +132,16 @@ Page {
                         }
                     }
 
-                    onCurrentItemChanged: {
+                    function selectCurrentWork(): void {
                         const selected = currentItem as WorkDelegate;
                         if (activeFocus && selected && root.backend.selectedWorkId !== selected.workId)
                             root.backend.selectWork(selected.workId);
                     }
+
+                    onCurrentItemChanged: selectCurrentWork()
+                    onActiveFocusChanged: selectCurrentWork()
+                    Keys.onReturnPressed: selectCurrentWork()
+                    Keys.onEnterPressed: selectCurrentWork()
                 }
 
                 Label {

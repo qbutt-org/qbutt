@@ -57,6 +57,7 @@ Pane {
                 text: qsTr("Download")
                 icon.source: root.theme.iconSource("download")
                 highlighted: true
+                palette.dark: root.theme.accent
                 enabled: variants.currentItem !== null && !root.backend.resolving
                 onClicked: root.downloadSelected()
             }
