@@ -52,14 +52,12 @@ Pane {
         RowLayout {
             spacing: 12
 
-            Button {
+            ActionButton {
                 objectName: "contentDownload"
-                Layout.preferredHeight: root.theme.controlHeight
+                theme: root.theme
                 text: qsTr("Download")
                 icon.source: root.theme.iconSource("download")
                 highlighted: true
-                palette.dark: root.theme.accent
-                palette.brightText: root.theme.accentText
                 enabled: variants.currentItem !== null && !root.backend.resolving
                 onClicked: root.downloadSelected()
             }

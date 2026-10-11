@@ -3,6 +3,8 @@ qt_add_qml_module(qbt_quick_ui STATIC
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Qbutt/Views"
     IMPORT_PATH "${CMAKE_CURRENT_BINARY_DIR}/../cxxqt/qml_modules"
     QML_FILES
+        ActionButton.qml
+        QueryField.qml
         SearchPage.qml
         Theme.qml
         VariantDelegate.qml

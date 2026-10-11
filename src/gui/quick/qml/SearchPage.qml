@@ -49,20 +49,21 @@ Page {
         RowLayout {
             spacing: 12
 
-            TextField {
+            QueryField {
                 id: query
                 objectName: "contentQuery"
                 Layout.fillWidth: true
-                Layout.preferredHeight: appearance.controlHeight
+                theme: appearance
                 placeholderText: qsTr("Search anime")
                 selectByMouse: true
                 Accessible.name: qsTr("Search anime")
                 onAccepted: root.submitSearch()
             }
 
-            Button {
+            ActionButton {
                 objectName: "contentSearch"
-                Layout.preferredHeight: appearance.controlHeight
+                theme: appearance
+                highlighted: !root.backend.busy
                 text: root.backend.busy ? qsTr("Stop") : qsTr("Search")
                 enabled: root.backend.busy || query.text.trim().length > 0
                 onClicked: {
