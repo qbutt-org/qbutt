@@ -18742,8 +18742,8 @@ Please choose a different name and try again.</source>
 <context>
     <name>SearchPage</name>
     <message>
-        <source>Search anime</source>
-        <translation>Поиск аниме</translation>
+        <source>Search titles</source>
+        <translation>Поиск произведений</translation>
     </message>
     <message>
         <source>Stop</source>
@@ -18772,9 +18772,17 @@ Please choose a different name and try again.</source>
         <source>Anime</source>
         <translation>Аниме</translation>
     </message>
+    <message>
+        <source>Manga</source>
+        <translation>Манга</translation>
+    </message>
 </context>
 <context>
     <name>WorkPane</name>
+    <message>
+        <source>Read</source>
+        <translation>Читать</translation>
+    </message>
     <message>
         <source>Download</source>
         <translation>Скачать</translation>
@@ -18796,8 +18804,8 @@ Please choose a different name and try again.</source>
         <translation>Сиды</translation>
     </message>
     <message>
-        <source>No downloads available</source>
-        <translation>Нет доступных загрузок</translation>
+        <source>No variants available</source>
+        <translation>Нет доступных вариантов</translation>
     </message>
     <message>
         <source>Add to favorites</source>
@@ -18814,6 +18822,34 @@ Please choose a different name and try again.</source>
 </context>
 <context>
     <name>ContentController</name>
+    <message>
+        <source>Could not load chapters.</source>
+        <translation>Не удалось загрузить главы.</translation>
+    </message>
+    <message>
+        <source>Could not load this chapter.</source>
+        <translation>Не удалось загрузить главу.</translation>
+    </message>
+    <message>
+        <source>Could not load this page.</source>
+        <translation>Не удалось загрузить страницу.</translation>
+    </message>
+    <message>
+        <source>This chapter is no longer available.</source>
+        <translation>Эта глава больше недоступна.</translation>
+    </message>
+    <message>
+        <source>Chapter %1</source>
+        <translation>Глава %1</translation>
+    </message>
+    <message>
+        <source>Volume %1</source>
+        <translation>Том %1</translation>
+    </message>
+    <message>
+        <source>Chapter</source>
+        <translation>Глава</translation>
+    </message>
     <message>
         <source>Could not open the content library.</source>
         <translation>Не удалось открыть библиотеку.</translation>
@@ -18837,6 +18873,95 @@ Please choose a different name and try again.</source>
     <message>
         <source>Could not start the download.</source>
         <translation>Не удалось начать загрузку.</translation>
+    </message>
+</context>
+<context>
+    <name>ChapterPicker</name>
+    <message>
+        <source>Chapters</source>
+        <translation>Главы</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Find a chapter</source>
+        <translation>Найти главу</translation>
+    </message>
+    <message>
+        <source>Chapter %1</source>
+        <translation>Глава %1</translation>
+    </message>
+    <message>
+        <source>Volume %1</source>
+        <translation>Том %1</translation>
+    </message>
+    <message>
+        <source>Pages: %1</source>
+        <translation>Страниц: %1</translation>
+    </message>
+    <message>
+        <source>No chapters found</source>
+        <translation>Главы не найдены</translation>
+    </message>
+</context>
+<context>
+    <name>ReaderCanvas</name>
+    <message>
+        <source>Could not display this page.</source>
+        <translation>Не удалось показать страницу.</translation>
+    </message>
+    <message>
+        <source>Page %1</source>
+        <translation>Страница %1</translation>
+    </message>
+    <message>
+        <source>Try again</source>
+        <translation>Повторить</translation>
+    </message>
+</context>
+<context>
+    <name>ReaderToolbar</name>
+    <message>
+        <source>Back</source>
+        <translation>Назад</translation>
+    </message>
+    <message>
+        <source>Chapters</source>
+        <translation>Главы</translation>
+    </message>
+    <message>
+        <source>Choose chapter</source>
+        <translation>Выбрать главу</translation>
+    </message>
+    <message>
+        <source>Previous page</source>
+        <translation>Предыдущая страница</translation>
+    </message>
+    <message>
+        <source>Next page</source>
+        <translation>Следующая страница</translation>
+    </message>
+    <message>
+        <source>Page %1 of %2</source>
+        <translation>Страница %1 из %2</translation>
+    </message>
+    <message>
+        <source>Height</source>
+        <translation>По высоте</translation>
+    </message>
+    <message>
+        <source>Width</source>
+        <translation>По ширине</translation>
+    </message>
+    <message>
+        <source>Fit to height</source>
+        <translation>По высоте окна</translation>
+    </message>
+    <message>
+        <source>Fit to width</source>
+        <translation>По ширине окна</translation>
     </message>
 </context>
 </TS>

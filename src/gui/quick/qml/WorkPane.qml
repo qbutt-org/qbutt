@@ -17,8 +17,13 @@ Pane {
     readonly property int sizeWidth: 80
     readonly property int seedersWidth: 48
 
-    function downloadSelected(): void {
-        if (backend.selectedVariantState === Search.Available && !backend.resolving)
+    function openSelected(): void {
+        if (backend.selectedVariantState !== Search.Available || backend.resolving)
+            return;
+
+        if (backend.selectedVariantKind === "manga")
+            backend.openReader();
+        else
             backend.resolveVariant(backend.selectedVariantId);
     }
 
@@ -83,11 +88,11 @@ Pane {
             ActionButton {
                 objectName: "contentDownload"
                 theme: root.theme
-                text: qsTr("Download")
-                icon.source: root.theme.iconSource("download")
+                text: root.backend.selectedVariantKind === "manga" ? qsTr("Read") : qsTr("Download")
+                icon.source: root.theme.iconSource(root.backend.selectedVariantKind === "manga" ? "help-contents" : "download")
                 highlighted: true
                 enabled: root.backend.selectedVariantState === Search.Available && !root.backend.resolving
-                onClicked: root.downloadSelected()
+                onClicked: root.openSelected()
             }
 
             BusyIndicator {
@@ -146,6 +151,7 @@ Pane {
 
             Label {
                 Layout.preferredWidth: root.sizeWidth
+                visible: root.backend.selectedWorkCategory !== "manga"
                 text: qsTr("Size")
                 color: root.theme.muted
                 horizontalAlignment: Text.AlignRight
@@ -153,6 +159,7 @@ Pane {
 
             Label {
                 Layout.preferredWidth: root.seedersWidth
+                visible: root.backend.selectedWorkCategory !== "manga"
                 text: qsTr("Seeds")
                 color: root.theme.muted
                 horizontalAlignment: Text.AlignRight
@@ -179,8 +186,8 @@ Pane {
                     root.backend.selectVariant(root.backend.variants.idAt(currentIndex));
             }
 
-            Keys.onReturnPressed: root.downloadSelected()
-            Keys.onEnterPressed: root.downloadSelected()
+            Keys.onReturnPressed: root.openSelected()
+            Keys.onEnterPressed: root.openSelected()
             Keys.onPressed: event => {
                 if (count > 0 && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
                     const index = event.key === Qt.Key_Home ? 0 : count - 1;
@@ -206,13 +213,13 @@ Pane {
                     root.backend.selectVariant(variant.variantId);
                 }
 
-                onDoubleClicked: root.downloadSelected()
+                onDoubleClicked: root.openSelected()
             }
 
             Label {
                 anchors.centerIn: parent
                 visible: root.backend.selectedVariantState === Search.None && variants.count === 0 && root.backend.errorText === ""
-                text: qsTr("No downloads available")
+                text: qsTr("No variants available")
                 color: root.theme.muted
             }
         }

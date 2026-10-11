@@ -34,8 +34,8 @@ ItemDelegate {
             Image {
                 Layout.preferredWidth: 18
                 Layout.preferredHeight: 18
-                visible: root.kind === "torrent"
-                source: root.theme.iconSource("torrent-magnet")
+                visible: root.kind === "torrent" || root.kind === "manga"
+                source: root.theme.iconSource(root.kind === "manga" ? "help-contents" : "torrent-magnet")
                 sourceSize: Qt.size(18, 18)
             }
 
@@ -64,6 +64,7 @@ ItemDelegate {
 
         Label {
             Layout.preferredWidth: root.sizeWidth
+            visible: root.kind === "torrent"
             text: root.sizeText
             horizontalAlignment: Text.AlignRight
             textFormat: Text.PlainText
@@ -71,6 +72,7 @@ ItemDelegate {
 
         Label {
             Layout.preferredWidth: root.seedersWidth
+            visible: root.kind === "torrent"
             text: root.seedersText
             horizontalAlignment: Text.AlignRight
             textFormat: Text.PlainText

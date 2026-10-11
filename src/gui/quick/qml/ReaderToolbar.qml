@@ -1,0 +1,142 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
+import Qbutt.Content
+
+Pane {
+    id: root
+    objectName: "readerToolbar"
+
+    required property ContentController backend
+    required property Theme theme
+    signal chaptersRequested
+
+    padding: 0
+    background: Item {}
+
+    contentItem: RowLayout {
+        spacing: 12
+
+        ActionButton {
+            objectName: "readerBack"
+            theme: root.theme
+            text: qsTr("Back")
+            onClicked: root.backend.closeReader()
+        }
+
+        Label {
+            objectName: "readerTitle"
+            Layout.fillWidth: true
+            text: root.backend.readerTitle
+            font.pixelSize: 20
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
+            textFormat: Text.PlainText
+        }
+
+        ActionButton {
+            id: chapter
+            objectName: "readerChapters"
+            Layout.preferredWidth: 240
+            theme: root.theme
+            icon.source: root.theme.iconSource("go-down")
+            text: root.backend.readerChapterTitle.length > 0 ? root.backend.readerChapterTitle : qsTr("Chapters")
+            Accessible.name: qsTr("Choose chapter")
+            enabled: root.backend.readerChapterId.length > 0
+            onClicked: root.chaptersRequested()
+
+            ToolTip {
+                parent: chapter
+                visible: chapter.hovered
+                text: qsTr("Choose chapter")
+            }
+        }
+
+        RowLayout {
+            spacing: 8
+
+            ActionButton {
+                id: previous
+                objectName: "readerPreviousPage"
+                Layout.preferredWidth: root.theme.controlHeight
+                theme: root.theme
+                text: "‹"
+                font.pixelSize: 24
+                horizontalPadding: 0
+                Accessible.name: qsTr("Previous page")
+                enabled: root.backend.readerPageIndex > 0 && !root.backend.readerBusy
+                onClicked: root.backend.turnReaderPage(-1)
+
+                ToolTip {
+                    parent: previous
+                    visible: previous.hovered
+                    text: qsTr("Previous page")
+                }
+            }
+
+            Label {
+                objectName: "readerPageNumber"
+                Layout.preferredWidth: Math.max(116, implicitWidth)
+                text: root.backend.readerPageCount > 0 ? qsTr("Page %1 of %2").arg(root.backend.readerPageIndex + 1).arg(root.backend.readerPageCount) : ""
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            ActionButton {
+                id: next
+                objectName: "readerNextPage"
+                Layout.preferredWidth: root.theme.controlHeight
+                theme: root.theme
+                text: "›"
+                font.pixelSize: 24
+                horizontalPadding: 0
+                Accessible.name: qsTr("Next page")
+                enabled: root.backend.readerPageIndex + 1 < root.backend.readerPageCount && !root.backend.readerBusy
+                onClicked: root.backend.turnReaderPage(1)
+
+                ToolTip {
+                    parent: next
+                    visible: next.hovered
+                    text: qsTr("Next page")
+                }
+            }
+        }
+
+        RowLayout {
+            spacing: 8
+
+            ActionButton {
+                id: heightFit
+                objectName: "readerHeightFit"
+                theme: root.theme
+                text: qsTr("Height")
+                Accessible.name: qsTr("Fit to height")
+                checked: root.backend.readerFit === Reader.Height
+                onClicked: root.backend.setReaderFit(Reader.Height)
+
+                ToolTip {
+                    parent: heightFit
+                    visible: heightFit.hovered
+                    text: qsTr("Fit to height")
+                }
+            }
+
+            ActionButton {
+                id: widthFit
+                objectName: "readerWidthFit"
+                theme: root.theme
+                text: qsTr("Width")
+                Accessible.name: qsTr("Fit to width")
+                checked: root.backend.readerFit === Reader.Width
+                onClicked: root.backend.setReaderFit(Reader.Width)
+
+                ToolTip {
+                    parent: widthFit
+                    visible: widthFit.hovered
+                    text: qsTr("Fit to width")
+                }
+            }
+        }
+    }
+}

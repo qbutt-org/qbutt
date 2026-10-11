@@ -13,7 +13,14 @@ ItemDelegate {
     required property string year
     required property Theme theme
 
-    readonly property string categoryText: category === "anime" ? qsTr("Anime") : category
+    readonly property string categoryText: {
+        if (category === "anime")
+            return qsTr("Anime");
+        if (category === "manga")
+            return qsTr("Manga");
+
+        return category;
+    }
 
     width: ListView.view.width
     padding: 12

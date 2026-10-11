@@ -25,7 +25,7 @@ Page {
 
     Shortcut {
         sequences: [StandardKey.Find]
-        enabled: root.visible
+        enabled: root.visible && !root.backend.readerOpen
         onActivated: {
             root.backend.setListMode(Search.Search);
             query.forceActiveFocus();
@@ -47,6 +47,7 @@ Page {
     }
 
     contentItem: ColumnLayout {
+        visible: !root.backend.readerOpen
         spacing: 16
 
         RowLayout {
@@ -81,9 +82,9 @@ Page {
                 objectName: "contentQuery"
                 Layout.fillWidth: true
                 theme: appearance
-                placeholderText: qsTr("Search anime")
+                placeholderText: qsTr("Search titles")
                 selectByMouse: true
-                Accessible.name: qsTr("Search anime")
+                Accessible.name: qsTr("Search titles")
                 onAccepted: root.submitSearch()
             }
 
@@ -215,6 +216,19 @@ Page {
                 theme: appearance
                 leftPadding: 24
             }
+        }
+    }
+
+    Loader {
+        id: reader
+        parent: root
+        anchors.fill: parent
+        active: root.backend.readerOpen
+        onLoaded: item.forceActiveFocus()
+
+        sourceComponent: ReaderPage {
+            backend: root.backend
+            theme: appearance
         }
     }
 }
