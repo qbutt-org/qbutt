@@ -16,6 +16,7 @@ Pane {
     readonly property int sourceWidth: 116
     readonly property int sizeWidth: 80
     readonly property int seedersWidth: 48
+    readonly property bool showTorrentColumns: backend.selectedWorkCategory !== "manga"
 
     function openSelected(): void {
         if (backend.selectedVariantState !== Search.Available || backend.resolving)
@@ -151,7 +152,7 @@ Pane {
 
             Label {
                 Layout.preferredWidth: root.sizeWidth
-                visible: root.backend.selectedWorkCategory !== "manga"
+                visible: root.showTorrentColumns
                 text: qsTr("Size")
                 color: root.theme.muted
                 horizontalAlignment: Text.AlignRight
@@ -159,7 +160,7 @@ Pane {
 
             Label {
                 Layout.preferredWidth: root.seedersWidth
-                visible: root.backend.selectedWorkCategory !== "manga"
+                visible: root.showTorrentColumns
                 text: qsTr("Seeds")
                 color: root.theme.muted
                 horizontalAlignment: Text.AlignRight
@@ -207,6 +208,7 @@ Pane {
                 sourceWidth: root.sourceWidth
                 sizeWidth: root.sizeWidth
                 seedersWidth: root.seedersWidth
+                showTorrentColumns: root.showTorrentColumns
                 highlighted: root.backend.selectedVariantState === Search.Available && root.backend.selectedVariantId === variant.variantId
                 onClicked: {
                     variants.forceActiveFocus();

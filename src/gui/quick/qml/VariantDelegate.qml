@@ -17,6 +17,7 @@ ItemDelegate {
     required property int sourceWidth
     required property int sizeWidth
     required property int seedersWidth
+    required property bool showTorrentColumns
 
     width: ListView.view.width
     padding: 12
@@ -64,7 +65,7 @@ ItemDelegate {
 
         Label {
             Layout.preferredWidth: root.sizeWidth
-            visible: root.kind === "torrent"
+            visible: root.showTorrentColumns
             text: root.sizeText
             horizontalAlignment: Text.AlignRight
             textFormat: Text.PlainText
@@ -72,7 +73,7 @@ ItemDelegate {
 
         Label {
             Layout.preferredWidth: root.seedersWidth
-            visible: root.kind === "torrent"
+            visible: root.showTorrentColumns
             text: root.seedersText
             horizontalAlignment: Text.AlignRight
             textFormat: Text.PlainText
