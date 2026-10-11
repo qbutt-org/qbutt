@@ -9,6 +9,7 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QKeyEvent>
 #include <QList>
 #include <QLocale>
 #include <QMainWindow>
@@ -96,6 +97,10 @@ namespace
         QPointer<Qbutt::ContentController> controller = view->findChild<Qbutt::ContentController *>();
         require(controller, u"Production ContentController is missing"_s);
         require(controller->thread() == qApp->thread(), u"Controller has the wrong thread affinity"_s);
+        QPointer<QQuickItem> emptyResults = view->rootObject()->findChild<QQuickItem *>(u"contentEmptyResults"_s);
+        require(emptyResults && !emptyResults->isVisible()
+            && (controller->property("searchState").value<Qbutt::Search::SearchState>() == Qbutt::Search::SearchState::Idle),
+            u"Idle search displayed a successful empty result"_s);
         QPointer<QAbstractItemModel> works = modelProperty(controller, "works");
         QPointer<QAbstractItemModel> variants = modelProperty(controller, "variants");
         require(works != variants, u"Work and variant collections share one model"_s);
@@ -153,6 +158,9 @@ namespace
         require(controller->property("busy").toBool(), u"Search did not enter its busy state"_s);
         controller->cancelSearch();
         require(!controller->property("busy").toBool(), u"Cancel did not leave the busy state"_s);
+        require(!emptyResults->isVisible()
+            && (controller->property("searchState").value<Qbutt::Search::SearchState>() == Qbutt::Search::SearchState::Cancelled),
+            u"Cancelled search displayed a successful empty result"_s);
 
         bool changedQueryFromRows = false;
         bool replacementQueryStarted = false;
@@ -174,6 +182,9 @@ namespace
             u"Search failed: %1"_s.arg(controller->property("errorText").toString()));
         require(!wrongThread.load(), u"Model mutation was emitted outside the GUI thread"_s);
         require((works->rowCount() > 0) && (works->rowCount() <= 500), u"Search returned an invalid row count"_s);
+        require(!emptyResults->isVisible()
+            && (controller->property("searchState").value<Qbutt::Search::SearchState>() == Qbutt::Search::SearchState::Succeeded),
+            u"Completed search did not publish its successful outcome"_s);
 
         QSet<QString> identities;
         QString selectedWork;
@@ -372,6 +383,39 @@ namespace
             u"Second resolution failed: %1"_s.arg(controller->property("errorText").toString()));
         require(cancelledFromResolution && (works->rowCount() == 0) && (torrentSignals == 1),
             u"Cancelled resolution emitted a stale torrent handoff"_s);
+        require(!emptyResults->isVisible()
+            && (controller->property("searchState").value<Qbutt::Search::SearchState>() == Qbutt::Search::SearchState::Idle),
+            u"Cleared search retained a successful empty outcome"_s);
+
+        controller->search(u"qbutt-acceptance-missing-title-71c03d90"_s);
+        waitFor([&] { return !controller || !controller->property("busy").toBool(); }, 50'000, u"Successful empty search"_s);
+        require(controller && emptyResults && controller->property("errorText").toString().isEmpty()
+            && (works->rowCount() == 0) && emptyResults->isVisible()
+            && (controller->property("searchState").value<Qbutt::Search::SearchState>() == Qbutt::Search::SearchState::Succeeded),
+            u"Successful empty search did not show its empty result"_s);
+
+        controller->search(u"а"_s);
+        waitFor([&] { return !controller || !controller->property("busy").toBool(); }, 50'000, u"Broad catalog search"_s);
+        require(controller && controller->property("errorText").toString().isEmpty() && (works->rowCount() > 5),
+            u"Broad search did not produce a list for boundary navigation"_s);
+        auto *results = qobject_cast<QQuickItem *>(resultView.data());
+        require(results, u"Results list is missing"_s);
+        results->forceActiveFocus();
+        for (const auto key : {Qt::Key_End, Qt::Key_Home})
+        {
+            QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+            QCoreApplication::sendEvent(view, &press);
+            QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+            QCoreApplication::sendEvent(view, &release);
+            const int expectedRow = (key == Qt::Key_Home) ? 0 : works->rowCount() - 1;
+            const QString expectedWork = value(works, expectedRow, "workId");
+            waitFor([&]
+            {
+                return controller->property("selectedWorkId").toString() == expectedWork;
+            }, 5000, u"Keyboard boundary selection"_s);
+            require(results->property("currentIndex").toInt() == expectedRow,
+                u"Keyboard boundary selection moved to the wrong row"_s);
+        }
 
         controller->search(u"One Piece"_s);
         require(controller->property("busy").toBool(), u"Shutdown scenario has no pending request"_s);
@@ -389,7 +433,7 @@ namespace
         QTimer::singleShot(500, &drain, &QEventLoop::quit);
         drain.exec();
         require(!wrongThread.load(), u"A late model callback used the wrong thread"_s);
-        qInfo().noquote() << u"PASS works=%1 variants=%2 cancel_restart=ok startup_cancel=ok exact_magnet=ok reentrant_cancel=ok close_pending=ok"_s
+        qInfo().noquote() << u"PASS works=%1 variants=%2 search_outcomes=ok boundary_keys=ok cancel_restart=ok startup_cancel=ok exact_magnet=ok reentrant_cancel=ok close_pending=ok"_s
             .arg(workCount).arg(variantCount);
     }
 }

@@ -43,7 +43,9 @@ if ($quick.ExitCode -ne 0) { throw "Quick acceptance failed: $($quick.ExitCode)"
 Require exit code zero and the `PASS` line. The scenario uses live AniLiberty
 metadata, verifies typed model bindings and GUI-thread notifications, replaces
 a query during result insertion, checks the selected infohash in the emitted
-magnet, cancels during resolution notification and closes with a pending request.
+magnet, distinguishes idle/cancelled/successful empty searches, checks Home/End
+on a broad live result list, cancels during resolution notification and closes
+with a pending request.
 It does not download a payload or exercise `AddTorrentManager`.
 
 For native inspection in the VM, deploy this executable using `windeployqt
@@ -69,7 +71,8 @@ bun tests/qt-acceptance/quick-handoff.ts
 ```
 
 Deploy the current executable and its Qt Quick runtime together using
-`windeployqt --qmldir src/gui/quick/qml`, including `qoffscreen` and `qt.conf`.
+`windeployqt --quickwidgets --qmldir src/gui/quick/qml`, including `qoffscreen`
+and `qt.conf`.
 `QBUTT_QT_ACCEPTANCE_BUNDLE` can point to an existing deployed runtime when the
 executable is elsewhere; the runner reuses it and cleans only its own profile,
 payload and temporary directories. This process-level scenario synthesizes Qt

@@ -12,6 +12,19 @@ use crate::models::{self, work_id};
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
+    #[qml_element]
+    qnamespace!("Qbutt::Search");
+
+    #[qenum]
+    #[namespace = "Qbutt::Search"]
+    enum SearchState {
+        Idle,
+        Searching,
+        Succeeded,
+        Cancelled,
+        Failed,
+    }
+
     #[namespace = ""]
     unsafe extern "C++" {
         include!("cxx-qt-lib/qstring.h");
@@ -34,7 +47,8 @@ pub mod ffi {
         #[qml_element]
         #[qproperty(*mut WorkModel, works, READ = works_model, CONSTANT)]
         #[qproperty(*mut VariantModel, variants, READ = variants_model, CONSTANT)]
-        #[qproperty(bool, busy, READ, NOTIFY)]
+        #[qproperty(bool, busy, READ = is_searching, NOTIFY)]
+        #[qproperty(SearchState, search_state, cxx_name = "searchState", READ, NOTIFY)]
         #[qproperty(bool, inspecting, READ, NOTIFY)]
         #[qproperty(bool, resolving, READ, NOTIFY)]
         #[qproperty(QString, error_text, cxx_name = "errorText", READ, NOTIFY)]
@@ -57,6 +71,7 @@ pub mod ffi {
 
         fn works_model(&self) -> *mut WorkModel;
         fn variants_model(&self) -> *mut VariantModel;
+        fn is_searching(&self) -> bool;
 
         #[qinvokable]
         fn search(self: Pin<&mut Self>, query: QString);
@@ -101,7 +116,7 @@ struct Services {
 pub struct ContentControllerRust {
     works: UniquePtr<models::ffi::WorkModel>,
     variants: UniquePtr<models::ffi::VariantModel>,
-    busy: bool,
+    search_state: ffi::SearchState,
     inspecting: bool,
     resolving: bool,
     error_text: QString,
@@ -145,7 +160,7 @@ impl Default for ContentControllerRust {
         Self {
             works: models::ffi::create_work_model(),
             variants: models::ffi::create_variant_model(),
-            busy: false,
+            search_state: ffi::SearchState::Idle,
             inspecting: false,
             resolving: false,
             error_text,
@@ -173,10 +188,21 @@ impl Drop for ContentControllerRust {
 }
 
 impl ffi::ContentController {
-    fn set_busy(mut self: Pin<&mut Self>, value: bool) {
-        if self.busy != value {
-            self.as_mut().rust_mut().busy = value;
+    fn is_searching(&self) -> bool {
+        self.search_state == ffi::SearchState::Searching
+    }
+
+    fn set_search_state(mut self: Pin<&mut Self>, value: ffi::SearchState) {
+        if self.search_state == value {
+            return;
+        }
+        let was_searching = self.is_searching();
+        self.as_mut().rust_mut().search_state = value;
+        if self.is_searching() != was_searching {
             self.as_mut().busy_changed();
+        }
+        if self.search_state == value {
+            self.as_mut().search_state_changed();
         }
     }
 
@@ -215,7 +241,7 @@ impl ffi::ContentController {
         let generation = self.search.generation;
         let previous_selection_generation = self.inspection.generation;
         let previous_resolution_generation = self.resolution.generation;
-        self.as_mut().set_busy(false);
+        self.as_mut().set_search_state(ffi::SearchState::Idle);
         if self.search.generation != generation
             || self.inspection.generation != previous_selection_generation
             || self.resolution.generation != previous_resolution_generation
@@ -253,17 +279,18 @@ impl ffi::ContentController {
         if self.search.generation != generation {
             return;
         }
-        let should_search = !query.is_empty() && self.services.is_some();
-        self.as_mut().set_busy(should_search);
-        if self.search.generation != generation {
-            return;
-        }
-
         if query.is_empty() {
             return;
         }
         if self.services.is_none() {
             self.as_mut().set_error_text(ffi::content_error(0));
+            if self.search.generation == generation {
+                self.as_mut().set_search_state(ffi::SearchState::Failed);
+            }
+            return;
+        }
+        self.as_mut().set_search_state(ffi::SearchState::Searching);
+        if self.search.generation != generation {
             return;
         }
 
@@ -277,7 +304,7 @@ impl ffi::ContentController {
                     return;
                 }
                 controller.as_mut().rust_mut().search.task = None;
-                match result {
+                let state = match result {
                     Ok(works) => {
                         for work in works {
                             if controller.search.generation != generation {
@@ -285,6 +312,7 @@ impl ffi::ContentController {
                             }
                             controller.as_mut().rust_mut().works.pin_mut().update(work);
                         }
+                        ffi::SearchState::Succeeded
                     }
                     Err(error) => {
                         ffi::log_content_error(
@@ -292,10 +320,11 @@ impl ffi::ContentController {
                             &QString::from(error.to_string()),
                         );
                         controller.as_mut().set_error_text(ffi::content_error(1));
+                        ffi::SearchState::Failed
                     }
-                }
+                };
                 if controller.search.generation == generation {
-                    controller.as_mut().set_busy(false);
+                    controller.as_mut().set_search_state(state);
                 }
             });
         });
@@ -304,7 +333,9 @@ impl ffi::ContentController {
 
     pub fn cancel_search(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().search.cancel();
-        self.as_mut().set_busy(false);
+        if self.is_searching() {
+            self.as_mut().set_search_state(ffi::SearchState::Cancelled);
+        }
     }
 
     fn cancel_detail(mut self: Pin<&mut Self>) -> (u64, u64) {

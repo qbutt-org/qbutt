@@ -145,6 +145,13 @@ Pane {
 
             Keys.onReturnPressed: root.downloadSelected()
             Keys.onEnterPressed: root.downloadSelected()
+            Keys.onPressed: event => {
+                if (count > 0 && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
+                    currentIndex = event.key === Qt.Key_Home ? 0 : count - 1;
+                    positionViewAtIndex(currentIndex, event.key === Qt.Key_Home ? ListView.Beginning : ListView.End);
+                    event.accepted = true;
+                }
+            }
 
             delegate: VariantDelegate {
                 id: variant

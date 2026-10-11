@@ -10,7 +10,6 @@ Page {
     objectName: "contentQuickSearch"
 
     required property ContentController backend
-    property bool searchStarted: false
 
     implicitWidth: 1200
     implicitHeight: 560
@@ -37,7 +36,6 @@ Page {
         if (text.length === 0)
             return;
 
-        searchStarted = true;
         backend.search(text);
     }
 
@@ -140,17 +138,25 @@ Page {
 
                     Keys.onReturnPressed: selectCurrentWork()
                     Keys.onEnterPressed: selectCurrentWork()
+                    Keys.onPressed: event => {
+                        if (count > 0 && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
+                            currentIndex = event.key === Qt.Key_Home ? 0 : count - 1;
+                            positionViewAtIndex(currentIndex, event.key === Qt.Key_Home ? ListView.Beginning : ListView.End);
+                            event.accepted = true;
+                        }
+                    }
                     Keys.onReleased: event => {
-                        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Home || event.key === Qt.Key_End || event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) {
+                        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Home || event.key === Qt.Key_End) {
                             selectCurrentWork();
                         }
                     }
                 }
 
                 Label {
+                    objectName: "contentEmptyResults"
                     anchors.centerIn: parent
                     width: parent.width - 32
-                    visible: root.searchStarted && !root.backend.busy && works.count === 0 && root.backend.errorText === ""
+                    visible: root.backend.searchState === Search.Succeeded && works.count === 0
                     text: qsTr("No titles found")
                     color: appearance.muted
                     horizontalAlignment: Text.AlignHCenter

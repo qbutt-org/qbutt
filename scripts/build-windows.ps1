@@ -328,7 +328,7 @@ New-Item -ItemType Directory -Path "$portable/profile" | Out-Null
 Copy-Item -LiteralPath (Join-Path $BuildRoot 'qbutt.exe'), (Join-Path $BuildRoot 'qbutt-net.exe'),
     (Join-Path $BuildRoot 'qbutt-content.exe'), (Join-Path $BuildRoot 'qbutt-search.exe'),
     (Join-Path $BuildRoot 'qbutt-webview.exe') -Destination $portable
-Invoke-Native "$qtRoot/bin/windeployqt.exe" @('--release', '--no-compiler-runtime', '--include-plugins', 'qoffscreen',
+Invoke-Native "$qtRoot/bin/windeployqt.exe" @('--release', '--quickwidgets', '--no-compiler-runtime', '--include-plugins', 'qoffscreen',
     '--exclude-plugins', 'qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql',
     '--qmldir', (Join-Path $SourceDir 'src/gui/quick/qml'), '--dir', $portable, (Join-Path $portable 'qbutt.exe'))
 Copy-Item -Path (Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT/*.dll') -Destination $portable
