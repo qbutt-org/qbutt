@@ -1,4 +1,4 @@
-add_executable(qbutt-qt-acceptance
+qt_add_executable(qbutt-qt-acceptance
     main.cpp
     add-torrent-layout.cpp
     add-torrent-layout.h
@@ -8,6 +8,8 @@ add_executable(qbutt-qt-acceptance
     metadata-cancel.h
     modal-overlay.cpp
     modal-overlay.h
+    quick-handoff.cpp
+    quick-handoff.h
     reader-flow.cpp
     reader-flow.h
     update-registry.cpp
@@ -41,7 +43,7 @@ target_include_directories(qbutt-qt-acceptance PRIVATE
     ${qBittorrent_SOURCE_DIR}/src/app
 )
 
-target_link_libraries(qbutt-qt-acceptance PRIVATE qbt_base qbt_gui)
+target_link_libraries(qbutt-qt-acceptance PRIVATE qbt_base qbt_gui qbt_quick qbutt_quick)
 if (WEBUI)
     target_link_libraries(qbutt-qt-acceptance PRIVATE qbt_webui)
 endif()

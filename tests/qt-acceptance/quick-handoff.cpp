@@ -82,7 +82,7 @@ namespace
 void QuickHandoffAcceptance::run(Application &application, const QJsonObject &spec, QJsonObject &evidence)
 {
     auto *session = BitTorrent::Session::instance();
-    auto *manager = application.addTorrentManager();
+    auto *manager = static_cast<IGUIApplication &>(application).addTorrentManager();
     require(session && manager, u"Application did not initialize its torrent services"_s);
     require(!Preferences::instance()->isSearchEnabled(), u"Legacy search must be disabled in this fixture"_s);
     require(session->torrents().isEmpty(), u"Fixture profile contains torrents"_s);
@@ -210,7 +210,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     BitTorrent::InfoHash rejectedHash;
     QObject::connect(dialog, &AddNewTorrentDialog::torrentRejected, &observation,
         [&](const BitTorrent::TorrentDescriptor &descriptor) { rejectedHash = descriptor.infoHash(); });
-    buttons->button(QDialogButtonBox::Cancel)->click();
+    QTimer::singleShot(0, buttons->button(QDialogButtonBox::Cancel), &QPushButton::click);
     waitFor([&] { return dialog.isNull(); }, 5000, u"Cancelled torrent dialog destruction"_s);
     require((cancellations == 1) && (cancelledHash == rejectedHash)
         && (rejectedHash.v1().toString().compare(infoHash, Qt::CaseInsensitive) == 0),

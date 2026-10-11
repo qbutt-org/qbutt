@@ -134,6 +134,7 @@
 #include "content-library.h"
 #include "metadata-cancel.h"
 #include "modal-overlay.h"
+#include "quick-handoff.h"
 #include "reader-flow.h"
 #include "update-registry.h"
 
@@ -3147,6 +3148,11 @@ namespace
     {
         MainWindow *window = application.mainWindow();
         require(window && BitTorrent::Session::instance()->isRestored(), u"Production application did not finish startup"_s);
+        if (spec.value(u"mode"_s).toString() == u"quick-handoff")
+        {
+            QuickHandoffAcceptance::run(application, spec, evidence);
+            return;
+        }
         if (spec.value(u"mode"_s).toString() == u"metadata-cancel")
         {
             window->hide();

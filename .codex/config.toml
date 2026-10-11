@@ -1,2 +1,8 @@
 [mcp_servers.qt-docs]
 url = "https://qt-docs-mcp.qt.io/mcp"
+
+[mcp_servers.qt-preview]
+command = "C:/Tools/Qt/6.12.0/msvc2022_64/bin/QmlPreviewMcpServer.exe"
+
+[mcp_servers.qt-preview.env]
+QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES = "1"

@@ -1,43 +1,28 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { labAppearanceSettings } from "../appearance";
 import { assertQtRuntime } from "../qt-runtime";
-import { allowLabNetwork } from "../windows-firewall";
 
 const source = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 assert(source, "Set QBUTT_QT_ACCEPTANCE_EXE to the combined Qt acceptance build");
 assert(process.platform === "win32", "Native torrent handoff acceptance currently requires Windows");
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
-const bundle = join(root, "runtime");
+const executable = resolve(source);
+const bundle = resolve(process.env.QBUTT_QT_ACCEPTANCE_BUNDLE ?? dirname(executable));
 const profile = join(root, "profile");
 const payload = join(root, "payload");
 const temporary = join(root, "temp");
-const runtime = process.env.QBUTT_QT_ACCEPTANCE_BUNDLE ?? join(dirname(source), "portable");
 const native = process.env.QBUTT_QT_ACCEPTANCE_NATIVE === "1";
 let application: ReturnType<typeof Bun.spawn> | undefined;
 
 try {
-    await cp(runtime, bundle, {
-        recursive: true,
-        filter: async path => {
-            if (["profile", ".git"].includes(basename(path)))
-                return false;
-            if ((await stat(path)).isDirectory())
-                return true;
-            const extension = extname(path).toLowerCase();
-            return !extension || [".dll", ".qm", ".conf", ".qml", ".qmltypes", ".js", ".mjs", ".rcc"].includes(extension);
-        },
-    });
-    const executable = join(bundle, basename(source));
-    await cp(source, executable);
     assertQtRuntime(bundle);
     for (const library of ["Qt6Quick.dll", "Qt6Qml.dll", "Qt6QuickWidgets.dll"])
         assert((await stat(join(bundle, library))).isFile(), `Missing Qt Quick runtime library: ${library}`);
-    await allowLabNetwork([executable]);
 
     await mkdir(join(profile, "qbutt", "config"), { recursive: true });
     await mkdir(payload);
@@ -49,6 +34,8 @@ try {
         "Session\\PeXEnabled=false",
         "Session\\InterfaceAddress=127.0.0.1",
         "Session\\AddTorrentStopped=true",
+        "Session\\AddTrackersEnabled=false",
+        "Session\\AddTrackersFromURLEnabled=false",
         "[Network]",
         "PortForwardingEnabled=false",
         "[Core]",
@@ -76,15 +63,19 @@ try {
         payload,
         screenshots: root,
     }));
+    const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") ?? "PATH";
     application = Bun.spawn([executable, `--profile=${profile}`], {
         cwd: bundle,
         windowsHide: !native,
         timeout: 200_000,
         env: {
             ...process.env,
+            [pathKey]: `${bundle};${process.env[pathKey] ?? ""}`,
             QBUTT_QT_ACCEPTANCE_SPEC: spec,
             QBUTT_QT_ACCEPTANCE_NATIVE: native ? "1" : undefined,
             QT_QPA_PLATFORM: native ? "windows" : "offscreen",
+            QT_PLUGIN_PATH: bundle,
+            QT_QUICK_BACKEND: native ? undefined : "software",
             QT_SCALE_FACTOR: "1",
             TEMP: temporary,
             TMP: temporary,
@@ -122,7 +113,7 @@ finally {
         await application.exited;
     }
     const resolvedRoot = await realpath(root);
-    for (const directory of [bundle, profile, payload, temporary]) {
+    for (const directory of [profile, payload, temporary]) {
         const resolved = await realpath(directory).catch(() => undefined);
         if (!resolved)
             continue;

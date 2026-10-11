@@ -52,6 +52,29 @@ environment; use `--lang ru` for Russian and `--dark` for Dark. The default is
 English and Light. This host uses an isolated application identity and does not
 open an existing qbutt profile.
 
+The standalone acceptance target enables `QT_QML_DEBUG` for development preview;
+the shipping application does not inherit it. The project-local `qt-preview`
+MCP launches this host, but its tool response alone does not prove hot reload.
+Use the VM for visual work without opening windows on the host desktop.
+
+The combined application's `quick-handoff` scenario searches live AniLiberty,
+selects a non-default variant, opens the normal Add Torrent dialog and cancels
+it. It checks the exact infohash, one handoff, the isolated destination and
+empty payload before and after shutdown:
+
+```powershell
+cmake --build --preset windows --target qbutt-qt-acceptance --parallel 6
+$env:QBUTT_QT_ACCEPTANCE_EXE = 'C:/VMShared/qbutt-p1-quick/qbutt-qt-acceptance.exe'
+bun tests/qt-acceptance/quick-handoff.ts
+```
+
+Deploy the current executable and its Qt Quick runtime together using
+`windeployqt --qmldir src/gui/quick/qml`, including `qoffscreen` and `qt.conf`.
+`QBUTT_QT_ACCEPTANCE_BUNDLE` can point to an existing deployed runtime when the
+executable is elsewhere; the runner reuses it and cleans only its own profile,
+payload and temporary directories. This process-level scenario synthesizes Qt
+input; it does not replace native pointer acceptance.
+
 The metadata cancellation scenario uses a generated private torrent and an
 isolated loopback session. It cancels before the first native add callback,
 then adds the same hash stopped and checks its destination and handle cleanup:

@@ -15,6 +15,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 
 qt_add_executable(qbutt-quick-acceptance main.cpp)
+target_compile_definitions(qbutt-quick-acceptance PRIVATE QT_QML_DEBUG)
 set_target_properties(qbutt-quick-acceptance PROPERTIES AUTORCC ON)
 target_sources(qbutt-quick-acceptance PRIVATE "../../src/icons/icons.qrc")
 qt_add_translation(QUICK_TRANSLATIONS "../../src/lang/qbittorrent_ru.ts")
