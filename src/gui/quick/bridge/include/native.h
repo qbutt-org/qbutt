@@ -10,12 +10,19 @@ namespace Qbutt
 {
     class WorkModel;
     class VariantModel;
+    class ChapterModel;
 
     std::unique_ptr<WorkModel> createWorkModel();
     std::unique_ptr<VariantModel> createVariantModel();
+    std::unique_ptr<ChapterModel> createChapterModel();
     QString contentError(std::int32_t operation);
     void logContentError(const QString &operation, const QString &detail);
     QString formatSize(std::uint64_t bytes);
+    QString contentLanguage();
+    QString formatTranslationLabel(const QString &language, const QString &translation);
+    QString readerError(std::int32_t operation);
+    QString chapterTitle(const QString &number, const QString &volume, const QString &title);
+    QString validatedImageUrl(const QString &path);
 }
 
 #endif

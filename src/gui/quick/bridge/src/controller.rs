@@ -5,14 +5,18 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{AniLiberty, PublicationRef, ResolvedContent, VariantPreferences, Work};
+use qbutt_content::{
+    AniLiberty, MangaDex, PublicationRef, ResolvedContent, VariantPreferences, Work,
+};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
 mod library;
+mod reader;
 
 use crate::models::{self, variant_id, work_id};
 use library::{LibraryUpdate, LibraryWorker};
+use reader::ReaderState;
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
@@ -20,6 +24,15 @@ pub mod ffi {
     qnamespace!("Qbutt::Search");
     #[qml_element]
     qnamespace!("Qbutt::Library");
+    #[qml_element]
+    qnamespace!("Qbutt::Reader");
+
+    #[qenum]
+    #[namespace = "Qbutt::Reader"]
+    enum ReaderFit {
+        Height,
+        Width,
+    }
 
     #[qenum]
     #[namespace = "Qbutt::Search"]
@@ -66,11 +79,21 @@ pub mod ffi {
         include!("qbutt_quick/src/models.cxxqt.h");
         type WorkModel = crate::models::ffi::WorkModel;
         type VariantModel = crate::models::ffi::VariantModel;
+        include!("qbutt_quick/src/reader_models.cxxqt.h");
+        type ChapterModel = crate::reader_models::ffi::ChapterModel;
         include!("qbutt_quick/native.h");
         #[rust_name = "content_error"]
         fn contentError(operation: i32) -> QString;
         #[rust_name = "log_content_error"]
         fn logContentError(operation: &QString, detail: &QString);
+        #[rust_name = "content_language"]
+        fn contentLanguage() -> QString;
+        #[rust_name = "reader_error"]
+        fn readerError(operation: i32) -> QString;
+        #[rust_name = "chapter_title"]
+        fn chapterTitle(number: &QString, volume: &QString, title: &QString) -> QString;
+        #[rust_name = "validated_image_url"]
+        fn validatedImageUrl(path: &QString) -> QString;
     }
 
     extern "RustQt" {
@@ -79,6 +102,18 @@ pub mod ffi {
         #[qproperty(*mut WorkModel, works, READ = works_model, CONSTANT)]
         #[qproperty(*mut WorkModel, favorites, READ = favorites_model, CONSTANT)]
         #[qproperty(*mut VariantModel, variants, READ = variants_model, CONSTANT)]
+        #[qproperty(*mut ChapterModel, reader_chapters, cxx_name = "readerChapters", READ = reader_chapters, CONSTANT)]
+        #[qproperty(bool, reader_open, cxx_name = "readerOpen", READ = reader_open, NOTIFY = reader_changed)]
+        #[qproperty(bool, reader_busy, cxx_name = "readerBusy", READ = reader_busy, NOTIFY = reader_changed)]
+        #[qproperty(QString, reader_error_text, cxx_name = "readerErrorText", READ = reader_error_text, NOTIFY = reader_changed)]
+        #[qproperty(QString, reader_title, cxx_name = "readerTitle", READ = reader_title, NOTIFY = reader_changed)]
+        #[qproperty(QString, reader_chapter_title, cxx_name = "readerChapterTitle", READ = reader_chapter_title, NOTIFY = reader_changed)]
+        #[qproperty(QString, reader_chapter_id, cxx_name = "readerChapterId", READ = reader_chapter_id, NOTIFY = reader_changed)]
+        #[qproperty(QString, reader_page_url, cxx_name = "readerPageUrl", READ = reader_page_url, NOTIFY = reader_changed)]
+        #[qproperty(i32, reader_page_index, cxx_name = "readerPageIndex", READ = reader_page_index, NOTIFY = reader_changed)]
+        #[qproperty(i32, reader_page_count, cxx_name = "readerPageCount", READ = reader_page_count, NOTIFY = reader_changed)]
+        #[qproperty(ReaderFit, reader_fit, cxx_name = "readerFit", READ = reader_fit, NOTIFY = reader_changed)]
+        #[qproperty(QString, chapter_query, cxx_name = "chapterQuery", READ = chapter_query, NOTIFY = reader_changed)]
         #[qproperty(ListMode, list_mode, cxx_name = "listMode", READ, NOTIFY)]
         #[qproperty(LibraryState, library_state, cxx_name = "libraryState", READ, NOTIFY)]
         #[qproperty(
@@ -137,6 +172,46 @@ pub mod ffi {
         fn favorites_model(&self) -> *mut WorkModel;
         fn is_library_pending(&self) -> bool;
         fn variant_selection_state(&self) -> VariantSelectionState;
+        fn reader_chapters(&self) -> *mut ChapterModel;
+        fn reader_open(&self) -> bool;
+        fn reader_busy(&self) -> bool;
+        fn reader_error_text(&self) -> &QString;
+        fn reader_title(&self) -> &QString;
+        fn reader_chapter_title(&self) -> &QString;
+        fn reader_chapter_id(&self) -> &QString;
+        fn reader_page_url(&self) -> &QString;
+        fn reader_page_index(&self) -> &i32;
+        fn reader_page_count(&self) -> &i32;
+        fn reader_fit(&self) -> &ReaderFit;
+        fn chapter_query(&self) -> &QString;
+
+        #[qinvokable]
+        #[cxx_name = "openReader"]
+        fn open_reader(self: Pin<&mut Self>);
+        #[qinvokable]
+        #[cxx_name = "closeReader"]
+        fn close_reader(self: Pin<&mut Self>);
+        #[qinvokable]
+        #[cxx_name = "selectChapter"]
+        fn select_chapter(self: Pin<&mut Self>, id: QString);
+        #[qinvokable]
+        #[cxx_name = "selectReaderPage"]
+        fn select_reader_page(self: Pin<&mut Self>, index: i32);
+        #[qinvokable]
+        #[cxx_name = "turnReaderPage"]
+        fn turn_reader_page(self: Pin<&mut Self>, offset: i32);
+        #[qinvokable]
+        #[cxx_name = "setReaderFit"]
+        fn set_reader_fit(self: Pin<&mut Self>, fit: ReaderFit);
+        #[qinvokable]
+        #[cxx_name = "setChapterQuery"]
+        fn set_chapter_query(self: Pin<&mut Self>, query: QString);
+        #[qinvokable]
+        #[cxx_name = "retryReader"]
+        fn retry_reader(self: Pin<&mut Self>);
+        #[qsignal]
+        #[cxx_name = "readerChanged"]
+        fn reader_changed(self: Pin<&mut Self>);
 
         #[qinvokable]
         #[cxx_name = "initLibrary"]
@@ -190,6 +265,8 @@ impl Pending {
 struct Services {
     runtime: Runtime,
     source: Arc<AniLiberty>,
+    manga: Arc<MangaDex>,
+    language: String,
 }
 
 pub struct ContentControllerRust {
@@ -222,6 +299,7 @@ pub struct ContentControllerRust {
     search: Pending,
     inspection: Pending,
     resolution: Pending,
+    reader: ReaderState,
 }
 
 impl Default for ContentControllerRust {
@@ -229,6 +307,7 @@ impl Default for ContentControllerRust {
         let services = AniLiberty::new()
             .map_err(|error| error.to_string())
             .and_then(|source| {
+                let manga = MangaDex::new().map_err(|error| error.to_string())?;
                 Builder::new_multi_thread()
                     .worker_threads(2)
                     .enable_all()
@@ -237,6 +316,8 @@ impl Default for ContentControllerRust {
                     .map(|runtime| Services {
                         runtime,
                         source: Arc::new(source),
+                        manga: Arc::new(manga),
+                        language: ffi::content_language().to_string(),
                     })
             });
         let services = match services {
@@ -282,6 +363,7 @@ impl Default for ContentControllerRust {
             search: Pending::default(),
             inspection: Pending::default(),
             resolution: Pending::default(),
+            reader: ReaderState::default(),
         }
     }
 }
@@ -291,6 +373,7 @@ impl Drop for ContentControllerRust {
         self.search.cancel();
         self.inspection.cancel();
         self.resolution.cancel();
+        self.reader.cancel();
         // Closing the sender drains accepted writes and closes SQLite on its worker.
         self.library_worker.take();
         if let Some(services) = self.services.take() {
@@ -466,6 +549,7 @@ impl ffi::ContentController {
             state.resolving = false;
             changed
         };
+        self.as_mut().close_reader();
         if inspecting_changed {
             self.as_mut().inspecting_changed();
             self.as_mut().selected_variant_state_changed();

@@ -1,10 +1,13 @@
 #include "qbutt_quick/native.h"
 
 #include <QCoreApplication>
+#include <QImageReader>
 #include <QLocale>
 #include <QLoggingCategory>
+#include <QUrl>
 
 #include "qbutt_quick/src/models.cxxqt.h"
+#include "qbutt_quick/src/reader_models.cxxqt.h"
 
 Q_LOGGING_CATEGORY(contentLog, "qbutt.content")
 
@@ -16,6 +19,74 @@ std::unique_ptr<Qbutt::WorkModel> Qbutt::createWorkModel()
 std::unique_ptr<Qbutt::VariantModel> Qbutt::createVariantModel()
 {
     return std::make_unique<VariantModel>();
+}
+
+std::unique_ptr<Qbutt::ChapterModel> Qbutt::createChapterModel()
+{
+    return std::make_unique<ChapterModel>();
+}
+
+QString Qbutt::contentLanguage()
+{
+    const QLocale locale;
+    return locale.language() == QLocale::C ? QStringLiteral("en") : locale.name().section(u'_', 0, 0).toLower();
+}
+
+QString Qbutt::formatTranslationLabel(const QString &language, const QString &translation)
+{
+    const QLocale locale {language};
+    QString label = locale.language() == QLocale::C ? language.toUpper() : locale.nativeLanguageName();
+    if (!translation.isEmpty())
+        label += QStringLiteral(" [") + translation + u']';
+    return label;
+}
+
+QString Qbutt::readerError(const std::int32_t operation)
+{
+    switch (operation)
+    {
+    case 0:
+        return QCoreApplication::translate("ContentController", "Could not load chapters.");
+    case 1:
+        return QCoreApplication::translate("ContentController", "Could not load this chapter.");
+    case 2:
+        return QCoreApplication::translate("ContentController", "Could not load this page.");
+    default:
+        return QCoreApplication::translate("ContentController", "This chapter is no longer available.");
+    }
+}
+
+QString Qbutt::chapterTitle(const QString &number, const QString &volume, const QString &title)
+{
+    QString label;
+    if (!number.isEmpty())
+        label = QCoreApplication::translate("ContentController", "Chapter %1").arg(number);
+    else if (!volume.isEmpty())
+        label = QCoreApplication::translate("ContentController", "Volume %1").arg(volume);
+
+    if (!title.isEmpty())
+        return label.isEmpty() ? title : (label + QStringLiteral(" — ") + title);
+    return label.isEmpty() ? QCoreApplication::translate("ContentController", "Chapter") : label;
+}
+
+QString Qbutt::validatedImageUrl(const QString &path)
+{
+    QImageReader reader {path};
+    reader.setDecideFormatFromContent(true);
+    const QSize size = reader.size();
+    constexpr int dimensionLimit = 16000;
+    constexpr qint64 pixelLimit = 40000000;
+    const QByteArray format = reader.format();
+    if (!size.isValid() || (size.width() > dimensionLimit) || (size.height() > dimensionLimit)
+        || ((static_cast<qint64>(size.width()) * size.height()) > pixelLimit)
+        || ((format != "jpeg") && (format != "jpg") && (format != "png") && (format != "webp")))
+    {
+        return {};
+    }
+    const QImage image = reader.read();
+    if (image.isNull() || (image.size() != size))
+        return {};
+    return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
 }
 
 QString Qbutt::contentError(const std::int32_t operation)

@@ -363,6 +363,13 @@ impl ffi::ContentController {
         {
             return;
         }
+        self.as_mut().close_reader();
+        if self.inspection.generation != generation
+            || self.resolution.generation != resolution_generation
+            || self.selected_variant_id != id
+        {
+            return;
+        }
         if was_resolving {
             self.as_mut().resolving_changed();
         }
