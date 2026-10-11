@@ -125,6 +125,26 @@ $pins = $lock.windows
 $qtRoot = if ($QtRootOverride) { [IO.Path]::GetFullPath($QtRootOverride) }
     else { Join-Path 'C:/Tools/Qt' "$($pins.qt.version)/$($pins.qt.directory)" }
 
+$rustToolchainPath = Join-Path $SourceDir 'rust-toolchain.toml'
+$rustToolchain = [regex]::Match((Get-Content -LiteralPath $rustToolchainPath -Raw),
+    '(?m)^\s*channel\s*=\s*"(\d+\.\d+\.\d+)"\s*$')
+if (-not $rustToolchain.Success) { throw 'rust-toolchain.toml must pin an exact Rust release.' }
+$env:RUSTUP_TOOLCHAIN = $rustToolchain.Groups[1].Value
+$cargo = & rustup which --toolchain $env:RUSTUP_TOOLCHAIN cargo
+if ($LASTEXITCODE -ne 0) { throw "Install the Rust $env:RUSTUP_TOOLCHAIN toolchain with rustup." }
+$rustc = & rustup which --toolchain $env:RUSTUP_TOOLCHAIN rustc
+if ($LASTEXITCODE -ne 0) { throw "Cannot find rustc in the Rust $env:RUSTUP_TOOLCHAIN toolchain." }
+$rustVersion = & $rustc --version --verbose
+if ($LASTEXITCODE -ne 0 -or $rustVersion -notcontains "release: $env:RUSTUP_TOOLCHAIN" -or
+    $rustVersion -notcontains 'host: x86_64-pc-windows-msvc') {
+    throw 'Expected the pinned Windows x64 MSVC Rust compiler.'
+}
+$cargoLockPath = Join-Path $SourceDir 'Cargo.lock'
+if (-not (Test-Path -LiteralPath $cargoLockPath -PathType Leaf)) { throw 'Cargo.lock is required for reproducible builds.' }
+Push-Location $SourceDir
+try { Invoke-Native $cargo @('fetch', '--locked', '--target', 'x86_64-pc-windows-msvc') }
+finally { Pop-Location }
+
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $visualStudio = & $vswhere -latest -version '[17.0,18.0)' -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if ($LASTEXITCODE -ne 0 -or -not $visualStudio) { throw 'Install Visual Studio 2022 with the C++ desktop workload.' }
@@ -278,7 +298,7 @@ finally { Pop-Location }
 
 Invoke-Native $cmake (@('-S', $SourceDir, '-B', $BuildRoot) + $common + @(
     "-DLibtorrentRasterbar_DIR=$libtorrentBuild/install/lib/cmake/LibtorrentRasterbar", "-DCMAKE_PREFIX_PATH=$qtRoot",
-    "-DQBUTT_WEBVIEW2_SDK=$webviewSdk",
+    "-DQBUTT_WEBVIEW2_SDK=$webviewSdk", "-DRust_COMPILER=$rustc", "-DRust_CARGO=$cargo",
     '-DMSVC_RUNTIME_DYNAMIC=ON', '-DTESTING=OFF', '-DQBUTT_STAGING_FAULTS=OFF', '-DQBUTT_COMPLETION_FAULTS=OFF'))
 Invoke-Native $cmake @('--build', $BuildRoot, '--parallel', "$Parallel")
 
@@ -336,6 +356,8 @@ Copy-Item -LiteralPath (Join-Path $content 'browser/private-pipe.ps1') -Destinat
 Invoke-Native $bun @((Join-Path $SourceDir 'scripts/package-products.ts'), '--destination', $portable,
     '--cache', (Join-Path $DependencyRoot 'products'))
 Invoke-Native $bun @((Join-Path $SourceDir 'scripts/collect-content-notices.ts'), '--bundle', $portable, '--go', $go)
+Invoke-Native $bun @((Join-Path $SourceDir 'scripts/collect-rust-notices.ts'), '--bundle', $portable,
+    '--cargo', $cargo, '--rustc', $rustc)
 Push-Location $net
 try {
     Invoke-Native $bun @('scripts/collect-notices.ts', (Join-Path $portable 'qbutt-net.exe'), $licenses, $go)
@@ -344,6 +366,11 @@ finally { Pop-Location }
 @"
 qbutt is a fork of qBittorrent; see COPYING, COPYING.GPLv2, COPYING.GPLv3 and AUTHORS.
 Source and build instructions: https://github.com/qbutt-org/qbutt
+
+The native Rust content library and Qt Quick bridge are statically linked into qbutt.
+Exact crate versions, source checksums and license files are recorded in
+licenses/rust/dependencies.json. Rust standard-library notices are included in
+licenses/rust/standard-library/.
 
 Neucha by Jovanny Lemonad is bundled under the SIL Open Font License 1.1.
 License: licenses/Neucha-OFL.txt. Pinned source:
@@ -411,9 +438,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
     ninja = (& "$ninja/ninja.exe" --version)
     go = $goVersion
     bun = $bunVersion
+    rust = $rustVersion -join "`n"
     qt = $pins.qt.version
     innoSetup = $pins.innoSetup.version
     dependencyLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    cargoLockSha256 = (Get-FileHash -LiteralPath $cargoLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    rustToolchainSha256 = (Get-FileHash -LiteralPath $rustToolchainPath -Algorithm SHA256).Hash.ToLowerInvariant()
     contentDependencyLockSha256 = (Get-FileHash -LiteralPath (Join-Path $content 'bun.lock') -Algorithm SHA256).Hash.ToLowerInvariant()
     searchDependencyLockSha256 = (Get-FileHash -LiteralPath (Join-Path $searchEngine 'go.sum') -Algorithm SHA256).Hash.ToLowerInvariant()
     products = $lock.products

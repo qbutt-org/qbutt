@@ -22,7 +22,8 @@ foreach ($required in @('qbutt.exe', 'qbutt-net.exe', 'qbutt-content.exe', 'qbut
     'Qt6Core.dll', 'platforms/qwindows.dll', 'THIRD-PARTY-NOTICES.txt',
     'browser/private-pipe.ps1', 'components/qplay-setup.exe', 'qplay/qplay.exe', 'qplay/qplay.portable',
     'qplay/build-manifest.json', 'qplay/upstream-lock.json',
-    'licenses/qbutt-content-notices.txt')) {
+    'licenses/qbutt-content-notices.txt', 'licenses/rust/dependencies.json',
+    'licenses/rust/standard-library/COPYRIGHT-library.html')) {
     if (-not (Test-Path -LiteralPath (Join-Path $BundleDir $required) -PathType Leaf)) {
         throw "Incomplete application bundle: $required"
     }
