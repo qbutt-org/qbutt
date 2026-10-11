@@ -28,6 +28,7 @@
 #include <QVariant>
 
 #include "library.h"
+#include "reader.h"
 
 #include "gui/quick/contentview.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
@@ -200,17 +201,23 @@ namespace
             const QString title = value(works, row, "title");
             require(!id.isEmpty() && !identities.contains(id), u"Work identity is missing or duplicated"_s);
             require(!title.isEmpty(), u"Search returned an unnamed work"_s);
-            require(title.contains(u"Frieren"_s, Qt::CaseInsensitive) || title.contains(u"Фрирен"_s, Qt::CaseInsensitive),
-                u"Cancelled or unrelated search results entered the new search"_s);
-            require(value(works, row, "source") == u"AniLiberty", u"Incorrect work source role"_s);
-            require(value(works, row, "category") == u"anime", u"Incorrect work category role"_s);
+            const QString source = value(works, row, "source");
+            const QString category = value(works, row, "category");
+            require(((source == u"AniLiberty") && (category == u"anime"))
+                || ((source == u"MangaDex") && (category == u"manga")),
+                u"Incorrect work source or category role"_s);
+            if (source == u"AniLiberty")
+            {
+                require(title.contains(u"Frieren"_s, Qt::CaseInsensitive) || title.contains(u"Фрирен"_s, Qt::CaseInsensitive),
+                    u"Cancelled or unrelated search results entered the new search"_s);
+            }
             identities.insert(id);
             if (id == u"aniliberty:9542")
             {
                 selectedWork = id;
                 selectedTitle = title;
             }
-            else
+            else if (source == u"AniLiberty")
                 otherWork = id;
         }
         require(!selectedWork.isEmpty(), u"Live catalog did not return the expected publication 9542"_s);
@@ -467,6 +474,7 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     parser.addOption({u"exercise"_s, u"Run the bounded live metadata acceptance scenario and exit."_s});
     parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
+    parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
     parser.addOption({u"dark"_s, u"Use the dark system color scheme for visual inspection."_s});
     parser.addOption({u"lang"_s, u"Set the locale for this process."_s, u"locale"_s, u"en"_s});
     parser.process(application);
@@ -479,7 +487,7 @@ int main(int argc, char *argv[])
         application.installTranslator(&translator);
     }
     QGuiApplication::styleHints()->setColorScheme(parser.isSet(u"dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
-    application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s));
+    application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s) && !parser.isSet(u"reader"_s));
 
     if (parser.isSet(u"library"_s))
     {
@@ -511,18 +519,21 @@ int main(int argc, char *argv[])
     });
     window->show();
 
-    if (parser.isSet(u"exercise"_s))
+    if (parser.isSet(u"exercise"_s) || parser.isSet(u"reader"_s))
     {
         QTimer::singleShot(360'000, &application, [&application]
         {
             qCritical("Acceptance exceeded its overall time limit");
             application.exit(1);
         });
-        QTimer::singleShot(0, &application, [&application, window = QPointer(window), view = QPointer(view)]
+        QTimer::singleShot(0, &application, [&application, window = QPointer(window), view = QPointer(view), runReader = parser.isSet(u"reader"_s)]
         {
             try
             {
-                exercise(window, view);
+                if (runReader)
+                    exerciseReader(view);
+                else
+                    exercise(window, view);
                 application.exit(0);
             }
             catch (const std::exception &error)

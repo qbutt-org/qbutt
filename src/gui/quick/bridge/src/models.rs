@@ -140,6 +140,8 @@ pub mod ffi {
         fn createVariantModel() -> UniquePtr<VariantModel>;
         #[rust_name = "format_size"]
         fn formatSize(bytes: u64) -> QString;
+        #[rust_name = "format_translation_label"]
+        fn formatTranslationLabel(language: &QString, translation: &QString) -> QString;
     }
 }
 
@@ -148,6 +150,7 @@ const USER_ROLE: i32 = 256;
 pub fn work_id(reference: &PublicationRef) -> String {
     match reference.source {
         Source::AniLiberty => format!("aniliberty:{}", reference.id),
+        Source::MangaDex => format!("mangadex:{}", reference.id),
     }
 }
 
@@ -159,6 +162,9 @@ pub fn variant_id(reference: &VariantRef) -> String {
             format!("{publication}:episode:{id}:{}", quality.height())
         }
         VariantSelector::Rutube { episode_id } => format!("{publication}:rutube:{episode_id}"),
+        VariantSelector::MangaTranslation { language, groups } => {
+            format!("{publication}:translation:{language}:{}", groups.join("+"))
+        }
     }
 }
 
@@ -212,9 +218,11 @@ impl ffi::WorkModel {
             1 => work.title.clone(),
             2 => match work.reference.source {
                 Source::AniLiberty => "AniLiberty".into(),
+                Source::MangaDex => "MangaDex".into(),
             },
             3 => match work.category {
                 Category::Anime => "anime".into(),
+                Category::Manga => "manga".into(),
             },
             4 => work.year.map(|year| year.to_string()).unwrap_or_default(),
             _ => return QVariant::default(),
@@ -318,6 +326,17 @@ impl ffi::VariantModel {
             let size = variant.size.map(ffi::format_size).unwrap_or_default();
             return QVariant::from(&size);
         }
+        if role == USER_ROLE + 1 && variant.transport == Transport::Manga {
+            let language = QString::from(
+                variant
+                    .languages
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or_default(),
+            );
+            let translation = QString::from(variant.translation.as_deref().unwrap_or_default());
+            return QVariant::from(&ffi::format_translation_label(&language, &translation));
+        }
         let text = match role - USER_ROLE {
             0 => variant_id(&variant.reference),
             1 => variant
@@ -326,8 +345,13 @@ impl ffi::VariantModel {
                 .unwrap_or_else(|| self.work_title.clone()),
             2 => match variant.reference.publication.source {
                 Source::AniLiberty => "AniLiberty".into(),
+                Source::MangaDex => "MangaDex".into(),
             },
-            3 => "torrent".into(),
+            3 => match variant.transport {
+                Transport::Torrent => "torrent".into(),
+                Transport::Video => "video".into(),
+                Transport::Manga => "manga".into(),
+            },
             4 => variant.quality.clone().unwrap_or_default(),
             6 => variant
                 .seeders
@@ -375,7 +399,7 @@ impl ffi::VariantModel {
         let variants: Vec<_> = work
             .variants
             .iter()
-            .filter(|variant| variant.transport == Transport::Torrent)
+            .filter(|variant| matches!(variant.transport, Transport::Torrent | Transport::Manga))
             .collect();
         let parent = QModelIndex::default();
 

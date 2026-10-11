@@ -44,13 +44,14 @@ Pane {
             icon.source: root.theme.iconSource("go-down")
             text: root.backend.readerChapterTitle !== "" ? root.backend.readerChapterTitle : qsTr("Chapters")
             Accessible.name: qsTr("Choose chapter")
+            Accessible.description: text
             enabled: root.backend.readerChapterId !== ""
             onClicked: root.chaptersRequested()
 
             ToolTip {
                 parent: chapter
                 visible: chapter.hovered
-                text: qsTr("Choose chapter")
+                text: chapter.text
             }
         }
 

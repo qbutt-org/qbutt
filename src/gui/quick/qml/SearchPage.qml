@@ -225,6 +225,10 @@ Page {
         anchors.fill: parent
         active: root.backend.readerOpen
         focus: active
+        onActiveChanged: {
+            if (!active)
+                query.forceActiveFocus();
+        }
 
         sourceComponent: ReaderPage {
             backend: root.backend

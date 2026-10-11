@@ -1,0 +1,233 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#include "reader.h"
+
+#include <functional>
+#include <stdexcept>
+
+#include <QAbstractItemModel>
+#include <QApplication>
+#include <QDebug>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QFile>
+#include <QFileInfo>
+#include <QImageReader>
+#include <QPointer>
+#include <QQuickItem>
+#include <QScopeGuard>
+#include <QTemporaryDir>
+#include <QTimer>
+#include <QUrl>
+
+#include "gui/quick/contentview.h"
+#include "qbutt_quick/src/controller.cxxqt.h"
+
+using namespace Qt::Literals::StringLiterals;
+
+namespace
+{
+    void require(const bool condition, const QString &message)
+    {
+        if (!condition)
+            throw std::runtime_error(message.toStdString());
+    }
+
+    void waitFor(const std::function<bool()> &condition, const QString &operation)
+    {
+        QElapsedTimer elapsed;
+        elapsed.start();
+        QEventLoop loop;
+        QTimer timer;
+        timer.setInterval(20);
+        QObject::connect(&timer, &QTimer::timeout, &loop, [&]
+        {
+            if (condition() || (elapsed.elapsed() >= 100'000))
+                loop.quit();
+        });
+        if (!condition())
+        {
+            timer.start();
+            loop.exec();
+        }
+        require(condition(), operation + u" timed out"_s);
+    }
+
+    QAbstractItemModel *model(QObject *controller, const char *name)
+    {
+        auto *result = qobject_cast<QAbstractItemModel *>(controller->property(name).value<QObject *>());
+        require(result && (result->thread() == qApp->thread()), u"Missing GUI-thread model"_s);
+        return result;
+    }
+
+    QString value(QAbstractItemModel *model, const int row, const QByteArray &name)
+    {
+        const int role = model->roleNames().key(name, -1);
+        require(role >= 0, u"Missing model role"_s);
+        return model->data(model->index(row, 0), role).toString();
+    }
+
+    QString readyPage(Qbutt::ContentController *controller)
+    {
+        waitFor([&] { return !controller->property("readerBusy").toBool(); }, u"Reader page"_s);
+        require(controller->property("readerOpen").toBool(), u"Reader unexpectedly closed"_s);
+        require(controller->property("readerErrorText").toString().isEmpty(),
+            controller->property("readerErrorText").toString());
+        const QUrl url(controller->property("readerPageUrl").toString());
+        require(url.isLocalFile(), u"Reader exposed a network acquisition URL"_s);
+        QImageReader image(url.toLocalFile());
+        require(image.canRead() && !image.read().isNull(), u"Prepared reader page could not be decoded"_s);
+        require(QFileInfo(url.toLocalFile()).size() > 0, u"Prepared reader page is empty"_s);
+        return url.toLocalFile();
+    }
+}
+
+void exerciseReader(Content::ContentView *view)
+{
+    require(view && (view->status() == QQuickWidget::Ready), u"Production reader view did not load"_s);
+    QPointer<Qbutt::ContentController> controller = view->findChild<Qbutt::ContentController *>();
+    require(controller, u"Production content controller is missing"_s);
+    waitFor([&] { return controller->property("libraryState").value<Qbutt::Library::LibraryState>() == Qbutt::Library::LibraryState::Ready; },
+        u"Isolated library"_s);
+
+    controller->search(u"Frieren"_s);
+    waitFor([&] { return !controller->property("busy").toBool(); }, u"Mixed source search"_s);
+    auto *works = model(controller, "works");
+    const QString publication = u"mangadex:b0b721ff-c388-4486-aa0f-c2b0bb321512"_s;
+    bool found = false;
+    bool animeFound = false;
+    for (int row = 0; row < works->rowCount(); ++row)
+    {
+        found |= value(works, row, "workId") == publication;
+        animeFound |= value(works, row, "source") == u"AniLiberty";
+    }
+    require(found && animeFound, u"Mixed search did not retain both source classes"_s);
+    controller->selectWork(publication);
+    waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Manga inspection"_s);
+    require(controller->property("errorText").toString().isEmpty(), u"Manga inspection failed"_s);
+    const QString exact = publication + u":translation:ru:9e383226-2af3-4af0-a69d-3d3b630212b3"_s;
+    controller->selectVariant(exact);
+    require(controller->property("selectedVariantId").toString() == exact, u"Exact manga translation is unavailable"_s);
+    require(controller->property("selectedVariantKind").toString() == u"manga", u"Manga action has the wrong transport"_s);
+    auto *chapters = model(controller, "readerChapters");
+    QObject observations;
+    int resetDepth = 0;
+    int maximumResetDepth = 0;
+    bool changedDuringReset = false;
+    QObject::connect(chapters, &QAbstractItemModel::modelAboutToBeReset, &observations, [&]
+    {
+        ++resetDepth;
+        maximumResetDepth = qMax(maximumResetDepth, resetDepth);
+        if (!changedDuringReset)
+        {
+            changedDuringReset = true;
+            controller->setChapterQuery(u"142"_s);
+            controller->setChapterQuery(u"141"_s);
+        }
+    }, Qt::DirectConnection);
+    QObject::connect(chapters, &QAbstractItemModel::modelReset, &observations, [&] { --resetDepth; }, Qt::DirectConnection);
+    auto *pane = view->rootObject()->findChild<QObject *>(u"contentWorkPane"_s);
+    require(pane && QMetaObject::invokeMethod(pane, "openSelected"), u"QML primary manga action is missing"_s);
+    const QString firstPage = readyPage(controller);
+    require(changedDuringReset && (maximumResetDepth == 1) && (resetDepth == 0),
+        u"Chapter query caused a nested or unbalanced model reset"_s);
+    require(controller->property("chapterQuery").toString() == u"141", u"Chapter reset overwrote the latest filter intent"_s);
+    controller->setChapterQuery(u""_s);
+    require(controller->property("readerPageIndex").toInt() == 0, u"New reading session did not start at its first page"_s);
+    require(controller->property("readerPageCount").toInt() > 1, u"Live chapter needs a second page"_s);
+    const int chapterCount = chapters->rowCount();
+    require(chapterCount > 1, u"Live translation needs a second chapter"_s);
+    const QString firstNumber = value(chapters, 0, "number");
+    const QString secondNumber = value(chapters, 1, "number");
+    require(!firstNumber.isEmpty() && !secondNumber.isEmpty() && (firstNumber != secondNumber),
+        u"Reset fault needs two distinct chapter numbers"_s);
+    {
+        QObject endObservations;
+        bool insideResetSignal = false;
+        bool resetWithinSignal = false;
+        bool changedAtEnd = false;
+        QObject::connect(chapters, &QAbstractItemModel::modelAboutToBeReset, &endObservations,
+            [&] { resetWithinSignal |= insideResetSignal; }, Qt::DirectConnection);
+        QObject::connect(chapters, &QAbstractItemModel::modelReset, &endObservations, [&]
+        {
+            if (changedAtEnd)
+                return;
+            changedAtEnd = true;
+            insideResetSignal = true;
+            controller->setChapterQuery(secondNumber);
+            insideResetSignal = false;
+        }, Qt::DirectConnection);
+        controller->setChapterQuery(firstNumber);
+        require(changedAtEnd && !resetWithinSignal
+            && (controller->property("chapterQuery").toString() == secondNumber)
+            && (chapters->rowCount() > 0) && (value(chapters, 0, "number") == secondNumber),
+            u"Latest chapter filter changed during modelReset was not applied"_s);
+    }
+    controller->setChapterQuery(u""_s);
+    const QString firstChapter = controller->property("readerChapterId").toString();
+    const QString lastChapter = value(chapters, chapterCount - 1, "chapterId");
+    const QString lastNumber = value(chapters, chapterCount - 1, "number");
+    controller->setChapterQuery(lastNumber);
+    require(chapters->rowCount() > 0 && (chapters->rowCount() < chapterCount), u"Chapter filtering did not reduce the visible list"_s);
+    controller->setChapterQuery(u""_s);
+    require(chapters->rowCount() == chapterCount, u"Chapter filtering discarded the full list"_s);
+
+    controller->turnReaderPage(1);
+    const QString secondPage = readyPage(controller);
+    require((controller->property("readerPageIndex").toInt() == 1) && (firstPage != secondPage),
+        u"Page turn did not acquire the exact second page"_s);
+    controller->setReaderFit(Qbutt::Reader::ReaderFit::Width);
+    require(controller->property("readerFit").value<Qbutt::Reader::ReaderFit>() == Qbutt::Reader::ReaderFit::Width,
+        u"Width fitting did not reach the backend"_s);
+    controller->setReaderFit(Qbutt::Reader::ReaderFit::Height);
+
+    controller->selectChapter(lastChapter);
+    controller->selectChapter(firstChapter);
+    readyPage(controller);
+    require((controller->property("readerChapterId").toString() == firstChapter)
+        && (controller->property("readerPageIndex").toInt() == 0), u"Stale chapter request changed the latest reading selection"_s);
+    controller->selectReaderPage(-1);
+    controller->selectReaderPage(controller->property("readerPageCount").toInt());
+    require(controller->property("readerPageIndex").toInt() == 0, u"Invalid page index changed the reader"_s);
+
+    controller->turnReaderPage(1);
+    controller->setChapterQuery(u"no-chapter-matches-this-query"_s);
+    require(chapters->rowCount() == 0, u"Reopen fault needs an empty filtered chapter list"_s);
+    controller->closeReader();
+    require(!controller->property("readerOpen").toBool() && controller->property("readerPageUrl").toString().isEmpty(),
+        u"Back did not close and release the reading session"_s);
+    controller->openReader();
+    const QString reopened = readyPage(controller);
+    require((controller->property("selectedVariantId").toString() == exact) && !reopened.isEmpty(),
+        u"Reopening substituted the selected translation"_s);
+    require(controller->property("chapterQuery").toString().isEmpty() && (chapters->rowCount() == chapterCount),
+        u"New reading session inherited a stale chapter query"_s);
+    controller->closeReader();
+
+    QTemporaryDir fault;
+    require(fault.isValid(), u"Could not create the isolated cache fault"_s);
+    const QString blockedPath = fault.filePath(u"cache-is-a-file"_s);
+    QFile blocked(blockedPath);
+    require(blocked.open(QIODevice::WriteOnly), u"Could not prepare the cache fault"_s);
+    blocked.close();
+    const QByteArray originalTemp = qgetenv("TEMP");
+    const QByteArray originalTmp = qgetenv("TMP");
+    const auto restoreEnvironment = qScopeGuard([&]
+    {
+        qputenv("TEMP", originalTemp);
+        qputenv("TMP", originalTmp);
+    });
+    qputenv("TEMP", blockedPath.toLocal8Bit());
+    qputenv("TMP", blockedPath.toLocal8Bit());
+    controller->openReader();
+    waitFor([&] { return !controller->property("readerErrorText").toString().isEmpty(); }, u"Actual cache creation failure"_s);
+    require(!controller->property("readerBusy").toBool() && (controller->property("readerPageCount").toInt() > 0),
+        u"Cache creation failure did not reach a retryable reader state"_s);
+    qputenv("TEMP", originalTemp);
+    qputenv("TMP", originalTmp);
+    controller->retryReader();
+    readyPage(controller);
+    require(controller->property("readerChapterId").toString() == firstChapter,
+        u"Cache failure retry substituted another chapter"_s);
+    controller->closeReader();
+    qInfo().noquote() << u"PASS reader mixed_search=ok exact_translation=ok qml_action=ok decoded_pages=2 chapter_filter=ok reentrant_filter=ok fit=ok stale_chapter=ok bounds=ok cancel_reopen=ok cache_failure_retry=ok chapters=%1"_s.arg(chapterCount);
+}

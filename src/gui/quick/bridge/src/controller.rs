@@ -6,7 +6,7 @@ use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
-    AniLiberty, MangaDex, PublicationRef, ResolvedContent, VariantPreferences, Work,
+    AniLiberty, MangaDex, PublicationRef, ResolvedContent, Source, VariantPreferences, Work,
 };
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
@@ -73,6 +73,8 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
+        include!("cxx-qt-lib/qurl.h");
+        type QUrl = cxx_qt_lib::QUrl;
     }
 
     unsafe extern "C++" {
@@ -102,18 +104,90 @@ pub mod ffi {
         #[qproperty(*mut WorkModel, works, READ = works_model, CONSTANT)]
         #[qproperty(*mut WorkModel, favorites, READ = favorites_model, CONSTANT)]
         #[qproperty(*mut VariantModel, variants, READ = variants_model, CONSTANT)]
-        #[qproperty(*mut ChapterModel, reader_chapters, cxx_name = "readerChapters", READ = reader_chapters, CONSTANT)]
-        #[qproperty(bool, reader_open, cxx_name = "readerOpen", READ = reader_open, NOTIFY = reader_changed)]
-        #[qproperty(bool, reader_busy, cxx_name = "readerBusy", READ = reader_busy, NOTIFY = reader_changed)]
-        #[qproperty(QString, reader_error_text, cxx_name = "readerErrorText", READ = reader_error_text, NOTIFY = reader_changed)]
-        #[qproperty(QString, reader_title, cxx_name = "readerTitle", READ = reader_title, NOTIFY = reader_changed)]
-        #[qproperty(QString, reader_chapter_title, cxx_name = "readerChapterTitle", READ = reader_chapter_title, NOTIFY = reader_changed)]
-        #[qproperty(QString, reader_chapter_id, cxx_name = "readerChapterId", READ = reader_chapter_id, NOTIFY = reader_changed)]
-        #[qproperty(QString, reader_page_url, cxx_name = "readerPageUrl", READ = reader_page_url, NOTIFY = reader_changed)]
-        #[qproperty(i32, reader_page_index, cxx_name = "readerPageIndex", READ = reader_page_index, NOTIFY = reader_changed)]
-        #[qproperty(i32, reader_page_count, cxx_name = "readerPageCount", READ = reader_page_count, NOTIFY = reader_changed)]
-        #[qproperty(ReaderFit, reader_fit, cxx_name = "readerFit", READ = reader_fit, NOTIFY = reader_changed)]
-        #[qproperty(QString, chapter_query, cxx_name = "chapterQuery", READ = chapter_query, NOTIFY = reader_changed)]
+        #[qproperty(
+            *mut ChapterModel,
+            reader_chapters,
+            cxx_name = "readerChapters",
+            READ = reader_chapters,
+            CONSTANT
+        )]
+        #[qproperty(
+            bool,
+            reader_open,
+            cxx_name = "readerOpen",
+            READ = reader_open,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            bool,
+            reader_busy,
+            cxx_name = "readerBusy",
+            READ = reader_busy,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_error_text,
+            cxx_name = "readerErrorText",
+            READ = reader_error_text,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_title,
+            cxx_name = "readerTitle",
+            READ = reader_title,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_chapter_title,
+            cxx_name = "readerChapterTitle",
+            READ = reader_chapter_title,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_chapter_id,
+            cxx_name = "readerChapterId",
+            READ = reader_chapter_id,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            QUrl,
+            reader_page_url,
+            cxx_name = "readerPageUrl",
+            READ = reader_page_url,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            i32,
+            reader_page_index,
+            cxx_name = "readerPageIndex",
+            READ = reader_page_index,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            i32,
+            reader_page_count,
+            cxx_name = "readerPageCount",
+            READ = reader_page_count,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            ReaderFit,
+            reader_fit,
+            cxx_name = "readerFit",
+            READ = reader_fit,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            QString,
+            chapter_query,
+            cxx_name = "chapterQuery",
+            READ = chapter_query,
+            NOTIFY = reader_changed
+        )]
         #[qproperty(ListMode, list_mode, cxx_name = "listMode", READ, NOTIFY)]
         #[qproperty(LibraryState, library_state, cxx_name = "libraryState", READ, NOTIFY)]
         #[qproperty(
@@ -165,6 +239,20 @@ pub mod ffi {
             READ,
             NOTIFY
         )]
+        #[qproperty(
+            QString,
+            selected_work_category,
+            cxx_name = "selectedWorkCategory",
+            READ = selected_work_category,
+            NOTIFY = selected_work_id_changed
+        )]
+        #[qproperty(
+            QString,
+            selected_variant_kind,
+            cxx_name = "selectedVariantKind",
+            READ = selected_variant_kind,
+            NOTIFY = selected_variant_state_changed
+        )]
         type ContentController = super::ContentControllerRust;
 
         fn works_model(&self) -> *mut WorkModel;
@@ -172,6 +260,8 @@ pub mod ffi {
         fn favorites_model(&self) -> *mut WorkModel;
         fn is_library_pending(&self) -> bool;
         fn variant_selection_state(&self) -> VariantSelectionState;
+        fn selected_work_category(&self) -> QString;
+        fn selected_variant_kind(&self) -> QString;
         fn reader_chapters(&self) -> *mut ChapterModel;
         fn reader_open(&self) -> bool;
         fn reader_busy(&self) -> bool;
@@ -179,7 +269,7 @@ pub mod ffi {
         fn reader_title(&self) -> &QString;
         fn reader_chapter_title(&self) -> &QString;
         fn reader_chapter_id(&self) -> &QString;
-        fn reader_page_url(&self) -> &QString;
+        fn reader_page_url(&self) -> &QUrl;
         fn reader_page_index(&self) -> &i32;
         fn reader_page_count(&self) -> &i32;
         fn reader_fit(&self) -> &ReaderFit;
@@ -432,6 +522,28 @@ impl ffi::ContentController {
         self.variants.as_ptr().cast_mut()
     }
 
+    fn selected_work_category(&self) -> QString {
+        let category = self.selected_work.as_ref().map(|work| work.category);
+        QString::from(match category {
+            Some(qbutt_content::Category::Anime) => "anime",
+            Some(qbutt_content::Category::Manga) => "manga",
+            None => "",
+        })
+    }
+
+    fn selected_variant_kind(&self) -> QString {
+        let transport = self
+            .variants
+            .find(&self.selected_variant_id.to_string())
+            .map(|variant| variant.transport);
+        QString::from(match transport {
+            Some(qbutt_content::Transport::Torrent) => "torrent",
+            Some(qbutt_content::Transport::Video) => "video",
+            Some(qbutt_content::Transport::Manga) => "manga",
+            None => "",
+        })
+    }
+
     pub fn search(mut self: Pin<&mut Self>, query: QString) {
         let query = query.to_string().trim().to_owned();
         self.as_mut().rust_mut().search.cancel();
@@ -494,31 +606,57 @@ impl ffi::ContentController {
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let source = Arc::clone(&services.source);
+        let manga = Arc::clone(&services.manga);
+        let language = services.language.clone();
         let task = services.runtime.spawn(async move {
-            let result = source.search(&query).await;
+            let anime_request = source.search(&query);
+            let manga_request = manga.search(&query, &language);
+            tokio::pin!(anime_request, manga_request);
+            let mut anime_finished = false;
+            let mut manga_finished = false;
+            let mut any_succeeded = false;
+            for _ in 0..2 {
+                let (source, result) = tokio::select! {
+                    result = &mut anime_request, if !anime_finished => {
+                        anime_finished = true;
+                        (Source::AniLiberty, result)
+                    }
+                    result = &mut manga_request, if !manga_finished => {
+                        manga_finished = true;
+                        (Source::MangaDex, result)
+                    }
+                };
+                any_succeeded |= result.is_ok();
+                let _ = qt_thread.queue(move |mut controller| {
+                    if controller.search.generation != generation {
+                        return;
+                    }
+                    match result {
+                        Ok(works) => {
+                            for work in works {
+                                if controller.search.generation != generation {
+                                    return;
+                                }
+                                controller.as_mut().rust_mut().works.pin_mut().update(work);
+                            }
+                        }
+                        Err(error) => ffi::log_content_error(
+                            &QString::from(format!("search {source:?}")),
+                            &QString::from(error.to_string()),
+                        ),
+                    }
+                });
+            }
             let _ = qt_thread.queue(move |mut controller| {
                 if controller.search.generation != generation {
                     return;
                 }
                 controller.as_mut().rust_mut().search.task = None;
-                let state = match result {
-                    Ok(works) => {
-                        for work in works {
-                            if controller.search.generation != generation {
-                                return;
-                            }
-                            controller.as_mut().rust_mut().works.pin_mut().update(work);
-                        }
-                        ffi::SearchState::Succeeded
-                    }
-                    Err(error) => {
-                        ffi::log_content_error(
-                            &QString::from("search"),
-                            &QString::from(error.to_string()),
-                        );
-                        controller.as_mut().set_error_text(ffi::content_error(1));
-                        ffi::SearchState::Failed
-                    }
+                let state = if any_succeeded {
+                    ffi::SearchState::Succeeded
+                } else {
+                    controller.as_mut().set_error_text(ffi::content_error(1));
+                    ffi::SearchState::Failed
                 };
                 if controller.search.generation == generation {
                     controller.as_mut().set_search_state(state);
@@ -688,8 +826,13 @@ impl ffi::ContentController {
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let source = Arc::clone(&services.source);
+        let manga = Arc::clone(&services.manga);
+        let language = services.language.clone();
         let task = services.runtime.spawn(async move {
-            let result = source.inspect(&work.reference).await;
+            let result = match work.reference.source {
+                Source::AniLiberty => source.inspect(&work.reference).await,
+                Source::MangaDex => manga.inspect(&work.reference, &language).await,
+            };
             let _ = qt_thread.queue(move |mut controller| {
                 if controller.inspection.generation != generation {
                     return;

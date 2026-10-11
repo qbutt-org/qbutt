@@ -18898,10 +18898,6 @@ Please choose a different name and try again.</source>
         <translation>Том %1</translation>
     </message>
     <message>
-        <source>Pages: %1</source>
-        <translation>Страниц: %1</translation>
-    </message>
-    <message>
         <source>No chapters found</source>
         <translation>Главы не найдены</translation>
     </message>

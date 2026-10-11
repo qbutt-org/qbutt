@@ -78,7 +78,6 @@ ModalPicker {
                 required property string title
                 required property string number
                 required property string volume
-                required property int pageCount
 
                 width: ListView.view.width
                 padding: 12
@@ -91,40 +90,30 @@ ModalPicker {
                     root.close();
                 }
 
-                contentItem: RowLayout {
-                    spacing: 16
+                contentItem: ColumnLayout {
+                    spacing: 4
 
-                    ColumnLayout {
+                    Label {
                         Layout.fillWidth: true
-                        spacing: 4
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: chapter.number.length > 0 ? qsTr("Chapter %1").arg(chapter.number) : chapter.title
-                            font.weight: Font.DemiBold
-                            elide: Text.ElideRight
-                            textFormat: Text.PlainText
-                        }
-
-                        Label {
-                            Layout.fillWidth: true
-                            visible: chapter.number.length > 0 && chapter.title.length > 0
-                            text: chapter.title
-                            elide: Text.ElideRight
-                            textFormat: Text.PlainText
-                        }
-
-                        Label {
-                            visible: chapter.volume.length > 0
-                            text: qsTr("Volume %1").arg(chapter.volume)
-                            color: root.theme.muted
-                            textFormat: Text.PlainText
-                        }
+                        text: chapter.number.length > 0 ? qsTr("Chapter %1").arg(chapter.number) : chapter.title
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                        textFormat: Text.PlainText
                     }
 
                     Label {
-                        text: qsTr("Pages: %1").arg(chapter.pageCount)
+                        Layout.fillWidth: true
+                        visible: chapter.number.length > 0 && chapter.title.length > 0
+                        text: chapter.title
+                        elide: Text.ElideRight
+                        textFormat: Text.PlainText
+                    }
+
+                    Label {
+                        visible: chapter.volume.length > 0
+                        text: qsTr("Volume %1").arg(chapter.volume)
                         color: root.theme.muted
+                        textFormat: Text.PlainText
                     }
                 }
 

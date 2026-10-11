@@ -55,7 +55,7 @@ if ($quick.ExitCode -ne 0) { throw "Quick acceptance failed: $($quick.ExitCode)"
 ```
 
 Require exit code zero and the `PASS` line. The scenario uses live AniLiberty
-metadata, verifies typed model bindings and GUI-thread notifications, replaces
+and MangaDex metadata, verifies typed model bindings and GUI-thread notifications, replaces
 a query during result insertion, checks the selected infohash in the emitted
 magnet, distinguishes idle/cancelled/successful empty searches, checks Home/End
 on a broad live result list and End/Enter through the QML variant list, cancels
@@ -79,6 +79,21 @@ Run it with the same offscreen environment;
 use `--library --lang ru` to check localized library errors. Require exit zero
 and the `PASS library` line with every reported check passing. This backend
 scenario does not replace native bookmark/tab acceptance.
+
+Run `--reader --lang ru` with the same isolated offscreen environment for the
+native MangaDex path. It searches both source classes, inspects a publication,
+selects its exact Russian translation and invokes the production QML reading
+action. Require exit zero and `PASS reader` with all checks passing. The scenario
+decodes actual cached pages, filters chapters without discarding the full list,
+changes the query during a native model reset, rejects invalid page indices,
+switches fit, cancels stale chapter work and reopens the exact translation.
+It also makes the temporary cache destination a file, restores the environment
+and verifies that retry reloads the same chapter. Live publication availability
+is an external prerequisite; a timeout is a failure.
+
+This process scenario does not establish pointer interaction, popup blur,
+application deactivation, continuous reading, persisted progress or translation.
+Check the reader and chapter picker in the deployed Windows host separately.
 
 The standalone acceptance target enables `QT_QML_DEBUG` for development preview;
 the shipping application does not inherit it. The project-local `qt-preview`
