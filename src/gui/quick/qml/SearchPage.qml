@@ -150,12 +150,24 @@ Page {
                     anchors.rightMargin: 16
                     clip: true
                     model: root.activeWorks
-                    currentIndex: count > 0 ? root.activeWorks.indexOfId(root.backend.selectedWorkId) : -1
+                    currentIndex: -1
+                    onCountChanged: restoreSelection()
                     spacing: 4
                     activeFocusOnTab: true
                     keyNavigationEnabled: true
                     reuseItems: true
                     ScrollBar.vertical: ScrollBar {}
+
+                    function restoreSelection(): void {
+                        currentIndex = root.activeWorks.indexOfId(root.backend.selectedWorkId);
+                    }
+
+                    Connections {
+                        target: root.backend
+                        function onSelectedWorkIdChanged(): void {
+                            works.restoreSelection();
+                        }
+                    }
 
                     delegate: WorkDelegate {
                         id: work

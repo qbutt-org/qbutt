@@ -12,7 +12,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QKeyEvent>
 #include <QPointer>
+#include <QQmlEngine>
+#include <QQmlError>
 #include <QQuickItem>
 #include <QScopeGuard>
 #include <QTemporaryDir>
@@ -89,10 +92,27 @@ void exerciseReader(Content::ContentView *view)
     waitFor([&] { return controller->property("libraryState").value<Qbutt::Library::LibraryState>() == Qbutt::Library::LibraryState::Ready; },
         u"Isolated library"_s);
 
+    const QString publication = u"mangadex:b0b721ff-c388-4486-aa0f-c2b0bb321512"_s;
+    auto *results = view->rootObject()->findChild<QQuickItem *>(u"contentResults"_s);
+    require(results, u"Production results view is missing"_s);
+    QObject selectionObservation;
+    bool selectionBindingLoop = false;
+    QObject::connect(view->engine(), &QQmlEngine::warnings, &selectionObservation,
+        [&](const QList<QQmlError> &warnings)
+    {
+        for (const QQmlError &warning : warnings)
+            selectionBindingLoop |= warning.description().contains(u"Binding loop"_s);
+    });
+    const auto completionConnection = QObject::connect(controller, &Qbutt::ContentController::busyChanged,
+        &selectionObservation, [&]
+    {
+        if (!controller->property("busy").toBool())
+            controller->selectWork(publication);
+    }, Qt::DirectConnection);
     controller->search(u"Frieren"_s);
     waitFor([&] { return !controller->property("busy").toBool(); }, u"Mixed source search"_s);
+    QObject::disconnect(completionConnection);
     auto *works = model(controller, "works");
-    const QString publication = u"mangadex:b0b721ff-c388-4486-aa0f-c2b0bb321512"_s;
     bool found = false;
     bool animeFound = false;
     for (int row = 0; row < works->rowCount(); ++row)
@@ -101,6 +121,27 @@ void exerciseReader(Content::ContentView *view)
         animeFound |= value(works, row, "source") == u"AniLiberty";
     }
     require(found && animeFound, u"Mixed search did not retain both source classes"_s);
+    require((controller->property("selectedWorkId").toString() == publication)
+        && (results->property("currentIndex").toInt() >= 0)
+        && (value(works, results->property("currentIndex").toInt(), "workId") == publication)
+        && !selectionBindingLoop,
+        u"Selection before the pending view layout caused a binding loop or lost its exact work"_s);
+    results->forceActiveFocus();
+    for (const Qt::Key key : {Qt::Key_Home, Qt::Key_Down, Qt::Key_Up, Qt::Key_End})
+    {
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &release);
+        int row = 0;
+        if (key == Qt::Key_Down)
+            row = 1;
+        else if (key == Qt::Key_End)
+            row = works->rowCount() - 1;
+        require((results->property("currentIndex").toInt() == row)
+            && (controller->property("selectedWorkId").toString() == value(works, row, "workId")),
+            u"Keyboard work highlight and exact selection differ"_s);
+    }
     controller->selectWork(publication);
     waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Manga inspection"_s);
     require(controller->property("errorText").toString().isEmpty(), u"Manga inspection failed"_s);
@@ -108,6 +149,23 @@ void exerciseReader(Content::ContentView *view)
     controller->selectVariant(exact);
     require(controller->property("selectedVariantId").toString() == exact, u"Exact manga translation is unavailable"_s);
     require(controller->property("selectedVariantKind").toString() == u"manga", u"Manga action has the wrong transport"_s);
+    controller->setSelectedFavorite(true);
+    waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Save manga favorite"_s);
+    require(controller->property("selectedFavorite").toBool(), u"Manga favorite was not saved"_s);
+    controller->setListMode(Qbutt::Search::ListMode::Favorites);
+    require((results->property("currentIndex").toInt() == 0)
+        && (controller->property("selectedVariantId").toString() == exact),
+        u"Favorites switch lost the exact selected work or variant"_s);
+    controller->setSelectedFavorite(false);
+    waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Remove manga favorite"_s);
+    waitFor([&] { return results->property("count").toInt() == 0; }, u"Favorite view removal"_s);
+    require(results->property("currentIndex").toInt() == -1, u"Removed favorite remained the current work"_s);
+    controller->setListMode(Qbutt::Search::ListMode::Search);
+    require((results->property("currentIndex").toInt() >= 0)
+        && (value(works, results->property("currentIndex").toInt(), "workId") == publication)
+        && (controller->property("selectedVariantId").toString() == exact),
+        u"Returning to search lost the exact selected work or variant"_s);
+    require(!selectionBindingLoop, u"Model change caused a work selection binding loop"_s);
     auto *chapters = model(controller, "readerChapters");
     QObject observations;
     int resetDepth = 0;
