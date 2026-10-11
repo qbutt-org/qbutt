@@ -4,6 +4,7 @@ import QtQuick
 QtObject {
     required property color background
     required property color foreground
+    required property url iconsBaseUrl
 
     readonly property color accent: "#009df7"
     readonly property color muted: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.64)
@@ -14,6 +15,6 @@ QtObject {
     readonly property int radius: 6
 
     function iconSource(name: string): url {
-        return "qrc:/icons/" + (dark ? "dark/" : "") + name + ".svg";
+        return iconsBaseUrl + (dark ? "dark/" : "") + name + ".svg";
     }
 }

@@ -10,6 +10,7 @@ Page {
     objectName: "contentQuickSearch"
 
     required property ContentController backend
+    property url iconsBaseUrl: "qrc:/icons/"
     property bool searchStarted: false
 
     implicitWidth: 1200
@@ -21,6 +22,7 @@ Page {
         id: appearance
         background: root.palette.window
         foreground: root.palette.windowText
+        iconsBaseUrl: root.iconsBaseUrl
     }
 
     Shortcut {
