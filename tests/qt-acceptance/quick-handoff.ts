@@ -1,0 +1,132 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, extname, join, sep } from "node:path";
+import { labAppearanceSettings } from "../appearance";
+import { assertQtRuntime } from "../qt-runtime";
+import { allowLabNetwork } from "../windows-firewall";
+
+const source = process.env.QBUTT_QT_ACCEPTANCE_EXE;
+assert(source, "Set QBUTT_QT_ACCEPTANCE_EXE to the combined Qt acceptance build");
+assert(process.platform === "win32", "Native torrent handoff acceptance currently requires Windows");
+
+const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
+const bundle = join(root, "runtime");
+const profile = join(root, "profile");
+const payload = join(root, "payload");
+const temporary = join(root, "temp");
+const runtime = process.env.QBUTT_QT_ACCEPTANCE_BUNDLE ?? join(dirname(source), "portable");
+const native = process.env.QBUTT_QT_ACCEPTANCE_NATIVE === "1";
+let application: ReturnType<typeof Bun.spawn> | undefined;
+
+try {
+    await cp(runtime, bundle, {
+        recursive: true,
+        filter: async path => {
+            if (["profile", ".git"].includes(basename(path)))
+                return false;
+            if ((await stat(path)).isDirectory())
+                return true;
+            const extension = extname(path).toLowerCase();
+            return !extension || [".dll", ".qm", ".conf", ".qml", ".qmltypes", ".js", ".mjs", ".rcc"].includes(extension);
+        },
+    });
+    const executable = join(bundle, basename(source));
+    await cp(source, executable);
+    assertQtRuntime(bundle);
+    for (const library of ["Qt6Quick.dll", "Qt6Qml.dll", "Qt6QuickWidgets.dll"])
+        assert((await stat(join(bundle, library))).isFile(), `Missing Qt Quick runtime library: ${library}`);
+    await allowLabNetwork([executable]);
+
+    await mkdir(join(profile, "qbutt", "config"), { recursive: true });
+    await mkdir(payload);
+    await mkdir(temporary);
+    await writeFile(join(profile, "qbutt", "config", "qbutt.ini"), [
+        "[BitTorrent]",
+        "Session\\DHTEnabled=false",
+        "Session\\LSDEnabled=false",
+        "Session\\PeXEnabled=false",
+        "Session\\InterfaceAddress=127.0.0.1",
+        "Session\\AddTorrentStopped=true",
+        "[Network]",
+        "PortForwardingEnabled=false",
+        "[Core]",
+        "AutoOpenTorrentFiles=false",
+        "[GUI]",
+        "Notifications\\Enabled=false",
+        "[Preferences]",
+        "General\\Locale=ru",
+        "Advanced\\updateCheck=false",
+        "Connection\\ResolvePeerCountries=false",
+        "Connection\\ResolvePeerHostNames=false",
+        "WebUI\\Enabled=false",
+        "Search\\SearchEnabled=false",
+        ...labAppearanceSettings("functional"),
+        "",
+    ].join("\n"));
+
+    const evidencePath = join(root, "evidence.json");
+    const spec = join(root, "spec.json");
+    await writeFile(spec, JSON.stringify({
+        schema: 1,
+        mode: "quick-handoff",
+        evidencePath,
+        profile,
+        payload,
+        screenshots: root,
+    }));
+    application = Bun.spawn([executable, `--profile=${profile}`], {
+        cwd: bundle,
+        windowsHide: !native,
+        timeout: 200_000,
+        env: {
+            ...process.env,
+            QBUTT_QT_ACCEPTANCE_SPEC: spec,
+            QBUTT_QT_ACCEPTANCE_NATIVE: native ? "1" : undefined,
+            QT_QPA_PLATFORM: native ? "windows" : "offscreen",
+            QT_SCALE_FACTOR: "1",
+            TEMP: temporary,
+            TMP: temporary,
+        },
+        stdout: Bun.file(join(root, "stdout.log")),
+        stderr: Bun.file(join(root, "stderr.log")),
+    });
+    assert.equal(await application.exited, 0, `Native torrent handoff failed; inspect ${root}`);
+    const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
+    assert.equal(evidence.status, "passed");
+    const check = evidence.checks.find((item: { name: string }) => item.name === "quick-handoff");
+    assert(check, "Native handoff evidence is missing");
+    assert.equal(check.handoffs, 1);
+    assert.equal(check.cancellations, 1);
+    assert.equal(check.exactDialogHash, true);
+    assert.equal(check.torrentCount, 0);
+    assert.equal(check.payloadEmpty, true);
+    assert.equal(check.metadataPayloadEmpty, true);
+    assert(check.selectedRow > 0, "Scenario did not select a non-default variant");
+    assert.match(check.infoHash, /^[0-9a-f]{40}$/);
+    assert.deepEqual(await readdir(payload), [], "Cancelled handoff left payload files after application shutdown");
+
+    await writeFile(join(root, "result.json"), JSON.stringify({
+        status: "passed",
+        evidencePath,
+        infoHash: check.infoHash,
+        payloadEmptyAfterShutdown: true,
+        executableSha256: createHash("sha256").update(await readFile(executable)).digest("hex"),
+    }, null, 2));
+    console.log(JSON.stringify({ status: "passed", root }));
+}
+finally {
+    if (application && application.exitCode === null) {
+        application.kill();
+        await application.exited;
+    }
+    const resolvedRoot = await realpath(root);
+    for (const directory of [bundle, profile, payload, temporary]) {
+        const resolved = await realpath(directory).catch(() => undefined);
+        if (!resolved)
+            continue;
+        assert(resolved.startsWith(resolvedRoot + sep), "Cleanup escaped the isolated fixture");
+        await rm(resolved, { recursive: true, force: true });
+    }
+}
