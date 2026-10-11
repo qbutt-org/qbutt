@@ -1,11 +1,13 @@
 import type { Category, Variant, Work } from "./contracts";
-import { persistentVariant, persistentWork, publicReference } from "./references";
+import { ContentError } from "./errors";
+import { captureSelectionId, linkId, persistentVariant, persistentWork, publicReference } from "./references";
 
 export interface SharedItem {
     version: 1;
     mode: "exact" | "work";
     work: Work;
     variant?: Variant;
+    action?: "watch" | "download";
 }
 
 const categories = new Set<Category>(["all", "games", "movies", "tv", "anime", "software", "books", "manga"]);
@@ -16,6 +18,8 @@ function text(value: unknown, limit: number): string {
 }
 
 function sharedVariant(input: Variant): Variant {
+    if (captureSelectionId(input))
+        throw new ContentError("capture_session", "This qcatch selection belongs to the current browser session. Share the source page instead.");
     input = persistentVariant(input);
     if (!transports.has(input.transport) || !input.id || !input.sourceId)
         throw new Error("This variant cannot be shared.");
@@ -35,7 +39,7 @@ function sharedVariant(input: Variant): Variant {
         transport: input.transport,
     };
 
-    for (const key of ["version", "edition", "translation", "quality", "episode", "player", "author"] as const) {
+    for (const key of ["version", "edition", "translation", "quality", "episode", "season", "player", "author"] as const) {
         if (input[key])
             variant[key] = text(input[key], 256);
     }
@@ -61,7 +65,8 @@ function sharedVariant(input: Variant): Variant {
 
 function normalize(input: SharedItem): SharedItem {
     if (input.version !== 1 || !["exact", "work"].includes(input.mode)
-        || !input.work?.id || !input.work.title || !categories.has(input.work.category))
+        || !input.work?.id || !input.work.title || !categories.has(input.work.category)
+        || !Array.isArray(input.work.variants))
         throw new Error("This qbutt link is incomplete or unsupported.");
 
     const stableWork = persistentWork(input.work);
@@ -84,6 +89,26 @@ function normalize(input: SharedItem): SharedItem {
         item.variant = sharedVariant(input.variant);
         item.work.variants = [item.variant];
     }
+    else {
+        const publications = new Map<string, Variant>();
+        for (const inputVariant of input.work.variants) {
+            const variant = sharedVariant(inputVariant);
+            const key = JSON.stringify([variant.sourceId, variant.url]);
+            if (publications.has(key)) continue;
+            publications.set(key, variant.sourceId === "link" ? variant : {
+                id: variant.id, sourceId: variant.sourceId, sourceName: variant.sourceName,
+                title: item.work.title, url: variant.url, transport: variant.transport,
+                magnet: variant.magnet, infoHash: variant.infoHash, needsInspection: true,
+            });
+        }
+        item.work.variants = [...publications.values()];
+        if (input.variant) {
+            item.variant = sharedVariant(input.variant);
+            if (!item.work.variants.some(variant => variant.sourceId === item.variant!.sourceId
+                && variant.url === item.variant!.url && variant.transport === item.variant!.transport))
+                throw new Error("The preferred version does not belong to this shared title.");
+        }
+    }
 
     return item;
 }
@@ -101,12 +126,30 @@ export function openLink(input: string): SharedItem {
         throw new Error("This qbutt link is too long.");
 
     const url = new URL(input);
-    if (url.protocol !== "qbutt:" || url.hostname !== "open")
+    if (url.protocol !== "qbutt:" || !["open", "capture"].includes(url.hostname))
         throw new Error("This qbutt link is not supported.");
 
     const payload = url.searchParams.get("d") || "";
     if (!/^[a-z\d_-]+$/i.test(payload))
         throw new Error("This qbutt link is damaged.");
 
-    return normalize(JSON.parse(Buffer.from(payload, "base64url").toString("utf8")));
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (url.hostname === "capture") {
+        if (data?.v !== 1 || !["watch", "download"].includes(data.action)
+            || typeof data.pageUrl !== "string" || data.pageUrl.length > 4096
+            || typeof data.title !== "string" || data.title.length > 512
+            || typeof data.captureId !== "string" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(data.captureId))
+            throw new Error("This qcatch capture is incomplete or unsupported. Choose the media again in qcatch.");
+        const page = new URL(data.pageUrl);
+        page.hash = "";
+        if (publicReference(page.href) !== page.href)
+            throw new Error("qcatch must share a public source page without session credentials.");
+        const id = linkId(page.href);
+        const title = data.title.replace(/[\x00-\x1f\x7f]/g, " ").trim() || page.hostname;
+        const variant: Variant = { id: `${id}:capture:${data.captureId}`, sourceId: "link", sourceName: "qcatch", title,
+            url: page.href, transport: "video" };
+        return { version: 1, mode: "exact", action: data.action,
+            work: { id, title, category: "movies", url: page.href, variants: [variant] }, variant };
+    }
+    return normalize(data);
 }

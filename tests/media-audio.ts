@@ -6,7 +6,9 @@ import { join } from "node:path";
 
 import type { ProviderContext, ResolvedContent } from "../components/content/contracts.ts";
 import { kinopubProvider } from "../components/content/providers/video/kinopub.ts";
+import { SearchResults } from "../components/content/results.ts";
 import { openLink, share } from "../components/content/sharing.ts";
+import { mediaRuntime as resolveMediaRuntime } from "../components/content/media-runtime";
 import { labAppearanceSettings } from "./appearance.ts";
 import { assertQtRuntime } from "./qt-runtime.ts";
 
@@ -14,14 +16,19 @@ import { assertQtRuntime } from "./qt-runtime.ts";
 // Player and packaged mpv decoding generated media. No account or remote payload.
 const driver = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 const bundle = process.env.QBUTT_QT_ACCEPTANCE_BUNDLE;
-const mediaRuntime = process.env.QBUTT_MEDIA_RUNTIME_DIR;
-assert(driver && bundle && mediaRuntime,
-    "Set QBUTT_QT_ACCEPTANCE_EXE, QBUTT_QT_ACCEPTANCE_BUNDLE and QBUTT_MEDIA_RUNTIME_DIR");
+const qplay = process.env.QBUTT_LAB_QPLAY;
+assert(driver && bundle && qplay,
+    "Set QBUTT_QT_ACCEPTANCE_EXE, QBUTT_QT_ACCEPTANCE_BUNDLE and QBUTT_LAB_QPLAY");
+process.env.QBUTT_LAB_PATHS = "1";
+const runtimeInfo = await resolveMediaRuntime(bundle, AbortSignal.timeout(30_000));
+const mediaRuntime = runtimeInfo.runtimeDir;
 const helper = process.env.QBUTT_CONTENT_EXE || join(bundle, "qbutt-content.exe");
 assertQtRuntime(bundle);
 const root = await mkdtemp(join(tmpdir(), "qbutt-media-audio-"));
 const runtime = join(root, "runtime");
 const profile = join(root, "profile");
+const qplayProfile = join(root, "qplay");
+const playerScript = join(qplayProfile, "config", "acceptance.lua");
 const media = join(root, "generated-voices.mkv");
 const tracePath = join(root, "mpv-trace.jsonl");
 const evidencePath = join(root, "qt-evidence.json");
@@ -35,6 +42,11 @@ interface Selection {
     minimumPosition: number;
     switchTrack?: number;
     resume?: boolean;
+    url?: string;
+    proxyUrl?: string;
+    legacyIdentity?: string;
+    seedLegacyPosition?: number;
+    firstPositionRange?: [number, number];
 }
 const voices = [
     { id: 15504, index: 10, lang: "rus", codec: "aac", channels: 1, author: { title: "Studio Beta" }, type: { title: "Многоголосый" } },
@@ -43,19 +55,47 @@ const voices = [
     { id: 15507, index: 3, lang: "rus", codec: "aac", channels: 1, author: { title: "Missing Studio" }, type: { title: "Многоголосый" } },
     { id: 15508, index: 22, lang: "rus", codec: "aac", channels: 1, author: { title: "Studio Beta" }, type: { title: "Дублированный" } },
 ];
-const item = { id: 77, title: "Generated voice fixture", type: "movie", advert: false, videos: [{
+const item = { id: 77, title: "Generated voice fixture", type: "movie", year: 2026, advert: false, videos: [{
     id: 99, title: "Generated episode", audios: voices, files: ["720p", "480p"].map(quality => ({
         quality, codec: "h264", url: { hls4: `https://media.example.invalid/${quality}/master.m3u8` },
     })),
 }] };
 let requests = 0;
+const onlineUrls = ["first%2Btoken", "refreshed%2Btoken", "restart%2Btoken"].map(signature =>
+    `http://media.example.invalid/generated-voices.mkv?episode=2&signature=${signature}`);
+const proxyPassword = "generated-playback-proxy";
+const proxyAuthorization = `Basic ${Buffer.from(`qbutt:${proxyPassword}`).toString("base64")}`;
+const mediaRequests: { url: string; range: string | null }[] = [];
 const server = Bun.serve({
     hostname: "127.0.0.1", port: 0,
     fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/generated-voices.mkv") {
+            if (request.headers.get("proxy-authorization") !== proxyAuthorization)
+                return new Response("Fixture proxy authentication required", { status: 407,
+                    headers: { "Proxy-Authenticate": "Basic realm=\"generated-media\"" } });
+            // Deliberately require the full source URL. Stripping an expiring
+            // query to stabilize a bookmark must never change network requests.
+            if (!onlineUrls.includes(url.href))
+                return new Response("The signed fixture URL changed", { status: 403 });
+            const file = Bun.file(media);
+            const range = request.headers.get("range");
+            const match = range && /^bytes=(\d+)-(\d*)$/.exec(range);
+            const start = match ? Number(match[1]) : 0;
+            const end = match?.[2] ? Math.min(Number(match[2]), file.size - 1) : file.size - 1;
+            if ((range && !match) || start > end || start < 0)
+                return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${file.size}` } });
+            mediaRequests.push({ url: url.href, range });
+            const headers = new Headers({ "Content-Type": "video/x-matroska", "Accept-Ranges": "bytes",
+                "Content-Length": String(end - start + 1) });
+            if (match) headers.set("Content-Range", `bytes ${start}-${end}/${file.size}`);
+            return new Response(request.method === "HEAD" ? null : file.slice(start, end + 1),
+                { status: match ? 206 : 200, headers });
+        }
         requests++;
         if (request.headers.get("authorization") !== `Bearer ${token}`)
             return new Response("Fixture authentication required", { status: 401 });
-        const path = new URL(request.url).pathname;
+        const path = url.pathname;
         if (path === "/v1/items/search") return Response.json({ items: [item] });
         if (path === "/v1/items/77") return Response.json({ item });
         return new Response("Unknown fixture endpoint", { status: 404 });
@@ -98,15 +138,51 @@ try {
     ] as const) {
         const variant = details.variants.find(candidate => candidate.id.endsWith(`:audio:${id}`) && candidate.quality === "720p")!;
         const resolution = await kinopubProvider.resolve!(variant, context);
-        selections.push({ name, identity: `${work.id}/${variant.id}`, audioTrack: resolution.audioTrack, expectedId,
+        selections.push({ name, identity: `video:${variant.sourceId}:${variant.id}`, audioTrack: resolution.audioTrack, expectedId,
             rejected, minimumPosition: id === 15504 ? 2 : 1, ...(id === 15504 ? { switchTrack: 1 } : {}) });
     }
     selections.splice(1, 0, { ...selections[0], name: "voice-beta-reopen", resume: true, switchTrack: undefined });
+
+    const fileSelection = { identity: "", audioTrack: resolved.audioTrack, expectedId: 2, rejected: false };
+    selections.push(
+        { ...fileSelection, name: "file-open", minimumPosition: 2 },
+        { ...fileSelection, name: "file-reopen", resume: true, minimumPosition: 3 },
+    );
+
+    // The actual result owner changes the canonical work as another catalog
+    // arrives. Its retained exact video must still use the same bookmark.
+    const results = new SearchResults("Generated", () => {});
+    assert(results.add(work));
+    const originalWorkId = results.find(work)!.id;
+    assert(results.add({ ...work, id: "catalog-fixture:77", variants: [
+        { ...selected, id: "catalog-fixture:77:video", sourceId: "catalog-fixture" },
+    ] }));
+    const regrouped = results.find(work)!;
+    assert.notEqual(regrouped.id, originalWorkId, "The fixture must exercise a real canonical work replacement");
+    const onlineVariant = regrouped.variants.find(variant => variant.id.endsWith(":audio:15504") && variant.quality === "480p")!;
+    const restartVariant = regrouped.variants.find(variant => variant.id.endsWith(":audio:15505") && variant.quality === "480p")!;
+    assert(onlineVariant && restartVariant);
+    const online = { identity: `video:${onlineVariant.sourceId}:${onlineVariant.id}`,
+        audioTrack: resolved.audioTrack, expectedId: 2, rejected: false,
+        proxyUrl: `http://qbutt:${proxyPassword}@127.0.0.1:${server.port}` };
+    selections.push(
+        { ...online, name: "online-legacy-import", url: onlineUrls[0], resume: true, minimumPosition: 9.5,
+            legacyIdentity: `${originalWorkId}/${onlineVariant.id}`, seedLegacyPosition: 9.25,
+            firstPositionRange: [9, 10] },
+        { ...online, name: "online-regrouped-reopen", url: onlineUrls[1], resume: true, minimumPosition: 10.5,
+            legacyIdentity: `${regrouped.id}/${onlineVariant.id}`, seedLegacyPosition: 14.25 },
+        { ...online, name: "online-explicit-restart", url: onlineUrls[2],
+            identity: `video:${restartVariant.sourceId}:${restartVariant.id}`,
+            audioTrack: selections.find(selection => selection.name === "voice-alpha")!.audioTrack, expectedId: 1,
+            minimumPosition: 1, legacyIdentity: `${originalWorkId}/${restartVariant.id}`, seedLegacyPosition: 14.25,
+            firstPositionRange: [0, 0.8] },
+    );
     const removed = item.videos[0].audios.findIndex(audio => audio.id === 15504);
     item.videos[0].audios.splice(removed, 1);
     await assert.rejects(() => kinopubProvider.resolve!(exact, context), /озвучка.*больше не доступна/i);
 
-    await mkdir(join(runtime, "media", "profile", "scripts"), { recursive: true });
+    await mkdir(runtime);
+    await mkdir(join(qplayProfile, "config"), { recursive: true });
     for (const entry of await readdir(bundle, { withFileTypes: true })) {
         if (entry.isFile() && (/\.dll$/i.test(entry.name)
             || ["qt.conf", "qbutt-net.exe", "qbutt-search.exe"].includes(entry.name)))
@@ -117,9 +193,9 @@ try {
     const executable = join(runtime, "qbutt-qt-acceptance.exe");
     await copyFile(driver, executable);
     await copyFile(helper, join(runtime, "qbutt-content.exe"));
-    await copyFile(join(bundle, "media", "profile", "scripts", "modernx.lua"), join(runtime, "media", "profile", "scripts", "modernx.lua"));
-    await writeFile(join(runtime, "media", "profile", "mpv.conf"), "vo=null\nao=null\nosc=no\nhwdec=no\nkeep-open=yes\n");
-    await writeFile(join(runtime, "media", "profile", "scripts", "acceptance.lua"), `
+    await writeFile(join(qplayProfile, "config", "mpv.conf"),
+        `vo=null\nao=null\nosc=no\nhwdec=no\nkeep-open=yes\nscript="${playerScript.replaceAll("\\", "/")}"\n`);
+    await writeFile(playerScript, `
 local mp = require("mp")
 local utils = require("mp.utils")
 local function record(event)
@@ -134,7 +210,7 @@ mp.add_hook("on_preloaded", 50, function() record("preloaded") end)
 mp.observe_property("pause", "bool", function() record("pause") end)
 mp.register_event("file-loaded", function() record("file-loaded") end)
 `);
-    const ffmpeg = process.env.QBUTT_LAB_FFMPEG || join(mediaRuntime, "tools", "ffmpeg.exe");
+    const { ffmpeg } = runtimeInfo.tools;
     const args = [ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=12:duration=30"];
     for (const frequency of [440, 660, 880, 990])
         args.push("-f", "lavfi", "-i", `sine=frequency=${frequency}:duration=30`);
@@ -161,13 +237,29 @@ mp.register_event("file-loaded", function() record("file-loaded") end)
     application = Bun.spawn([executable, `--profile=${profile}`], {
         cwd: runtime, windowsHide: true, stdin: "ignore", timeout: 120000,
         env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: specPath,
-            QBUTT_MEDIA_AUDIO_TRACE: tracePath, QBUTT_LAB_PATHS: "1", QBUTT_MEDIA_RUNTIME_DIR: mediaRuntime },
+            QBUTT_MEDIA_AUDIO_TRACE: tracePath, QBUTT_LAB_PATHS: "1",
+            QBUTT_LAB_QPLAY: qplay, QBUTT_LAB_QPLAY_PROFILE: qplayProfile },
         stdout: Bun.file(join(root, "app.stdout.log")), stderr: Bun.file(join(root, "app.stderr.log")),
     });
     const exit = await application.exited;
     const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
     assert.equal(exit, 0, JSON.stringify(evidence));
     assert.equal(evidence.status, "passed", JSON.stringify(evidence));
+    for (const [previousName, reopenedName] of [
+        ["file-open", "file-reopen"], ["online-legacy-import", "online-regrouped-reopen"],
+    ]) {
+        const previous = evidence.checks.find((check: { name: string }) => check.name === previousName);
+        const reopened = evidence.checks.find((check: { name: string }) => check.name === reopenedName);
+        assert(previous && reopened);
+        assert(Math.abs(reopened.firstPosition - previous.savedPosition) < 0.5,
+            `${reopenedName}: reopening did not restore the stopped player's persisted position`);
+    }
+    for (const url of onlineUrls)
+        assert(mediaRequests.some(request => request.url === url), `The full signed media URL was not requested: ${url}`);
+    assert(mediaRequests.some(request => request.range), "Actual online playback did not exercise HTTP Range");
+    assert.equal(evidence.checks.find((check: { name: string }) => check.name === "online-legacy-import").legacyPosition, null);
+    for (const name of ["online-regrouped-reopen", "online-explicit-restart"])
+        assert.equal(evidence.checks.find((check: { name: string }) => check.name === name).legacyPosition, 14.25);
     const trace = (await readFile(tracePath, "utf8")).trim().split("\n").map(line => JSON.parse(line));
     for (const selection of selections) {
         const events = trace.filter(event => event.title === selection.name);
@@ -183,6 +275,9 @@ mp.register_event("file-loaded", function() record("file-loaded") end)
     await writeFile(join(root, "source-evidence.json"), JSON.stringify({ status: "passed", requests, voices: 5, variants: 10,
         selectedApiId: 15504, selectedApiIndex: 10, actualMpvId: 2, reorderedSharePreserved: true,
         unavailableApiVoiceRejected: true, sameAuthorWrongTypeRejected: true, liveKinoPub: "unverified-account-required",
+        bookmarks: { originalWorkId, regroupedWorkId: regrouped.id, stableIdentity: online.identity,
+            fileResume: true, changedUrlResume: true, legacyImportedOnce: true, stableWins: true, explicitRestartSkipsImport: true },
+        mediaRequests,
         helper: { path: helper, sha256: createHash("sha256").update(await readFile(helper)).digest("hex") },
         driver: { path: driver, sha256: createHash("sha256").update(await readFile(driver)).digest("hex") },
         mediaRuntime,

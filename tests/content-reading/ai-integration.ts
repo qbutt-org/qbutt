@@ -6,6 +6,7 @@ import { handleReaderRequest } from "../../components/content/reader/service";
 import { contentId, type ReaderDocument, type ReaderPage } from "../../components/content/reader/types";
 import type { ProviderContext } from "../../components/content/contracts";
 import type { RecognizedRegion } from "../../components/content/reader/translation";
+import { mediaTool } from "../../components/content/media-runtime";
 
 function require(condition: unknown, message: string): asserts condition {
     if (!condition) {
@@ -21,7 +22,8 @@ async function authorizationHash(): Promise<string> {
 }
 
 async function rgb(path: string, appDir: string): Promise<Uint8Array> {
-    const child = Bun.spawn({ cmd: [join(appDir, "media", "tools", "ffmpeg.exe"), "-v", "error", "-i", path,
+    const ffmpeg = await mediaTool(appDir, "ffmpeg", AbortSignal.timeout(30_000));
+    const child = Bun.spawn({ cmd: [ffmpeg, "-v", "error", "-i", path,
         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"],
         stdout: "pipe", stderr: "ignore", windowsHide: true, signal: AbortSignal.timeout(30_000) });
     const [bytes, exit] = await Promise.all([new Response(child.stdout).arrayBuffer(), child.exited]);

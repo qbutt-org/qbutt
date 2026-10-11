@@ -22,6 +22,14 @@ function emit(id: number, event: string, data?: unknown): void {
 }
 
 function page(documentId: string, chapterId: string, translated: boolean): Record<string, unknown> {
+    if (documentId === "volumes") {
+        return { id: chapterId, documentId, title: "Generated chapter", kind: "text", cached: true,
+            html: `<p>Original text of ${chapterId}.</p>` };
+    }
+    if (documentId === "text-position") {
+        return { id: chapterId, documentId, title: "Legal generated prose", kind: "text", cached: true,
+            html: Array.from({ length: 140 }, (_, index) => `<p>${index + 1}. The traveller followed the river through the valley.</p>`).join("") };
+    }
     if (documentId === "hangul") {
         return { id: chapterId, documentId, title: "Original Korean chapter", kind: "text", cached: true,
             html: translated ? "<p>Вместе мы найдём новый мир.</p>" : "<p>우리가 함께라면 새로운 세상을 찾을 수 있습니다.</p>",
@@ -67,17 +75,36 @@ async function handle({ id, method, params = {} }: Request): Promise<void> {
     const documentId = String(params.documentId ?? (params.work as Work | undefined)?.id ?? "");
     log("request", { id, method, documentId, params });
     if (method === "reader.open") {
+        if (documentId === "volumes") {
+            const chapters = Array.from({ length: 121 }, (_, index) => ({
+                id: `volumes:${index}`,
+                title: index === 21 ? "Chapter 1 — The long journey beyond the mountains and the distant city by the sea, "
+                    + "where the travellers followed the old river through the mist and discovered a forgotten library "
+                    + "whose maps described every road they had taken and every place they still hoped to reach"
+                    : index % 20 ? `Chapter ${index % 20}` : "Prologue",
+                ...(index < 120 ? { volume: Math.floor(index / 20) + 1 } : {}),
+            }));
+            emit(id, "complete", { id: documentId, sourceId: "fixture-reader", title: "Generated multivolume novel",
+                kind: "text", chapters, position: positions.get(documentId) });
+            return;
+        }
         const chapters = [{ id: `${documentId}:chapter`, title: "Cached original chapter" }];
         if (documentId !== "hangul" && documentId !== "small-image")
             chapters.push({ id: `${documentId}:chapter-2`, title: "Second cached original chapter" });
 
         const title = documentId === "pager" ? "Путешествие к далёкому городу, которого нет ни на одной карте" : documentId;
         emit(id, "complete", { id: documentId, workId: documentId, sourceId: "fixture-reader", title,
-            kind: documentId === "hangul" ? "text" : "images", chapters, position: positions.get(documentId) });
+            kind: ["hangul", "text-position"].includes(documentId) ? "text" : "images", chapters, position: positions.get(documentId) });
     } else if (method === "reader.chapter") {
         const chapterId = (params.chapter as { id: string }).id;
+        if (chapterId === "volumes:19") {
+            emit(id, "error", { message: "Generated chapter is unavailable." });
+            return;
+        }
         const original = page(documentId, chapterId, false);
         log("original", { documentId, page: original });
+        if (documentId === "text-position")
+            emit(id, "page", original);
         emit(id, "complete", original);
     } else if (method === "reader.ahead") {
         const count = (aheadCounts.get(documentId) ?? 0) + 1;

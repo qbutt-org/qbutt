@@ -45,6 +45,14 @@ export function linkId(url: string): string {
     return `link:${new Bun.CryptoHasher("sha256").update(publicReference(url) || url).digest("hex")}`;
 }
 
+export function captureSelectionId(variant: Variant): string | undefined {
+    if (variant.sourceId !== "link") return;
+    const prefix = `${linkId(variant.url)}:capture:`;
+    if (!variant.id.startsWith(prefix)) return;
+    const id = variant.id.slice(prefix.length);
+    if (/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) return id;
+}
+
 function persistentNotes(notes: Work["notes"]): Work["notes"] {
     return notes?.flatMap(note => {
         const url = publicReference(note.url);
@@ -56,7 +64,7 @@ export function persistentVariant(variant: Variant): Variant {
     const { downloadUrl, ...stable } = variant;
     return {
         ...stable,
-        id: variant.sourceId === "link" ? linkId(variant.url) : variant.id,
+        id: variant.sourceId === "link" && !captureSelectionId(variant) ? linkId(variant.url) : variant.id,
         url: publicReference(variant.url) || "",
         magnet: publicReference(variant.magnet),
         notes: persistentNotes(variant.notes),
@@ -67,7 +75,7 @@ export function persistentWork(work: Work): Work {
     const variants = work.variants.map(persistentVariant);
     return {
         ...work,
-        id: work.variants.length && work.variants.every(variant => variant.sourceId === "link") ? variants[0].id
+        id: work.variants.length && work.variants.every(variant => variant.sourceId === "link") ? linkId(variants[0].url)
             : /^(?:https?:|magnet:)/.test(work.id) ? linkId(work.id) : work.id,
         url: publicReference(work.url),
         cover: publicReference(work.cover),

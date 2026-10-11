@@ -36,6 +36,7 @@ aclocal.m4
 autom4te.cache/*
 config.status
 node_modules/
+.bun-cache/
 src/icons/skin/build-icons/icons/*.png
 
 # CMake build directory

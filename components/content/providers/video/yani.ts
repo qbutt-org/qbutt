@@ -1,6 +1,7 @@
 import type { Provider, ProviderContext, ResolvedContent, Variant, WorkDetails } from "../../contracts.ts";
 import { publicUrl } from "../../net.ts";
-import { absoluteUrl, json, videoVariant } from "./common.ts";
+import { json } from "../http.ts";
+import { absoluteUrl, videoVariant } from "./common.ts";
 import { resolveCvh } from "./cvh.ts";
 import { resolveKodik } from "./kodik.ts";
 
@@ -12,6 +13,7 @@ interface Video {
     video_id: number;
     data: { player: string; dubbing: string; player_id: number };
     number: string;
+    duration?: number;
     date?: number;
     iframe_url: string;
 }
@@ -79,6 +81,8 @@ function animeWork(anime: Anime): WorkDetails {
         player: video.data.player.replace(/^плеер\s*/i, ""),
         publishedAt: video.date ? new Date(video.date * 1000).toISOString() : undefined,
         languages: /субтитры/i.test(video.data.dubbing) ? ["ja", "ru"] : ["ru"],
+        translationType: /субтитры/i.test(video.data.dubbing) ? "subtitles" as const : "dub" as const,
+        duration: video.duration,
     }));
     return {
         id: `yani:${anime.anime_id}`,
@@ -132,8 +136,9 @@ async function resolveAksor(anime: Anime, selected: Video, playerUrl: string,
         throw new Error("Aksor вернул другой тайтл, серию или озвучку. Обновите варианты тайтла.");
     }
 
-    const address = ["q4k", "q2k", "q1080", "q720", "q480", "q360"]
-        .map(quality => video.qualities?.[quality]).find((value): value is string => typeof value === "string" && value.length > 0);
+    const quality = ["q4k", "q2k", "q1080", "q720", "q480", "q360"]
+        .find(quality => typeof video.qualities?.[quality] === "string" && video.qualities[quality]!.length > 0);
+    const address = quality ? video.qualities?.[quality] : undefined;
     if (!address) throw new Error("Aksor не предоставил видео выбранной серии и озвучки.");
     const media = await publicUrl(address);
     if (media.protocol !== "https:" || !media.pathname.endsWith(".mpd")) {
@@ -146,6 +151,7 @@ async function resolveAksor(anime: Anime, selected: Video, playerUrl: string,
         headers: { Referer: player.href },
         title: anime.title,
         translation: selected.data.dubbing.replace(/^озвучка\s*/i, ""),
+        quality: ({ q4k: "4K", q2k: "2K", q1080: "1080p", q720: "720p", q480: "480p", q360: "360p" } as Record<string, string>)[quality!],
         selection: { episode: selected.number, player: "Aksor" },
     };
 }
@@ -162,22 +168,69 @@ export const yaniProvider: Provider = {
             { name: "accountToken", label: "Токен аккаунта", type: "password" },
         ],
     },
-    async search(request, context) {
+    async search(request, context, emit) {
         if (!["all", "anime"].includes(request.category)) return [];
         const result = await api<{ response: Anime[] }>(`/anime?q=${encodeURIComponent(request.query)}&limit=40`, context);
         const releases = result.response.slice(0, 40);
+        for (const anime of releases) emit?.(animeWork(anime));
         // Search returns only the Russian title. Verified alternate titles live
         // in the detail response; fetch metadata without the large video list.
         for (let offset = 0; offset < releases.length; offset += 4) {
             await Promise.all(releases.slice(offset, offset + 4).map(async anime => {
-                const metadata = await api<{ response: Anime }>(`/anime/${anime.anime_id}?need_videos=false`, context);
-                anime.other_titles = metadata.response.other_titles;
+                try {
+                    const metadata = await api<{ response: Anime }>(`/anime/${anime.anime_id}?need_videos=false`, context);
+                    anime.other_titles = metadata.response.other_titles;
+                    emit?.(animeWork(anime));
+                }
+                catch (error) {
+                    context.signal.throwIfAborted();
+                    context.reportError?.(error);
+                }
             }));
         }
         return releases.map(animeWork);
     },
-    async inspect(variant, context) {
-        return animeWork(await animeDetails(variant, context));
+    async inspect(variant, context, emit) {
+        const anime = await animeDetails(variant, context);
+        const work = animeWork(anime);
+        emit?.(work);
+        const firstEpisodes = new Map<string, Variant>();
+        for (const selected of work.variants) {
+            if (selected.player !== "CVH" && selected.player !== "Aksor") continue;
+            if (variant.episode && selected.id !== variant.id) continue;
+            const key = JSON.stringify([selected.translation, selected.player]);
+            const first = firstEpisodes.get(key);
+            if (!first || Number(selected.episode) < Number(first.episode)) firstEpisodes.set(key, selected);
+        }
+        const inspectable = [...firstEpisodes.values()];
+        // Publish every episode immediately, then verify a representative of
+        // each voice/player within a small optional metadata budget. Quality
+        // belongs only to the exact episode whose player confirmed it.
+        const qualitySignal = AbortSignal.any([context.signal, AbortSignal.timeout(8_000)]);
+        const qualityContext = { ...context, signal: qualitySignal,
+            fetch: (url: string, init?: RequestInit) => context.fetch(url, { ...init,
+                signal: init?.signal ? AbortSignal.any([qualitySignal, init.signal]) : qualitySignal }) };
+        for (let offset = 0; offset < inspectable.length && !qualitySignal.aborted; offset += 4) {
+            await Promise.all(inspectable.slice(offset, offset + 4).map(async selected => {
+                try {
+                    const video = anime.videos!.find(video => String(video.video_id) === selected.id.split(":")[3])!;
+                    const url = absoluteUrl(video.iframe_url, siteUrl);
+                    if (!url) return;
+                    const resolved = selected.player === "Aksor" ? await resolveAksor(anime, video, url, qualityContext)
+                        : await resolveCvh(url, { title: anime.title, malId: anime.remote_ids?.myanimelist_id,
+                            episode: video.number, translation: selected.translation! }, qualityContext);
+                    if (resolved.quality) {
+                        selected.quality = resolved.quality;
+                        emit?.(work);
+                    }
+                }
+                catch (error) {
+                    context.signal.throwIfAborted();
+                    if (!qualitySignal.aborted) context.reportError?.(error);
+                }
+            }));
+        }
+        return work;
     },
     async resolve(variant, context) {
         const anime = await animeDetails(variant, context);
@@ -190,6 +243,16 @@ export const yaniProvider: Provider = {
         }
         const url = absoluteUrl(selected.iframe_url, siteUrl);
         if (!url) throw new Error("Источник не предоставил адрес выбранного плеера.");
+        const playerUrl = new URL(url);
+        if (playerUrl.origin === "https://ru.yummyani.me" && playerUrl.pathname === "/iframeVK.html") {
+            const ids = playerUrl.searchParams.getAll("id");
+            const id = ids.length === 1 ? /^(?:video)?(-?\d+_\d+)$/.exec(ids[0]!)?.[1] : undefined;
+            if (!id || playerUrl.username || playerUrl.password)
+                throw new Error("Источник изменил ссылку выбранного видео VK. Обновите варианты тайтла.");
+            return { kind: "video", resolver: "yt-dlp", url: `https://vkvideo.ru/video${id}`,
+                title: anime.title, translation: variant.translation,
+                selection: { episode: selected.number, player: variant.player } };
+        }
         if (variant.player === "Aksor") return resolveAksor(anime, selected, url, context);
         if (variant.player === "Kodik") {
             return resolveKodik(url, {

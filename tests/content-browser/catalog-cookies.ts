@@ -48,11 +48,11 @@ async function cookies(sourceId: string, url: string): Promise<Record<string, st
 try {
     const hostCookie: BrowserCookie = {
         name: "__Host-qbutt_session", value: `${secret}-first`, domain: "freetp.org",
-        path: "/", secure: true, hostOnly: true,
+        path: "/", secure: true, hostOnly: true, httpOnly: true, sameSite: "strict",
     };
     const domainCookie: BrowserCookie = {
         name: "qbutt_domain", value: `${secret}-domain`, domain: ".freetp.org",
-        path: "/", secure: true, hostOnly: false,
+        path: "/", secure: true, hostOnly: false, httpOnly: false, sameSite: "no_restriction",
     };
     browser.snapshot = [hostCookie, domainCookie];
     await catalog.context("freetp", signal);
@@ -69,9 +69,15 @@ try {
     // Apply a generated source Set-Cookie to Catalog's actual jar.
     const jar = (catalog as unknown as { sessions: Map<string, { jar: CookieJar }> })
         .sessions.get("freetp")!.jar;
+    const imported = await jar.getCookies("https://freetp.org/");
+    assert.equal(imported.find(cookie => cookie.key === hostCookie.name)?.httpOnly, true);
+    assert.equal(imported.find(cookie => cookie.key === hostCookie.name)?.sameSite, "strict");
+    assert.equal(imported.find(cookie => cookie.key === domainCookie.name)?.httpOnly, false);
+    assert.equal(imported.find(cookie => cookie.key === domainCookie.name)?.sameSite, "none");
     await jar.setCookie("qbutt_server=generated-source-cookie; Domain=freetp.org; Path=/; Secure", "https://freetp.org/");
-    browser.snapshot = [{ ...hostCookie, value: `${secret}-replacement` }];
+    browser.snapshot = [{ ...hostCookie, value: `${secret}-replacement`, sameSite: "lax" }];
     await catalog.context("freetp", signal);
+    assert.equal((await jar.getCookies("https://freetp.org/")).find(cookie => cookie.key === hostCookie.name)?.sameSite, "lax");
     assert.deepEqual(await cookies("freetp", "https://freetp.org/download"), {
         [hostCookie.name]: `${secret}-replacement`,
         qbutt_server: "generated-source-cookie",
@@ -82,6 +88,10 @@ try {
     assert.deepEqual(await cookies("freetp", "https://freetp.org/download"), {
         qbutt_server: "generated-source-cookie",
     }, "Browser logout must remove the imported session");
+
+    browser.snapshot = [{ ...hostCookie, sameSite: "unspecified" }];
+    await catalog.context("freetp", signal);
+    assert.equal((await jar.getCookies("https://freetp.org/")).find(cookie => cookie.key === hostCookie.name)?.sameSite, undefined);
 
     browser.snapshot = [hostCookie, domainCookie];
     await catalog.context("freetp", signal);
@@ -121,7 +131,7 @@ try {
 
     console.log(JSON.stringify({ ok: true, checks: ["host-only-prefix", "domain-scope", "secure-scope",
         "refresh-replacement", "logout", "source-cookie-preservation", "manual-session-priority", "DPAPI",
-        "concurrent-refresh-logout"] }));
+        "concurrent-refresh-logout", "httpOnly", "sameSite"] }));
 }
 finally {
     catalog.close();

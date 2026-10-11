@@ -91,13 +91,11 @@ Content::ImagePages::ImagePages(QWidget *parent)
     viewport()->setMouseTracking(true);
 }
 
-void Content::ImagePages::setPage(const QJsonObject &page, const int imageIndex, const bool original)
+void Content::ImagePages::setPage(const QJsonObject &page, const int imageIndex, const double offset, const bool original)
 {
     const QJsonArray images = page.value(u"images"_s).toArray();
     const int last = qMax(0, static_cast<int>(images.size()) - 1);
     const int selected = (imageIndex < 0) ? last : qBound(0, imageIndex, last);
-    const QString pageId = page.value(u"id"_s).toString();
-    const double offset = ((pageId == m_pageId) && (selected == m_imageIndex)) ? imageOffset() : 0;
     QList<PageImage> pages;
     pages.reserve(images.size());
     for (qsizetype index = 0; index < images.size(); ++index)
@@ -120,7 +118,6 @@ void Content::ImagePages::setPage(const QJsonObject &page, const int imageIndex,
         }
         pages.append(std::move(entry));
     }
-    m_pageId = pageId;
     m_imageIndex = selected;
     m_images = std::move(pages);
     m_regions = original ? QJsonArray() : page.value(u"regions"_s).toArray();
@@ -340,25 +337,24 @@ void Content::ImagePages::contextMenuEvent(QContextMenuEvent *event)
 void Content::ImagePages::scrollContentsBy(int, int)
 {
     viewport()->update();
-    if (m_layingOut || (m_settings.mode != ReaderMode::Continuous) || m_images.isEmpty())
+    if (m_layingOut || m_images.isEmpty())
         return;
 
-    const int top = verticalScrollBar()->value() + 8;
-    int index = static_cast<int>(m_images.size()) - 1;
-    if (verticalScrollBar()->value() < verticalScrollBar()->maximum())
+    if (m_settings.mode == ReaderMode::Continuous)
     {
-        for (int candidate = 0; candidate < m_images.size(); ++candidate)
+        const int top = verticalScrollBar()->value() + 8;
+        m_imageIndex = static_cast<int>(m_images.size()) - 1;
+        if (verticalScrollBar()->value() < verticalScrollBar()->maximum())
         {
-            if (m_images.at(candidate).rect.bottom() >= top)
+            for (int candidate = 0; candidate < m_images.size(); ++candidate)
             {
-                index = candidate;
-                break;
+                if (m_images.at(candidate).rect.bottom() >= top)
+                {
+                    m_imageIndex = candidate;
+                    break;
+                }
             }
         }
     }
-    if (index != m_imageIndex)
-    {
-        m_imageIndex = index;
-        emit imageIndexChanged(index);
-    }
+    emit positionChanged();
 }

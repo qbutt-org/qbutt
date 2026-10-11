@@ -1,8 +1,10 @@
-import type { Provider, Source, Work } from "../../contracts.ts";
+import type { Provider, ProviderContext, Source, Work } from "../../contracts.ts";
 import { assertExactVariant } from "../../references.ts";
-import { json, publication } from "./common.ts";
+import { json } from "../http.ts";
+import { publication } from "./common.ts";
+import type { VkSearchVideo } from "../../browser/protocol.ts";
+import { ContentError } from "../../errors.ts";
 
-// URL identity parsing follows stream-catcher's proven VK/Rutube parsers.
 export function rutubeId(value: string): string | undefined {
     try {
         const url = new URL(value);
@@ -27,10 +29,13 @@ export function vkId(value: string): string | undefined {
     }
 }
 
-function matchesPublication(title: string, query: string, description?: string): boolean {
+function matchesPublication(title: string, query: string, description?: string, duration?: number): boolean {
     const unwanted = /\b(?:trailer|teaser|reaction|review|AMV|highlights|promo|preview)\b|трейлер|тизер|реакци|обзор|нарезк|промо|превью/i;
     const promo = /(?:^|\n)\s*(?:анимированное\s+)?промо(?:\s|$)/i.test(description || "");
-    if ((unwanted.test(title) || promo) && !unwanted.test(query)) return false;
+    const announcement = !!duration && duration <= 180
+        && /(?:^|\n)\s*Статус\s*:\s*(?:запланирован|анонсирован|скоро)/i.test(description || "")
+        && !/\d+\s*серия|\bS\d+E\d+\b/i.test(title);
+    if ((unwanted.test(title) || promo || announcement) && !unwanted.test(query)) return false;
     const normalize = (value: string) => value.toLocaleLowerCase().replace(/ё/g, "е");
     const words = normalize(query).match(/[\p{L}\p{N}]+/gu) ?? [];
     const normalized = normalize(title);
@@ -75,32 +80,65 @@ function rutubeWork(video: RutubeVideo): Work {
                 || /^Озвучка\s*[-–—:]\s*([^\n(]+)/im.exec(video.description || "")?.[1]?.trim();
             const season = /(?:season\s+(\d+)|(\d+)(?:st|nd|rd|th)?\s+season|(?:^|\s)(\d+)\s*сезон(?:\s|$)|\s(\d+)$)/i.exec(episode[1]!);
             work.variants[0]!.season = season?.slice(1).find(Boolean);
+            if (/(?:^|\W)(?:на\s+русском|русск(?:ая|ой)\s+озвучк)/i.test(video.description || ""))
+                work.variants[0]!.languages = ["ru"];
         }
     }
     return work;
 }
 
+async function rutubeQuality(work: Work, context: ProviderContext): Promise<Work> {
+    const id = rutubeId(work.variants[0]!.url)!;
+    const options = await json<{ video_balancer?: { m3u8?: string } }>(
+        `https://rutube.ru/api/play/options/${id}/`, context);
+    const address = options.video_balancer?.m3u8;
+    if (!address) return work;
+    const response = await context.fetch(address);
+    if (!response.ok) throw new Error(`Rutube не предоставил данные качества (HTTP ${response.status}).`);
+    const manifest = await response.text();
+    if (!manifest.startsWith("#EXTM3U")) throw new Error("Rutube изменил формат данных качества.");
+    const heights = [...manifest.matchAll(/\bRESOLUTION=\d+x(\d+)\b/g)].map(match => Number(match[1]));
+    if (heights.length) work.variants[0]!.quality = `${Math.max(...heights)}p`;
+    return work;
+}
+
 export const rutubeProvider: Provider = {
     source: { id: "rutube", name: "Rutube", url: "https://rutube.ru", categories: ["movies", "tv", "anime"], enabled: true },
-    async search(request, context) {
+    async search(request, context, emit) {
         if (!["all", "movies", "tv", "anime"].includes(request.category)) return [];
         const id = rutubeId(request.query);
         if (id) {
-            return [rutubeWork(await json<RutubeVideo>(`https://rutube.ru/api/video/${id}/`, context))];
+            const work = rutubeWork(await json<RutubeVideo>(`https://rutube.ru/api/video/${id}/`, context));
+            emit?.(work);
+            return [await rutubeQuality(work, context)];
         }
         const response = await json<{ results: RutubeVideo[] }>(`https://rutube.ru/api/search/video/?query=${encodeURIComponent(request.query)}&page=1`, context);
-        return response.results
+        const works = response.results
             .filter(video => !video.is_deleted && !video.is_hidden && !video.is_paid && !video.is_locked)
-            .filter(video => matchesPublication(video.title, request.query, video.description))
+            .filter(video => matchesPublication(video.title, request.query, video.description, video.duration))
             .map(video => {
                 const work = rutubeWork(video);
                 return { ...work, category: request.category === "all" ? work.category : request.category };
             });
+        for (const work of works) emit?.(work);
+        for (let offset = 0; offset < works.length; offset += 4) {
+            await Promise.all(works.slice(offset, offset + 4).map(async work => {
+                try {
+                    await rutubeQuality(work, context);
+                    emit?.(work);
+                }
+                catch (error) {
+                    context.signal.throwIfAborted();
+                    context.reportError?.(error);
+                }
+            }));
+        }
+        return works;
     },
     async inspect(variant, context) {
         const id = rutubeId(variant.url);
         if (!id) throw new Error("Некорректная ссылка Rutube.");
-        return rutubeWork(await json<RutubeVideo>(`https://rutube.ru/api/video/${id}/`, context));
+        return rutubeQuality(rutubeWork(await json<RutubeVideo>(`https://rutube.ru/api/video/${id}/`, context)), context);
     },
     async resolve(variant, context) {
         const id = rutubeId(variant.url);
@@ -112,23 +150,11 @@ export const rutubeProvider: Provider = {
     },
 };
 
-interface VkVideo {
-    id: number;
-    owner_id: number;
-    title: string;
-    description?: string;
-    date?: number;
-    image?: { url: string; width: number }[];
-    duration?: number;
-}
-
-function vkWork(video: VkVideo, source: Source): Work {
-    const id = `${video.owner_id}_${video.id}`;
-    const work = publication(source, id, video.title, `https://vkvideo.ru/video${id}`);
+function vkWork(video: VkSearchVideo, source: Source): Work {
+    const work = publication(source, video.id, video.title, video.url);
     work.variants[0]!.publicationKind = "upload";
-    work.description = video.description;
-    work.cover = video.image?.toSorted((left, right) => right.width - left.width)[0]?.url;
-    work.variants[0]!.publishedAt = video.date ? new Date(video.date * 1000).toISOString() : undefined;
+    work.cover = video.cover;
+    work.variants[0]!.author = video.author;
     work.variants[0]!.duration = video.duration;
     return work;
 }
@@ -137,7 +163,6 @@ export const vkProvider: Provider = {
     source: {
         id: "vkvideo", name: "VK Видео", url: "https://vkvideo.ru",
         categories: ["movies", "tv", "anime"], enabled: true,
-        settings: [{ name: "accessToken", label: "Токен VK для поиска", type: "password" }],
     },
     async search(request, context) {
         if (!["all", "movies", "tv", "anime"].includes(request.category)) return [];
@@ -147,15 +172,9 @@ export const vkProvider: Provider = {
             work.variants[0]!.publicationKind = "upload";
             return [work];
         }
-        if (!context.settings.accessToken) {
-            throw new Error("Поиск VK требует токен аккаунта. Ссылки на конкретные видео открываются без настройки поиска.");
-        }
-        const parameters = new URLSearchParams({ v: "5.199", q: request.query, count: "100", adult: "0" });
-        const result = await json<{ response?: { items: VkVideo[] }; error?: { error_code: number } }>(
-            `https://api.vk.com/method/video.search?${parameters}`, context,
-            { headers: { Authorization: `Bearer ${context.settings.accessToken}` } });
-        if (!result.response) throw new Error(`VK не разрешил поиск (код ${result.error?.error_code ?? "неизвестен"}). Проверьте токен аккаунта.`);
-        return result.response.items.filter(video => matchesPublication(video.title, request.query))
+        if (!context.searchVkVideos) throw new ContentError("browser_required", "Connect qcatch in Sources to search VK Video.", "https://vkvideo.ru/");
+        const videos = await context.searchVkVideos(request.query.trim());
+        return videos.filter(video => matchesPublication(video.title, request.query))
             .map(video => ({ ...vkWork(video, vkProvider.source), category: request.category === "all" ? "movies" : request.category }));
     },
     async resolve(variant) {

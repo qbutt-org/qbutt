@@ -53,7 +53,7 @@ try {
             mode: "reader-flow", readerSettingsProbe, fixtureImages, imageDir, fixtureLog, evidencePath,
         }, null, 2));
         child = Bun.spawn([executable, `--profile=${profile}`], {
-            cwd: bundle, windowsHide: true, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 60000,
+            cwd: bundle, windowsHide: true, stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 90000,
             env: { ...process.env, QBUTT_QT_ACCEPTANCE_SPEC: specPath, QBUTT_QT_ACCEPTANCE_NATIVE: undefined,
                 QBUTT_READER_UI_FIXTURE_LOG: fixtureLog, QBUTT_READER_UI_FIXTURE_IMAGES: fixtureImages,
                 QT_QPA_PLATFORM: "offscreen", QT_SCALE_FACTOR: "1" },

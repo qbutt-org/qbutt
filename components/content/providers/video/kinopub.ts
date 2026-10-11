@@ -1,5 +1,6 @@
 import type { Provider, ProviderContext, WorkDetails } from "../../contracts.ts";
-import { json, videoVariant } from "./common.ts";
+import { json } from "../http.ts";
+import { videoVariant } from "./common.ts";
 
 interface KinoAudio {
     id: number;
@@ -65,7 +66,7 @@ function itemWork(item: KinoItem): WorkDetails {
         id: `kinopub:${item.id}`, title: item.title,
         category: /serial/.test(item.type) ? "tv" : "movies",
         url, year: item.year, description: item.plot, cover: item.posters?.big,
-        variants: variants.length ? variants : [catalog],
+        variants: variants.length ? variants : [{ ...catalog, needsInspection: true }],
     };
 }
 

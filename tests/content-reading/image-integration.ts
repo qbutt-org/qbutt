@@ -4,6 +4,7 @@ import { handleReaderRequest } from "../../components/content/reader/service";
 import { contentId, type ReaderDocument, type ReaderPage } from "../../components/content/reader/types";
 import type { ProviderContext } from "../../components/content/contracts";
 import { cleanImageText } from "../../components/content/reader/image-processing";
+import { mediaRuntime as resolveMediaRuntime } from "../../components/content/media-runtime";
 
 function require(value: unknown, message: string): asserts value {
     if (!value) throw new Error(message);
@@ -11,10 +12,9 @@ function require(value: unknown, message: string): asserts value {
 
 const directory = resolve(process.env.QBUTT_READER_IMAGE_FIXTURE ?? "C:/Temp/qbutt-image-cleanup-qa");
 const appDir = process.env.QBUTT_CONTENT_APP_DIR;
-const mediaRuntime = process.env.QBUTT_MEDIA_RUNTIME_DIR;
-require(mediaRuntime, "Set QBUTT_MEDIA_RUNTIME_DIR to the separately prepared pinned lab media tools");
+require(appDir, "Set QBUTT_CONTENT_APP_DIR to the application fixture");
 process.env.QBUTT_LAB_PATHS = "1";
-const ffmpeg = join(mediaRuntime, "tools", "ffmpeg.exe");
+const { runtimeDir: mediaRuntime, tools: { ffmpeg } } = await resolveMediaRuntime(appDir, AbortSignal.timeout(30_000));
 const input = join(directory, "vertical-art.png");
 const recognition = JSON.parse(await readFile(join(directory, "ocr.json"), "utf8"));
 let requests = 0;

@@ -1,5 +1,6 @@
 import type { Provider, ProviderContext, Variant, WorkDetails } from "../../contracts.ts";
-import { absoluteUrl, json, videoVariant } from "./common.ts";
+import { json } from "../http.ts";
+import { absoluteUrl, videoVariant } from "./common.ts";
 
 const baseUrl = "https://anilibria.top";
 const apiUrl = `${baseUrl}/api/v1`;
@@ -71,6 +72,7 @@ function releaseWork(release: Release): WorkDetails {
             variant.episode = String(episode.ordinal);
             variant.translation = "AniLiberty";
             variant.player = "Rutube";
+            variant.languages = ["ru"];
             variants.push(variant);
         }
     }
@@ -87,6 +89,7 @@ function releaseWork(release: Release): WorkDetails {
             quality: torrent.quality?.value,
             episode: torrent.description,
             translation: "AniLiberty",
+            languages: ["ru"],
         });
     }
     return {
@@ -102,7 +105,7 @@ function releaseWork(release: Release): WorkDetails {
             ...(release.shikimori?.id ? { shikimori: String(release.shikimori.id) } : {}),
         },
         cover: absoluteUrl(release.poster?.src, baseUrl),
-        variants: variants.length ? variants : [catalog],
+        variants: variants.length ? variants : [{ ...catalog, needsInspection: true }],
     };
 }
 

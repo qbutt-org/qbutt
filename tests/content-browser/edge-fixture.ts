@@ -1,10 +1,10 @@
-import { BrowserBridge, BrowserBridgeError, runNativeMessaging } from "../../components/content/browser/index.ts";
+import { BrowserBridge } from "../../components/content/browser/index.ts";
+import { ContentError } from "../../components/content/errors.ts";
 import { dirname, join } from "node:path";
 
-// This standalone compiled fixture owns its native executable as well as the
-// parent helper. Browser launchers may omit custom parent environment variables.
-process.env.QBUTT_BROWSER_BRIDGE_DISCOVERY = join(dirname(process.execPath), "fixture-browser-bridge.json");
-if (await runNativeMessaging()) process.exit(0);
+// The VM browser and independently installed qcatch inherit this same isolated
+// discovery override. The fixture owns only the parent qbutt pipe broker.
+process.env.QBUTT_BROWSER_BRIDGE_DISCOVERY ??= join(dirname(process.execPath), "fixture-browser-bridge.json");
 const bridge = new BrowserBridge({ browser: "edge" });
 await bridge.start();
 const pageOrigin = "http://fixture.qbutt.test:43897";
@@ -33,7 +33,7 @@ const server = Bun.serve({
                         const player = `http://alloha.qbutt.test:43897${path}`;
                         let rejected = false;
                         try { await bridge.resolve(player, {}, options); }
-                        catch (error) { rejected = error instanceof BrowserBridgeError && error.code === code && error.url === player; }
+                        catch (error) { rejected = error instanceof ContentError && error.code === code && error.url === player; }
                         if (!rejected) throw new Error(`Embedded error lost: ${path}`);
                     }
                     return Response.json({ ok: true, cases: ["player-retains-iframe-context", "initial-extensionless-manifest", "ordinary-iframe-referrer", "unrelated-sibling-ignored", "selected-query-remounted-in-frame", "child-redirect-rejected", "child-http-status-classified", "child-challenge-not-bypassed"] });
@@ -42,7 +42,7 @@ const server = Bun.serve({
                     const source = "http://player.qbutt.test:43897/referrer-player";
                     let rejected = false;
                     try { await bridge.resolve(source); }
-                    catch (error) { rejected = error instanceof BrowserBridgeError && error.code === "verification_required" && error.url === source; }
+                    catch (error) { rejected = error instanceof ContentError && error.code === "verification_required" && error.url === source; }
                     if (!rejected) throw new Error("Missing ordinary browser referrer accepted");
                     const resolved = await bridge.resolve(source, {}, { referrer: `${pageOrigin}/referrer-page` });
                     if (resolved.url !== "http://player.qbutt.test:43897/referrer/high.m3u8") throw new Error("Natural source-page referrer not preserved");
@@ -55,12 +55,12 @@ const server = Bun.serve({
                     const visits = referrerPlayerVisits;
                     rejected = false;
                     try { await bridge.resolve(source, {}, { referrer: `${pageOrigin}/referrer-challenge` }); }
-                    catch (error) { rejected = error instanceof BrowserBridgeError && error.code === "verification_required" && error.url === source; }
+                    catch (error) { rejected = error instanceof ContentError && error.code === "verification_required" && error.url === source; }
                     if (!rejected || referrerPlayerVisits !== visits) throw new Error("Referrer challenge bypassed");
                     const catalog = `${pageOrigin}/catalog-missing`;
                     rejected = false;
                     try { await bridge.resolve(catalog, { player: "cvh" }); }
-                    catch (error) { rejected = error instanceof BrowserBridgeError && error.code === "source_unavailable" && error.url === catalog; }
+                    catch (error) { rejected = error instanceof ContentError && error.code === "source_unavailable" && error.url === catalog; }
                     if (!rejected) throw new Error("Selected iframe lost unavailable classification");
                     return Response.json({ ok: true, cases: ["missing-referrer-rejected", "natural-cross-origin-referrer", "canonical-source-with-loading-child", "deferred-catalog-selection", "selected-iframe-natural-referrer", "source-challenge-not-bypassed", "selected-iframe-unavailable-classified"] });
                 }
@@ -70,7 +70,7 @@ const server = Bun.serve({
                         const source = `${pageOrigin}${path}`;
                         let rejected = false;
                         try { await bridge.resolve(source); }
-                        catch (error) { rejected = error instanceof BrowserBridgeError && error.code === code && error.url === source; }
+                        catch (error) { rejected = error instanceof ContentError && error.code === code && error.url === source; }
                         if (!rejected) throw new Error(`Changed or unavailable selection accepted: ${path}`);
                     }
                     const direct = await bridge.resolve(`${pageOrigin}/player?scenario=storage-frame`);
@@ -91,7 +91,7 @@ const server = Bun.serve({
                         let rejected = false;
                         try { await bridge.resolve(source, selection); }
                         catch (error) {
-                            rejected = error instanceof BrowserBridgeError && error.url === source;
+                            rejected = error instanceof ContentError && error.url === source;
                         }
                         if (!rejected) throw new Error(`Unsafe HLS scenario accepted or lost source URL: ${scenario}`);
                     }
@@ -104,14 +104,14 @@ const server = Bun.serve({
                         const source = `${pageOrigin}/hoster-${name}`;
                         let rejected = false;
                         try { await bridge.resolve(source, {}, { kind: "file" }); }
-                        catch (error) { rejected = error instanceof BrowserBridgeError && error.url === source; }
+                        catch (error) { rejected = error instanceof ContentError && error.url === source; }
                         if (!rejected) throw new Error(`Hoster ${name} accepted`);
                     }
                     for (const [name, code] of [["missing", "source_unavailable"], ["empty", "file_unavailable"]]) {
                         const source = `${pageOrigin}/hoster-${name}`;
                         let rejected = false;
                         try { await bridge.resolve(source, {}, { kind: "file" }); }
-                        catch (error) { rejected = error instanceof BrowserBridgeError && error.code === code && error.url === source; }
+                        catch (error) { rejected = error instanceof ContentError && error.code === code && error.url === source; }
                         if (!rejected) throw new Error(`Hoster ${name} mislabeled as verification`);
                     }
                     if (unexpectedHosterScript || payloadReads) throw new Error("Hoster script executed or browser downloaded payload");
@@ -123,7 +123,7 @@ const server = Bun.serve({
                         const source = `${pageOrigin}/player?scenario=${scenario}&format=${format}`;
                         let rejected = false;
                         try { await bridge.resolve(source, selection); }
-                        catch (error) { rejected = error instanceof BrowserBridgeError && error.url === source; }
+                        catch (error) { rejected = error instanceof ContentError && error.url === source; }
                         if (!rejected) throw new Error(`Invalid manifest accepted: ${scenario}`);
                     }
                     return Response.json({ ok: true, cases: ["hls-empty-segment-rejected", "dash-empty-address-rejected", "dash-private-inherited-base-rejected", "dash-mixed-private-segment-rejected", "dash-private-child-xmlbase-rejected"] });

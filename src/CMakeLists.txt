@@ -9,6 +9,10 @@ if (GUI)
     add_subdirectory(gui)
 endif()
 
+if (WIN32 AND GUI)
+    add_subdirectory(webview)
+endif()
+
 if (WEBUI)
     add_subdirectory(webui)
 endif()

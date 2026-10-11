@@ -36,7 +36,13 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "\profile,\profile\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "\profile,\profile\*,\qplay,\qplay\*,\components,\components\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BundleDir}\components\qplay-setup.exe"; Flags: dontcopy
+
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\media"; Check: LegacyMediaOwned
+Type: filesandordirs; Name: "{app}\browser-extension"; Check: LegacyExtensionOwned
+Type: files; Name: "{app}\scripts\register-content-browser.ps1"
 
 [Icons]
 Name: "{autoprograms}\qbutt"; Filename: "{app}\qbutt.exe"; WorkingDir: "{app}"
@@ -75,8 +81,45 @@ english.UpdateBusy=qbutt is still closing. Try the update again after it exits.
 russian.UpdateBusy=qbutt ещё закрывается. Повторите обновление после выхода из программы.
 english.UpdateInvalid=Could not update this installation. Run the installer again.
 russian.UpdateInvalid=Не удалось обновить эту установку. Запустите установщик ещё раз.
+english.QplayInstallFailed=Could not install qplay. Install qplay and run the qbutt installer again.
+russian.QplayInstallFailed=Не удалось установить qplay. Установите qplay и запустите установщик qbutt ещё раз.
 
 [Code]
+function LegacyMediaOwned: Boolean;
+begin
+    Result := FileExists(ExpandConstant('{app}\media\.qbutt-media.json'));
+end;
+
+function LegacyExtensionOwned: Boolean;
+var
+    Manifest: AnsiString;
+begin
+    Result := LoadStringFromFile(ExpandConstant('{app}\browser-extension\manifest.json'), Manifest)
+        and (Pos('"name": "qbutt Browser Connection"', Manifest) > 0);
+end;
+
+procedure RemoveLegacyNativeHost(const RegistryPath, Browser: String);
+var
+    Manifest, Expected: String;
+begin
+    Expected := ExpandConstant('{localappdata}\qbutt\content\native-messaging\org.qbutt.content.') + Browser + '.json';
+    if RegQueryStringValue(HKCU64, RegistryPath, '', Manifest)
+        and (CompareText(Manifest, Expected) = 0) then
+    begin
+        RegDeleteKeyIncludingSubkeys(HKCU64, RegistryPath);
+        DeleteFile(Expected);
+    end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+    if CurStep <> ssPostInstall then
+        Exit;
+    RemoveLegacyNativeHost('Software\Microsoft\Edge\NativeMessagingHosts\org.qbutt.content', 'edge');
+    RemoveLegacyNativeHost('Software\Google\Chrome\NativeMessagingHosts\org.qbutt.content', 'chrome');
+    RemoveLegacyNativeHost('Software\Mozilla\NativeMessagingHosts\org.qbutt.content', 'firefox');
+end;
+
 function CanRegisterMagnetFallback: Boolean;
 var
     Command: String;
@@ -180,9 +223,29 @@ begin
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+    InstallDir, Version: String;
+    Protocol: Cardinal;
+    ExitCode: Integer;
+    Required, Installed: Int64;
 begin
     if DirExists(ExpandConstant('{app}\profile')) then
         Result := CustomMessage('PortableDirectory')
     else if IsUpdate then
         Result := WaitForQbutt;
+    if Result <> '' then
+        Exit;
+    if RegQueryStringValue(HKCU64, 'Software\qbutt-org\qplay', 'InstallDir', InstallDir)
+        and RegQueryStringValue(HKCU64, 'Software\qbutt-org\qplay', 'Version', Version)
+        and RegQueryDWordValue(HKCU64, 'Software\qbutt-org\qplay', 'ProtocolVersion', Protocol)
+        and (Protocol = {#QplayProtocol}) and FileExists(AddBackslash(InstallDir) + 'qplay.exe')
+        and StrToVersion('{#QplayVersion}', Required) and StrToVersion(Version, Installed)
+        and (Installed >= Required) then
+        Exit;
+    ExtractTemporaryFile('qplay-setup.exe');
+    if (CompareText(GetSHA256OfFile(ExpandConstant('{tmp}\qplay-setup.exe')), '{#QplaySetupSha256}') <> 0)
+        or not Exec(ExpandConstant('{tmp}\qplay-setup.exe'),
+            '/CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-', '', SW_HIDE, ewWaitUntilTerminated, ExitCode)
+        or (ExitCode <> 0) then
+        Result := CustomMessage('QplayInstallFailed');
 end;

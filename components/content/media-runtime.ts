@@ -1,61 +1,64 @@
-import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { execFile } from "node:child_process";
 import { lstat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
+import { promisify } from "node:util";
 
-import lock from "../../resources/media/component-lock.json";
+import { productExecutable, validateProductVersion } from "./products";
+import { ContentError } from "./errors";
 
 export type MediaTool = "mpv" | "ffmpeg" | "ffprobe" | "yt-dlp";
 
-const tools: Record<MediaTool, string> = {
-    mpv: "mpv.exe",
-    ffmpeg: "tools/ffmpeg.exe",
-    ffprobe: "profile/tools/bin/ffprobe.exe",
-    "yt-dlp": "tools/yt-dlp.exe",
-};
-const validated = new Map<string, Promise<void>>();
+interface MediaRuntime {
+    player: string;
+    runtimeDir: string;
+    tools: Record<MediaTool, string>;
+}
 
-export function mediaRoot(appDir: string): string {
-    const lab = process.env.QBUTT_LAB_PATHS === "1" && process.env.QBUTT_MEDIA_RUNTIME_DIR;
-    return resolve(lab || join(appDir, "media"));
+const runtimes = new Map<string, Promise<MediaRuntime>>();
+
+export async function mediaRuntime(appDir: string, signal: AbortSignal): Promise<MediaRuntime> {
+    signal.throwIfAborted();
+    const lab = process.env.QBUTT_LAB_PATHS === "1";
+    const labPlayer = lab ? process.env.QBUTT_LAB_QPLAY : undefined;
+    if (lab && (!labPlayer || !isAbsolute(labPlayer)))
+        throw new ContentError("qplay_unavailable", "Set QBUTT_LAB_QPLAY to the absolute path of the verified qplay fixture.");
+    const key = labPlayer ? `lab:${resolve(labPlayer)}` : resolve(appDir);
+    let pending = runtimes.get(key);
+    if (!pending) {
+        pending = (async () => {
+            const player = labPlayer ? resolve(labPlayer) : await productExecutable("qplay", appDir);
+            if (!player) throw new ContentError("qplay_unavailable", "qplay is not installed. Reinstall qbutt or install qplay and try again.");
+            const { stdout } = await promisify(execFile)(player, ["--runtime-info-json"], {
+                windowsHide: true, timeout: 30_000, maxBuffer: 64 * 1024,
+            });
+            const info = JSON.parse(stdout);
+            validateProductVersion("qplay", info);
+            const tools: Record<MediaTool, string> = {
+                mpv: info.tools?.mpv,
+                ffmpeg: info.tools?.ffmpeg,
+                ffprobe: info.tools?.ffprobe,
+                "yt-dlp": info.tools?.ytDlp,
+            };
+            if (typeof info.runtimeDir !== "string" || !isAbsolute(info.runtimeDir))
+                throw new ContentError("qplay_unavailable", "qplay returned an invalid runtime directory. Reinstall qplay and try again.");
+            for (const path of Object.values(tools)) {
+                if (typeof path !== "string" || !isAbsolute(path) || !(await lstat(path)).isFile())
+                    throw new ContentError("qplay_unavailable", "qplay media tools are missing. Reinstall qplay and try again.");
+            }
+            return { player, runtimeDir: info.runtimeDir, tools };
+        })().catch(error => {
+            runtimes.delete(key);
+            if (!(error instanceof ContentError))
+                throw new ContentError("qplay_unavailable", "qplay could not start. Reinstall qplay or run the qbutt installer again.");
+            throw error;
+        });
+        runtimes.set(key, pending);
+    }
+    const runtime = await pending;
+    signal.throwIfAborted();
+    return runtime;
 }
 
 export async function mediaTool(appDir: string, name: MediaTool, signal: AbortSignal): Promise<string> {
-    signal.throwIfAborted();
-    const lab = process.env.QBUTT_LAB_PATHS === "1" && process.env.QBUTT_MEDIA_RUNTIME_DIR;
-    const root = mediaRoot(appDir);
-    const output = tools[name];
-    const path = join(root, output);
-    const key = lab ? `lab:${path}` : `bundle:${root}`;
-    let validation = validated.get(key);
-    if (!validation) {
-        validation = (async () => {
-            const files = lab ? { [output]: "" } : {
-                ...lock.runtime.files,
-                ...lock.bundledHashes,
-            };
-            for (const [output, expected] of Object.entries(files)) {
-                const file = join(root, output);
-                const info = await lstat(file).catch(error => {
-                    if (error.code === "ENOENT") return null;
-                    throw error;
-                });
-                if (!info?.isFile() || info.isSymbolicLink())
-                    throw new Error(`The bundled media file ${output} is missing. Reinstall qbutt and try again.`);
-                if (!lab) {
-                    const hash = createHash("sha256");
-                    for await (const chunk of createReadStream(file)) hash.update(chunk);
-                    if (hash.digest("hex") !== expected)
-                        throw new Error(`The bundled media file ${output} failed its integrity check. Reinstall qbutt and try again.`);
-                }
-            }
-        })().catch(error => {
-            validated.delete(key);
-            throw error;
-        });
-        validated.set(key, validation);
-    }
-    await validation;
-    signal.throwIfAborted();
-    return path;
+    return (await mediaRuntime(appDir, signal)).tools[name];
 }

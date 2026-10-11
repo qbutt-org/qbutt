@@ -4,25 +4,22 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { createServer, request, type Server } from "node:http";
 import { connect, createServer as createTcpServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 import { NetworkProxy } from "../../components/content/networkproxy";
 import { extractMedia } from "../../components/content/media";
+import { mediaRuntime } from "../../components/content/media-runtime";
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-networkproxy-"));
-const mediaRuntime = process.env.QBUTT_MEDIA_RUNTIME_DIR;
-assert(mediaRuntime, "Set QBUTT_MEDIA_RUNTIME_DIR to the separately prepared pinned lab media tools");
-const toolRoot = resolve(mediaRuntime);
 process.env.QBUTT_LAB_PATHS = "1";
-const ytDlp = join(toolRoot, "tools", "yt-dlp.exe");
+const runtimeInfo = await mediaRuntime(root, AbortSignal.timeout(30_000));
+const { ffmpeg, "yt-dlp": ytDlp } = runtimeInfo.tools;
 const payload = Buffer.alloc(1024 * 1024 + 31, 0x52);
 payload.write("Generated legal forward-proxy fixture\n");
 const sha256 = createHash("sha256").update(payload).digest("hex");
-const ffmpeg = process.env.QBUTT_LAB_FFMPEG || join(toolRoot, "tools", "ffmpeg.exe");
-assert(ffmpeg, "Real ffmpeg is required for the generated media fixture");
 const generator = Bun.spawn([ffmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=24:d=1",
     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1"], {
-    cwd: toolRoot, windowsHide: true, stdout: "pipe", stderr: "pipe",
+    cwd: root, windowsHide: true, stdout: "pipe", stderr: "pipe",
 });
 const [generatedVideo, generationError, generatedExit] = await Promise.all([
     new Response(generator.stdout).arrayBuffer(), new Response(generator.stderr).text(), generator.exited,

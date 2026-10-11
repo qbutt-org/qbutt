@@ -172,7 +172,7 @@ try {
     send("reader.translate", { page });
     await active;
     send("reader.position", { documentId: document.id, chapterId: document.chapters[0]!.id, offset: 0.83 });
-    send("reader.position", { documentId: pagedComic.id, chapterId: pagedComic.chapters[0]!.id, imageIndex: 2 });
+    send("reader.position", { documentId: pagedComic.id, chapterId: pagedComic.chapters[0]!.id, imageIndex: 2, offset: 0.37 });
     processHandle.stdin.end();
     const shutdownDeadline = setTimeout(() => processHandle.kill(), 5000);
     try {
@@ -202,15 +202,15 @@ try {
             "EOF lost an accepted position while cancelling active AI");
         require(reopenedComic?.id === pagedComic.id && reopenedComic.position?.imageIndex === 2
             && reopenedComic.position.chapterId === pagedComic.chapters[0]!.id
-            && !Object.hasOwn(reopenedComic.position, "offset"),
-            "EOF/restart lost the native image-only CBZ position");
+            && reopenedComic.position.offset === 0.37,
+            "EOF/restart lost the native CBZ image or its internal scroll offset");
     }
     finally {
         resumed.stdin.end();
         await resumed.exited;
         clearTimeout(resumeDeadline);
     }
-    console.info("PASS real main IPC: explicit local AI, no cookies, >25s response, >1MB vision body, image correction/cache/original, redirects rejected, cancellation, public-source boundary, active AI + text/image-only positions + EOF + CBZ restart at image 3/3");
+    console.info("PASS real main IPC: explicit local AI, no cookies, >25s response, >1MB vision body, image correction/cache/original, redirects rejected, cancellation, public-source boundary, active AI + text/image positions + EOF + CBZ restart at image 3/3 and internal offset");
 }
 finally {
     if (processHandle.exitCode === null) processHandle.stdin.end();

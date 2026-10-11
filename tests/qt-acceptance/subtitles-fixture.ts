@@ -13,6 +13,7 @@ const spec = JSON.parse(await readFile(process.env.QBUTT_SUBTITLE_FIXTURE_SPEC!,
 const dataDir = process.argv[process.argv.indexOf("--data-dir") + 1];
 const requests = new Map<number, Request>();
 const cancelled = new Set<number>();
+const attempts = new Map<string, number>();
 
 function emit(id: number, event: string, data: unknown) {
     process.stdout.write(`${JSON.stringify({ id, event, data })}\n`);
@@ -23,10 +24,10 @@ async function record(event: string, request: Request, detail: Record<string, un
         identity: request.params.identity, ...detail })}\n`);
 }
 
-async function revision(request: Request, version: number, windowStart: number) {
+async function revision(request: Request, version: number, windowStart: number, invalid = false) {
     const identity = request.params.identity as string;
-    const text = `${version === 1 ? "Первая версия" : "Вторая версия"} · ${identity} · ${windowStart}`;
-    const contents = `1\n00:00:00,000 --> 00:05:00,000\n${text}\n\n`;
+    const text = `${version === 1 ? "Первая версия" : "Вторая версия"} [${identity}] [track ${request.params.track.id}] ${windowStart}`;
+    const contents = invalid ? "This is not a timed subtitle file.\n" : `1\n00:00:00,000 --> 00:05:00,000\n${text}\n\n`;
     const hash = createHash("sha256").update(contents).digest("hex");
     const document = createHash("sha256").update(identity).digest("hex");
     const directory = join(dataDir, "subtitles", document);
@@ -40,25 +41,37 @@ async function revision(request: Request, version: number, windowStart: number) 
 async function subtitles(request: Request) {
     const { identity, track, position, startTime, targetLanguage, url } = request.params;
     const scenario = spec.scenarios.find((item: any) => identity === item.identity || identity === `${item.identity}:next`);
+    const external = scenario?.externalSubtitle || scenario?.lateSubtitle;
+    const expectedTrack = scenario?.mode === "action-retarget" && attempts.has(identity) ? 2 : 1;
     if (!scenario || !url.startsWith("file:") || targetLanguage !== "ru" || !Number.isFinite(startTime)
-        || track.id !== 1 || track.ffIndex !== (scenario.externalSubtitle ? 0 : 2)
-        || (scenario.externalSubtitle && track.url !== pathToFileURL(scenario.externalSubtitle).href)) {
+        || track.id !== expectedTrack || track.ffIndex !== (external ? 0 : expectedTrack + 1)
+        || (external && track.url !== pathToFileURL(external).href)) {
         emit(request.id, "error", { message: "Native subtitle contract did not match actual mpv source track" });
         return;
     }
     requests.set(request.id, request);
+    const attempt = (attempts.get(identity) || 0) + 1;
+    attempts.set(identity, attempt);
     await record("request", request, { position, startTime, track, url });
     const windowStart = Math.floor(position / 60) * 60;
-    if (scenario.mode === "unavailable" || scenario.mode === "already-target") {
-        emit(request.id, "complete", { identity, status: scenario.mode === "unavailable" ? "unavailable" : "already-target",
-            windowStart, windowEnd: windowStart + 120, message: "Fixture AI unavailable: sign in to Codex." });
+    if (scenario.mode === "unavailable" || scenario.mode === "already-target" || (scenario.mode === "retry" && attempt === 1)) {
+        emit(request.id, "complete", { identity, status: scenario.mode === "already-target" ? "already-target" : "unavailable",
+            windowStart, windowEnd: windowStart + 120, code: scenario.failureCode || "ai_authentication",
+            message: scenario.failureCode === "ai_future" ? "Specific future AI failure." : "Исходная ошибка сервиса перевода." });
         return;
     }
+    emit(request.id, "subtitleProgress", { phase: "connecting", provider: "codex" });
+    await Bun.sleep(50);
+    emit(request.id, "subtitleProgress", { phase: "translating", provider: "codex", model: "fixture-model" });
     const slow = ["pending-original", "seek", "delay", "navigate", "stop"].includes(scenario.mode)
         && position < 120 && !identity.endsWith(":next");
     await Bun.sleep(slow ? 3000 : 200);
-    await revision(request, 1, windowStart);
+    await revision(request, 1, windowStart, scenario.mode === "retry-load" && attempt === 1);
     await record(cancelled.has(request.id) ? "late" : "first", request);
+    if (scenario.mode.startsWith("action-") || ["retry", "retry-load", "late-track"].includes(scenario.mode)) {
+        emit(request.id, "complete", { identity, status: "ready", windowStart, windowEnd: windowStart + 120 });
+        return;
+    }
     await Bun.sleep(1500);
     await revision(request, 2, windowStart);
     await record(cancelled.has(request.id) ? "late" : "replacement", request);
@@ -67,8 +80,7 @@ async function subtitles(request: Request) {
 
 async function handle(request: Request) {
     if (request.method === "mediaRuntime") {
-        emit(request.id, "complete", { mpv: join(spec.mediaRuntime, "mpv.exe"),
-            ffprobe: join(spec.mediaRuntime, "profile", "tools", "bin", "ffprobe.exe"), tools: join(spec.mediaRuntime, "tools") });
+        emit(request.id, "complete", { player: process.env.QBUTT_LAB_QPLAY });
     }
     else if (request.method === "subtitles.ahead") {
         await subtitles(request);

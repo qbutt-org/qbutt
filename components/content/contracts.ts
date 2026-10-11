@@ -1,3 +1,7 @@
+import type { Selection, VkSearchVideo } from "./browser/protocol";
+
+export const maxMessageBytes = 16 * 1024 * 1024;
+
 export type Category =
     | "all"
     | "games"
@@ -13,6 +17,7 @@ export interface SearchRequest {
     category: Category;
     expanded?: boolean;
     sources?: string[];
+    language?: string;
 }
 
 export interface Source {
@@ -22,6 +27,8 @@ export interface Source {
     categories: Category[];
     enabled: boolean;
     requiresLogin?: boolean;
+    authorizationSetting?: string;
+    health?: { status: "error"; message: string; checkedAt: string; code?: string; url?: string };
     settings?: SourceSetting[];
 }
 
@@ -53,8 +60,10 @@ export interface Variant {
     edition?: string;
     cooperative?: boolean;
     translation?: string;
+    translationType?: "dub" | "subtitles";
     languages?: string[];
     quality?: string;
+    facets?: { episode?: string; season?: string; translation?: string };
     episode?: string;
     season?: string;
     player?: string;
@@ -84,6 +93,7 @@ export interface Chapter {
     title: string;
     url: string;
     number?: number;
+    volume?: number;
 }
 
 export interface WorkDetails extends Work {
@@ -100,9 +110,10 @@ export interface ResolvedContent {
     audioTrack?: { title: string; type?: string; language?: string; codec?: string; channels?: number };
     proxyUrl?: string;
     subtitles?: { title: string; url: string; language?: string }[];
-    selection?: { episode?: string; season?: string; translationId?: string; player?: string };
+    selection?: Selection;
     title?: string;
     translation?: string;
+    quality?: string;
 }
 
 export interface ProviderContext {
@@ -111,13 +122,17 @@ export interface ProviderContext {
     appDir?: string;
     settings: Record<string, string>;
     fetch(url: string, init?: RequestInit): Promise<Response>;
+    searchVkVideos?(query: string): Promise<VkSearchVideo[]>;
+    // Catalog-owned recovery lets optional requests fail without discarding the publication.
+    withSourceSession?<T>(url: string, operation: (context: ProviderContext) => Promise<T>): Promise<T>;
     saveSettings?(changes: Record<string, string>): Promise<void>;
+    reportError?(error: unknown): void;
 }
 
 export interface Provider {
     source: Source;
-    search(request: SearchRequest, context: ProviderContext): Promise<Work[]>;
-    inspect?(variant: Variant, context: ProviderContext): Promise<WorkDetails>;
+    search(request: SearchRequest, context: ProviderContext, emit?: (work: Work) => void): Promise<Work[]>;
+    inspect?(variant: Variant, context: ProviderContext, emit?: (work: WorkDetails) => void): Promise<WorkDetails>;
     resolve?(variant: Variant, context: ProviderContext): Promise<ResolvedContent>;
 }
 

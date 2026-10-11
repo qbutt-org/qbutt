@@ -53,7 +53,6 @@ function collect(title: string, publications: Work[], aliases: string[] = []): W
     });
     for (const alias of aliases) results.addQuery(alias);
     for (const work of structuredClone(publications)) results.add(work);
-    results.associatePublications();
     return [...current.values()];
 }
 
@@ -66,11 +65,8 @@ function associated(works: Work[]): Work {
     assert(target.variants.some(variant => variant.episode === "1" && variant.translation === "Kazoku Project"));
     assert(target.variants.some(variant => variant.episode === "1" && variant.translation === "Субтитры | Kazoku Project"));
     assert.equal(new Set(target.variants.map(variant => `${variant.sourceId}:${variant.id}`)).size, target.variants.length);
-    const preview = works.find(work => work.id === previewId) as (Work & { relevance?: number }) | undefined;
-    assert(preview && preview.variants.length === 1 && preview.variants[0]!.duration === 58,
-        "An unclassified short publication must not be silently merged or globally excluded");
-    assert(!preview.relevance);
-    assert.equal(works.length, 2, "The real fixture contains one catalog work and one unclassified short publication");
+    assert(!works.some(work => work.id === previewId), "A short announced-series preview must not appear as a full anime result");
+    assert.equal(works.length, 1, "The real fixture contains one catalog work with its exact episode publications");
     return target;
 }
 

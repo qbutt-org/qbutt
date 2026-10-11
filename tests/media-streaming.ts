@@ -5,6 +5,7 @@ import { createConnection, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { createLab, startSeed, verifyPayload, waitFor } from "./lab";
 import { sha256, type PayloadFile, type TorrentFixture } from "./fixtures/generate";
+import { mediaRuntime as resolveMediaRuntime } from "../components/content/media-runtime";
 
 interface StreamingState {
     commandId: number;
@@ -28,14 +29,9 @@ interface MediaFixture extends Omit<TorrentFixture, "files"> {
 }
 
 const executable = process.env.QBUTT_QT_ACCEPTANCE_EXE;
-const mediaRuntime = process.env.QBUTT_MEDIA_RUNTIME_DIR;
 assert(executable, "Set QBUTT_QT_ACCEPTANCE_EXE to the deployed Qt process driver");
-assert(mediaRuntime, "Set QBUTT_MEDIA_RUNTIME_DIR to the pinned media tools fixture");
-const ffmpeg = process.env.QBUTT_LAB_FFMPEG
-    ?? join(mediaRuntime, "tools", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
-const mpv = join(mediaRuntime, process.platform === "win32" ? "mpv.exe" : "mpv");
-assert(await Bun.file(ffmpeg).exists(), "The media tools fixture must contain FFmpeg");
-assert(await Bun.file(mpv).exists(), "The media tools fixture must contain mpv");
+process.env.QBUTT_LAB_PATHS = "1";
+const { runtimeDir: mediaRuntime, tools: { ffmpeg, mpv } } = await resolveMediaRuntime("", AbortSignal.timeout(30_000));
 process.env.QBUTT_LAB_EXE = executable;
 const lab = await createLab("media-streaming");
 await lab.checkpoint({check: "explicit-media-tools", mediaRuntime: await realpath(mediaRuntime),

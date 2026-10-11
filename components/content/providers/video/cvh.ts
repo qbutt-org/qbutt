@@ -1,6 +1,6 @@
 import type { ProviderContext, ResolvedContent } from "../../contracts.ts";
 import { defaultUserAgent, publicUrl } from "../../net.ts";
-import { json } from "./common.ts";
+import { json } from "../http.ts";
 
 interface Playlist {
     isSerial: boolean;
@@ -54,9 +54,10 @@ export async function resolveCvh(playerUrl: string,
     if (String(video.unitedVideoId) !== choices[0].vkId) {
         throw new Error("CVH вернул другое видео выбранной серии.");
     }
-    const address = ["mpeg4kUrl", "mpeg2kUrl", "mpegQhdUrl", "mpegFullHdUrl", "mpegHighUrl",
+    const quality = ["mpeg4kUrl", "mpeg2kUrl", "mpegQhdUrl", "mpegFullHdUrl", "mpegHighUrl",
         "mpegMediumUrl", "mpegLowUrl", "mpegLowestUrl", "mpegTinyUrl"]
-        .map(quality => video.sources?.[quality]).find(value => typeof value === "string" && value.length > 0);
+        .find(quality => typeof video.sources?.[quality] === "string" && video.sources[quality].length > 0);
+    const address = quality ? video.sources?.[quality] : undefined;
     if (!address) throw new Error("CVH не предоставил видео выбранной серии и озвучки.");
     const media = await publicUrl(address);
     if (media.protocol !== "https:") throw new Error("CVH вернул неподдерживаемый адрес видео.");
@@ -68,6 +69,7 @@ export async function resolveCvh(playerUrl: string,
         headers,
         title: selected.title,
         translation: selected.translation,
+        quality: ({ mpeg4kUrl: "4K", mpeg2kUrl: "2K", mpegQhdUrl: "1440p", mpegFullHdUrl: "1080p" } as Record<string, string>)[quality!],
         selection: { episode, player: "CVH" },
     };
 }

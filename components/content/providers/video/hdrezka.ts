@@ -1,6 +1,8 @@
 import { load } from "cheerio";
 import type { Provider, ProviderContext, Variant, WorkDetails } from "../../contracts.ts";
-import { absoluteUrl, html, json, videoVariant } from "./common.ts";
+import { ContentError } from "../../errors.ts";
+import { html, json } from "../http.ts";
+import { absoluteUrl, videoVariant } from "./common.ts";
 
 interface CdnResponse {
     success: boolean;
@@ -50,6 +52,7 @@ export const hdrezkaProvider: Provider = {
     source: {
         id: "hdrezka", name: "HDRezka", url: "https://hdrezka.ag",
         categories: ["movies", "tv", "anime"], enabled: true,
+        requiresLogin: true, authorizationSetting: "cookie",
         settings: [
             { name: "baseUrl", label: "Адрес сайта", type: "text", value: "https://hdrezka.ag" },
             { name: "cookie", label: "Сессия аккаунта", type: "password" },
@@ -73,13 +76,14 @@ export const hdrezkaProvider: Provider = {
             return [{ id: `hdrezka:${id}`, title, category, url: page,
                 cover: absoluteUrl(item.find("img").attr("src"), base),
                 year: Number(item.find(".b-content__inline_item-link div").text().match(/\b(19\d\d|20\d\d)\b/)?.[1]) || undefined,
-                variants: [videoVariant(hdrezkaProvider.source, id, title, page)] } as WorkDetails];
+                variants: [{ ...videoVariant(hdrezkaProvider.source, id, title, page), needsInspection: true }] } as WorkDetails];
         });
     },
     async inspect(variant, context) {
         const $ = await html(variant.url, context, { headers: sessionHeaders(context, variant.url) });
         const id = variant.id.split(":")[1]!;
-        const title = $(".b-post__title h1").text().trim() || $("h1").first().text().trim();
+        const title = $(".b-post__title h1").text().trim();
+        if (!title) throw new ContentError("source_page_unavailable", "Не удалось прочитать страницу выбранной версии.", variant.url);
         const initialization = $.html().match(/initCDN(Series|Movies)Events\(\d+,\s*(\d+)/);
         const series = initialization?.[1] === "Series" || $("[data-episode_id][data-season_id]").length > 0;
         const translators = $("#translators-list [data-translator_id]").toArray().map(item => ({
@@ -91,6 +95,8 @@ export const hdrezkaProvider: Provider = {
             translators.push({ id: initialization[2], name: information ? $(information).find("td").last().text().trim() : "Перевод источника",
                 ads: false, cam: false });
         }
+        if (!translators.length)
+            throw new ContentError("source_versions_unavailable", "Источник не предоставил переводы выбранной версии.", variant.url);
         const variants: Variant[] = [];
         for (const translator of translators) {
             const translatorId = translator.id;
@@ -123,7 +129,7 @@ export const hdrezkaProvider: Provider = {
             url: variant.url,
             cover: absoluteUrl($('meta[property="og:image"]').attr("content"), variant.url),
             description: $(".b-post__description_text").text().trim(),
-            variants: variants.length ? variants : [variant],
+            variants,
         };
     },
     async resolve(variant, context) {

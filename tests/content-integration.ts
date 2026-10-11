@@ -133,8 +133,9 @@ try {
         work: direct, variant: direct.variants[0], mode: "exact",
     }), "share");
     const workLink = data<{ url: string }>(await client.request("share", { work: direct, mode: "work" }), "share");
-    const pasted = data<{ query: string }>(await client.request("search", { query: workLink.url, category: "all" }), "query");
-    require(pasted.query === direct.title, "A pasted work link must search its title instead of displaying an empty variant list");
+    const pasted = data<Work>(await client.request("search", { query: workLink.url, category: "all" }), "details");
+    require(pasted.title === direct.title && pasted.variants[0].id === direct.variants[0].id,
+        "A pasted work link must preserve its known publications without requiring a title search");
 
     const directSecret = "generated-direct-url-token_日本語";
     const directUrl = `https://media.w3.org/2010/05/sintel/trailer.mp4?token=${encodeURIComponent(directSecret)}`;

@@ -4,11 +4,12 @@ import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { ResolvedContent, Variant } from "./contracts";
-import { Catalog } from "./catalog";
+import type { ProviderContext, ResolvedContent, Variant } from "./contracts";
+import type { Catalog } from "./catalog";
 import { publicUrl } from "./net";
 import type { BrowserBridge } from "./browser";
-import { mediaRoot, mediaTool } from "./media-runtime";
+import { mediaRuntime } from "./media-runtime";
+import { captureSelectionId } from "./references";
 
 interface ExtractedFormat {
     url?: string;
@@ -59,10 +60,10 @@ export async function extractMedia(url: string, headers: Record<string, string>,
 
     let metadata: ExtractedMedia;
     try {
-        const executable = await mediaTool(appDir, "yt-dlp", signal);
+        const runtime = await mediaRuntime(appDir, signal);
         metadata = await new Promise<ExtractedMedia>((resolve, reject) => {
-            const child = spawn(executable, args, {
-                cwd: mediaRoot(appDir), windowsHide: true, stdio: ["ignore", "pipe", "pipe"], signal,
+            const child = spawn(runtime.tools["yt-dlp"], args, {
+                cwd: runtime.runtimeDir, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], signal,
             });
             const output: Buffer[] = [];
             let size = 0;
@@ -123,7 +124,14 @@ export async function extractMedia(url: string, headers: Record<string, string>,
 }
 
 export async function resolveVariant(variant: Variant, catalog: Catalog,
-    signal: AbortSignal, browser: BrowserBridge, proxyUrl: string): Promise<ResolvedContent> {
+    signal: AbortSignal, browser: BrowserBridge, proxyUrl: string,
+    options: { interactive?: boolean } = {}): Promise<ResolvedContent> {
+    return catalog.sourceOperation(variant.sourceId, signal, { method: "resolve", variant },
+        context => resolveContent(variant, catalog, signal, browser, proxyUrl, context), options);
+}
+
+async function resolveContent(variant: Variant, catalog: Catalog, signal: AbortSignal,
+    browser: BrowserBridge, proxyUrl: string, context: ProviderContext): Promise<ResolvedContent> {
     const provider = catalog.providers.find(item => item.source.id === variant.sourceId);
     let resolved: ResolvedContent | undefined;
 
@@ -134,18 +142,21 @@ export async function resolveVariant(variant: Variant, catalog: Catalog,
         }
         if (!provider.resolve)
             throw new Error("This source cannot open the selected variant.");
-        resolved = await provider.resolve(variant, await catalog.context(provider.source.id, signal));
+        resolved = await provider.resolve(variant, context);
     }
     else if (variant.sourceId === "link") {
-        const saved = await catalog.settings.values(`acquisition:${variant.id}`);
-        const url = saved.url || variant.magnet || variant.url;
+        const captureId = captureSelectionId(variant);
+        const url = captureId ? variant.url
+            : (await catalog.settings.values(`acquisition:${variant.id}`)).url || variant.magnet || variant.url;
         if (url.startsWith("magnet:"))
             return { kind: "torrent", url };
 
         await publicUrl(url);
         const directVideo = /\.(?:m3u8|mpd|mp4|mkv|webm)$/i.test(new URL(url).pathname);
         resolved = { kind: variant.transport, url,
-            resolver: variant.transport === "video" && !directVideo ? "yt-dlp" : "direct" };
+            resolver: captureId ? "browser" : variant.transport === "video" && !directVideo ? "yt-dlp" : "direct",
+            ...(captureId ? { selection: { captureId } } : {}),
+        };
     }
     else {
         await catalog.engine.request("resolve", { variant, ...await catalog.browserSessions(signal, [variant.sourceId]) }, event => {
@@ -156,12 +167,6 @@ export async function resolveVariant(variant: Variant, catalog: Catalog,
 
     if (!resolved)
         throw new Error("The selected variant is unavailable.");
-
-    if (resolved.resolver === "yt-dlp") {
-        if (!resolved.url)
-            throw new Error("The source did not supply a video address.");
-        return { ...resolved, ...await extractMedia(resolved.url, resolved.headers || {}, catalog.appDir, signal, proxyUrl), proxyUrl };
-    }
 
     if (resolved.resolver === "browser") {
         if (!resolved.url)
@@ -174,6 +179,12 @@ export async function resolveVariant(variant: Variant, catalog: Catalog,
             { signal, kind: resolved.kind === "file" || resolved.kind === "torrent" ? resolved.kind : "video", referrer }) };
     }
 
+    if (resolved.resolver === "yt-dlp") {
+        if (!resolved.url)
+            throw new Error("The source did not supply a video address.");
+        return { ...resolved, ...await extractMedia(resolved.url, resolved.headers || {}, catalog.appDir, signal, proxyUrl), proxyUrl };
+    }
+
     if (resolved.url && !resolved.url.startsWith("magnet:"))
         await publicUrl(resolved.url);
     if (resolved.audioUrl)
@@ -182,7 +193,6 @@ export async function resolveVariant(variant: Variant, catalog: Catalog,
         await publicUrl(subtitle.url);
 
     if (resolved.kind === "torrent" && !resolved.torrentData && resolved.url && !resolved.url.startsWith("magnet:")) {
-        const context = await catalog.context(variant.sourceId, signal);
         const response = await context.fetch(resolved.url, { headers: resolved.headers });
         if (!response.ok)
             throw new Error(`The torrent source returned HTTP ${response.status}.`);
@@ -192,7 +202,7 @@ export async function resolveVariant(variant: Variant, catalog: Catalog,
         return { kind: "torrent", title: resolved.title, torrentData: data.toString("base64") };
     }
 
-    if (resolved.kind === "file" && resolved.url)
+    if ((resolved.kind === "file" || resolved.kind === "video") && resolved.url)
         resolved.headers = await catalog.acquisitionHeaders(variant.sourceId, resolved.url, resolved.headers || {});
 
     if (resolved.kind === "video")

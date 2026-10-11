@@ -24,6 +24,8 @@
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListView>
 #include <QMap>
 #include <QMenu>
 #include <QMouseEvent>
@@ -32,6 +34,7 @@
 #include <QRawFont>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSortFilterProxyModel>
 #include <QSpinBox>
 #include <QTextBrowser>
 #include <QTextDocument>
@@ -160,6 +163,19 @@ namespace
             u"Reader settings scenario controls are missing"_s);
         QWidget *canvas = images->viewport();
         QScrollBar *bar = images->verticalScrollBar();
+        const auto recordImageGeometry = [&](const QString &stage)
+        {
+            const QRect rect = images->property("imageRect").toRect();
+            const QJsonObject geometry {{u"event"_s, u"reader-geometry"_s}, {u"stage"_s, stage},
+                {u"documentId"_s, u"settings"_s}, {u"value"_s, bar->value()},
+                {u"maximum"_s, bar->maximum()}, {u"viewportHeight"_s, canvas->height()},
+                {u"imageIndex"_s, images->property("imageIndex").toInt()},
+                {u"imageTop"_s, rect.top()}, {u"imageHeight"_s, rect.height()},
+                {u"offset"_s, double(8 - rect.top()) / rect.height()}};
+            QFile file(logPath);
+            require(file.open(QIODevice::WriteOnly | QIODevice::Append), u"Cannot record Reader image geometry"_s);
+            file.write(QJsonDocument(geometry).toJson(QJsonDocument::Compact) + '\n');
+        };
         QJsonArray checks = evidence.value(u"checks"_s).toArray();
         QJsonArray screenshots = evidence.value(u"screenshots"_s).toArray();
         const auto open = [&](const QString &documentId)
@@ -320,6 +336,39 @@ namespace
         checks.append(u"Live height/width fit, content width and continuous spacing affect image geometry and retain the current page"_s);
         checks.append(u"Continuous scrolling updates the page indicator, persistence and AI index; canvas clicks and Original keep the page"_s);
 
+        openDialog();
+        fit->setCurrentIndex(1);
+        pressKey(dialog, Qt::Key_Escape);
+        next->click();
+        waitForIndex(2);
+        require(bar->maximum() - bar->value() > canvas->height() / 3,
+            u"The continuous fixture must leave room to scroll inside its tall image"_s);
+        bar->setValue(bar->value() + (canvas->height() / 3));
+        const int continuousPosition = bar->value();
+        recordImageGeometry(u"continuous-chosen"_s);
+        settle();
+        recordImageGeometry(u"continuous-settled"_s);
+        open(u"settings"_s);
+        waitForIndex(2);
+        recordImageGeometry(u"continuous-reopened"_s);
+        require(qAbs(bar->value() - continuousPosition) <= 2,
+            u"Reopening continuous manga lost the position inside its current image"_s);
+        openDialog();
+        mode->setCurrentIndex(0);
+        fit->setCurrentIndex(1);
+        pressKey(dialog, Qt::Key_Escape);
+        bar->setValue(bar->maximum() / 3);
+        const int pagedPosition = bar->value();
+        require(pagedPosition > 0, u"The tall paged image has no position to restore"_s);
+        settle();
+        open(u"settings"_s);
+        waitForIndex(2);
+        require(qAbs(bar->value() - pagedPosition) <= 2,
+            u"Reopening width-fitted manga lost its position inside the current page"_s);
+        checks.append(u"Reopening continuous and width-fitted paged manga restores the current image and its internal scroll offset"_s);
+
+        previous->click();
+        waitForIndex(1);
         open(u"small-image"_s);
         waitForIndex(0);
         const int enlargedWidth = images->property("imageRect").toRect().width();
@@ -337,10 +386,19 @@ namespace
         const int dimmedBrightness = canvas->grab().toImage().pixelColor(sample).lightness();
         require((fullBrightness - dimmedBrightness > 30) && (gear->palette().button().color() == chrome),
             u"Brightness did not dim the image independently of Reader controls"_s);
+        mode->setCurrentIndex(1);
         fit->setCurrentIndex(1);
         gap->setValue(18);
         width->setValue(80);
-        require(Preferences::instance()->readerSettings() == persisted, u"Live Reader settings were not saved to Preferences"_s);
+        const auto saved = Preferences::instance()->readerSettings();
+        require(saved == persisted,
+            u"Live Reader settings differ (actual / expected): mode %1 / %2, fit %3 / %4, enlarge %5 / %6, brightness %7 / %8, gap %9 / %10, width %11 / %12"_s
+                .arg(static_cast<int>(saved.mode)).arg(static_cast<int>(persisted.mode))
+                .arg(static_cast<int>(saved.imageFit)).arg(static_cast<int>(persisted.imageFit))
+                .arg(saved.enlargeSmallImages).arg(persisted.enlargeSmallImages)
+                .arg(saved.brightness).arg(persisted.brightness)
+                .arg(saved.pageGap).arg(persisted.pageGap)
+                .arg(saved.contentWidth).arg(persisted.contentWidth));
         auto *buttons = dialog->findChild<QDialogButtonBox *>();
         require(buttons && buttons->button(QDialogButtonBox::Close), u"Reader settings has no Close action"_s);
         buttons->button(QDialogButtonBox::Close)->click();
@@ -434,7 +492,9 @@ void exerciseReaderFlow(MainWindow *, const QJsonObject &spec, QJsonObject &evid
     auto *pageNumber = reader.findChild<QLabel *>(u"readerPageNumber"_s);
     auto *text = reader.findChild<QTextBrowser *>(u"readerText"_s);
     auto *textSize = reader.findChild<QSpinBox *>(u"readerTextSize"_s);
-    require(translate && showOriginal && images && previous && next && chapters && pageNumber && text && textSize,
+    auto *back = reader.findChild<QToolButton *>(u"readerBack"_s);
+    auto *title = reader.findChild<QLabel *>(u"readerTitle"_s);
+    require(translate && showOriginal && images && previous && next && chapters && pageNumber && text && textSize && back && title,
         u"Native Reader controls are missing"_s);
     require(QFontInfo(images->font()).family() == u"Neucha", u"Manga lettering fell back to the interface font"_s);
     QWidget *canvas = images->viewport();
@@ -480,6 +540,249 @@ void exerciseReaderFlow(MainWindow *, const QJsonObject &spec, QJsonObject &evid
             {u"width"_s, reader.width()}, {u"height"_s, reader.height()}});
         evidence[u"screenshots"_s] = screenshots;
     };
+
+    {
+        reader.resize(1280, 720);
+        open(u"volumes"_s);
+        require((chapters->count() == 121) && (chapters->itemText(0) == u"Volume 1 — Prologue")
+            && (chapters->itemText(20) == u"Volume 2 — Prologue") && (chapters->itemText(120) == u"Prologue"),
+            u"Chapter labels lost known volumes or invented an unknown volume"_s);
+        chapters->setFocus();
+        clickCanvas(chapters, chapters->rect().center());
+        auto *overlay = reader.findChild<QWidget *>(u"readerChapterOverlay"_s);
+        auto *search = reader.findChild<QLineEdit *>(u"readerChapterSearch"_s);
+        auto *list = reader.findChild<QListView *>(u"readerChapterList"_s);
+        require(overlay && search && list, u"The chapter picker controls are missing"_s);
+        auto *filter = qobject_cast<QSortFilterProxyModel *>(list->model());
+        require(filter && (filter->sourceModel() == chapters->model()), u"The chapter picker lost the source model"_s);
+        waitFor(u"chapter picker focus"_s, [&] { return overlay->isVisible() && search->hasFocus(); });
+        require(overlay->window() == reader.window(), u"Chapter selection opened outside the Reader window"_s);
+
+        const int reads = countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s);
+        QLabel *empty = nullptr;
+        for (QLabel *label : overlay->findChildren<QLabel *>())
+        {
+            if (label->text() == u"No matching chapters")
+                empty = label;
+        }
+        require(empty, u"The chapter picker has no empty-search message"_s);
+        search->setText(u"A chapter that does not exist"_s);
+        waitFor(u"empty chapter search"_s, [&] { return (filter->rowCount() == 0) && empty->isVisible() && !list->isVisible(); });
+        saveScreenshot(u"chapters-empty"_s);
+        search->clear();
+        waitFor(u"chapter search recovery"_s, [&] { return (filter->rowCount() == 121) && list->isVisible() && !empty->isVisible(); });
+        for (int row = 0; row < filter->rowCount(); ++row)
+        {
+            require(filter->index(row, 0).data(Qt::UserRole).toString() == u"volumes:%1"_s.arg(row),
+                u"Clearing an empty search changed source identities or order"_s);
+        }
+        search->setText(u"Volume 2"_s);
+        require(filter->rowCount() == 20, u"Volume search did not find its twenty chapters"_s);
+        for (int row = 0; row < filter->rowCount(); ++row)
+        {
+            require(filter->index(row, 0).data(Qt::UserRole).toString() == u"volumes:%1"_s.arg(row + 20),
+                u"Volume search included another volume's chapter"_s);
+        }
+        search->setText(u"prologue"_s);
+        require(filter->rowCount() == 7, u"Case-insensitive title search lost repeated prologues"_s);
+        for (int row = 0; row < filter->rowCount(); ++row)
+        {
+            require(filter->index(row, 0).data(Qt::UserRole).toString() == u"volumes:%1"_s.arg(row * 20),
+                u"Title search changed source identities or order"_s);
+        }
+        QCoreApplication::processEvents();
+        require((chapters->currentIndex() == 0) && (countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s) == reads),
+            u"Typing a chapter filter opened a chapter"_s);
+        const QModelIndex secondPrologue = filter->index(1, 0);
+        clickCanvas(list->viewport(), list->visualRect(secondPrologue).center());
+        const auto waitForChapter = [&](const int index)
+        {
+            const QString id = u"volumes:%1"_s.arg(index);
+            waitFor(u"exact chapter %1"_s.arg(id), [&]
+            {
+                return translate->isEnabled() && (chapters->currentIndex() == index)
+                    && (chapters->currentData().toString() == id) && text->toPlainText().contains(u"Original text of %1."_s.arg(id));
+            });
+        };
+        waitForChapter(20);
+        settle();
+        require(!overlay->isVisible() && (countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s) == reads + 1),
+            u"Single-click chapter activation did not close once and read exactly once"_s);
+        QJsonObject latestChapter;
+        for (const QJsonValue &value : fixtureEvents(logPath))
+        {
+            const QJsonObject entry = value.toObject();
+            if ((entry.value(u"documentId"_s).toString() == u"volumes") && (entry.value(u"method"_s).toString() == u"reader.chapter"))
+                latestChapter = entry.value(u"params"_s).toObject().value(u"chapter"_s).toObject();
+        }
+        require(latestChapter.value(u"id"_s).toString() == u"volumes:20", u"Filtered row index escaped into the source chapter request"_s);
+
+        clickCanvas(chapters, chapters->rect().center());
+        waitFor(u"retained chapter query"_s, [&] { return overlay->isVisible() && search->hasFocus(); });
+        require((search->text() == u"prologue") && (filter->rowCount() == 7)
+            && (list->currentIndex().data(Qt::UserRole).toString() == u"volumes:20"), u"Reopening reset the chapter query or selection"_s);
+        search->setText(u"Volume 2"_s);
+        list->setFocus();
+        pressKey(QApplication::focusWidget(), Qt::Key_Down);
+        pressKey(QApplication::focusWidget(), Qt::Key_Return);
+        waitForChapter(21);
+        settle();
+        require(!overlay->isVisible() && (countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s) == reads + 2),
+            u"Enter did not activate exactly one filtered chapter"_s);
+
+        clickCanvas(chapters, chapters->rect().center());
+        waitFor(u"chapter picker reopened"_s, [&] { return overlay->isVisible() && search->hasFocus(); });
+        list->setFocus();
+        pressKey(QApplication::focusWidget(), Qt::Key_Down);
+        const QVariant retainedRow = list->currentIndex().data(Qt::UserRole);
+        require(retainedRow.toString() == u"volumes:22", u"The picker did not highlight an unread chapter"_s);
+        QCoreApplication::processEvents();
+        QScrollBar *chapterScroll = list->verticalScrollBar();
+        chapterScroll->setValue(chapterScroll->maximum() / 2);
+        const int retainedScroll = chapterScroll->value();
+        require(retainedScroll > 0, u"The generated chapter list did not establish a nonzero scroll position"_s);
+        for (const int delta : {0, -1, 1})
+        {
+            require(overlay->isAncestorOf(QApplication::focusWidget()), u"Chapter picker focus escaped before Escape"_s);
+            pressKey(QApplication::focusWidget(), Qt::Key_Escape);
+            waitFor(u"chapter picker focus restored"_s, [&] { return !overlay->isVisible() && chapters->hasFocus(); });
+            if (delta != 0)
+            {
+                (delta < 0 ? previous : next)->click();
+                waitForChapter(delta < 0 ? 20 : 21);
+            }
+            clickCanvas(chapters, chapters->rect().center());
+            waitFor(u"chapter picker reopened after navigation"_s, [&] { return overlay->isVisible() && search->hasFocus(); });
+            settle();
+            require((search->text() == u"Volume 2") && (filter->rowCount() == 20)
+                && (list->currentIndex().data(Qt::UserRole) == (delta == 0 ? retainedRow : chapters->currentData()))
+                && (chapterScroll->value() == retainedScroll),
+                u"Closing or chapter navigation reset picker state: delta=%1 query=%2 rows=%3 current=%4 scroll=%5 expected=%6"_s
+                    .arg(delta).arg(search->text()).arg(filter->rowCount()).arg(list->currentIndex().data(Qt::UserRole).toString())
+                    .arg(chapterScroll->value()).arg(retainedScroll));
+            if (delta == 0)
+            {
+                require((chapters->currentIndex() == 21) && (countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s) == reads + 2),
+                    u"Browsing the chapter list opened an unactivated chapter"_s);
+            }
+        }
+        const QPoint backdrop = reader.mapToGlobal(QPoint(8, reader.height() - 8));
+        QWidget *receiver = QApplication::widgetAt(backdrop);
+        require(receiver && ((receiver == overlay) || overlay->isAncestorOf(receiver)), u"The modal backdrop does not intercept Reader input"_s);
+        const int readsBeforeBackdrop = countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s);
+        clickCanvas(receiver, receiver->mapFromGlobal(backdrop));
+        waitFor(u"chapter picker backdrop close"_s, [&] { return !overlay->isVisible(); });
+        clickCanvas(chapters, chapters->rect().center());
+        waitFor(u"chapter picker reopened after backdrop"_s, [&] { return overlay->isVisible() && search->hasFocus(); });
+        settle();
+        require((search->text() == u"Volume 2") && (chapterScroll->value() == retainedScroll)
+            && (list->currentIndex().data(Qt::UserRole).toString() == u"volumes:21"), u"Backdrop close discarded the chapter picker state"_s);
+        require((chapters->currentData().toString() == u"volumes:21")
+            && (countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s) == readsBeforeBackdrop),
+            u"Backdrop close activated a chapter"_s);
+
+        search->clear();
+        for (const auto scheme : {ColorScheme::Light, ColorScheme::Dark})
+        {
+            UIThemeManager::instance()->previewColorScheme(scheme);
+            for (const QSize size : {QSize(1280, 720), QSize(1440, 900)})
+            {
+                reader.resize(size);
+                QCoreApplication::processEvents();
+                const QModelIndex longChapter = filter->index(21, 0);
+                const QString fullTitle = chapters->itemText(21);
+                list->scrollTo(longChapter, QAbstractItemView::PositionAtCenter);
+                require((overlay->geometry() == reader.rect()) && reader.rect().contains(QRect(list->mapTo(&reader, QPoint()), list->size())),
+                    u"The chapter overlay or list does not fit the Reader window"_s);
+                require((fullTitle.size() > 180) && (list->fontMetrics().horizontalAdvance(fullTitle) > list->viewport()->width())
+                    && (longChapter.data(Qt::ToolTipRole).toString() == fullTitle), u"The elided chapter title is not fully available in its tooltip"_s);
+                saveScreenshot(u"chapters-%1-%2"_s.arg(scheme == ColorScheme::Light ? u"light"_s : u"dark"_s).arg(size.width()));
+            }
+        }
+        pressKey(QApplication::focusWidget(), Qt::Key_Escape);
+        waitFor(u"chapter picker final close"_s, [&] { return !overlay->isVisible(); });
+        open(u"volumes"_s);
+        waitForChapter(21);
+        const int readsAfterReopen = countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s);
+        clickCanvas(chapters, chapters->rect().center());
+        overlay = reader.findChild<QWidget *>(u"readerChapterOverlay"_s);
+        search = reader.findChild<QLineEdit *>(u"readerChapterSearch"_s);
+        list = reader.findChild<QListView *>(u"readerChapterList"_s);
+        require(overlay && search && list, u"The chapter picker was not recreated after document reload"_s);
+        filter = qobject_cast<QSortFilterProxyModel *>(list->model());
+        require(filter, u"The reloaded chapter picker has no filter model"_s);
+        waitFor(u"chapter picker after document reload"_s, [&] { return overlay->isVisible() && search->hasFocus(); });
+        settle();
+        require(search->text().isEmpty() && (list->currentIndex().data(Qt::UserRole).toString() == u"volumes:21")
+            && (countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s) == readsAfterReopen),
+            u"Reloading the document lost its chapter highlight or opened another chapter"_s);
+        const QString originalText = text->toPlainText();
+        auto *status = reader.findChild<QLabel *>(u"readerStatus"_s);
+        require(status, u"The Reader status is missing"_s);
+        const QModelIndex unavailable = filter->mapFromSource(chapters->model()->index(19, 0));
+        list->scrollTo(unavailable);
+        QCoreApplication::processEvents();
+        clickCanvas(list->viewport(), list->visualRect(unavailable).center());
+        waitFor(u"unavailable chapter error"_s, [&] { return translate->isEnabled() && (status->text() == u"Generated chapter is unavailable."); });
+        settle();
+        require(!overlay->isVisible() && (chapters->currentData().toString() == u"volumes:21")
+            && (list->currentIndex().data(Qt::UserRole).toString() == u"volumes:21")
+            && (chapters->toolTip() == chapters->itemText(21)) && (text->toPlainText() == originalText)
+            && (countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s) == readsAfterReopen + 1),
+            u"A failed chapter read changed the original page or left stale chapter selection and tooltip"_s);
+        clickCanvas(chapters, chapters->rect().center());
+        waitFor(u"chapter picker after failed read"_s, [&] { return overlay->isVisible() && search->hasFocus(); });
+        settle();
+        require((list->currentIndex().data(Qt::UserRole).toString() == u"volumes:21")
+            && (countEvents(logPath, u"volumes"_s, u"request"_s, u"reader.chapter"_s) == readsAfterReopen + 1),
+            u"Reopening after a failed read restored the unavailable chapter"_s);
+        search->setText(u"Volume 2"_s);
+        list->setFocus();
+        pressKey(QApplication::focusWidget(), Qt::Key_Down);
+        QCoreApplication::processEvents();
+        list->verticalScrollBar()->setValue(list->verticalScrollBar()->maximum() / 2);
+        require((filter->rowCount() == 20) && (list->currentIndex().data(Qt::UserRole).toString() == u"volumes:22")
+            && (list->verticalScrollBar()->value() > 0), u"The previous book did not establish a filtered and scrolled picker state"_s);
+        pressKey(QApplication::focusWidget(), Qt::Key_Escape);
+        waitFor(u"chapter picker closed after document reload"_s, [&] { return !overlay->isVisible(); });
+        open(u"small-image"_s);
+        waitForPage(0, 0, 1);
+        const int smallReads = countEvents(logPath, u"small-image"_s, u"request"_s, u"reader.chapter"_s);
+        clickCanvas(chapters, chapters->rect().center());
+        overlay = reader.findChild<QWidget *>(u"readerChapterOverlay"_s);
+        search = reader.findChild<QLineEdit *>(u"readerChapterSearch"_s);
+        list = reader.findChild<QListView *>(u"readerChapterList"_s);
+        require(overlay && search && list, u"The new book has no chapter picker"_s);
+        waitFor(u"new book chapter picker"_s, [&] { return overlay->isVisible() && search->hasFocus(); });
+        settle();
+        const QModelIndex onlyChapter = list->model()->index(0, 0);
+        require(search->text().isEmpty() && (list->model()->rowCount() == 1)
+            && (onlyChapter.data(Qt::UserRole).toString() == u"small-image:chapter")
+            && (list->currentIndex() == onlyChapter) && (list->verticalScrollBar()->value() == 0)
+            && (chapters->currentData().toString() == u"small-image:chapter")
+            && (countEvents(logPath, u"small-image"_s, u"request"_s, u"reader.chapter"_s) == smallReads),
+            u"A new book inherited the previous book's filter, highlight or scroll position"_s);
+        clickCanvas(list->viewport(), list->visualRect(onlyChapter).center());
+        waitFor(u"new book exact chapter activation"_s, [&]
+        {
+            return !overlay->isVisible() && translate->isEnabled()
+                && (countEvents(logPath, u"small-image"_s, u"request"_s, u"reader.chapter"_s) > smallReads);
+        });
+        settle();
+        for (const QJsonValue &value : fixtureEvents(logPath))
+        {
+            const QJsonObject entry = value.toObject();
+            if ((entry.value(u"documentId"_s).toString() == u"small-image") && (entry.value(u"method"_s).toString() == u"reader.chapter"))
+                latestChapter = entry.value(u"params"_s).toObject().value(u"chapter"_s).toObject();
+        }
+        require((chapters->currentData().toString() == u"small-image:chapter")
+            && (latestChapter.value(u"id"_s).toString() == u"small-image:chapter")
+            && (countEvents(logPath, u"small-image"_s, u"request"_s, u"reader.chapter"_s) == smallReads + 1),
+            u"The new book's chapter activation changed its ID or duplicated the read"_s);
+        checks.append(u"Chapter search maps filtered rows to exact IDs; modal close and navigation retain query, selection and scroll"_s);
+        UIThemeManager::instance()->previewColorScheme(ColorScheme::Light);
+        reader.resize(700, 580);
+    }
 
     for (const QString &scenario : {u"saved"_s, u"cancelled"_s, u"unchanged"_s})
     {
@@ -639,6 +942,57 @@ void exerciseReaderFlow(MainWindow *, const QJsonObject &spec, QJsonObject &evid
     checks.append(u"Hangul automatically translates once; text typography remains independent of manga lettering"_s);
     evidence[u"checks"_s] = checks;
 
+    open(u"text-position"_s);
+    QScrollBar *textBar = text->verticalScrollBar();
+    waitFor(u"scrollable generated prose"_s, [&] { return textBar->maximum() > 1000; });
+    settle();
+    textBar->setValue(qRound(textBar->maximum() * 0.42));
+    const int textPosition = textBar->value();
+    const auto recordTextGeometry = [&](const QString &stage)
+    {
+        const QJsonObject geometry {{u"event"_s, u"reader-geometry"_s}, {u"stage"_s, stage},
+            {u"documentId"_s, u"text-position"_s}, {u"value"_s, textBar->value()},
+            {u"maximum"_s, textBar->maximum()}, {u"expected"_s, textPosition},
+            {u"viewportHeight"_s, text->viewport()->height()}};
+        QFile file(logPath);
+        require(file.open(QIODevice::WriteOnly | QIODevice::Append), u"Cannot record Reader position geometry"_s);
+        file.write(QJsonDocument(geometry).toJson(QJsonDocument::Compact) + '\n');
+    };
+    recordTextGeometry(u"chosen"_s);
+    chapters->setFocus();
+    pressKey(chapters, Qt::Key_End);
+    waitFor(u"second prose chapter"_s, [&] { return translate->isEnabled() && (chapters->currentIndex() == 1); });
+    chapters->setFocus();
+    pressKey(chapters, Qt::Key_Home);
+    waitFor(u"prose chapter position"_s, [&]
+    {
+        return translate->isEnabled() && (chapters->currentIndex() == 0) && (qAbs(textBar->value() - textPosition) <= 2);
+    });
+    open(u"late-text-target"_s);
+    open(u"text-position"_s);
+    settle();
+    recordTextGeometry(u"reopened"_s);
+    require(qAbs(textBar->value() - textPosition) <= 2,
+        u"Reopened prose position differs: expected %1, actual %2, maximum %3"_s
+            .arg(textPosition).arg(textBar->value()).arg(textBar->maximum()));
+    textBar->setValue(qRound(textBar->maximum() * 0.63));
+    const double resizedTextOffset = double(textBar->value()) / textBar->maximum();
+    textSize->setValue(initialTextSize + 1);
+    open(u"late-text-target"_s);
+    open(u"text-position"_s);
+    settle();
+    require(qAbs(textBar->value() - qRound(resizedTextOffset * textBar->maximum())) <= 2,
+        u"Immediate navigation after a font change lost the latest prose position"_s);
+    textSize->setValue(initialTextSize);
+    open(u"late-text-target"_s);
+    waitForPage(0, 0, 3);
+    next->click();
+    waitForPage(0, 1, 3);
+    settle();
+    require(countEvents(logPath, u"late-text-target"_s, u"request"_s, u"reader.position"_s) > 0,
+        u"A stale text restoration blocked the next document's manga position"_s);
+    checks.append(u"Prose chapter switches, reopen and font changes retain the latest position; stale text restore cannot block manga persistence"_s);
+
     open(u"positioned"_s);
     waitForPage(0, 1, 3);
     settle();
@@ -646,7 +1000,7 @@ void exerciseReaderFlow(MainWindow *, const QJsonObject &spec, QJsonObject &evid
     require(countEvents(logPath, u"positioned"_s, u"request"_s, u"reader.ahead"_s) == 0,
         u"Restoring an untranslated original unexpectedly started translation"_s);
     require(!textSize->isVisible(), u"Text size controls are visible for manga pages"_s);
-    checks.append(u"Saved imageIndex overrides a contradictory legacy offset after image layout"_s);
+    checks.append(u"Saved imageIndex restores the selected manga page through image layout"_s);
 
     open(u"pager"_s);
     waitForPage(0, 0, 3);
@@ -682,10 +1036,33 @@ void exerciseReaderFlow(MainWindow *, const QJsonObject &spec, QJsonObject &evid
     waitForPage(0, 2, 3);
     reader.resize(640, 480);
     QCoreApplication::processEvents();
+    const auto requireHeader = [&]
+    {
+        const auto bounds = [&](QWidget *control) { return QRect(control->mapTo(&reader, QPoint()), control->size()); };
+        require(!back->text().isEmpty() && (back->parentWidget() == title->parentWidget()),
+            u"Reader exit has no label or is separated from its title"_s);
+        require((previous->parentWidget() == next->parentWidget()) && (previous->parentWidget() == pageNumber->parentWidget())
+            && (bounds(previous).right() < bounds(pageNumber).left()) && (bounds(pageNumber).right() < bounds(next).left())
+            && (bounds(next).right() >= reader.width() - 2),
+            u"Reader page controls are not one ordered group at the right edge"_s);
+        for (QWidget *control : QList<QWidget *> {back, title, chapters, previous, pageNumber, next, translate, showOriginal})
+        {
+            if (control->isVisible())
+                require(reader.rect().contains(bounds(control)), u"A Reader header control is clipped at this window size"_s);
+        }
+        require(bounds(back).right() + 100 < bounds(previous).left(),
+            u"Reader exit and previous-page arrows remain visually adjacent"_s);
+    };
+    requireHeader();
     requireFit(fixtureSizes.value(u"tall"_s));
     saveScreenshot(u"tall-page-compact"_s);
+    reader.resize(800, 600);
+    QCoreApplication::processEvents();
+    requireHeader();
+    saveScreenshot(u"reader-header-800"_s);
     reader.resize(1040, 760);
     QCoreApplication::processEvents();
+    requireHeader();
     requireFit(fixtureSizes.value(u"tall"_s));
     waitForPage(0, 2, 3);
     saveScreenshot(u"tall-page-wide"_s);

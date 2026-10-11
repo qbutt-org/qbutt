@@ -5,10 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { BrowserBridge } from "../../components/content/browser/index.ts";
-import { encodeFrame, FrameDecoder } from "../../components/content/browser/framing.ts";
-import { CHROMIUM_EXTENSION_ID, MAX_MESSAGE_BYTES, type BrowserCommand } from "../../components/content/browser/protocol.ts";
+import { encodeFrame, FrameDecoder } from "./framing.ts";
+import { MAX_MESSAGE_BYTES, type BrowserCommand } from "../../components/content/browser/protocol.ts";
 
 if (process.platform !== "win32") throw new Error("This integration scenario requires Windows named pipes.");
+const qcatch = process.env.QBUTT_QCATCH_EXE;
+assert(qcatch && await Bun.file(qcatch).exists(), "Set QBUTT_QCATCH_EXE to the independent qcatch native executable");
+const extensionId = "jnmnnglmejlbjnjmmjampnhfncpcbffh";
 const directory = await mkdtemp(join(tmpdir(), "qbutt-browser-ipc-"));
 const discovery = join(directory, "bridge.json");
 const bridge = new BrowserBridge({ browser: "edge", discoveryPath: discovery });
@@ -21,8 +24,8 @@ const waitFor = async (predicate: () => boolean) => {
     throw new Error("Integration deadline elapsed");
 };
 
-function extension(origin = `chrome-extension://${CHROMIUM_EXTENSION_ID}/`) {
-    const child = spawn(process.execPath, [join(import.meta.dir, "native-runner.ts"), "--native-messaging", origin], {
+function extension(origin = `chrome-extension://${extensionId}/`) {
+    const child = spawn(qcatch!, ["--native-messaging", origin], {
         env: { ...process.env, QBUTT_BROWSER_BRIDGE_DISCOVERY: discovery }, windowsHide: true,
     });
     children.push(child);

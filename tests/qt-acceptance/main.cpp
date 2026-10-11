@@ -132,6 +132,7 @@
 #include "gui/uithememanager.h"
 #include "add-torrent-layout.h"
 #include "content-library.h"
+#include "modal-overlay.h"
 #include "reader-flow.h"
 #include "update-registry.h"
 
@@ -3145,6 +3146,11 @@ namespace
     {
         MainWindow *window = application.mainWindow();
         require(window && BitTorrent::Session::instance()->isRestored(), u"Production application did not finish startup"_s);
+        if (spec.value(u"mode"_s).toString() == u"modal-overlay")
+        {
+            exerciseModalOverlay(window, spec, evidence);
+            return;
+        }
         if (spec.value(u"mode"_s).toString() == u"reader-flow")
         {
             exerciseReaderFlow(window, spec, evidence);

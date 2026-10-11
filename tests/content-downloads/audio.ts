@@ -7,19 +7,18 @@ import { join } from "node:path";
 import { DownloadQueue, type DownloadJob } from "../../components/content/downloads";
 import type { AudioTrack } from "../../components/content/audio";
 import { LibraryStore } from "../../components/content/store";
+import { mediaRuntime as resolveMediaRuntime } from "../../components/content/media-runtime";
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-audio-downloads-"));
 const fixtures = join(root, "fixtures");
 const appDir = join(root, "app");
 process.env.QBUTT_LAB_PATHS = "1";
-const mediaRuntime = process.env.QBUTT_MEDIA_RUNTIME_DIR;
-assert(mediaRuntime, "Set QBUTT_MEDIA_RUNTIME_DIR to the separately prepared pinned lab media tools");
+const runtimeInfo = await resolveMediaRuntime(appDir, AbortSignal.timeout(30_000));
 const dataDir = join(root, "data");
 const downloadDir = join(root, "saved");
-const ffmpeg = join(mediaRuntime, "tools", "ffmpeg.exe");
-const ffprobe = join(mediaRuntime, "profile", "tools", "bin", "ffprobe.exe");
+const { ffmpeg, ffprobe } = runtimeInfo.tools;
 const systemRoot = process.env.SystemRoot || "C:/Windows";
-const toolEnvironment = { ...process.env, PATH: [mediaRuntime, join(systemRoot, "System32"), systemRoot].join(";") };
+const toolEnvironment = { ...process.env, PATH: [join(systemRoot, "System32"), systemRoot].join(";") };
 await mkdir(fixtures);
 
 async function command(file: string, args: string[]): Promise<string> {

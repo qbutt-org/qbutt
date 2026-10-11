@@ -4,6 +4,8 @@ add_executable(qbutt-qt-acceptance
     add-torrent-layout.h
     content-library.cpp
     content-library.h
+    modal-overlay.cpp
+    modal-overlay.h
     reader-flow.cpp
     reader-flow.h
     update-registry.cpp

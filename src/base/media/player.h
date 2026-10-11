@@ -42,6 +42,7 @@ namespace Media
         QMap<QString, QString> headers;
         QString contentKind;
         QString identity;
+        QString legacyIdentity;
         QUrl proxyUrl;
         QUrl audioUrl;
         AudioTrack audioTrack;
@@ -73,7 +74,7 @@ namespace Media
         void positionChanged(double seconds);
         void durationChanged(double seconds);
         void tracksChanged(const QJsonArray &tracks);
-        void subtitleTranslationChanged(const QString &message);
+        void subtitleSettingsRequested();
         void downloadRequested(const QUrl &url, const QString &title, const Media::PlaybackOptions &options);
 
     private:
@@ -91,6 +92,9 @@ namespace Media
             StartTime,
             SourceSelection,
             SourceTracks,
+            TranslateTracks,
+            OriginalSelect,
+            OriginalVerify,
             Add,
             AddedTracks,
             Select,
@@ -102,6 +106,9 @@ namespace Media
             QJsonObject source;
             QJsonObject loading;
             QJsonObject queued;
+            QJsonArray tracks;
+            QJsonObject status;
+            QString action;
             QString revision;
             qint64 request = 0;
             qint64 requestedBucket = -1;
@@ -112,12 +119,14 @@ namespace Media
             int translatedId = 0;
             int commandId = 0;
             SubtitleCommand command = SubtitleCommand::None;
+            // Seeking invalidates translated windows, not the user's subtitle choice.
             quint64 generation = 0;
+            quint64 selectionGeneration = 0;
+            quint64 actionGeneration = 0;
             quint64 loadingGeneration = 0;
             bool loaded = false;
             bool enabled = true;
             bool seeking = false;
-            bool announced = false;
         };
 
         explicit Player(QObject *parent);
@@ -137,7 +146,9 @@ namespace Media
         void setPlaying(bool playing);
         void cancelSubtitleRequest();
         void updateSubtitleSelection(const QJsonValue &selection);
-        void initializeSubtitles(const QJsonArray &tracks);
+        void initializeSubtitles(const QJsonArray &tracks, bool explicitTranslation = false);
+        void subtitleAction(const QString &action);
+        void publishSubtitleState(const QString &state = {}, const QString &message = {}, const QJsonObject &progress = {});
         void requestSubtitles();
         void receiveSubtitles(const QString &event, const QJsonObject &data);
         void applySubtitles();

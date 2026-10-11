@@ -32,14 +32,15 @@ namespace Content
     public:
         explicit ImagePages(QWidget *parent);
 
-        void setPage(const QJsonObject &page, int imageIndex, bool original);
+        void setPage(const QJsonObject &page, int imageIndex, double offset, bool original);
         void setSettings(const ReaderSettings &settings);
         int imageIndex() const;
+        double imageOffset() const;
         QRect imageRect() const;
 
     signals:
         void pageTurnRequested(int delta);
-        void imageIndexChanged(int imageIndex);
+        void positionChanged();
         void correctionRequested(const QJsonObject &region);
 
     private:
@@ -52,7 +53,6 @@ namespace Content
         };
 
         void updateLayout(double imageOffset = 0);
-        double imageOffset() const;
         QRectF regionRect(const QJsonObject &region, const QRect &imageRect) const;
         QJsonObject regionAt(const QPointF &position) const;
 
@@ -65,7 +65,6 @@ namespace Content
         void scrollContentsBy(int dx, int dy) override;
 
         int m_imageIndex = 0;
-        QString m_pageId;
         QList<PageImage> m_images;
         QJsonArray m_regions;
         ReaderSettings m_settings;

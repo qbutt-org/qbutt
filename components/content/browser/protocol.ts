@@ -1,6 +1,3 @@
-export const NATIVE_HOST = "org.qbutt.content";
-export const CHROMIUM_EXTENSION_ID = "jnmnnglmejlbjnjmmjampnhfncpcbffh";
-export const FIREFOX_EXTENSION_ID = "content@qbutt.org";
 export const MAX_MESSAGE_BYTES = 768 * 1024;
 
 export type BrowserId = "edge" | "chrome" | "firefox";
@@ -10,12 +7,23 @@ export type Selection = {
     season?: string;
     translationId?: string;
     player?: string;
+    captureId?: string;
 };
+
+export interface VkSearchVideo {
+    id: string;
+    title: string;
+    url: string;
+    author?: string;
+    duration?: number;
+    cover?: string;
+}
 
 export interface BrowserCommand {
     id: number;
-    method: "cookies" | "fetch" | "resolve" | "cancel";
+    method: "cookies" | "fetch" | "resolve" | "vk-search" | "cancel";
     url?: string;
+    query?: string;
     init?: { method?: string; headers?: Record<string, string>; body?: string };
     selection?: Selection;
     kind?: "video" | "file" | "torrent";
@@ -33,6 +41,7 @@ export interface BrowserHello {
     browser: BrowserId;
     version: 1;
     userAgent: string;
+    capabilities?: string[];
 }
 
 export function publicUrl(value: string): string {

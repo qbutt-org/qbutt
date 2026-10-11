@@ -5,10 +5,12 @@
 
 #include "media-playback.h"
 
+#include <cmath>
 #include <functional>
 #include <stdexcept>
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonArray>
@@ -20,6 +22,8 @@
 
 #include "base/global.h"
 #include "base/media/player.h"
+#include "base/profile.h"
+#include "base/settingsstorage.h"
 
 namespace
 {
@@ -51,6 +55,12 @@ namespace
         }
         return {};
     }
+
+    QString positionKey(const QByteArray &identity)
+    {
+        return u"Media/PlaybackPosition/"_s
+            + QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+    }
 }
 
 void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spec, QJsonObject &evidence)
@@ -62,10 +72,21 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
         const QJsonObject wanted = selection.value(u"audioTrack"_s).toObject();
         Media::PlaybackOptions options;
         options.identity = selection.value(u"identity"_s).toString();
+        options.legacyIdentity = selection.value(u"legacyIdentity"_s).toString();
+        options.proxyUrl = QUrl(selection.value(u"proxyUrl"_s).toString());
         options.audioTrack = {wanted.value(u"title"_s).toString(), wanted.value(u"type"_s).toString(), wanted.value(u"language"_s).toString(),
             wanted.value(u"codec"_s).toString(), wanted.value(u"channels"_s).toInt()};
         if (!selection.value(u"resume"_s).toBool())
             options.startPosition = 0;
+
+        const QUrl url = selection.contains(u"url"_s) ? QUrl(selection.value(u"url"_s).toString())
+            : QUrl::fromLocalFile(spec.value(u"mediaPath"_s).toString());
+        const QString key = positionKey(options.identity.isEmpty() ? url.toEncoded() : options.identity.toUtf8());
+        const QString legacyKey = positionKey(options.legacyIdentity.toUtf8());
+        auto *settings = SettingsStorage::instance();
+        if (selection.value(u"seedLegacyPosition"_s).isDouble())
+            settings->storeValue(legacyKey, selection.value(u"seedLegacyPosition"_s).toDouble());
+        settings->save();
 
         QStringList errors;
         QStringList started;
@@ -87,8 +108,8 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
             if ((actual >= 0) && (firstPosition < 0))
                 firstPosition = actual;
         });
-        require(player->playUrl(QUrl::fromLocalFile(spec.value(u"mediaPath"_s).toString()),
-            selection.value(u"name"_s).toString(), options), u"Player rejected the legal media fixture"_s);
+        require(player->playUrl(url, selection.value(u"name"_s).toString(), options),
+            u"Player rejected the legal media fixture"_s);
         waitFor(u"Actual mpv voice selection"_s, [&] { return !started.isEmpty() || !errors.isEmpty(); });
 
         QJsonObject check {{u"name"_s, selection.value(u"name"_s)}, {u"identity"_s, options.identity}};
@@ -107,7 +128,11 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
             const QJsonObject selected = selectedAudio(tracks);
             require(selected.value(u"id"_s).toInt() == selection.value(u"expectedId"_s).toInt(), u"The wrong actual mpv track was selected"_s);
             if (selection.value(u"resume"_s).toBool())
-                require(firstPosition >= 1, u"Voice-specific playback position was not restored"_s);
+                require(firstPosition >= 1, u"Saved playback position was not restored"_s);
+            const QJsonArray range = selection.value(u"firstPositionRange"_s).toArray();
+            if (!range.isEmpty())
+                require((firstPosition >= range.at(0).toDouble()) && (firstPosition <= range.at(1).toDouble()),
+                    u"Playback started outside the expected bookmark range: "_s + QString::number(firstPosition));
             check[u"selected"_s] = selected;
             check[u"position"_s] = position;
             check[u"firstPosition"_s] = firstPosition;
@@ -141,6 +166,18 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
                 check[u"userSelected"_s] = selectedAudio(tracks);
                 check[u"userSwitchPosition"_s] = position;
             }
+
+            // Stop the real player before reading the persisted bookmark. A
+            // subsequent selection creates a fresh qplay process and IPC session.
+            Media::Player::freeInstance();
+            settings->save();
+            const auto persisted = Profile::instance()->applicationSettings(u"qbutt"_s);
+            const double savedPosition = persisted->value(key).toDouble();
+            require(std::abs(savedPosition - position) < 0.5, u"The stopped player's bookmark was not persisted"_s);
+            check[u"savedPosition"_s] = savedPosition;
+            if (!options.legacyIdentity.isEmpty())
+                check[u"legacyPosition"_s] = persisted->contains(legacyKey)
+                    ? QJsonValue(persisted->value(legacyKey).toDouble()) : QJsonValue(QJsonValue::Null);
         }
         checks.append(check);
         evidence[u"checks"_s] = checks;

@@ -20,12 +20,9 @@ $fileVersion = $matches[1]
 $lock = Get-Content -LiteralPath (Join-Path $SourceDir 'upstream-lock.json') -Raw | ConvertFrom-Json
 foreach ($required in @('qbutt.exe', 'qbutt-net.exe', 'qbutt-content.exe', 'qbutt-search.exe',
     'Qt6Core.dll', 'platforms/qwindows.dll', 'THIRD-PARTY-NOTICES.txt',
-    'browser/private-pipe.ps1', 'browser-extension/chromium/manifest.json', 'browser-extension/firefox/manifest.json',
-    'browser-extension/chromium/parser.js', 'browser-extension/chromium/parser.html',
-    'browser-extension/firefox/parser.js', 'browser-extension/firefox/parser.html',
-    'scripts/register-content-browser.ps1', 'media/component-lock.json', 'media/mpv.exe', 'media/tools/ffmpeg.exe',
-    'media/tools/yt-dlp.exe', 'media/profile/tools/bin/ffprobe.exe', 'media/profile/mpv.conf',
-    'media/profile/scripts/modernx.lua', 'licenses/qbutt-content-notices.txt')) {
+    'browser/private-pipe.ps1', 'components/qplay-setup.exe', 'qplay/qplay.exe', 'qplay/qplay.portable',
+    'qplay/build-manifest.json', 'qplay/upstream-lock.json',
+    'licenses/qbutt-content-notices.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $BundleDir $required) -PathType Leaf)) {
         throw "Incomplete application bundle: $required"
     }
@@ -33,6 +30,8 @@ foreach ($required in @('qbutt.exe', 'qbutt-net.exe', 'qbutt-content.exe', 'qbut
 New-Item -ItemType Directory -Force $OutputDir | Out-Null
 & $CompilerPath '/Qp' "/DAppVersion=$version" "/DAppFileVersion=$fileVersion" `
     "/DRequiredCompilerVersion=$($lock.windows.innoSetup.version)" "/DBundleDir=$BundleDir" "/DProjectDir=$SourceDir" `
+    "/DQplayVersion=$($lock.products.qplay.version)" "/DQplayProtocol=$($lock.products.qplay.protocolVersion)" `
+    "/DQplaySetupSha256=$($lock.products.qplay.artifacts.setup.sha256)" `
     "/O$OutputDir" (Join-Path $SourceDir 'dist/windows/qbutt.iss')
 if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed: $LASTEXITCODE" }
 Write-Output "Installer: $(Join-Path $OutputDir "qbutt-$version-windows-x64-setup.exe")"

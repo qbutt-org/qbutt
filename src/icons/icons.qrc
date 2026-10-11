@@ -3,6 +3,8 @@
         <file>application-exit.svg</file>
         <file>application-rss.svg</file>
         <file>application-url.svg</file>
+        <file>bookmark.svg</file>
+        <file>bookmark-active.svg</file>
         <file>browser-cookies.svg</file>
         <file>chart-line.svg</file>
         <file>checked-completed.svg</file>
@@ -11,6 +13,8 @@
         <file>dark/application-exit.svg</file>
         <file>dark/application-rss.svg</file>
         <file>dark/application-url.svg</file>
+        <file>dark/bookmark.svg</file>
+        <file alias="dark/bookmark-active.svg">bookmark-active.svg</file>
         <file>dark/browser-cookies.svg</file>
         <file>dark/chart-line.svg</file>
         <file>dark/checked-completed.svg</file>

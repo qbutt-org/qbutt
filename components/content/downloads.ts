@@ -9,7 +9,8 @@ import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { matchesAudio, type AudioMetadata } from "./audio";
 import type { ResolvedContent, Variant, Work } from "./contracts";
 import { downloadDash } from "./dash";
-import { mediaRoot, mediaTool } from "./media-runtime";
+import { ContentError } from "./errors";
+import { mediaRuntime } from "./media-runtime";
 import { publicAddresses, safeError } from "./net";
 import { NetworkProxy } from "./networkproxy";
 import { persistentVariant, persistentWork } from "./references";
@@ -24,6 +25,7 @@ export interface DownloadJob {
     path?: string;
     progress?: number;
     message?: string;
+    code?: string;
 }
 
 interface EnqueueRequest {
@@ -89,7 +91,7 @@ export class DownloadQueue {
             if (!/^[0-9a-f-]{36}$/i.test(saved.id))
                 continue;
             const job: DownloadJob = { id: saved.id, title: saved.title, status: saved.status,
-                work: saved.work, variant: saved.variant, path: saved.path };
+                work: saved.work, variant: saved.variant, path: saved.path, code: saved.code };
             if (activeStatuses.has(job.status)) {
                 job.status = "error";
                 job.message = "Download interrupted. Download the original variant again to retry.";
@@ -159,7 +161,7 @@ export class DownloadQueue {
 
     private persist(): void {
         this.config.store.setSetting("downloadJobs", [...this.records.values()].map(job => ({
-            id: job.id, title: job.title, status: job.status, work: job.work, variant: job.variant, path: job.path,
+            id: job.id, title: job.title, status: job.status, work: job.work, variant: job.variant, path: job.path, code: job.code,
         })));
     }
 
@@ -235,6 +237,8 @@ export class DownloadQueue {
                 if (job.status === "downloading") {
                     job.status = signal.aborted ? "cancelled" : "error";
                     job.message = signal.aborted ? "Download stopped." : safeError(error);
+                    if (!signal.aborted && error instanceof ContentError)
+                        job.code = error.code;
                     this.changed(job);
                 }
             }
@@ -484,13 +488,13 @@ export class DownloadQueue {
             let selectedStream: number | undefined;
             if (resolved.audioTrack) {
                 const input = audio || video;
-                const ffprobe = await mediaTool(this.config.appDir, "ffprobe", signal);
+                const runtime = await mediaRuntime(this.config.appDir, signal);
                 const streams = await new Promise<{ index: number; codec_type: string; codec_name?: string;
                     channels?: number; tags?: { title?: string; language?: string } }[]>((resolve, reject) => {
-                    const child = spawn(ffprobe, ["-v", "error",
+                    const child = spawn(runtime.tools.ffprobe, ["-v", "error",
                         "-protocol_whitelist", protocols, ...(input.endsWith(".m3u8") ? hlsOptions : []),
                         "-show_streams", "-of", "json", input], {
-                        cwd: mediaRoot(this.config.appDir),
+                        cwd: runtime.runtimeDir,
                         windowsHide: true, stdio: ["ignore", "pipe", "pipe"], signal, env: environment,
                     });
                     const timeout = setTimeout(() => child.kill(), 30000);
@@ -549,10 +553,10 @@ export class DownloadQueue {
                 args.push(`-metadata:s:s:${index}`, `title=${subtitles[index].title}`);
             }
             args.push("-c", "copy", "-c:s", "srt", "-f", "matroska", partial);
-            const ffmpeg = await mediaTool(this.config.appDir, "ffmpeg", signal);
+            const runtime = await mediaRuntime(this.config.appDir, signal);
             await new Promise<void>((resolve, reject) => {
-                const child = spawn(ffmpeg, args, {
-                    cwd: mediaRoot(this.config.appDir),
+                const child = spawn(runtime.tools.ffmpeg, args, {
+                    cwd: runtime.runtimeDir,
                     windowsHide: true, stdio: ["ignore", "ignore", "pipe"], signal,
                     env: environment,
                 });

@@ -147,6 +147,8 @@ async function cachePageImages(page: ReaderPage, sourceId: string, context: Prov
     const abort = new AbortController();
     const imageContext = { ...context, signal: AbortSignal.any([context.signal, abort.signal]) };
     const headers = sourceId === "mangalib" ? { Referer: "https://mangalib.me/", "Site-Id": "1" }
+        : sourceId === "mangadex" ? { Referer: "https://mangadex.org/" }
+        : sourceId === "nhentai" ? { Referer: "https://nhentai.net/" }
         : sourceId === "ranobelib" ? { Referer: "https://ranobelib.me/", "Site-Id": "3" } : undefined;
     const jobs: (() => Promise<void>)[] = [];
     for (const image of page.images ?? []) {

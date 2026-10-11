@@ -177,22 +177,23 @@ void SubtitlesPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject 
 
         QObject observations;
         QStringList errors;
-        QStringList statuses;
         QStringList started;
+        int settingsRequests = 0;
         QJsonArray tracks;
         double position = 0;
         auto *player = Media::Player::instance();
         const auto stop = qScopeGuard([] { Media::Player::freeInstance(); });
         QObject::disconnect(player, &Media::Player::error, errorReceiver, nullptr);
         QObject::connect(player, &Media::Player::error, &observations, [&](const QString &message) { errors.append(message); });
-        QObject::connect(player, &Media::Player::subtitleTranslationChanged, &observations,
-            [&](const QString &message) { statuses.append(message); });
+        QObject::connect(player, &Media::Player::subtitleSettingsRequested, &observations, [&] { ++settingsRequests; });
         QObject::connect(player, &Media::Player::playbackStarted, &observations, [&](const QString &identity) { started.append(identity); });
         QObject::connect(player, &Media::Player::tracksChanged, &observations, [&](const QJsonArray &actual) { tracks = actual; });
         QObject::connect(player, &Media::Player::positionChanged, &observations, [&](const double actual) { position = actual; });
         require(player->playUrl(media, name, options), name + u": legal media fixture was rejected"_s);
         waitFor(name + u": playback started"_s, [&] { return !started.isEmpty() || !errors.isEmpty(); });
-        require(errors.isEmpty() && (started == QStringList {options.identity}), name + u": playback failed or identity changed"_s);
+        require(errors.isEmpty() && (started == QStringList {options.identity}),
+            u"%1: playback failed or identity changed; started=[%2]; errors=[%3]"_s
+                .arg(name, started.join(u", "_s), errors.join(u"; "_s)));
 
         QLocalSocket user;
         user.connectToServer(ipcEndpoint(spec, name));
@@ -203,8 +204,102 @@ void SubtitlesPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject 
         {
             return selectedSubtitle(tracks).value(u"external-filename"_s).toString().contains(u"translated-");
         };
+        const auto subtitleState = [&]
+        {
+            return mpvCommand(user, {u"get_property"_s, u"user-data/qbutt-subtitles"_s}).toObject();
+        };
+        const auto action = [&](const QString &choice)
+        {
+            mpvCommand(user, {u"script-message"_s, u"qplay-subtitles"_s, choice});
+        };
 
-        if (mode == u"real-codex")
+        if ((mode == u"retry") || (mode == u"retry-load"))
+        {
+            waitFor(u"Persistent subtitle translation error"_s, [&] { return subtitleState().value(u"state"_s).toString() == u"error"; });
+            const QJsonObject failure = subtitleState();
+            require(failure.value(u"canTranslate"_s).toBool() && !failure.value(u"message"_s).toString().isEmpty(),
+                u"Translation failure lost its retry capability or explanation"_s);
+            if (mode == u"retry")
+            {
+                require(failure.value(u"message"_s) == scenario.value(u"expectedFailure"_s),
+                    u"AI failure did not use the requested UI language"_s);
+                waitFor(u"Error survives the old seven-second OSD lifetime"_s, [&] { return position >= 8; });
+                require(subtitleState() == failure, u"Translation failure disappeared or retried automatically"_s);
+            }
+            action(u"settings"_s);
+            waitFor(u"Player forwards the AI settings action"_s, [&] { return settingsRequests == 1; });
+            action(u"retry"_s);
+            waitFor(u"Explicit retry selected actual translated subtitles"_s, translated);
+            waitFor(u"Explicit retry confirmed the translated state"_s,
+                [&] { return subtitleState().value(u"state"_s).toString() == u"translated"; });
+            check[u"failure"_s] = failure;
+        }
+        else if (mode.startsWith(u"action-"))
+        {
+            waitFor(u"Initial translation selected"_s, translated);
+            waitFor(u"Initial translation verified"_s, [&] { return subtitleState().value(u"state"_s).toString() == u"translated"; });
+            const int translatedId = selectedSubtitle(tracks).value(u"id"_s).toInt();
+            if ((mode == u"action-race") || (mode == u"action-original-seek"))
+            {
+                const QJsonArray commands = (mode == u"action-race")
+                    ? QJsonArray {QJsonArray {u"script-message"_s, u"qplay-subtitles"_s, u"translate"_s},
+                        QJsonArray {u"script-message"_s, u"qplay-subtitles"_s, u"original"_s}}
+                    : QJsonArray {QJsonArray {u"script-message"_s, u"qplay-subtitles"_s, u"original"_s},
+                        QJsonArray {u"seek"_s, 180, u"absolute+exact"_s}};
+                for (const QJsonValue &command : commands)
+                    user.write(QJsonDocument(QJsonObject {{u"command"_s,
+                        command}}).toJson(QJsonDocument::Compact) + '\n');
+                user.flush();
+            }
+            else if ((mode == u"action-off") || (mode == u"action-retarget"))
+            {
+                mpvCommand(user, {u"set_property"_s, u"sid"_s,
+                    (mode == u"action-off") ? QJsonValue(u"no"_s) : QJsonValue(2)});
+            }
+            else
+            {
+                action(u"original"_s);
+            }
+            waitFor(u"User source choice is reflected in the structured state"_s,
+                [&] { return subtitleState().value(u"state"_s).toString() == u"original"; });
+            const int sourceId = (mode == u"action-retarget") ? 2 : ((mode == u"action-off") ? 0 : 1);
+            require(selectedSubtitle(mpvCommand(user, {u"get_property"_s, u"track-list"_s}).toArray()).value(u"id"_s).toInt() == sourceId,
+                u"Original/Off did not preserve the selected source track"_s);
+            if (mode == u"action-race")
+            {
+                const double chosenAt = position;
+                waitFor(u"Late TranslateTracks cannot override Original"_s, [&] { return position >= chosenAt + 0.5; });
+                require(subtitleState().value(u"state"_s).toString() == u"original", u"A cancelled Translate action re-enabled AI"_s);
+            }
+            action(u"translate"_s);
+            waitFor(u"Explicit Translate resumes after Original/Off"_s, translated);
+            waitFor(u"Restored translated track verified"_s, [&] { return subtitleState().value(u"state"_s).toString() == u"translated"; });
+            if ((mode != u"action-retarget") && (mode != u"action-original-seek"))
+                require(selectedSubtitle(tracks).value(u"id"_s).toInt() == translatedId,
+                    u"Same cached revision duplicated the generated track"_s);
+            require(tracks.size() == scenario.value(u"expectedTracks"_s).toInt(), u"Explicit controls lost or duplicated subtitle tracks"_s);
+            action(u"original"_s);
+            waitFor(u"Exact original restored after explicit Translate"_s, [&]
+            {
+                return (subtitleState().value(u"state"_s).toString() == u"original")
+                    && (selectedSubtitle(tracks).value(u"id"_s).toInt() == ((mode == u"action-retarget") ? 2 : 1));
+            });
+        }
+        else if (mode == u"late-track")
+        {
+            waitFor(u"No-track capability reflects actual media"_s, [&] { return subtitleState().value(u"state"_s).toString() == u"no-track"; });
+            require(!subtitleState().value(u"canTranslate"_s).toBool(), u"Missing subtitles advertised translation"_s);
+            mpvCommand(user, {u"seek"_s, 300, u"absolute+exact"_s});
+            waitFor(u"No-track media reached EOF"_s, [&] { return mpvCommand(user, {u"get_property"_s, u"eof-reached"_s}).toBool(); });
+            mpvCommand(user, {u"seek"_s, 0, u"absolute+exact"_s});
+            mpvCommand(user, {u"set_property"_s, u"pause"_s, false});
+            waitFor(u"Media without an AI source resumed"_s, [&] { return position >= 0.5 && position < 300; });
+            mpvCommand(user, {u"sub-add"_s, scenario.value(u"lateSubtitle"_s), u"select"_s, u"English"_s, u"en"_s});
+            waitFor(u"New text track becomes translatable"_s, [&] { return subtitleState().value(u"canTranslate"_s).toBool(); });
+            action(u"translate"_s);
+            waitFor(u"Text subtitles added after EOF can be translated"_s, translated);
+        }
+        else if (mode == u"real-codex")
         {
             mpvCommand(user, {u"set_property"_s, u"pause"_s, true});
             waitFor(u"Real Codex translated track selected by production Player"_s, translated, 180000);
@@ -315,10 +410,11 @@ void SubtitlesPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject 
             require(!translated(), u"An unnecessary generated subtitle track was selected"_s);
             if (mode == u"unavailable")
             {
-                int messages = 0;
-                for (const QString &status : statuses)
-                    messages += status.contains(u"Fixture AI unavailable") ? 1 : 0;
-                require(messages == 1, u"Unavailable AI did not produce exactly one actionable nonfatal message"_s);
+                const QJsonObject failure = subtitleState();
+                require((failure.value(u"state"_s).toString() == u"error")
+                    && (failure.value(u"message"_s) == scenario.value(u"expectedFailure"_s))
+                    && failure.value(u"canTranslate"_s).toBool(), u"Unavailable AI lost its persistent localized failure"_s);
+                check[u"failure"_s] = failure;
             }
             if ((mode == u"early-off") || (mode == u"no-track") || (mode == u"existing-ru"))
                 require(!helperEvent(spec, options.identity, u"request"_s), u"A subtitle AI request was unnecessary"_s);
@@ -382,7 +478,15 @@ void SubtitlesPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject 
         require(errors.isEmpty(), name + u": subtitle processing interrupted normal playback"_s);
         check[u"position"_s] = position;
         check[u"selected"_s] = selectedSubtitle(tracks);
-        check[u"statuses"_s] = QJsonArray::fromStringList(statuses);
+        QJsonArray states;
+        for (const QJsonValue &entry : readTrace(spec.value(u"mpvTrace"_s).toString()))
+        {
+            const QJsonObject item = entry.toObject();
+            if ((item.value(u"title"_s).toString() == name) && item.value(u"subtitles"_s).isObject())
+                states.append(item.value(u"subtitles"_s));
+        }
+        require(!states.isEmpty(), u"Actual mpv received no structured subtitle state"_s);
+        check[u"states"_s] = states;
         checks.append(check);
         evidence[u"checks"_s] = checks;
         if (mode == u"real-codex")

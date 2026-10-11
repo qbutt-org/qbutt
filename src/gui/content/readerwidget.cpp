@@ -7,6 +7,7 @@
 
 #include <utility>
 
+#include <QAbstractTextDocumentLayout>
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDialog>
@@ -40,6 +41,7 @@
 #include "base/preferences.h"
 #include "gui/flowlayout.h"
 #include "gui/uithememanager.h"
+#include "chapterpicker.h"
 #include "readerimages.h"
 #include "readersettingsdialog.h"
 
@@ -231,11 +233,19 @@ Content::ReaderWidget::ReaderWidget(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(8);
 
-    auto *header = new FlowLayout(0, 8, 6);
-    auto *back = new QToolButton(this);
+    auto *header = new QHBoxLayout;
+    header->setSpacing(16);
+    auto *controls = new FlowLayout(0, 8, 6);
+    header->addLayout(controls, 1);
+    auto *identity = new QWidget(this);
+    auto *identityLayout = new QHBoxLayout(identity);
+    identityLayout->setContentsMargins(0, 0, 0, 0);
+    identityLayout->setSpacing(8);
+    auto *back = new QToolButton(identity);
     back->setObjectName(u"readerBack"_s);
     back->setArrowType(Qt::LeftArrow);
-    back->setToolTip(tr("Back"));
+    back->setText(tr("Back"));
+    back->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     connect(back, &QToolButton::clicked, this, [this]
     {
         savePosition();
@@ -247,49 +257,57 @@ Content::ReaderWidget::ReaderWidget(QWidget *parent)
         updateControls();
         emit closed();
     });
-    header->addWidget(back);
-    m_title = new ReaderTitle(this);
+    identityLayout->addWidget(back);
+    m_title = new ReaderTitle(identity);
     m_title->setText(tr("Reader"));
     m_title->setObjectName(u"readerTitle"_s);
     QFont titleFont = m_title->font();
     titleFont.setBold(true);
     m_title->setFont(titleFont);
-    header->addWidget(m_title);
-    m_previous = new QToolButton(this);
-    m_previous->setObjectName(u"readerPrevious"_s);
-    m_previous->setArrowType(Qt::LeftArrow);
-    header->addWidget(m_previous);
-    m_chapters = new QComboBox(this);
+    identityLayout->addWidget(m_title);
+    controls->addWidget(identity);
+    m_chapters = new ChapterPicker(this);
     m_chapters->setObjectName(u"readerChapters"_s);
     m_chapters->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    m_chapters->setMinimumContentsLength(8);
+    m_chapters->setMinimumContentsLength(16);
     m_chapters->setMaximumWidth(260);
     m_chapters->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    header->addWidget(m_chapters);
-    m_next = new QToolButton(this);
+    controls->addWidget(m_chapters);
+
+    auto *pages = new QWidget(this);
+    auto *pageLayout = new QHBoxLayout(pages);
+    pageLayout->setContentsMargins(0, 0, 0, 0);
+    pageLayout->setSpacing(4);
+    m_previous = new QToolButton(pages);
+    m_previous->setObjectName(u"readerPrevious"_s);
+    m_previous->setArrowType(Qt::LeftArrow);
+    pageLayout->addWidget(m_previous);
+    m_pageNumber = new QLabel(pages);
+    m_pageNumber->setObjectName(u"readerPageNumber"_s);
+    m_pageNumber->setAlignment(Qt::AlignCenter);
+    pageLayout->addWidget(m_pageNumber);
+    m_next = new QToolButton(pages);
     m_next->setObjectName(u"readerNext"_s);
     m_next->setArrowType(Qt::RightArrow);
-    header->addWidget(m_next);
-    m_pageNumber = new QLabel(this);
-    m_pageNumber->setObjectName(u"readerPageNumber"_s);
-    header->addWidget(m_pageNumber);
+    pageLayout->addWidget(m_next);
+    header->addWidget(pages, 0, Qt::AlignTop);
     connect(m_chapters, &QComboBox::activated, this, [this](const int index) { readChapter(index); });
     connect(m_previous, &QToolButton::clicked, this, [this] { turnPage(-1); });
     connect(m_next, &QToolButton::clicked, this, [this] { turnPage(1); });
     m_translate = new QPushButton(this);
     m_translate->setObjectName(u"readerTranslate"_s);
     connect(m_translate, &QPushButton::clicked, this, &ReaderWidget::translate);
-    header->addWidget(m_translate);
+    controls->addWidget(m_translate);
     m_original = new QPushButton(tr("Original"), this);
     m_original->setObjectName(u"readerOriginal"_s);
     m_original->setCheckable(true);
     m_original->setToolTip(tr("Show original"));
     connect(m_original, &QPushButton::toggled, this, [this] { renderPage(scrollPosition(), m_images->imageIndex()); });
-    header->addWidget(m_original);
+    controls->addWidget(m_original);
     m_glossary = new QPushButton(tr("Glossary"), this);
     m_glossary->setObjectName(u"readerGlossary"_s);
     connect(m_glossary, &QPushButton::clicked, this, &ReaderWidget::editGlossary);
-    header->addWidget(m_glossary);
+    controls->addWidget(m_glossary);
     m_settings = new QToolButton(this);
     m_settings->setObjectName(u"readerSettings"_s);
     m_settings->setIcon(UIThemeManager::instance()->getIcon(u"configure"_s, u"preferences-system"_s));
@@ -306,24 +324,24 @@ Content::ReaderWidget::ReaderWidget(QWidget *parent)
         dialog->raise();
         dialog->activateWindow();
     });
-    header->addWidget(m_settings);
+    controls->addWidget(m_settings);
     m_textSizeLabel = new QLabel(tr("Text size"), this);
-    header->addWidget(m_textSizeLabel);
+    controls->addWidget(m_textSizeLabel);
     m_textSize = new QSpinBox(this);
     m_textSize->setObjectName(u"readerTextSize"_s);
     m_textSize->setRange(10, 36);
     m_textSize->setValue(16);
     m_textSizeLabel->setBuddy(m_textSize);
-    header->addWidget(m_textSize);
+    controls->addWidget(m_textSize);
     layout->addLayout(header);
     connect(m_textSize, &QSpinBox::valueChanged, this, [this]
     {
-        const double offset = scrollPosition();
+        m_pendingPosition.offset = scrollPosition();
         QFont font = m_text->document()->defaultFont();
         font.setPointSize(m_textSize->value());
         m_restoringPosition = true;
         m_text->document()->setDefaultFont(font);
-        restorePosition(offset);
+        restorePosition(m_pendingPosition.offset);
     });
 
     auto *feedback = new QHBoxLayout;
@@ -364,23 +382,19 @@ Content::ReaderWidget::ReaderWidget(QWidget *parent)
     m_positionTimer = new QTimer(this);
     m_positionTimer->setSingleShot(true);
     m_positionTimer->setInterval(800);
-    connect(m_images, &ImagePages::imageIndexChanged, this, [this](const int imageIndex)
+    const auto positionChanged = [this]
     {
-        m_imagePositions.insert(m_page.value(u"id"_s).toString(), imageIndex);
-        m_positionTimer->start();
+        if (!m_restoringPosition && !m_page.isEmpty() && (m_request == 0) && !m_positionTimer->isActive())
+            m_positionTimer->start();
         updateControls();
-    });
+    };
+    connect(m_images, &ImagePages::positionChanged, this, positionChanged);
+    connect(m_text->verticalScrollBar(), &QScrollBar::valueChanged, this, positionChanged);
     connect(m_positionTimer, &QTimer::timeout, this, [this]
     {
         savePosition();
         if (m_translationEnabled && (m_translationRequest == 0))
             startAhead();
-    });
-    connect(m_text->verticalScrollBar(), &QScrollBar::valueChanged, this, [this]
-    {
-        if (!m_restoringPosition && !m_page.isEmpty() && (m_request == 0) && !m_positionTimer->isActive())
-            m_positionTimer->start();
-        updateControls();
     });
     connect(Client::instance(), &Client::eventReceived, this, &ReaderWidget::handleEvent);
     showStatus({});
@@ -404,10 +418,12 @@ void Content::ReaderWidget::open(const QJsonObject &descriptor)
 void Content::ReaderWidget::openDocument(const QString &method, const QJsonObject &params)
 {
     savePosition();
+    m_chapters->resetPopup();
     m_document = {};
     m_page = {};
     m_translatedPage = {};
-    m_imagePositions.clear();
+    m_positions.clear();
+    m_restoringPosition = false;
     m_translationEnabled = false;
     m_chapterId.clear();
     m_chapters->clear();
@@ -531,7 +547,6 @@ void Content::ReaderWidget::handleEvent(const qint64 id, const QString &event, c
         m_request = 0;
         if (event == u"error")
         {
-            const QSignalBlocker blocker(m_chapters);
             m_chapters->setCurrentIndex(m_chapters->findData(m_chapterId));
             showStatus(errorMessage(data), true);
         }
@@ -539,12 +554,12 @@ void Content::ReaderWidget::handleEvent(const qint64 id, const QString &event, c
         {
             if (m_page.value(u"id"_s) == data.toObject().value(u"id"_s))
             {
-                m_pendingOffset = scrollPosition();
-                m_pendingImageIndex = m_images->imageIndex();
+                m_pendingPosition = {scrollPosition(), m_images->imageIndex()};
             }
             m_chapterId = m_requestParams.value(u"chapter"_s).toObject().value(u"id"_s).toString();
             m_chapters->setCurrentIndex(m_chapters->findData(m_chapterId));
             setPage(data.toObject());
+            savePosition();
         }
         else
         {
@@ -561,13 +576,16 @@ void Content::ReaderWidget::setDocument(const QJsonObject &document)
     m_translationEnabled = (source == u"kakuyomu") || (source == u"syosetu") || (source == u"royalroad") || (source == u"linovel");
     m_title->setText(document.value(u"title"_s).toString());
     m_title->setToolTip(m_title->text());
-    const QSignalBlocker blocker(m_chapters);
     m_chapters->clear();
     const QJsonArray chapters = document.value(u"chapters"_s).toArray();
     for (const QJsonValue &value : chapters)
     {
         const QJsonObject chapter = value.toObject();
-        m_chapters->addItem(chapter.value(u"title"_s).toString(), chapter.value(u"id"_s).toString());
+        const QString title = chapter.value(u"title"_s).toString();
+        const double volume = chapter.value(u"volume"_s).toDouble();
+        const QString label = volume > 0 ? tr("Volume %1 — %2").arg(volume).arg(title) : title;
+        m_chapters->addItem(label, chapter.value(u"id"_s).toString());
+        m_chapters->setItemData(m_chapters->count() - 1, label, Qt::ToolTipRole);
     }
     if (chapters.isEmpty())
     {
@@ -577,8 +595,8 @@ void Content::ReaderWidget::setDocument(const QJsonObject &document)
 
     const QJsonObject position = document.value(u"position"_s).toObject();
     const int savedChapter = m_chapters->findData(position.value(u"chapterId"_s).toString());
-    m_pendingOffset = qBound(0.0, position.value(u"offset"_s).toDouble(), 1.0);
-    m_imagePositions.insert(position.value(u"chapterId"_s).toString(), qMax(0, position.value(u"imageIndex"_s).toInt()));
+    m_positions.insert(position.value(u"chapterId"_s).toString(),
+        {qBound(0.0, position.value(u"offset"_s).toDouble(), 1.0), qMax(0, position.value(u"imageIndex"_s).toInt())});
     readChapter(qMax(0, savedChapter));
 }
 
@@ -589,10 +607,10 @@ void Content::ReaderWidget::readChapter(const int index, const std::optional<int
         return;
 
     savePosition();
-    if (!m_page.isEmpty())
-        m_pendingOffset = 0;
     const QString chapterId = chapters[index].toObject().value(u"id"_s).toString();
-    m_pendingImageIndex = imageIndex.value_or(m_imagePositions.value(chapterId, 0));
+    m_pendingPosition = m_positions.value(chapterId);
+    if (imageIndex.has_value())
+        m_pendingPosition = {0, *imageIndex};
     m_chapters->setCurrentIndex(index);
     startRequest(u"reader.chapter"_s, {{u"sourceId"_s, m_document.value(u"sourceId"_s)},
         {u"documentId"_s, m_document.value(u"id"_s)}, {u"chapter"_s, chapters[index]}});
@@ -632,7 +650,7 @@ void Content::ReaderWidget::setPage(const QJsonObject &page)
     m_translatedPage = {};
     const QSignalBlocker blocker(m_original);
     m_original->setChecked(false);
-    renderPage(m_pendingOffset, m_pendingImageIndex);
+    renderPage(m_pendingPosition.offset, m_pendingPosition.imageIndex);
     showStatus({});
     if (firstPage && (page.value(u"kind"_s).toString() == u"images"))
         m_images->setFocus(Qt::OtherFocusReason);
@@ -658,11 +676,12 @@ void Content::ReaderWidget::renderPage(const double offset, const int imageIndex
     if (m_page.isEmpty())
         return;
 
+    m_pendingPosition = {offset, imageIndex};
     const QJsonObject page = (!m_translatedPage.isEmpty() && !m_original->isChecked()) ? m_translatedPage : m_page;
     if (page.value(u"kind"_s).toString() == u"images")
     {
-        m_images->setPage(page, imageIndex, m_original->isChecked());
-        m_imagePositions.insert(m_page.value(u"id"_s).toString(), m_images->imageIndex());
+        m_restoringPosition = false;
+        m_images->setPage(page, imageIndex, offset, m_original->isChecked());
         m_content->setCurrentWidget(m_images);
     }
     else
@@ -814,37 +833,68 @@ void Content::ReaderWidget::showStatus(const QString &message, const bool canRet
 
 double Content::ReaderWidget::scrollPosition() const
 {
+    if (m_page.value(u"kind"_s).toString() == u"images")
+        return m_images->imageOffset();
+    if (m_restoringPosition)
+        return m_pendingPosition.offset;
+
     const QScrollBar *bar = m_text->verticalScrollBar();
     return (bar->maximum() > 0) ? double(bar->value()) / bar->maximum() : 0;
 }
 
 void Content::ReaderWidget::restorePosition(const double offset)
 {
-    QTimer::singleShot(0, this, [this, offset]
+    disconnect(m_positionRestore);
+    const QJsonValue documentId = m_document.value(u"id"_s);
+    const QJsonValue chapterId = m_page.value(u"id"_s);
+    const int revision = m_text->document()->revision();
+    QTimer::singleShot(0, this, [this, offset, documentId, chapterId, revision]
     {
+        if ((documentId != m_document.value(u"id"_s)) || (chapterId != m_page.value(u"id"_s))
+            || (revision != m_text->document()->revision()))
+        {
+            return;
+        }
+        layout()->activate();
         QScrollBar *bar = m_text->verticalScrollBar();
-        bar->setValue(qRound(qBound(0.0, offset, 1.0) * bar->maximum()));
-        m_restoringPosition = false;
+        // QTextEdit estimates the range until its lazy document layout finishes.
+        const QSize documentSize = m_text->document()->documentLayout()->documentSize().toSize();
+        const auto apply = [this, offset, documentId, chapterId, revision]
+        {
+            if ((documentId != m_document.value(u"id"_s)) || (chapterId != m_page.value(u"id"_s))
+                || (revision != m_text->document()->revision()))
+            {
+                return;
+            }
+            QScrollBar *bar = m_text->verticalScrollBar();
+            bar->setValue(qRound(qBound(0.0, offset, 1.0) * bar->maximum()));
+            m_restoringPosition = false;
+        };
+        if (bar->maximum() == qMax(0, documentSize.height() - m_text->viewport()->height()))
+        {
+            apply();
+        }
+        else
+        {
+            m_positionRestore = connect(bar, &QScrollBar::rangeChanged, this, apply,
+                Qt::ConnectionType(Qt::QueuedConnection | Qt::SingleShotConnection));
+        }
     });
 }
 
 void Content::ReaderWidget::savePosition()
 {
     m_positionTimer->stop();
-    if (m_document.isEmpty() || m_chapterId.isEmpty() || m_page.isEmpty() || m_restoringPosition)
+    if (m_document.isEmpty() || m_chapterId.isEmpty() || m_page.isEmpty())
         return;
 
     QJsonObject progress {{u"documentId"_s, m_document.value(u"id"_s)},
         {u"workId"_s, m_document.value(u"workId"_s)},
-        {u"chapterId"_s, m_chapterId}};
+        {u"chapterId"_s, m_chapterId},
+        {u"offset"_s, qBound(0.0, scrollPosition(), 1.0)}};
+    m_positions.insert(m_chapterId, {scrollPosition(), m_images->imageIndex()});
     if (m_page.value(u"kind"_s).toString() == u"images")
-    {
         progress.insert(u"imageIndex"_s, m_images->imageIndex());
-    }
-    else
-    {
-        progress.insert(u"offset"_s, scrollPosition());
-    }
     Client::instance()->request(u"reader.position"_s, progress);
     emit progressChanged(progress);
 }

@@ -68,7 +68,8 @@ export async function expandFitgirlMirrors($: CheerioAPI, context: ProviderConte
         const list = $("<ul></ul>");
         for (const link of links) {
             const mirror = new URL(link);
-            const filename = decodeURIComponent(mirror.pathname.split("/").pop() ?? "");
+            const filename = decodeURIComponent((mirror.hostname === "fuckingfast.co" && mirror.hash
+                ? mirror.hash.slice(1) : mirror.pathname.split("/").pop()) ?? "");
             const entry = $("<li></li>");
             entry.append($("<a></a>").attr("href", mirror.href).attr("data-publisher-mirror", "true")
                 .text([label, mirror.hostname, filename].filter(Boolean).join(", ")));

@@ -9,9 +9,9 @@
 
 #include <QHash>
 #include <QJsonObject>
+#include <QMetaObject>
 #include <QWidget>
 
-class QComboBox;
 class QLabel;
 class QPushButton;
 class QSpinBox;
@@ -22,6 +22,7 @@ class QToolButton;
 
 namespace Content
 {
+    class ChapterPicker;
     class ImagePages;
 
     class ReaderWidget final : public QWidget
@@ -45,6 +46,12 @@ namespace Content
         void progressChanged(const QJsonObject &progress);
 
     private:
+        struct ReadingPosition
+        {
+            double offset = 0;
+            int imageIndex = 0;
+        };
+
         void openDocument(const QString &method, const QJsonObject &params);
         void startRequest(const QString &method, const QJsonObject &params);
         void handleEvent(qint64 id, const QString &event, const QJsonValue &data);
@@ -64,7 +71,7 @@ namespace Content
         void restorePosition(double offset);
 
         QLabel *m_title = nullptr;
-        QComboBox *m_chapters = nullptr;
+        ChapterPicker *m_chapters = nullptr;
         QToolButton *m_previous = nullptr;
         QToolButton *m_next = nullptr;
         QToolButton *m_settings = nullptr;
@@ -81,18 +88,18 @@ namespace Content
         ImagePages *m_images = nullptr;
         QLabel *m_empty = nullptr;
         QTimer *m_positionTimer = nullptr;
+        QMetaObject::Connection m_positionRestore;
 
         QJsonObject m_document;
         QJsonObject m_page;
         QJsonObject m_translatedPage;
-        QHash<QString, int> m_imagePositions;
+        QHash<QString, ReadingPosition> m_positions;
+        ReadingPosition m_pendingPosition;
         QString m_chapterId;
         QString m_requestMethod;
         QJsonObject m_requestParams;
         qint64 m_request = 0;
         qint64 m_translationRequest = 0;
-        double m_pendingOffset = 0;
-        int m_pendingImageIndex = 0;
         bool m_restoringPosition = false;
         bool m_translationEnabled = false;
     };

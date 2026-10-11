@@ -1,4 +1,0 @@
-profile/**/target/
-!profile/tools/bin/framegen-manager.exe
-!profile/tools/bin/framegen-bootstrap.dll
-!profile/tools/bin/framegen-vsov.dll

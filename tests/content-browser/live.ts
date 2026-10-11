@@ -3,21 +3,23 @@ import { mkdir } from "node:fs/promises";
 import type { Event, ResolvedContent, Variant, WorkDetails } from "../../components/content/contracts.ts";
 import { verifyLiveDownload } from "../content-online/download.ts";
 import { debuggerSocket, observePlayer } from "./frames.ts";
+import { mediaRuntime as resolveMediaRuntime } from "../../components/content/media-runtime";
 
 const [lab, appDir, animeId = "10661", chosenIds = "687385", mode = "browser"] = Bun.argv.slice(2);
 if (!lab || !appDir || !/^\d+$/.test(animeId) || !/^\d+(?:,\d+)*$/.test(chosenIds)
     || !["browser", "public"].includes(mode))
     throw new Error("Usage: bun live.ts <isolated-lab-directory> <portable-app-directory> [anime-id] [exact-video-ids] [browser|public]");
 const videoIds = chosenIds.split(",");
-const mediaRuntime = process.env.QBUTT_MEDIA_RUNTIME_DIR ?? "";
-if (!mediaRuntime)
-    throw new Error("Set QBUTT_MEDIA_RUNTIME_DIR to the separately prepared pinned lab media tools.");
+process.env.QBUTT_LAB_PATHS = "1";
+const { tools: { ffmpeg } } = await resolveMediaRuntime(appDir, AbortSignal.timeout(30_000));
+const extensionDirectory = process.env.QBUTT_QCATCH_EXTENSION_DIR;
+if (mode === "browser" && (!extensionDirectory || !await Bun.file(join(extensionDirectory, "manifest.json")).exists()))
+    throw new Error("Set QBUTT_QCATCH_EXTENSION_DIR to the independently installed qcatch extension.");
 
 const debugUrl = "http://127.0.0.1:43902";
 const helper = Bun.spawn([join(lab, "qbutt-content.exe"), "--data-dir", join(lab, "profile"),
     "--download-dir", join(lab, "downloads"), "--app-dir", appDir], {
     cwd: lab, stdin: "pipe", stdout: "pipe", stderr: "ignore", windowsHide: true,
-    env: { ...process.env, QBUTT_LAB_PATHS: "1", QBUTT_MEDIA_RUNTIME_DIR: mediaRuntime },
 });
 const requests = new Map<number, { events: Event[]; finish(events: Event[]): void; fail(error: Error): void }>();
 let nextId = 0;
@@ -127,11 +129,11 @@ async function decode(resolved: ResolvedContent): Promise<Record<string, unknown
     const headers = Object.entries(resolved.headers ?? {}).map(([key, value]) => `${key}: ${value}\r\n`).join("");
     const input = ["-http_proxy", resolved.proxyUrl, "-rw_timeout", "10000000", "-headers", headers,
         "-protocol_whitelist", "http,https,httpproxy,tcp,tls,crypto", "-i"];
-    const args = [join(mediaRuntime, "tools", "ffmpeg.exe"), "-hide_banner", "-loglevel", "error", "-nostats",
+    const args = [ffmpeg, "-hide_banner", "-loglevel", "error", "-nostats",
         "-threads", "2", ...input, resolved.url];
     if (resolved.audioUrl) args.push(...input, resolved.audioUrl, "-map", "0:v:0", "-map", "1:a:0");
     args.push("-t", "3", "-progress", "pipe:1", "-f", "null", "-");
-    const child = Bun.spawn(args, { cwd: mediaRuntime, stdout: "pipe", stderr: "pipe", windowsHide: true });
+    const child = Bun.spawn(args, { cwd: lab, stdout: "pipe", stderr: "pipe", windowsHide: true });
     const timeout = setTimeout(() => child.kill(), 30_000);
     const [progress, error, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     clearTimeout(timeout);
@@ -147,7 +149,7 @@ try {
         browser = Bun.spawn(["C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
             "--start-minimized", "--no-first-run", "--no-default-browser-check",
             "--remote-debugging-port=43902", `--user-data-dir=${join(lab, "edge-profile")}`,
-            `--load-extension=${join(lab, "browser-extension", "chromium")}`, "about:blank"], {
+            `--load-extension=${extensionDirectory}`, "about:blank"], {
             stdin: "ignore", stdout: "ignore", stderr: "ignore", windowsHide: true,
         });
         let ready = false;

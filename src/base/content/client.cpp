@@ -5,6 +5,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QTimer>
 
@@ -17,6 +18,81 @@ namespace
 {
     constexpr qsizetype MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
     constexpr qsizetype MAX_PENDING_REQUESTS = 128;
+
+    QJsonObject localizeFailure(QJsonObject failure)
+    {
+        const QString code = failure.value(u"code"_s).toString();
+        QString message;
+        if (code == u"qplay_unavailable")
+            message = Content::Client::tr("qplay is unavailable or damaged. Reinstall qplay or run the qbutt installer again.");
+        else if (code == u"qplay_incompatible")
+            message = Content::Client::tr("This version of qplay is incompatible. Install a compatible qplay version.");
+        else if (code == u"qcatch_unavailable")
+            message = Content::Client::tr("qcatch setup did not complete. Reinstall qcatch or run the qbutt installer again.");
+        else if (code == u"qcatch_incompatible")
+            message = Content::Client::tr("This version of qcatch is incompatible. Install a compatible qcatch version.");
+        else if (code == u"component_download_failed")
+            message = Content::Client::tr("Could not download the component. Check your connection and try again.");
+        else if (code == u"component_integrity_failed")
+            message = Content::Client::tr("The component failed its integrity check. Reinstall qbutt and try again.");
+        else if (code == u"capture_expired")
+            message = Content::Client::tr("This capture expired or changed. Choose the media again in qcatch.");
+        else if (code == u"capture_session")
+            message = Content::Client::tr("This qcatch selection belongs to the current browser session. Share the source page instead.");
+        else if (code == u"unsupported_multi_audio")
+            message = Content::Client::tr("Choose one audio track in qcatch before sending this media to qbutt.");
+        else if (code == u"unsupported_private_tracks")
+            message = Content::Client::tr("These audio or subtitle tracks require separate sign-in. Download them through qcatch instead.");
+        else if (code == u"library_limit")
+            message = Content::Client::tr("The saved variants exceed 16 MiB. Remove this item from the library and save it again.");
+        else if (code == u"browser_required")
+            message = Content::Client::tr("Install qcatch and connect the extension in the selected browser.");
+        else if (code == u"browser_update_required")
+            message = Content::Client::tr("Update qcatch and reload its browser extension to search VK Video.");
+        else if (code == u"browser_busy")
+            message = Content::Client::tr("The browser is busy. Try again in a few seconds.");
+        else if (code == u"browser_timeout")
+            message = Content::Client::tr("The browser took too long. Open the source and try again.");
+        else if (code == u"selected_content_changed")
+            message = Content::Client::tr("The source changed the selected page. Choose it again and retry.");
+        else if (code == u"browser_error")
+            message = Content::Client::tr("Could not read the source in the browser. Open the source and try again.");
+        else if (code == u"browser_choice_required")
+            message = Content::Client::tr("Choose an installed browser in Sources.");
+        else if (code == u"browser_unsupported")
+            message = Content::Client::tr("qcatch supports Microsoft Edge and Google Chrome.");
+        else if (code == u"webview_unavailable")
+            message = Content::Client::tr("The source check is unavailable. Reinstall qbutt.");
+        else if (code == u"webview_runtime_required")
+            message = Content::Client::tr("Install Microsoft Edge WebView2 Runtime to check this source.");
+        else if (code == u"webview_timeout")
+            message = Content::Client::tr("The source check took too long. Try again.");
+        else if (code == u"webview_failed")
+            message = Content::Client::tr("Could not check the source. Try again.");
+        else if (code == u"browser_check_required")
+            message = Content::Client::tr("This source requires a browser check.");
+        else if (code == u"source_session_invalid")
+            message = Content::Client::tr("Check the source session in Sources.");
+        else if (code == u"source_authorization_required")
+            message = Content::Client::tr("Save your account session in Sources before using this source.");
+        else if (code == u"ai_unavailable")
+            message = Content::Client::tr("Codex is unavailable. Install it and sign in, or choose another AI service in Sources.");
+        else if (code == u"ai_authentication")
+            message = Content::Client::tr("Sign in to your AI service or check its API key in Sources.");
+        else if (code == u"ai_configuration")
+            message = Content::Client::tr("Check the AI translation settings in Sources.");
+        else if (code == u"ai_timeout")
+            message = Content::Client::tr("AI translation took too long. Retry.");
+        else if (code == u"ai_provider")
+            message = Content::Client::tr("The AI service could not complete the translation. Retry or check its settings in Sources.");
+        else if (code == u"ai_invalid-response")
+            message = Content::Client::tr("The AI service returned an invalid translation. Retry or choose another model.");
+        else if (code == u"ai_capability")
+            message = Content::Client::tr("This AI service cannot translate with the current settings. Choose another service or model in Sources.");
+        if (!message.isEmpty())
+            failure.insert(u"message"_s, message);
+        return failure;
+    }
 }
 
 Content::Client *Content::Client::m_instance = nullptr;
@@ -104,7 +180,8 @@ qint64 Content::Client::request(const QString &method, const QJsonObject &params
             flushRequests();
         }
     });
-    const int timeout = ((method == u"reader.translate") || (method == u"reader.ahead")) ? 1800000 : 180000;
+    const int timeout = ((method == u"reader.translate") || (method == u"reader.ahead")) ? 1800000
+        : (method == u"connectBrowser") ? 600000 : 180000;
     QTimer::singleShot(timeout, this, [this, id, method]
     {
         if (!m_pending.remove(id))
@@ -158,9 +235,32 @@ void Content::Client::readOutput()
             failPending(tr("The content service returned an invalid response."));
             return;
         }
+        QJsonValue data = object.value(u"data"_s);
+        if ((event == u"error") || ((event == u"complete") && data.isObject())
+            || ((event == u"job") && (data.toObject().value(u"status"_s).toString() == u"error")))
+            data = localizeFailure(data.toObject());
+        else if (event == u"jobs")
+        {
+            QJsonArray jobs;
+            for (const QJsonValue &job : data.toArray())
+                jobs.append(localizeFailure(job.toObject()));
+            data = jobs;
+        }
+        else if (event == u"sources")
+        {
+            QJsonArray sources;
+            for (const QJsonValue &value : data.toArray())
+            {
+                QJsonObject source = value.toObject();
+                if (source.value(u"health"_s).isObject())
+                    source.insert(u"health"_s, localizeFailure(source.value(u"health"_s).toObject()));
+                sources.append(source);
+            }
+            data = sources;
+        }
         if ((id == 0) && ((event == u"job") || (event == u"progress")))
         {
-            emit eventReceived(id, event, object.value(u"data"_s));
+            emit eventReceived(id, event, data);
             continue;
         }
         if (!m_pending.contains(id))
@@ -168,7 +268,7 @@ void Content::Client::readOutput()
 
         if ((event == u"complete") || (event == u"error"))
             m_pending.remove(id);
-        emit eventReceived(id, event, object.value(u"data"_s));
+        emit eventReceived(id, event, data);
     }
 }
 

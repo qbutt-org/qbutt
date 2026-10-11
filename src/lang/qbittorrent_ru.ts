@@ -3750,6 +3750,153 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
 <context>
     <name>Content::Client</name>
     <message>
+        <source>Save your account session in Sources before using this source.</source>
+        <translation>Для работы с этим источником сохраните сессию аккаунта в разделе «Источники».</translation>
+    </message>
+    <message>
+        <source>Check the source session in Sources.</source>
+        <translation>Проверьте сессию источника в разделе «Источники».</translation>
+    </message>
+    <message>
+        <source>Codex is unavailable. Install it and sign in, or choose another AI service in Sources.</source>
+        <translation>Codex недоступен. Установите его и войдите в аккаунт или выберите другой AI-сервис в разделе «Источники».</translation>
+    </message>
+    <message>
+        <source>Sign in to your AI service or check its API key in Sources.</source>
+        <translation>Войдите в AI-сервис или проверьте его API-ключ в разделе «Источники».</translation>
+    </message>
+    <message>
+        <source>Check the AI translation settings in Sources.</source>
+        <translation>Проверьте настройки AI-перевода в разделе «Источники».</translation>
+    </message>
+    <message>
+        <source>AI translation took too long. Retry.</source>
+        <translation>AI-перевод занял слишком много времени. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>The AI service could not complete the translation. Retry or check its settings in Sources.</source>
+        <translation>AI-сервис не смог завершить перевод. Повторите попытку или проверьте его настройки в разделе «Источники».</translation>
+    </message>
+    <message>
+        <source>The AI service returned an invalid translation. Retry or choose another model.</source>
+        <translation>AI-сервис вернул некорректный перевод. Повторите попытку или выберите другую модель.</translation>
+    </message>
+    <message>
+        <source>This AI service cannot translate with the current settings. Choose another service or model in Sources.</source>
+        <translation>AI-сервис не может выполнить перевод с текущими настройками. Выберите другой сервис или модель в разделе «Источники».</translation>
+    </message>
+    <message>
+        <source>The source check is unavailable. Reinstall qbutt.</source>
+        <translation>Проверка источника недоступна. Переустановите qbutt.</translation>
+    </message>
+    <message>
+        <source>Install Microsoft Edge WebView2 Runtime to check this source.</source>
+        <translation>Для проверки источника установите Microsoft Edge WebView2 Runtime.</translation>
+    </message>
+    <message>
+        <source>The source check took too long. Try again.</source>
+        <translation>Проверка источника заняла слишком много времени. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Could not check the source. Try again.</source>
+        <translation>Не удалось проверить источник. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>This source requires a browser check.</source>
+        <translation>Источник требует проверки в браузере.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="47"/>
+        <source>The saved variants exceed 16 MiB. Remove this item from the library and save it again.</source>
+        <translation>Сохранённые варианты превышают 16 МиБ. Удалите произведение из библиотеки и сохраните заново.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="27"/>
+        <source>qplay is unavailable or damaged. Reinstall qplay or run the qbutt installer again.</source>
+        <translation>qplay недоступен или повреждён. Переустановите qplay или снова запустите установщик qbutt.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="29"/>
+        <source>This version of qplay is incompatible. Install a compatible qplay version.</source>
+        <translation>Версия qplay несовместима. Установите совместимую версию.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="31"/>
+        <source>qcatch setup did not complete. Reinstall qcatch or run the qbutt installer again.</source>
+        <translation>Установка qcatch не завершена. Переустановите qcatch или снова запустите установщик qbutt.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="33"/>
+        <source>This version of qcatch is incompatible. Install a compatible qcatch version.</source>
+        <translation>Версия qcatch несовместима. Установите совместимую версию.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="35"/>
+        <source>Could not download the component. Check your connection and try again.</source>
+        <translation>Не удалось скачать компонент. Проверьте соединение и повторите попытку.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="37"/>
+        <source>The component failed its integrity check. Reinstall qbutt and try again.</source>
+        <translation>Компонент не прошёл проверку целостности. Переустановите qbutt и повторите попытку.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="39"/>
+        <source>This capture expired or changed. Choose the media again in qcatch.</source>
+        <translation>Срок действия захвата истёк или его данные изменились. Снова выберите медиа в qcatch.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="41"/>
+        <source>This qcatch selection belongs to the current browser session. Share the source page instead.</source>
+        <translation>Выбор в qcatch привязан к текущему сеансу браузера. Поделитесь страницей источника.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="43"/>
+        <source>Choose one audio track in qcatch before sending this media to qbutt.</source>
+        <translation>Выберите одну звуковую дорожку в qcatch перед отправкой в qbutt.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="45"/>
+        <source>Install qcatch and connect the extension in the selected browser.</source>
+        <translation>Установите qcatch и подключите расширение в выбранном браузере.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="51"/>
+        <source>Update qcatch and reload its browser extension to search VK Video.</source>
+        <translation>Обновите qcatch и перезагрузите его расширение для поиска в VK Видео.</translation>
+    </message>
+    <message>
+        <source>The browser is busy. Try again in a few seconds.</source>
+        <translation>Браузер занят. Повторите попытку через несколько секунд.</translation>
+    </message>
+    <message>
+        <source>The browser took too long. Open the source and try again.</source>
+        <translation>Браузер не ответил вовремя. Откройте источник и повторите попытку.</translation>
+    </message>
+    <message>
+        <source>The source changed the selected page. Choose it again and retry.</source>
+        <translation>Источник изменил выбранную страницу. Выберите её заново и повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Could not read the source in the browser. Open the source and try again.</source>
+        <translation>Не удалось прочитать источник в браузере. Откройте источник и повторите попытку.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="47"/>
+        <source>Choose an installed browser in Sources.</source>
+        <translation>Выберите установленный браузер в разделе «Источники».</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="49"/>
+        <source>qcatch supports Microsoft Edge and Google Chrome.</source>
+        <translation>qcatch поддерживает Microsoft Edge и Google Chrome.</translation>
+    </message>
+    <message>
+        <location filename="../base/content/client.cpp" line="45"/>
+        <source>These audio or subtitle tracks require separate sign-in. Download them through qcatch instead.</source>
+        <translation>Для этих аудиодорожек или субтитров нужна отдельная авторизация. Скачайте их через qcatch.</translation>
+    </message>
+    <message>
         <location filename="../base/content/client.cpp" line="48"/>
         <source>The content service could not start: %1</source>
         <translation>Не удалось запустить сервис содержимого: %1</translation>
@@ -3864,8 +4011,40 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Все озвучки</translation>
     </message>
     <message>
+        <source>All translations</source>
+        <translation>Все переводы</translation>
+    </message>
+    <message>
         <source>All sources</source>
         <translation>Все источники</translation>
+    </message>
+    <message>
+        <source>All languages</source>
+        <translation>Все языки</translation>
+    </message>
+    <message>
+        <source>Language not specified</source>
+        <translation>Язык не указан</translation>
+    </message>
+    <message>
+        <source>No titles in this category</source>
+        <translation>В этой категории ничего нет</translation>
+    </message>
+    <message>
+        <source>No results yet</source>
+        <translation>Пока ничего не найдено</translation>
+    </message>
+    <message>
+        <source>No results</source>
+        <translation>Ничего не найдено</translation>
+    </message>
+    <message>
+        <source>No versions found</source>
+        <translation>Варианты не найдены</translation>
+    </message>
+    <message>
+        <source>No matching versions</source>
+        <translation>Нет подходящих вариантов</translation>
     </message>
     <message>
         <source>Episode not specified</source>
@@ -3876,16 +4055,16 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Озвучка не указана</translation>
     </message>
     <message>
+        <source>Translation not specified</source>
+        <translation>Перевод не указан</translation>
+    </message>
+    <message>
         <source>Episode %1</source>
         <translation>Серия %1</translation>
     </message>
     <message>
         <source>Season %1, %2</source>
         <translation>Сезон %1, %2</translation>
-    </message>
-    <message>
-        <source>Show episodes / versions</source>
-        <translation>Показать серии / варианты</translation>
     </message>
     <message>
         <source>Torrent</source>
@@ -3902,10 +4081,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     <message>
         <source>Loading versions…</source>
         <translation>Загрузка вариантов…</translation>
-    </message>
-    <message>
-        <source>Show versions</source>
-        <translation>Показать варианты</translation>
     </message>
     <message>
         <location filename="../gui/content/librarywidget.cpp" line="49"/>
@@ -3968,9 +4143,8 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
     <message>
         <location filename="../gui/content/librarywidget.cpp" line="142"/>
-        <source>Saved</source>
-        <comment>Library tab</comment>
-        <translation>Сохранённое</translation>
+        <source>Favorites</source>
+        <translation>Избранное</translation>
     </message>
     <message>
         <location filename="../gui/content/librarywidget.cpp" line="143"/>
@@ -3993,11 +4167,11 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Подробности</translation>
     </message>
     <message numerus="yes">
-        <source>%n version(s)</source>
+        <source>and %n more</source>
         <translation>
-            <numerusform>%n версия</numerusform>
-            <numerusform>%n версии</numerusform>
-            <numerusform>%n версий</numerusform>
+            <numerusform>и ещё %n</numerusform>
+            <numerusform>и ещё %n</numerusform>
+            <numerusform>и ещё %n</numerusform>
         </translation>
     </message>
     <message>
@@ -4023,8 +4197,8 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
     <message>
         <location filename="../gui/content/librarywidget.cpp" line="223"/>
-        <source>Version / voice</source>
-        <translation>Версия / озвучка</translation>
+        <source>Variant</source>
+        <translation>Вариант</translation>
     </message>
     <message>
         <location filename="../gui/content/librarywidget.cpp" line="223"/>
@@ -4048,12 +4222,14 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Скачать</translation>
     </message>
     <message>
-        <location filename="../gui/content/librarywidget.cpp" line="242"/>
-        <location filename="../gui/content/librarywidget.cpp" line="593"/>
-        <location filename="../gui/content/librarywidget.cpp" line="944"/>
-        <location filename="../gui/content/librarywidget.cpp" line="1036"/>
-        <source>Save</source>
-        <translation>Сохранить</translation>
+        <location filename="../gui/content/librarywidget.cpp" line="1449"/>
+        <source>Add to favorites</source>
+        <translation>Добавить в избранное</translation>
+    </message>
+    <message>
+        <location filename="../gui/content/librarywidget.cpp" line="1449"/>
+        <source>Remove from favorites</source>
+        <translation>Убрать из избранного</translation>
     </message>
     <message>
         <location filename="../gui/content/librarywidget.cpp" line="246"/>
@@ -4061,28 +4237,9 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Поделиться</translation>
     </message>
     <message>
-        <location filename="../gui/content/librarywidget.cpp" line="250"/>
-        <source>Share this version</source>
-        <translation>Поделиться этой версией</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/librarywidget.cpp" line="251"/>
-        <source>Share title</source>
-        <translation>Поделиться произведением</translation>
-    </message>
-    <message>
         <location filename="../gui/content/librarywidget.cpp" line="254"/>
         <source>Remove</source>
         <translation>Удалить</translation>
-    </message>
-    <message numerus="yes">
-        <location filename="../gui/content/librarywidget.cpp" line="283"/>
-        <source>Search stopped: %n title(s)</source>
-        <translation>
-            <numerusform>Поиск остановлен: %n название</numerusform>
-            <numerusform>Поиск остановлен: %n названия</numerusform>
-            <numerusform>Поиск остановлен: %n названий</numerusform>
-        </translation>
     </message>
     <message>
         <location filename="../gui/content/librarywidget.cpp" line="318"/>
@@ -4107,12 +4264,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <location filename="../gui/content/librarywidget.cpp" line="424"/>
         <source>Stop</source>
         <translation>Остановить</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/librarywidget.cpp" line="425"/>
-        <location filename="../gui/content/librarywidget.cpp" line="451"/>
-        <source>Searching…</source>
-        <translation>Поиск…</translation>
     </message>
     <message numerus="yes">
         <location filename="../gui/content/librarywidget.cpp" line="451"/>
@@ -4154,13 +4305,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <location filename="../gui/content/librarywidget.cpp" line="576"/>
         <source>Archive part</source>
         <translation>Часть архива</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/librarywidget.cpp" line="593"/>
-        <location filename="../gui/content/librarywidget.cpp" line="944"/>
-        <location filename="../gui/content/librarywidget.cpp" line="1036"/>
-        <source>Saved</source>
-        <translation>Сохранено</translation>
     </message>
     <message>
         <location filename="../gui/content/librarywidget.cpp" line="609"/>
@@ -4212,24 +4356,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <location filename="../gui/content/librarywidget.cpp" line="830"/>
         <source>File or episode</source>
         <translation>Файл или серия</translation>
-    </message>
-    <message numerus="yes">
-        <location filename="../gui/content/librarywidget.cpp" line="893"/>
-        <source>Searching… %n title(s)</source>
-        <translation>
-            <numerusform>Поиск… %n название</numerusform>
-            <numerusform>Поиск… %n названия</numerusform>
-            <numerusform>Поиск… %n названий</numerusform>
-        </translation>
-    </message>
-    <message numerus="yes">
-        <location filename="../gui/content/librarywidget.cpp" line="908"/>
-        <source>%n title(s), some sources unavailable</source>
-        <translation>
-            <numerusform>%n название, часть источников недоступна</numerusform>
-            <numerusform>%n названия, часть источников недоступна</numerusform>
-            <numerusform>%n названий, часть источников недоступна</numerusform>
-        </translation>
     </message>
     <message>
         <location filename="../gui/content/librarywidget.cpp" line="1000"/>
@@ -4298,7 +4424,26 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
 </context>
 <context>
+    <name>Content::ChapterPicker</name>
+    <message>
+        <source>Chapters</source>
+        <translation>Главы</translation>
+    </message>
+    <message>
+        <source>Search chapters</source>
+        <translation>Найти главу</translation>
+    </message>
+    <message>
+        <source>No matching chapters</source>
+        <translation>Главы не найдены</translation>
+    </message>
+</context>
+<context>
     <name>Content::ReaderWidget</name>
+    <message>
+        <source>Volume %1 — %2</source>
+        <translation>Том %1 — %2</translation>
+    </message>
     <message>
         <source>Reader settings</source>
         <translation>Настройки чтения</translation>
@@ -4497,6 +4642,46 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
 <context>
     <name>Content::SourcesDialog</name>
     <message>
+        <source>Premium account session cookies</source>
+        <translation>Cookies сессии Premium-аккаунта</translation>
+    </message>
+    <message>
+        <source>Site address</source>
+        <translation>Адрес сайта</translation>
+    </message>
+    <message>
+        <source>Automatic</source>
+        <translation>Автоматически</translation>
+    </message>
+    <message>
+        <source>Provider</source>
+        <translation>Сервис</translation>
+    </message>
+    <message>
+        <source>API key</source>
+        <translation>Ключ API</translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <translation>Модель</translation>
+    </message>
+    <message>
+        <source>API address</source>
+        <translation>Адрес API</translation>
+    </message>
+    <message>
+        <source>OpenAI compatible</source>
+        <translation>Совместимый с OpenAI</translation>
+    </message>
+    <message>
+        <source>Check again</source>
+        <translation>Проверить снова</translation>
+    </message>
+    <message>
+        <source>Checking…</source>
+        <translation>Проверка…</translation>
+    </message>
+    <message>
         <source>Browser</source>
         <translation>Браузер</translation>
     </message>
@@ -4520,11 +4705,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Использовать в поиске</translation>
     </message>
     <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="59"/>
-        <source>Install browser extension…</source>
-        <translation>Установить расширение…</translation>
-    </message>
-    <message>
         <location filename="../gui/content/sourcesdialog.cpp" line="62"/>
         <source>Save</source>
         <translation>Сохранить</translation>
@@ -4543,11 +4723,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <location filename="../gui/content/sourcesdialog.cpp" line="82"/>
         <source>Updating sources…</source>
         <translation>Обновление источников…</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="90"/>
-        <source>Opening extension setup…</source>
-        <translation>Открытие установки расширения…</translation>
     </message>
     <message>
         <location filename="../gui/content/sourcesdialog.cpp" line="155"/>
@@ -4576,28 +4751,6 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <source>Saving…</source>
         <translation>Сохранение…</translation>
     </message>
-    <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="245"/>
-        <source>Connected</source>
-        <translation>Подключено</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="245"/>
-        <source>Not connected</source>
-        <translation>Не подключено</translation>
-    </message>
-    <message>
-        <source>Connected to %1</source>
-        <translation>Подключено к %1</translation>
-    </message>
-    <message>
-        <source>Open %1 in the browser (Ctrl+L). Turn on Developer mode, choose Load unpacked, and select this folder:</source>
-        <translation>Откройте %1 в браузере (Ctrl+L). Включите «Режим разработчика», нажмите «Загрузить распакованное расширение» и выберите эту папку:</translation>
-    </message>
-    <message>
-        <source>In Firefox, choose Load Temporary Add-on… and select manifest.json in this folder:</source>
-        <translation>В Firefox нажмите «Загрузить временное дополнение…» и выберите manifest.json в этой папке:</translation>
-    </message>
     <message numerus="yes">
         <location filename="../gui/content/sourcesdialog.cpp" line="287"/>
         <source>%n source(s)</source>
@@ -4606,6 +4759,10 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
             <numerusform>%n источника</numerusform>
             <numerusform>%n источников</numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Complete check</source>
+        <translation>Пройти проверку</translation>
     </message>
 </context>
 <context>
@@ -5623,6 +5780,11 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Поиск завершён</translation>
     </message>
     <message>
+        <location filename="../gui/mainwindow.ui" line="345"/>
+        <source>&amp;Search</source>
+        <translation>&amp;Поиск</translation>
+    </message>
+    <message>
         <location filename="../gui/mainwindow.cpp" line="775"/>
         <source>Search</source>
         <translation>Поиск</translation>
@@ -5920,10 +6082,6 @@ Minimum requirement: %2.</source>
         <translation>Подготовка проигрывателя…</translation>
     </message>
     <message>
-        <source>Translating subtitles…</source>
-        <translation>Перевод субтитров…</translation>
-    </message>
-    <message>
         <source>Russian [AI translation]</source>
         <translation>Русский [AI-перевод]</translation>
     </message>
@@ -5956,8 +6114,12 @@ Minimum requirement: %2.</source>
         <translation>Не удалось включить перевод субтитров. Выберите исходную дорожку субтитров.</translation>
     </message>
     <message>
-        <source>Subtitle translation is unavailable. Sign in to Codex or choose an AI provider in Reading settings.</source>
-        <translation>Перевод субтитров недоступен. Войдите в Codex или выберите AI-провайдера в настройках чтения.</translation>
+        <source>Subtitle translation is unavailable. Retry or open AI translation settings in Sources.</source>
+        <translation>Перевод субтитров недоступен. Повторите попытку или откройте настройки AI-перевода в разделе «Источники».</translation>
+    </message>
+    <message>
+        <source>The original subtitle track is no longer available. Choose another track.</source>
+        <translation>Исходная дорожка субтитров больше недоступна. Выберите другую дорожку.</translation>
     </message>
     <message>
         <source>The video source returned incomplete voice information. Choose the voice again.</source>
@@ -18449,6 +18611,83 @@ Please choose a different name and try again.</source>
         <source>&lt; 1m</source>
         <comment>&lt; 1 minute</comment>
         <translation>&lt; 1 м</translation>
+    </message>
+</context>
+<context>
+    <name>Content::BrowserConnectionWidget</name>
+    <message>
+        <source>Browser</source>
+        <translation>Браузер</translation>
+    </message>
+    <message>
+        <source>Automatic</source>
+        <translation>Автоматически</translation>
+    </message>
+    <message>
+        <source>Install extension</source>
+        <translation>Установить расширение</translation>
+    </message>
+    <message>
+        <source>Connect extension</source>
+        <translation>Подключить расширение</translation>
+    </message>
+    <message>
+        <source>Check connection</source>
+        <translation>Проверить подключение</translation>
+    </message>
+    <message>
+        <source>Checking connection…</source>
+        <translation>Проверка подключения…</translation>
+    </message>
+    <message>
+        <source>Connecting extension…</source>
+        <translation>Подключение расширения…</translation>
+    </message>
+    <message>
+        <source>Installing qcatch…</source>
+        <translation>Установка qcatch…</translation>
+    </message>
+    <message>
+        <source>Connected</source>
+        <translation>Подключено</translation>
+    </message>
+    <message>
+        <source>Waiting for the extension…</source>
+        <translation>Ожидание расширения…</translation>
+    </message>
+    <message>
+        <source>Try again</source>
+        <translation>Повторить</translation>
+    </message>
+    <message>
+        <source>Install Microsoft Edge or Google Chrome to use qcatch.</source>
+        <translation>Для qcatch нужен Microsoft Edge или Google Chrome.</translation>
+    </message>
+    <message>
+        <source>The browser connection is unavailable. Restart qbutt and try again.</source>
+        <translation>Не удалось подключиться к браузеру. Перезапустите qbutt и повторите попытку.</translation>
+    </message>
+    <message>
+        <source>In %1, turn on Developer mode, choose Load unpacked, and select this folder:</source>
+        <translation>В %1 включите «Режим разработчика», нажмите «Загрузить распакованное расширение» и выберите эту папку:</translation>
+    </message>
+</context>
+<context>
+    <name>Content::BrowserPrerequisiteWidget</name>
+    <message>
+        <source>Back</source>
+        <translation>Назад</translation>
+    </message>
+    <message>
+        <source>%1 needs the qcatch browser extension to open this video.</source>
+        <translation>Для просмотра через %1 нужно браузерное расширение qcatch.</translation>
+    </message>
+</context>
+<context>
+    <name>Content::ModalOverlay</name>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
     </message>
 </context>
 </TS>

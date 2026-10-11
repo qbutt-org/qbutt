@@ -1,6 +1,6 @@
 import type { ProviderContext, ResolvedContent } from "../../contracts.ts";
 import { defaultUserAgent, publicUrl } from "../../net.ts";
-import { html, json } from "./common.ts";
+import { html, json } from "../http.ts";
 
 interface VideoSources {
     links?: Record<string, { src: string; type: string }[]>;

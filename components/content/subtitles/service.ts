@@ -198,7 +198,7 @@ export async function handleSubtitleRequest(method: string, params: Record<strin
     catch (error) {
         context.signal.throwIfAborted();
         if (error instanceof TranslationError)
-            return { ...result, status: "unavailable", message: error.message };
+            return { ...result, status: "unavailable", code: `ai_${error.code}`, message: error.message };
         throw error;
     }
 }

@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
-import { load, type CheerioAPI } from "cheerio";
+import type { CheerioAPI } from "cheerio";
 import type { Provider, ProviderContext, Source, Variant, Work, WorkDetails } from "../../contracts.ts";
 import { assertExactVariant } from "../../references.ts";
+import { html } from "../http.ts";
 import { expandDodiLinks } from "./dodi.ts";
 import { expandFitgirlMirrors } from "./fitgirl.ts";
 
@@ -37,15 +38,10 @@ function urlAt(value: string | undefined, base: string): string | undefined {
 async function page(url: string, context: ProviderContext, init?: RequestInit): Promise<CheerioAPI> {
     const sameOrigin = context.settings.baseUrl
         && new URL(context.settings.baseUrl).origin === new URL(url).origin;
-    const response = await context.fetch(url, {
+    return html(url, context, {
         ...init,
         headers: { ...(sameOrigin && context.settings.cookie ? { Cookie: context.settings.cookie } : {}), ...init?.headers },
     });
-    if (!response.ok) throw new Error(`Источник требует проверки в браузере (HTTP ${response.status}).`);
-    const charset = response.headers.get("content-type")?.match(/charset=([^;\s]+)/i)?.[1] ?? "utf-8";
-    const text = new TextDecoder(charset).decode(await response.arrayBuffer());
-    if (/DDoS-Guard|Just a moment\.\.\.|cf-chl-/.test(text)) throw new Error("Пройдите проверку источника в браузере и повторите поиск.");
-    return load(text);
 }
 
 function key(value: string): string {
@@ -57,7 +53,7 @@ function cleanText(value: string): string {
 }
 
 function version(value: string): string | undefined {
-    return value.match(/(?:\bv\s*|(?:Game\s+)?Version\s*:?\s*|верси[яи]\s*:?\s*)(\d+(?:[.\-_]\d+)*(?:[.\-_]?[a-z]\d*(?![a-z]))?(?:\s*(?:Build|билд)\s*\d+)?)/i)?.[1]
+    return value.match(/(?:\bv\s*|(?:Game\s+)?Version\s*:?\s*|верси[яи]\s*:?\s*)((?:Build|билд)\s*\d+|\d+(?:[.\-_]\d+)*(?:[.\-_]?[a-z]\d*(?![a-z]))?(?:\s*(?:Build|билд)\s*\d+)?)/i)?.[1]
         ?? value.match(/\b(?:stable|beta|alpha)[.\-_]\d+(?:[.\-_]\d+)*(?:[.\-_][a-z])?\b/i)?.[0]
         ?? value.match(/\b(?:Build|билд)\s*\d+\b/i)?.[0];
 }
@@ -143,11 +139,19 @@ async function expandByrut($: CheerioAPI, publication: string, context: Provider
     if (!id) return;
     for (const element of $("#other_repacks [data-ajax]").toArray()) {
         const block = $(element).attr("data-ajax")!;
-        const response = await page(new URL("/engine/ajax/controller.php?mod=ajaxsp", publication).href, context, {
-            method: "POST", body: new URLSearchParams({ block, id }),
-            headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest", Referer: publication },
-        });
-        $(element).find(".ajax-content").html(response.html());
+        try {
+            const url = new URL("/engine/ajax/controller.php?mod=ajaxsp", publication).href;
+            const request = (session: ProviderContext) => page(url, session, {
+                method: "POST", body: new URLSearchParams({ block, id }),
+                headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest", Referer: publication },
+            });
+            const response = context.withSourceSession ? await context.withSourceSession(url, request) : await request(context);
+            $(element).find(".ajax-content").html(response.html());
+        }
+        catch (error) {
+            context.signal.throwIfAborted();
+            context.reportError?.(error);
+        }
     }
 }
 
@@ -190,6 +194,7 @@ function releaseVariants($: CheerioAPI, source: Source, publication: string, tit
     const variants = new Map<string, Variant>();
     const overallVersion = source.id === "dodi"
         ? version(body.text().match(/Game Version[^\n]+/i)?.[0] ?? "")
+        : source.id === "byrut" ? version(body.find(".main-release-block .info-basictor__item--version").first().text())
         : version($(".subhnamever, .subver_info, h1.entry-title").first().text());
     const cooperative = /по сети|совместное прохождение|кооператив|multiplayer|co-op/i.test(title);
     const primaryAuthor = source.id === "fitgirl" ? "FitGirl" : source.id === "dodi" ? "DODI" : source.id === "onlinefix" ? "Online-Fix"
@@ -202,7 +207,8 @@ function releaseVariants($: CheerioAPI, source: Source, publication: string, tit
     } = {}): void {
         const torrent = directTorrent(url, label) || /\.torrent file only|^(?:1337x|RuTor|Tapochek)/i.test(label);
         const releaseVersion = version(label) ?? version(sectionText) ?? overallVersion;
-        const edition = title.match(/\b(?:Digital\s+)?(?:Deluxe|Ultimate|Gold|Complete|Collector.?s|Premium|Soundtrack)\s+Edition\b/i)?.[0];
+        const edition = [label, sectionText, title].join("\n")
+            .match(/\b(?:Digital\s+)?(?:Deluxe|Ultimate|Gold|Complete|Collector.?s|Premium|Soundtrack)\s+Edition\b/i)?.[0];
         const publicationKind = options.publicationKind ?? kind(label);
         const releaseCooperative = cooperative || /возможность сетевой игры|игра по сети|multiplayer|co-op/i.test(sectionText) || undefined;
         const id = `${source.id}:${key(publication)}:link:${key(JSON.stringify([url, releaseVersion, edition, publicationKind, releaseCooperative]))}`;
@@ -235,16 +241,19 @@ function releaseVariants($: CheerioAPI, source: Source, publication: string, tit
         const hostname = url.startsWith("magnet:") ? "" : new URL(url).hostname;
         const isHost = downloadHosts.some(host => hostname === host || hostname.endsWith(`.${host}`))
             && /download|скачать|torrent|\.zip|\.rar|\/[ufd]\//i.test(label + " " + url);
-        const mirrorHeading = link.closest("ul").prevAll("h3").first().text();
+        const mirrorHeading = source.id === "fitgirl"
+            ? link.parents("ul").last().prevAll("h3").first().text()
+            : "";
         const publisherMirror = link.attr("data-publisher-mirror") === "true"
             || source.id === "fitgirl" && /Download Mirrors \((?:Direct Links|Torrent)\)/i.test(mirrorHeading)
                 && /^(?:Filehoster:|1337x|RuTor|Tapochek)|\.torrent file only/i.test(label);
         if (!directTorrent(url, label) && !/\/getfile-\d+/.test(url) && !isHost && !publisherMirror) return;
         if (/\/user\/|\/guides\/|\/programs\/|\/files\/progs\//.test(url)) return;
         const release = link.closest(".ajax-block");
-        const container = release.length ? release : link.closest("li, .quote, p, .download-block");
+        const container = release.length ? release : link.closest(".main-release-block, li, .quote, p, .download-block");
         const before = container.prev("strong, p, h3, h4").text();
-        const section = cleanText([release.find(".showtitle").text(), release.find(".show_ver").text(), before, container.text()].join("\n"));
+        const section = cleanText([release.find(".showtitle").text(), release.find(".show_ver").text(),
+            mirrorHeading, before, container.text()].join("\n"));
         add(url, [release.find(".showtitle").text(), label].filter(Boolean).join(", "), section, {
             publicationKind: link.attr("data-publication-kind") as Variant["publicationKind"],
             transport: link.attr("data-release-transport") as Variant["transport"],
@@ -333,6 +342,8 @@ export function createGameProvider(catalog: Catalog): Provider {
             if (!body.length) throw new Error("Структура страницы источника изменилась. Откройте исходную публикацию.");
             const title = cleanText($("h1.entry-title").first().text() || body.find("h1").first().text() || $("h1").last().text());
             const variants = releaseVariants($, source, variant.url, title, catalog.content);
+            if (!variants.length)
+                throw new Error("Не удалось найти ссылки на версии игры. Откройте публикацию источника и повторите попытку.");
             const description = (source.id === "onlinefix" ? body.find('[itemprop="articleBody"]').first() : body).clone();
             description.find("script, style, noindex, .comments, [id^='comment-id-'], .navigation").remove();
             if (source.id === "onlinefix")
@@ -360,7 +371,7 @@ export function createGameProvider(catalog: Catalog): Provider {
                 description: cleanText(description.text()),
                 notes,
                 identifiers: $("article[data-appid]").attr("data-appid") ? { steam: $("article[data-appid]").attr("data-appid")! } : undefined,
-                variants: variants.length ? variants : [variant],
+                variants,
             };
             return details;
         },

@@ -5,11 +5,14 @@ import { join } from "node:path";
 
 import type { Event, ResolvedContent, Variant, WorkDetails } from "../../components/content/contracts.ts";
 import { share } from "../../components/content/sharing.ts";
+import { mediaRuntime } from "../../components/content/media-runtime";
 
-const [executable, appDir, mediaRuntime, player = "all"] = Bun.argv.slice(2);
-if (!executable || !appDir || !mediaRuntime || !["all", "CVH", "Kodik"].includes(player)) {
-    throw new Error("Usage: bun tests/content-online/episode.ts <helper.exe> <portable-directory> <lab-media-directory> [all|CVH|Kodik]");
+const [executable, appDir, player = "all"] = Bun.argv.slice(2);
+if (!executable || !appDir || !["all", "CVH", "Kodik"].includes(player)) {
+    throw new Error("Usage: bun tests/content-online/episode.ts <helper.exe> <portable-directory> [all|CVH|Kodik]");
 }
+process.env.QBUTT_LAB_PATHS = "1";
+const { tools: { ffmpeg } } = await mediaRuntime(appDir, AbortSignal.timeout(30_000));
 
 const lab = await mkdtemp(join(tmpdir(), "qbutt-anime-episode-"));
 const helper = Bun.spawn([executable, "--data-dir", join(lab, "profile"), "--app-dir", appDir], {
@@ -71,7 +74,7 @@ function data<T>(events: Event[], event: string): T {
 async function decode(resolved: ResolvedContent, label: string) {
     assert(resolved.url && resolved.proxyUrl, "The helper omitted the guarded media connection.");
     const headers = Object.entries(resolved.headers ?? {}).map(([name, value]) => `${name}: ${value}\r\n`).join("");
-    const child = Bun.spawn([join(mediaRuntime, "tools", "ffmpeg.exe"),
+    const child = Bun.spawn([ffmpeg,
         "-hide_banner", "-loglevel", "error", "-nostats", "-threads", "2",
         "-http_proxy", resolved.proxyUrl, "-rw_timeout", "10000000", "-headers", headers,
         "-protocol_whitelist", "http,https,httpproxy,tcp,tls,crypto", "-i", resolved.url,

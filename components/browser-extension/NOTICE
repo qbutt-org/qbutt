@@ -1,8 +1,0 @@
-The media classifier, HLS parser, MAIN-world fetch/XHR observation and YummyAnime
-combobox interaction are adapted from Stream Catcher by AriesAlex
-(https://github.com/AriesAlex/stream-catcher), revision
-6260157248e3b2bf1ca9bc6afa7f60068f47a71c.
-Those portions and this extension are AGPL-3.0-or-later; see LICENSE.
-Only the listed capture/parsing mechanisms were transferred. No release keys,
-browser profile data, account state, download queue or private Bridge configuration
-is included. Downloads remain owned by qbutt-content.

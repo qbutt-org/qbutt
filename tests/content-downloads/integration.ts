@@ -10,17 +10,17 @@ import { gzipSync } from "node:zlib";
 import { DownloadQueue, type DownloadJob } from "../../components/content/downloads";
 import type { ResolvedContent, Variant, Work } from "../../components/content/contracts";
 import { LibraryStore } from "../../components/content/store";
+import { mediaRuntime as resolveMediaRuntime } from "../../components/content/media-runtime";
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-content-downloads-"));
 const dataDir = join(root, "data");
 const downloadDir = join(root, "saved files");
 const appDir = join(root, "app");
 process.env.QBUTT_LAB_PATHS = "1";
-const mediaRuntime = process.env.QBUTT_MEDIA_RUNTIME_DIR;
-assert(mediaRuntime, "Set QBUTT_MEDIA_RUNTIME_DIR to the separately prepared pinned lab media tools");
+const runtimeInfo = await resolveMediaRuntime(appDir, AbortSignal.timeout(30_000));
+const mediaRuntime = runtimeInfo.runtimeDir;
 const fixtures = join(root, "fixtures");
-const ffmpeg = join(mediaRuntime, "tools", "ffmpeg.exe");
-const ffprobe = join(mediaRuntime, "profile", "tools", "bin", "ffprobe.exe");
+const { ffmpeg, ffprobe } = runtimeInfo.tools;
 await mkdir(fixtures);
 
 async function command(file: string, args: string[]): Promise<string> {

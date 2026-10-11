@@ -1,26 +1,32 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "sourcesdialog.h"
 
+#include <utility>
+
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
-#include <QEvent>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QLocale>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QVBoxLayout>
 
 #include "base/content/client.h"
 #include "base/global.h"
+#include "base/preferences.h"
 #include "gui/uithememanager.h"
 
-Content::SourcesDialog::SourcesDialog(QWidget *parent)
+#include "browserconnectionwidget.h"
+
+Content::SourcesDialog::SourcesDialog(QWidget *parent, const QString &sourceId)
     : QDialog(parent)
+    , m_initialSource(sourceId)
 {
     setWindowTitle(tr("Sources"));
     setMinimumSize(560, 360);
@@ -34,6 +40,7 @@ Content::SourcesDialog::SourcesDialog(QWidget *parent)
     m_filter->setClearButtonEnabled(true);
     sourceList->addWidget(m_filter);
     m_sources = new QListWidget(this);
+    m_sources->setObjectName(u"contentSourceList"_s);
     m_sources->setMinimumWidth(180);
     m_sources->setMaximumWidth(280);
     sourceList->addWidget(m_sources, 1);
@@ -51,26 +58,25 @@ Content::SourcesDialog::SourcesDialog(QWidget *parent)
     m_name->setFont(heading);
     m_name->setWordWrap(true);
     pageLayout->addWidget(m_name);
+    m_health = new QLabel(page);
+    m_health->setObjectName(u"contentSourceHealth"_s);
+    m_health->setTextFormat(Qt::PlainText);
+    m_health->setWordWrap(true);
+    m_health->hide();
+    pageLayout->addWidget(m_health);
+    m_check = new QPushButton(tr("Check again"), page);
+    m_check->setObjectName(u"contentSourceCheck"_s);
+    m_check->hide();
+    pageLayout->addWidget(m_check, 0, Qt::AlignLeft);
     m_enabled = new QCheckBox(tr("Use in search"), page);
     pageLayout->addWidget(m_enabled);
     m_form = new QFormLayout;
     m_form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     m_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     pageLayout->addLayout(m_form);
-    m_connect = new QPushButton(tr("Install browser extension…"), page);
-    m_connect->setObjectName(u"contentBrowserInstall"_s);
-    m_connect->hide();
-    pageLayout->addWidget(m_connect, 0, Qt::AlignLeft);
-    m_browserSetup = new QLabel(page);
-    m_browserSetup->setObjectName(u"contentBrowserSetup"_s);
-    m_browserSetup->setWordWrap(true);
-    m_browserSetup->hide();
-    pageLayout->addWidget(m_browserSetup);
-    m_extensionDirectory = new QLineEdit(page);
-    m_extensionDirectory->setObjectName(u"contentBrowserExtensionDirectory"_s);
-    m_extensionDirectory->setReadOnly(true);
-    m_extensionDirectory->hide();
-    pageLayout->addWidget(m_extensionDirectory);
+    m_browserConnection = new BrowserConnectionWidget(true, page);
+    m_browserConnection->hide();
+    pageLayout->addWidget(m_browserConnection);
     m_save = new QPushButton(tr("Save"), page);
     m_save->setEnabled(false);
     pageLayout->addWidget(m_save, 0, Qt::AlignLeft);
@@ -90,37 +96,44 @@ Content::SourcesDialog::SourcesDialog(QWidget *parent)
     connect(m_sources, &QListWidget::currentRowChanged, this, &SourcesDialog::selectSource);
     connect(m_filter, &QLineEdit::textChanged, this, &SourcesDialog::filterSources);
     connect(m_save, &QPushButton::clicked, this, &SourcesDialog::saveSource);
+    connect(m_check, &QPushButton::clicked, this, [this]
+    {
+        const int row = m_sources->currentRow();
+        if ((row < 0) || m_request)
+            return;
+
+        m_check->setEnabled(false);
+        m_check->setText(tr("Checking…"));
+        m_sources->setEnabled(false);
+        m_filter->setEnabled(false);
+        m_save->setEnabled(false);
+        m_refresh->setEnabled(false);
+        m_enabled->setEnabled(false);
+        for (QWidget *field : m_fields)
+            field->setEnabled(false);
+        const QJsonObject source = m_catalog.at(row).toObject();
+        const bool interactive = source.value(u"health"_s).toObject().value(u"code"_s).toString()
+            == u"browser_check_required";
+        m_request = Client::instance()->request(u"checkSource"_s,
+            {{u"id"_s, source.value(u"id"_s)}, {u"interactive"_s, interactive},
+                {u"language"_s, QLocale(Preferences::instance()->getLocale()).bcp47Name()}});
+    });
     connect(m_refresh, &QPushButton::clicked, this, [this]
     {
+        if (m_request)
+            return;
+
         m_status->setText(tr("Updating sources…"));
         m_refresh->setEnabled(false);
         m_request = Client::instance()->request(u"refresh"_s);
     });
-    connect(m_connect, &QPushButton::clicked, this, [this]
-    {
-        const auto *browser = qobject_cast<QComboBox *>(m_fields.value(u"browser"_s));
-        m_connect->setEnabled(false);
-        m_status->setText(tr("Opening extension setup…"));
-        m_connectRequest = Client::instance()->request(u"connectBrowser"_s,
-            {{u"browser"_s, browser ? browser->currentData().toString() : u"auto"_s}});
-    });
     connect(Client::instance(), &Client::eventReceived, this, &SourcesDialog::handleEvent);
-    loadSources();
-}
-
-void Content::SourcesDialog::changeEvent(QEvent *event)
-{
-    QDialog::changeEvent(event);
-    if ((event->type() == QEvent::ActivationChange) && isActiveWindow()
-        && m_connect->isVisible() && !m_connectRequest)
-    {
-        m_connectRequest = Client::instance()->request(u"browserStatus"_s);
-    }
-}
-
-void Content::SourcesDialog::loadSources()
-{
     m_request = Client::instance()->request(u"sources"_s);
+}
+
+Content::SourcesDialog::~SourcesDialog()
+{
+    Client::instance()->cancel(m_request);
 }
 
 void Content::SourcesDialog::filterSources()
@@ -145,12 +158,21 @@ void Content::SourcesDialog::selectSource()
     m_fields.clear();
 
     const int row = m_sources->currentRow();
-    m_save->setEnabled(row >= 0);
-    m_enabled->setEnabled(row >= 0);
+    const QJsonObject source = (row < 0) ? QJsonObject() : m_catalog.at(row).toObject();
+    const QJsonObject health = source.value(u"health"_s).toObject();
+    const bool failed = health.value(u"status"_s).toString() == u"error";
+    const bool browserCheck = health.value(u"code"_s).toString() == u"browser_check_required";
+    m_health->setText(health.value(u"message"_s).toString());
+    m_health->setVisible(failed);
+    m_check->setVisible(failed);
+    m_check->setEnabled(!m_request);
+    m_check->setText(browserCheck ? tr("Complete check") : tr("Check again"));
+    m_check->setToolTip(health.value(u"url"_s).toString());
+    m_save->setEnabled((row >= 0) && !m_request);
+    m_enabled->setEnabled((row >= 0) && !m_request);
     const bool browser = (row >= 0) && (m_catalog.at(row).toObject().value(u"id"_s).toString() == u"browser");
-    m_connect->setVisible(browser);
-    m_browserSetup->setVisible(browser && !m_browserSetup->text().isEmpty());
-    m_extensionDirectory->setVisible(browser && !m_extensionDirectory->text().isEmpty());
+    m_browserConnection->setVisible(browser);
+    m_save->setVisible(!browser);
     if (row < 0)
     {
         m_name->clear();
@@ -158,10 +180,13 @@ void Content::SourcesDialog::selectSource()
         return;
     }
 
-    const QJsonObject source = m_catalog.at(row).toObject();
+    const bool translation = source.value(u"id"_s).toString() == u"ai";
     m_name->setText(source.value(u"name"_s).toString());
     m_enabled->setVisible(!source.value(u"categories"_s).toArray().isEmpty());
     m_enabled->setChecked(source.value(u"enabled"_s).toBool());
+    if (browser)
+        return;
+
     const QJsonArray settings = source.value(u"settings"_s).toArray();
     QJsonArray orderedSettings;
     for (const bool advanced : {false, true})
@@ -202,7 +227,13 @@ void Content::SourcesDialog::selectSource()
             for (const QJsonValue &optionValue : setting.value(u"options"_s).toArray())
             {
                 const QJsonObject option = optionValue.toObject();
-                combo->addItem(option.value(u"label"_s).toString(), option.value(u"value"_s).toString());
+                const QString optionId = option.value(u"value"_s).toString();
+                QString optionLabel = option.value(u"label"_s).toString();
+                if (translation && (optionId == u"auto"))
+                    optionLabel = tr("Automatic");
+                else if (translation && (name == u"provider") && (optionId == u"openai-compatible"))
+                    optionLabel = tr("OpenAI compatible");
+                combo->addItem(optionLabel, optionId);
             }
             combo->setCurrentIndex(combo->findData(setting.value(u"value"_s).toString()));
             field = combo;
@@ -228,19 +259,37 @@ void Content::SourcesDialog::selectSource()
             }
             field = edit;
         }
+        field->setEnabled(!m_request);
         m_fields.insert(name, field);
-        auto *label = new QLabel(setting.value(u"label"_s).toString(), this);
+        QString labelText = setting.value(u"label"_s).toString();
+        if (source.value(u"id"_s).toString() == u"hdrezka")
+        {
+            if (name == u"cookie")
+                labelText = tr("Premium account session cookies");
+            else if (name == u"baseUrl")
+                labelText = tr("Site address");
+        }
+        else if (translation)
+        {
+            if (name == u"provider")
+                labelText = tr("Provider");
+            else if (name == u"apiKey")
+                labelText = tr("API key");
+            else if (name == u"model")
+                labelText = tr("Model");
+            else if (name == u"baseUrl")
+                labelText = tr("API address");
+        }
+        auto *label = new QLabel(labelText, this);
         label->setWordWrap(true);
         m_form->addRow(label, field);
     }
-    if (browser && !m_connectRequest)
-        m_connectRequest = Client::instance()->request(u"browserStatus"_s);
 }
 
 void Content::SourcesDialog::saveSource()
 {
     const int row = m_sources->currentRow();
-    if (row < 0)
+    if ((row < 0) || m_request)
         return;
 
     QJsonObject settings;
@@ -266,60 +315,17 @@ void Content::SourcesDialog::saveSource()
 
 void Content::SourcesDialog::handleEvent(const qint64 id, const QString &event, const QJsonValue &data)
 {
-    if (id == m_connectRequest)
-    {
-        if (event == u"browser")
-        {
-            const QJsonObject browser = data.toObject();
-            const bool ready = browser.value(u"ready"_s).toBool();
-            const QString directory = browser.value(u"extensionDirectory"_s).toString();
-            if (ready)
-            {
-                m_browserSetup->clear();
-                m_extensionDirectory->clear();
-            }
-            else if (!directory.isEmpty())
-            {
-                const QString browserId = browser.value(u"browser"_s).toString();
-                m_browserSetup->setText(browserId == u"firefox"
-                    ? tr("In Firefox, choose Load Temporary Add-on… and select manifest.json in this folder:")
-                    : tr("Open %1 in the browser (Ctrl+L). Turn on Developer mode, choose Load unpacked, and select this folder:")
-                        .arg(browserId == u"edge" ? u"edge://extensions"_s : u"chrome://extensions"_s));
-                m_extensionDirectory->setText(directory);
-            }
-            const bool browserPage = !m_connect->isHidden();
-            m_browserSetup->setVisible(browserPage && !m_browserSetup->text().isEmpty());
-            m_extensionDirectory->setVisible(browserPage && !m_extensionDirectory->text().isEmpty());
-            if (browserPage)
-            {
-                QString name;
-                const QString connected = browser.value(u"connectedBrowser"_s).toString();
-                for (const QJsonValue &value : browser.value(u"browsers"_s).toArray())
-                {
-                    const QJsonObject installed = value.toObject();
-                    if (installed.value(u"id"_s).toString() == connected)
-                        name = installed.value(u"name"_s).toString();
-                }
-                m_status->setText(ready
-                    ? (name.isEmpty() ? tr("Connected") : tr("Connected to %1").arg(name))
-                    : tr("Not connected"));
-            }
-        }
-        if ((event == u"complete") || (event == u"error"))
-        {
-            m_connectRequest = 0;
-            m_connect->setEnabled(true);
-            if ((event == u"error") && !m_connect->isHidden())
-                m_status->setText(data.toObject().value(u"message"_s).toString());
-        }
-        return;
-    }
     if (id != m_request)
         return;
 
-    if (event == u"sources")
+    if (event == u"details")
+    {
+        emit publicationInspected(data.toObject());
+    }
+    else if (event == u"sources")
     {
         const QString selected = m_name->text();
+        const QString initialSource = std::exchange(m_initialSource, {});
         m_catalog = {};
         for (const QString &sourceId : {u"browser"_s, u"ai"_s})
         {
@@ -340,35 +346,48 @@ void Content::SourcesDialog::handleEvent(const qint64 id, const QString &event, 
                 m_catalog.append(value);
         }
         m_sources->clear();
+        QListWidgetItem *initialItem = nullptr;
         for (const QJsonValue &value : m_catalog)
         {
             const QJsonObject source = value.toObject();
             auto *item = new QListWidgetItem(source.value(u"name"_s).toString(), m_sources);
-            item->setToolTip(source.value(u"url"_s).toString());
+            if (source.value(u"id"_s).toString() == initialSource)
+                initialItem = item;
+            const QJsonObject health = source.value(u"health"_s).toObject();
+            if (health.value(u"status"_s).toString() == u"error")
+            {
+                item->setIcon(UIThemeManager::instance()->getIcon(u"task-reject"_s));
+                item->setToolTip(health.value(u"message"_s).toString());
+            }
+            else
+            {
+                item->setToolTip(source.value(u"url"_s).toString());
+            }
         }
         const QList<QListWidgetItem *> matches = m_sources->findItems(selected, Qt::MatchExactly);
-        m_sources->setCurrentItem(matches.isEmpty() ? m_sources->item(0) : matches.first());
+        m_sources->setCurrentItem(initialItem ? initialItem : (matches.isEmpty() ? m_sources->item(0) : matches.first()));
         filterSources();
         m_status->setText(tr("%n source(s)", nullptr, m_catalog.size()));
     }
     else if (event == u"error")
     {
         m_status->setText(data.toObject().value(u"message"_s).toString());
-        m_save->setEnabled(m_sources->currentRow() >= 0);
-        m_refresh->setEnabled(true);
     }
-    else if (event == u"complete")
+    if ((event == u"complete") || (event == u"error"))
     {
-        m_save->setEnabled(m_sources->currentRow() >= 0);
-        if (!m_refresh->isEnabled())
-        {
-            m_refresh->setEnabled(true);
-            loadSources();
-        }
-        else if (m_status->text() == tr("Saving…"))
-        {
-            m_status->setText(tr("Saved"));
-            loadSources();
-        }
+        m_request = 0;
+        const int row = m_sources->currentRow();
+        const QJsonObject health = (row < 0) ? QJsonObject()
+            : m_catalog.at(row).toObject().value(u"health"_s).toObject();
+        m_sources->setEnabled(true);
+        m_filter->setEnabled(true);
+        m_save->setEnabled(row >= 0);
+        m_refresh->setEnabled(true);
+        m_enabled->setEnabled(row >= 0);
+        for (QWidget *field : m_fields)
+            field->setEnabled(true);
+        m_check->setEnabled(true);
+        m_check->setText((health.value(u"code"_s).toString() == u"browser_check_required")
+            ? tr("Complete check") : tr("Check again"));
     }
 }

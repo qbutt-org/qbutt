@@ -1,23 +1,16 @@
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
+import { connectQcatch } from "../products";
+import { ContentError } from "../errors";
 import type { ResolvedContent } from "../contracts.ts";
 import { discoveryPath, installedBrowsers, preferredBrowser, type InstalledBrowser } from "./discovery.ts";
-import { MAX_MESSAGE_BYTES, publicUrl, type BrowserChoice, type BrowserCommand, type BrowserHello, type BrowserId, type BrowserResponse, type Selection } from "./protocol.ts";
+import { MAX_MESSAGE_BYTES, publicUrl, type BrowserChoice, type BrowserCommand, type BrowserHello, type BrowserId, type BrowserResponse, type Selection, type VkSearchVideo } from "./protocol.ts";
 
-export { runNativeMessaging } from "./native.ts";
 export { installedBrowsers } from "./discovery.ts";
 export type { BrowserChoice, BrowserId, Selection } from "./protocol.ts";
-
-export class BrowserBridgeError extends Error {
-    constructor(readonly code: string, message: string, readonly url?: string) {
-        super(message);
-        this.name = "BrowserBridgeError";
-    }
-}
 
 interface Pending {
     connection: number;
@@ -31,9 +24,21 @@ export interface BrowserBridgeOptions {
     discoveryPath?: string;
 }
 
+interface BrowserCookie {
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    secure: boolean;
+    hostOnly: boolean;
+    httpOnly?: boolean;
+    sameSite?: "no_restriction" | "lax" | "strict" | "unspecified";
+    expirationDate?: number;
+}
+
 export class BrowserBridge {
     private broker?: ChildProcessWithoutNullStreams;
-    private readonly connections = new Map<number, { browser: BrowserId; userAgent: string }>();
+    private readonly connections = new Map<number, { browser: BrowserId; userAgent: string; capabilities: string[] }>();
     private readonly pending = new Map<number, Pending>();
     private readonly browsers: InstalledBrowser[];
     private nextId = 0;
@@ -132,34 +137,53 @@ export class BrowserBridge {
         this.options.browser = browser;
     }
 
-    async connectBrowser(browser: BrowserChoice = this.options.browser ?? "auto") {
+    async connectBrowser(browser: BrowserChoice, signal: AbortSignal) {
         const selected = preferredBrowser(browser, this.browsers)
             ?? (this.browsers.length === 1 ? this.browsers[0]?.id : undefined);
         if (!selected || !this.browsers.some((installed) => installed.id === selected)) {
-            throw new BrowserBridgeError("browser_choice_required", "Choose an installed browser in Sources.");
+            throw new ContentError("browser_choice_required", "Choose an installed browser in Sources.");
         }
-        const bundle = dirname(process.execPath);
-        const script = join(bundle, "scripts", "register-content-browser.ps1");
-        const extension = join(bundle, "browser-extension", selected === "firefox" ? "firefox" : "chromium");
-        if (!existsSync(script) || !existsSync(join(extension, "manifest.json"))) {
-            throw new BrowserBridgeError("browser_setup_missing", "Browser connection files are missing. Reinstall qbutt.");
-        }
-        await promisify(execFile)("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
-            "-ContentExecutable", process.execPath, "-Browser", selected, "-ExtensionDirectory", extension, "-OpenSetup"], {
-            windowsHide: true, timeout: 20_000, maxBuffer: 64 * 1024,
-        });
+        if (selected === "firefox")
+            throw new ContentError("browser_unsupported", "qcatch supports Microsoft Edge and Google Chrome.");
+        const setup = await connectQcatch(dirname(process.execPath), selected, signal);
         this.options.browser = browser;
         return {
             ...this.status(),
             browser: selected,
-            extensionDirectory: extension,
+            extensionDirectory: setup.extensionDirectory,
         };
     }
 
-    async cookies(url: string, options: { signal?: AbortSignal } = {}): Promise<{ name: string; value: string; domain: string; path: string; secure: boolean; hostOnly: boolean; expirationDate?: number }[]> {
+    async cookies(url: string, options: { signal?: AbortSignal } = {}): Promise<BrowserCookie[]> {
         publicUrl(url);
         if (!this.connection()) return [];
-        return this.request({ method: "cookies", url }, options.signal) as Promise<Awaited<ReturnType<BrowserBridge["cookies"]>>>;
+        return this.request({ method: "cookies", url }, options.signal) as Promise<BrowserCookie[]>;
+    }
+
+    async searchVkVideos(query: string, signal?: AbortSignal): Promise<VkSearchVideo[]> {
+        if (!query || query !== query.trim() || query.length > 200 || /[\r\n]/.test(query)) throw new Error("Invalid VK search query.");
+        const address = new URL("https://vkvideo.ru/");
+        address.searchParams.set("q", query);
+        const connection = this.connection();
+        if (connection && !this.connections.get(connection)!.capabilities.includes("vk-search")) {
+            throw new ContentError("browser_update_required", "Update qcatch and reload its browser extension to search VK Video.", address.href);
+        }
+        const result = await this.request({ method: "vk-search", url: address.href, query }, signal) as {
+            query: string; videos: VkSearchVideo[];
+        };
+        if (result?.query !== query || !Array.isArray(result.videos) || result.videos.length > 100) {
+            throw new Error("Invalid VK search response.");
+        }
+        for (const video of result.videos) {
+            if (!video || typeof video.id !== "string" || !/^-?\d+_\d+$/.test(video.id)
+                || video.url !== `https://vkvideo.ru/video${video.id}` || typeof video.title !== "string"
+                || !video.title.trim() || video.title.length > 500) throw new Error("Invalid VK search publication.");
+            if (video.author !== undefined && (typeof video.author !== "string" || video.author.length > 200)
+                || video.duration !== undefined && (!Number.isFinite(video.duration) || video.duration < 0)
+                || video.cover !== undefined && typeof video.cover !== "string") throw new Error("Invalid VK search metadata.");
+            if (video.cover) publicUrl(video.cover);
+        }
+        return result.videos;
     }
 
     async fetch(url: string, init: RequestInit = {}, options: { signal?: AbortSignal } = {}): Promise<Response> {
@@ -187,7 +211,9 @@ export class BrowserBridge {
         const referrer = options.referrer ? publicUrl(options.referrer) : undefined;
         const result = await this.request({ method: "resolve", url, selection, kind, referrer }, options.signal) as ResolvedContent;
         const allowed = kind === "file" ? ["file", "torrent"] : [kind];
-        if (!allowed.includes(result.kind) || result.resolver !== "direct" || typeof result.url !== "string") throw new Error("Invalid browser content response");
+        const sourcePage = kind === "video" && result.resolver === "yt-dlp" && result.url === url && !!selection.captureId;
+        if (!allowed.includes(result.kind) || (!sourcePage && result.resolver !== "direct") || typeof result.url !== "string")
+            throw new Error("Invalid browser content response");
         publicUrl(result.url);
         const keys = new Set([...Object.keys(selection), ...Object.keys(result.selection ?? {})]);
         if ([...keys].some((key) => result.selection?.[key as keyof Selection] !== selection[key as keyof Selection])) throw new Error("Browser returned another media selection");
@@ -213,8 +239,8 @@ export class BrowserBridge {
 
     private request(command: Omit<BrowserCommand, "id">, signal?: AbortSignal): Promise<unknown> {
         const connection = this.connection();
-        if (!connection) throw new BrowserBridgeError("browser_required", this.unavailable ?? "Установите расширение qbutt в выбранном браузере.", command.url);
-        if (this.pending.size >= 16) throw new BrowserBridgeError("browser_busy", "Браузер занят. Повторите действие через несколько секунд.", command.url);
+        if (!connection) throw new ContentError("browser_required", this.unavailable ?? "Установите qcatch и подключите расширение в выбранном браузере.", command.url);
+        if (this.pending.size >= 16) throw new ContentError("browser_busy", "Браузер занят. Повторите действие через несколько секунд.", command.url);
         signal?.throwIfAborted();
         const id = ++this.nextId;
         return new Promise((resolve, reject) => {
@@ -231,7 +257,7 @@ export class BrowserBridge {
             const timeout = setTimeout(() => {
                 this.send(connection, { id, method: "cancel" });
                 cleanup();
-                reject(new BrowserBridgeError("browser_timeout", "Страница не ответила. Откройте источник и повторите действие.", command.url));
+                reject(new ContentError("browser_timeout", "Страница не ответила. Откройте источник и повторите действие.", command.url));
             }, command.method === "resolve" ? 45_000 : 20_000);
             signal?.addEventListener("abort", abort, { once: true });
             this.pending.set(id, {
@@ -268,20 +294,22 @@ export class BrowserBridge {
                     this.disconnect(old);
                 }
             }
-            this.connections.set(connection, { browser: hello.browser, userAgent: hello.userAgent });
+            const capabilities = Array.isArray(hello.capabilities)
+                ? hello.capabilities.filter(capability => typeof capability === "string" && /^[a-z-]{1,40}$/.test(capability)).slice(0, 16) : [];
+            this.connections.set(connection, { browser: hello.browser, userAgent: hello.userAgent, capabilities });
             return;
         }
         const response = value as BrowserResponse;
         const pending = this.pending.get(response.id);
         if (!pending || pending.connection !== connection) return;
-        if (response.error) pending.reject(new BrowserBridgeError(response.error.code, response.error.message, response.error.url));
+        if (response.error) pending.reject(new ContentError(response.error.code, response.error.message, response.error.url));
         else pending.resolve(response.result);
     }
 
     private disconnect(connection: number): void {
         this.connections.delete(connection);
         for (const pending of this.pending.values()) {
-            if (pending.connection === connection) pending.reject(new BrowserBridgeError("browser_disconnected", "Браузер отключился. Откройте его и повторите действие."));
+            if (pending.connection === connection) pending.reject(new ContentError("browser_disconnected", "Браузер отключился. Откройте его и повторите действие."));
         }
     }
 

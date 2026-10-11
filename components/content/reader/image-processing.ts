@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ProviderContext } from "../contracts";
-import { mediaRoot, mediaTool } from "../media-runtime";
+import { mediaRuntime } from "../media-runtime";
 import { contentId } from "./types";
 import type { RecognizedRegion } from "./translation";
 
@@ -25,11 +25,11 @@ const PIPELINE = 3;
 async function ffmpeg(context: ProviderContext, args: string[], input?: Uint8Array): Promise<Uint8Array> {
     const appDir = context.appDir;
     if (!appDir) throw new Error("The bundled media tools are unavailable. Reinstall qbutt and try again.");
-    const executable = await mediaTool(appDir, "ffmpeg", context.signal);
+    const runtime = await mediaRuntime(appDir, context.signal);
     const signal = AbortSignal.any([context.signal, AbortSignal.timeout(30_000)]);
     return new Promise((resolve, reject) => {
-        const child = spawn(executable, ["-hide_banner", "-loglevel", "error", ...args],
-            { cwd: mediaRoot(appDir), windowsHide: true, signal, stdio: ["pipe", "pipe", "pipe"] });
+        const child = spawn(runtime.tools.ffmpeg, ["-hide_banner", "-loglevel", "error", ...args],
+            { cwd: runtime.runtimeDir, windowsHide: true, signal, stdio: ["pipe", "pipe", "pipe"] });
         const chunks: Buffer[] = [];
         let size = 0;
         let overflow = false;

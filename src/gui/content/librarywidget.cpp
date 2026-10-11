@@ -18,8 +18,10 @@
 #include <QJsonArray>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMenu>
 #include <QPainter>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSet>
@@ -47,16 +49,37 @@
 #include "base/content/client.h"
 #include "base/global.h"
 #include "base/media/player.h"
+#include "base/preferences.h"
 #include "base/utils/misc.h"
 #include "gui/flowlayout.h"
 #include "gui/interfaces/iguiapplication.h"
 #include "gui/uithememanager.h"
+#include "browserprerequisitewidget.h"
 #include "downloadswidget.h"
 #include "readerwidget.h"
 #include "sourcesdialog.h"
 
 namespace
 {
+    class WorkTitleLabel final : public QLabel
+    {
+    public:
+        using QLabel::QLabel;
+
+        QSize sizeHint() const override
+        {
+            return fontMetrics().size(Qt::TextSingleLine, text());
+        }
+    };
+
+    enum VariantColumns
+    {
+        VariantColumn,
+        SourceColumn,
+        SizeColumn,
+        SeedsColumn
+    };
+
     QString categoryName(const QString &category)
     {
         if (category == u"games")
@@ -91,12 +114,42 @@ namespace
         view->horizontalHeader()->setStretchLastSection(false);
     }
 
+    QStringList workSources(const QJsonObject &work)
+    {
+        QStringList sources;
+        QSet<QString> sourceIds;
+        for (const QJsonValue &value : work.value(u"variants"_s).toArray())
+        {
+            const QJsonObject variant = value.toObject();
+            const QString sourceId = variant.value(u"sourceId"_s).toString();
+            if (!sourceIds.contains(sourceId))
+            {
+                sourceIds.insert(sourceId);
+                sources.append(variant.value(u"sourceName"_s).toString(sourceId));
+            }
+        }
+        return sources;
+    }
+
+    QString workTitle(const QJsonObject &work)
+    {
+        const QString title = work.value(u"title"_s).toString();
+        const int year = work.value(u"year"_s).toInt();
+        return year > 0 ? u"%1 (%2)"_s.arg(title).arg(year) : title;
+    }
+
+    QString workToolTip(const QJsonObject &work)
+    {
+        return workTitle(work) + u'\n' + categoryName(work.value(u"category"_s).toString())
+            + u'\n' + workSources(work).join(u", "_s);
+    }
+
     QList<QStandardItem *> workItems(const QJsonObject &work, const QJsonObject &preferredVariant = {})
     {
-        auto *title = new QStandardItem(work.value(u"title"_s).toString());
+        auto *title = new QStandardItem(workTitle(work));
         title->setData(work, Qt::UserRole);
         title->setData(preferredVariant, Qt::UserRole + 1);
-        title->setToolTip(title->text());
+        title->setToolTip(workToolTip(work));
         return {title};
     }
 
@@ -147,15 +200,14 @@ namespace
 
             painter->setFont(option.font);
             const QJsonObject work = index.data(Qt::UserRole).toJsonObject();
-            const QString count = Content::LibraryWidget::tr("%n version(s)", nullptr, work.value(u"variants"_s).toArray().size());
-            const int countWidth = option.fontMetrics.horizontalAdvance(count);
+            const QStringList sources = workSources(work);
+            QString sourceLabel = sources.first(std::min(3, static_cast<int>(sources.size()))).join(u", "_s);
+            if (sources.size() > 3)
+                sourceLabel += u' ' + Content::LibraryWidget::tr("and %n more", nullptr, sources.size() - 3);
+
             const int baseline = textRect.bottom() - option.fontMetrics.descent();
-            QStringList metadata {categoryName(work.value(u"category"_s).toString())};
-            if (work.value(u"year"_s).toInt() > 0)
-                metadata << QString::number(work.value(u"year"_s).toInt());
             painter->drawText(textRect.left(), baseline,
-                option.fontMetrics.elidedText(metadata.join(u", "_s), Qt::ElideRight, textRect.width() - countWidth - 12));
-            painter->drawText(textRect.right() - countWidth, baseline, count);
+                option.fontMetrics.elidedText(sourceLabel, Qt::ElideRight, textRect.width()));
             painter->restore();
         }
     };
@@ -187,6 +239,17 @@ namespace
             && (left.value(u"id"_s) == right.value(u"id"_s));
     }
 
+    QString variantFacet(const QJsonObject &variant, const QString &key)
+    {
+        return variant.value(u"facets"_s).toObject().value(key).toString(variant.value(key).toString());
+    }
+
+    QString languageName(const QString &language)
+    {
+        const QLocale locale(language);
+        return locale.language() == QLocale::C ? language : locale.nativeLanguageName();
+    }
+
     QString episodeLabel(const QJsonObject &variant)
     {
         const QString episode = variant.value(u"episode"_s).toString();
@@ -205,10 +268,39 @@ namespace
         for (auto it = incoming.constBegin(); it != incoming.constEnd(); ++it)
             merged.insert(it.key(), it.value());
 
-        QJsonArray candidates = incoming.value(u"variants"_s).toArray();
-        for (const QJsonValue &value : current.value(u"variants"_s).toArray())
+        const QJsonArray incomingVariants = incoming.value(u"variants"_s).toArray();
+        const QJsonArray currentVariants = current.value(u"variants"_s).toArray();
+        QJsonArray candidates;
+        for (const QJsonValue &value : incomingVariants)
         {
-            if (inspectedPublication.isEmpty() || !samePublication(value.toObject(), inspectedPublication))
+            const QJsonObject variant = value.toObject();
+            if (inspectedPublication.isEmpty() || samePublication(variant, inspectedPublication))
+            {
+                candidates.append(value);
+            }
+            else
+            {
+                for (const QJsonValue &currentValue : currentVariants)
+                {
+                    if (sameVariant(currentValue.toObject(), variant))
+                    {
+                        candidates.append(currentValue);
+                        break;
+                    }
+                }
+            }
+        }
+        for (const QJsonValue &value : currentVariants)
+        {
+            const QJsonObject variant = value.toObject();
+            const bool retain = inspectedPublication.isEmpty()
+                ? std::any_of(incomingVariants.cbegin(), incomingVariants.cend(), [&variant](const QJsonValue &candidate)
+                {
+                    const QJsonObject publication = candidate.toObject();
+                    return publication.value(u"needsInspection"_s).toBool() && samePublication(variant, publication);
+                })
+                : !samePublication(variant, inspectedPublication);
+            if (retain)
                 candidates.append(value);
         }
 
@@ -245,6 +337,28 @@ namespace
     }
 }
 
+class Content::LibraryWidget::WorkFilterModel final : public QSortFilterProxyModel
+{
+public:
+    using QSortFilterProxyModel::QSortFilterProxyModel;
+
+    void setCategory(const QString &category)
+    {
+        m_category = category;
+        invalidateRowsFilter();
+    }
+
+protected:
+    bool filterAcceptsRow(const int row, const QModelIndex &parent) const override
+    {
+        const QJsonObject work = sourceModel()->index(row, 0, parent).data(Qt::UserRole).toJsonObject();
+        return (m_category == u"all") || (work.value(u"category"_s).toString() == m_category);
+    }
+
+private:
+    QString m_category = u"all"_s;
+};
+
 class Content::LibraryWidget::VariantFilterModel final : public QSortFilterProxyModel
 {
 public:
@@ -259,43 +373,43 @@ public:
         invalidateRowsFilter();
     }
 
-    void setFacets(const QJsonObject &episode, const QVariant &voice, const QJsonObject &source)
+    void setFacets(const QJsonObject &episode, const QVariant &voice, const QJsonObject &source, const QVariant &language)
     {
         m_episode = episode;
         m_voice = voice;
         m_source = source;
+        m_language = language;
         invalidateRowsFilter();
     }
 
 protected:
     bool filterAcceptsRow(const int row, const QModelIndex &parent) const override
     {
-        const QJsonObject variant = sourceModel()->index(row, 0, parent).data(Qt::UserRole).toJsonObject();
+        const QJsonObject variant = sourceModel()->index(row, VariantColumn, parent).data(Qt::UserRole).toJsonObject();
         if (!m_showReported && (variant.value(u"transport"_s).toString() == u"video")
             && (variant.value(u"adStatus"_s).toString() == u"reported"))
         {
             return false;
         }
 
-        const bool pending = variant.value(u"needsInspection"_s).toBool();
         if (!m_source.isEmpty() && ((variant.value(u"sourceId"_s) != m_source.value(u"sourceId"_s))
-            || (!pending && ((m_source.contains(u"player"_s)
-                    && (variant.value(u"player"_s).toString() != m_source.value(u"player"_s).toString()))
-                || (m_source.contains(u"transport"_s) && (variant.value(u"transport"_s) != m_source.value(u"transport"_s)))))))
+            || (m_source.contains(u"player"_s) && (variant.value(u"player"_s).toString() != m_source.value(u"player"_s).toString()))
+            || (m_source.contains(u"transport"_s) && (variant.value(u"transport"_s) != m_source.value(u"transport"_s)))))
         {
             return false;
         }
 
-        // An unexpanded publication is an explicit inspection choice, not a
-        // release whose unknown episode or voice matches the selected values.
-        if (!pending)
+        if (!m_episode.isEmpty() && ((variantFacet(variant, u"episode"_s) != m_episode.value(u"episode"_s).toString())
+            || (variantFacet(variant, u"season"_s) != m_episode.value(u"season"_s).toString())))
         {
-            if (!m_episode.isEmpty() && ((variant.value(u"episode"_s).toString() != m_episode.value(u"episode"_s).toString())
-                || (variant.value(u"season"_s).toString() != m_episode.value(u"season"_s).toString())))
-            {
-                return false;
-            }
-            if (m_voice.isValid() && (variant.value(u"translation"_s).toString() != m_voice.toString()))
+            return false;
+        }
+        if (m_voice.isValid() && (variantFacet(variant, u"translation"_s) != m_voice.toString()))
+            return false;
+        if (m_language.isValid())
+        {
+            const QJsonArray languages = variant.value(u"languages"_s).toArray();
+            if (m_language.toString().isEmpty() ? !languages.isEmpty() : !languages.contains(m_language.toString()))
                 return false;
         }
         return QSortFilterProxyModel::filterAcceptsRow(row, parent);
@@ -306,6 +420,7 @@ private:
     QJsonObject m_episode;
     QVariant m_voice;
     QJsonObject m_source;
+    QVariant m_language;
 };
 
 Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
@@ -341,11 +456,18 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
     sources->setObjectName(u"contentSources"_s);
     searchBar->addWidget(sources);
     navigationLayout->addLayout(searchBar);
+    m_searchProgress = new QProgressBar(this);
+    m_searchProgress->setObjectName(u"contentSearchProgress"_s);
+    m_searchProgress->setRange(0, 0);
+    m_searchProgress->setTextVisible(false);
+    m_searchProgress->setMaximumHeight(4);
+    m_searchProgress->hide();
+    navigationLayout->addWidget(m_searchProgress);
 
     m_views = new QTabBar(this);
     m_views->setExpanding(false);
     m_views->addTab(tr("Search"));
-    m_views->addTab(tr("Saved", "Library tab"));
+    m_views->addTab(tr("Favorites"));
     m_views->addTab(tr("History"));
     m_views->addTab(tr("Downloads"));
     navigationLayout->addWidget(m_views);
@@ -354,7 +476,8 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
     connect(m_pages, &QStackedWidget::currentChanged, this, [this]
     {
         const bool reading = isReading();
-        m_navigation->setVisible(!reading);
+        const bool prerequisite = m_browserPrerequisite && (m_pages->currentWidget() == m_browserPrerequisite);
+        m_navigation->setVisible(!reading && !prerequisite);
         emit readerActiveChanged(reading);
     });
     layout->addWidget(m_pages, 1);
@@ -368,16 +491,24 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
     resultLayout->setContentsMargins(0, 0, 0, 0);
     m_searchModel = new QStandardItemModel(this);
     m_searchModel->setSortRole(Qt::UserRole + 2);
+    m_searchProxy = new WorkFilterModel(this);
+    m_searchProxy->setSourceModel(m_searchModel);
     m_libraryModel = new QStandardItemModel(this);
     m_works = new QTableView(results);
     m_works->setObjectName(u"contentResults"_s);
-    m_works->setModel(m_searchModel);
+    m_works->setModel(m_searchProxy);
     configureTable(m_works);
     m_works->setItemDelegate(new WorkListDelegate(m_works));
     m_works->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_works->horizontalHeader()->hide();
     m_works->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     resultLayout->addWidget(m_works, 1);
+    m_emptyResults = new QLabel(results);
+    m_emptyResults->setObjectName(u"contentEmptyResults"_s);
+    m_emptyResults->setAlignment(Qt::AlignCenter);
+    m_emptyResults->setWordWrap(true);
+    m_emptyResults->hide();
+    resultLayout->addWidget(m_emptyResults, 1);
     auto *statusRow = new QHBoxLayout;
     m_status = new QLabel(results);
     m_status->setWordWrap(true);
@@ -399,7 +530,7 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
     auto *panelLayout = new QVBoxLayout(m_details);
     panelLayout->setContentsMargins(12, 0, 0, 0);
     panelLayout->setSpacing(10);
-    m_title = new QLabel(m_details);
+    m_title = new WorkTitleLabel(m_details);
     m_title->setObjectName(u"contentTitle"_s);
     m_title->setWordWrap(true);
     m_title->setTextFormat(Qt::PlainText);
@@ -408,7 +539,16 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
     titleFont.setPointSize(titleFont.pointSize() + 4);
     titleFont.setBold(true);
     m_title->setFont(titleFont);
-    panelLayout->addWidget(m_title);
+    auto *heading = new QHBoxLayout;
+    heading->addWidget(m_title);
+    m_favorite = new QToolButton(m_details);
+    m_favorite->setObjectName(u"contentSave"_s);
+    m_favorite->setCheckable(true);
+    m_favorite->setAutoRaise(true);
+    m_favorite->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    heading->addWidget(m_favorite, 0, Qt::AlignTop);
+    heading->addStretch();
+    panelLayout->addLayout(heading);
     m_detailPages = new QTabWidget(m_details);
     m_detailPages->setObjectName(u"contentDetailPages"_s);
     auto *versions = new QWidget(m_detailPages);
@@ -426,14 +566,18 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
     m_source = new QComboBox(m_variantFacets);
     m_source->setObjectName(u"contentVariantSource"_s);
     m_source->addItem(tr("All sources"));
-    for (QComboBox *combo : {m_episode, m_voice, m_source})
+    m_language = new QComboBox(m_variantFacets);
+    m_language->setObjectName(u"contentLanguage"_s);
+    m_language->addItem(tr("All languages"));
+    for (QComboBox *combo : {m_episode, m_voice, m_source, m_language})
     {
         combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
         combo->setMinimumContentsLength(combo->itemText(0).size());
         facets->addWidget(combo);
         connect(combo, &QComboBox::currentIndexChanged, this, [this, combo]
         {
-            combo->setMinimumContentsLength(std::max(combo->itemText(0).size(), combo->currentText().size()));
+            combo->setMinimumContentsLength(std::min(qsizetype(24), std::max(combo->itemText(0).size(), combo->currentText().size())));
+            combo->setToolTip(combo->currentText());
             filterVariants();
         });
     }
@@ -448,7 +592,7 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
     m_showReported->hide();
     versionLayout->addWidget(m_showReported);
     m_variantModel = new QStandardItemModel(this);
-    m_variantModel->setHorizontalHeaderLabels({tr("Source"), tr("Version / voice"), tr("Size"), tr("Seeds")});
+    m_variantModel->setHorizontalHeaderLabels({tr("Variant"), tr("Source"), tr("Size"), tr("Seeds")});
     m_variantProxy = new VariantFilterModel(this);
     m_variantProxy->setSourceModel(m_variantModel);
     m_variantProxy->setFilterRole(Qt::UserRole + 1);
@@ -456,11 +600,25 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
     m_variants->setObjectName(u"contentVariants"_s);
     m_variants->setModel(m_variantProxy);
     configureTable(m_variants);
-    m_variants->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_variants->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    m_variants->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    m_variants->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_variants->horizontalHeader()->setSectionResizeMode(VariantColumn, QHeaderView::Stretch);
+    m_variants->horizontalHeader()->setSectionResizeMode(SourceColumn, QHeaderView::Interactive);
+    m_variants->setColumnWidth(SourceColumn, 100);
+    m_variants->horizontalHeader()->setSectionResizeMode(SizeColumn, QHeaderView::ResizeToContents);
+    m_variants->horizontalHeader()->setSectionResizeMode(SeedsColumn, QHeaderView::ResizeToContents);
+    m_detailsProgress = new QProgressBar(versions);
+    m_detailsProgress->setObjectName(u"contentDetailsProgress"_s);
+    m_detailsProgress->setRange(0, 0);
+    m_detailsProgress->setTextVisible(false);
+    m_detailsProgress->setMaximumHeight(4);
+    m_detailsProgress->hide();
+    versionLayout->addWidget(m_detailsProgress);
     versionLayout->addWidget(m_variants, 1);
+    m_emptyVariants = new QLabel(versions);
+    m_emptyVariants->setObjectName(u"contentEmptyVariants"_s);
+    m_emptyVariants->setAlignment(Qt::AlignCenter);
+    m_emptyVariants->setWordWrap(true);
+    m_emptyVariants->hide();
+    versionLayout->addWidget(m_emptyVariants, 1);
     m_detailPages->addTab(versions, tr("Versions"));
     auto *actions = new FlowLayout(0);
     m_open = new QPushButton(tr("Open"), m_details);
@@ -470,18 +628,10 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
     m_download = new QPushButton(tr("Download"), m_details);
     m_download->hide();
     actions->addWidget(m_download);
-    m_save = new QPushButton(tr("Save"), m_details);
-    m_save->setObjectName(u"contentSave"_s);
-    m_save->setCheckable(true);
-    actions->addWidget(m_save);
     m_share = new QToolButton(m_details);
+    m_share->setObjectName(u"contentShare"_s);
     m_share->setText(tr("Share"));
     m_share->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_share->setPopupMode(QToolButton::MenuButtonPopup);
-    auto *shareMenu = new QMenu(m_share);
-    shareMenu->addAction(tr("Share this version"), this, [this] { shareWork(u"exact"_s); });
-    shareMenu->addAction(tr("Share title"), this, [this] { shareWork(u"work"_s); });
-    m_share->setMenu(shareMenu);
     actions->addWidget(m_share);
     m_remove = new QPushButton(tr("Remove"), m_details);
     m_remove->hide();
@@ -511,7 +661,7 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
             Client::instance()->cancel(m_searchRequest);
             m_searchRequest = 0;
             m_search->setText(tr("Search"));
-            m_status->setText(tr("Search stopped: %n title(s)", nullptr, m_searchModel->rowCount()));
+            updateSearchView();
         }
         else
         {
@@ -519,15 +669,36 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
         }
     });
     connect(m_expand, &QPushButton::clicked, this, [this] { search(true); });
+    connect(m_category, &QComboBox::currentIndexChanged, this, [this]
+    {
+        m_searchProxy->setCategory(m_category->currentData().toString());
+        updateSearchView();
+    });
     connect(m_openSource, &QPushButton::clicked, this, [this] { QDesktopServices::openUrl(m_failureUrl); });
     connect(m_retry, &QPushButton::clicked, this, &LibraryWidget::startResolve);
-    connect(sources, &QPushButton::clicked, this, &LibraryWidget::showSources);
+    connect(sources, &QPushButton::clicked, this, [this] { showSources(); });
     connect(m_views, &QTabBar::currentChanged, this, &LibraryWidget::changeView);
     connect(m_works->selectionModel(), &QItemSelectionModel::currentRowChanged, this, &LibraryWidget::selectWork);
     connect(m_variants->selectionModel(), &QItemSelectionModel::currentRowChanged, this, &LibraryWidget::selectVariant);
     connect(m_variantFilter, &QLineEdit::textChanged, this, &LibraryWidget::filterVariants);
     connect(m_showReported, &QCheckBox::toggled, this, &LibraryWidget::filterVariants);
     connect(m_variants, &QTableView::doubleClicked, this, [this] { resolveVariant(); });
+    m_variants->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_variants, &QTableView::customContextMenuRequested, this, [this](const QPoint &position)
+    {
+        const QModelIndex index = m_variants->indexAt(position);
+        if (!index.isValid())
+            return;
+
+        m_variants->selectRow(index.row());
+        const QUrl url(currentVariant().value(u"url"_s).toString());
+        if (url.host().isEmpty() || ((url.scheme() != u"http") && (url.scheme() != u"https")))
+            return;
+
+        QMenu menu(this);
+        menu.addAction(tr("Open source"), this, [url] { QDesktopServices::openUrl(url); });
+        menu.exec(m_variants->viewport()->mapToGlobal(position));
+    });
     connect(m_open, &QPushButton::clicked, this, [this]
     {
         if (!m_torrentPlayback.isEmpty())
@@ -542,8 +713,10 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
         }
     });
     connect(m_download, &QPushButton::clicked, this, &LibraryWidget::downloadVariant);
-    connect(m_save, &QPushButton::clicked, this, &LibraryWidget::saveWork);
-    connect(m_share, &QToolButton::clicked, this, [this] { shareWork(u"exact"_s); });
+    connect(m_favorite, &QToolButton::toggled, this, &LibraryWidget::updateActions);
+    connect(m_favorite, &QToolButton::clicked, this, &LibraryWidget::toggleFavorite);
+    connect(m_share, &QToolButton::clicked, this, &LibraryWidget::shareWork);
+    connect(Media::Player::instance(), &Media::Player::subtitleSettingsRequested, this, [this] { showSources(u"ai"_s); });
     connect(m_remove, &QPushButton::clicked, this, [this]
     {
         m_removeRequest = Client::instance()->request(u"remove"_s, {{u"id"_s, m_work.value(u"id"_s)}});
@@ -556,7 +729,8 @@ Content::LibraryWidget::LibraryWidget(IGUIApplication *app, QWidget *parent)
 
         const QJsonObject work = m_playback.value(u"work"_s).toObject();
         m_rememberRequests.insert(Client::instance()->request(u"remember"_s,
-            {{u"work"_s, work}, {u"variant"_s, m_playback.value(u"variant"_s)}, {u"opened"_s, true}}));
+            {{u"work"_s, work}, {u"variant"_s, m_playback.value(u"variant"_s)},
+                {u"variantFilters"_s, m_playback.value(u"variantFilters"_s)}, {u"opened"_s, true}}));
         m_status->setText(tr("Opened %1").arg(work.value(u"title"_s).toString()));
     });
     connect(app->addTorrentManager(), &AddTorrentManager::torrentAdded, this,
@@ -644,6 +818,7 @@ void Content::LibraryWidget::acceptSharedLink(const QUrl &url)
     clearDetails();
     m_linkRequest = Client::instance()->request(u"openLink"_s, {{u"url"_s, url.toString(QUrl::FullyEncoded)}});
     m_status->setText(tr("Opening shared title…"));
+    updateSearchView();
 }
 
 void Content::LibraryWidget::downloadMedia(const QJsonObject &params)
@@ -688,14 +863,15 @@ void Content::LibraryWidget::search(const bool expanded)
     m_views->setCurrentIndex(0);
     m_pages->setCurrentIndex(0);
     m_expand->hide();
-    m_searchFailed = false;
     m_expandedSearch = expanded;
     m_status->setToolTip({});
     m_searchRequest = Client::instance()->request(u"search"_s, {
-        {u"query"_s, query}, {u"category"_s, m_category->currentData().toString()}, {u"expanded"_s, expanded}
+        {u"query"_s, query}, {u"category"_s, u"all"_s}, {u"expanded"_s, expanded},
+        {u"language"_s, QLocale(Preferences::instance()->getLocale()).bcp47Name()}
     });
     m_search->setText(tr("Stop"));
-    m_status->setText(tr("Searching…"));
+    m_status->clear();
+    updateSearchView();
 }
 
 void Content::LibraryWidget::changeView()
@@ -707,7 +883,7 @@ void Content::LibraryWidget::changeView()
         m_downloads->refresh();
         return;
     }
-    QStandardItemModel *model = (m_views->currentIndex() == 0) ? m_searchModel : m_libraryModel;
+    QAbstractItemModel *model = (m_views->currentIndex() == 0) ? static_cast<QAbstractItemModel *>(m_searchProxy) : m_libraryModel;
     if (m_works->model() != model)
     {
         QItemSelectionModel *previousSelection = m_works->selectionModel();
@@ -721,17 +897,95 @@ void Content::LibraryWidget::changeView()
         loadLibrary();
     else
     {
-        m_status->setText(m_searchRequest ? tr("Searching…") : tr("%n title(s)", nullptr, m_searchModel->rowCount()));
+        m_status->clear();
         if (m_works->currentIndex().isValid())
             selectWork();
+    }
+    updateSearchView();
+}
+
+void Content::LibraryWidget::updateSearchView()
+{
+    const bool searching = m_views->currentIndex() == 0;
+    m_searchProgress->setVisible(searching && m_searchRequest);
+    const bool empty = searching && (m_searchProxy->rowCount() == 0);
+    m_emptyResults->setVisible(empty);
+    m_works->setVisible(!empty);
+    m_emptyResults->setText(m_searchModel->rowCount() > 0 ? tr("No titles in this category")
+        : m_searchRequest ? tr("No results yet") : tr("No results"));
+    if (searching && !m_works->currentIndex().isValid() && !m_work.isEmpty())
+        clearDetails();
+    if (searching && !m_works->currentIndex().isValid() && !empty)
+        m_works->selectRow(0);
+    if (searching && m_works->currentIndex().isValid()
+        && (m_works->currentIndex().siblingAtColumn(0).data(Qt::UserRole).toJsonObject().value(u"id"_s)
+            != m_work.value(u"id"_s)))
+    {
+        selectWork();
     }
 }
 
 void Content::LibraryWidget::loadLibrary()
 {
+    m_libraryModel->removeRows(0, m_libraryModel->rowCount());
+    m_libraryEntries.clear();
     m_libraryRequest = Client::instance()->request(u"library"_s);
     if (m_views->currentIndex() > 0)
         m_status->setText(tr("Loading library…"));
+}
+
+void Content::LibraryWidget::updateLibraryEntries(const QJsonArray &entries)
+{
+    const bool libraryView = (m_views->currentIndex() == 1) || (m_views->currentIndex() == 2);
+    for (const QJsonValue &value : entries)
+    {
+        const QJsonObject entry = value.toObject();
+        const QJsonObject work = entry.value(u"work"_s).toObject();
+        const QString workId = work.value(u"id"_s).toString();
+        m_libraryEntries.insert(workId, entry);
+        if (!libraryView)
+            continue;
+
+        int row = -1;
+        for (int index = 0; index < m_libraryModel->rowCount(); ++index)
+        {
+            if (m_libraryModel->item(index, 0)->data(Qt::UserRole).toJsonObject().value(u"id"_s).toString() == workId)
+            {
+                row = index;
+                break;
+            }
+        }
+        const bool visible = (m_views->currentIndex() == 1) ? entry.value(u"favorite"_s).toBool()
+            : !entry.value(u"lastOpened"_s).toString().isEmpty();
+        if (!visible)
+        {
+            if (row >= 0)
+                m_libraryModel->removeRow(row);
+        }
+        else
+        {
+            const QJsonObject variant = entry.value(u"variant"_s).toObject();
+            const QJsonObject preferred {{u"id"_s, variant.value(u"id"_s)}, {u"sourceId"_s, variant.value(u"sourceId"_s)}};
+            if (row < 0)
+                m_libraryModel->appendRow(workItems(work, preferred));
+            else
+            {
+                QStandardItem *item = m_libraryModel->item(row, 0);
+                item->setData(work, Qt::UserRole);
+                item->setData(preferred, Qt::UserRole + 1);
+                item->setText(workTitle(work));
+                item->setToolTip(workToolTip(work));
+            }
+        }
+    }
+    if (libraryView)
+    {
+        m_status->setText(tr("%n title(s)", nullptr, m_libraryModel->rowCount()));
+        if ((m_libraryModel->rowCount() > 0) && !m_works->currentIndex().isValid())
+            m_works->selectRow(0);
+        else if (m_libraryModel->rowCount() == 0)
+            clearDetails();
+    }
 }
 
 QJsonObject Content::LibraryWidget::libraryEntry(const QJsonObject &work) const
@@ -766,11 +1020,11 @@ void Content::LibraryWidget::clearDetails()
     Client::instance()->cancel(m_detailsRequest);
     Client::instance()->cancel(m_linkRequest);
     m_detailsRequest = 0;
-    m_inspectingVariant = {};
+    m_inspectedPublications.clear();
     m_linkRequest = 0;
     m_work = {};
     m_variantModel->removeRows(0, m_variantModel->rowCount());
-    for (QComboBox *combo : {m_episode, m_voice, m_source})
+    for (QComboBox *combo : {m_episode, m_voice, m_source, m_language})
     {
         const QSignalBlocker blocker(combo);
         combo->setCurrentIndex(0);
@@ -813,8 +1067,8 @@ void Content::LibraryWidget::upsertWork(QJsonObject work)
         const QJsonObject merged = mergeWork(m_searchModel->item(row, 0)->data(Qt::UserRole).toJsonObject(), work);
         m_searchModel->item(row, 0)->setData(merged, Qt::UserRole);
         m_searchModel->item(row, 0)->setData(relevance, Qt::UserRole + 2);
-        m_searchModel->item(row, 0)->setText(merged.value(u"title"_s).toString());
-        m_searchModel->item(row, 0)->setToolTip(merged.value(u"title"_s).toString());
+        m_searchModel->item(row, 0)->setText(workTitle(merged));
+        m_searchModel->item(row, 0)->setToolTip(workToolTip(merged));
     }
 
     if (reorder)
@@ -827,11 +1081,14 @@ void Content::LibraryWidget::upsertWork(QJsonObject work)
             m_workRows.insert(workId, index);
         }
         if (!selectedId.isEmpty())
-            m_works->selectRow(m_workRows.value(selectedId));
+            m_works->selectRow(m_searchProxy->mapFromSource(m_searchModel->index(m_workRows.value(selectedId), 0)).row());
     }
 
     if (selectedId == id)
+    {
         showWork(m_searchModel->item(m_workRows.value(id), 0)->data(Qt::UserRole).toJsonObject());
+        inspectWork();
+    }
 }
 
 void Content::LibraryWidget::selectWork()
@@ -842,20 +1099,44 @@ void Content::LibraryWidget::selectWork()
         return;
 
     const QModelIndex title = index.siblingAtColumn(0);
-    showWork(title.data(Qt::UserRole).value<QJsonObject>(), title.data(Qt::UserRole + 1).toJsonObject(), true);
-    inspectVariant();
+    const QJsonObject work = title.data(Qt::UserRole).toJsonObject();
+    const QJsonValue filters = (m_views->currentIndex() == 0) ? QJsonValue()
+        : m_libraryEntries.value(work.value(u"id"_s).toString()).value(u"variantFilters"_s);
+    showWork(work, title.data(Qt::UserRole + 1).toJsonObject(), true, filters);
+    inspectWork();
 }
 
-void Content::LibraryWidget::updateVariantFacets(const QJsonArray &variants, const QJsonObject &preferredVariant)
+QJsonObject Content::LibraryWidget::variantFilters() const
+{
+    QJsonObject filters;
+    if (m_episode->currentIndex() > 0)
+        filters.insert(u"episode"_s, m_episode->currentData().toJsonObject());
+    if (m_voice->currentIndex() > 0)
+        filters.insert(u"translation"_s, m_voice->currentData().toString());
+    if (m_source->currentIndex() > 0)
+        filters.insert(u"source"_s, m_source->currentData().toJsonObject());
+    if (m_language->currentIndex() > 0)
+        filters.insert(u"language"_s, m_language->currentData().toString());
+    return filters;
+}
+
+void Content::LibraryWidget::updateVariantFacets(const QJsonArray &variants, const QJsonObject &preferredVariant,
+    const bool revealPreferred, const QJsonValue &filters)
 {
     QList<QPair<QString, QVariant>> episodes;
     QList<QPair<QString, QVariant>> voices;
     QList<QPair<QString, QVariant>> sources;
+    QList<QPair<QString, QVariant>> languages;
     QSet<QPair<QString, QString>> episodeKeys;
     QSet<QString> voiceKeys;
+    QSet<QString> languageKeys;
     QList<QJsonObject> sourceKeys;
     QHash<QPair<QString, QString>, QSet<QString>> transports;
     bool episodic = false;
+    bool hasLanguages = false;
+    const QString category = m_work.value(u"category"_s).toString();
+    const bool reading = (category == u"books") || (category == u"manga");
+    m_voice->setItemText(0, reading ? tr("All translations") : tr("All voices"));
     QJsonObject preferred;
     for (const QJsonValue &value : variants)
     {
@@ -868,12 +1149,12 @@ void Content::LibraryWidget::updateVariantFacets(const QJsonArray &variants, con
     for (const QJsonValue &value : variants)
     {
         const QJsonObject variant = value.toObject();
+        if (variant.value(u"needsInspection"_s).toBool())
+            continue;
         const QString sourceId = variant.value(u"sourceId"_s).toString();
         const QString player = variant.value(u"player"_s).toString();
         const QString transport = variant.value(u"transport"_s).toString();
-        const QJsonObject source = variant.value(u"needsInspection"_s).toBool()
-            ? QJsonObject {{u"sourceId"_s, sourceId}}
-            : QJsonObject {{u"sourceId"_s, sourceId}, {u"player"_s, player}, {u"transport"_s, transport}};
+        const QJsonObject source {{u"sourceId"_s, sourceId}, {u"player"_s, player}, {u"transport"_s, transport}};
         if (!sourceKeys.contains(source))
         {
             sourceKeys.append(source);
@@ -884,22 +1165,33 @@ void Content::LibraryWidget::updateVariantFacets(const QJsonArray &variants, con
                 label += u" [%1]"_s.arg(transport == u"torrent" ? tr("Torrent") : transport == u"video" ? tr("Video") : transport);
             sources.append({label, source});
         }
-        if (variant.value(u"needsInspection"_s).toBool())
-            continue;
-
-        const QString episode = variant.value(u"episode"_s).toString();
-        const QString season = variant.value(u"season"_s).toString();
+        const QString episode = variantFacet(variant, u"episode"_s);
+        const QString season = variantFacet(variant, u"season"_s);
         episodic |= !episode.isEmpty() || !season.isEmpty();
         if (!episodeKeys.contains({season, episode}))
         {
             episodeKeys.insert({season, episode});
-            episodes.append({episodeLabel(variant), QJsonObject {{u"episode"_s, episode}, {u"season"_s, season}}});
+            const QJsonObject episodeFacet {{u"episode"_s, episode}, {u"season"_s, season}};
+            episodes.append({episodeLabel(episodeFacet), episodeFacet});
         }
-        const QString voice = variant.value(u"translation"_s).toString();
+        const QString voice = variantFacet(variant, u"translation"_s);
         if (!voiceKeys.contains(voice))
         {
             voiceKeys.insert(voice);
-            voices.append({voice.isEmpty() ? tr("Voice not specified") : voice, voice});
+            voices.append({voice.isEmpty() ? (reading ? tr("Translation not specified") : tr("Voice not specified")) : voice, voice});
+        }
+        QJsonArray declaredLanguages = variant.value(u"languages"_s).toArray();
+        hasLanguages |= !declaredLanguages.isEmpty();
+        if (declaredLanguages.isEmpty())
+            declaredLanguages.append(QString());
+        for (const QJsonValue &value : declaredLanguages)
+        {
+            const QString language = value.toString();
+            if (!languageKeys.contains(language))
+            {
+                languageKeys.insert(language);
+                languages.append({language.isEmpty() ? tr("Language not specified") : languageName(language), language});
+            }
         }
     }
 
@@ -920,11 +1212,33 @@ void Content::LibraryWidget::updateVariantFacets(const QJsonArray &variants, con
         return collator.compare(firstEpisode, secondEpisode) < 0;
     });
 
-    const auto populate = [](QComboBox *combo, const QList<QPair<QString, QVariant>> &items, const QVariant &preferred)
+    const auto populate = [&filters, reading](QComboBox *combo, const QString &key,
+        const QList<QPair<QString, QVariant>> &items, const QVariant &preferred)
     {
         const QSignalBlocker blocker(combo);
-        const QVariant selected = preferred.isValid() ? preferred : combo->currentData();
-        const QString selectedText = combo->currentText();
+        const QJsonValue saved = filters.toObject().value(key);
+        const QVariant selected = filters.isObject()
+            ? (saved.isObject() ? QVariant(saved.toObject()) : saved.isString() ? QVariant(saved.toString()) : QVariant())
+            : preferred.isValid() ? preferred : combo->currentData();
+        QString selectedText = combo->currentText();
+        if (filters.isObject())
+        {
+            if (key == u"episode")
+                selectedText = episodeLabel(saved.toObject());
+            else if (key == u"source")
+            {
+                const QJsonObject source = saved.toObject();
+                selectedText = source.value(u"sourceId"_s).toString();
+                const QString player = source.value(u"player"_s).toString();
+                if (!player.isEmpty())
+                    selectedText += u" [%1]"_s.arg(player);
+            }
+            else if (key == u"language")
+                selectedText = saved.toString().isEmpty() ? tr("Language not specified") : languageName(saved.toString());
+            else
+                selectedText = saved.toString().isEmpty()
+                    ? (reading ? tr("Translation not specified") : tr("Voice not specified")) : saved.toString();
+        }
         while (combo->count() > 1)
             combo->removeItem(1);
         for (const auto &[label, data] : items)
@@ -936,18 +1250,28 @@ void Content::LibraryWidget::updateVariantFacets(const QJsonArray &variants, con
             index = combo->count() - 1;
         }
         combo->setCurrentIndex(index < 0 ? 0 : index);
-        combo->setMinimumContentsLength(std::max(combo->itemText(0).size(), combo->currentText().size()));
+        combo->setMinimumContentsLength(std::min(qsizetype(24), std::max(combo->itemText(0).size(), combo->currentText().size())));
+        combo->setToolTip(combo->currentText());
     };
-    if (!episodic && m_variantFacets->isHidden())
+    if (revealPreferred && !episodic && m_variantFacets->isHidden())
         preferred = {};
-    populate(m_episode, episodes, preferred.isEmpty() ? QVariant() : QVariant(QJsonObject {
-        {u"episode"_s, preferred.value(u"episode"_s).toString()}, {u"season"_s, preferred.value(u"season"_s).toString()}}));
-    populate(m_voice, voices, preferred.isEmpty() ? QVariant() : QVariant(preferred.value(u"translation"_s).toString()));
-    populate(m_source, sources, preferred.isEmpty() ? QVariant() : QVariant(QJsonObject {
+    const QJsonObject previousEpisode {{u"episode"_s, variantFacet(preferredVariant, u"episode"_s)},
+        {u"season"_s, variantFacet(preferredVariant, u"season"_s)}};
+    const bool followEpisode = revealPreferred || ((m_episode->currentIndex() > 0)
+        && (m_episode->currentData().toJsonObject() == previousEpisode));
+    const bool followVoice = revealPreferred || ((m_voice->currentIndex() > 0)
+        && (m_voice->currentData().toString() == variantFacet(preferredVariant, u"translation"_s)));
+    populate(m_episode, u"episode"_s, episodes, (preferred.isEmpty() || !followEpisode) ? QVariant() : QVariant(QJsonObject {
+        {u"episode"_s, variantFacet(preferred, u"episode"_s)}, {u"season"_s, variantFacet(preferred, u"season"_s)}}));
+    populate(m_voice, u"translation"_s, voices, (preferred.isEmpty() || !followVoice) ? QVariant() : QVariant(variantFacet(preferred, u"translation"_s)));
+    populate(m_source, u"source"_s, sources, (preferred.isEmpty() || !revealPreferred) ? QVariant() : QVariant(QJsonObject {
         {u"sourceId"_s, preferred.value(u"sourceId"_s)}, {u"player"_s, preferred.value(u"player"_s).toString()},
         {u"transport"_s, preferred.value(u"transport"_s)}}));
-    m_variantFacets->setVisible(episodic || (m_episode->currentIndex() > 0)
-        || (m_voice->currentIndex() > 0) || (m_source->currentIndex() > 0));
+    const QJsonArray preferredLanguages = preferred.value(u"languages"_s).toArray();
+    populate(m_language, u"language"_s, languages, (revealPreferred && (preferredLanguages.size() == 1))
+        ? QVariant(preferredLanguages.first().toString()) : QVariant());
+    m_variantFacets->setVisible(episodic || hasLanguages || (m_episode->currentIndex() > 0)
+        || (m_voice->currentIndex() > 0) || (m_source->currentIndex() > 0) || (m_language->currentIndex() > 0));
 }
 
 void Content::LibraryWidget::applyVariantFilters()
@@ -959,7 +1283,8 @@ void Content::LibraryWidget::applyVariantFilters()
     m_variantProxy->setShowReported(m_showReported->isChecked());
     m_variantProxy->setFacets(m_variantFacets->isHidden() ? QJsonObject() : m_episode->currentData().toJsonObject(),
         m_variantFacets->isHidden() ? QVariant() : m_voice->currentData(),
-        m_variantFacets->isHidden() ? QJsonObject() : m_source->currentData().toJsonObject());
+        m_variantFacets->isHidden() ? QJsonObject() : m_source->currentData().toJsonObject(),
+        m_variantFacets->isHidden() ? QVariant() : m_language->currentData());
 }
 
 void Content::LibraryWidget::filterVariants()
@@ -968,17 +1293,14 @@ void Content::LibraryWidget::filterVariants()
     const QSignalBlocker blocker(m_variants->selectionModel());
     applyVariantFilters();
     int selectedRow = -1;
-    int firstRelease = -1;
     for (int row = 0; row < m_variantProxy->rowCount(); ++row)
     {
-        const QJsonObject variant = m_variantProxy->index(row, 0).data(Qt::UserRole).toJsonObject();
+        const QJsonObject variant = m_variantProxy->index(row, VariantColumn).data(Qt::UserRole).toJsonObject();
         if (sameVariant(variant, selected))
             selectedRow = row;
-        if ((firstRelease < 0) && !variant.value(u"needsInspection"_s).toBool())
-            firstRelease = row;
     }
-    if (selectedRow < 0)
-        selectedRow = firstRelease;
+    if ((selectedRow < 0) && (m_variantProxy->rowCount() > 0))
+        selectedRow = 0;
     if (selectedRow >= 0)
         m_variants->selectRow(selectedRow);
     else
@@ -994,34 +1316,57 @@ void Content::LibraryWidget::updateVariantColumns()
 {
     bool hasSize = false;
     bool hasSeeds = false;
-    bool pending = false;
     for (int row = 0; row < m_variantProxy->rowCount(); ++row)
     {
-        const QJsonObject variant = m_variantProxy->index(row, 0).data(Qt::UserRole).toJsonObject();
+        const QJsonObject variant = m_variantProxy->index(row, VariantColumn).data(Qt::UserRole).toJsonObject();
         hasSize |= variant.value(u"size"_s).toInteger() > 0;
         hasSeeds |= variant.value(u"seeders"_s).isDouble();
-        pending |= variant.value(u"needsInspection"_s).toBool();
     }
-    m_variants->setColumnHidden(0, !m_variantFacets->isHidden() && (m_source->currentIndex() > 0) && !pending);
-    m_variants->setColumnHidden(2, !hasSize);
-    m_variants->setColumnHidden(3, !hasSeeds);
+    m_variants->setColumnHidden(SourceColumn, !m_variantFacets->isHidden() && (m_source->currentIndex() > 0));
+    m_variants->setColumnHidden(SizeColumn, !hasSize);
+    m_variants->setColumnHidden(SeedsColumn, !hasSeeds);
     m_variants->horizontalHeader()->setVisible(hasSize || hasSeeds);
 }
 
-void Content::LibraryWidget::showWork(const QJsonObject &work, const QJsonObject &preferredVariant, const bool revealPreferred)
+void Content::LibraryWidget::showWork(const QJsonObject &work, const QJsonObject &preferredVariant, const bool revealPreferred,
+    const QJsonValue &filters)
 {
     const QJsonObject selectedVariant = preferredVariant.isEmpty() ? currentVariant() : preferredVariant;
     const QSignalBlocker selectionBlocker(m_variants->selectionModel());
     m_work = work;
-    m_title->setText(work.value(u"title"_s).toString());
+    m_title->setText(workTitle(work));
     m_variantModel->removeRows(0, m_variantModel->rowCount());
     int selectedRow = -1;
     bool hasReported = false;
     bool selectedReported = false;
     QHash<QString, QSet<QString>> releaseTitles;
+    const auto publicationVersion = [](const QJsonObject &variant)
+    {
+        return variant.value(u"sourceId"_s).toString() + u'\n' + variant.value(u"url"_s).toString()
+            + u'\n' + variant.value(u"version"_s).toString();
+    };
+    QSet<QString> completeVersions;
     for (const QJsonValue &value : work.value(u"variants"_s).toArray())
     {
         const QJsonObject variant = value.toObject();
+        if (!variant.value(u"needsInspection"_s).toBool()
+            && (variant.value(u"transport"_s).toString() == u"torrent")
+            && (variant.value(u"publicationKind"_s).toString() == u"full")
+            && !variant.value(u"magnet"_s).toString().isEmpty()
+            && !variant.value(u"version"_s).toString().isEmpty())
+        {
+            completeVersions.insert(publicationVersion(variant));
+        }
+    }
+    for (const QJsonValue &value : work.value(u"variants"_s).toArray())
+    {
+        const QJsonObject variant = value.toObject();
+        if (variant.value(u"needsInspection"_s).toBool()
+            || ((variant.value(u"publicationKind"_s).toString() == u"archivePart")
+                && completeVersions.contains(publicationVersion(variant)) && !sameVariant(variant, selectedVariant)))
+        {
+            continue;
+        }
         QStringList labels;
         for (const QString &key : {u"version"_s, u"edition"_s, u"author"_s, u"translation"_s,
             u"player"_s, u"quality"_s})
@@ -1030,6 +1375,8 @@ void Content::LibraryWidget::showWork(const QJsonObject &work, const QJsonObject
             if (!label.isEmpty())
                 labels << label;
         }
+        for (const QJsonValue &value : variant.value(u"languages"_s).toArray())
+            labels << languageName(value.toString());
         if (variant.value(u"cooperative"_s).toBool())
             labels.prepend(tr("Co-op"));
         if (!variant.value(u"episode"_s).toString().isEmpty() || !variant.value(u"season"_s).toString().isEmpty())
@@ -1045,24 +1392,29 @@ void Content::LibraryWidget::showWork(const QJsonObject &work, const QJsonObject
             labels.prepend(tr("Archive part"));
         if (labels.isEmpty())
             labels << variant.value(u"title"_s).toString();
-        if (variant.value(u"needsInspection"_s).toBool())
-        {
-            const QString category = work.value(u"category"_s).toString();
-            labels = {((category == u"anime") || (category == u"tv"))
-                ? tr("Show episodes / versions") : tr("Show versions")};
-        }
+        auto *release = new QStandardItem(labels.join(u", "_s));
+        release->setData(variant, Qt::UserRole);
+        release->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        const QString transport = variant.value(u"transport"_s).toString();
+        if (transport == u"torrent")
+            release->setIcon(UIThemeManager::instance()->getIcon(u"torrent-magnet"_s));
+        else if (transport == u"video")
+            release->setIcon(UIThemeManager::instance()->getIcon(u"torrent-start"_s));
+        else if ((transport == u"book") || (transport == u"manga"))
+            release->setIcon(UIThemeManager::instance()->getIcon(u"help-contents"_s));
+        else if (transport == u"file")
+            release->setIcon(UIThemeManager::instance()->getIcon(u"fileicon"_s));
+        release->setToolTip(release->text() + u'\n' + variant.value(u"title"_s).toString());
         auto *source = new QStandardItem(variant.value(u"sourceName"_s).toString());
-        source->setData(variant, Qt::UserRole);
+        source->setToolTip(source->text());
         const QString filterText = source->text() + u' ' + labels.join(u' ') + u' '
             + variant.value(u"title"_s).toString();
-        source->setData(filterText, Qt::UserRole + 1);
-        auto *release = new QStandardItem(labels.join(u", "_s));
-        release->setToolTip(release->text() + u'\n' + variant.value(u"title"_s).toString());
+        release->setData(filterText, Qt::UserRole + 1);
         releaseTitles[variant.value(u"sourceId"_s).toString() + u'\n' + release->text()]
             .insert(variant.value(u"title"_s).toString());
         const qint64 size = variant.value(u"size"_s).toInteger();
         const QJsonValue seeds = variant.value(u"seeders"_s);
-        const bool reported = (variant.value(u"transport"_s).toString() == u"video")
+        const bool reported = (transport == u"video")
             && (variant.value(u"adStatus"_s).toString() == u"reported");
         hasReported |= reported;
         if (sameVariant(variant, selectedVariant))
@@ -1070,24 +1422,23 @@ void Content::LibraryWidget::showWork(const QJsonObject &work, const QJsonObject
             selectedRow = m_variantModel->rowCount();
             selectedReported = reported;
         }
-        m_variantModel->appendRow({source, release,
+        m_variantModel->appendRow({release, source,
             new QStandardItem(size > 0 ? Utils::Misc::friendlyUnit(size) : QString()),
             new QStandardItem(seeds.isDouble() ? QString::number(seeds.toInt()) : QString())});
     }
     for (int row = 0; row < m_variantModel->rowCount(); ++row)
     {
-        const QJsonObject variant = m_variantModel->item(row, 0)->data(Qt::UserRole).toJsonObject();
-        QStandardItem *const release = m_variantModel->item(row, 1);
+        QStandardItem *const release = m_variantModel->item(row, VariantColumn);
+        const QJsonObject variant = release->data(Qt::UserRole).toJsonObject();
         const QString key = variant.value(u"sourceId"_s).toString() + u'\n' + release->text();
         const QString title = variant.value(u"title"_s).toString();
         if ((releaseTitles.value(key).size() > 1) && !title.isEmpty())
             release->setText(title + u" — "_s + release->text());
     }
     m_details->show();
-    updateVariantFacets(work.value(u"variants"_s).toArray(), revealPreferred ? selectedVariant : QJsonObject());
+    updateVariantFacets(work.value(u"variants"_s).toArray(), selectedVariant, revealPreferred, filters);
     applyVariantFilters();
-    m_save->setChecked(libraryEntry(work).value(u"favorite"_s).toBool());
-    m_save->setText(m_save->isChecked() ? tr("Saved") : tr("Save"));
+    m_favorite->setChecked(libraryEntry(work).value(u"favorite"_s).toBool());
     m_variantFilter->setVisible((m_variantModel->rowCount() > 1) || !m_variantFilter->text().isEmpty());
     m_showReported->setVisible(hasReported);
     if (revealPreferred && selectedReported)
@@ -1096,20 +1447,8 @@ void Content::LibraryWidget::showWork(const QJsonObject &work, const QJsonObject
         m_showReported->setChecked(true);
         m_variantProxy->setShowReported(true);
     }
-    if ((selectedRow < 0) && selectedVariant.value(u"needsInspection"_s).toBool())
-    {
-        for (int row = 0; row < m_variantProxy->rowCount(); ++row)
-        {
-            const QModelIndex source = m_variantProxy->mapToSource(m_variantProxy->index(row, 0));
-            if (samePublication(source.data(Qt::UserRole).toJsonObject(), selectedVariant))
-            {
-                selectedRow = source.row();
-                break;
-            }
-        }
-    }
-    const QModelIndex selected = selectedVariant.isEmpty() ? m_variantProxy->index(0, 0)
-        : m_variantProxy->mapFromSource(m_variantModel->index(selectedRow, 0));
+    const QModelIndex selected = selectedVariant.isEmpty() ? m_variantProxy->index(0, VariantColumn)
+        : m_variantProxy->mapFromSource(m_variantModel->index(selectedRow, VariantColumn));
     if (selected.isValid())
         m_variants->selectRow(selected.row());
     else
@@ -1124,18 +1463,12 @@ void Content::LibraryWidget::showWork(const QJsonObject &work, const QJsonObject
 QJsonObject Content::LibraryWidget::currentVariant() const
 {
     const QModelIndex index = m_variants->currentIndex();
-    return index.isValid() ? index.siblingAtColumn(0).data(Qt::UserRole).value<QJsonObject>() : QJsonObject();
+    return index.isValid() ? index.siblingAtColumn(VariantColumn).data(Qt::UserRole).value<QJsonObject>() : QJsonObject();
 }
 
 void Content::LibraryWidget::selectVariant()
 {
     const QJsonObject variant = currentVariant();
-    if (m_detailsRequest && !samePublication(variant, m_inspectingVariant))
-    {
-        Client::instance()->cancel(m_detailsRequest);
-        m_detailsRequest = 0;
-        m_inspectingVariant = {};
-    }
     QStringList notes;
     const QString description = m_work.value(u"description"_s).toString();
     if (!description.isEmpty())
@@ -1162,8 +1495,6 @@ void Content::LibraryWidget::selectVariant()
     m_detailPages->tabBar()->setVisible(!notes.isEmpty());
     if (notes.isEmpty())
         m_detailPages->setCurrentIndex(0);
-    if (variant.value(u"needsInspection"_s).toBool())
-        inspectVariant();
     updateActions();
 }
 
@@ -1174,52 +1505,93 @@ void Content::LibraryWidget::updateActions()
     const bool torrentVideo = (transport == u"torrent")
         && ((category == u"movies") || (category == u"tv") || (category == u"anime"));
     const bool waitingForTorrent = !m_torrentPlayback.isEmpty();
-    const bool needsInspection = currentVariant().value(u"needsInspection"_s).toBool();
     QString action = tr("Download");
     if (waitingForTorrent)
         action = tr("Cancel watch");
-    else if (needsInspection)
-        action = m_detailsRequest ? tr("Loading versions…") : tr("Show versions");
     else if ((transport == u"video") || torrentVideo)
         action = tr("Watch");
     else if ((transport == u"book") || (transport == u"manga"))
         action = tr("Read");
     m_open->setText(action);
-    m_open->setEnabled(waitingForTorrent || (!transport.isEmpty() && !m_resolveRequest && !m_detailsRequest));
-    m_save->setEnabled(!m_work.isEmpty() && !currentVariant().isEmpty());
-    m_share->setEnabled(!currentVariant().isEmpty());
+    m_open->setEnabled(waitingForTorrent || (!transport.isEmpty() && !m_resolveRequest));
+    m_favorite->setEnabled(!m_work.isEmpty() && !currentVariant().isEmpty());
+    m_favorite->setIcon(UIThemeManager::instance()->getIcon(m_favorite->isChecked() ? u"bookmark-active"_s : u"bookmark"_s));
+    const QString favoriteAction = m_favorite->isChecked() ? tr("Remove from favorites") : tr("Add to favorites");
+    m_favorite->setToolTip(favoriteAction);
+    m_favorite->setAccessibleName(favoriteAction);
+    m_share->setEnabled(!m_work.isEmpty());
     m_download->setVisible((transport == u"video") || torrentVideo);
-    m_download->setEnabled(!m_downloads->isPreparing() && !m_resolveRequest && !m_detailsRequest
+    m_download->setEnabled(!m_downloads->isPreparing() && !m_resolveRequest
         && (!waitingForTorrent || (transport != u"torrent")));
     if (transport == u"file")
         m_open->setEnabled(m_open->isEnabled() && !m_downloads->isPreparing());
+    m_detailsProgress->setVisible(m_detailsRequest);
+    const bool empty = m_variantProxy->rowCount() == 0;
+    m_variants->setVisible(!empty);
+    m_emptyVariants->setVisible(empty);
+    m_emptyVariants->setText(m_detailsRequest ? tr("Loading versions…")
+        : m_variantModel->rowCount() > 0 ? tr("No matching versions") : tr("No versions found"));
 }
 
-void Content::LibraryWidget::inspectVariant()
+void Content::LibraryWidget::inspectWork()
 {
-    const QJsonObject variant = currentVariant();
-    if (variant.isEmpty())
+    if (m_work.isEmpty() || m_detailsRequest)
         return;
 
-    if (m_detailsRequest && samePublication(variant, m_inspectingVariant))
+    QJsonArray variants;
+    bool pending = false;
+    for (const QJsonValue &value : m_work.value(u"variants"_s).toArray())
+    {
+        const QJsonObject variant = value.toObject();
+        if (variant.value(u"needsInspection"_s).toBool())
+        {
+            const QString identity = variant.value(u"sourceId"_s).toString() + u'\n' + variant.value(u"id"_s).toString();
+            if (m_inspectedPublications.contains(identity))
+                continue;
+
+            m_inspectedPublications.insert(identity);
+            pending = true;
+        }
+        variants.append(value);
+    }
+    if (!pending)
         return;
 
-    Client::instance()->cancel(m_detailsRequest);
-    m_inspectingVariant = variant;
-    m_detailsRequest = Client::instance()->request(u"inspect"_s, {{u"work"_s, m_work}, {u"variant"_s, variant}});
+    QJsonObject work = m_work;
+    work.insert(u"variants"_s, variants);
+    m_detailsRequest = Client::instance()->request(u"inspectWork"_s, {{u"work"_s, work},
+        {u"language"_s, QLocale(Preferences::instance()->getLocale()).bcp47Name()}});
     updateActions();
+}
+
+void Content::LibraryWidget::applyDetails(QJsonObject details)
+{
+    const QJsonObject publication = details.take(u"inspectedPublication"_s).toObject();
+    const QJsonArray variants = m_work.value(u"variants"_s).toArray();
+    if (publication.value(u"sourceId"_s).toString().isEmpty() || publication.value(u"url"_s).toString().isEmpty()
+        || std::none_of(variants.cbegin(), variants.cend(), [&publication](const QJsonValue &value)
+        {
+            return samePublication(value.toObject(), publication);
+        }))
+    {
+        return;
+    }
+
+    const QJsonObject selected = currentVariant();
+    details.insert(u"id"_s, m_work.value(u"id"_s));
+    const QJsonObject work = mergeWork(m_work, details, publication);
+    const QModelIndex index = m_works->currentIndex().siblingAtColumn(0);
+    m_works->model()->setData(index, work, Qt::UserRole);
+    m_works->model()->setData(index, workTitle(work), Qt::DisplayRole);
+    m_works->model()->setData(index, workToolTip(work), Qt::ToolTipRole);
+    showWork(work, selected);
 }
 
 void Content::LibraryWidget::resolveVariant(const bool downloadOnly)
 {
-    if (currentVariant().isEmpty() || m_detailsRequest || m_resolveRequest || !m_torrentPlayback.isEmpty())
+    if (currentVariant().isEmpty() || m_resolveRequest || !m_torrentPlayback.isEmpty())
         return;
 
-    if (currentVariant().value(u"needsInspection"_s).toBool())
-    {
-        inspectVariant();
-        return;
-    }
     if (currentVariant().value(u"transport"_s).toString() == u"file")
     {
         downloadVariant();
@@ -1228,6 +1600,7 @@ void Content::LibraryWidget::resolveVariant(const bool downloadOnly)
 
     m_resolvingWork = m_work;
     m_resolvingVariant = currentVariant();
+    m_resolvingFilters = variantFilters();
     m_watchResolvedTorrent = !downloadOnly && (m_resolvingVariant.value(u"transport"_s).toString() == u"torrent");
     startResolve();
 }
@@ -1245,14 +1618,8 @@ void Content::LibraryWidget::startResolve()
 
 void Content::LibraryWidget::downloadVariant()
 {
-    if (currentVariant().isEmpty() || m_detailsRequest)
+    if (currentVariant().isEmpty())
         return;
-
-    if (currentVariant().value(u"needsInspection"_s).toBool())
-    {
-        inspectVariant();
-        return;
-    }
 
     if (currentVariant().value(u"transport"_s).toString() == u"torrent")
     {
@@ -1307,6 +1674,7 @@ void Content::LibraryWidget::openResolved(const QJsonObject &resolved)
         if (watch)
         {
             m_torrentPlayback = {{u"work"_s, m_resolvingWork}, {u"variant"_s, m_resolvingVariant},
+                {u"variantFilters"_s, m_resolvingFilters},
                 {u"source"_s, source}};
             m_watchInfoHash = descriptor->infoHash();
             if (BitTorrent::Torrent *torrent = BitTorrent::Session::instance()->findTorrent(descriptor->infoHash()))
@@ -1342,7 +1710,9 @@ void Content::LibraryWidget::openResolved(const QJsonObject &resolved)
             options.contentKind = u"anime"_s;
         else if ((category == u"movies") || (category == u"tv"))
             options.contentKind = u"movie"_s;
-        options.identity = m_resolvingWork.value(u"id"_s).toString()
+        options.identity = u"video:"_s + m_resolvingVariant.value(u"sourceId"_s).toString()
+            + u':' + m_resolvingVariant.value(u"id"_s).toString();
+        options.legacyIdentity = m_resolvingWork.value(u"id"_s).toString()
             + u"/" + m_resolvingVariant.value(u"id"_s).toString();
         const QJsonObject object = resolved.value(u"headers"_s).toObject();
         for (auto it = object.constBegin(); it != object.constEnd(); ++it)
@@ -1354,7 +1724,7 @@ void Content::LibraryWidget::openResolved(const QJsonObject &resolved)
         if (opened)
         {
             m_playback = {{u"identity"_s, options.identity},
-                {u"work"_s, m_resolvingWork}, {u"variant"_s, m_resolvingVariant}};
+                {u"work"_s, m_resolvingWork}, {u"variant"_s, m_resolvingVariant}, {u"variantFilters"_s, m_resolvingFilters}};
         }
         return;
     }
@@ -1368,7 +1738,8 @@ void Content::LibraryWidget::openResolved(const QJsonObject &resolved)
     if (opened)
     {
         m_rememberRequests.insert(Client::instance()->request(u"remember"_s,
-            {{u"work"_s, m_resolvingWork}, {u"variant"_s, m_resolvingVariant}, {u"opened"_s, true}}));
+            {{u"work"_s, m_resolvingWork}, {u"variant"_s, m_resolvingVariant},
+                {u"variantFilters"_s, m_resolvingFilters}, {u"opened"_s, true}}));
         m_status->setText(tr("Opened %1").arg(m_resolvingWork.value(u"title"_s).toString()));
     }
 }
@@ -1453,7 +1824,8 @@ void Content::LibraryWidget::playTorrentFile(BitTorrent::Torrent *torrent, const
     clearTorrentWatch();
     if (!opened)
         return;
-    m_playback = {{u"identity"_s, identity}, {u"work"_s, work}, {u"variant"_s, playback.value(u"variant"_s)}};
+    m_playback = {{u"identity"_s, identity}, {u"work"_s, work}, {u"variant"_s, playback.value(u"variant"_s)},
+        {u"variantFilters"_s, playback.value(u"variantFilters"_s)}};
 }
 
 void Content::LibraryWidget::clearTorrentWatch()
@@ -1464,24 +1836,49 @@ void Content::LibraryWidget::clearTorrentWatch()
     m_torrentPlayback = {};
 }
 
-void Content::LibraryWidget::saveWork()
+void Content::LibraryWidget::toggleFavorite()
 {
-    const QJsonObject params {{u"work"_s, m_work}, {u"variant"_s, currentVariant()}, {u"favorite"_s, m_save->isChecked()}};
+    const QJsonObject params {{u"work"_s, m_work}, {u"variant"_s, currentVariant()}, {u"favorite"_s, m_favorite->isChecked()}};
     const qint64 id = Client::instance()->request(u"remember"_s, params);
     m_rememberRequests.insert(id);
-    m_save->setEnabled(false);
+    m_favorite->setEnabled(false);
 }
 
-void Content::LibraryWidget::shareWork(const QString &mode)
+void Content::LibraryWidget::shareWork()
 {
-    m_shareRequest = Client::instance()->request(u"share"_s,
-        {{u"work"_s, m_work}, {u"variant"_s, currentVariant()}, {u"mode"_s, mode}});
+    QJsonObject params {{u"work"_s, m_work}, {u"mode"_s, u"work"_s}};
+    const QJsonObject variant = currentVariant();
+    if (!variant.isEmpty())
+        params.insert(u"variant"_s, variant);
+    m_shareRequest = Client::instance()->request(u"share"_s, params);
 }
 
-void Content::LibraryWidget::showSources()
+void Content::LibraryWidget::showBrowserPrerequisite()
 {
-    auto *dialog = new SourcesDialog(this);
+    if (!m_browserPrerequisite)
+    {
+        m_browserPrerequisite = new BrowserPrerequisiteWidget(m_pages);
+        m_pages->addWidget(m_browserPrerequisite);
+        connect(m_browserPrerequisite, &BrowserPrerequisiteWidget::backRequested, this,
+            [this] { m_pages->setCurrentWidget(m_splitter); });
+        connect(m_browserPrerequisite, &BrowserPrerequisiteWidget::connected, this, [this]
+        {
+            if (m_pages->currentWidget() == m_browserPrerequisite)
+            {
+                m_pages->setCurrentWidget(m_splitter);
+                startResolve();
+            }
+        });
+    }
+    m_browserPrerequisite->setSource(m_resolvingVariant.value(u"sourceName"_s).toString());
+    m_pages->setCurrentWidget(m_browserPrerequisite);
+}
+
+void Content::LibraryWidget::showSources(const QString &sourceId)
+{
+    auto *dialog = new SourcesDialog(this, sourceId);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dialog, &SourcesDialog::publicationInspected, this, &LibraryWidget::applyDetails);
     dialog->open();
 }
 
@@ -1494,9 +1891,24 @@ void Content::LibraryWidget::handleEvent(const qint64 id, const QString &event, 
         if (event == u"removeResult")
         {
             const QString workId = data.toObject().value(u"id"_s).toString();
+            const QString replacementId = data.toObject().value(u"replacementId"_s).toString();
             const int row = m_workRows.value(workId, -1);
             if (row >= 0)
             {
+                const bool active = (m_views->currentIndex() == 0) && (m_work.value(u"id"_s).toString() == workId);
+                if (active && m_workRows.contains(replacementId))
+                {
+                    const QSignalBlocker blocker(m_works->selectionModel());
+                    const int replacementRow = m_workRows.value(replacementId);
+                    const QJsonObject replacement = mergeWork(m_work,
+                        m_searchModel->item(replacementRow, 0)->data(Qt::UserRole).toJsonObject());
+                    m_searchModel->item(replacementRow, 0)->setData(replacement, Qt::UserRole);
+                    m_searchModel->item(replacementRow, 0)->setText(workTitle(replacement));
+                    m_searchModel->item(replacementRow, 0)->setToolTip(workToolTip(replacement));
+                    m_works->selectRow(m_searchProxy->mapFromSource(m_searchModel->index(replacementRow, 0)).row());
+                    showWork(replacement);
+                    inspectWork();
+                }
                 m_workRows.remove(workId);
                 for (auto it = m_workRows.begin(); it != m_workRows.end(); ++it)
                 {
@@ -1509,14 +1921,6 @@ void Content::LibraryWidget::handleEvent(const qint64 id, const QString &event, 
         else if (event == u"result")
         {
             upsertWork(data.toObject());
-            if (m_views->currentIndex() == 0)
-                m_status->setText(tr("Searching… %n title(s)", nullptr, m_searchModel->rowCount()));
-        }
-        else if (event == u"source")
-        {
-            const QJsonObject source = data.toObject();
-            if (source.value(u"status"_s).toString() == u"error")
-                m_searchFailed = true;
         }
         if (terminal)
         {
@@ -1524,72 +1928,41 @@ void Content::LibraryWidget::handleEvent(const qint64 id, const QString &event, 
             m_search->setText(tr("Search"));
             if (m_views->currentIndex() == 0)
             {
-                m_status->setText((event == u"error") ? error
-                    : (m_searchFailed ? tr("%n title(s), some sources unavailable", nullptr, m_searchModel->rowCount())
-                        : tr("%n title(s)", nullptr, m_searchModel->rowCount())));
                 m_expand->setVisible((event != u"error") && !m_expandedSearch);
-                if (!m_works->currentIndex().isValid() && (m_searchModel->rowCount() > 0))
-                    m_works->selectRow(0);
             }
+            updateSearchView();
             emit searchFinished(event == u"error");
+        }
+        else if ((event == u"result") || (event == u"removeResult"))
+        {
+            updateSearchView();
         }
     }
     else if (id == m_libraryRequest)
     {
         if (event == u"library")
         {
-            m_libraryModel->removeRows(0, m_libraryModel->rowCount());
-            m_libraryEntries.clear();
-            for (const QJsonValue &value : data.toArray())
-            {
-                const QJsonObject entry = value.toObject();
-                const QJsonObject work = entry.value(u"work"_s).toObject();
-                m_libraryEntries.insert(work.value(u"id"_s).toString(), entry);
-                if (((m_views->currentIndex() == 1) && !entry.value(u"favorite"_s).toBool())
-                    || ((m_views->currentIndex() == 2) && entry.value(u"lastOpened"_s).toString().isEmpty()))
-                {
-                    continue;
-                }
-                const QJsonObject variant = entry.value(u"variant"_s).toObject();
-                m_libraryModel->appendRow(workItems(work, {{u"id"_s, variant.value(u"id"_s)},
-                    {u"sourceId"_s, variant.value(u"sourceId"_s)}}));
-            }
-            if ((m_views->currentIndex() == 1) || (m_views->currentIndex() == 2))
-            {
-                m_status->setText(tr("%n title(s)", nullptr, m_libraryModel->rowCount()));
-                if (m_libraryModel->rowCount() > 0)
-                    m_works->selectRow(0);
-                else
-                    clearDetails();
-            }
+            updateLibraryEntries(data.toArray());
             if (!m_work.isEmpty())
-            {
-                m_save->setChecked(libraryEntry(m_work).value(u"favorite"_s).toBool());
-                m_save->setText(m_save->isChecked() ? tr("Saved") : tr("Save"));
-            }
+                m_favorite->setChecked(libraryEntry(m_work).value(u"favorite"_s).toBool());
         }
         else if (event == u"error")
         {
             m_status->setText(error);
         }
+        if (terminal)
+            m_libraryRequest = 0;
     }
     else if (id == m_detailsRequest)
     {
-        if ((event == u"details") && samePublication(currentVariant(), m_inspectingVariant))
+        if (event == u"details")
         {
-            const QJsonObject selected = currentVariant();
-            const QJsonObject work = mergeWork(m_work, data.toObject(), m_inspectingVariant);
-            const QModelIndex index = m_works->currentIndex().siblingAtColumn(0);
-            m_works->model()->setData(index, work, Qt::UserRole);
-            showWork(work, selected);
-            m_status->clear();
+            applyDetails(data.toObject());
         }
         if (terminal)
         {
             m_detailsRequest = 0;
-            m_inspectingVariant = {};
-            if (event == u"error")
-                m_status->setText(error);
+            inspectWork();
             updateActions();
         }
     }
@@ -1602,13 +1975,21 @@ void Content::LibraryWidget::handleEvent(const qint64 id, const QString &event, 
             m_resolveRequest = 0;
             if (event == u"error")
             {
-                m_status->setText(error);
                 const QJsonObject failure = data.toObject();
-                m_failureUrl = QUrl(failure.value(u"url"_s).toString());
-                const bool hasSourceUrl = m_failureUrl.isValid() && !m_failureUrl.host().isEmpty()
-                    && ((m_failureUrl.scheme() == u"http") || (m_failureUrl.scheme() == u"https"));
-                m_openSource->setVisible(hasSourceUrl);
-                m_retry->setVisible(hasSourceUrl);
+                if (failure.value(u"code"_s).toString() == u"browser_required")
+                {
+                    m_status->clear();
+                    showBrowserPrerequisite();
+                }
+                else
+                {
+                    m_status->setText(error);
+                    m_failureUrl = QUrl(failure.value(u"url"_s).toString());
+                    const bool hasSourceUrl = m_failureUrl.isValid() && !m_failureUrl.host().isEmpty()
+                        && ((m_failureUrl.scheme() == u"http") || (m_failureUrl.scheme() == u"https"));
+                    m_openSource->setVisible(hasSourceUrl);
+                    m_retry->setVisible(hasSourceUrl);
+                }
             }
             updateActions();
         }
@@ -1626,14 +2007,22 @@ void Content::LibraryWidget::handleEvent(const qint64 id, const QString &event, 
         }
         else if (event == u"details")
         {
-            const QJsonObject work = data.toObject();
+            QJsonObject work = data.toObject();
+            const QString captureAction = work.take(u"captureAction"_s).toString();
             m_query->setText(work.value(u"title"_s).toString());
             m_category->setCurrentIndex(m_category->findData(work.value(u"category"_s).toString()));
             upsertWork(work);
             const QSignalBlocker blocker(m_works->selectionModel());
-            m_works->selectRow(m_workRows.value(work.value(u"id"_s).toString()));
+            m_works->selectRow(m_searchProxy->mapFromSource(m_searchModel->index(m_workRows.value(work.value(u"id"_s).toString()), 0)).row());
             showWork(work, work.value(u"preferredVariant"_s).toObject(), true);
-            m_status->setText(tr("Shared title [exact release]"));
+            updateSearchView();
+            inspectWork();
+            if (captureAction == u"watch")
+                resolveVariant();
+            else if (captureAction == u"download")
+                downloadVariant();
+            else
+                m_status->setText(tr("Shared title [exact release]"));
         }
         else if (event == u"error")
         {
@@ -1659,17 +2048,19 @@ void Content::LibraryWidget::handleEvent(const qint64 id, const QString &event, 
         m_rememberRequests.remove(id);
         if (event == u"complete")
         {
-            const QJsonObject entry = data.toObject();
-            m_libraryEntries.insert(entry.value(u"work"_s).toObject().value(u"id"_s).toString(), entry);
-            if ((m_views->currentIndex() == 1) || (m_views->currentIndex() == 2))
-                loadLibrary();
+            updateLibraryEntries({data});
+            if (m_libraryRequest)
+            {
+                // A library request may still be streaming an older snapshot.
+                Client::instance()->cancel(m_libraryRequest);
+                m_libraryRequest = Client::instance()->request(u"library"_s);
+            }
         }
         else
         {
             m_status->setText(error);
         }
-        m_save->setChecked(libraryEntry(m_work).value(u"favorite"_s).toBool());
-        m_save->setText(m_save->isChecked() ? tr("Saved") : tr("Save"));
+        m_favorite->setChecked(libraryEntry(m_work).value(u"favorite"_s).toBool());
         updateActions();
     }
     else if ((id == m_removeRequest) && terminal)

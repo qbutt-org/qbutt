@@ -9,11 +9,8 @@ import type { ProviderContext, ResolvedContent } from "../../components/content/
 import { DownloadQueue, type DownloadJob } from "../../components/content/downloads";
 import { LibraryStore } from "../../components/content/store";
 import { PlaybackStreams } from "../../components/content/streams";
+import { mediaRuntime } from "../../components/content/media-runtime";
 
-const mediaDir = Bun.argv[2];
-assert(mediaDir, "Usage: bun tests/content-downloads/streams.ts <pinned-media-directory>");
-const ffmpeg = join(mediaDir, "tools", "ffmpeg.exe");
-const ffprobe = join(mediaDir, "profile", "tools", "bin", "ffprobe.exe");
 const systemRoot = process.env.SystemRoot || "C:/Windows";
 const root = await mkdtemp(join(tmpdir(), "qbutt-playback-streams-"));
 console.log(JSON.stringify({ fixtureRoot: root }));
@@ -21,14 +18,14 @@ const fixtures = join(root, "fixtures");
 const dataDir = join(root, "data");
 const downloadDir = join(root, "downloads");
 process.env.QBUTT_LAB_PATHS = "1";
-process.env.QBUTT_MEDIA_RUNTIME_DIR = mediaDir;
+const { tools: { ffmpeg, ffprobe } } = await mediaRuntime(root, AbortSignal.timeout(30_000));
 await mkdir(fixtures);
 
 async function command(file: string, args: string[]): Promise<string> {
     const child = Bun.spawn([file, ...args], {
         windowsHide: true, stdout: "pipe", stderr: "pipe", cwd: fixtures,
         env: { ...process.env, no_proxy: "", NO_PROXY: "",
-            PATH: [mediaDir, join(systemRoot, "System32"), systemRoot].join(";") },
+            PATH: [join(systemRoot, "System32"), systemRoot].join(";") },
     });
     const timeout = setTimeout(() => child.kill(), 30000);
     try {

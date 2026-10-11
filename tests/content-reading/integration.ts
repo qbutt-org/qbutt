@@ -72,6 +72,10 @@ try {
     const reopenedComic = await handleReaderRequest("reader.local", { path: cbzPath }, context) as ReaderDocument;
     require(reopenedComic.position?.imageIndex === 2 && !Object.hasOwn(reopenedComic.position, "offset"),
         "Paged image position did not survive reopening");
+    await handleReaderRequest("reader.position", { documentId: comic.id, chapterId: images.id, imageIndex: 1, offset: 0.37 }, context);
+    const scrolledComic = await handleReaderRequest("reader.local", { path: cbzPath }, context) as ReaderDocument;
+    require(scrolledComic.position?.imageIndex === 1 && scrolledComic.position.offset === 0.37,
+        "The manga image and its internal scroll offset did not survive reopening together");
     for (const position of [
         { imageIndex: -1 }, { imageIndex: 0.5 }, { imageIndex: Number.POSITIVE_INFINITY },
         {}, { offset: null }, { imageIndex: 2, offset: "invalid" },

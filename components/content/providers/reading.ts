@@ -4,6 +4,8 @@ import { contentId, type ReaderPage } from "../reader/types";
 import { sanitizeChapter } from "../reader/html";
 import { asianReadingProviders, loadAsianReadingChapter } from "./reading-asian";
 import { originalReferences } from "./reading-originals";
+import { mangaDex, loadMangaDexChapter } from "./reading-mangadex";
+import { nhentai, loadNhentaiChapter } from "./reading-nhentai";
 
 type RecordData = Record<string, any>;
 
@@ -65,7 +67,10 @@ const ranobeHub: Provider = {
             const result = await json(`https://ranobehub.org/api/books/${bookId}/chapters?limit=250&offset=${offset}`, context);
             total = result.total;
             for (const entry of result.items ?? []) {
-                chapters.push(chapter(entry.title, `https://ranobehub.org/api/chapters/${entry.id}`, chapters.length + 1));
+                chapters.push({
+                    ...chapter(entry.title, `https://ranobehub.org/api/chapters/${entry.id}`, chapters.length + 1),
+                    volume: Number.isFinite(entry.volume) && entry.volume > 0 ? entry.volume : undefined,
+                });
             }
             if (chapters.length > 30_000) {
                 throw new Error("В произведении слишком много глав.");
@@ -94,7 +99,7 @@ function libGroup(sourceId: string, sourceName: string, siteId: number, site: st
 
     return {
         source: { id: sourceId, name: sourceName, url: site, categories: [category], enabled: true },
-        async search(request, context) {
+        async search(request, context, emit) {
             const result = await json(`https://api.cdnlibs.org/api/manga?site_id%5B0%5D=${siteId}&q=${encodeURIComponent(request.query)}`, context, headers);
             const works: Work[] = (result.data ?? []).map((book: RecordData) => {
                 const id = book.slug_url || `${book.id}--${book.slug}`;
@@ -102,6 +107,7 @@ function libGroup(sourceId: string, sourceName: string, siteId: number, site: st
                     `${site}/ru/${category === "books" ? "book" : "manga"}/${id}`, id, category, book.cover?.default,
                     undefined, [book.name, book.eng_name, book.rus_name]);
             });
+            for (const work of works) emit?.(work);
             // The list endpoint rejects metadata fields. Enrich one exact
             // title only, without loading chapters.
             // Novel/Новелла is the catalog's type suffix; keep WN/LN editions.
@@ -113,8 +119,16 @@ function libGroup(sourceId: string, sourceName: string, siteId: number, site: st
             if (exact.length === 1) {
                 const work = exact[0]!;
                 const id = slug(work.variants[0]!);
-                const details = await json(`https://api.cdnlibs.org/api/manga/${id}?fields[]=otherNames&fields[]=externalLinks&fields[]=authors`, context, headers);
-                works[works.indexOf(work)] = metadata(details.data, work.url!, id);
+                try {
+                    const details = await json(`https://api.cdnlibs.org/api/manga/${id}?fields[]=otherNames&fields[]=externalLinks&fields[]=authors`, context, headers);
+                    const enriched = metadata(details.data, work.url!, id);
+                    works[works.indexOf(work)] = enriched;
+                    emit?.(enriched);
+                }
+                catch (error) {
+                    context.signal.throwIfAborted();
+                    context.reportError?.(error);
+                }
             }
             return works;
         },
@@ -294,10 +308,33 @@ const linovel: Provider = {
 
 export const readingProviders: Provider[] = [ranobeHub,
     libGroup("ranobelib", "RanobeLib", 3, "https://ranobelib.me", "books"),
-    libGroup("mangalib", "MangaLib", 1, "https://mangalib.me", "manga"), kakuyomu, syosetu, royalRoad, linovel,
+    libGroup("mangalib", "MangaLib", 1, "https://mangalib.me", "manga"),
+    mangaDex, nhentai,
+    kakuyomu, syosetu, royalRoad, linovel,
     ...asianReadingProviders];
 
+export function readingPublication(address: URL): Variant | undefined {
+    if (address.protocol !== "https:" || address.username || address.password || address.port || address.search) return;
+    for (const provider of readingProviders) {
+        if (address.hostname !== new URL(provider.source.url).hostname) continue;
+        const sourceId = provider.source.id;
+        const id = sourceId === "mangadex" ? /^\/title\/([a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12})(?:\/[^/]+)?\/?$/i.exec(address.pathname)?.[1]
+            : sourceId === "nhentai" ? /^\/g\/(\d+)\/?$/.exec(address.pathname)?.[1]
+            : ["mangalib", "ranobelib"].includes(sourceId)
+                ? /^\/ru\/(?:(?:manga|book)\/)?(\d+--[\w-]+)\/?$/.exec(address.pathname)?.[1] : undefined;
+        if (!id) return;
+        const category = provider.source.categories[0];
+        const url = sourceId === "mangadex" ? `${provider.source.url}/title/${id}`
+            : sourceId === "nhentai" ? `${provider.source.url}/g/${id}/`
+            : `${provider.source.url}/ru/${category === "books" ? "book" : "manga"}/${id}`;
+        return { id: `${sourceId}:${id}`, sourceId, sourceName: provider.source.name, title: "", url,
+            transport: category === "books" ? "book" : "manga", needsInspection: true };
+    }
+}
+
 export async function loadReadingChapter(sourceId: string, selected: Chapter, context: ProviderContext): Promise<Omit<ReaderPage, "id" | "documentId">> {
+    if (sourceId === "mangadex") return loadMangaDexChapter(selected, context);
+    if (sourceId === "nhentai") return loadNhentaiChapter(selected, context);
     if (sourceId === "jjwxc" || sourceId === "naver")
         return loadAsianReadingChapter(sourceId, selected, context);
     const url = new URL(selected.url);

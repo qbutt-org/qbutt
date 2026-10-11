@@ -126,7 +126,7 @@ async function request(url: URL, init: RequestInit, signal: AbortSignal): Promis
     });
 }
 
-export function sourceFetch(signal: AbortSignal, jar: CookieJar,
+export function sourceFetch(signal: AbortSignal, jar: CookieJar | ((url: URL) => { jar: CookieJar; userAgent?: string }),
     cookie?: { origin: string; value: string }, userAgent?: string): ProviderContext["fetch"] {
     return async (input, init = {}) => {
         const requestSignal = init.signal ? AbortSignal.any([signal, init.signal]) : signal;
@@ -134,20 +134,25 @@ export function sourceFetch(signal: AbortSignal, jar: CookieJar,
         let method = init.method || "GET";
         let body = init.body;
         const headers = new Headers(init.headers);
-        if (!headers.has("User-Agent")) headers.set("User-Agent", userAgent || defaultUserAgent);
         headers.set("Accept-Encoding", "identity");
 
         for (let redirects = 0; redirects <= 5; ++redirects) {
+            const session: { jar: CookieJar; userAgent?: string } = typeof jar === "function" ? jar(url) : { jar };
             const currentHeaders = new Headers(headers);
+            if (session.userAgent) {
+                currentHeaders.set("User-Agent", session.userAgent);
+                currentHeaders.delete("Cookie");
+            }
+            else if (!currentHeaders.has("User-Agent")) currentHeaders.set("User-Agent", userAgent || defaultUserAgent);
             if (!currentHeaders.has("Cookie")) {
-                const value = cookie?.origin === url.origin ? cookie.value : await jar.getCookieString(url.href);
+                const value = !session.userAgent && cookie?.origin === url.origin ? cookie.value : await session.jar.getCookieString(url.href);
                 if (value)
                     currentHeaders.set("Cookie", value);
             }
 
             const response = await request(url, { ...init, method, body, headers: currentHeaders }, requestSignal);
             for (const value of response.headers.getSetCookie())
-                await jar.setCookie(value, url.href, { ignoreError: true });
+                await session.jar.setCookie(value, url.href, { ignoreError: true });
 
             if (![301, 302, 303, 307, 308].includes(response.status))
                 return response;

@@ -211,6 +211,11 @@ $qtLicensePaths = @(foreach ($license in $pins.qt.licenseFiles) {
     $licensePath
 })
 
+$webviewArchive = Join-Path $DependencyRoot "Microsoft.Web.WebView2.$($pins.webview2.version).nupkg"
+Save-VerifiedDownload $webviewArchive $pins.webview2.url $pins.webview2.sha256
+$webviewSdk = Join-Path $DependencyRoot "WebView2/$($pins.webview2.version)"
+Expand-Archive -LiteralPath $webviewArchive -DestinationPath $webviewSdk -Force
+
 $libtorrent = if ($LibtorrentSourceDir) { [IO.Path]::GetFullPath($LibtorrentSourceDir) }
     else { Join-Path $DependencyRoot 'qbutt-libtorrent' }
 Initialize-Source $libtorrent $pins.libtorrent
@@ -264,6 +269,7 @@ finally { Pop-Location }
 
 Invoke-Native $cmake (@('-S', $SourceDir, '-B', $BuildRoot) + $common + @(
     "-DLibtorrentRasterbar_DIR=$libtorrentBuild/install/lib/cmake/LibtorrentRasterbar", "-DCMAKE_PREFIX_PATH=$qtRoot",
+    "-DQBUTT_WEBVIEW2_SDK=$webviewSdk",
     '-DMSVC_RUNTIME_DYNAMIC=ON', '-DTESTING=OFF', '-DQBUTT_STAGING_FAULTS=OFF', '-DQBUTT_COMPLETION_FAULTS=OFF'))
 Invoke-Native $cmake @('--build', $BuildRoot, '--parallel', "$Parallel")
 
@@ -291,7 +297,8 @@ New-Item -ItemType Directory -Path $portable | Out-Null
 New-Item -ItemType Directory -Path "$portable/profile" | Out-Null
 'This directory keeps qbutt settings and session data next to the application.' | Set-Content "$portable/profile/README.txt"
 Copy-Item -LiteralPath (Join-Path $BuildRoot 'qbutt.exe'), (Join-Path $BuildRoot 'qbutt-net.exe'),
-    (Join-Path $BuildRoot 'qbutt-content.exe'), (Join-Path $BuildRoot 'qbutt-search.exe') -Destination $portable
+    (Join-Path $BuildRoot 'qbutt-content.exe'), (Join-Path $BuildRoot 'qbutt-search.exe'),
+    (Join-Path $BuildRoot 'qbutt-webview.exe') -Destination $portable
 Invoke-Native "$qtRoot/bin/windeployqt.exe" @('--release', '--no-compiler-runtime', '--include-plugins', 'qoffscreen',
     '--exclude-plugins', 'qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql', '--dir', $portable, (Join-Path $portable 'qbutt.exe'))
 Copy-Item -Path (Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT/*.dll') -Destination $portable
@@ -311,13 +318,13 @@ New-Item -ItemType Directory -Path $qtPortableLicenses | Out-Null
 Copy-Item -LiteralPath $qtLicensePaths -Destination $qtPortableLicenses
 Copy-Item -Path "$qtRoot/sbom/*.spdx.json" -Destination $licenses
 Copy-Item -LiteralPath $bunLicense -Destination "$licenses/bun.txt"
+Copy-Item -LiteralPath (Join-Path $webviewSdk 'LICENSE.txt') -Destination "$licenses/WebView2-SDK.txt"
+Copy-Item -LiteralPath (Join-Path $webviewSdk 'NOTICE.txt') -Destination "$licenses/WebView2-NOTICE.txt"
 Copy-Item -LiteralPath (Join-Path $SourceDir 'resources/fonts/Neucha-OFL.txt') -Destination "$licenses/Neucha-OFL.txt"
-New-Item -ItemType Directory -Path "$portable/browser", "$portable/scripts" | Out-Null
+New-Item -ItemType Directory -Path "$portable/browser" | Out-Null
 Copy-Item -LiteralPath (Join-Path $content 'browser/private-pipe.ps1') -Destination "$portable/browser"
-Copy-Item -LiteralPath (Join-Path $SourceDir 'scripts/register-content-browser.ps1') -Destination "$portable/scripts"
-Invoke-Native $bun @((Join-Path $SourceDir 'components/browser-extension/build.ts'), (Join-Path $portable 'browser-extension'))
-Invoke-Native $bun @((Join-Path $SourceDir 'scripts/package-media.ts'), '--destination', (Join-Path $portable 'media'),
-    '--cache', (Join-Path $DependencyRoot 'media'))
+Invoke-Native $bun @((Join-Path $SourceDir 'scripts/package-products.ts'), '--destination', $portable,
+    '--cache', (Join-Path $DependencyRoot 'products'))
 Invoke-Native $bun @((Join-Path $SourceDir 'scripts/collect-content-notices.ts'), '--bundle', $portable, '--go', $go)
 Push-Location $net
 try {
@@ -338,6 +345,11 @@ Linked dependency attributions: licenses/qbutt-net-notices.txt and licenses/qbut
 Go runtime license: licenses/go.txt. Pinned toolchain and standard library source:
 $($pins.go.url)
 
+qbutt-webview uses the shared installed Microsoft Edge WebView2 Evergreen Runtime
+for source verification. Its WebView2 SDK $($pins.webview2.version) loader is linked
+statically under BSD-3-Clause (licenses/WebView2-SDK.txt and licenses/WebView2-NOTICE.txt).
+Pinned SDK distribution: $($pins.webview2.url)
+
 qbutt-content and qbutt-search are bundled private worker processes.
 Their exact dependency versions, source archives and license texts are recorded in
 licenses/qbutt-content-notices.json and licenses/qbutt-content-notices.txt.
@@ -345,11 +357,14 @@ qbutt-search includes the Harbrr Cardigann engine and the bundled Jackett defini
 under GPL version 2 or later. The selected source revisions are recorded in upstream-lock.json.
 The Bun $($pins.bun.version) runtime and its dependencies are described in licenses/bun.txt.
 Pinned Bun source and relinking instructions: $($pins.bun.sourceUrl)
-The browser extension carries its own LICENSE and NOTICE in browser-extension/.
-Media components carry their own source pins and notices in media/component-lock.json,
-media/licenses/ and media/profile/tools/. They use a separate qbutt profile.
-The pinned mpv, FFmpeg, ffprobe and yt-dlp executables and the prepared player
-profile are included in the application and verified with SHA256.
+qplay is an independent mpv-based player installed alongside qbutt. Its prepared
+profile, media tools, licenses and corresponding source archives belong to qplay.
+qcatch is an optional independent browser extension and native capture application.
+Their exact source commits, release versions and artifact SHA256 pins are recorded
+in upstream-lock.json products. Compatible newer installations are reused.
+The portable bundle contains qplay's independent portable distribution in qplay/.
+The installer contains qplay's offline installer and preserves independent products
+and their preferences when qbutt is uninstalled.
 
 Qt $($pins.qt.version) is dynamically linked under LGPLv3 (licenses/qt/qtbase-LGPL-3.0-only.txt).
 Qt library and bundled third-party notices are recorded in licenses/*.spdx.json;
@@ -370,22 +385,6 @@ Their license texts are included in licenses/.
 Microsoft Visual C++ runtime libraries are redistributed from Visual Studio's
 Microsoft.VC143.CRT directory under the Visual Studio redistributable terms.
 "@ | Set-Content (Join-Path $portable 'THIRD-PARTY-NOTICES.txt')
-$mediaLockPath = Join-Path $SourceDir 'resources/media/component-lock.json'
-$mediaLock = Get-Content -LiteralPath $mediaLockPath -Raw | ConvertFrom-Json
-$mediaSourceCache = Join-Path $DependencyRoot 'media/sources'
-New-Item -ItemType Directory -Force $mediaSourceCache | Out-Null
-$mediaSourcePin = $mediaLock.sourceArchive
-$mediaSourceName = "qbutt-$releaseVersion-media-sources.zip"
-if ([IO.Path]::GetFileName(([Uri] $mediaSourcePin.url).AbsolutePath) -ne $mediaSourceName) {
-    throw 'The media source archive does not match the release version.'
-}
-$cachedMediaSources = Join-Path $mediaSourceCache $mediaSourceName
-Save-VerifiedDownload $cachedMediaSources $mediaSourcePin.url $mediaSourcePin.sha256
-if ((Get-Item -LiteralPath $cachedMediaSources).Length -ne $mediaSourcePin.size) {
-    throw 'Media source archive differs from the pinned size.'
-}
-$mediaSourceArchive = Join-Path $ArtifactRoot $mediaSourceName
-Copy-Item -LiteralPath $cachedMediaSources -Destination $mediaSourceArchive -Force
 $sourceRevision = & git -C $SourceDir rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Cannot record source revision.' }
 $sourceChanges = & git -C $SourceDir status --porcelain
@@ -407,24 +406,21 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
     dependencyLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
     contentDependencyLockSha256 = (Get-FileHash -LiteralPath (Join-Path $content 'bun.lock') -Algorithm SHA256).Hash.ToLowerInvariant()
     searchDependencyLockSha256 = (Get-FileHash -LiteralPath (Join-Path $searchEngine 'go.sum') -Algorithm SHA256).Hash.ToLowerInvariant()
-    mediaComponentLockSha256 = (Get-FileHash -LiteralPath (Join-Path $SourceDir 'resources/media/component-lock.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-    mediaSourceArchive = [ordered]@{
-        name = (Split-Path $mediaSourceArchive -Leaf)
-        size = (Get-Item -LiteralPath $mediaSourceArchive).Length
-        sha256 = (Get-FileHash -LiteralPath $mediaSourceArchive -Algorithm SHA256).Hash.ToLowerInvariant()
-    }
+    products = $lock.products
     binaries = [ordered]@{
         qbutt = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
         content = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-content.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+        webview = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-webview.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
         search = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-search.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
         net = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-net.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
     }
-} | ConvertTo-Json | Set-Content (Join-Path $ArtifactRoot 'build-manifest.json')
+} | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $ArtifactRoot 'build-manifest.json')
 Copy-Item -LiteralPath (Join-Path $ArtifactRoot 'build-manifest.json'), $lockPath -Destination $portable
 $archive = Join-Path $ArtifactRoot "qbutt-$releaseVersion-windows-x64.zip"
-Compress-Archive -Path "$portable/*" -DestinationPath $archive -Force
+$portableFiles = Get-ChildItem -LiteralPath $portable |
+    Where-Object Name -ne 'components' | Select-Object -ExpandProperty FullName
+Compress-Archive -Path $portableFiles -DestinationPath $archive -Force
 & (Join-Path $SourceDir 'scripts/build-installer.ps1') -SourceDir $SourceDir -BundleDir $portable `
     -OutputDir $ArtifactRoot -CompilerPath $InstallerCompiler
 Write-Output "Portable build: $portable"
 Write-Output "Portable archive: $archive"
-Write-Output "Media source archive: $mediaSourceArchive"

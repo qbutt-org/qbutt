@@ -2,7 +2,7 @@ import { lstat, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import type { ProviderContext } from "../contracts";
-import { mediaRoot, mediaTool } from "../media-runtime";
+import { mediaRuntime } from "../media-runtime";
 import { NetworkProxy } from "../networkproxy";
 import { contentId } from "../reader/types";
 
@@ -158,12 +158,12 @@ export async function loadSubtitleSource(request: SubtitleRequest, start: number
 
     if (!context.appDir)
         throw new Error("The bundled subtitle tools could not be located.");
-    const ffmpeg = await mediaTool(context.appDir, "ffmpeg", context.signal);
+    const runtime = await mediaRuntime(context.appDir, context.signal);
     const signal = AbortSignal.any([context.signal, AbortSignal.timeout(45_000)]);
     const input = await scopedInput(request.url, request, signal);
     try {
         const origin = request.startTime || 0;
-        const args = [ffmpeg, "-nostdin", "-hide_banner", "-v", "error",
+        const args = [runtime.tools.ffmpeg, "-nostdin", "-hide_banner", "-v", "error",
             "-protocol_whitelist", input.url.protocol === "file:" ? "file,pipe" : "http,https,tcp,tls,crypto,pipe",
             "-format_whitelist", "matroska,webm,mov,mp4,mpegts,avi,ogg,flv,mpeg,mxf,asf,rm",
             "-rw_timeout", "10000000", "-seek_timestamp", "1", "-ss", String(start + origin), "-copyts", "-i",
@@ -171,7 +171,7 @@ export async function loadSubtitleSource(request: SubtitleRequest, start: number
             "-to", String(end + origin), "-output_ts_offset", String(-origin), "-avoid_negative_ts", "disabled",
             "-map", `0:${request.track.ffIndex}`, "-vn", "-an", "-c:s", "ass", "-f", "ass", "pipe:1"];
         const child = Bun.spawn(args, {
-            cwd: mediaRoot(context.appDir), stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true,
+            cwd: runtime.runtimeDir, stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true,
         });
         const abort = () => child.kill();
         signal.addEventListener("abort", abort, { once: true });

@@ -2,17 +2,33 @@ import { Database } from "bun:sqlite";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { Variant, Work } from "./contracts";
+import { maxMessageBytes, type Variant, type Work } from "./contracts";
+import { ContentError } from "./errors";
 import { persistentVariant, persistentWork } from "./references";
-import { mergeWorkMetadata, sameWork } from "./results";
+import { mergeVariants, mergeWorkMetadata, sameWork } from "./results";
+
+export interface VariantFilters {
+    episode?: { episode: string; season: string };
+    translation?: string;
+    source?: { sourceId: string; player: string; transport: Variant["transport"] };
+    language?: string;
+}
 
 export interface LibraryEntry {
     work: Work;
     variant?: Variant;
+    variantFilters?: VariantFilters;
     favorite: boolean;
     lastOpened?: string;
     progress?: Record<string, string | number>;
     download?: { status: string; path?: string };
+}
+
+export function assertLibraryEntrySize(entry: LibraryEntry): void {
+    const frame = { id: Number.MAX_SAFE_INTEGER, event: "library", data: [entry] };
+    if (Buffer.byteLength(JSON.stringify(frame) + "\n") > maxMessageBytes)
+        throw new ContentError("library_limit",
+            "The saved variants exceed 16 MiB. Remove this item from the library and save it again.");
 }
 
 export class LibraryStore {
@@ -52,23 +68,22 @@ export class LibraryStore {
 
         const stableWork = persistentWork(work);
         const previous = this.find(stableWork);
-        // Library rows are stable bookmarks. Resolve fresh acquisition URLs
-        // when opening them; keep large episode inventories in the source.
-        const selected = update.variant || previous?.variant;
-        const variants = [selected, ...work.variants].filter((variant): variant is Variant => !!variant);
-        const compact = [...new Map(variants.map(variant => [variant.id, persistentVariant(variant)])).values()].slice(0, 32);
+        const preservePlayback = !!previous?.lastOpened && !update.lastOpened;
+        const selected = preservePlayback ? previous.variant : update.variant || previous?.variant;
         const entry: LibraryEntry = {
             favorite: false,
             ...previous,
             ...update,
+            variantFilters: preservePlayback ? previous.variantFilters : update.variantFilters ?? previous?.variantFilters,
             work: {
                 ...mergeWorkMetadata(previous?.work, stableWork),
                 id: previous?.work.id || stableWork.id,
-                variants: compact,
+                variants: mergeVariants([...previous?.work.variants || [], ...stableWork.variants]),
             },
-            ...(selected ? { variant: persistentVariant(selected) } : {}),
+            variant: selected ? persistentVariant(selected) : undefined,
         };
 
+        assertLibraryEntrySize(entry);
         this.db.query("INSERT OR REPLACE INTO library (id, entry, updated_at) VALUES (?, ?, ?)")
             .run(entry.work.id, JSON.stringify(entry), Date.now());
 
