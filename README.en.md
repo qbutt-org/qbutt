@@ -111,6 +111,6 @@ Component sources are available at the pinned Git revisions in the [qplay](https
 | `src/base/media/` | qplay integration, torrent Range streaming, and subtitle translation |
 | `scripts/package-products.ts`, `upstream-lock.json` | Verification and packaging of pinned product components |
 
-See the [project rules](AGENTS.md), [content contracts](docs/agents/content.md), [architecture](docs/qbutt-architecture.md), and [integration checks](tests/README.md). Windows releases are built locally, without automatic builds in GitHub Actions.
+See the [Rust/QML and redesign plan](docs/implementation.md), [project rules](AGENTS.md), [content contracts](docs/agents/content.md), [architecture](docs/qbutt-architecture.md), and [integration checks](tests/README.md). Windows releases are built locally, without automatic builds in GitHub Actions.
 
 The upstream [authors](AUTHORS), [licenses](COPYING), and dependency notices are preserved. IP country data: [DB-IP](https://db-ip.com/db/download/ip-to-country-lite), CC BY 4.0.

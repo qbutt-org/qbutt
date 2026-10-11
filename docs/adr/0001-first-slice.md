@@ -1,8 +1,10 @@
 # First runnable slice
 
+Historical decision for the first runnable slice. Current dependency revisions are in `upstream-lock.json`; current scope and acceptance are in [the living implementation plan](../implementation.md). Statements below about initial scope do not describe the current implementation.
+
 The application stays at the repository root, preserving qBittorrent's source layout and history. The baseline is upstream release 5.2.3, commit `0b63c3d17373f6132ea211c9dcd4241284ccdfaf`. The supported engine starts at libtorrent 2.0.11. The transport executable belongs to `qbutt-org/qbutt-net`; it is built and bundled separately. There is no libtorrent fork until an actual engine change requires one.
 
-The first application operations are managed in-place repair and one explicitly selected proxy path. Mixed routing, safe-update staging, reverse inbound, adaptive selection and application updates are covered by later acceptance stages in [the implementation plan](../implementation.md).
+The first application operations were managed in-place repair and one explicitly selected proxy path. Mixed routing, safe-update staging, reverse inbound, adaptive selection and application updates belonged to later acceptance stages in [the plan before the Rust/QML redesign](https://github.com/qbutt-org/qbutt/blob/5c172e59f19399e6625627c7a5af765e07aa896f/docs/implementation.md).
 
 ## Transport boundary
 

@@ -111,6 +111,6 @@ Windows x64, Visual Studio 2022 с C++ и Windows SDK, CMake, Git и Python 3.12
 | `src/base/media/` | Связь с qplay, торрентный Range-поток и перевод субтитров |
 | `scripts/package-products.ts`, `upstream-lock.json` | Проверка и упаковка закреплённых продуктовых компонентов |
 
-См. [правила проекта](AGENTS.md), [контракты контента](docs/agents/content.md), [архитектуру](docs/qbutt-architecture.md) и [интеграционные проверки](tests/README.md). Windows-релизы собираются локально, без автоматической сборки в GitHub Actions.
+См. [план Rust/QML и редизайна](docs/implementation.md), [правила проекта](AGENTS.md), [контракты контента](docs/agents/content.md), [архитектуру](docs/qbutt-architecture.md) и [интеграционные проверки](tests/README.md). Windows-релизы собираются локально, без автоматической сборки в GitHub Actions.
 
 Сохранены [авторы](AUTHORS), [лицензии](COPYING) и уведомления зависимостей qBittorrent. Данные стран IP: [DB-IP](https://db-ip.com/db/download/ip-to-country-lite), CC BY 4.0.
