@@ -225,6 +225,7 @@ impl ffi::WorkModel {
 pub struct VariantModelRust {
     rows: Vec<Variant>,
     work_title: String,
+    revision: u64,
 }
 
 impl ffi::VariantModel {
@@ -286,6 +287,7 @@ impl ffi::VariantModel {
     }
 
     pub fn clear(mut self: Pin<&mut Self>) {
+        self.as_mut().rust_mut().revision = self.revision.wrapping_add(1);
         if self.rows.is_empty() {
             return;
         }
@@ -295,6 +297,8 @@ impl ffi::VariantModel {
     }
 
     pub fn update(mut self: Pin<&mut Self>, work: &Work) {
+        self.as_mut().rust_mut().revision = self.revision.wrapping_add(1);
+        let revision = self.revision;
         self.as_mut().rust_mut().work_title.clone_from(&work.title);
         let variants: Vec<_> = work
             .variants
@@ -314,6 +318,9 @@ impl ffi::VariantModel {
                 .begin_remove_rows(&parent, row as i32, row as i32);
             self.as_mut().rust_mut().rows.remove(row);
             self.as_mut().end_remove_rows();
+            if self.revision != revision {
+                return;
+            }
         }
 
         for variant in variants {
@@ -331,6 +338,9 @@ impl ffi::VariantModel {
                 self.as_mut().begin_insert_rows(&parent, row, row);
                 self.as_mut().rust_mut().rows.push(variant.clone());
                 self.as_mut().end_insert_rows();
+            }
+            if self.revision != revision {
+                return;
             }
         }
     }

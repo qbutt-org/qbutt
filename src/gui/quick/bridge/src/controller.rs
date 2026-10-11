@@ -201,27 +201,6 @@ impl ffi::ContentController {
         }
     }
 
-    fn set_selected_work_id(mut self: Pin<&mut Self>, value: QString) {
-        if self.selected_work_id != value {
-            self.as_mut().rust_mut().selected_work_id = value;
-            self.as_mut().selected_work_id_changed();
-        }
-    }
-
-    fn set_selected_work_title(mut self: Pin<&mut Self>, value: QString) {
-        if self.selected_work_title != value {
-            self.as_mut().rust_mut().selected_work_title = value;
-            self.as_mut().selected_work_title_changed();
-        }
-    }
-
-    fn set_selected_work_description(mut self: Pin<&mut Self>, value: QString) {
-        if self.selected_work_description != value {
-            self.as_mut().rust_mut().selected_work_description = value;
-            self.as_mut().selected_work_description_changed();
-        }
-    }
-
     fn works_model(&self) -> *mut models::ffi::WorkModel {
         self.works.as_ptr().cast_mut()
     }
@@ -231,17 +210,55 @@ impl ffi::ContentController {
     }
 
     pub fn search(mut self: Pin<&mut Self>, query: QString) {
-        self.as_mut().cancel_search();
-        self.as_mut().cancel_detail();
-        self.as_mut().rust_mut().works.pin_mut().clear();
-        self.as_mut().rust_mut().variants.pin_mut().clear();
-        self.as_mut().set_selected_work_id(QString::default());
-        self.as_mut().set_selected_work_title(QString::default());
-        self.as_mut()
-            .set_selected_work_description(QString::default());
-        self.as_mut().set_error_text(QString::default());
-
         let query = query.to_string().trim().to_owned();
+        self.as_mut().rust_mut().search.cancel();
+        let generation = self.search.generation;
+        let previous_selection_generation = self.inspection.generation;
+        let previous_resolution_generation = self.resolution.generation;
+        self.as_mut().set_busy(false);
+        if self.search.generation != generation
+            || self.inspection.generation != previous_selection_generation
+            || self.resolution.generation != previous_resolution_generation
+        {
+            return;
+        }
+        let (selection_generation, resolution_generation) = self.as_mut().cancel_detail();
+        if self.search.generation != generation
+            || self.inspection.generation != selection_generation
+            || self.resolution.generation != resolution_generation
+        {
+            return;
+        }
+
+        self.as_mut().rust_mut().works.pin_mut().clear();
+        if self.search.generation != generation
+            || self.inspection.generation != selection_generation
+            || self.resolution.generation != resolution_generation
+        {
+            return;
+        }
+        self.as_mut().rust_mut().variants.pin_mut().clear();
+        if self.search.generation != generation
+            || self.inspection.generation != selection_generation
+            || self.resolution.generation != resolution_generation
+        {
+            return;
+        }
+        if !self.as_mut().set_selection(None, selection_generation)
+            || self.search.generation != generation
+        {
+            return;
+        }
+        self.as_mut().set_error_text(QString::default());
+        if self.search.generation != generation {
+            return;
+        }
+        let should_search = !query.is_empty() && self.services.is_some();
+        self.as_mut().set_busy(should_search);
+        if self.search.generation != generation {
+            return;
+        }
+
         if query.is_empty() {
             return;
         }
@@ -250,8 +267,6 @@ impl ffi::ContentController {
             return;
         }
 
-        self.as_mut().set_busy(true);
-        let generation = self.search.generation;
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let source = Arc::clone(&services.source);
@@ -292,22 +307,71 @@ impl ffi::ContentController {
         self.as_mut().set_busy(false);
     }
 
-    fn cancel_detail(mut self: Pin<&mut Self>) {
-        self.as_mut().rust_mut().inspection.cancel();
-        self.as_mut().rust_mut().resolution.cancel();
-        self.as_mut().set_inspecting(false);
-        self.as_mut().set_resolving(false);
+    fn cancel_detail(mut self: Pin<&mut Self>) -> (u64, u64) {
+        let (generations, inspecting_changed, resolving_changed) = {
+            let mut state = self.as_mut().rust_mut();
+            state.inspection.cancel();
+            state.resolution.cancel();
+            let changed = (
+                (state.inspection.generation, state.resolution.generation),
+                state.inspecting,
+                state.resolving,
+            );
+            state.inspecting = false;
+            state.resolving = false;
+            changed
+        };
+        if inspecting_changed {
+            self.as_mut().inspecting_changed();
+        }
+        if resolving_changed {
+            self.as_mut().resolving_changed();
+        }
+        generations
     }
 
-    fn show_work(mut self: Pin<&mut Self>, work: &Work) {
-        self.as_mut()
-            .set_selected_work_id(QString::from(work_id(&work.reference)));
-        self.as_mut()
-            .set_selected_work_title(QString::from(&work.title));
-        self.as_mut().set_selected_work_description(QString::from(
-            work.description.as_deref().unwrap_or_default(),
-        ));
+    fn set_selection(mut self: Pin<&mut Self>, work: Option<&Work>, generation: u64) -> bool {
+        if self.inspection.generation != generation {
+            return false;
+        }
+        let (id, title, description) = match work {
+            Some(work) => (
+                QString::from(work_id(&work.reference)),
+                QString::from(&work.title),
+                QString::from(work.description.as_deref().unwrap_or_default()),
+            ),
+            None => (QString::default(), QString::default(), QString::default()),
+        };
+        let (id_changed, title_changed, description_changed) = {
+            let mut state = self.as_mut().rust_mut();
+            let changed = (
+                state.selected_work_id != id,
+                state.selected_work_title != title,
+                state.selected_work_description != description,
+            );
+            state.selected_work_id = id;
+            state.selected_work_title = title;
+            state.selected_work_description = description;
+            changed
+        };
+        if id_changed {
+            self.as_mut().selected_work_id_changed();
+        }
+        if title_changed {
+            self.as_mut().selected_work_title_changed();
+        }
+        if description_changed {
+            self.as_mut().selected_work_description_changed();
+        }
+        self.inspection.generation == generation
+    }
+
+    fn show_work(mut self: Pin<&mut Self>, work: &Work, generation: u64) -> bool {
+        if !self.as_mut().set_selection(Some(work), generation) {
+            return false;
+        }
         self.as_mut().rust_mut().variants.pin_mut().update(work);
+        self.inspection.generation == generation
     }
 
     pub fn select_work(mut self: Pin<&mut Self>, id: QString) {
@@ -318,12 +382,32 @@ impl ffi::ContentController {
             return;
         }
 
-        self.as_mut().cancel_detail();
-        self.as_mut().set_error_text(QString::default());
+        let (generation, resolution_generation) = self.as_mut().cancel_detail();
+        if self.inspection.generation != generation
+            || self.resolution.generation != resolution_generation
+        {
+            return;
+        }
         if self.selected_work_id != id {
             self.as_mut().rust_mut().variants.pin_mut().clear();
+            if self.inspection.generation != generation
+                || self.resolution.generation != resolution_generation
+            {
+                return;
+            }
         }
-        self.as_mut().show_work(&work);
+        if !self.as_mut().show_work(&work, generation) {
+            return;
+        }
+        self.as_mut().set_error_text(QString::default());
+        if self.inspection.generation != generation {
+            return;
+        }
+        let should_inspect = work.needs_inspection && self.services.is_some();
+        self.as_mut().set_inspecting(should_inspect);
+        if self.inspection.generation != generation {
+            return;
+        }
         if !work.needs_inspection {
             return;
         }
@@ -332,8 +416,6 @@ impl ffi::ContentController {
             return;
         }
 
-        self.as_mut().set_inspecting(true);
-        let generation = self.inspection.generation;
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let source = Arc::clone(&services.source);
@@ -346,8 +428,7 @@ impl ffi::ContentController {
                 controller.as_mut().rust_mut().inspection.task = None;
                 match result {
                     Ok(work) => {
-                        controller.as_mut().show_work(&work);
-                        if controller.inspection.generation != generation {
+                        if !controller.as_mut().show_work(&work, generation) {
                             return;
                         }
                         controller.as_mut().rust_mut().works.pin_mut().update(work);
