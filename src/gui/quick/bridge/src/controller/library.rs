@@ -47,6 +47,12 @@ impl LibraryWorker {
     ) -> Self {
         let (sender, mut receiver) = mpsc::channel::<LibraryRequest>(64);
         runtime.spawn_blocking(move || {
+            // Loading permits commands only after this blocking job has entered.
+            // A queued job can still be cancelled by runtime shutdown.
+            let _ = qt_thread.queue(move |mut controller| {
+                controller.as_mut().rust_mut().library_state = ffi::LibraryState::Loading;
+                controller.as_mut().library_state_changed();
+            });
             let (mut library, entries) = match Library::open(profile).and_then(|library| {
                 let entries = library.entries(LibraryView::All)?;
                 Ok((library, entries))
@@ -108,7 +114,7 @@ impl ffi::ContentController {
     }
 
     pub fn init_library(mut self: Pin<&mut Self>, profile_dir: QString) {
-        if self.library_state != ffi::LibraryState::Uninitialized {
+        if self.library_state != ffi::LibraryState::Uninitialized || self.library_worker.is_some() {
             return;
         }
         let profile = PathBuf::from(profile_dir.to_string());
@@ -118,14 +124,12 @@ impl ffi::ContentController {
             self.as_mut().set_library_error(ffi::content_error(4));
             return;
         }
-        self.as_mut().rust_mut().library_state = ffi::LibraryState::Loading;
         let worker = LibraryWorker::start(
             &self.services.as_ref().unwrap().runtime,
             profile,
             self.qt_thread(),
         );
         self.as_mut().rust_mut().library_worker = Some(worker);
-        self.as_mut().library_state_changed();
     }
 
     pub(super) fn set_library_error(mut self: Pin<&mut Self>, error: QString) {

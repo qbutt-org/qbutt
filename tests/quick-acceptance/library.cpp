@@ -77,8 +77,8 @@ namespace
         controller.initLibrary(profile);
         waitFor([&]
         {
-            return controller.property("libraryState").value<Qbutt::Library::LibraryState>()
-                != Qbutt::Library::LibraryState::Loading;
+            const auto state = controller.property("libraryState").value<Qbutt::Library::LibraryState>();
+            return (state == Qbutt::Library::LibraryState::Ready) || (state == Qbutt::Library::LibraryState::Failed);
         }, 10'000, u"Library open"_s);
         require(controller.property("libraryState").value<Qbutt::Library::LibraryState>()
             == Qbutt::Library::LibraryState::Ready, controller.property("libraryErrorText").toString());
@@ -120,6 +120,7 @@ namespace
         }
         throw std::runtime_error("Saved work is missing");
     }
+
 }
 
 void exerciseLibrary()
@@ -332,7 +333,60 @@ void exerciseLibrary()
         u"Resolution or torrentReady fabricated history"_s);
     controller.reset();
 
+    controller = std::make_unique<Qbutt::ContentController>();
+    search(*controller);
+    inspect(*controller, publication);
+    controller->initLibrary(profile.path());
+    const auto stateBeforeEntry = controller->property("libraryState").value<Qbutt::Library::LibraryState>();
+    controller->selectVariant(previousVariant);
+    const bool acceptedBeforeEntry = controller->property("libraryPending").toBool();
+    controller.reset();
+    require(!acceptedBeforeEntry && (stateBeforeEntry == Qbutt::Library::LibraryState::Uninitialized),
+        u"Unentered library worker accepted a preference"_s);
+    require(entry(database, u"9542"_s).value(u"preferences"_s).toObject().value(u"selected"_s).toObject()
+        .value(u"selector"_s).toObject().value(u"torrent"_s).toObject().value(u"id"_s)
+        == selectedVariant.section(u':', -1).toInt(), u"Unaccepted preference changed saved metadata"_s);
+
     QSqlQuery loadLock(database);
+    require(loadLock.exec(u"BEGIN IMMEDIATE"_s), loadLock.lastError().text());
+    controller = std::make_unique<Qbutt::ContentController>();
+    search(*controller);
+    inspect(*controller, publication);
+    controller->initLibrary(profile.path());
+    controller->initLibrary(QDir(profile.path()).filePath(u"unexpected-second-owner"_s));
+    waitFor([&]
+    {
+        return controller->property("libraryState").value<Qbutt::Library::LibraryState>()
+            == Qbutt::Library::LibraryState::Loading;
+    }, 10'000, u"SQLite worker entry"_s);
+    {
+        controller->selectVariant(previousVariant);
+        require(controller->property("libraryPending").toBool(), u"Entered worker did not accept Loading preference"_s);
+        QElapsedTimer closeTime;
+        closeTime.start();
+        controller.reset();
+        require(closeTime.elapsed() < 250, u"Loading shutdown waited for SQLite I/O"_s);
+    }
+    require(loadLock.exec(u"ROLLBACK"_s), loadLock.lastError().text());
+    waitFor([&]
+    {
+        return entry(database, u"9542"_s).value(u"preferences"_s).toObject().value(u"selected"_s).toObject()
+            .value(u"selector"_s).toObject().value(u"torrent"_s).toObject().value(u"id"_s)
+            == previousVariant.section(u':', -1).toInt();
+    }, 10'000, u"Accepted Loading preference after close"_s);
+    require(!QDir(profile.path()).exists(u"unexpected-second-owner"_s),
+        u"Repeated initialization created another SQLite owner"_s);
+    controller = std::make_unique<Qbutt::ContentController>();
+    readyLibrary(*controller, profile.path());
+    search(*controller);
+    inspect(*controller, publication);
+    saved(*controller);
+    require(controller->property("selectedVariantId").toString() == previousVariant,
+        u"Fresh controller lost the preference drained after Loading close"_s);
+    controller->selectVariant(selectedVariant);
+    saved(*controller);
+    controller.reset();
+
     for (const bool explicitDuringLoad : {false, true})
     {
         controller = std::make_unique<Qbutt::ContentController>();
@@ -591,5 +645,5 @@ void exerciseLibrary()
     require(relative.property("libraryState").value<Qbutt::Library::LibraryState>() == Qbutt::Library::LibraryState::Failed,
         u"Relative profile reached filesystem initialization"_s);
     require(!wrongThread.load(), u"Library model mutated outside GUI thread"_s);
-    qInfo().noquote() << u"PASS library favorites=ok search_retained=ok exact_preference=ok pending_choice=ok nested_model=ok error_order=ok typed_lookup=ok delayed_load=ok explicit_loading=ok startup_failure=ok fresh_inspection=ok missing_exact=ok stale_completion=ok history_absent=ok reopen=ok io_failure=ok reentrant_preference=ok close_pending=ok variants=%1"_s.arg(variantCount);
+    qInfo().noquote() << u"PASS library favorites=ok search_retained=ok exact_preference=ok pending_choice=ok nested_model=ok error_order=ok typed_lookup=ok delayed_load=ok explicit_loading=ok worker_entry=ok loading_close=ok startup_failure=ok fresh_inspection=ok missing_exact=ok stale_completion=ok history_absent=ok reopen=ok io_failure=ok reentrant_preference=ok close_pending=ok variants=%1"_s.arg(variantCount);
 }
