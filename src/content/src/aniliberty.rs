@@ -160,7 +160,7 @@ struct Poster {
 
 #[derive(Deserialize)]
 struct ExternalId {
-    id: u64,
+    id: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -397,11 +397,11 @@ impl Release {
         }
 
         let mut identifiers = BTreeMap::new();
-        if let Some(id) = self.mal {
-            identifiers.insert("mal".into(), id.id.to_string());
+        if let Some(id) = self.mal.and_then(|external| external.id) {
+            identifiers.insert("mal".into(), id.to_string());
         }
-        if let Some(id) = self.shikimori {
-            identifiers.insert("shikimori".into(), id.id.to_string());
+        if let Some(id) = self.shikimori.and_then(|external| external.id) {
+            identifiers.insert("shikimori".into(), id.to_string());
         }
         let mut aliases = Vec::new();
         for alias in [self.name.english, self.name.alternative]
