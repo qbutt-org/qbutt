@@ -4,9 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
-use reqwest::header::{ACCEPT, ACCEPT_ENCODING, LOCATION};
+use reqwest::header::{ACCEPT, ACCEPT_ENCODING, CONTENT_TYPE, LOCATION};
 use serde::de::DeserializeOwned;
-use url::Url;
+use url::{Host, Url};
 
 use crate::{Error, Result};
 
@@ -35,26 +35,38 @@ impl SourceHttp {
     }
 
     pub(crate) async fn json<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
-        tokio::time::timeout(Duration::from_secs(45), self.fetch_json(url))
+        let bytes = tokio::time::timeout(Duration::from_secs(45), self.fetch(url, true))
+            .await
+            .map_err(|_| Error::Timeout)??;
+        serde_json::from_slice(&bytes).map_err(Error::Json)
+    }
+
+    pub(crate) async fn image(&self, url: Url) -> Result<Vec<u8>> {
+        tokio::time::timeout(Duration::from_secs(45), self.fetch(url, false))
             .await
             .map_err(|_| Error::Timeout)?
     }
 
-    async fn fetch_json<T: DeserializeOwned>(&self, mut url: Url) -> Result<T> {
+    async fn fetch(&self, mut url: Url, same_origin: bool) -> Result<Vec<u8>> {
         for redirects in 0..=MAX_REDIRECTS {
-            // Provider API requests and their redirects stay on their fixed
-            // HTTPS origin. Acquisition URLs are never fetched by this client.
-            if url.origin() != self.origin.origin()
-                || !url.username().is_empty()
-                || url.password().is_some()
-            {
+            validate_https_url(&url)?;
+            // API redirects stay on the fixed origin. Image descriptors may
+            // point to a volunteer CDN; every redirect uses the guarded resolver.
+            if same_origin && url.origin() != self.origin.origin() {
                 return Err(Error::UnsafeAddress);
             }
 
             let mut response = self
                 .client
                 .get(url.clone())
-                .header(ACCEPT, "application/json")
+                .header(
+                    ACCEPT,
+                    if same_origin {
+                        "application/json"
+                    } else {
+                        "image/*"
+                    },
+                )
                 .header(ACCEPT_ENCODING, "identity")
                 .send()
                 .await
@@ -77,6 +89,20 @@ impl SourceHttp {
             if !response.status().is_success() {
                 return Err(Error::HttpStatus(response.status().as_u16()));
             }
+            if !same_origin
+                && !response
+                    .headers()
+                    .get(CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .is_some_and(|value| {
+                        value
+                            .split(';')
+                            .next()
+                            .is_some_and(|mime| mime.trim().starts_with("image/"))
+                    })
+            {
+                return Err(Error::InvalidResponse("page response is not an image"));
+            }
             if response
                 .content_length()
                 .is_some_and(|size| size > MAX_RESPONSE_BYTES as u64)
@@ -92,10 +118,31 @@ impl SourceHttp {
                 bytes.extend_from_slice(&chunk);
             }
 
-            return serde_json::from_slice(&bytes).map_err(Error::Json);
+            if bytes.is_empty() {
+                return Err(Error::InvalidResponse("empty source response"));
+            }
+            return Ok(bytes);
         }
 
         Err(Error::InvalidRedirect)
+    }
+}
+
+pub(crate) fn validate_https_url(url: &Url) -> Result<()> {
+    let valid = url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.fragment().is_none()
+        && match url.host() {
+            Some(Host::Domain(_)) => true,
+            Some(Host::Ipv4(address)) => public_address(IpAddr::V4(address)),
+            Some(Host::Ipv6(address)) => public_address(IpAddr::V6(address)),
+            None => false,
+        };
+    if valid {
+        Ok(())
+    } else {
+        Err(Error::UnsafeAddress)
     }
 }
 

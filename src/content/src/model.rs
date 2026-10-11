@@ -7,6 +7,7 @@ use url::Url;
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     AniLiberty,
+    MangaDex,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -17,7 +18,15 @@ pub struct PublicationRef {
 }
 
 impl PublicationRef {
-    /// The current source uses nonzero canonical decimal release IDs.
+    pub fn validate(&self) -> crate::Result<()> {
+        match self.source {
+            Source::AniLiberty => self.aniliberty_id().map(|_| ()),
+            Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
+            Source::MangaDex => Err(crate::Error::InvalidReference),
+        }
+    }
+
+    /// AniLiberty uses nonzero canonical decimal release IDs.
     pub(crate) fn aniliberty_id(&self) -> crate::Result<u64> {
         if self.source != Source::AniLiberty {
             return Err(crate::Error::InvalidReference);
@@ -54,9 +63,20 @@ impl VideoQuality {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum VariantSelector {
-    Torrent { id: u64 },
-    Episode { id: String, quality: VideoQuality },
-    Rutube { episode_id: String },
+    Torrent {
+        id: u64,
+    },
+    Episode {
+        id: String,
+        quality: VideoQuality,
+    },
+    Rutube {
+        episode_id: String,
+    },
+    MangaTranslation {
+        language: String,
+        groups: Vec<String>,
+    },
 }
 
 impl VariantSelector {
@@ -65,6 +85,12 @@ impl VariantSelector {
             Self::Torrent { id } => *id != 0,
             Self::Episode { id, .. } | Self::Rutube { episode_id: id } => {
                 !id.is_empty() && id.len() <= 128
+            }
+            Self::MangaTranslation { language, groups } => {
+                canonical_language(language)
+                    && groups.len() <= 32
+                    && groups.iter().all(|id| canonical_uuid(id))
+                    && groups.windows(2).all(|pair| pair[0] < pair[1])
             }
         };
         if valid {
@@ -82,10 +108,30 @@ pub struct VariantRef {
     pub selector: VariantSelector,
 }
 
+impl VariantRef {
+    pub fn validate(&self) -> crate::Result<()> {
+        self.publication.validate()?;
+        self.selector.validate()?;
+        let matches_source = matches!(
+            (&self.publication.source, &self.selector),
+            (Source::AniLiberty, VariantSelector::Torrent { .. })
+                | (Source::AniLiberty, VariantSelector::Episode { .. })
+                | (Source::AniLiberty, VariantSelector::Rutube { .. })
+                | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
+        );
+        if matches_source {
+            Ok(())
+        } else {
+            Err(crate::Error::InvalidReference)
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
     Anime,
+    Manga,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -93,6 +139,77 @@ pub enum Category {
 pub enum Transport {
     Torrent,
     Video,
+    Manga,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChapterRef {
+    pub variant: VariantRef,
+    pub id: String,
+}
+
+impl ChapterRef {
+    pub fn validate(&self) -> crate::Result<()> {
+        self.variant.validate()?;
+        if self.variant.publication.source == Source::MangaDex && canonical_uuid(&self.id) {
+            Ok(())
+        } else {
+            Err(crate::Error::InvalidReference)
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Chapter {
+    pub reference: ChapterRef,
+    pub title: Option<String>,
+    pub volume: Option<String>,
+    pub number: Option<String>,
+    pub pages: u32,
+}
+
+/// Fresh, short-lived image descriptors. Only a validated provider manifest can
+/// construct these; QML selects a page index rather than supplying a URL.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ChapterImage {
+    pub(crate) url: Url,
+}
+
+impl ChapterImage {
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ChapterPages {
+    pub reference: ChapterRef,
+    pub images: Vec<ChapterImage>,
+}
+
+pub(crate) fn canonical_uuid(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+            }
+        })
+        && value != "00000000-0000-0000-0000-000000000000"
+}
+
+pub(crate) fn canonical_language(value: &str) -> bool {
+    matches!(value.len(), 2 | 5)
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if index == 2 {
+                byte == b'-'
+            } else {
+                byte.is_ascii_lowercase()
+            }
+        })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

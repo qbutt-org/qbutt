@@ -9,6 +9,7 @@
 mod aniliberty;
 mod http;
 mod library;
+mod mangadex;
 mod model;
 
 pub use aniliberty::AniLiberty;
@@ -16,6 +17,7 @@ pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, VariantFilters,
     VariantPreferences,
 };
+pub use mangadex::MangaDex;
 pub use model::*;
 
 #[derive(Debug, thiserror::Error)]

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{Source, Transport, VariantRef, Work};
+use crate::{Category, Source, Transport, VariantRef, VariantSelector, Work};
 
 /// Raw provider labels are retained so reopening a work restores its dropdowns.
 /// Filters never replace the identity of an explicitly selected variant.
@@ -107,10 +107,16 @@ impl LibraryEntry {
 
 fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
     work.reference
-        .aniliberty_id()
+        .validate()
         .map_err(|_| "the publication reference is invalid")?;
     if work.title.trim().is_empty() {
         return Err("the work title is missing");
+    }
+    if !matches!(
+        (work.reference.source, work.category),
+        (Source::AniLiberty, Category::Anime) | (Source::MangaDex, Category::Manga)
+    ) {
+        return Err("the work category does not match its source");
     }
     if !public_url(&work.url) || work.cover.as_ref().is_some_and(|url| !public_url(url)) {
         return Err("the work contains a nonpublic URL");
@@ -123,11 +129,23 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
         }
         variant
             .reference
-            .selector
             .validate()
             .map_err(|_| "an exact variant selector is invalid")?;
         if !known.insert(&variant.reference) {
             return Err("the work contains duplicate exact variants");
+        }
+        let consistent = match (&work.reference.source, &variant.reference.selector) {
+            (Source::AniLiberty, VariantSelector::Torrent { .. }) => {
+                variant.transport == Transport::Torrent
+            }
+            (Source::AniLiberty, _) => variant.transport == Transport::Video,
+            (Source::MangaDex, VariantSelector::MangaTranslation { .. }) => {
+                variant.transport == Transport::Manga
+            }
+            _ => false,
+        };
+        if !consistent {
+            return Err("the variant transport does not match its source");
         }
     }
     Ok(())
