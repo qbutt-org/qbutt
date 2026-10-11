@@ -1,15 +1,21 @@
 //! Native content services, independent of Qt and the application runtime.
 //!
-//! Operations borrow their service and do not spawn tasks. The caller owns the
-//! async runtime, request generation and cancellation: drop an operation's
+//! Provider operations borrow their service and do not spawn tasks. The caller
+//! owns the async runtime, request generation and cancellation: drop an operation's
 //! future to stop awaiting its result. Apply completed results to Qt models only on
 //! the GUI thread and only while their generation remains current.
+//! Library storage is synchronous and must be scheduled outside the GUI thread.
 
 mod aniliberty;
 mod http;
+mod library;
 mod model;
 
 pub use aniliberty::AniLiberty;
+pub use library::{
+    LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, VariantFilters,
+    VariantPreferences,
+};
 pub use model::*;
 
 #[derive(Debug, thiserror::Error)]
