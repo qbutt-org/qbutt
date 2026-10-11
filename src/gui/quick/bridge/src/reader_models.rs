@@ -63,6 +63,7 @@ pub struct ChapterModelRust {
     rows: Vec<Chapter>,
     visible: Vec<usize>,
     query: String,
+    resetting: bool,
 }
 
 impl ffi::ChapterModel {
@@ -129,10 +130,10 @@ impl ffi::ChapterModel {
     }
 
     pub fn replace(mut self: Pin<&mut Self>, chapters: Vec<Chapter>) {
+        self.as_mut().rust_mut().resetting = true;
         self.as_mut().begin_reset_model();
         self.as_mut().rust_mut().rows = chapters;
-        self.as_mut().refilter();
-        self.as_mut().end_reset_model();
+        self.as_mut().publish_filter();
     }
 
     pub fn filter(mut self: Pin<&mut Self>, query: &str) {
@@ -140,10 +141,28 @@ impl ffi::ChapterModel {
         if self.query == query {
             return;
         }
-        self.as_mut().begin_reset_model();
         self.as_mut().rust_mut().query = query;
-        self.as_mut().refilter();
-        self.as_mut().end_reset_model();
+        if self.resetting {
+            return;
+        }
+        self.as_mut().rust_mut().resetting = true;
+        self.as_mut().begin_reset_model();
+        self.as_mut().publish_filter();
+    }
+
+    fn publish_filter(mut self: Pin<&mut Self>) {
+        loop {
+            let applied = self.query.clone();
+            self.as_mut().refilter();
+            self.as_mut().end_reset_model();
+            if self.query == applied {
+                self.as_mut().rust_mut().resetting = false;
+                return;
+            }
+            // A reset observer may change the query. Publish its latest intent
+            // after all observers return, keeping Qt begin/end pairs balanced.
+            self.as_mut().begin_reset_model();
+        }
     }
 
     fn refilter(mut self: Pin<&mut Self>) {
