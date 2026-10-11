@@ -202,7 +202,8 @@ Page {
 
                 BusyIndicator {
                     anchors.centerIn: parent
-                    visible: root.backend.listMode === Search.Favorites && root.backend.libraryState === Library.Loading
+                    visible: root.backend.listMode === Search.Favorites
+                        && (root.backend.libraryState === Library.Uninitialized || root.backend.libraryState === Library.Loading)
                     running: visible
                 }
             }

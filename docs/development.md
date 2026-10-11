@@ -69,6 +69,11 @@ Qt plugins and companion products, use `scripts/build-windows.ps1`; dependency
 preparation alone does not create that bundle. Keep application runs on isolated
 profiles, as described in [the integration lab](../tests/README.md).
 
+Before invoking Qt tools directly on Windows, set
+`$env:QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES = '1'`. This keeps their help
+and command-line errors in the terminal. The generated preset, release builder
+and project MCP configuration already set it for their own processes.
+
 References: [CLion presets](https://www.jetbrains.com/help/clion/cmake-presets.html),
 [toolchains](https://www.jetbrains.com/help/clion/how-to-create-toolchain-in-clion.html),
 [QML support](https://www.jetbrains.com/help/clion/qml-syntax-support.html),

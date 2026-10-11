@@ -19,6 +19,7 @@ ItemDelegate {
     padding: 12
     focusPolicy: Qt.NoFocus
     Accessible.name: title
+    Accessible.selected: highlighted
 
     contentItem: ColumnLayout {
         spacing: 6

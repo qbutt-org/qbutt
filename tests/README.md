@@ -58,8 +58,8 @@ Require exit code zero and the `PASS` line. The scenario uses live AniLiberty
 metadata, verifies typed model bindings and GUI-thread notifications, replaces
 a query during result insertion, checks the selected infohash in the emitted
 magnet, distinguishes idle/cancelled/successful empty searches, checks Home/End
-on a broad live result list, cancels during resolution notification and closes
-with a pending request.
+on a broad live result list and End/Enter through the QML variant list, cancels
+during resolution notification and closes with a pending request.
 It does not download a payload or exercise `AddTorrentManager`.
 
 For native inspection in the VM, deploy this executable using `windeployqt
@@ -70,12 +70,15 @@ open an existing qbutt profile.
 
 The same executable's `--library` scenario uses a temporary profile and checks
 the native Favorites model, exact selection across reopening, fresh inspection,
-missing preferred variants, SQLite lock failure/retry, reentrant completion and
-shutdown with an accepted write. It verifies that selection, resolution and
-`torrentReady` leave history empty. Run it with the same offscreen environment;
+missing preferred variants, delayed initialization, nested model notifications,
+error ordering, SQLite lock failure/retry and worker entry before accepting writes.
+It checks that accepted writes drain after QObject destruction while the process
+remains alive; this does not establish application Exit behavior.
+Selection, resolution and `torrentReady` must leave history empty.
+Run it with the same offscreen environment;
 use `--library --lang ru` to check localized library errors. Require exit zero
-and the `PASS library=ok` line. This backend scenario does not replace native
-bookmark/tab acceptance.
+and the `PASS library` line with every reported check passing. This backend
+scenario does not replace native bookmark/tab acceptance.
 
 The standalone acceptance target enables `QT_QML_DEBUG` for development preview;
 the shipping application does not inherit it. The project-local `qt-preview`

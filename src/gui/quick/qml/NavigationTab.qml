@@ -11,7 +11,6 @@ TabButton {
     horizontalPadding: 14
     hoverEnabled: true
     font.pixelSize: theme.controlFontSize
-    font.weight: Font.DemiBold
     palette.windowText: theme.foreground
     palette.brightText: theme.muted
 

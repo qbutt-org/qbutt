@@ -59,8 +59,12 @@ Pane {
                 enabled: root.backend.libraryState === Library.Ready && !root.backend.libraryPending && !root.backend.inspecting
                 opacity: enabled ? 1 : 0.45
                 onClicked: root.backend.setSelectedFavorite(!root.backend.selectedFavorite)
-                ToolTip.visible: hovered
-                ToolTip.text: text
+
+                ToolTip {
+                    parent: bookmark
+                    visible: bookmark.hovered
+                    text: bookmark.text
+                }
 
                 background: Rectangle {
                     implicitWidth: root.theme.controlHeight

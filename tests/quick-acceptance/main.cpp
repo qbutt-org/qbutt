@@ -311,13 +311,24 @@ namespace
             identities.insert(id);
         }
 
-        QPointer<QObject> variantView = view->rootObject()->findChild<QObject *>(u"contentVariants"_s);
+        QPointer<QQuickItem> variantView = view->rootObject()->findChild<QQuickItem *>(u"contentVariants"_s);
         require(variantView, u"The production variants view is missing"_s);
         waitFor([&] { return !variantView || (variantView->property("count").toInt() == variants->rowCount()); }, 2'000, u"Variant model binding"_s);
         require(variantView, u"Window closed before variant model binding"_s);
 
-        const QString selectedVariant = value(variants, 0, "variantId");
-        const QString expectedHash = value(variants, 0, "infoHash").toLower();
+        variantView->forceActiveFocus();
+        QKeyEvent selectLastPress(QEvent::KeyPress, Qt::Key_End, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &selectLastPress);
+        QKeyEvent selectLastRelease(QEvent::KeyRelease, Qt::Key_End, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &selectLastRelease);
+        const int selectedRow = variants->rowCount() - 1;
+        const QString selectedVariant = value(variants, selectedRow, "variantId");
+        require((variantView->property("currentIndex").toInt() == selectedRow)
+            && (controller->property("selectedVariantId").toString() == selectedVariant)
+            && (controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
+                == Qbutt::Search::VariantSelectionState::Available),
+            u"Keyboard variant highlight and exact selection differ"_s);
+        const QString expectedHash = value(variants, selectedRow, "infoHash").toLower();
         require(expectedHash.size() == 40, u"Selected torrent has no verifiable infohash"_s);
         QString receivedMagnet;
         int torrentSignals = 0;
@@ -331,7 +342,10 @@ namespace
             receivedMagnet = magnet;
             ++torrentSignals;
         }, Qt::DirectConnection);
-        controller->resolveVariant(selectedVariant);
+        QKeyEvent downloadPress(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &downloadPress);
+        QKeyEvent downloadRelease(QEvent::KeyRelease, Qt::Key_Return, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &downloadRelease);
         waitFor([&] { return !controller || !controller->property("resolving").toBool(); }, 50'000, u"Exact torrent resolution"_s);
         require(controller, u"Window closed during resolution"_s);
         require(controller->property("errorText").toString().isEmpty(),
@@ -436,7 +450,7 @@ namespace
         QTimer::singleShot(500, &drain, &QEventLoop::quit);
         drain.exec();
         require(!wrongThread.load(), u"A late model callback used the wrong thread"_s);
-        qInfo().noquote() << u"PASS works=%1 variants=%2 search_outcomes=ok boundary_keys=ok cancel_restart=ok startup_cancel=ok exact_magnet=ok reentrant_cancel=ok close_pending=ok"_s
+        qInfo().noquote() << u"PASS works=%1 variants=%2 search_outcomes=ok boundary_keys=ok variant_keyboard=ok cancel_restart=ok startup_cancel=ok exact_magnet=ok reentrant_cancel=ok close_pending=ok"_s
             .arg(workCount).arg(variantCount);
     }
 }
@@ -484,7 +498,7 @@ int main(int argc, char *argv[])
     QTemporaryDir profile;
     if (!profile.isValid())
         return 1;
-    auto *window = new QMainWindow;
+    QPointer<QMainWindow> window = new QMainWindow;
     window->setAttribute(Qt::WA_DeleteOnClose);
     window->setWindowTitle(u"qbutt — Qt Quick acceptance"_s);
     window->resize(1280, 760);
@@ -519,5 +533,7 @@ int main(int argc, char *argv[])
         });
     }
 
-    return application.exec();
+    const int result = application.exec();
+    delete window.data();
+    return result;
 }
