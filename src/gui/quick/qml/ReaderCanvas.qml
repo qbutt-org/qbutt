@@ -39,12 +39,7 @@ Item {
                 id: page
                 objectName: "readerPageImage"
                 width: viewport.width
-                height: {
-                    if (root.fit === Reader.Height || implicitWidth <= 0)
-                        return viewport.height;
-
-                    return width * implicitHeight / implicitWidth;
-                }
+                height: root.fit === Reader.Height ? viewport.height : undefined
                 source: root.backend.readerPageUrl
                 onSourceChanged: viewport.contentY = 0
                 sourceSize: root.fit === Reader.Height

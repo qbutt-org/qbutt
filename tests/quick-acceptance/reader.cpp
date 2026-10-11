@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "reader.h"
 
+#include <atomic>
+#include <cstdio>
 #include <functional>
 #include <stdexcept>
 
@@ -14,8 +16,6 @@
 #include <QImageReader>
 #include <QKeyEvent>
 #include <QPointer>
-#include <QQmlEngine>
-#include <QQmlError>
 #include <QQuickItem>
 #include <QScopeGuard>
 #include <QTemporaryDir>
@@ -29,6 +29,20 @@ using namespace Qt::Literals::StringLiterals;
 
 namespace
 {
+    std::atomic_bool bindingLoopDetected = false;
+    QtMessageHandler previousMessageHandler = nullptr;
+
+    void observeBindingLoops(const QtMsgType type, const QMessageLogContext &context, const QString &message)
+    {
+        if (message.contains(u"Binding loop"_s))
+            bindingLoopDetected.store(true);
+
+        if (previousMessageHandler)
+            previousMessageHandler(type, context, message);
+        else
+            std::fprintf(stderr, "%s\n", qPrintable(qFormatLogMessage(type, context, message)));
+    }
+
     void require(const bool condition, const QString &message)
     {
         if (!condition)
@@ -86,6 +100,9 @@ namespace
 
 void exerciseReader(Content::ContentView *view)
 {
+    bindingLoopDetected.store(false);
+    previousMessageHandler = qInstallMessageHandler(observeBindingLoops);
+    const auto restoreMessageHandler = qScopeGuard([] { qInstallMessageHandler(previousMessageHandler); });
     require(view && (view->status() == QQuickWidget::Ready), u"Production reader view did not load"_s);
     QPointer<Qbutt::ContentController> controller = view->findChild<Qbutt::ContentController *>();
     require(controller, u"Production content controller is missing"_s);
@@ -96,13 +113,6 @@ void exerciseReader(Content::ContentView *view)
     auto *results = view->rootObject()->findChild<QQuickItem *>(u"contentResults"_s);
     require(results, u"Production results view is missing"_s);
     QObject selectionObservation;
-    bool selectionBindingLoop = false;
-    QObject::connect(view->engine(), &QQmlEngine::warnings, &selectionObservation,
-        [&](const QList<QQmlError> &warnings)
-    {
-        for (const QQmlError &warning : warnings)
-            selectionBindingLoop |= warning.description().contains(u"Binding loop"_s);
-    });
     const auto completionConnection = QObject::connect(controller, &Qbutt::ContentController::busyChanged,
         &selectionObservation, [&]
     {
@@ -124,7 +134,7 @@ void exerciseReader(Content::ContentView *view)
     require((controller->property("selectedWorkId").toString() == publication)
         && (results->property("currentIndex").toInt() >= 0)
         && (value(works, results->property("currentIndex").toInt(), "workId") == publication)
-        && !selectionBindingLoop,
+        && !bindingLoopDetected.load(),
         u"Selection before the pending view layout caused a binding loop or lost its exact work"_s);
     results->forceActiveFocus();
     for (const Qt::Key key : {Qt::Key_Home, Qt::Key_Down, Qt::Key_Up, Qt::Key_End})
@@ -165,7 +175,7 @@ void exerciseReader(Content::ContentView *view)
         && (value(works, results->property("currentIndex").toInt(), "workId") == publication)
         && (controller->property("selectedVariantId").toString() == exact),
         u"Returning to search lost the exact selected work or variant"_s);
-    require(!selectionBindingLoop, u"Model change caused a work selection binding loop"_s);
+    require(!bindingLoopDetected.load(), u"Model change caused a work selection binding loop"_s);
     auto *chapters = model(controller, "readerChapters");
     QObject observations;
     int resetDepth = 0;
@@ -234,10 +244,49 @@ void exerciseReader(Content::ContentView *view)
     require((controller->property("readerPageIndex").toInt() == 1) && (firstPage != secondPage),
         u"Page turn did not acquire the exact second page"_s);
     waitFor([&] { return !QFileInfo::exists(firstPage); }, u"Retired page cache cleanup"_s);
-    controller->setReaderFit(Qbutt::Reader::ReaderFit::Width);
-    require(controller->property("readerFit").value<Qbutt::Reader::ReaderFit>() == Qbutt::Reader::ReaderFit::Width,
-        u"Width fitting did not reach the backend"_s);
-    controller->setReaderFit(Qbutt::Reader::ReaderFit::Height);
+    auto *pageImage = view->rootObject()->findChild<QQuickItem *>(u"readerPageImage"_s);
+    auto *viewport = view->rootObject()->findChild<QQuickItem *>(u"readerPageViewport"_s);
+    require(pageImage && viewport, u"Production reader image or viewport is missing"_s);
+    const QSize decodedSize = QImageReader(secondPage).size();
+    require(!decodedSize.isEmpty(), u"Decoded page size is missing"_s);
+    const auto checkPageFit = [&](const Qbutt::Reader::ReaderFit fit)
+    {
+        waitFor([&] { return pageImage->property("status").toInt() == 1; }, u"Reader image decode"_s);
+        require(controller->property("readerFit").value<Qbutt::Reader::ReaderFit>() == fit,
+            u"Requested image fit did not reach the backend"_s);
+        const qreal paintedWidth = pageImage->property("paintedWidth").toReal();
+        const qreal paintedHeight = pageImage->property("paintedHeight").toReal();
+        if (fit == Qbutt::Reader::ReaderFit::Height)
+        {
+            require((qAbs(pageImage->height() - viewport->height()) < 1)
+                && (paintedWidth <= viewport->width() + 1) && (paintedHeight <= viewport->height() + 1),
+                u"Height fit exceeds the reader viewport"_s);
+        }
+        else
+        {
+            const qreal expectedHeight = viewport->width() * decodedSize.height() / decodedSize.width();
+            require((qAbs(paintedWidth - viewport->width()) < 1)
+                && (qAbs(paintedHeight - expectedHeight) < 2),
+                u"Width fit lost the decoded page aspect or viewport width"_s);
+        }
+        require((paintedWidth > 0) && (paintedHeight > 0)
+            && (qAbs(viewport->property("contentHeight").toReal() - qMax(viewport->height(), pageImage->height())) < 1)
+            && !bindingLoopDetected.load(), u"Decoded image fit caused a binding loop or incorrect scroll bounds"_s);
+    };
+    checkPageFit(Qbutt::Reader::ReaderFit::Height);
+    for (const QSize windowSize : {QSize(1280, 720), QSize(1440, 900)})
+    {
+        view->window()->resize(windowSize);
+        checkPageFit(Qbutt::Reader::ReaderFit::Height);
+        // Exercise both the first decode and the cached size transition.
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            controller->setReaderFit(Qbutt::Reader::ReaderFit::Width);
+            checkPageFit(Qbutt::Reader::ReaderFit::Width);
+            controller->setReaderFit(Qbutt::Reader::ReaderFit::Height);
+            checkPageFit(Qbutt::Reader::ReaderFit::Height);
+        }
+    }
 
     controller->selectChapter(lastChapter);
     controller->selectChapter(firstChapter);
@@ -294,5 +343,6 @@ void exerciseReader(Content::ContentView *view)
     controller->closeReader();
     const QString retriedDirectory = QFileInfo(retried).absolutePath();
     waitFor([&] { return !QFileInfo::exists(retriedDirectory); }, u"Retried chapter cache cleanup"_s);
+    require(!bindingLoopDetected.load(), u"Reader lifecycle caused a binding loop"_s);
     qInfo().noquote() << u"PASS reader mixed_search=ok exact_translation=ok qml_action=ok decoded_pages=2 chapter_filter=ok reentrant_filter=ok fit=ok stale_chapter=ok bounds=ok cancel_reopen=ok cache_failure_retry=ok cache_cleanup=ok chapters=%1"_s.arg(chapterCount);
 }
