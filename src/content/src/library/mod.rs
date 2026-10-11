@@ -10,10 +10,10 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::{PublicationRef, VariantRef, Work};
 
-pub use entry::{LastOpened, LibraryEntry, VariantFilters, VariantPreferences};
+pub use entry::{LastOpened, LibraryEntry, ReaderProgress, VariantFilters, VariantPreferences};
 
 const APPLICATION_ID: i64 = 0x51424c42;
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const DATABASE_NAME: &str = "content-library.sqlite";
 
 #[derive(Debug, thiserror::Error)]
@@ -176,6 +176,24 @@ impl Library {
         })
     }
 
+    /// A consumer must confirm that the local page was rendered before calling
+    /// this. Progress and successful reading history share one atomic write.
+    pub fn save_reader_progress(
+        &mut self,
+        work: &Work,
+        preferences: VariantPreferences,
+        progress: ReaderProgress,
+    ) -> LibraryResult<LibraryEntry> {
+        self.update(work, |entry, at_unix_millis| {
+            entry.preferences = preferences;
+            entry.last_opened = Some(LastOpened {
+                variant: progress.chapter.variant.clone(),
+                at_unix_millis,
+            });
+            entry.reader_progress = Some(progress);
+        })
+    }
+
     /// Removing history retains the favorite, exact selection and known work.
     /// It never removes downloaded payload or any other profile data.
     pub fn remove_history(
@@ -212,6 +230,7 @@ impl Library {
                 preferences: VariantPreferences::default(),
                 favorite: false,
                 last_opened: None,
+                reader_progress: None,
             },
         };
         let timestamp = now_millis()?;

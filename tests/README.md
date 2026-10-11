@@ -33,10 +33,15 @@ a download:
 
 ```powershell
 cargo run --locked --offline -p qbutt-content --example library
+cargo run --locked --offline -p qbutt-content --example reader_progress
 ```
 
 Require exit code zero and every reported check to pass. This checks storage;
 it does not establish that Favorites or history are wired into the UI.
+The reader example preserves the exact chapter, zero-based page and normalized
+scroll fraction across a process restart. It also checks that variant choices
+remain independent and rejected references, invalid positions and SQLite abort
+leave the previous confirmed entry intact.
 
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in
@@ -96,6 +101,18 @@ is an external prerequisite; a timeout is a failure.
 This process scenario does not establish pointer interaction, popup blur,
 application deactivation, continuous reading, persisted progress or translation.
 Check the reader and chapter picker in the deployed Windows host separately.
+
+Run `--reader-progress --lang ru` with the same offscreen environment to check
+the native progress bridge without QML acknowledgement. The consumer confirms
+each local page only after `QImageReader` has decoded it. Require exit zero and
+`PASS reader_progress`. It checks exact reopen and controller restart, duplicate
+confirmation, stale URLs and completions, finite scroll bounds, SQLite write
+abort and queue rejection followed by retry of the same displayed page, failed
+resume reads, initial worker failure and missing saved chapter/page recovery.
+An explicitly selected other branch starts independently. Acquisition alone
+must leave history empty; confirmed reading retains the full known work and
+current choices. This scenario does not establish QML `Image.Ready`, native
+pointer interaction or application Exit with an accepted write.
 
 The standalone acceptance target enables `QT_QML_DEBUG` for development preview;
 the shipping application does not inherit it. The project-local `qt-preview`

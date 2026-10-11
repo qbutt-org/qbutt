@@ -8,10 +8,13 @@ use std::time::{Duration, Instant};
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::{QString, QUrl};
-use qbutt_content::{ChapterPages, ChapterRef, MangaDex, Transport, VariantRef};
+use qbutt_content::{
+    ChapterPages, ChapterRef, LibraryResult, MangaDex, ReaderProgress, Transport, VariantRef,
+};
 use tempfile::{NamedTempFile, TempDir, TempPath};
 use tokio::sync::watch;
 
+use super::library::LibraryAction;
 use super::{Pending, ffi};
 use crate::reader_models;
 
@@ -25,6 +28,12 @@ pub(super) struct ReaderState {
     page_url: QUrl,
     page_index: i32,
     page_count: i32,
+    scroll_offset: f64,
+    page_shown: bool,
+    resume: Option<ReaderProgress>,
+    progress_generation: u64,
+    progress_pending: bool,
+    progress_error: QString,
     fit: ffi::ReaderFit,
     query: QString,
     loading: Pending,
@@ -44,6 +53,12 @@ impl Default for ReaderState {
             page_url: QUrl::default(),
             page_index: 0,
             page_count: 0,
+            scroll_offset: 0.0,
+            page_shown: false,
+            resume: None,
+            progress_generation: 0,
+            progress_pending: false,
+            progress_error: QString::default(),
             fit: ffi::ReaderFit::Height,
             query: QString::default(),
             loading: Pending::default(),
@@ -58,6 +73,9 @@ impl ReaderState {
         self.loading.cancel();
         self.chapter.cancel();
         self.position.take();
+        self.progress_generation = self.progress_generation.wrapping_add(1);
+        self.progress_pending = false;
+        self.progress_error = QString::default();
     }
 }
 
@@ -74,8 +92,33 @@ impl ffi::ContentController {
         self.reader.busy
     }
 
+    pub(super) fn reader_has_chapters(&self) -> bool {
+        self.reader.reference.is_some() && self.reader.chapters.first().is_some()
+    }
+
     pub(super) fn reader_error_text(&self) -> &QString {
         &self.reader.error
+    }
+
+    pub(super) fn reader_progress_error_text(&self) -> &QString {
+        &self.reader.progress_error
+    }
+
+    pub(super) fn reader_progress_pending(&self) -> bool {
+        self.reader.progress_pending
+    }
+
+    pub(super) fn reader_library_failed(mut self: Pin<&mut Self>) {
+        if self.reader.reference.is_none() || !self.reader.chapter_id.is_empty() {
+            return;
+        }
+        {
+            let mut state = self.as_mut().rust_mut();
+            state.reader.loading.cancel();
+            state.reader.busy = false;
+            state.reader.error = ffi::content_error(4);
+        }
+        self.reader_changed();
     }
 
     pub(super) fn reader_title(&self) -> &QString {
@@ -138,8 +181,26 @@ impl ffi::ContentController {
             state.reader.page_url = QUrl::default();
             state.reader.page_count = 0;
             state.reader.page_index = 0;
+            state.reader.scroll_offset = 0.0;
+            state.reader.page_shown = false;
+            state.reader.resume = None;
+            state.reader.busy = true;
+            state.reader.error = QString::default();
         }
-        self.as_mut().load_chapters();
+        let generation = self.reader.loading.generation;
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .chapters
+            .pin_mut()
+            .replace(Vec::new());
+        if self.reader.reference.is_none()
+            || self.reader.loading.generation != generation
+            || !self.reader.chapter_id.is_empty()
+        {
+            return;
+        }
+        self.as_mut().load_reader_resume();
     }
 
     pub fn close_reader(mut self: Pin<&mut Self>) {
@@ -155,6 +216,61 @@ impl ffi::ContentController {
             state.reader.reference = None;
         }
         self.as_mut().reader_changed();
+    }
+
+    fn load_reader_resume(mut self: Pin<&mut Self>) {
+        let Some(reference) = self.reader.reference.clone() else {
+            return;
+        };
+        self.as_mut().rust_mut().reader.loading.cancel();
+        let generation = self.reader.loading.generation;
+        {
+            let mut state = self.as_mut().rust_mut();
+            state.reader.busy = true;
+            state.reader.error = QString::default();
+        }
+        self.as_mut().reader_changed();
+        if self.reader.loading.generation != generation || self.reader.reference.is_none() {
+            return;
+        }
+        if !self.as_mut().submit_library(LibraryAction::ReaderResume {
+            reference: reference.publication,
+            generation,
+        }) && self.reader.loading.generation == generation
+            && self.reader.reference.is_some()
+        {
+            self.as_mut().rust_mut().reader.busy = false;
+            self.as_mut().rust_mut().reader.error = ffi::content_error(4);
+            self.as_mut().reader_changed();
+        }
+    }
+
+    pub(super) fn complete_reader_resume(
+        mut self: Pin<&mut Self>,
+        result: LibraryResult<Option<ReaderProgress>>,
+        generation: u64,
+    ) {
+        if self.reader.loading.generation != generation || self.reader.reference.is_none() {
+            return;
+        }
+        match result {
+            Ok(progress) => {
+                let resume = progress.filter(|progress| {
+                    Some(&progress.chapter.variant) == self.reader.reference.as_ref()
+                });
+                self.as_mut().rust_mut().reader.resume = resume;
+                self.load_chapters();
+            }
+            Err(error) => {
+                ffi::log_content_error(
+                    &QString::from("reader resume"),
+                    &QString::from(error.to_string()),
+                );
+                self.as_mut().rust_mut().reader.busy = false;
+                self.as_mut().rust_mut().reader.error = ffi::content_error(4);
+                self.as_mut().reader_changed();
+            }
+        }
     }
 
     fn load_chapters(mut self: Pin<&mut Self>) {
@@ -201,11 +317,27 @@ impl ffi::ContentController {
                         if !controller.reader.chapter_id.is_empty() {
                             return;
                         }
-                        if let Some(first) = controller.reader.chapters.first() {
+                        if let Some(progress) = controller.reader.resume.clone() {
+                            if controller
+                                .reader
+                                .chapters
+                                .find(&progress.chapter.id)
+                                .is_some()
+                            {
+                                controller.load_chapter(
+                                    QString::from(&progress.chapter.id),
+                                    progress.page as usize,
+                                    progress.scroll_offset,
+                                );
+                                return;
+                            }
+                            controller.as_mut().rust_mut().reader.error = ffi::reader_error(3);
+                        } else if let Some(first) = controller.reader.chapters.first() {
                             controller.select_chapter(QString::from(first.id));
                             return;
+                        } else {
+                            controller.as_mut().rust_mut().reader.error = ffi::reader_error(3);
                         }
-                        controller.as_mut().rust_mut().reader.error = ffi::reader_error(3);
                     }
                     Err(error) => {
                         ffi::log_content_error(
@@ -226,10 +358,10 @@ impl ffi::ContentController {
         if self.reader.chapter_id == id && self.reader.error.is_empty() {
             return;
         }
-        self.load_chapter(id, 0);
+        self.load_chapter(id, 0, 0.0);
     }
 
-    fn load_chapter(mut self: Pin<&mut Self>, id: QString, page: usize) {
+    fn load_chapter(mut self: Pin<&mut Self>, id: QString, page: usize, scroll_offset: f64) {
         if self.reader.reference.is_none() {
             return;
         }
@@ -239,6 +371,7 @@ impl ffi::ContentController {
         if Some(&chapter.reference.variant) != self.reader.reference.as_ref() {
             return;
         }
+        self.as_mut().rust_mut().reader.loading.cancel();
         self.as_mut().rust_mut().reader.chapter.cancel();
         let generation = self.reader.chapter.generation;
         let (sender, position) = watch::channel(page);
@@ -252,6 +385,9 @@ impl ffi::ContentController {
             );
             state.reader.page_index = page as i32;
             state.reader.page_count = 0;
+            state.reader.scroll_offset = scroll_offset;
+            state.reader.page_shown = false;
+            state.reader.resume = None;
             state.reader.page_url = QUrl::default();
             state.reader.error = QString::default();
             state.reader.busy = true;
@@ -284,6 +420,8 @@ impl ffi::ContentController {
         {
             let mut state = self.as_mut().rust_mut();
             state.reader.page_index = index;
+            state.reader.scroll_offset = 0.0;
+            state.reader.page_shown = false;
             state.reader.page_url = QUrl::default();
             state.reader.error = QString::default();
             state.reader.busy = true;
@@ -297,6 +435,108 @@ impl ffi::ContentController {
     pub fn turn_reader_page(self: Pin<&mut Self>, offset: i32) {
         let index = self.reader.page_index.saturating_add(offset);
         self.select_reader_page(index);
+    }
+
+    /// Only Image.Ready for this exact local URL confirms a rendered page.
+    pub fn reader_page_shown(mut self: Pin<&mut Self>, url: QUrl) {
+        if self.reader.reference.is_none()
+            || self.reader.busy
+            || self.reader.page_url.is_empty()
+            || self.reader.page_url != url
+            || self.reader.page_shown
+        {
+            return;
+        }
+        self.as_mut().rust_mut().reader.page_shown = true;
+        let offset = self.reader.scroll_offset;
+        self.as_mut().save_reader_position();
+        if self.reader.reference.is_some() && self.reader.page_url == url {
+            self.restore_reader_scroll(url, offset);
+        }
+    }
+
+    pub fn scroll_reader_page(mut self: Pin<&mut Self>, url: QUrl, offset: f64) {
+        if !self.reader.page_shown
+            || self.reader.reference.is_none()
+            || self.reader.page_url != url
+            || !offset.is_finite()
+            || !(0.0..=1.0).contains(&offset)
+            || self.reader.scroll_offset == offset
+        {
+            return;
+        }
+        self.as_mut().rust_mut().reader.scroll_offset = offset;
+        self.save_reader_position();
+    }
+
+    pub fn retry_reader_progress(self: Pin<&mut Self>) {
+        if self.reader.page_shown
+            && !self.reader.progress_pending
+            && !self.reader.progress_error.is_empty()
+        {
+            self.save_reader_position();
+        }
+    }
+
+    pub(super) fn complete_reader_progress(mut self: Pin<&mut Self>, generation: u64, saved: bool) {
+        if self.reader.progress_generation != generation || self.reader.reference.is_none() {
+            return;
+        }
+        {
+            let mut state = self.as_mut().rust_mut();
+            state.reader.progress_pending = false;
+            state.reader.progress_error = if saved {
+                QString::default()
+            } else {
+                ffi::reader_error(5)
+            };
+        }
+        self.reader_changed();
+    }
+
+    fn save_reader_position(mut self: Pin<&mut Self>) {
+        let Some(variant) = self.reader.reference.clone() else {
+            return;
+        };
+        let Some(work) = self.selected_work.clone() else {
+            return;
+        };
+        if variant.publication != work.reference {
+            return;
+        }
+        let preferences = self
+            .work_preferences
+            .get(&work.reference)
+            .cloned()
+            .unwrap_or_default();
+        let progress = ReaderProgress {
+            chapter: ChapterRef {
+                variant,
+                id: self.reader.chapter_id.to_string(),
+            },
+            page: self.reader.page_index as u32,
+            scroll_offset: self.reader.scroll_offset,
+        };
+        let generation = self.reader.progress_generation.wrapping_add(1);
+        {
+            let mut state = self.as_mut().rust_mut();
+            state.reader.progress_generation = generation;
+            state.reader.progress_pending = true;
+        }
+        let accepted = self.as_mut().submit_library(LibraryAction::ReaderProgress {
+            work,
+            preferences,
+            progress,
+            generation,
+        });
+        if self.reader.progress_generation != generation || self.reader.reference.is_none() {
+            return;
+        }
+        if !accepted {
+            self.as_mut().rust_mut().reader.progress_pending = false;
+            self.as_mut().rust_mut().reader.progress_error = ffi::reader_error(5);
+        }
+        self.reader_changed();
     }
 
     pub fn set_reader_fit(mut self: Pin<&mut Self>, fit: ffi::ReaderFit) {
@@ -328,11 +568,12 @@ impl ffi::ContentController {
             return;
         }
         if self.reader.chapter_id.is_empty() {
-            self.load_chapters();
+            self.load_reader_resume();
         } else {
             let chapter = self.reader.chapter_id.clone();
             let page = self.reader.page_index as usize;
-            self.load_chapter(chapter, page);
+            let offset = self.reader.scroll_offset;
+            self.load_chapter(chapter, page, offset);
         }
     }
 }
@@ -440,7 +681,7 @@ async fn read_chapter(
             &qt_thread,
             generation,
             None,
-            2,
+            4,
             "The exact page is no longer available",
         );
         return;

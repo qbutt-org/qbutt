@@ -28,6 +28,7 @@
 #include <QVariant>
 
 #include "library.h"
+#include "reader-progress.h"
 #include "reader.h"
 
 #include "gui/quick/contentview.h"
@@ -475,6 +476,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"exercise"_s, u"Run the bounded live metadata acceptance scenario and exit."_s});
     parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
+    parser.addOption({u"reader-progress"_s, u"Run exact reader progress and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"dark"_s, u"Use the dark system color scheme for visual inspection."_s});
     parser.addOption({u"lang"_s, u"Set the locale for this process."_s, u"locale"_s, u"en"_s});
     parser.process(application);
@@ -489,11 +491,14 @@ int main(int argc, char *argv[])
     QGuiApplication::styleHints()->setColorScheme(parser.isSet(u"dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
     application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s) && !parser.isSet(u"reader"_s));
 
-    if (parser.isSet(u"library"_s))
+    if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s))
     {
         try
         {
-            exerciseLibrary();
+            if (parser.isSet(u"reader-progress"_s))
+                exerciseReaderProgress();
+            else
+                exerciseLibrary();
             return 0;
         }
         catch (const std::exception &error)

@@ -128,6 +128,13 @@ pub mod ffi {
         )]
         #[qproperty(
             bool,
+            reader_has_chapters,
+            cxx_name = "readerHasChapters",
+            READ = reader_has_chapters,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            bool,
             reader_busy,
             cxx_name = "readerBusy",
             READ = reader_busy,
@@ -138,6 +145,20 @@ pub mod ffi {
             reader_error_text,
             cxx_name = "readerErrorText",
             READ = reader_error_text,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_progress_error_text,
+            cxx_name = "readerProgressErrorText",
+            READ = reader_progress_error_text,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            bool,
+            reader_progress_pending,
+            cxx_name = "readerProgressPending",
+            READ = reader_progress_pending,
             NOTIFY = reader_changed
         )]
         #[qproperty(
@@ -272,8 +293,11 @@ pub mod ffi {
         fn selected_variant_kind(&self) -> QString;
         fn reader_chapters(&self) -> *mut ChapterModel;
         fn reader_open(&self) -> bool;
+        fn reader_has_chapters(&self) -> bool;
         fn reader_busy(&self) -> bool;
         fn reader_error_text(&self) -> &QString;
+        fn reader_progress_error_text(&self) -> &QString;
+        fn reader_progress_pending(&self) -> bool;
         fn reader_title(&self) -> &QString;
         fn reader_chapter_title(&self) -> &QString;
         fn reader_chapter_id(&self) -> &QString;
@@ -307,6 +331,18 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "retryReader"]
         fn retry_reader(self: Pin<&mut Self>);
+        #[qinvokable]
+        #[cxx_name = "readerPageShown"]
+        fn reader_page_shown(self: Pin<&mut Self>, url: QUrl);
+        #[qinvokable]
+        #[cxx_name = "scrollReaderPage"]
+        fn scroll_reader_page(self: Pin<&mut Self>, url: QUrl, offset: f64);
+        #[qinvokable]
+        #[cxx_name = "retryReaderProgress"]
+        fn retry_reader_progress(self: Pin<&mut Self>);
+        #[qsignal]
+        #[cxx_name = "restoreReaderScroll"]
+        fn restore_reader_scroll(self: Pin<&mut Self>, url: QUrl, offset: f64);
         #[qsignal]
         #[cxx_name = "readerChanged"]
         fn reader_changed(self: Pin<&mut Self>);

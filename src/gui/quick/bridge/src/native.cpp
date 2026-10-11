@@ -64,6 +64,10 @@ QString Qbutt::readerError(const std::int32_t operation)
         return QCoreApplication::translate("ContentController", "Could not load this chapter.");
     case 2:
         return QCoreApplication::translate("ContentController", "Could not load this page.");
+    case 4:
+        return QCoreApplication::translate("ContentController", "This page is no longer available.");
+    case 5:
+        return QCoreApplication::translate("ContentController", "Could not save reading position.");
     default:
         return QCoreApplication::translate("ContentController", "This chapter is no longer available.");
     }

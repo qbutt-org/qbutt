@@ -3,7 +3,10 @@ use std::pin::Pin;
 
 use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{Library, LibraryEntry, LibraryResult, LibraryView, VariantPreferences, Work};
+use qbutt_content::{
+    Library, LibraryEntry, LibraryResult, LibraryView, PublicationRef, ReaderProgress,
+    VariantPreferences, Work,
+};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};
 
@@ -20,6 +23,16 @@ pub enum LibraryAction {
         work: Work,
         preferences: VariantPreferences,
     },
+    ReaderProgress {
+        work: Work,
+        preferences: VariantPreferences,
+        progress: ReaderProgress,
+        generation: u64,
+    },
+    ReaderResume {
+        reference: PublicationRef,
+        generation: u64,
+    },
 }
 
 pub enum LibraryUpdate {
@@ -27,6 +40,11 @@ pub enum LibraryUpdate {
     Changed {
         result: LibraryResult<Box<LibraryEntry>>,
         error_generation: u64,
+        reader_generation: Option<u64>,
+    },
+    ReaderResume {
+        result: LibraryResult<Option<ReaderProgress>>,
+        generation: u64,
     },
 }
 
@@ -72,12 +90,9 @@ impl LibraryWorker {
             // This is the sole connection owner. Accepted commands stay in FIFO
             // order and finish even when selection changes or the QObject closes.
             while let Some(request) = receiver.blocking_recv() {
-                let result = apply(&mut library, request.action).map(Box::new);
+                let update = apply(&mut library, request);
                 let _ = qt_thread.queue(move |controller| {
-                    controller.complete_library(LibraryUpdate::Changed {
-                        result,
-                        error_generation: request.error_generation,
-                    });
+                    controller.complete_library(update);
                 });
             }
             // Connection close also runs outside the GUI thread.
@@ -95,12 +110,37 @@ impl LibraryWorker {
     }
 }
 
-fn apply(library: &mut Library, action: LibraryAction) -> LibraryResult<LibraryEntry> {
-    match action {
-        LibraryAction::Favorite { work, favorite } => library.set_favorite(&work, favorite),
+fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
+    let (result, reader_generation) = match request.action {
+        LibraryAction::Favorite { work, favorite } => (library.set_favorite(&work, favorite), None),
         LibraryAction::Preferences { work, preferences } => {
-            library.save_preferences(&work, preferences)
+            (library.save_preferences(&work, preferences), None)
         }
+        LibraryAction::ReaderProgress {
+            work,
+            preferences,
+            progress,
+            generation,
+        } => (
+            library.save_reader_progress(&work, preferences, progress),
+            Some(generation),
+        ),
+        LibraryAction::ReaderResume {
+            reference,
+            generation,
+        } => {
+            return LibraryUpdate::ReaderResume {
+                result: library
+                    .get(&reference)
+                    .map(|entry| entry.and_then(|entry| entry.reader_progress)),
+                generation,
+            };
+        }
+    };
+    LibraryUpdate::Changed {
+        result: result.map(Box::new),
+        error_generation: request.error_generation,
+        reader_generation,
     }
 }
 
@@ -145,7 +185,7 @@ impl ffi::ContentController {
 
     pub(super) fn complete_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
         let was_pending = self.is_library_pending();
-        if matches!(update, LibraryUpdate::Changed { .. }) {
+        if !matches!(update, LibraryUpdate::Loaded(_)) {
             self.as_mut().rust_mut().library_pending -= 1;
         }
         self.as_mut().rust_mut().library_updates.push_back(update);
@@ -173,6 +213,10 @@ impl ffi::ContentController {
 
     fn publish_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
         let (initial, error_generation, result) = match update {
+            LibraryUpdate::ReaderResume { result, generation } => {
+                self.complete_reader_resume(result, generation);
+                return;
+            }
             LibraryUpdate::Loaded(result) => {
                 let result = result.map(|entries| {
                     for entry in &entries {
@@ -195,7 +239,12 @@ impl ffi::ContentController {
             LibraryUpdate::Changed {
                 result,
                 error_generation,
+                reader_generation,
             } => {
+                if let Some(generation) = reader_generation {
+                    self.as_mut()
+                        .complete_reader_progress(generation, result.is_ok());
+                }
                 let result = result.map(|entry| {
                     if entry.favorite {
                         self.as_mut()
@@ -243,6 +292,7 @@ impl ffi::ContentController {
                     let mut state = self.as_mut().rust_mut();
                     state.library_state = ffi::LibraryState::Failed;
                     state.library_pending = 0;
+                    self.as_mut().reader_library_failed();
                 }
                 ffi::log_content_error(
                     &QString::from("library"),
@@ -257,12 +307,12 @@ impl ffi::ContentController {
         }
     }
 
-    pub(super) fn submit_library(mut self: Pin<&mut Self>, action: LibraryAction) {
+    pub(super) fn submit_library(mut self: Pin<&mut Self>, action: LibraryAction) -> bool {
         if !matches!(
             self.library_state,
             ffi::LibraryState::Loading | ffi::LibraryState::Ready
         ) {
-            return;
+            return false;
         }
         match self
             .library_worker
@@ -276,10 +326,12 @@ impl ffi::ContentController {
                 if !was_pending {
                     self.as_mut().library_pending_changed();
                 }
+                true
             }
             Err(error) => {
                 ffi::log_content_error(&QString::from("library"), &QString::from(error));
                 self.as_mut().set_library_error(ffi::content_error(5));
+                false
             }
         }
     }

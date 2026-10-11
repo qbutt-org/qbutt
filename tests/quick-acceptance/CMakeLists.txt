@@ -20,6 +20,8 @@ qt_add_executable(qbutt-quick-acceptance
     library.h
     reader.cpp
     reader.h
+    reader-progress.cpp
+    reader-progress.h
 )
 target_compile_definitions(qbutt-quick-acceptance PRIVATE QT_QML_DEBUG)
 set_target_properties(qbutt-quick-acceptance PROPERTIES AUTORCC ON)

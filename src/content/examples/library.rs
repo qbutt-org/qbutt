@@ -187,16 +187,18 @@ fn exercise(root: &Path) -> Result<()> {
     raw.execute_batch("DROP TRIGGER reject_library_update;")?;
     drop(library);
 
+    for version in [1, 3] {
+        raw.pragma_update(None, "user_version", version)?;
+        assert!(matches!(
+            Library::open(&profile),
+            Err(LibraryError::UnsupportedSchema(actual)) if actual == version
+        ));
+        assert_eq!(
+            raw.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))?,
+            version
+        );
+    }
     raw.pragma_update(None, "user_version", 2)?;
-    assert!(matches!(
-        Library::open(&profile),
-        Err(LibraryError::UnsupportedSchema(2))
-    ));
-    assert_eq!(
-        raw.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))?,
-        2
-    );
-    raw.pragma_update(None, "user_version", 1)?;
 
     raw.execute("UPDATE library SET entry = ?1", ["not JSON"])?;
     let library = Library::open(&profile)?;
@@ -330,7 +332,7 @@ fn verify_malformed_schemas(root: &Path) -> Result<()> {
         let malformed = Connection::open(malformed_profile.join("content-library.sqlite"))?;
         malformed.execute_batch(schema)?;
         malformed.pragma_update(None, "application_id", 0x51424c42)?;
-        malformed.pragma_update(None, "user_version", 1)?;
+        malformed.pragma_update(None, "user_version", 2)?;
         let before_schema: String = malformed.query_row(
             "SELECT sql FROM sqlite_schema WHERE name = 'library'",
             [],

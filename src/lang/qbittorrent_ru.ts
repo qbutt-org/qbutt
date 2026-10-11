@@ -18839,6 +18839,14 @@ Please choose a different name and try again.</source>
         <translation>Эта глава больше недоступна.</translation>
     </message>
     <message>
+        <source>This page is no longer available.</source>
+        <translation>Эта страница больше недоступна.</translation>
+    </message>
+    <message>
+        <source>Could not save reading position.</source>
+        <translation>Не удалось сохранить позицию чтения.</translation>
+    </message>
+    <message>
         <source>Chapter %1</source>
         <translation>Глава %1</translation>
     </message>

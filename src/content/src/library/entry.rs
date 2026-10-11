@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{Category, Source, Transport, VariantRef, VariantSelector, Work};
+use crate::{Category, ChapterRef, Source, Transport, VariantRef, VariantSelector, Work};
 
 /// Raw provider labels are retained so reopening a work restores its dropdowns.
 /// Filters never replace the identity of an explicitly selected variant.
@@ -32,13 +32,24 @@ pub struct LastOpened {
     pub at_unix_millis: i64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A zero-based page within an exact chapter, with a viewport-independent
+/// vertical scroll fraction. Acquisition URLs and cached paths are transient.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReaderProgress {
+    pub chapter: ChapterRef,
+    pub page: u32,
+    pub scroll_offset: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LibraryEntry {
     pub work: Work,
     pub preferences: VariantPreferences,
     pub favorite: bool,
     pub last_opened: Option<LastOpened>,
+    pub reader_progress: Option<ReaderProgress>,
 }
 
 impl LibraryEntry {
@@ -50,6 +61,11 @@ impl LibraryEntry {
             .selected
             .iter()
             .chain(self.last_opened.iter().map(|opened| &opened.variant))
+            .chain(
+                self.reader_progress
+                    .iter()
+                    .map(|progress| &progress.chapter.variant),
+            )
         {
             if !self
                 .work
@@ -66,6 +82,19 @@ impl LibraryEntry {
             .is_some_and(|opened| opened.at_unix_millis < 0)
         {
             return Err("the history timestamp is invalid");
+        }
+        if let Some(progress) = &self.reader_progress {
+            progress
+                .chapter
+                .validate()
+                .map_err(|_| "the saved chapter reference is invalid")?;
+            if progress.page > i32::MAX as u32 {
+                return Err("the saved page index exceeds the reader limit");
+            }
+            if !progress.scroll_offset.is_finite() || !(0.0..=1.0).contains(&progress.scroll_offset)
+            {
+                return Err("the saved scroll position is invalid");
+            }
         }
         Ok(())
     }
