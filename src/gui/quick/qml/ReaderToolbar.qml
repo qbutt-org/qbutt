@@ -42,9 +42,9 @@ Pane {
             Layout.preferredWidth: 240
             theme: root.theme
             icon.source: root.theme.iconSource("go-down")
-            text: root.backend.readerChapterTitle.length > 0 ? root.backend.readerChapterTitle : qsTr("Chapters")
+            text: root.backend.readerChapterTitle !== "" ? root.backend.readerChapterTitle : qsTr("Chapters")
             Accessible.name: qsTr("Choose chapter")
-            enabled: root.backend.readerChapterId.length > 0
+            enabled: root.backend.readerChapterId !== ""
             onClicked: root.chaptersRequested()
 
             ToolTip {

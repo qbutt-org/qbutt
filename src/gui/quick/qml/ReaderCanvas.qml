@@ -13,7 +13,7 @@ Item {
     required property Theme theme
     readonly property int fit: backend.readerFit
     readonly property string errorText: {
-        if (backend.readerErrorText.length > 0)
+        if (backend.readerErrorText !== "")
             return backend.readerErrorText;
 
         return page.status === Image.Error ? qsTr("Could not display this page.") : "";
@@ -25,7 +25,7 @@ Item {
         anchors.fill: parent
         clip: true
         contentWidth: availableWidth
-        visible: root.errorText.length === 0
+        visible: root.errorText === ""
 
         Flickable {
             id: viewport
@@ -78,7 +78,7 @@ Item {
     ColumnLayout {
         anchors.centerIn: parent
         width: Math.min(480, parent.width - 64)
-        visible: root.errorText.length > 0 && !root.backend.readerBusy
+        visible: root.errorText !== "" && !root.backend.readerBusy
         spacing: 16
 
         Label {

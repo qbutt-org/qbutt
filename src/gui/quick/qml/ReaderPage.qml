@@ -72,7 +72,7 @@ Page {
 
     Shortcut {
         sequences: [StandardKey.Find]
-        enabled: root.visible && root.backend.readerChapterId.length > 0
+        enabled: root.visible && root.backend.readerChapterId !== ""
         onActivated: chapters.open()
     }
 }

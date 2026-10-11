@@ -224,7 +224,7 @@ Page {
         parent: root
         anchors.fill: parent
         active: root.backend.readerOpen
-        onLoaded: item.forceActiveFocus()
+        focus: active
 
         sourceComponent: ReaderPage {
             backend: root.backend
