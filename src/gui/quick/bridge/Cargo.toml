@@ -1,0 +1,19 @@
+[package]
+name = "qbutt-quick"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+cxx = "=1.0.205"
+cxx-qt = "=0.10.0"
+cxx-qt-lib = { version = "=0.10.0", features = ["qt_qml"] }
+qbutt-content = { path = "../../../content" }
+tokio = { version = "1.48.0", features = ["rt-multi-thread"] }
+
+[build-dependencies]
+cxx-qt-build = "=0.10.0"
