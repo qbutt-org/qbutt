@@ -59,6 +59,7 @@ Pane {
                 icon.source: root.theme.iconSource("download")
                 highlighted: true
                 palette.dark: root.theme.accent
+                palette.brightText: root.theme.onAccent
                 enabled: variants.currentItem !== null && !root.backend.resolving
                 onClicked: root.downloadSelected()
             }
