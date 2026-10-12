@@ -37,32 +37,39 @@ pub(crate) fn info_hash(bytes: &[u8]) -> Result<String> {
     if cursor.next()? != b'd' {
         return Err(invalid_metadata());
     }
-    let mut info = None;
+    let mut info_span = None;
+    let mut previous = None;
     while cursor.peek()? != b'e' {
         let key = cursor.string()?;
+        if previous.is_some_and(|last| key <= last) {
+            return Err(invalid_metadata());
+        }
+        previous = Some(key);
         let start = cursor.offset;
         cursor.value(1)?;
-        if key == b"info" && info.replace((start, cursor.offset)).is_some() {
-            return Err(invalid_metadata());
+        if key == b"info" {
+            info_span = Some((start, cursor.offset));
         }
     }
     cursor.next()?;
     if cursor.offset != bytes.len() {
         return Err(invalid_metadata());
     }
-    let (start, end) = info.ok_or_else(invalid_metadata)?;
-    let mut info = BencodeCursor {
+    let (start, end) = info_span.ok_or_else(invalid_metadata)?;
+    let mut info_dictionary = BencodeCursor {
         bytes: &bytes[start..end],
         offset: 0,
     };
-    if info.next()? != b'd' {
+    if info_dictionary.next()? != b'd' {
         return Err(invalid_metadata());
     }
     let mut has_v1_pieces = false;
-    while info.peek()? != b'e' {
-        let key = info.string()?;
-        has_v1_pieces |= key == b"pieces";
-        info.value(1)?;
+    while info_dictionary.peek()? != b'e' {
+        let key = info_dictionary.string()?;
+        if key == b"pieces" {
+            has_v1_pieces = info_dictionary.peek()?.is_ascii_digit();
+        }
+        info_dictionary.value(1)?;
     }
     if !has_v1_pieces {
         return Err(Error::UnsupportedAcquisition(
@@ -101,7 +108,10 @@ impl<'a> BencodeCursor<'a> {
         while self.peek()?.is_ascii_digit() {
             self.offset += 1;
         }
-        if start == self.offset || self.next()? != b':' {
+        if start == self.offset
+            || (self.bytes[start] == b'0' && self.offset != start + 1)
+            || self.next()? != b':'
+        {
             return Err(invalid_metadata());
         }
         let size = std::str::from_utf8(&self.bytes[start..self.offset - 1])
@@ -134,16 +144,28 @@ impl<'a> BencodeCursor<'a> {
                         return Err(invalid_metadata());
                     }
                 }
-                if self.offset == start {
+                let integer = std::str::from_utf8(&self.bytes[start..self.offset])
+                    .map_err(|_| invalid_metadata())?;
+                let digits = integer.strip_prefix('-').unwrap_or(integer);
+                if digits.is_empty()
+                    || (digits.starts_with('0') && digits.len() != 1)
+                    || integer == "-0"
+                    || integer.parse::<i64>().is_err()
+                {
                     return Err(invalid_metadata());
                 }
                 self.next()?;
             }
             b'l' | b'd' => {
                 let dictionary = self.next()? == b'd';
+                let mut previous = None;
                 while self.peek()? != b'e' {
                     if dictionary {
-                        self.string()?;
+                        let key = self.string()?;
+                        if previous.is_some_and(|last| key <= last) {
+                            return Err(invalid_metadata());
+                        }
+                        previous = Some(key);
                     }
                     self.value(depth + 1)?;
                 }
