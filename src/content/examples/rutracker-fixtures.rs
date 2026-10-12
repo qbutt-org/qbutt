@@ -269,7 +269,7 @@ fn webview_fixture() -> CheckResult {
     let query = address.query_pairs().find(|(name, _)| name == "nm");
     let mode = query.as_ref().map(|(_, value)| value.as_ref());
     let response = match mode {
-        Some("manual") => json!({
+        Some("manual" | "login-required") => json!({
             "id":request["id"], "error":{"code":"browser_check_required"}
         }),
         Some("fault") => json!({
@@ -366,16 +366,35 @@ async fn webview_sessions(fixture: &Fixture) -> CheckResult {
         fixture.origin.clone(),
     );
     source.initialize_webview(directory.clone(), app_dir.clone());
-    assert!(matches!(
+    let before = fixture.requests.lock().unwrap().len();
+    assert_eq!(
         source
             .search("generated", Category::Anime, None, BrowserChoice::Auto)
+            .await?
+            .len(),
+        1
+    );
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(requests.len() - before, 3);
+    assert_eq!(requests[before + 1], requests[before + 2]);
+    drop(requests);
+    source.close();
+
+    let source = rutracker::fixture(
+        http::fixture(fixture.client.clone(), fixture.origin.clone()),
+        fixture.origin.clone(),
+    );
+    source.initialize_webview(directory.clone(), app_dir.clone());
+    assert!(matches!(
+        source
+            .search("login-required", Category::Anime, None, BrowserChoice::Auto)
             .await,
         Err(Error::LoginRequired)
     ));
     source.complete_check().await?;
     assert_eq!(
         source
-            .search("generated", Category::Anime, None, BrowserChoice::Auto)
+            .search("login-required", Category::Anime, None, BrowserChoice::Auto)
             .await?
             .len(),
         1

@@ -231,7 +231,7 @@ impl RuTracker {
             Err(error @ (Error::LoginRequired | Error::Challenge)) => error,
             result => return result,
         };
-        if matches!(blocked, Error::LoginRequired)
+        if matches!(&blocked, Error::LoginRequired)
             && !matches!(session.browser, BrowserBorrow::Borrowed)
             && let Some(browser) = browser
         {
@@ -251,28 +251,32 @@ impl RuTracker {
                         .await?;
                     return document(response, &url);
                 }
-                Err(error) => {
-                    return Err(match error {
-                        BrowserError::BrowserRequired
-                        | BrowserError::Disconnected
-                        | BrowserError::Stopped => blocked,
-                        BrowserError::ChoiceRequired => Error::BrowserChoiceRequired,
-                        error => Error::BrowserSession(error),
-                    });
-                }
+                Err(error) => match error {
+                    BrowserError::BrowserRequired
+                    | BrowserError::Disconnected
+                    | BrowserError::Stopped => {}
+                    BrowserError::ChoiceRequired => return Err(Error::BrowserChoiceRequired),
+                    error => return Err(Error::BrowserSession(error)),
+                },
             }
         }
 
-        if matches!(blocked, Error::LoginRequired) {
-            return Err(blocked);
-        }
-        let webview = self
-            .webview
-            .get()
-            .ok_or(Error::SourceCheck(WebViewError::Unavailable))?;
+        let Some(webview) = self.webview.get() else {
+            return Err(if matches!(&blocked, Error::LoginRequired) {
+                blocked
+            } else {
+                Error::SourceCheck(WebViewError::Unavailable)
+            });
+        };
         let verified = match webview.check(url.clone(), WebViewCheck::default()).await {
             Ok(session) => session,
-            Err(WebViewError::CheckRequired) => return Err(Error::SourceCheckRequired),
+            Err(WebViewError::CheckRequired) => {
+                return Err(if matches!(&blocked, Error::LoginRequired) {
+                    Error::LoginRequired
+                } else {
+                    Error::SourceCheckRequired
+                });
+            }
             Err(error) => return Err(Error::SourceCheck(error)),
         };
         session.http = SourceSession::from_webview(self.origin.clone(), verified)?;
