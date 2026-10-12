@@ -560,7 +560,7 @@ int main(int argc, char *argv[])
             application.exit(1);
         });
         QTimer::singleShot(0, &application,
-            [&application, window = QPointer(window), view = QPointer(view),
+            [&application, profilePath, window = QPointer(window), view = QPointer(view),
                 runReader = parser.isSet(u"reader"_s), runWorkList = parser.isSet(u"worklist"_s)]
         {
             try
@@ -568,7 +568,7 @@ int main(int argc, char *argv[])
                 if (runWorkList)
                     exerciseWorkList(view);
                 else if (runReader)
-                    exerciseReader(view);
+                    exerciseReader(view, profilePath);
                 else
                     exercise(window, view);
                 application.exit(0);

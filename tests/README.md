@@ -114,6 +114,9 @@ At 1280×720 and 1440×900 it checks the decoded image's aspect, viewport bounds
 and the full-height scrollbar hit area at the right edge in both fit modes.
 Reading content receives focus on entry and after a fit action. Tab reaches it;
 Up/Down scroll through the native control and update the saved position.
+An isolated SQLite settings abort exercises the QML Width action, its applied
+selection and specific error. An unrelated favorite write must retain that
+error; the QML retry must commit the same fit and clear the notice.
 It also makes the temporary cache destination a file, restores the environment
 and verifies that retry reloads the same chapter. It checks deletion of the
 retired page file and chapter directories after Back, reopening and retry.
@@ -123,6 +126,17 @@ is an external prerequisite; a timeout is a failure.
 This process scenario does not establish pointer interaction, popup blur,
 application deactivation, continuous reading, persisted progress or translation.
 Check the reader and chapter picker in the deployed Windows host separately.
+
+Run `--reader-settings --lang ru` in the same offscreen environment for typed
+profile-wide fit persistence through the existing SQLite worker. Require exit
+zero and `PASS reader_settings`. The fixture checks Height defaults, explicit
+choice during Loading, late and ABA acknowledgements, reentrant intent, SQLite
+abort and queue rejection followed by exact retry. Failed or corrupt startup
+must reopen the same worker; unrelated History, progress and bookmark outcomes
+must preserve the settings failure, and successful settings must preserve other
+write failures. Separate process phases verify restart and an accepted fit write
+at graceful Exit. This fixture does not establish QML selection or native pointer
+interaction; those checks belong to the production reader and deployed VM path.
 
 Run `--reader-progress --lang ru` with the same offscreen environment to check
 the native progress bridge without QML acknowledgement. The consumer confirms

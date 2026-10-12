@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "reader.h"
+#include "reader-settings-ui.h"
 
 #include <atomic>
 #include <cstdio>
@@ -99,7 +100,7 @@ namespace
     }
 }
 
-void exerciseReader(Content::ContentView *view)
+void exerciseReader(Content::ContentView *view, const QString &profileDir)
 {
     bindingLoopDetected.store(false);
     previousMessageHandler = qInstallMessageHandler(observeBindingLoops);
@@ -295,6 +296,8 @@ void exerciseReader(Content::ContentView *view)
         }
     }
 
+    exerciseReaderSettingsUi(view, profileDir);
+
     auto *scroll = view->rootObject()->findChild<QQuickItem *>(u"readerPageScroll"_s);
     require(scroll && scroll->hasActiveFocus(), u"Reading did not focus its scrollable content"_s);
     for (const QString action : {u"readerHeightFit"_s, u"readerWidthFit"_s})
@@ -383,5 +386,5 @@ void exerciseReader(Content::ContentView *view)
     const QString retriedDirectory = QFileInfo(retried).absolutePath();
     waitFor([&] { return !QFileInfo::exists(retriedDirectory); }, u"Retried chapter cache cleanup"_s);
     require(!bindingLoopDetected.load(), u"Reader lifecycle caused a binding loop"_s);
-    qInfo().noquote() << u"PASS reader mixed_search=ok exact_translation=ok qml_action=ok decoded_pages=2 chapter_filter=ok reentrant_filter=ok fit=ok stale_chapter=ok bounds=ok cancel_reopen=ok cache_failure_retry=ok cache_cleanup=ok chapters=%1"_s.arg(chapterCount);
+    qInfo().noquote() << u"PASS reader mixed_search=ok exact_translation=ok qml_action=ok decoded_pages=2 chapter_filter=ok reentrant_filter=ok fit=ok settings_ui_retry=ok stale_chapter=ok bounds=ok cancel_reopen=ok cache_failure_retry=ok cache_cleanup=ok chapters=%1"_s.arg(chapterCount);
 }

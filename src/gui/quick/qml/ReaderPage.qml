@@ -49,6 +49,30 @@ Page {
 
         RowLayout {
             Layout.fillWidth: true
+            visible: root.backend.readerSettingsState === Reader.Failed
+                && root.backend.libraryState === Library.Ready
+            spacing: 16
+
+            Label {
+                objectName: "readerSettingsError"
+                Layout.fillWidth: true
+                text: root.backend.readerSettingsErrorText
+                textFormat: Text.PlainText
+            }
+
+            ActionButton {
+                objectName: "readerSettingsRetry"
+                theme: root.theme
+                text: qsTr("Try again")
+                onClicked: {
+                    root.backend.retryReaderSettings();
+                    canvas.forceActiveFocus();
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
             visible: root.backend.readerProgressErrorText !== ""
             spacing: 16
 
