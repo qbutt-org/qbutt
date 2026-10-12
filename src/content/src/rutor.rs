@@ -20,7 +20,7 @@ impl RuTor {
     pub fn new() -> Result<Self> {
         let origin = Url::parse(ORIGIN).expect("fixed RuTor origin");
         Ok(Self {
-            http: SourceHttp::new(origin.clone())?,
+            http: SourceHttp::new(origin.clone(), reqwest::header::HeaderMap::new())?,
             origin,
         })
     }

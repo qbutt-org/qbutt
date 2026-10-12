@@ -22,6 +22,8 @@ qt_add_executable(qbutt-quick-acceptance
     library.h
     playback.cpp
     playback.h
+    mangalib.cpp
+    mangalib.h
     history.cpp
     history.h
     reader.cpp

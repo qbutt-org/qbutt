@@ -3,15 +3,22 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Category, Error, PublicationRef, Source, VariantRef};
+use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 4] = [Self::AniLiberty, Self::MangaDex, Self::RuTor, Self::Nyaa];
+    pub const ALL: [Self; 5] = [
+        Self::AniLiberty,
+        Self::MangaDex,
+        Self::MangaLib,
+        Self::RuTor,
+        Self::Nyaa,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
             Self::AniLiberty => "aniliberty",
             Self::MangaDex => "mangadex",
+            Self::MangaLib => "mangalib",
             Self::RuTor => "rutor",
             Self::Nyaa => "nyaa",
         }
@@ -25,6 +32,7 @@ impl Source {
         match self {
             Self::AniLiberty => "AniLiberty",
             Self::MangaDex => "MangaDex",
+            Self::MangaLib => "MangaLib",
             Self::RuTor => "RuTor",
             Self::Nyaa => "Nyaa.si",
         }
@@ -33,7 +41,7 @@ impl Source {
     pub fn categories(self) -> &'static [Category] {
         match self {
             Self::AniLiberty => &[Category::Anime],
-            Self::MangaDex => &[Category::Manga],
+            Self::MangaDex | Self::MangaLib => &[Category::Manga],
             Self::Nyaa => &[
                 Category::Anime,
                 Category::Games,
@@ -66,6 +74,12 @@ pub enum SourceOperation {
         language: Option<String>,
     },
     Resolve(VariantRef),
+    Chapters(VariantRef),
+    Chapter(ChapterRef),
+    ReaderPage {
+        reference: ChapterRef,
+        page: u32,
+    },
 }
 
 impl SourceOperation {
@@ -73,7 +87,10 @@ impl SourceOperation {
         match self {
             Self::Search { source, .. } => *source,
             Self::Inspect { reference, .. } => reference.source,
-            Self::Resolve(reference) => reference.publication.source,
+            Self::Resolve(reference) | Self::Chapters(reference) => reference.publication.source,
+            Self::Chapter(reference) | Self::ReaderPage { reference, .. } => {
+                reference.variant.publication.source
+            }
         }
     }
 
@@ -103,7 +120,32 @@ impl SourceOperation {
                 validate_language(reference.source, language)
             }
             Self::Resolve(reference) => reference.validate(),
+            Self::Chapters(reference) => {
+                reference.validate()?;
+                validate_reader(reference.publication.source)
+            }
+            Self::Chapter(reference) => {
+                reference.validate()?;
+                validate_reader(reference.variant.publication.source)
+            }
+            Self::ReaderPage { reference, page } => {
+                reference.validate()?;
+                validate_reader(reference.variant.publication.source)?;
+                if *page < 2000 {
+                    Ok(())
+                } else {
+                    Err(Error::InvalidReference)
+                }
+            }
         }
+    }
+}
+
+fn validate_reader(source: Source) -> crate::Result<()> {
+    if matches!(source, Source::MangaDex | Source::MangaLib) {
+        Ok(())
+    } else {
+        Err(Error::InvalidReference)
     }
 }
 

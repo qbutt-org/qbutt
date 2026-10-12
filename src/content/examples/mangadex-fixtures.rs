@@ -195,14 +195,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
-    let client = http::SourceHttp::new(Url::parse("https://api.mangadex.org")?)?;
+    let client = http::SourceHttp::new(
+        Url::parse("https://api.mangadex.org")?,
+        reqwest::header::HeaderMap::new(),
+    )?;
     let local = Url::parse(&format!("https://127.0.0.1:{port}/image.png"))?;
     assert!(matches!(
-        client.image(local).await,
+        client.image(local, &[]).await,
         Err(Error::UnsafeAddress)
     ));
     let local_domain = Url::parse(&format!("https://localhost:{port}/image.png"))?;
-    match client.image(local_domain).await {
+    match client.image(local_domain, &[]).await {
         Err(Error::Network(error)) => assert!(error.url().is_none()),
         _ => return Err("public resolver did not reject a local DNS result".into()),
     }

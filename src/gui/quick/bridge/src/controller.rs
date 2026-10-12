@@ -5,7 +5,9 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
-use qbutt_content::{AniLiberty, MangaDex, Nyaa, PublicationRef, RuTor, VariantPreferences, Work};
+use qbutt_content::{
+    AniLiberty, MangaDex, MangaLib, Nyaa, PublicationRef, RuTor, VariantPreferences, Work,
+};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
@@ -616,6 +618,7 @@ pub struct Services {
     runtime: Runtime,
     anime: Arc<AniLiberty>,
     manga: Arc<MangaDex>,
+    mangalib: Arc<MangaLib>,
     rutor: Arc<RuTor>,
     nyaa: Arc<Nyaa>,
     language: String,
@@ -668,6 +671,7 @@ impl Default for ContentControllerRust {
             .map_err(|error| error.to_string())
             .and_then(|anime| {
                 let manga = MangaDex::new().map_err(|error| error.to_string())?;
+                let mangalib = MangaLib::new().map_err(|error| error.to_string())?;
                 let rutor = RuTor::new().map_err(|error| error.to_string())?;
                 let nyaa = Nyaa::new().map_err(|error| error.to_string())?;
                 Builder::new_multi_thread()
@@ -679,6 +683,7 @@ impl Default for ContentControllerRust {
                         runtime,
                         anime: Arc::new(anime),
                         manga: Arc::new(manga),
+                        mangalib: Arc::new(mangalib),
                         rutor: Arc::new(rutor),
                         nyaa: Arc::new(nyaa),
                         language: ffi::content_language().to_string(),

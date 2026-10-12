@@ -168,6 +168,9 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
             (Source::MangaDex, VariantSelector::MangaTranslation { .. }) => {
                 variant.transport == Transport::Manga
             }
+            (Source::MangaLib, VariantSelector::LibTranslation { .. }) => {
+                variant.transport == Transport::Manga
+            }
             (Source::RuTor | Source::Nyaa, VariantSelector::TorrentHash { info_hash }) => {
                 variant.transport == Transport::Torrent
                     && variant.info_hash.as_deref() == Some(info_hash)

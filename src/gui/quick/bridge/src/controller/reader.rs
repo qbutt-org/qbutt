@@ -4,11 +4,14 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QString, QUrl};
-use qbutt_content::{ChapterRef, LibraryResult, ReaderProgress, Transport, VariantRef};
+use qbutt_content::{
+    ChapterRef, LibraryResult, ReaderProgress, Source, SourceOperation, Transport, VariantRef,
+};
 use tokio::sync::watch;
 
 use super::library::{LibraryAction, ReaderSave};
 use super::reader_pages::{PageEvent, read_chapter};
+use super::sources::{SourceRequest, SourceResponse, execute_operation};
 use super::{Pending, ffi};
 use crate::page_model;
 use crate::reader_models;
@@ -99,6 +102,22 @@ impl ReaderState {
 }
 
 impl ffi::ContentController {
+    pub(super) fn close_disabled_reader(self: Pin<&mut Self>, source: Source) {
+        if self
+            .reader
+            .reference
+            .as_ref()
+            .is_some_and(|reference| reference.publication.source == source)
+        {
+            self.close_reader();
+        }
+    }
+
+    pub(super) fn reader_source_current(&self, generation: u64, request: &SourceRequest) -> bool {
+        self.reader.chapter.generation == generation
+            && self.reader.reference.is_some()
+            && self.source_request_current(request)
+    }
     pub(super) fn complete_reader_manifest(
         mut self: Pin<&mut Self>,
         generation: u64,
@@ -495,6 +514,9 @@ impl ffi::ContentController {
         let Some(reference) = self.reader.reference.clone() else {
             return;
         };
+        let Some(request) = self.source_request(SourceOperation::Chapters(reference)) else {
+            return;
+        };
         self.as_mut().rust_mut().reader.loading.cancel();
         let generation = self.reader.loading.generation;
         {
@@ -508,18 +530,31 @@ impl ffi::ContentController {
         }
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
+        let anime = Arc::clone(&services.anime);
         let manga = Arc::clone(&services.manga);
+        let mangalib = Arc::clone(&services.mangalib);
+        let rutor = Arc::clone(&services.rutor);
+        let nyaa = Arc::clone(&services.nyaa);
         let task = services.runtime.spawn(async move {
-            let result = manga.chapters(&reference).await;
+            let result =
+                execute_operation(&request.operation, anime, manga, rutor, nyaa, mangalib).await;
             let _ = qt_thread.queue(move |mut controller| {
                 if controller.reader.loading.generation != generation
                     || controller.reader.reference.is_none()
+                    || !controller.source_request_current(&request)
                 {
                     return;
                 }
                 controller.as_mut().rust_mut().reader.loading.task = None;
+                controller.as_mut().source_outcome(&request, &result);
+                if controller.reader.loading.generation != generation
+                    || controller.reader.reference.is_none()
+                    || !controller.source_request_current(&request)
+                {
+                    return;
+                }
                 match result {
-                    Ok(chapters) => {
+                    Ok(SourceResponse::Chapters(chapters)) => {
                         controller
                             .as_mut()
                             .rust_mut()
@@ -567,6 +602,7 @@ impl ffi::ContentController {
                         controller.as_mut().rust_mut().reader.error =
                             ffi::reader_error(ffi::ReaderError::Chapters);
                     }
+                    Ok(_) => unreachable!("chapters operation response"),
                 }
                 controller.as_mut().rust_mut().reader.busy = false;
                 controller.as_mut().reader_changed();
@@ -592,6 +628,11 @@ impl ffi::ContentController {
         if Some(&chapter.reference.variant) != self.reader.reference.as_ref() {
             return;
         }
+        let Some(request) =
+            self.source_request(SourceOperation::Chapter(chapter.reference.clone()))
+        else {
+            return;
+        };
         self.as_mut().rust_mut().reader.loading.cancel();
         self.as_mut().rust_mut().reader.chapter.cancel();
         let generation = self.reader.chapter.generation;
@@ -627,17 +668,14 @@ impl ffi::ContentController {
         }
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
-        let manga = Arc::clone(&services.manga);
+        let Some(source) = services.reader_source(chapter.reference.variant.publication.source)
+        else {
+            return;
+        };
         let load_limit = Arc::clone(&services.reader_load);
         let byte_limit = Arc::clone(&services.reader_bytes);
         let task = services.runtime.spawn(read_chapter(
-            manga,
-            chapter.reference,
-            position,
-            qt_thread,
-            generation,
-            load_limit,
-            byte_limit,
+            source, request, position, qt_thread, generation, load_limit, byte_limit,
         ));
         self.as_mut().rust_mut().reader.chapter.task = Some(task);
     }

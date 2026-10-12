@@ -99,6 +99,8 @@ QString Qbutt::formatVideoLabel(const QString &episode, const QString &quality, 
 
 QString Qbutt::formatTranslationLabel(const QString &language, const QString &translation)
 {
+    if (language.isEmpty())
+        return translation.isEmpty() ? QCoreApplication::translate("ContentController", "Translation") : translation;
     const QLocale locale {language};
     QString label = locale.language() == QLocale::C ? language.toUpper() : locale.nativeLanguageName();
     if (!translation.isEmpty())

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
-use reqwest::header::{ACCEPT, ACCEPT_ENCODING, CONTENT_TYPE, LOCATION};
+use reqwest::header::{ACCEPT, ACCEPT_ENCODING, CONTENT_TYPE, HeaderMap, LOCATION};
 use serde::de::DeserializeOwned;
 use url::{Host, Url};
 
@@ -27,7 +27,7 @@ pub(crate) struct SourceHttp {
 }
 
 impl SourceHttp {
-    pub(crate) fn new(origin: Url) -> Result<Self> {
+    pub(crate) fn new(origin: Url, headers: HeaderMap) -> Result<Self> {
         let client = reqwest::Client::builder()
             .https_only(true)
             .no_proxy()
@@ -36,6 +36,7 @@ impl SourceHttp {
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(25))
             .user_agent(concat!("qbutt-content/", env!("CARGO_PKG_VERSION")))
+            .default_headers(headers)
             .build()
             .map_err(network_error)?;
 
@@ -43,31 +44,40 @@ impl SourceHttp {
     }
 
     pub(crate) async fn json<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
-        let bytes =
-            tokio::time::timeout(Duration::from_secs(45), self.fetch(url, ResponseKind::Json))
-                .await
-                .map_err(|_| Error::Timeout)??;
+        let bytes = tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(url, ResponseKind::Json, &[]),
+        )
+        .await
+        .map_err(|_| Error::Timeout)??;
         serde_json::from_slice(&bytes).map_err(Error::Json)
     }
 
-    pub(crate) async fn image(&self, url: Url) -> Result<Vec<u8>> {
+    pub(crate) async fn image(&self, url: Url, allowed_hosts: &[&str]) -> Result<Vec<u8>> {
         tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Image),
+            self.fetch(url, ResponseKind::Image, allowed_hosts),
         )
         .await
         .map_err(|_| Error::Timeout)?
     }
 
     pub(crate) async fn html(&self, url: Url) -> Result<String> {
-        let bytes =
-            tokio::time::timeout(Duration::from_secs(45), self.fetch(url, ResponseKind::Html))
-                .await
-                .map_err(|_| Error::Timeout)??;
+        let bytes = tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(url, ResponseKind::Html, &[]),
+        )
+        .await
+        .map_err(|_| Error::Timeout)??;
         String::from_utf8(bytes).map_err(|_| Error::InvalidResponse("HTML is not UTF-8"))
     }
 
-    async fn fetch(&self, mut url: Url, kind: ResponseKind) -> Result<Vec<u8>> {
+    async fn fetch(
+        &self,
+        mut url: Url,
+        kind: ResponseKind,
+        allowed_hosts: &[&str],
+    ) -> Result<Vec<u8>> {
         let same_origin = !matches!(kind, ResponseKind::Image);
         let max_bytes = if matches!(kind, ResponseKind::Html) {
             MAX_HTML_BYTES
@@ -79,6 +89,14 @@ impl SourceHttp {
             // Catalog redirects stay on the fixed origin. Image descriptors may
             // point to a volunteer CDN; every redirect uses the guarded resolver.
             if same_origin && url.origin() != self.origin.origin() {
+                return Err(Error::UnsafeAddress);
+            }
+            if !allowed_hosts.is_empty()
+                && (!url
+                    .host_str()
+                    .is_some_and(|host| allowed_hosts.contains(&host))
+                    || url.port().is_some())
+            {
                 return Err(Error::UnsafeAddress);
             }
 

@@ -172,6 +172,10 @@ pub fn variant_id(reference: &VariantRef) -> String {
         VariantSelector::MangaTranslation { language, groups } => {
             format!("{publication}:translation:{language}:{}", groups.join("+"))
         }
+        VariantSelector::LibTranslation { branch } => format!(
+            "{publication}:branch:{}",
+            branch.map_or_else(|| "null".into(), |id| id.to_string())
+        ),
     }
 }
 

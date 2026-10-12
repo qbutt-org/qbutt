@@ -53,6 +53,17 @@ fn exercise(profile: &Path) -> Result<()> {
         reason: SourceFailureReason::Http(403),
     };
     let mut library = Library::open(profile)?;
+    let settings = library.source_settings()?;
+    assert_eq!(settings.len(), Source::ALL.len());
+    for source in Source::ALL {
+        assert_eq!(
+            settings
+                .iter()
+                .filter(|settings| settings.source == source)
+                .count(),
+            1
+        );
+    }
     assert!(
         library
             .source_settings()?
@@ -161,6 +172,26 @@ fn exercise(profile: &Path) -> Result<()> {
     )?;
     assert_eq!(serde_json::from_str::<SourceFailure>(&serialized)?, failure);
     assert!(!serialized.contains("http://") && !serialized.contains("https://"));
+    raw.execute("INSERT INTO source_settings (source, enabled, revision) VALUES ('generated_unknown', 1, 0)", [])?;
+    assert!(matches!(
+        library.source_settings(),
+        Err(LibraryError::InvalidSchema)
+    ));
+    assert_eq!(library.reader_settings()?.fit, ReaderFit::Width);
+    assert!(library.entries(LibraryView::All)?.is_empty());
+    raw.execute(
+        "DELETE FROM source_settings WHERE source = 'generated_unknown'",
+        [],
+    )?;
+    raw.execute("DELETE FROM source_settings WHERE source = 'mangalib'", [])?;
+    assert!(matches!(
+        library.source_settings(),
+        Err(LibraryError::InvalidSchema)
+    ));
+    raw.execute(
+        "INSERT INTO source_settings (source, enabled, revision) VALUES ('mangalib', 1, 0)",
+        [],
+    )?;
     raw.execute(
         "UPDATE source_settings SET failure = 'not JSON' WHERE source = 'rutor'",
         [],

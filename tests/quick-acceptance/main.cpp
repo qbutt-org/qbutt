@@ -34,6 +34,7 @@
 #include "history.h"
 #include "library.h"
 #include "playback.h"
+#include "mangalib.h"
 #include "reader-progress.h"
 #include "reader-settings.h"
 #include "reader.h"
@@ -497,6 +498,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"exercise"_s, u"Run the bounded live metadata acceptance scenario and exit."_s});
     parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
     parser.addOption({u"playback"_s, u"Run direct-video launch tokens, confirmed history and SQLite faults, then exit."_s});
+    parser.addOption({u"mangalib"_s, u"Run native MangaLib reading, exact progress and source recovery, then exit."_s});
     parser.addOption({u"rutor"_s, u"Run native RuTor search, exact resolution and library persistence, then exit."_s});
     parser.addOption({u"nyaa"_s, u"Run native Nyaa search, exact resolution and library persistence, then exit."_s});
     parser.addOption({u"sources"_s, u"Run persisted source choices, exact retries and SQLite faults, then exit."_s});
@@ -526,11 +528,14 @@ int main(int argc, char *argv[])
 
     if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
         || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s) || parser.isSet(u"work-filter"_s)
-        || parser.isSet(u"category"_s) || parser.isSet(u"sources"_s) || parser.isSet(u"playback"_s) || parser.isSet(u"nyaa"_s))
+        || parser.isSet(u"category"_s) || parser.isSet(u"sources"_s) || parser.isSet(u"playback"_s)
+        || parser.isSet(u"nyaa"_s) || parser.isSet(u"mangalib"_s))
     {
         try
         {
-            if (parser.isSet(u"playback"_s))
+            if (parser.isSet(u"mangalib"_s))
+                exerciseMangaLib();
+            else if (parser.isSet(u"playback"_s))
                 exercisePlayback();
             else if (parser.isSet(u"sources"_s))
                 exerciseSources();

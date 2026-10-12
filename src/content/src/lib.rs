@@ -10,6 +10,7 @@ mod aniliberty;
 mod http;
 mod library;
 mod mangadex;
+mod mangalib;
 mod media;
 mod model;
 mod nyaa;
@@ -23,6 +24,7 @@ pub use library::{
     ReaderMode, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
 };
 pub use mangadex::MangaDex;
+pub use mangalib::MangaLib;
 pub use media::{MediaGateway, MediaGatewayError};
 pub use model::*;
 pub use nyaa::Nyaa;

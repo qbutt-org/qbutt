@@ -8,6 +8,7 @@ use url::Url;
 pub enum Source {
     AniLiberty,
     MangaDex,
+    MangaLib,
     RuTor,
     Nyaa,
 }
@@ -25,6 +26,7 @@ impl PublicationRef {
             Source::AniLiberty => self.aniliberty_id().map(|_| ()),
             Source::RuTor => self.rutor_id().map(|_| ()),
             Source::Nyaa => self.nyaa_id().map(|_| ()),
+            Source::MangaLib => self.mangalib_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
             Source::MangaDex => Err(crate::Error::InvalidReference),
         }
@@ -41,6 +43,24 @@ impl PublicationRef {
 
     pub(crate) fn nyaa_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::Nyaa)
+    }
+
+    pub(crate) fn mangalib_id(&self) -> crate::Result<u64> {
+        let (id, slug) = self
+            .id
+            .split_once("--")
+            .ok_or(crate::Error::InvalidReference)?;
+        if self.source != Source::MangaLib
+            || slug.is_empty()
+            || slug.len() > 200
+            || !slug
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            || !canonical_decimal(id)
+        {
+            return Err(crate::Error::InvalidReference);
+        }
+        id.parse().map_err(|_| crate::Error::InvalidReference)
     }
 
     fn decimal_id(&self, source: Source) -> crate::Result<u64> {
@@ -96,6 +116,10 @@ pub enum VariantSelector {
         language: String,
         groups: Vec<String>,
     },
+    LibTranslation {
+        /// None identifies the API's null branch, not whichever translation is default.
+        branch: Option<u64>,
+    },
 }
 
 impl VariantSelector {
@@ -117,6 +141,7 @@ impl VariantSelector {
                     && groups.iter().all(|id| canonical_uuid(id))
                     && groups.windows(2).all(|pair| pair[0] < pair[1])
             }
+            Self::LibTranslation { branch } => branch.is_none_or(|branch| branch != 0),
         };
         if valid {
             Ok(())
@@ -143,6 +168,7 @@ impl VariantRef {
                 | (Source::AniLiberty, VariantSelector::Episode { .. })
                 | (Source::AniLiberty, VariantSelector::Rutube { .. })
                 | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
+                | (Source::MangaLib, VariantSelector::LibTranslation { .. })
                 | (Source::RuTor, VariantSelector::TorrentHash { .. })
                 | (Source::Nyaa, VariantSelector::TorrentHash { .. })
         );
@@ -184,7 +210,11 @@ pub struct ChapterRef {
 impl ChapterRef {
     pub fn validate(&self) -> crate::Result<()> {
         self.variant.validate()?;
-        if self.variant.publication.source == Source::MangaDex && canonical_uuid(&self.id) {
+        if match self.variant.publication.source {
+            Source::MangaDex => canonical_uuid(&self.id),
+            Source::MangaLib => canonical_decimal(&self.id),
+            _ => false,
+        } {
             Ok(())
         } else {
             Err(crate::Error::InvalidReference)
@@ -231,6 +261,12 @@ pub(crate) fn canonical_uuid(value: &str) -> bool {
             }
         })
         && value != "00000000-0000-0000-0000-000000000000"
+}
+
+pub(crate) fn canonical_decimal(value: &str) -> bool {
+    value
+        .parse::<u64>()
+        .is_ok_and(|id| id != 0 && value == id.to_string())
 }
 
 pub(crate) fn canonical_language(value: &str) -> bool {

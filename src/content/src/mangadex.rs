@@ -33,7 +33,7 @@ impl MangaDex {
     pub fn new() -> Result<Self> {
         let origin = Url::parse(API_ORIGIN).expect("fixed MangaDex API origin");
         Ok(Self {
-            http: SourceHttp::new(origin.clone())?,
+            http: SourceHttp::new(origin.clone(), reqwest::header::HeaderMap::new())?,
             origin,
             next_api_request: Mutex::new(Instant::now()),
             next_manifest_request: Mutex::new(Instant::now()),
@@ -164,7 +164,7 @@ impl MangaDex {
     }
 
     pub async fn image_bytes(&self, image: &ChapterImage) -> Result<Vec<u8>> {
-        self.http.image(image.url.clone()).await
+        self.http.image(image.url.clone(), &[]).await
     }
 
     async fn feed(&self, publication: &PublicationRef) -> Result<Vec<ChapterRecord>> {

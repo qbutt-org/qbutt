@@ -359,7 +359,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(provider.search("legal", Category::Software).await?.len(), 1);
 
     // The unmodified production constructor must never connect to local DNS/IP.
-    let guarded = http::SourceHttp::new(fixture.origin.clone())?;
+    let guarded = http::SourceHttp::new(fixture.origin.clone(), reqwest::header::HeaderMap::new())?;
     assert!(matches!(
         guarded.html(Url::parse("https://127.0.0.1/catalog")?).await,
         Err(Error::UnsafeAddress)
@@ -394,7 +394,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         "TLS rejection hid a TCP connection"
     );
     let before_guard = fixture.hits.load(Ordering::SeqCst);
-    let same_local_origin = http::SourceHttp::new(local_url.clone())?;
+    let same_local_origin =
+        http::SourceHttp::new(local_url.clone(), reqwest::header::HeaderMap::new())?;
     match same_local_origin.html(local_url).await {
         Err(Error::Network(error)) => assert!(error.url().is_none()),
         _ => panic!("guarded resolver accepted local DNS"),

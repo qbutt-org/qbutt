@@ -4,8 +4,8 @@ use std::sync::Arc;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
-    AniLiberty, LibraryResult, MangaDex, Nyaa, ResolvedContent, RuTor, Source, SourceFailure,
-    SourceFailureReason, SourceOperation, SourceSettings, Work,
+    AniLiberty, Chapter, LibraryResult, MangaDex, MangaLib, Nyaa, ResolvedContent, RuTor, Source,
+    SourceFailure, SourceFailureReason, SourceOperation, SourceSettings, Work,
 };
 
 use super::library::LibraryAction;
@@ -174,6 +174,9 @@ pub enum SourceResponse {
     Search(Vec<Work>),
     Inspect(Work),
     Resolve(ResolvedContent),
+    Chapters(Vec<Chapter>),
+    Chapter,
+    ReaderPage,
 }
 
 pub async fn execute_operation(
@@ -182,6 +185,7 @@ pub async fn execute_operation(
     manga: Arc<MangaDex>,
     rutor: Arc<RuTor>,
     nyaa: Arc<Nyaa>,
+    mangalib: Arc<MangaLib>,
 ) -> qbutt_content::Result<SourceResponse> {
     operation.validate()?;
     match operation {
@@ -194,6 +198,7 @@ pub async fn execute_operation(
             let works = match source {
                 Source::AniLiberty => anime.search(query).await,
                 Source::MangaDex => manga.search(query, language.as_deref().unwrap()).await,
+                Source::MangaLib => mangalib.search(query).await,
                 Source::RuTor => rutor.search(query, *category).await,
                 Source::Nyaa => nyaa.search(query, *category).await,
             }?;
@@ -206,6 +211,7 @@ pub async fn execute_operation(
             let work = match reference.source {
                 Source::AniLiberty => anime.inspect(reference).await,
                 Source::MangaDex => manga.inspect(reference, language.as_deref().unwrap()).await,
+                Source::MangaLib => mangalib.inspect(reference).await,
                 Source::RuTor => rutor.inspect(reference).await,
                 Source::Nyaa => nyaa.inspect(reference).await,
             }?;
@@ -216,9 +222,38 @@ pub async fn execute_operation(
                 Source::AniLiberty => anime.resolve(reference).await,
                 Source::RuTor => rutor.resolve(reference).await,
                 Source::Nyaa => nyaa.resolve(reference).await,
-                Source::MangaDex => Err(qbutt_content::Error::InvalidReference),
+                Source::MangaDex | Source::MangaLib => Err(qbutt_content::Error::InvalidReference),
             }?;
             Ok(SourceResponse::Resolve(resolved))
+        }
+        SourceOperation::Chapters(reference) => {
+            let chapters = match reference.publication.source {
+                Source::MangaDex => manga.chapters(reference).await,
+                Source::MangaLib => mangalib.chapters(reference).await,
+                _ => Err(qbutt_content::Error::InvalidReference),
+            }?;
+            Ok(SourceResponse::Chapters(chapters))
+        }
+        SourceOperation::Chapter(reference) | SourceOperation::ReaderPage { reference, .. } => {
+            let pages = match reference.variant.publication.source {
+                Source::MangaDex => manga.chapter_pages(reference).await,
+                Source::MangaLib => mangalib.chapter_pages(reference).await,
+                _ => Err(qbutt_content::Error::InvalidReference),
+            }?;
+            if let SourceOperation::ReaderPage { page, .. } = operation {
+                let image = pages
+                    .images
+                    .get(*page as usize)
+                    .ok_or(qbutt_content::Error::VariantUnavailable)?;
+                match reference.variant.publication.source {
+                    Source::MangaDex => manga.image_bytes(image).await?,
+                    Source::MangaLib => mangalib.image_bytes(image).await?,
+                    _ => return Err(qbutt_content::Error::InvalidReference),
+                };
+                Ok(SourceResponse::ReaderPage)
+            } else {
+                Ok(SourceResponse::Chapter)
+            }
         }
     }
 }
@@ -389,6 +424,9 @@ impl ffi::ContentController {
         let accepted = self
             .as_mut()
             .submit_source_write(SourceWrite::Enabled { source, enabled });
+        if !enabled && self.source_status.status(source).epoch == epoch {
+            self.as_mut().close_disabled_reader(source);
+        }
         if self.source_status.status(source).epoch == epoch
             && self
                 .selected_work
@@ -628,6 +666,7 @@ impl ffi::ContentController {
         };
         let anime = Arc::clone(&services.anime);
         let manga = Arc::clone(&services.manga);
+        let mangalib = Arc::clone(&services.mangalib);
         let rutor = Arc::clone(&services.rutor);
         let nyaa = Arc::clone(&services.nyaa);
         let thread = self.qt_thread();
@@ -635,7 +674,8 @@ impl ffi::ContentController {
         let inspection_generation = self.inspection.generation;
         let retry_generation = status.retry.generation;
         let task = services.runtime.spawn(async move {
-            let result = execute_operation(&request.operation, anime, manga, rutor, nyaa).await;
+            let result =
+                execute_operation(&request.operation, anime, manga, rutor, nyaa, mangalib).await;
             let _ = thread.queue(move |mut controller| {
                 if !controller.source_request_current(&request)
                     || controller.source_status.status(source).retry.generation != retry_generation

@@ -6,12 +6,48 @@ use std::time::Duration;
 
 use cxx_qt::CxxQtThread;
 use cxx_qt_lib::{QString, QUrl};
-use qbutt_content::{ChapterPages, ChapterRef, MangaDex};
+use qbutt_content::{ChapterImage, ChapterPages, MangaDex, MangaLib, Source, SourceOperation};
 use tempfile::{NamedTempFile, TempDir, TempPath};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 
+use super::Services;
 use super::ffi;
 use super::reader::ReaderViewport;
+use super::sources::SourceRequest;
+
+pub(super) enum ReaderSource {
+    MangaDex(Arc<MangaDex>),
+    MangaLib(Arc<MangaLib>),
+}
+
+impl Services {
+    pub(super) fn reader_source(&self, source: Source) -> Option<ReaderSource> {
+        match source {
+            Source::MangaDex => Some(ReaderSource::MangaDex(Arc::clone(&self.manga))),
+            Source::MangaLib => Some(ReaderSource::MangaLib(Arc::clone(&self.mangalib))),
+            _ => None,
+        }
+    }
+}
+
+impl ReaderSource {
+    async fn chapter_pages(&self, request: &SourceRequest) -> qbutt_content::Result<ChapterPages> {
+        let SourceOperation::Chapter(reference) = &request.operation else {
+            return Err(qbutt_content::Error::InvalidReference);
+        };
+        match self {
+            Self::MangaDex(source) => source.chapter_pages(reference).await,
+            Self::MangaLib(source) => source.chapter_pages(reference).await,
+        }
+    }
+
+    async fn image_bytes(&self, image: &ChapterImage) -> qbutt_content::Result<Vec<u8>> {
+        match self {
+            Self::MangaDex(source) => source.image_bytes(image).await,
+            Self::MangaLib(source) => source.image_bytes(image).await,
+        }
+    }
+}
 
 pub(crate) struct CachedPage {
     file: TempPath,
@@ -99,16 +135,22 @@ pub(super) enum PageEvent {
 }
 
 pub(super) async fn read_chapter(
-    manga: Arc<MangaDex>,
-    reference: ChapterRef,
+    source: ReaderSource,
+    request: SourceRequest,
     mut position: watch::Receiver<ReaderViewport>,
     qt_thread: CxxQtThread<ffi::ContentController>,
     generation: u64,
     load_limit: Arc<Semaphore>,
     byte_limit: Arc<Semaphore>,
 ) {
-    let pages = match manga.chapter_pages(&reference).await {
-        Ok(pages) if !pages.images.is_empty() && pages.reference == reference => pages,
+    let pages = match source.chapter_pages(&request).await {
+        Ok(pages)
+            if !pages.images.is_empty()
+                && request.operation == SourceOperation::Chapter(pages.reference.clone()) =>
+        {
+            publish_source_outcome(&qt_thread, generation, request.clone(), Ok(()));
+            pages
+        }
         Ok(_) => {
             publish_error(
                 &qt_thread,
@@ -127,6 +169,7 @@ pub(super) async fn read_chapter(
                 ffi::ReaderError::Chapter,
                 &error.to_string(),
             );
+            publish_source_outcome(&qt_thread, generation, request.clone(), Err(error));
             return;
         }
     };
@@ -205,13 +248,16 @@ pub(super) async fn read_chapter(
                 };
                 publish_page(&qt_thread, generation, viewport, index, PageEvent::Loading);
                 let load = load_page(
-                    &manga,
+                    &source,
                     &pages,
                     index,
                     Arc::clone(&directory),
                     Arc::clone(&load_limit),
                     Arc::clone(&byte_limit),
                     reservation,
+                    &qt_thread,
+                    generation,
+                    &request,
                 );
                 let result = tokio::select! {
                     result = load => result,
@@ -253,22 +299,37 @@ pub(super) async fn read_chapter(
 }
 
 async fn load_page(
-    manga: &MangaDex,
+    source: &ReaderSource,
     pages: &ChapterPages,
     index: usize,
     directory: Arc<ReaderDirectory>,
     load_limit: Arc<Semaphore>,
     byte_limit: Arc<Semaphore>,
     reservation: Option<OwnedSemaphorePermit>,
+    qt_thread: &CxxQtThread<ffi::ContentController>,
+    generation: u64,
+    request: &SourceRequest,
 ) -> Result<CachedPage, String> {
     let load_permit = load_limit
         .acquire_owned()
         .await
         .map_err(|error| error.to_string())?;
-    let bytes = manga
-        .image_bytes(&pages.images[index])
-        .await
-        .map_err(|error| error.to_string())?;
+    let mut page_request = request.clone();
+    page_request.operation = SourceOperation::ReaderPage {
+        reference: pages.reference.clone(),
+        page: index as u32,
+    };
+    let bytes = match source.image_bytes(&pages.images[index]).await {
+        Ok(bytes) => {
+            publish_source_outcome(qt_thread, generation, page_request, Ok(()));
+            bytes
+        }
+        Err(error) => {
+            let text = error.to_string();
+            publish_source_outcome(qt_thread, generation, page_request, Err(error));
+            return Err(text);
+        }
+    };
     let byte_permit = match reservation {
         Some(mut permit) => permit
             .split(bytes.len() as usize)
@@ -302,6 +363,19 @@ async fn load_page(
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+fn publish_source_outcome(
+    qt_thread: &CxxQtThread<ffi::ContentController>,
+    generation: u64,
+    request: SourceRequest,
+    result: qbutt_content::Result<()>,
+) {
+    let _ = qt_thread.queue(move |controller| {
+        if controller.reader_source_current(generation, &request) {
+            controller.source_outcome(&request, &result);
+        }
+    });
 }
 
 fn publish_page(

@@ -21,7 +21,7 @@ impl AniLiberty {
     pub fn new() -> Result<Self> {
         let origin = Url::parse(ORIGIN).expect("fixed AniLiberty origin");
         Ok(Self {
-            http: SourceHttp::new(origin.clone())?,
+            http: SourceHttp::new(origin.clone(), reqwest::header::HeaderMap::new())?,
             origin,
         })
     }
@@ -107,9 +107,9 @@ impl AniLiberty {
                     url,
                 })
             }
-            VariantSelector::MangaTranslation { .. } | VariantSelector::TorrentHash { .. } => {
-                Err(Error::InvalidReference)
-            }
+            VariantSelector::MangaTranslation { .. }
+            | VariantSelector::LibTranslation { .. }
+            | VariantSelector::TorrentHash { .. } => Err(Error::InvalidReference),
         }
     }
 
