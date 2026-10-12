@@ -158,7 +158,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
     assert!(matches!(
-        http::SourceHttp::new(fixture.origin.clone())?
+        http::SourceHttp::new(fixture.origin.clone(), reqwest::header::HeaderMap::new())?
             .html(Url::parse("https://127.0.0.1/catalog")?)
             .await,
         Err(Error::UnsafeAddress)
