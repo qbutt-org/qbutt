@@ -4,6 +4,11 @@
 
 pub use qbutt_content::{Error, Result, TorrentMetadata};
 
+#[allow(dead_code)]
+#[path = "../src/model.rs"]
+mod model;
+pub use model::*;
+
 #[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
@@ -14,6 +19,7 @@ mod browser;
 mod policy;
 
 mod http {
+    pub(crate) use super::policy::media_client;
     pub(crate) use super::policy::validate_media_url;
     use std::io;
     use std::net::SocketAddr;

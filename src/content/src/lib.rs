@@ -10,6 +10,8 @@ mod aniliberty;
 mod association;
 #[cfg(windows)]
 pub mod browser;
+#[cfg(windows)]
+mod external_video;
 mod error;
 mod fitgirl;
 mod http;
@@ -37,6 +39,8 @@ mod yummyanime;
 
 pub use aniliberty::AniLiberty;
 pub use association::{WorkAssociation, WorkGroup, rank_variants};
+#[cfg(windows)]
+pub use external_video::{ExternalVideoError, resolve_external_video};
 pub use error::{Error, Result};
 pub use fitgirl::FitGirl;
 pub use kakuyomu::Kakuyomu;
@@ -48,7 +52,7 @@ pub use library::{
 pub use local_books::{LocalBook, LocalBookChapter, LocalBookFormat};
 pub use mangadex::MangaDex;
 pub use mangalib::MangaLib;
-pub use media::{MediaGateway, MediaGatewayError};
+pub use media::{MediaGateway, MediaGatewayError, PreparedPlayback, PreparedSubtitle};
 pub use model::*;
 pub use nyaa::Nyaa;
 pub use ranobehub::RanobeHub;

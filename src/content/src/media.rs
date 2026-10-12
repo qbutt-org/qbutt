@@ -1,7 +1,9 @@
 //! Authenticated public-network transport for a direct playback session.
-//! HTTPS remains an opaque CONNECT tunnel: the player validates TLS itself.
+//! Anonymous HTTPS uses opaque CONNECT; protected byte resources keep their
+//! credentials here and use the existing guarded Rust HTTPS client.
 
 use std::io;
+use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine;
@@ -13,6 +15,10 @@ use tokio::task::{JoinHandle, JoinSet};
 use url::Url;
 
 use crate::http::{resolve_public_url, validate_media_url};
+
+#[path = "media/resource.rs"]
+mod resource;
+pub use resource::{PreparedPlayback, PreparedSubtitle};
 
 const MAX_CONNECTIONS: usize = 32;
 const MAX_HEADERS: usize = 64;
@@ -27,6 +33,12 @@ pub enum MediaGatewayError {
     Bind(#[source] io::Error),
     #[error("The protected media connection could not create its credentials")]
     Credentials(#[source] getrandom::Error),
+    #[error("The browser returned an invalid media descriptor")]
+    InvalidDescriptor,
+    #[error("This video requires a manifest format that is not supported yet")]
+    UnsupportedManifest,
+    #[error("The protected media source could not be reached")]
+    Source,
 }
 
 /// Keep this owner for the entire playback lifetime, independent of selection
@@ -40,29 +52,39 @@ pub struct MediaGateway {
 
 impl MediaGateway {
     pub async fn start() -> Result<Self, MediaGatewayError> {
-        let mut secret = [0; 24];
-        getrandom::fill(&mut secret).map_err(MediaGatewayError::Credentials)?;
-        let password: String = secret.iter().map(|byte| format!("{byte:02x}")).collect();
-        let authorization = format!(
-            "Basic {}",
-            base64::engine::general_purpose::STANDARD.encode(format!("qbutt:{password}"))
+        let (listener, proxy_url, authorization) = bind().await?;
+        Ok(Self::serve(listener, proxy_url, authorization, None))
+    }
+
+    /// Keep this gateway until playback finishes. The returned descriptor
+    /// contains local capabilities only; do not supply a proxy to the player.
+    pub async fn prepare(
+        media: crate::PlaybackMedia,
+    ) -> Result<(Self, PreparedPlayback), MediaGatewayError> {
+        let (listener, proxy_url, authorization) = bind().await?;
+        let (resources, prepared) = resource::Resources::prepare(media, &proxy_url).await?;
+        let gateway = Self::serve(
+            listener,
+            proxy_url,
+            authorization,
+            Some(Arc::new(resources)),
         );
-        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .map_err(MediaGatewayError::Bind)?;
-        let port = listener
-            .local_addr()
-            .map_err(MediaGatewayError::Bind)?
-            .port();
-        let proxy_url = Url::parse(&format!("http://qbutt:{password}@127.0.0.1:{port}"))
-            .expect("fixed loopback proxy URL");
+        Ok((gateway, prepared))
+    }
+
+    fn serve(
+        listener: TcpListener,
+        proxy_url: Url,
+        authorization: String,
+        resources: Option<Arc<resource::Resources>>,
+    ) -> Self {
         let (shutdown, receiver) = watch::channel(false);
-        let task = tokio::spawn(serve(listener, authorization, receiver));
-        Ok(Self {
+        let task = tokio::spawn(serve(listener, authorization, resources, receiver));
+        Self {
             proxy_url,
             shutdown,
             task,
-        })
+        }
     }
 
     /// This URL contains a session secret; never persist or log it.
@@ -81,13 +103,38 @@ impl MediaGateway {
     }
 }
 
+async fn bind() -> Result<(TcpListener, Url, String), MediaGatewayError> {
+    let mut secret = [0; 24];
+    getrandom::fill(&mut secret).map_err(MediaGatewayError::Credentials)?;
+    let password: String = secret.iter().map(|byte| format!("{byte:02x}")).collect();
+    let authorization = format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(format!("qbutt:{password}"))
+    );
+    let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .map_err(MediaGatewayError::Bind)?;
+    let port = listener
+        .local_addr()
+        .map_err(MediaGatewayError::Bind)?
+        .port();
+    let proxy_url = Url::parse(&format!("http://qbutt:{password}@127.0.0.1:{port}"))
+        .expect("fixed loopback proxy URL");
+    Ok((listener, proxy_url, authorization))
+}
+
 impl Drop for MediaGateway {
     fn drop(&mut self) {
         self.retire();
     }
 }
 
-async fn serve(listener: TcpListener, authorization: String, mut shutdown: watch::Receiver<bool>) {
+async fn serve(
+    listener: TcpListener,
+    authorization: String,
+    resources: Option<Arc<resource::Resources>>,
+    mut shutdown: watch::Receiver<bool>,
+) {
     let mut connections = JoinSet::new();
     loop {
         tokio::select! {
@@ -99,8 +146,9 @@ async fn serve(listener: TcpListener, authorization: String, mut shutdown: watch
                 if *shutdown.borrow() { break; }
                 if connections.len() < MAX_CONNECTIONS {
                     let authorization = authorization.clone();
+                    let resources = resources.clone();
                     connections.spawn(async move {
-                        let _ = handle(socket, &authorization).await;
+                        let _ = handle(socket, &authorization, resources.as_deref()).await;
                     });
                 }
             }
@@ -116,11 +164,18 @@ struct Request {
     upstream_head: Vec<u8>,
 }
 
-async fn handle(mut client: TcpStream, authorization: &str) -> io::Result<()> {
+async fn handle(
+    mut client: TcpStream,
+    authorization: &str,
+    resources: Option<&resource::Resources>,
+) -> io::Result<()> {
     let (head, end) = match tokio::time::timeout(HEAD_TIMEOUT, read_head(&mut client)).await {
         Ok(Ok(head)) => head,
         _ => return reject(&mut client, 400).await,
     };
+    if let Some(resources) = resources {
+        return resources.handle(client, &head[..end], &head[end..]).await;
+    }
     let request = match parse_request(&head[..end], authorization, &head[end..]) {
         Ok(request) => request,
         Err(status) => return reject(&mut client, status).await,

@@ -3,6 +3,10 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+#[path = "playback.rs"]
+pub(crate) mod playback;
+pub use playback::{PlaybackAudioTrack, PlaybackMedia};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
@@ -525,7 +529,7 @@ pub enum ResolvedContent {
     BrowserVideo {
         reference: VariantRef,
         title: String,
-        media: crate::PlaybackMedia,
+        media: PlaybackMedia,
     },
     /// This is the exact external publication, requiring the media resolver.
     ExternalVideo {

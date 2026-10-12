@@ -19,6 +19,19 @@ const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
 const MAX_FORM_BYTES: usize = 16 * 1024;
 const MAX_REDIRECTS: usize = 5;
 
+/// Streaming media has an idle read deadline rather than a total body deadline.
+/// Redirects remain explicit so credentials can be scoped on every request.
+pub(crate) fn media_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .dns_resolver(Arc::new(PublicResolver))
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(30))
+        .build()
+        .map_err(network_error)
+}
+
 #[derive(Clone, Copy)]
 enum ResponseKind {
     Json,
