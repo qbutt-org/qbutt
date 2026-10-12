@@ -52,13 +52,14 @@ namespace
         return {{u"source"_s, u"ani_liberty"_s}, {u"id"_s, id}};
     }
 
-    QString link(const QJsonArray &publications, const QJsonObject &preferred)
+    QString link(const QJsonArray &publications, const QJsonObject &preferred = {})
     {
-        const QJsonObject document {
+        QJsonObject document {
             {u"version"_s, 1},
             {u"publications"_s, publications},
-            {u"preferred"_s, preferred},
         };
+        if (!preferred.isEmpty())
+            document.insert(u"preferred"_s, preferred);
         const auto bytes = QJsonDocument(document).toJson(QJsonDocument::Compact);
         const auto encoded = bytes.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
         return u"qbutt://open?d="_s + QString::fromLatin1(encoded);
@@ -163,7 +164,29 @@ void exerciseSharing()
 
     controller->openSharedLink(u"qbutt://open?d=invalid!"_s);
     require(malformedSignals == 1, u"Malformed shared link was accepted"_s);
+
+    const QJsonArray disabledPublications {
+        QJsonObject {{u"source"_s, u"onlinefix"_s}, {u"id"_s, u"games/action/42-sample-game.html"_s}},
+        QJsonObject {{u"source"_s, u"freetp"_s}, {u"id"_s, u"42"_s}},
+        QJsonObject {{u"source"_s, u"byrut"_s}, {u"id"_s, u"42-game"_s}},
+    };
+    for (const QJsonValue &publicationRef : disabledPublications)
+    {
+        const int previousUnavailable = unavailableSignals;
+        controller->openSharedLink(link({publicationRef.toObject()}));
+        require((malformedSignals == 1) && (unavailableSignals == previousUnavailable + 1),
+            u"Valid public source reference was rejected as malformed"_s);
+    }
+
+    const QJsonObject privateBook {
+        {u"source"_s, u"local_book"_s},
+        {u"id"_s, QString(64, QChar(u'a'))},
+    };
+    controller->openSharedLink(link({privateBook}));
+    require((malformedSignals == 2) && (unavailableSignals == 5),
+        u"Private local book was accepted as a public reference"_s);
+
     controller.reset();
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Shared receiver owner did not drain"_s);
-    qInfo("PASS share exact=unavailable unrelated=isolated missing=unselected malformed=rejected");
+    qInfo("PASS share exact=unavailable unrelated=isolated missing=unselected public=accepted private=rejected malformed=rejected");
 }
