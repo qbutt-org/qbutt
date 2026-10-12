@@ -31,6 +31,10 @@ pub enum LibraryAction {
         reference: PublicationRef,
         generation: u64,
     },
+    History,
+    RemoveHistory {
+        reference: PublicationRef,
+    },
 }
 
 /// The exact confirmed reading intent retained until its write is acknowledged.
@@ -44,18 +48,23 @@ pub struct ReaderSave {
 
 pub enum LibraryUpdate {
     Loaded {
-        result: LibraryResult<Vec<LibraryEntry>>,
+        result: LibraryResult<(Vec<LibraryEntry>, Vec<Work>)>,
         error_generation: u64,
         reader_generation: Option<u64>,
     },
     Changed {
-        result: LibraryResult<Box<LibraryEntry>>,
+        result: LibraryResult<Option<Box<LibraryEntry>>>,
+        history: Option<LibraryResult<Vec<Work>>>,
         error_generation: u64,
         reader_generation: Option<u64>,
     },
     ReaderResume {
         result: LibraryResult<Option<ReaderProgress>>,
         generation: u64,
+    },
+    History {
+        result: LibraryResult<Vec<Work>>,
+        error_generation: u64,
     },
 }
 
@@ -95,7 +104,8 @@ impl LibraryWorker {
             loop {
                 let (mut library, result) = match Library::open(&profile).and_then(|library| {
                     let entries = library.entries(LibraryView::All)?;
-                    Ok((library, entries))
+                    let history = read_history(&library)?;
+                    Ok((library, (entries, history)))
                 }) {
                     Ok((library, entries)) => (Some(library), Ok(entries)),
                     Err(error) => (None, Err(error)),
@@ -166,12 +176,16 @@ impl LibraryWorker {
 
 fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
     let (result, reader_generation) = match request.action {
-        LibraryAction::Favorite { work, favorite } => (library.set_favorite(&work, favorite), None),
+        LibraryAction::Favorite { work, favorite } => {
+            (library.set_favorite(&work, favorite).map(Some), None)
+        }
         LibraryAction::Preferences { work, preferences } => {
-            (library.save_preferences(&work, preferences), None)
+            (library.save_preferences(&work, preferences).map(Some), None)
         }
         LibraryAction::ReaderProgress { save, generation } => (
-            library.save_reader_progress(&save.work, save.preferences, save.progress),
+            library
+                .save_reader_progress(&save.work, save.preferences, save.progress)
+                .map(Some),
             Some(generation),
         ),
         LibraryAction::ReaderResume {
@@ -185,17 +199,48 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
                 generation,
             };
         }
+        LibraryAction::History => {
+            return LibraryUpdate::History {
+                result: read_history(library),
+                error_generation: request.error_generation,
+            };
+        }
+        LibraryAction::RemoveHistory { reference } => (library.remove_history(&reference), None),
     };
+    let history = result.as_ref().ok().map(|_| read_history(library));
     LibraryUpdate::Changed {
-        result: result.map(Box::new),
+        result: result.map(|entry| entry.map(Box::new)),
+        history,
         error_generation: request.error_generation,
         reader_generation,
     }
 }
 
+fn read_history(library: &Library) -> LibraryResult<Vec<Work>> {
+    library
+        .entries(LibraryView::History)
+        .map(|entries| entries.into_iter().map(|entry| entry.work).collect())
+}
+
 impl ffi::ContentController {
     pub(super) fn favorites_model(&self) -> *mut models::ffi::WorkModel {
         self.favorites.as_ptr().cast_mut()
+    }
+
+    pub(super) fn history_model(&self) -> *mut models::ffi::WorkModel {
+        self.history.as_ptr().cast_mut()
+    }
+
+    pub fn refresh_history(self: Pin<&mut Self>) -> bool {
+        self.submit_library(LibraryAction::History)
+    }
+
+    pub fn remove_history(self: Pin<&mut Self>, id: QString) -> bool {
+        let Some(work) = self.history.find(&id.to_string()) else {
+            return false;
+        };
+        let reference = work.reference.clone();
+        self.submit_library(LibraryAction::RemoveHistory { reference })
     }
 
     pub(super) fn is_library_pending(&self) -> bool {
@@ -288,17 +333,35 @@ impl ffi::ContentController {
     }
 
     fn publish_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
+        let history_read = matches!(&update, LibraryUpdate::History { .. })
+            || matches!(
+                &update,
+                LibraryUpdate::Changed {
+                    result: Ok(_),
+                    history: Some(Err(_)),
+                    ..
+                }
+            );
         let (initial, error_generation, reader_generation, result) = match update {
             LibraryUpdate::ReaderResume { result, generation } => {
                 self.complete_reader_resume(result, generation);
                 return;
+            }
+            LibraryUpdate::History {
+                result,
+                error_generation,
+            } => {
+                let result = result.map(|works| {
+                    self.as_mut().rust_mut().history.pin_mut().replace(works);
+                });
+                (false, error_generation, None, result)
             }
             LibraryUpdate::Loaded {
                 result,
                 error_generation,
                 reader_generation,
             } => {
-                let result = result.map(|entries| {
+                let result = result.map(|(entries, history)| {
                     for entry in &entries {
                         self.as_mut()
                             .rust_mut()
@@ -313,11 +376,13 @@ impl ffi::ContentController {
                             .pin_mut()
                             .update(entry.work);
                     }
+                    self.as_mut().rust_mut().history.pin_mut().replace(history);
                 });
                 (true, error_generation, reader_generation, result)
             }
             LibraryUpdate::Changed {
                 result,
+                history,
                 error_generation,
                 reader_generation,
             } => {
@@ -325,20 +390,27 @@ impl ffi::ContentController {
                     self.as_mut()
                         .complete_reader_progress(generation, result.is_ok());
                 }
-                let result = result.map(|entry| {
-                    if entry.favorite {
-                        self.as_mut()
-                            .rust_mut()
-                            .favorites
-                            .pin_mut()
-                            .update(entry.work);
-                    } else {
-                        self.as_mut()
-                            .rust_mut()
-                            .favorites
-                            .pin_mut()
-                            .remove(&entry.work.reference);
+                let result = result.and_then(|entry| {
+                    if let Some(entry) = entry {
+                        if entry.favorite {
+                            self.as_mut()
+                                .rust_mut()
+                                .favorites
+                                .pin_mut()
+                                .update(entry.work);
+                        } else {
+                            self.as_mut()
+                                .rust_mut()
+                                .favorites
+                                .pin_mut()
+                                .remove(&entry.work.reference);
+                        }
                     }
+                    history.transpose().map(|history| {
+                        if let Some(works) = history {
+                            self.as_mut().rust_mut().history.pin_mut().replace(works);
+                        }
+                    })
                 });
                 (false, error_generation, None, result)
             }
@@ -384,7 +456,13 @@ impl ffi::ContentController {
                     &QString::from(error.to_string()),
                 );
                 self.as_mut()
-                    .set_library_error(ffi::content_error(if initial { 4 } else { 5 }));
+                    .set_library_error(ffi::content_error(if initial {
+                        4
+                    } else if history_read {
+                        6
+                    } else {
+                        5
+                    }));
                 if reader_failed {
                     self.as_mut().reader_changed();
                 }

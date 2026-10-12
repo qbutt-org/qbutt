@@ -135,6 +135,17 @@ must leave history empty; confirmed reading retains the full known work and
 current choices. This scenario does not establish QML `Image.Ready`, native
 pointer interaction or application Exit with an accepted write.
 
+The native History process scenario is `exerciseHistory()` in
+`quick-acceptance/history.cpp`. It checks confirmed reading, full Work and exact
+choices, action-time ordering across restart, fresh inspection, delayed choices,
+reentrant model publication, SQLite removal abort and retry, independent
+bookmarks, retained progress and unrelated payload. A committed reading write
+followed by a failed history snapshot must retain successful reader status;
+`refreshHistory()` retries the read without another write. The scoped native
+implementation was checked through an external offscreen driver using the
+same built libraries; `--history` host wiring and pointer acceptance remain
+separate steps.
+
 The standalone acceptance target enables `QT_QML_DEBUG` for development preview;
 the shipping application does not inherit it. The project-local `qt-preview`
 MCP launches this host, but its tool response alone does not prove hot reload.

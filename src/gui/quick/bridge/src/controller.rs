@@ -49,6 +49,7 @@ pub mod ffi {
     enum ListMode {
         Search,
         Favorites,
+        History,
     }
 
     #[qenum]
@@ -114,6 +115,7 @@ pub mod ffi {
         #[qml_element]
         #[qproperty(*mut WorkModel, works, READ = works_model, CONSTANT)]
         #[qproperty(*mut WorkModel, favorites, READ = favorites_model, CONSTANT)]
+        #[qproperty(*mut WorkModel, history, READ = history_model, CONSTANT)]
         #[qproperty(*mut VariantModel, variants, READ = variants_model, CONSTANT)]
         #[qproperty(
             *mut ChapterModel,
@@ -297,6 +299,7 @@ pub mod ffi {
         fn works_model(&self) -> *mut WorkModel;
         fn variants_model(&self) -> *mut VariantModel;
         fn favorites_model(&self) -> *mut WorkModel;
+        fn history_model(&self) -> *mut WorkModel;
         fn is_library_pending(&self) -> bool;
         fn variant_selection_state(&self) -> VariantSelectionState;
         fn selected_work_category(&self) -> QString;
@@ -365,6 +368,12 @@ pub mod ffi {
         #[cxx_name = "retryLibrary"]
         fn retry_library(self: Pin<&mut Self>) -> bool;
         #[qinvokable]
+        #[cxx_name = "refreshHistory"]
+        fn refresh_history(self: Pin<&mut Self>) -> bool;
+        #[qinvokable]
+        #[cxx_name = "removeHistory"]
+        fn remove_history(self: Pin<&mut Self>, id: QString) -> bool;
+        #[qinvokable]
         #[cxx_name = "setListMode"]
         fn set_list_mode(self: Pin<&mut Self>, mode: ListMode);
         #[qinvokable]
@@ -420,6 +429,7 @@ pub struct Services {
 pub struct ContentControllerRust {
     works: UniquePtr<models::ffi::WorkModel>,
     favorites: UniquePtr<models::ffi::WorkModel>,
+    history: UniquePtr<models::ffi::WorkModel>,
     variants: UniquePtr<models::ffi::VariantModel>,
     list_mode: ffi::ListMode,
 
@@ -484,6 +494,7 @@ impl Default for ContentControllerRust {
         Self {
             works: models::ffi::create_work_model(),
             favorites: models::ffi::create_work_model(),
+            history: models::ffi::create_work_model(),
             variants: models::ffi::create_variant_model(),
             list_mode: ffi::ListMode::Search,
 
@@ -831,12 +842,15 @@ impl ffi::ContentController {
     }
 
     pub fn select_work(mut self: Pin<&mut Self>, id: QString) {
-        let stored = self.list_mode == ffi::ListMode::Favorites;
-        let model = if stored { &self.favorites } else { &self.works };
+        let model = match self.list_mode {
+            ffi::ListMode::Favorites => &self.favorites,
+            ffi::ListMode::History => &self.history,
+            _ => &self.works,
+        };
         let Some(mut work) = model.find(&id.to_string()).cloned() else {
             return;
         };
-        if stored {
+        if self.list_mode != ffi::ListMode::Search {
             work.needs_inspection = true;
         }
         if self.selected_work_id == id && (self.inspecting || !work.needs_inspection) {

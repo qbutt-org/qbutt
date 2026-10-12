@@ -18871,6 +18871,10 @@ Please choose a different name and try again.</source>
         <translation>Не удалось сохранить библиотеку.</translation>
     </message>
     <message>
+        <source>Could not load reading history.</source>
+        <translation>Не удалось загрузить историю чтения.</translation>
+    </message>
+    <message>
         <source>Could not start content services.</source>
         <translation>Не удалось запустить поиск.</translation>
     </message>

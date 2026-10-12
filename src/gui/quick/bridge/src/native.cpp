@@ -127,6 +127,8 @@ QString Qbutt::contentError(const std::int32_t operation)
         return QCoreApplication::translate("ContentController", "Could not start the download.");
     case 4:
         return QCoreApplication::translate("ContentController", "Could not open the content library.");
+    case 6:
+        return QCoreApplication::translate("ContentController", "Could not load reading history.");
     default:
         return QCoreApplication::translate("ContentController", "Could not save the content library.");
     }

@@ -247,6 +247,17 @@ impl ffi::WorkModel {
         self.as_mut().end_reset_model();
     }
 
+    /// Publish the library's confirmed order without sorting or retaining
+    /// persistence metadata in the presentation model.
+    pub fn replace(mut self: Pin<&mut Self>, works: Vec<Work>) {
+        if self.rows == works {
+            return;
+        }
+        self.as_mut().begin_reset_model();
+        self.as_mut().rust_mut().rows = works;
+        self.end_reset_model();
+    }
+
     pub fn remove(mut self: Pin<&mut Self>, reference: &PublicationRef) {
         if let Some(row) = self
             .rows
