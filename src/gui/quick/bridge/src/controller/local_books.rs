@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QString, QUrl};
-use qbutt_content::{Error, LibraryResult, LocalBook, PublicationRef};
+use qbutt_content::{Error, LibraryResult, LocalBook, PublicationRef, WorkGroup};
 
 use super::ffi;
 use super::library::LibraryAction;
@@ -182,8 +182,8 @@ impl ffi::ContentController {
     fn show_local_book(mut self: Pin<&mut Self>, book: Arc<LocalBook>) {
         let (generation, _) = self.as_mut().cancel_detail();
         self.as_mut().rust_mut().local_book = Some(Arc::clone(&book));
-        let work = book.work();
-        if !self.as_mut().show_work(&work, generation) {
+        let group = WorkGroup::single(book.work());
+        if !self.as_mut().show_group(&group, generation) {
             return;
         }
         self.as_mut().select_initial_variant();
