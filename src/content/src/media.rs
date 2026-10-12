@@ -133,39 +133,54 @@ async fn handle(mut client: TcpStream, authorization: &str) -> io::Result<()> {
         _ => return reject(&mut client, 502).await,
     };
 
-    if request.tunnel {
-        tokio::time::timeout(
-            HEAD_TIMEOUT,
-            client.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n"),
-        )
-        .await??;
-        tokio::time::timeout(HEAD_TIMEOUT, upstream.write_all(&head[end..])).await??;
-        let (mut client_read, mut client_write) = client.split();
-        let (mut upstream_read, mut upstream_write) = upstream.split();
-        tokio::try_join!(
-            relay(&mut client_read, &mut upstream_write),
-            relay(&mut upstream_read, &mut client_write)
-        )?;
-    } else {
-        tokio::time::timeout(HEAD_TIMEOUT, upstream.write_all(&request.upstream_head)).await??;
-        let (response, end) =
-            match tokio::time::timeout(HEAD_TIMEOUT, read_head(&mut upstream)).await {
-                Ok(Ok(response)) => response,
-                _ => return reject(&mut client, 502).await,
-            };
-        let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
-        if !matches!(
-            httparse::Response::new(&mut headers).parse(&response[..end]),
-            Ok(httparse::Status::Complete(_))
-        ) {
-            return reject(&mut client, 502).await;
+    let (activity, mut observed) = watch::channel(());
+    let transfer = async {
+        if request.tunnel {
+            tokio::time::timeout(
+                HEAD_TIMEOUT,
+                client.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n"),
+            )
+            .await??;
+            tokio::time::timeout(HEAD_TIMEOUT, upstream.write_all(&head[end..])).await??;
+            let (mut client_read, mut client_write) = client.split();
+            let (mut upstream_read, mut upstream_write) = upstream.split();
+            tokio::try_join!(
+                relay(&mut client_read, &mut upstream_write, &activity),
+                relay(&mut upstream_read, &mut client_write, &activity)
+            )?;
+        } else {
+            tokio::time::timeout(HEAD_TIMEOUT, upstream.write_all(&request.upstream_head))
+                .await??;
+            let (response, end) =
+                match tokio::time::timeout(HEAD_TIMEOUT, read_head(&mut upstream)).await {
+                    Ok(Ok(response)) => response,
+                    _ => return reject(&mut client, 502).await,
+                };
+            let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
+            if !matches!(
+                httparse::Response::new(&mut headers).parse(&response[..end]),
+                Ok(httparse::Status::Complete(_))
+            ) {
+                return reject(&mut client, 502).await;
+            }
+            // Preserve HTTP framing (including chunked payload) and redirects. The
+            // player's next request goes through the same guarded connector.
+            tokio::time::timeout(HEAD_TIMEOUT, client.write_all(&response)).await??;
+            relay(&mut upstream, &mut client, &activity).await?;
         }
-        // Preserve HTTP framing (including chunked payload) and redirects. The
-        // player's next request goes through the same guarded connector.
-        tokio::time::timeout(HEAD_TIMEOUT, client.write_all(&response)).await??;
-        relay(&mut upstream, &mut client).await?;
+        Ok(())
+    };
+    tokio::select! {
+        result = transfer => result,
+        _ = async {
+            // Either direction keeps a TLS tunnel alive. A response can stream
+            // for hours after the client has sent its single GET request.
+            while matches!(
+                tokio::time::timeout(IDLE_TIMEOUT, observed.changed()).await,
+                Ok(Ok(()))
+            ) {}
+        } => Err(io::ErrorKind::TimedOut.into()),
     }
-    Ok(())
 }
 
 fn parse_request(head: &[u8], authorization: &str, remainder: &[u8]) -> Result<Request, u16> {
@@ -321,13 +336,15 @@ async fn read_head(socket: &mut TcpStream) -> io::Result<(Vec<u8>, usize)> {
 async fn relay<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     source: &mut R,
     destination: &mut W,
+    activity: &watch::Sender<()>,
 ) -> io::Result<()> {
     let mut buffer = [0; 32 * 1024];
     loop {
-        let count = tokio::time::timeout(IDLE_TIMEOUT, source.read(&mut buffer)).await??;
+        let count = source.read(&mut buffer).await?;
         if count == 0 {
             return destination.shutdown().await;
         }
+        activity.send_replace(());
         tokio::time::timeout(IDLE_TIMEOUT, destination.write_all(&buffer[..count])).await??;
     }
 }

@@ -274,7 +274,7 @@ async fn main() -> AcceptanceResult<()> {
     assert!(TcpStream::connect(("127.0.0.1", port)).await.is_err());
     assert_eq!(plain.leaked_headers.load(Ordering::SeqCst), 0);
     assert_eq!(tls.leaked_headers.load(Ordering::SeqCst), 0);
-    exercise_bounds(&plain.origin).await?;
+    tokio::try_join!(exercise_bounds(&plain.origin), exercise_long_stream(&tls))?;
     plain.stop().await;
     tls.stop().await;
     println!(
@@ -289,6 +289,30 @@ fn authorization(proxy: &Url) -> String {
         base64::engine::general_purpose::STANDARD
             .encode(format!("qbutt:{}", proxy.password().unwrap()))
     )
+}
+
+async fn exercise_long_stream(fixture: &Fixture) -> AcceptanceResult<()> {
+    let gateway = MediaGateway::start().await?;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .proxy(reqwest::Proxy::all(gateway.proxy_url().as_str())?)
+        .add_root_certificate(reqwest::Certificate::from_pem(fixture.cert_pem.as_bytes())?)
+        .timeout(Duration::from_secs(75))
+        .build()?;
+    let started = std::time::Instant::now();
+    let bytes = client
+        .get(fixture.origin.join("long-stream")?)
+        .send()
+        .await?
+        .bytes()
+        .await?;
+    assert_eq!(bytes.as_ref(), &[b'x'; 67]);
+    assert!(started.elapsed() >= Duration::from_secs(66));
+    gateway.close().await;
+    println!(
+        "PASS media-gateway-long-stream https_single_get=67s unidirectional_payload=67_verified_bytes active_tunnel=preserved"
+    );
+    Ok(())
 }
 
 async fn exercise_bounds(origin: &Url) -> AcceptanceResult<()> {
@@ -567,6 +591,17 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
     let path = head.split_whitespace().nth(1).unwrap_or("");
     if path == "/stall" {
         return socket.read(&mut byte).await.map(|_| ());
+    }
+    if path == "/long-stream" {
+        socket
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 67\r\nConnection: close\r\n\r\n")
+            .await?;
+        for _ in 0..67 {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            socket.write_all(b"x").await?;
+            socket.flush().await?;
+        }
+        return socket.shutdown().await;
     }
     if path == "/large-head" {
         socket
