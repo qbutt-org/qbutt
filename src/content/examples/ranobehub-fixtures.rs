@@ -5,6 +5,10 @@
 mod model;
 pub use model::*;
 pub use qbutt_content::{Error, Result};
+#[cfg(windows)]
+#[allow(dead_code)]
+#[path = "../src/browser/mod.rs"]
+mod browser;
 #[path = "../src/text.rs"]
 mod text;
 pub use text::*;
@@ -41,7 +45,9 @@ type CheckResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 async fn main() -> CheckResult<()> {
     let mut args = std::env::args_os().skip(1);
     if args.next().as_deref() == Some(std::ffi::OsStr::new("--reopen")) {
-        verify_reopened(std::path::Path::new(&args.next().ok_or("missing profile")?))?;
+        let profile = args.next().ok_or("missing profile")?;
+        let block_id = args.next().ok_or("missing block ID")?;
+        verify_reopened(std::path::Path::new(&profile), &block_id.to_string_lossy())?;
         return Ok(());
     }
 
@@ -101,7 +107,7 @@ async fn main() -> CheckResult<()> {
     );
     persist(
         &serde_json::to_string(&work)?,
-        &serde_json::to_string(chapter)?,
+        &serde_json::to_string(&text)?,
     )?;
     let alternate = &work
         .variants
@@ -223,10 +229,11 @@ async fn main() -> CheckResult<()> {
 }
 
 fn persist(encoded_work: &str, encoded_chapter: &str) -> CheckResult<()> {
-    use qbutt_content::{Library, ReaderProgress, VariantPreferences};
+    use qbutt_content::{Library, ReaderPosition, ReaderProgress, VariantPreferences};
 
     let work: qbutt_content::Work = serde_json::from_str(encoded_work)?;
-    let chapter: qbutt_content::ChapterRef = serde_json::from_str(encoded_chapter)?;
+    let chapter: qbutt_content::TextChapter = serde_json::from_str(encoded_chapter)?;
+    let block_id = chapter.blocks[0].id.clone();
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_nanos();
@@ -236,19 +243,22 @@ fn persist(encoded_work: &str, encoded_chapter: &str) -> CheckResult<()> {
         let mut library = Library::open(&profile)?;
         library.set_favorite(&work, true)?;
         let choices = VariantPreferences {
-            selected: Some(chapter.variant.clone()),
+            selected: Some(chapter.reference.variant.clone()),
             ..Default::default()
         };
         let progress = ReaderProgress {
-            chapter,
-            page: 0,
-            scroll_offset: 0.625,
+            chapter: chapter.reference,
+            position: ReaderPosition::Text {
+                block_id: block_id.clone(),
+                offset: 0.625,
+            },
         };
         library.save_reader_progress(&work, choices, progress)?;
         drop(library);
         let status = std::process::Command::new(std::env::current_exe()?)
             .arg("--reopen")
             .arg(&profile)
+            .arg(&block_id)
             .status()?;
         assert!(status.success());
         Ok(())
@@ -257,8 +267,8 @@ fn persist(encoded_work: &str, encoded_chapter: &str) -> CheckResult<()> {
     result
 }
 
-fn verify_reopened(profile: &std::path::Path) -> CheckResult<()> {
-    use qbutt_content::{Library, LibraryView, Source, VariantSelector};
+fn verify_reopened(profile: &std::path::Path, block_id: &str) -> CheckResult<()> {
+    use qbutt_content::{Library, LibraryView, ReaderPosition, Source, VariantSelector};
 
     let library = Library::open(profile)?;
     let entries = library.entries(LibraryView::History)?;
@@ -268,7 +278,13 @@ fn verify_reopened(profile: &std::path::Path) -> CheckResult<()> {
     assert!(entry.favorite);
     let progress = entry.reader_progress.as_ref().unwrap();
     assert_eq!(progress.chapter.id, "101");
-    assert_eq!(progress.scroll_offset, 0.625);
+    assert_eq!(
+        progress.position,
+        ReaderPosition::Text {
+            block_id: block_id.into(),
+            offset: 0.625,
+        }
+    );
     assert_eq!(
         entry.preferences.selected.as_ref(),
         Some(&progress.chapter.variant)
