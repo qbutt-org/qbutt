@@ -1,6 +1,6 @@
 //! Live catalog and exact Kodik descriptor acceptance; no video payload is read.
 
-use qbutt_content::{AnimeSpirit, ResolvedContent, Source, VariantSelector};
+use qbutt_content::{AnimeSpirit, Error, ResolvedContent, Source, VariantSelector};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -11,6 +11,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .find(|work| work.reference.source == Source::AnimeSpirit && work.reference.id == "16461")
         .ok_or("live AnimeSpirit search did not return the selected publication")?;
     assert!(publication.needs_inspection && publication.variants.is_empty());
+    assert!(
+        source
+            .search("Магический исследователь")
+            .await?
+            .iter()
+            .any(|work| work.reference == publication.reference)
+    );
 
     let inspected = source.inspect(&publication.reference).await?;
     assert_eq!(inspected.reference, publication.reference);
@@ -49,5 +56,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => return Err("exact AnimeSpirit variant resolved to the wrong transport".into()),
     }
+
+    let mut changed = selected.reference.clone();
+    if let VariantSelector::AnimeSpiritKodik { episode_id, .. } = &mut changed.selector {
+        *episode_id = "999999999".into();
+    }
+    assert!(matches!(
+        source.resolve(&changed).await,
+        Err(Error::VariantUnavailable)
+    ));
     Ok(())
 }

@@ -54,13 +54,10 @@ impl AnimeSpirit {
         .expect("fixed search URL and percent-encoded query");
         let document = self.document(url).await?;
         let cards = selector("#dle-content > .content-block");
-        let mut seen = HashSet::new();
         let mut works = Vec::new();
         for card in document.select(&cards) {
             if let Some(work) = self.work(&card, true)? {
-                if seen.insert(work.reference.id.clone()) {
-                    works.push(work);
-                }
+                works.push(work);
             }
         }
         if works.len() > 50 {
@@ -356,6 +353,10 @@ fn article_id(url: &Url) -> Option<u64> {
     id.parse::<u64>()
         .ok()
         .filter(|number| *number != 0 && id == number.to_string())
+}
+
+fn selector(value: &str) -> Selector {
+    Selector::parse(value).expect("fixed AnimeSpirit selector")
 }
 
 fn label(value: &str, max_bytes: usize) -> bool {
