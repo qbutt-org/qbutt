@@ -11,6 +11,7 @@ fn main() {
                 "src/reader_models.rs",
                 "src/text_model.rs",
                 "src/source_model.rs",
+                "src/download_model.rs",
                 "src/page_model.rs",
             ])
             .cpp_file("src/native.cpp")

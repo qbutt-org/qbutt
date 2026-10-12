@@ -76,6 +76,9 @@ impl Drop for Services {
             for task in self.retired_gateways.drain(..) {
                 let _ = task.await;
             }
+            for task in self.retired_downloads.drain(..) {
+                let _ = task.await;
+            }
         });
     }
 }

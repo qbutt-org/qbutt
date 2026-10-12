@@ -15,6 +15,7 @@
 #include "qbutt_quick/src/reader_models.cxxqt.h"
 #include "qbutt_quick/src/text_model.cxxqt.h"
 #include "qbutt_quick/src/source_model.cxxqt.h"
+#include "qbutt_quick/src/download_model.cxxqt.h"
 #include "qbutt_quick/src/page_model.cxxqt.h"
 
 Q_LOGGING_CATEGORY(contentLog, "qbutt.content")
@@ -57,6 +58,11 @@ std::unique_ptr<Qbutt::TextBlockModel> Qbutt::createTextBlockModel()
 std::unique_ptr<Qbutt::SourceModel> Qbutt::createSourceModel()
 {
     return std::make_unique<SourceModel>();
+}
+
+std::unique_ptr<Qbutt::DownloadModel> Qbutt::createDownloadModel()
+{
+    return std::make_unique<DownloadModel>();
 }
 
 QString Qbutt::sourceError(const std::int32_t reason)

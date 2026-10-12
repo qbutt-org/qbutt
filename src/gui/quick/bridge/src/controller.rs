@@ -11,6 +11,7 @@ use tokio::task::JoinHandle;
 
 mod browser;
 mod catalog;
+mod downloads;
 mod library;
 mod local_books;
 mod playback;
@@ -22,9 +23,10 @@ mod selection;
 mod sources;
 mod variant_filters;
 
+use crate::download_model;
 use crate::models;
 use crate::source_model;
-use library::{LibraryUpdate, LibraryWorker};
+use library::{DownloadStore, LibraryUpdate, LibraryWorker};
 use playback::PlaybackState;
 use reader::ReaderState;
 use reader_pages::{RetiredReaderCache, clean_retired_reader_cache};
@@ -193,6 +195,8 @@ pub mod ffi {
         type VariantModel = crate::models::ffi::VariantModel;
         include!("qbutt_quick/src/source_model.cxxqt.h");
         type SourceModel = crate::source_model::ffi::SourceModel;
+        include!("qbutt_quick/src/download_model.cxxqt.h");
+        type DownloadModel = crate::download_model::ffi::DownloadModel;
         include!("qbutt_quick/src/reader_models.cxxqt.h");
         type ChapterModel = crate::reader_models::ffi::ChapterModel;
         include!("qbutt_quick/src/text_model.cxxqt.h");
@@ -237,6 +241,7 @@ pub mod ffi {
         #[qproperty(*mut WorkModel, history, READ = history_model, CONSTANT)]
         #[qproperty(QString, local_book_error, cxx_name = "localBookError", READ = local_book_error, NOTIFY = local_book_error_changed)]
         #[qproperty(*mut VariantModel, variants, READ = variants_model, CONSTANT)]
+        #[qproperty(*mut DownloadModel, downloads, READ = downloads_model, CONSTANT)]
         #[qproperty(
             QString,
             variant_episode_filter,
@@ -547,6 +552,19 @@ pub mod ffi {
 
         fn works_model(&self) -> *mut WorkModel;
         fn variants_model(&self) -> *mut VariantModel;
+        fn downloads_model(&self) -> *mut DownloadModel;
+        #[qinvokable]
+        #[cxx_name = "initDownloads"]
+        fn init_downloads(self: Pin<&mut Self>, destination: QString);
+        #[qinvokable]
+        #[cxx_name = "downloadSelected"]
+        fn download_selected(self: Pin<&mut Self>, id: QString) -> bool;
+        #[qinvokable]
+        #[cxx_name = "cancelDownload"]
+        fn cancel_download(self: Pin<&mut Self>, id: QString) -> bool;
+        #[qinvokable]
+        #[cxx_name = "retryDownload"]
+        fn retry_download(self: Pin<&mut Self>, id: QString) -> bool;
         fn sources_model(&self) -> *mut SourceModel;
         fn source_settings_state(&self) -> SettingsState;
         fn source_settings_error_text(&self) -> QString;
@@ -872,6 +890,7 @@ pub struct Services {
     reader_load: Arc<tokio::sync::Semaphore>,
     reader_bytes: Arc<tokio::sync::Semaphore>,
     retired_gateways: Vec<JoinHandle<()>>,
+    retired_downloads: Vec<JoinHandle<()>>,
     browser: browser::BrowserService,
 }
 
@@ -881,6 +900,9 @@ pub struct ContentControllerRust {
     history: UniquePtr<models::ffi::WorkModel>,
     variants: UniquePtr<models::ffi::VariantModel>,
     sources: UniquePtr<source_model::ffi::SourceModel>,
+    downloads: UniquePtr<download_model::ffi::DownloadModel>,
+    download_queue: Option<Arc<qbutt_content::DownloadQueue<DownloadStore>>>,
+    download_task: Option<JoinHandle<()>>,
     source_status: SourceState,
     list_mode: ffi::ListMode,
 
@@ -939,6 +961,7 @@ impl Default for ContentControllerRust {
                         reader_load: Arc::new(tokio::sync::Semaphore::new(1)),
                         reader_bytes: Arc::new(tokio::sync::Semaphore::new(96 * 1024 * 1024)),
                         retired_gateways: Vec::new(),
+                        retired_downloads: Vec::new(),
                         browser,
                     })
             });
@@ -962,6 +985,9 @@ impl Default for ContentControllerRust {
             history: models::ffi::create_work_model(),
             variants: models::ffi::create_variant_model(),
             sources,
+            downloads: download_model::ffi::create_download_model(),
+            download_queue: None,
+            download_task: None,
             source_status,
             list_mode: ffi::ListMode::Search,
 
@@ -1008,6 +1034,16 @@ impl Drop for ContentControllerRust {
         self.inspection.cancel();
         self.resolution.cancel();
         self.source_status.cancel_retries();
+        if let Some(task) = self.download_task.take() {
+            task.abort();
+        }
+        if let Some(queue) = self.download_queue.take()
+            && let Some(services) = &mut self.services
+        {
+            services
+                .retired_downloads
+                .push(services.runtime.spawn(async move { queue.close().await }));
+        }
         self.reader.cancel();
         self.local_book_load.cancel();
         for (_, request) in self.browser_requests.drain() {

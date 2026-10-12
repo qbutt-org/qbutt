@@ -22,6 +22,8 @@ qt_add_executable(qbutt-quick-acceptance
     browser-registration.h
     category.cpp
     category.h
+    downloads.cpp
+    downloads.h
     library.cpp
     library.h
     playback.cpp

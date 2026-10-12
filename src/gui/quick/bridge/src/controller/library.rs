@@ -5,11 +5,13 @@ use std::sync::Arc;
 use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
-    Library, LibraryEntry, LibraryResult, LibraryView, LocalBook, PublicationRef, ReaderProgress,
+    DownloadJob, DownloadStorage, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView,
+    LocalBook, PublicationRef, ReaderProgress,
     ReaderSettings, SourceSettings, VariantPreferences, Work, WorkGroup,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::oneshot;
 
 use super::ffi;
 use super::ffi::ContentController;
@@ -124,6 +126,8 @@ struct LibraryRequest {
 
 enum LibraryCommand {
     Request(Box<LibraryRequest>),
+    DownloadJobs(oneshot::Sender<LibraryResult<Vec<DownloadJob>>>),
+    SaveDownload(DownloadJob, oneshot::Sender<LibraryResult<()>>),
     Retry {
         error_generation: u64,
         reader_generation: Option<u64>,
@@ -135,7 +139,42 @@ pub struct LibraryWorker {
     sender: Sender<LibraryCommand>,
 }
 
+#[derive(Clone)]
+pub(super) struct DownloadStore {
+    sender: Sender<LibraryCommand>,
+}
+
+impl DownloadStorage for DownloadStore {
+    async fn load(&self) -> LibraryResult<Vec<DownloadJob>> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::DownloadJobs(reply))
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("download storage closed"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("download storage unavailable"))?
+    }
+
+    async fn save(&self, job: DownloadJob) -> LibraryResult<()> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::SaveDownload(job, reply))
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("download storage closed"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("download storage unavailable"))?
+    }
+}
+
 impl LibraryWorker {
+    pub(super) fn download_store(&self) -> DownloadStore {
+        DownloadStore {
+            sender: self.sender.clone(),
+        }
+    }
+
     pub fn start(
         runtime: &Runtime,
         profile: PathBuf,
@@ -181,6 +220,20 @@ impl LibraryWorker {
                         return;
                     };
                     match command {
+                        LibraryCommand::DownloadJobs(reply) => {
+                            let result = library
+                                .as_ref()
+                                .ok_or(LibraryError::InvalidEntry("download storage unavailable"))
+                                .and_then(Library::download_jobs);
+                            let _ = reply.send(result);
+                        }
+                        LibraryCommand::SaveDownload(job, reply) => {
+                            let result = library
+                                .as_mut()
+                                .ok_or(LibraryError::InvalidEntry("download storage unavailable"))
+                                .and_then(|library| library.save_download_job(&job));
+                            let _ = reply.send(result);
+                        }
                         LibraryCommand::Retry {
                             error_generation: retry_error_generation,
                             reader_generation: retry_reader_generation,
