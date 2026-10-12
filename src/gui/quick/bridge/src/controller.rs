@@ -3,11 +3,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use cxx::UniquePtr;
-use cxx_qt::{CxxQtType, Threading};
+use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
-use qbutt_content::{
-    AniLiberty, MangaDex, PublicationRef, RuTor, Source, SourceOperation, VariantPreferences, Work,
-};
+use qbutt_content::{AniLiberty, MangaDex, PublicationRef, RuTor, VariantPreferences, Work};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
@@ -17,9 +15,10 @@ mod reader;
 pub(crate) mod reader_pages;
 mod reader_settings;
 mod search;
+mod selection;
 mod sources;
 
-use crate::models::{self, variant_id, work_id};
+use crate::models;
 use crate::source_model;
 use library::{LibraryUpdate, LibraryWorker};
 use playback::PlaybackState;
@@ -27,7 +26,6 @@ use reader::ReaderState;
 use reader_pages::{RetiredReaderCache, clean_retired_reader_cache};
 use reader_settings::ReaderSettingsState;
 use sources::SourceState;
-use sources::{SourceResponse, execute_operation};
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
@@ -781,14 +779,6 @@ impl ffi::ContentController {
         }
     }
 
-    fn set_inspecting(mut self: Pin<&mut Self>, value: bool) {
-        if self.inspecting != value {
-            self.as_mut().rust_mut().inspecting = value;
-            self.as_mut().inspecting_changed();
-            self.as_mut().selected_variant_state_changed();
-        }
-    }
-
     fn set_resolving(mut self: Pin<&mut Self>, value: bool) {
         if self.resolving != value {
             self.as_mut().rust_mut().resolving = value;
@@ -821,248 +811,5 @@ impl ffi::ContentController {
 
     fn variants_model(&self) -> *mut models::ffi::VariantModel {
         self.variants.as_ptr().cast_mut()
-    }
-
-    fn selected_work_category(&self) -> QString {
-        let category = self
-            .selected_work
-            .as_ref()
-            .map(|work| models::category_key(work.category))
-            .unwrap_or_default();
-        QString::from(category)
-    }
-
-    fn selected_variant_kind(&self) -> QString {
-        let transport = self
-            .variants
-            .find(&self.selected_variant_id.to_string())
-            .map(|variant| variant.transport);
-        QString::from(match transport {
-            Some(qbutt_content::Transport::Torrent) => "torrent",
-            Some(qbutt_content::Transport::Video) => "video",
-            Some(qbutt_content::Transport::Manga) => "manga",
-            None => "",
-        })
-    }
-
-    fn cancel_detail(mut self: Pin<&mut Self>) -> (u64, u64) {
-        let (generations, inspecting_changed, resolving_changed) = {
-            let mut state = self.as_mut().rust_mut();
-            state.inspection.cancel();
-            state.resolution.cancel();
-            let changed = (
-                (state.inspection.generation, state.resolution.generation),
-                state.inspecting,
-                state.resolving,
-            );
-            state.inspecting = false;
-            state.resolving = false;
-            changed
-        };
-        self.as_mut().close_reader();
-        if inspecting_changed {
-            self.as_mut().inspecting_changed();
-            self.as_mut().selected_variant_state_changed();
-        }
-        if resolving_changed {
-            self.as_mut().resolving_changed();
-        }
-        generations
-    }
-
-    fn set_selection(mut self: Pin<&mut Self>, work: Option<&Work>, generation: u64) -> bool {
-        if self.inspection.generation != generation {
-            return false;
-        }
-        let (id, title, description) = match work {
-            Some(work) => (
-                QString::from(work_id(&work.reference)),
-                QString::from(&work.title),
-                QString::from(work.description.as_deref().unwrap_or_default()),
-            ),
-            None => (QString::default(), QString::default(), QString::default()),
-        };
-        let variant_id = work
-            .and_then(|work| self.work_preferences.get(&work.reference))
-            .and_then(|preferences| preferences.selected.as_ref())
-            .map(variant_id)
-            .map(QString::from)
-            .unwrap_or_default();
-        let (id_changed, category_changed, title_changed, description_changed, variant_changed) = {
-            let mut state = self.as_mut().rust_mut();
-            let changed = (
-                state.selected_work_id != id,
-                state.selected_work.as_ref().map(|work| work.category)
-                    != work.map(|work| work.category),
-                state.selected_work_title != title,
-                state.selected_work_description != description,
-                state.selected_variant_id != variant_id,
-            );
-            state.selected_work_id = id;
-            state.selected_work_title = title;
-            state.selected_work_description = description;
-            state.selected_work = work.cloned();
-            state.selected_variant_id = variant_id;
-            changed
-        };
-        if id_changed {
-            self.as_mut().selected_work_id_changed();
-        }
-        if self.inspection.generation != generation {
-            return false;
-        }
-        if category_changed {
-            self.as_mut().selected_work_category_changed();
-        }
-        if self.inspection.generation != generation {
-            return false;
-        }
-        if title_changed {
-            self.as_mut().selected_work_title_changed();
-        }
-        if self.inspection.generation != generation {
-            return false;
-        }
-        if description_changed {
-            self.as_mut().selected_work_description_changed();
-        }
-        if self.inspection.generation != generation {
-            return false;
-        }
-        if variant_changed {
-            self.as_mut().selected_variant_id_changed();
-        }
-        if self.inspection.generation != generation {
-            return false;
-        }
-        self.as_mut().refresh_selected_favorite();
-        self.inspection.generation == generation
-    }
-
-    fn show_work(mut self: Pin<&mut Self>, work: &Work, generation: u64) -> bool {
-        if !self.as_mut().set_selection(Some(work), generation) {
-            return false;
-        }
-        self.as_mut().rust_mut().variants.pin_mut().update(work);
-        if self.inspection.generation != generation {
-            return false;
-        }
-        self.as_mut().selected_variant_state_changed();
-        self.inspection.generation == generation
-    }
-
-    pub fn select_work(mut self: Pin<&mut Self>, id: QString) {
-        let model = match self.list_mode {
-            ffi::ListMode::Favorites => &self.favorites,
-            ffi::ListMode::History => &self.history,
-            _ => &self.works,
-        };
-        let Some(mut work) = model.find(&id.to_string()).cloned() else {
-            return;
-        };
-        if self.list_mode != ffi::ListMode::Search {
-            work.needs_inspection = true;
-        }
-        if self.selected_work_id == id && (self.inspecting || !work.needs_inspection) {
-            return;
-        }
-
-        let (generation, resolution_generation) = self.as_mut().cancel_detail();
-        if self.inspection.generation != generation
-            || self.resolution.generation != resolution_generation
-        {
-            return;
-        }
-        if self.selected_work_id != id {
-            self.as_mut().rust_mut().variants.pin_mut().clear();
-            if self.inspection.generation != generation
-                || self.resolution.generation != resolution_generation
-            {
-                return;
-            }
-        }
-        let request = self.services.as_ref().and_then(|services| {
-            self.source_request(SourceOperation::Inspect {
-                reference: work.reference.clone(),
-                language: (work.reference.source == Source::MangaDex)
-                    .then(|| services.language.clone()),
-            })
-        });
-        let should_inspect = work.needs_inspection && request.is_some();
-        // Cached variants cannot become actionable during synchronous selection notifications.
-        self.as_mut().rust_mut().inspecting = should_inspect;
-        if !self.as_mut().show_work(&work, generation) {
-            return;
-        }
-        self.as_mut().set_error(None);
-        if self.inspection.generation != generation {
-            return;
-        }
-        if should_inspect {
-            self.as_mut().inspecting_changed();
-        }
-        if self.inspection.generation != generation {
-            return;
-        }
-        if !work.needs_inspection {
-            self.as_mut().select_initial_variant();
-            return;
-        }
-        if self.services.is_none() {
-            self.as_mut()
-                .set_error(Some(ffi::ContentError::ServicesUnavailable));
-            return;
-        }
-        let Some(request) = request else {
-            return;
-        };
-        if !self.source_request_current(&request) {
-            self.as_mut().set_inspecting(false);
-            return;
-        }
-
-        let qt_thread = self.qt_thread();
-        let services = self.services.as_ref().unwrap();
-        let anime = Arc::clone(&services.anime);
-        let manga = Arc::clone(&services.manga);
-        let rutor = Arc::clone(&services.rutor);
-        let task = services.runtime.spawn(async move {
-            let result = execute_operation(&request.operation, anime, manga, rutor).await;
-            let _ = qt_thread.queue(move |mut controller| {
-                if controller.inspection.generation != generation
-                    || !controller.source_request_current(&request)
-                {
-                    return;
-                }
-                controller.as_mut().rust_mut().inspection.task = None;
-                controller.as_mut().source_outcome(&request, &result);
-                if controller.inspection.generation != generation
-                    || !controller.source_request_current(&request)
-                {
-                    return;
-                }
-                if let Ok(SourceResponse::Inspect(work)) = result {
-                    if !controller.as_mut().show_work(&work, generation) {
-                        return;
-                    }
-                    if controller.works.find(&work_id(&work.reference)).is_some() {
-                        controller.as_mut().rust_mut().works.pin_mut().update(work);
-                    }
-                }
-                if controller.inspection.generation == generation {
-                    controller.as_mut().set_inspecting(false);
-                    if controller.inspection.generation == generation
-                        && controller.error_kind.is_none()
-                    {
-                        if controller.selected_variant_id.is_empty() {
-                            controller.as_mut().select_initial_variant();
-                        } else {
-                            controller.as_mut().save_selected_preferences();
-                        }
-                    }
-                }
-            });
-        });
-        self.as_mut().rust_mut().inspection.task = Some(task);
     }
 }
