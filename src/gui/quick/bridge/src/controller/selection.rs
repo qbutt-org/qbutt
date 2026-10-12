@@ -35,17 +35,18 @@ impl ffi::ContentController {
 
     pub(super) fn variant_selection_state(&self) -> ffi::VariantSelectionState {
         if self.inspecting {
-            ffi::VariantSelectionState::Inspecting
-        } else if self.selected_variant_id.is_empty() {
-            ffi::VariantSelectionState::None
-        } else if self
-            .variants
-            .find(&self.selected_variant_id.to_string())
-            .is_some_and(|variant| self.source_enabled(variant.reference.publication.source))
-        {
+            return ffi::VariantSelectionState::Inspecting;
+        }
+        if self.selected_variant_id.is_empty() {
+            return ffi::VariantSelectionState::None;
+        }
+        let Some(variant) = self.variants.find(&self.selected_variant_id.to_string()) else {
+            return ffi::VariantSelectionState::Unavailable;
+        };
+        if self.source_enabled(variant.reference.publication.source) {
             ffi::VariantSelectionState::Available
         } else {
-            ffi::VariantSelectionState::Unavailable
+            ffi::VariantSelectionState::SourceDisabled
         }
     }
 

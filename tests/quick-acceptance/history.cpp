@@ -228,7 +228,8 @@ void exerciseHistory()
         {u"source"_s, u"manga_dex"_s},
         {u"language"_s, u"ru"_s},
         {u"player"_s, QJsonValue::Null},
-        {u"transport"_s, u"manga"_s}
+        {u"transport"_s, u"manga"_s},
+        {u"query"_s, QJsonValue::Null}
     };
     auto preferences = metadata.value(u"preferences"_s).toObject();
     preferences.insert(u"filters"_s, filters);

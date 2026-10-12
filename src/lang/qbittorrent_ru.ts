@@ -18931,6 +18931,10 @@ Please choose a different name and try again.</source>
         <source>Saved variant is unavailable. Choose another.</source>
         <translation>Сохранённый вариант недоступен. Выберите другой.</translation>
     </message>
+    <message>
+        <source>Enable this source in Sources.</source>
+        <translation>Включите источник в «Источниках».</translation>
+    </message>
 </context>
 <context>
     <name>FacetField</name>

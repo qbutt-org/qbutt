@@ -122,7 +122,9 @@ Pane {
             objectName: "contentUnavailableVariant"
             Layout.fillWidth: true
             visible: root.backend.selectedVariantState === Search.Unavailable
-            text: qsTr("Saved variant is unavailable. Choose another.")
+                || root.backend.selectedVariantState === Search.SourceDisabled
+            text: root.backend.selectedVariantState === Search.SourceDisabled
+                ? qsTr("Enable this source in Sources.") : qsTr("Saved variant is unavailable. Choose another.")
             wrapMode: Text.Wrap
             textFormat: Text.PlainText
         }

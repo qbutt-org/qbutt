@@ -152,6 +152,7 @@ pub mod ffi {
         Inspecting,
         Available,
         Unavailable,
+        SourceDisabled,
     }
 
     #[namespace = ""]

@@ -175,12 +175,20 @@ namespace
             settled(*controller);
             controller->selectWork(u"aniliberty:%1"_s.arg(900'000 + number));
             require(!controller->property("inspecting").toBool(), u"Offline fixture started inspection"_s);
+            require(controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
+                    == Qbutt::Search::VariantSelectionState::SourceDisabled
+                && item(u"contentUnavailableVariant"_s)->isVisible()
+                && (item(u"contentUnavailableVariant"_s)->property("text").toString()
+                    == QCoreApplication::translate("WorkPane", "Enable this source in Sources."))
+                && !item(u"contentDownload"_s)->isEnabled(),
+                u"Disabled source was presented as a missing exact variant or remained actionable"_s);
             require(controller->setSourceEnabled(u"aniliberty"_s, true), u"Source enable failed"_s);
             settled(*controller);
             waitFor([&] { return proxy->episodeOptions().size() == 12; }, u"Full variant facets"_s);
             require(full->rowCount() == 48, u"Stored full variant model was lost"_s);
             require(controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
-                == Qbutt::Search::VariantSelectionState::Available, u"Fixture selection is unavailable"_s);
+                    == Qbutt::Search::VariantSelectionState::Available
+                && !item(u"contentUnavailableVariant"_s)->isVisible(), u"Fixture selection is unavailable"_s);
         }
 
         void choose(const QString &name, const QVariantMap &option)
