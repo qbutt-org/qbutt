@@ -17,6 +17,7 @@ mod media;
 mod model;
 mod nyaa;
 mod rutor;
+mod rutube;
 mod sources;
 mod torrent;
 mod yummyanime;
@@ -32,6 +33,7 @@ pub use media::{MediaGateway, MediaGatewayError};
 pub use model::*;
 pub use nyaa::Nyaa;
 pub use rutor::RuTor;
+pub use rutube::Rutube;
 pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};
 pub use yummyanime::YummyAnime;
 

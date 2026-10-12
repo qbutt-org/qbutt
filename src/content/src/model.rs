@@ -12,6 +12,7 @@ pub enum Source {
     MangaLib,
     RuTor,
     Nyaa,
+    Rutube,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -28,6 +29,7 @@ impl PublicationRef {
             Source::YummyAnime => self.yummyanime_id().map(|_| ()),
             Source::RuTor => self.rutor_id().map(|_| ()),
             Source::Nyaa => self.nyaa_id().map(|_| ()),
+            Source::Rutube => self.rutube_id().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
             Source::MangaDex => Err(crate::Error::InvalidReference),
@@ -45,6 +47,20 @@ impl PublicationRef {
 
     pub(crate) fn nyaa_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::Nyaa)
+    }
+
+    pub(crate) fn rutube_id(&self) -> crate::Result<&str> {
+        if self.source == Source::Rutube
+            && self.id.len() == 32
+            && self
+                .id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            Ok(&self.id)
+        } else {
+            Err(crate::Error::InvalidReference)
+        }
     }
 
     pub(crate) fn mangalib_id(&self) -> crate::Result<u64> {
@@ -124,6 +140,8 @@ pub enum VariantSelector {
     Rutube {
         episode_id: String,
     },
+    /// The single video identified by the containing Rutube publication.
+    RutubeVideo,
     YummyAnimeVideo {
         id: u64,
         episode: String,
@@ -144,6 +162,7 @@ pub enum VariantSelector {
 impl VariantSelector {
     pub(crate) fn validate(&self) -> crate::Result<()> {
         let valid = match self {
+            Self::RutubeVideo => true,
             Self::Torrent { id } => *id != 0,
             Self::TorrentHash { info_hash } => {
                 info_hash.len() == 40
@@ -208,6 +227,7 @@ impl VariantRef {
                 | (Source::MangaLib, VariantSelector::LibTranslation { .. })
                 | (Source::RuTor, VariantSelector::TorrentHash { .. })
                 | (Source::Nyaa, VariantSelector::TorrentHash { .. })
+                | (Source::Rutube, VariantSelector::RutubeVideo)
         );
         if matches_source {
             Ok(())

@@ -48,12 +48,6 @@ impl Library {
                     failure TEXT
                 ) STRICT;",
             )?;
-            for source in crate::Source::ALL {
-                transaction.execute(
-                    "INSERT INTO source_settings (source, enabled, revision) VALUES (?1, 1, 0)",
-                    [source.id()],
-                )?;
-            }
             transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if application_id != APPLICATION_ID {
@@ -127,6 +121,15 @@ impl Library {
         )?;
         if !sources_table_valid || sources_columns_valid != 4 {
             return Err(LibraryError::InvalidSchema);
+        }
+        // The registered catalog owns the current set. Preserve saved rows and
+        // initialize settings for newly registered sources in the same transaction.
+        for source in crate::Source::ALL {
+            transaction.execute(
+                "INSERT OR IGNORE INTO source_settings (source, enabled, revision)
+                 VALUES (?1, 1, 0)",
+                [source.id()],
+            )?;
         }
         transaction.commit()?;
         Ok(Self { connection })

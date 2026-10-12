@@ -27,6 +27,9 @@ fn main() -> Result<()> {
         );
         assert_eq!(library.reader_settings()?.fit, ReaderFit::Width);
         assert_eq!(library.reader_settings()?.mode, ReaderMode::Continuous);
+        let added = row(&library, Source::Rutube)?;
+        assert!(added.enabled && added.revision == 0 && added.failure.is_none());
+        assert_eq!(library.source_settings()?.len(), Source::ALL.len());
         return Ok(());
     }
 
@@ -40,6 +43,7 @@ fn main() -> Result<()> {
     println!("PASS source_preferences=restart exact_failed_operation=restart");
     println!("unrelated_success=retained stale_success=retained same_operation_aba=retained");
     println!("exact_success=cleared invalid_write=unchanged sqlite_abort=unchanged");
+    println!("new_source=initialized existing_source_settings=preserved");
     println!("corrupt_source=isolated reader_settings=preserved unrelated_payload=preserved");
     Ok(())
 }
@@ -81,6 +85,12 @@ fn exercise(profile: &Path) -> Result<()> {
         reason: SourceFailureReason::Timeout,
     })?;
     drop(library);
+    let raw = Connection::open(profile.join("content-library.sqlite"))?;
+    assert_eq!(
+        raw.execute("DELETE FROM source_settings WHERE source = 'rutube'", [])?,
+        1
+    );
+    drop(raw);
     let status = Command::new(std::env::current_exe()?)
         .arg("--reopen")
         .arg(profile)

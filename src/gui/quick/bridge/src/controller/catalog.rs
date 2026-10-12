@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use qbutt_content::{
-    AniLiberty, Chapter, MangaDex, MangaLib, Nyaa, ResolvedContent, RuTor, Source, SourceOperation,
-    Work, YummyAnime,
+    AniLiberty, Chapter, MangaDex, MangaLib, Nyaa, ResolvedContent, RuTor, Rutube, Source,
+    SourceOperation, Work, YummyAnime,
 };
 
 pub enum SourceResponse {
@@ -23,6 +23,7 @@ pub(super) struct Catalog {
     pub(super) mangalib: Arc<MangaLib>,
     rutor: RuTor,
     nyaa: Nyaa,
+    rutube: Rutube,
 }
 
 impl Catalog {
@@ -34,6 +35,7 @@ impl Catalog {
             mangalib: Arc::new(MangaLib::new()?),
             rutor: RuTor::new()?,
             nyaa: Nyaa::new()?,
+            rutube: Rutube::new()?,
         })
     }
 
@@ -60,6 +62,7 @@ impl Catalog {
                     Source::MangaLib => self.mangalib.search(query).await,
                     Source::RuTor => self.rutor.search(query, *category).await,
                     Source::Nyaa => self.nyaa.search(query, *category).await,
+                    Source::Rutube => self.rutube.search(query, *category).await,
                 }?;
                 Ok(SourceResponse::Search(works))
             }
@@ -78,6 +81,7 @@ impl Catalog {
                     Source::MangaLib => self.mangalib.inspect(reference).await,
                     Source::RuTor => self.rutor.inspect(reference).await,
                     Source::Nyaa => self.nyaa.inspect(reference).await,
+                    Source::Rutube => self.rutube.inspect(reference).await,
                 }?;
                 Ok(SourceResponse::Inspect(work))
             }
@@ -87,6 +91,7 @@ impl Catalog {
                     Source::YummyAnime => self.yummyanime.resolve(reference).await,
                     Source::RuTor => self.rutor.resolve(reference).await,
                     Source::Nyaa => self.nyaa.resolve(reference).await,
+                    Source::Rutube => self.rutube.resolve(reference).await,
                     Source::MangaDex | Source::MangaLib => {
                         Err(qbutt_content::Error::InvalidReference)
                     }

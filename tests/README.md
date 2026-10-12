@@ -102,6 +102,24 @@ and 720p on Kodik, and rejects changed episode, voice and player selectors. It
 requests catalog/player metadata and HLS manifests; it does not establish media
 playback, browser capture or the native Qt interface.
 
+Rutube has generated HTTPS/fault and two-process library checks, plus a bounded
+live metadata/manifest check using Big Buck Bunny:
+
+```powershell
+cargo run --locked --offline -p qbutt-content --example rutube-fixtures
+cargo run --locked --offline -p qbutt-content --example sources
+cargo run --locked --offline -p qbutt-content --example rutube
+```
+
+The fixtures reject paid, locked, hidden, deleted and substituted publications,
+denied access, DRM, malformed quality data, unsafe redirects and oversized
+responses. They check cancellation, exact public identity after SQLite reopening,
+and unknown categories without relabeling them from the requested category.
+The sources scenario also initializes a newly registered source in an existing
+database while preserving other sources' saved enablement and failures.
+The live command verifies the exact free publication and advertised HLS quality.
+These checks fetch no media segments and do not establish native playback.
+
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in
 [development setup](../docs/development.md), then run:
