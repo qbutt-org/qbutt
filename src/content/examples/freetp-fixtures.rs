@@ -11,6 +11,7 @@ pub use qbutt_content::{Error, Result};
 mod browser;
 
 #[path = "../src/torrent.rs"]
+#[allow(dead_code)]
 mod torrent;
 
 #[allow(dead_code)]
@@ -174,7 +175,8 @@ impl Fixture {
                             }
                             request.push(byte[0]);
                         }
-                        let target = String::from_utf8_lossy(&request)
+                        let request = String::from_utf8_lossy(&request);
+                        let target = request
                             .split_whitespace()
                             .nth(1)
                             .unwrap_or("")
@@ -188,7 +190,18 @@ impl Fixture {
                         if params.iter().any(|(name, value)| name == "story" && value == "hold") {
                             tokio::time::sleep(Duration::from_millis(200)).await;
                         }
-                        let (status, mime, bytes) = page(url.path(), &params, changed.load(Ordering::SeqCst));
+                        let expected_referer = params
+                            .iter()
+                            .find(|(name, _)| name == "id")
+                            .map(|(_, id)| format!("Referer: {origin}getfile-{id}"));
+                        let referred = expected_referer.as_ref().is_some_and(|expected| {
+                            request.lines().any(|line| line.trim().eq_ignore_ascii_case(expected))
+                        });
+                        let (status, mime, bytes) = if url.path() == "/engine/download.php" && !referred {
+                            ("403 Forbidden", "text/html; charset=cp1251", Vec::new())
+                        } else {
+                            page(url.path(), &params, changed.load(Ordering::SeqCst))
+                        };
                         let location = if url.path() == "/index.php"
                             && params.iter().any(|(name, _)| name == "newsid")
                         {

@@ -199,13 +199,14 @@ impl FreeTP {
     }
 
     async fn metadata(&self, id: u64, session: &mut SourceSession) -> Result<TorrentMetadata> {
+        let referer = self.origin.join(&format!("/getfile-{id}")).unwrap();
         let url = self
             .origin
             .join(&format!("/engine/download.php?id={id}&area="))
             .unwrap();
         let response = self
             .http
-            .session_metadata(url.clone(), session, None)
+            .session_referred_metadata(url.clone(), session, &referer)
             .await?;
         match response.status {
             200 if response.final_url == url => {}
@@ -454,7 +455,8 @@ fn selector(css: &str) -> Selector {
 }
 
 fn unique<'a>(root: ElementRef<'a>, css: &str) -> Result<ElementRef<'a>> {
-    let mut elements = root.select(&selector(css));
+    let parsed = selector(css);
+    let mut elements = root.select(&parsed);
     let first = elements
         .next()
         .ok_or(Error::InvalidResponse("missing FreeTP page metadata"))?;
