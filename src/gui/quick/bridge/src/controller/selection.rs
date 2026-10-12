@@ -34,8 +34,8 @@ impl ffi::ContentController {
         publications: Vec<Work>,
         preferred: Option<VariantRef>,
     ) -> bool {
-        if references.is_empty()
-            || publications.is_empty()
+        if publications.is_empty()
+            || references.len() != publications.len()
             || references.iter().collect::<HashSet<_>>().len() != references.len()
             || publications
                 .iter()
