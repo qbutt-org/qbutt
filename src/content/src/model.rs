@@ -17,6 +17,7 @@ pub enum Source {
     Rutube,
     #[serde(rename = "fitgirl")]
     FitGirl,
+    RoyalRoad,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -36,6 +37,7 @@ impl PublicationRef {
             Source::Nyaa => self.nyaa_id().map(|_| ()),
             Source::Rutube => self.rutube_id().map(|_| ()),
             Source::FitGirl => self.fitgirl_slug().map(|_| ()),
+            Source::RoyalRoad => self.royalroad_id().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
             Source::RanobeLib => self.ranobelib_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
@@ -75,6 +77,10 @@ impl PublicationRef {
         } else {
             Err(crate::Error::InvalidReference)
         }
+    }
+
+    pub(crate) fn royalroad_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::RoyalRoad)
     }
 
     pub(crate) fn rutube_id(&self) -> crate::Result<&str> {
@@ -269,6 +275,7 @@ impl VariantRef {
                 | (Source::Nyaa, VariantSelector::TorrentHash { .. })
                 | (Source::FitGirl, VariantSelector::TorrentHash { .. })
                 | (Source::Rutube, VariantSelector::RutubeVideo)
+                | (Source::RoyalRoad, VariantSelector::OriginalText)
         );
         if matches_source {
             Ok(())
@@ -312,6 +319,9 @@ impl ChapterRef {
         if match self.variant.publication.source {
             Source::MangaDex => canonical_uuid(&self.id),
             Source::MangaLib | Source::RanobeLib => canonical_decimal(&self.id),
+            Source::RoyalRoad => self.id.split_once('/').is_some_and(|(fiction, chapter)| {
+                fiction == self.variant.publication.id && canonical_decimal(chapter)
+            }),
             _ => false,
         } {
             Ok(())

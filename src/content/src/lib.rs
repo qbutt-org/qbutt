@@ -19,6 +19,7 @@ mod media;
 mod model;
 mod nyaa;
 mod ranobelib;
+mod royalroad;
 mod rutor;
 #[cfg(windows)]
 mod rutracker;
@@ -41,6 +42,7 @@ pub use media::{MediaGateway, MediaGatewayError};
 pub use model::*;
 pub use nyaa::Nyaa;
 pub use ranobelib::RanobeLib;
+pub use royalroad::RoyalRoad;
 pub use rutor::RuTor;
 #[cfg(windows)]
 pub use rutracker::RuTracker;
