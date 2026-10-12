@@ -153,6 +153,7 @@ fn public_source(source: Source) -> bool {
             | Source::MangaDex
             | Source::MangaLib
             | Source::RanobeLib
+            | Source::RanobeHub
             | Source::RuTor
             | Source::RuTracker
             | Source::Nyaa
