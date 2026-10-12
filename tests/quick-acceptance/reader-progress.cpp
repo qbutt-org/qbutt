@@ -161,6 +161,7 @@ namespace
     {
         QTemporaryDir profile;
         require(profile.isValid(), u"Could not create the initial failure profile"_s);
+        Qbutt::ContentController controller;
         const QString connectionName = u"reader-progress-initial-failure"_s;
         auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, connectionName);
         const auto closeDatabase = qScopeGuard([&]
@@ -179,8 +180,16 @@ namespace
         execute(database, u"INSERT INTO reader_settings VALUES (1, 0, 0)"_s);
         execute(database, u"CREATE TABLE source_settings (source TEXT PRIMARY KEY NOT NULL, "
             "enabled INTEGER NOT NULL, revision INTEGER NOT NULL, failure TEXT) STRICT"_s);
-        execute(database, u"INSERT INTO source_settings (source, enabled, revision) VALUES "
-            "('aniliberty', 1, 0), ('mangadex', 1, 0), ('rutor', 1, 0), ('nyaa', 1, 0)"_s);
+        QSqlQuery sourceInsert(database);
+        require(sourceInsert.prepare(u"INSERT INTO source_settings (source, enabled, revision) VALUES (?, 1, 0)"_s),
+            sourceInsert.lastError().text());
+        auto *sources = model(controller, "sources");
+        require(sources->rowCount() > 0, u"Initial source catalogue is empty"_s);
+        for (int row = 0; row < sources->rowCount(); ++row)
+        {
+            sourceInsert.bindValue(0, value(sources, row, "sourceId"));
+            require(sourceInsert.exec(), sourceInsert.lastError().text());
+        }
 
         execute(database, u"PRAGMA user_version = 6"_s);
         metadata.insert(u"last_opened"_s, QJsonValue::Null);
@@ -194,7 +203,6 @@ namespace
         insert.addBindValue(QString::fromUtf8(QJsonDocument(initial).toJson(QJsonDocument::Compact)));
         require(insert.exec(), insert.lastError().text());
 
-        Qbutt::ContentController controller;
         controller.search(u"Frieren"_s);
         waitFor([&] { return !controller.property("busy").toBool(); }, u"Initial failure search"_s);
         controller.selectWork(publication);
@@ -203,7 +211,7 @@ namespace
         require(controller.property("selectedVariantId").toString() == exact, u"Initial failure variant is missing"_s);
         if (!invalidMetadata)
             execute(database, u"BEGIN EXCLUSIVE"_s);
-        bool acceptedWhileLoading = false;
+        bool attemptedWhileLoading = false;
         QObject observations;
         QObject::connect(&controller, &Qbutt::ContentController::libraryStateChanged, &observations, [&]
         {
@@ -212,10 +220,14 @@ namespace
             {
                 return;
             }
-            if (!acceptedWhileLoading)
+            if (!attemptedWhileLoading)
             {
+                attemptedWhileLoading = true;
                 controller.openReader();
-                acceptedWhileLoading = controller.property("libraryPending").toBool();
+                require(!controller.property("libraryPending").toBool()
+                    && !controller.property("readerBusy").toBool()
+                    && controller.property("readerPageUrl").toUrl().isEmpty(),
+                    u"Reader acquired content before source settings were ready"_s);
             }
         }, Qt::DirectConnection);
         controller.initLibrary(profile.path());
@@ -224,25 +236,26 @@ namespace
             return controller.property("libraryState").value<Qbutt::Library::LibraryState>()
                 == Qbutt::Library::LibraryState::Failed;
         }, u"Initial library failure"_s);
-        require(acceptedWhileLoading && !controller.property("libraryPending").toBool(),
-            u"Initial failure did not drain an accepted resume read"_s);
-        readerFailed(controller, "Could not open the content library.");
+        require(attemptedWhileLoading && !controller.property("libraryPending").toBool()
+            && !controller.property("readerBusy").toBool(),
+            u"Initial failure accepted an unavailable source"_s);
         require(!controller.property("readerHasChapters").toBool()
             && entry(database).value(u"last_opened"_s).isNull(), u"Initial failure invented chapters or history"_s);
         if (invalidMetadata)
             writeEntry(database, metadata);
         else
             execute(database, u"ROLLBACK"_s);
-        if (invalidMetadata)
-            require(controller.retryLibrary(), u"Explicit library retry was rejected"_s);
-        else
-            controller.retryReader();
-        require(controller.property("libraryState").value<Qbutt::Library::LibraryState>()
-            != Qbutt::Library::LibraryState::Failed, u"Temporary startup failure could not retry the same owner"_s);
-        const QUrl recovered = readyPage(controller);
+        require(controller.retryLibrary(), u"Explicit library retry was rejected"_s);
+        waitFor([&]
+        {
+            return controller.property("libraryState").value<Qbutt::Library::LibraryState>()
+                != Qbutt::Library::LibraryState::Loading;
+        }, u"Initial library retry"_s);
         require(controller.property("libraryState").value<Qbutt::Library::LibraryState>()
             == Qbutt::Library::LibraryState::Ready && controller.property("libraryErrorText").toString().isEmpty(),
             u"Retry did not reopen the same profile successfully"_s);
+        controller.openReader();
+        const QUrl recovered = readyPage(controller);
         require(entry(database).value(u"last_opened"_s).isNull(), u"Startup retry invented reading history"_s);
         controller.readerPageShown(controller.property("readerPageIndex").toInt(), recovered);
         controller.scrollReaderPage(recovered, 0.375);
@@ -458,8 +471,13 @@ void exerciseReaderProgress()
 
     controller->closeReader();
     execute(database, u"BEGIN EXCLUSIVE"_s);
+    const QJsonObject beforeReadFault = entry(database);
     controller->openReader();
+    require(controller->property("libraryPending").toBool() && controller->property("readerBusy").toBool(),
+        u"Ready library did not accept the resume read"_s);
     readerFailed(*controller, "Could not open the content library.");
+    waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Failed resume read drain"_s);
+    require(entry(database) == beforeReadFault, u"Failed resume read changed history or progress"_s);
     execute(database, u"ROLLBACK"_s);
     controller->retryReader();
     const QUrl afterReadFault = readyPage(*controller);
