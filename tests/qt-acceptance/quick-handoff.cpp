@@ -40,7 +40,6 @@
 #include "base/utils/fs.h"
 #include "gui/addnewtorrentdialog.h"
 #include "gui/content/sourcesdialog.h"
-#include "gui/content/downloadswidget.h"
 #include "gui/fspathedit.h"
 #include "gui/guiaddtorrentmanager.h"
 #include "gui/mainwindow.h"
@@ -204,12 +203,28 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         auto *window = application.mainWindow();
         auto *downloads = window->findChild<QAction *>(u"actionContentDownloads"_s);
         require(downloads && downloads->isEnabled() && (downloads->shortcut() == QKeySequence(Qt::CTRL | Qt::Key_J))
-            && !window->findChild<Content::DownloadsWidget *>(), u"Direct downloads have no lazy manual entry"_s);
+            && window->findChildren<QQuickWidget *>(u"downloadsView"_s).isEmpty(),
+            u"Direct downloads have no lazy manual entry"_s);
         downloads->trigger();
-        auto *jobs = window->findChild<Content::DownloadsWidget *>();
-        require(jobs && (window->currentTabWidget() == jobs), u"Manual Downloads action did not open existing jobs"_s);
+        auto *jobs = window->findChild<QQuickWidget *>(u"downloadsView"_s);
+        require(jobs && (window->currentTabWidget() == jobs), u"Manual Downloads action did not open the native view"_s);
+        waitFor([&] { return jobs->status() != QQuickWidget::Loading; }, 10'000, u"Downloads QML load"_s);
+        require(jobs->status() == QQuickWidget::Ready && jobs->rootObject(),
+            u"Downloads QML did not load"_s);
+        waitFor([&] { return controller->property("downloadsState").toString() != u"loading"_s; },
+            10'000, u"Native download queue"_s);
+        require(controller->property("downloadsState").toString() == u"ready"_s,
+            u"Native download queue did not open"_s);
+        auto *downloadList = jobs->rootObject()->findChild<QQuickItem *>(u"contentDownloads"_s);
+        require(jobs->rootObject()->property("backend").value<QObject *>() == controller
+            && downloadList
+            && downloadList->property("model").value<QObject *>()
+                == controller->property("downloads").value<QObject *>(),
+            u"Downloads view does not share the content controller and queue model"_s);
         downloads->trigger();
-        require(window->findChildren<Content::DownloadsWidget *>().size() == 1, u"Downloads action duplicated its queue view"_s);
+        require(window->findChildren<QQuickWidget *>(u"downloadsView"_s).size() == 1
+            && window->currentTabWidget() == jobs,
+            u"Downloads action duplicated its queue view"_s);
         require(QMetaObject::invokeMethod(window, "displaySearchTab") && (window->currentTabWidget() == &view),
             u"Returning from Downloads lost the native search view"_s);
     }

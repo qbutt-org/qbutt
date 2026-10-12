@@ -47,7 +47,6 @@ add_library(qbt_gui STATIC
     content/browserconnectionwidget.h
     content/browserprerequisitewidget.h
     content/chapterpicker.h
-    content/downloadswidget.h
     content/modaloverlay.h
     content/readerimages.h
     content/readersettingsdialog.h
@@ -166,7 +165,6 @@ add_library(qbt_gui STATIC
     content/browserconnectionwidget.cpp
     content/browserprerequisitewidget.cpp
     content/chapterpicker.cpp
-    content/downloadswidget.cpp
     content/modaloverlay.cpp
     content/readerimages.cpp
     content/readersettingsdialog.cpp
