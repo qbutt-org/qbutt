@@ -4,8 +4,10 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
+use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
     DirectDownload, DownloadQueue, MediaGateway, ResolvedContent, SourceOperation, Transport,
+    VariantSelector, resolve_external_video,
 };
 
 use super::catalog::SourceResponse;
@@ -116,7 +118,7 @@ impl ffi::ContentController {
         self.as_mut().resolve_download(request, queue, None)
     }
 
-    pub fn cancel_download(&self, id: QString) -> bool {
+    pub fn cancel_download(self: Pin<&mut Self>, id: QString) -> bool {
         if !self.downloads.cancellable(&id.to_string()) {
             return false;
         }
@@ -164,14 +166,35 @@ impl ffi::ContentController {
             return false;
         };
         let catalog = Arc::clone(&services.catalog);
+        let browser = services.browser.client();
         let qt_thread = self.qt_thread();
         services.runtime.spawn(async move {
             let result = catalog.execute(&request.operation).await;
-            let prepared = match &result {
-                Ok(SourceResponse::Resolve(ResolvedContent::BrowserVideo { media, .. })) => {
-                    Some(MediaGateway::prepare(media.clone()).await)
+            let external = if let Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
+                reference,
+                url,
+                ..
+            })) = &result
+            {
+                if matches!(&reference.selector, VariantSelector::YummyAnimeVideo { player, .. } if player == "Плеер VK") {
+                    Some(async {
+                        let handle = browser.handle().await.map_err(|_| ())?;
+                        let media = resolve_external_video(
+                            &handle,
+                            BrowserChoice::Auto,
+                            reference,
+                            url.clone(),
+                        )
+                        .await
+                        .map_err(|_| ())?;
+                        MediaGateway::prepare(media).await.map_err(|_| ())
+                    }
+                    .await)
+                } else {
+                    None
                 }
-                _ => None,
+            } else {
+                None
             };
             let _ = qt_thread.queue(move |mut controller| {
                 if !controller.source_request_current(&request) {
@@ -192,19 +215,15 @@ impl ffi::ContentController {
                         url,
                         ..
                     })) if &resolved == reference => DirectDownload::new(resolved, title, url),
-                    Ok(SourceResponse::Resolve(ResolvedContent::BrowserVideo {
+                    Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
                         reference: resolved,
                         title,
                         ..
-                    })) if &resolved == reference => match prepared {
+                    })) if &resolved == reference => match external {
                         Some(Ok((gateway, media))) => {
                             DirectDownload::prepared(resolved, title, media, gateway)
                         }
-                        Some(Err(error)) => {
-                            ffi::log_content_error(
-                                &QString::from("download media"),
-                                &QString::from(error.to_string()),
-                            );
+                        Some(Err(())) => {
                             controller
                                 .as_mut()
                                 .set_error(Some(ffi::ContentError::Download));

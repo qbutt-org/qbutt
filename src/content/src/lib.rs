@@ -10,10 +10,10 @@ mod aniliberty;
 mod association;
 #[cfg(windows)]
 pub mod browser;
-#[cfg(windows)]
-mod external_video;
 mod download;
 mod error;
+#[cfg(windows)]
+mod external_video;
 mod fitgirl;
 mod http;
 mod kakuyomu;
@@ -28,7 +28,6 @@ mod nyaa;
 mod ranobehub;
 mod ranobelib;
 mod royalroad;
-mod playback;
 mod rutor;
 #[cfg(windows)]
 mod rutracker;
@@ -40,12 +39,12 @@ mod yummyanime;
 
 pub use aniliberty::AniLiberty;
 pub use association::{WorkAssociation, WorkGroup, rank_variants};
-#[cfg(windows)]
-pub use external_video::{ExternalVideoError, resolve_external_video};
 pub use download::{
     DirectDownload, DownloadError, DownloadJob, DownloadQueue, DownloadStatus, DownloadStorage,
 };
 pub use error::{Error, Result};
+#[cfg(windows)]
+pub use external_video::{ExternalVideoError, resolve_external_video};
 pub use fitgirl::FitGirl;
 pub use kakuyomu::Kakuyomu;
 pub use lib_api::LibSession;
@@ -62,7 +61,6 @@ pub use nyaa::Nyaa;
 pub use ranobehub::RanobeHub;
 pub use ranobelib::RanobeLib;
 pub use royalroad::RoyalRoad;
-pub use playback::{PlaybackAudioTrack, PlaybackMedia};
 pub use rutor::RuTor;
 #[cfg(windows)]
 pub use rutracker::RuTracker;

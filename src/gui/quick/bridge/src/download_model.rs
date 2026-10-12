@@ -169,7 +169,7 @@ impl ffi::DownloadModel {
                 self.as_mut()
                     .begin_insert_rows(&QModelIndex::default(), row, row);
                 self.as_mut().rust_mut().rows.push(job);
-                self.end_insert_rows();
+                self.as_mut().end_insert_rows();
             }
         }
     }

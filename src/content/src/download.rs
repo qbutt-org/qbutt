@@ -421,6 +421,10 @@ impl<S: DownloadStorage> QueueInner<S> {
         id: &str,
         outcome: Result<PathBuf, DownloadError>,
     ) -> Result<(), DownloadError> {
+        let outcome = match remove_partial(&self.destination, id).await {
+            Ok(()) => outcome,
+            Err(error) => Err(error),
+        };
         let state = self.state.lock().await;
         let cancelled = state
             .cancellation
@@ -457,7 +461,6 @@ impl<S: DownloadStorage> QueueInner<S> {
             })
             .await;
         self.state.lock().await.cancellation.remove(id);
-        remove_partial(&self.destination, id).await?;
         result
     }
 
