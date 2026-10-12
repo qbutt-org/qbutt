@@ -3,10 +3,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use qbutt_content::translation::{
-    codex::{self, CodexError, InputImage},
-    manga::{self, Ink, PageRegion, Rect, RenderLayers},
-};
+use qbutt_codex::{self as codex, CodexError, InputImage};
+use qbutt_content::translation::manga::{self, Ink, PageRegion, Rect, RenderLayers};
 use serde_json::json;
 
 pub struct RenderCancellation {

@@ -12,11 +12,11 @@ use tokio::sync::watch;
 use crate::ChapterRef;
 use crate::library::TranslationCacheKey;
 
-use super::codex::{
-    self, CodexCompletion, CodexError, CodexRequest, FunctionTool, InputImage, ToolCall,
-    ToolFuture, ToolHandler, ToolOutput,
-};
 use super::context::{ContextAdditions, EvidenceSegment, TranslationContext};
+use qbutt_codex::{
+    self as codex, CodexCompletion, CodexError, CodexRequest, FunctionTool, InputImage,
+    ModelModality, ToolCall, ToolFuture, ToolHandler, ToolOutput,
+};
 
 mod output;
 
@@ -267,6 +267,7 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     definitions.extend(context_definitions);
     let request = CodexRequest {
         instructions: PAGE_INSTRUCTIONS.to_owned(),
+        modality: ModelModality::Image,
         prompt: json!({
             "targetLanguage": job.target_language,
             "workContext": job.work_context.search("", 80)

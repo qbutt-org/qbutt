@@ -1,5 +1,5 @@
 [workspace]
-members = ["src/content", "src/gui/quick/bridge"]
+members = ["crates/codex-client", "src/content", "src/gui/quick/bridge"]
 resolver = "3"
 
 [profile.release]

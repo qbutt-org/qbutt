@@ -120,7 +120,7 @@ impl Client {
                     tool_calls += 1;
                     if tool_calls > MAX_TOOL_CALLS {
                         self.interrupt(&thread, &turn_id).await;
-                        return Err(CodexError::Tool("Translation tool limit exceeded".into()));
+                        return Err(CodexError::Tool("Codex tool limit exceeded".into()));
                     }
                     self.handle_tool(
                         message,

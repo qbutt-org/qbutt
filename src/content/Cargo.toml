@@ -17,6 +17,7 @@ name = "segmented_downloads"
 required-features = ["download-fixture"]
 
 [dependencies]
+qbutt-codex = { path = "../../crates/codex-client" }
 base64 = "=0.22.1"
 cookie_store = { version = "=0.22.1", default-features = false }
 encoding_rs = "=0.8.35"

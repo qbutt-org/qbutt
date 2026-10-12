@@ -9,11 +9,12 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use super::codex::{
-    self, CodexError, FunctionTool, InputImage, ToolCall, ToolFuture, ToolHandler, ToolOutput,
-};
 use super::context::{EvidenceSegment, TranslationContext};
 use crate::{Chapter, ChapterRef};
+use qbutt_codex::{
+    self as codex, CodexError, FunctionTool, InputImage, ToolCall, ToolFuture, ToolHandler,
+    ToolOutput,
+};
 
 const MAX_TOOL_CALLS: usize = 8;
 const MAX_TOOL_TEXT: usize = 12_000;

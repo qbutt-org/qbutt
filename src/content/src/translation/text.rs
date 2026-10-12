@@ -10,7 +10,6 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 
-use super::codex::{self, CodexError, CodexRequest, TokenUsage};
 use super::context::{
     ConfirmedFact, ContextAdditions, ContextEvidence, EvidenceSegment, TranslationContext,
     TranslationForm, TranslationTerm,
@@ -18,6 +17,7 @@ use super::context::{
 use super::context_tools::{ChapterExcerpt, WorkChapterSource, WorkContextTools, tool_definitions};
 use crate::library::TranslationCacheKey;
 use crate::{Chapter, ChapterRef, LibraryResult, TextBlock, TextChapter, TextSpan};
+use qbutt_codex::{self as codex, CodexError, CodexRequest, ModelModality, TokenUsage};
 
 const PIPELINE_VERSION: u32 = 1;
 const MAX_BATCH_BLOCKS: usize = 60;
@@ -148,7 +148,14 @@ pub async fn translate_chapter(
         .map_err(|_| CodexError::Protocol)?;
     let (model, effort) = match (&options.model, &options.effort) {
         (Some(model), Some(effort)) => (model.clone(), effort.clone()),
-        _ => codex::resolve_selection(options.model.as_deref(), options.effort.as_deref()).await?,
+        _ => {
+            codex::resolve_selection(
+                ModelModality::Image,
+                options.model.as_deref(),
+                options.effort.as_deref(),
+            )
+            .await?
+        }
     };
 
     let adapter = TextSourceAdapter(source);
@@ -199,6 +206,7 @@ pub async fn translate_chapter(
             let request = CodexRequest {
                 instructions: INSTRUCTIONS.into(),
                 prompt: prompt.to_string(),
+                modality: ModelModality::Image,
                 image: None,
                 output_schema: output_schema(source_blocks.len()),
                 model: Some(model.clone()),

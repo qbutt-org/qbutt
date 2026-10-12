@@ -1261,6 +1261,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "qbutt-codex"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "getrandom 0.4.3",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "qbutt-content"
 version = "0.1.0"
 dependencies = [
@@ -1270,6 +1282,7 @@ dependencies = [
  "getrandom 0.4.3",
  "httparse",
  "percent-encoding",
+ "qbutt-codex",
  "rbook",
  "rcgen",
  "reqwest",
@@ -1298,6 +1311,7 @@ dependencies = [
  "cxx-qt",
  "cxx-qt-build",
  "cxx-qt-lib",
+ "qbutt-codex",
  "qbutt-content",
  "serde",
  "serde_json",

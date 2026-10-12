@@ -6,12 +6,12 @@ use sha2::{Digest, Sha256};
 
 use crate::ChapterRef;
 
-use super::super::codex::{self, CodexError, InputImage};
 use super::super::context::{
     ConfirmedFact, ContextAdditions, ContextEvidence, EvidenceSegment, ImageObservation,
     TranslationForm, TranslationTerm,
 };
 use super::{PageRegion, Rect};
+use qbutt_codex::{self as codex, CodexError, InputImage};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

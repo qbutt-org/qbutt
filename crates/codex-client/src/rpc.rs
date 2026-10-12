@@ -97,7 +97,7 @@ impl Client {
         self.request(
             "initialize",
             json!({
-                "clientInfo": {"name": "qbutt_reader", "title": "qbutt reader", "version": "1.0.0"},
+                "clientInfo": {"name": "qbutt_codex", "title": "qbutt Codex", "version": "1.0.0"},
                 "capabilities": {"experimentalApi": true}
             }),
         )

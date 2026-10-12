@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::translation::codex::{self, CodexError};
+use qbutt_codex::{self as codex, CodexError, ModelModality};
 use qbutt_content::translation::text::{TextTranslationOptions, translate_chapter};
 use qbutt_content::{
     Chapter, ChapterRef, Error, LibraryError, LocalBook, TextChapter, TranslationSelection,
@@ -97,6 +97,7 @@ async fn translate(
 
     let explicit = saved.as_ref().filter(|selection| selection.explicit);
     let (model, effort) = codex::resolve_selection(
+        ModelModality::Image,
         explicit.map(|selection| selection.model.as_str()),
         explicit.map(|selection| selection.effort.as_str()),
     )

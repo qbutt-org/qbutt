@@ -2,8 +2,8 @@ use std::pin::Pin;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
+use qbutt_codex::{self as codex, CodexModel, ModelModality};
 use qbutt_content::TranslationSelection;
-use qbutt_content::translation::codex::{self, CodexModel};
 
 use super::ffi;
 
@@ -109,7 +109,7 @@ impl ffi::ContentController {
         runtime.spawn(async move {
             let (selection, models) = tokio::join!(
                 library.translation_selection(language.clone()),
-                codex::available_models()
+                codex::available_models(ModelModality::Image)
             );
             let _ = qt_thread.queue(move |mut controller| {
                 if controller.translation_options.generation != generation

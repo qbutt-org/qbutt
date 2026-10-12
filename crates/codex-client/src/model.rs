@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use super::{Client, CodexError, Result};
+use super::{Client, CodexError, ModelModality, Result};
 
 #[derive(Clone, Debug)]
 pub struct CodexModel {
@@ -11,7 +11,14 @@ pub struct CodexModel {
 }
 
 impl Client {
-    pub(super) async fn available_models(&mut self) -> Result<Vec<CodexModel>> {
+    pub(super) async fn available_models(
+        &mut self,
+        modality: ModelModality,
+    ) -> Result<Vec<CodexModel>> {
+        let required_input = match modality {
+            ModelModality::Text => "text",
+            ModelModality::Image => "image",
+        };
         let mut cursor: Option<String> = None;
         let mut models = Vec::new();
         let mut pages = 0;
@@ -33,11 +40,11 @@ impl Client {
                 .ok_or(CodexError::Protocol)?;
 
             for entry in entries {
-                let image_capable = entry
+                let accepts_input = entry
                     .get("inputModalities")
                     .and_then(Value::as_array)
-                    .is_some_and(|items| items.contains(&json!("image")));
-                if !image_capable {
+                    .is_some_and(|items| items.contains(&json!(required_input)));
+                if !accepts_input {
                     continue;
                 }
 
@@ -87,10 +94,11 @@ impl Client {
 
     pub(super) async fn select_model(
         &mut self,
+        modality: ModelModality,
         requested_model: Option<&str>,
         requested_effort: Option<&str>,
     ) -> Result<(String, String)> {
-        let models = self.available_models().await?;
+        let models = self.available_models(modality).await?;
         let selected = if let Some(id) = requested_model {
             models.iter().find(|model| model.id == id)
         } else {

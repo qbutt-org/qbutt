@@ -33,7 +33,7 @@ impl Scratch {
     pub(super) fn new() -> Result<Self> {
         let mut random = [0u8; 8];
         getrandom::fill(&mut random).map_err(|_| CodexError::Provider)?;
-        let name = format!("qbutt-translation-{}", u64::from_le_bytes(random));
+        let name = format!("qbutt-codex-{}", u64::from_le_bytes(random));
         let path = std::env::temp_dir().join(name);
         std::fs::create_dir(&path).map_err(|_| CodexError::Provider)?;
         Ok(Self(path))
