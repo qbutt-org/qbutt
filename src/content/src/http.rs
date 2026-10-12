@@ -158,10 +158,19 @@ impl SourceHttp {
 }
 
 pub(crate) fn validate_https_url(url: &Url) -> Result<()> {
-    let valid = url.scheme() == "https"
+    validate_media_url(url)?;
+    if url.scheme() != "https" {
+        return Err(Error::UnsafeAddress);
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_media_url(url: &Url) -> Result<()> {
+    let valid = matches!(url.scheme(), "http" | "https")
         && url.username().is_empty()
         && url.password().is_none()
         && url.fragment().is_none()
+        && url.port_or_known_default().is_some_and(|port| port != 0)
         && match url.host() {
             Some(Host::Domain(_)) => true,
             Some(Host::Ipv4(address)) => public_address(IpAddr::V4(address)),
@@ -189,25 +198,43 @@ struct PublicResolver;
 impl Resolve for PublicResolver {
     fn resolve(&self, name: Name) -> Resolving {
         Box::pin(async move {
-            let addresses: Vec<SocketAddr> =
-                tokio::net::lookup_host((name.as_str(), 0)).await?.collect();
-            if addresses.is_empty()
-                || addresses
-                    .iter()
-                    .any(|address| !public_address(address.ip()))
-            {
-                return Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "Sources cannot access local network addresses",
-                )
-                .into());
-            }
+            let addresses =
+                public_addresses(tokio::net::lookup_host((name.as_str(), 0)).await?.collect())?;
 
             // These checked addresses are handed directly to the connector;
             // there is no second DNS lookup between validation and connection.
             Ok(Box::new(addresses.into_iter()) as Addrs)
         })
     }
+}
+
+pub(crate) fn public_addresses(addresses: Vec<SocketAddr>) -> io::Result<Vec<SocketAddr>> {
+    if addresses.is_empty()
+        || addresses
+            .iter()
+            .any(|address| !public_address(address.ip()))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Sources cannot access local network addresses",
+        ));
+    }
+    Ok(addresses)
+}
+
+/// Return the checked addresses that the caller must hand directly to its
+/// connector. Never validate one DNS answer and then connect by hostname.
+pub(crate) async fn resolve_public_url(url: &Url) -> io::Result<Vec<SocketAddr>> {
+    validate_media_url(url).map_err(|_| {
+        io::Error::new(io::ErrorKind::PermissionDenied, "Unsupported media address")
+    })?;
+    let port = url.port_or_known_default().expect("validated media port");
+    let addresses = match url.host().expect("validated media host") {
+        Host::Ipv4(address) => vec![SocketAddr::new(IpAddr::V4(address), port)],
+        Host::Ipv6(address) => vec![SocketAddr::new(IpAddr::V6(address), port)],
+        Host::Domain(host) => tokio::net::lookup_host((host, port)).await?.collect(),
+    };
+    public_addresses(addresses)
 }
 
 fn public_address(address: IpAddr) -> bool {
@@ -238,34 +265,9 @@ fn public_address(address: IpAddr) -> bool {
 /// media client must enforce the same address policy on its actual connection.
 pub(crate) async fn public_media_url(input: &str) -> Result<Url> {
     let url = Url::parse(input).map_err(|_| Error::UnsafeAddress)?;
-    if !matches!(url.scheme(), "http" | "https")
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return Err(Error::UnsafeAddress);
-    }
-
-    let host = url.host_str().ok_or(Error::UnsafeAddress)?;
-    let addresses = tokio::time::timeout(
-        Duration::from_secs(10),
-        tokio::net::lookup_host((
-            host,
-            url.port_or_known_default().ok_or(Error::UnsafeAddress)?,
-        )),
-    )
-    .await
-    .map_err(|_| Error::Timeout)?
-    .map_err(|_| Error::UnsafeAddress)?;
-    let mut count = 0;
-    for address in addresses {
-        if !public_address(address.ip()) {
-            return Err(Error::UnsafeAddress);
-        }
-        count += 1;
-    }
-    if count == 0 {
-        return Err(Error::UnsafeAddress);
-    }
-
+    tokio::time::timeout(Duration::from_secs(10), resolve_public_url(&url))
+        .await
+        .map_err(|_| Error::Timeout)?
+        .map_err(|_| Error::UnsafeAddress)?;
     Ok(url)
 }

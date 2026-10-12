@@ -10,6 +10,7 @@ mod aniliberty;
 mod http;
 mod library;
 mod mangadex;
+mod media;
 mod model;
 mod rutor;
 mod sources;
@@ -20,6 +21,7 @@ pub use library::{
     ReaderMode, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
 };
 pub use mangadex::MangaDex;
+pub use media::{MediaGateway, MediaGatewayError};
 pub use model::*;
 pub use rutor::RuTor;
 pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};

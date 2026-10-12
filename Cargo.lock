@@ -1137,12 +1137,16 @@ dependencies = [
 name = "qbutt-content"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "getrandom 0.4.3",
+ "httparse",
  "rcgen",
  "reqwest",
  "rusqlite",
  "scraper",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
