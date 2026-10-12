@@ -161,7 +161,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     fixture.stop().await;
     println!(
-        "PASS byrut_fixtures generated_https search inspect exact_torrent changed_id_rejected faults_rejected game_payload=none"
+        "PASS byrut_fixtures generated_https search inspect exact_torrent replaced_metadata_rejected faults_rejected game_payload=none"
     );
     Ok(())
 }
@@ -322,7 +322,7 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
         } else {
             url.path().trim_start_matches('/').trim_end_matches(".html")
         };
-        let id = if changed { 92 } else { 91 };
+        let id = 91;
         let body = format!(
             "<html><head><link rel=\"canonical\" href=\"{origin}{slug}.html\"></head><body><article class=\"main_content\" data-news-id=\"42\"><div class=\"game_details\"><h1>Generated Legal</h1></div><div class=\"main-release-block\"><div class=\"info-basictor__row\"><div class=\"info-basictor__item\"><strong class=\"info-basictor__value\">Open fixture</strong></div><div class=\"info-basictor__item info-basictor__item--version\"><strong class=\"info-basictor__value\">v 1.2</strong></div></div><div class=\"info-basictor__item--status\"><strong class=\"info-basictor__value\">Полная версия</strong></div><a class=\"itemdown_games\" href=\"{origin}index.php?do=download&amp;id={id}\">Скачать .torrent</a></div></article></body></html>"
         );
