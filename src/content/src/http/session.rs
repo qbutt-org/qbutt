@@ -1,4 +1,6 @@
-use cookie_store::{Cookie, CookieExpiration, RawCookie};
+use cookie_store::Cookie;
+#[cfg(windows)]
+use cookie_store::{CookieExpiration, RawCookie};
 use reqwest::RequestBuilder;
 use reqwest::header::{COOKIE, HeaderMap, HeaderValue, SET_COOKIE, USER_AGENT};
 use url::{Origin, Url};
@@ -94,7 +96,6 @@ impl SourceSession {
     }
 
     pub(super) fn receive(&mut self, headers: &HeaderMap, url: &Url) -> Result<()> {
-        self.cookies.retain(|cookie| !cookie.is_expired());
         for header in headers.get_all(SET_COOKIE) {
             if header.len() > MAX_COOKIE_BYTES {
                 return Err(Error::ResponseTooLarge);
@@ -126,17 +127,18 @@ impl SourceSession {
             return Ok(());
         }
         self.cookies.retain(|old| {
-            !old.is_expired()
-                && !(old.domain.as_cow() == cookie.domain.as_cow()
-                    && old.path == cookie.path
-                    && old.name() == cookie.name())
+            let same_key = old.domain.as_cow() == cookie.domain.as_cow()
+                && old.path == cookie.path
+                && old.name() == cookie.name();
+            !old.is_expired() && !same_key
         });
-        if !cookie.is_expired() {
-            self.cookies.push(cookie);
+        if cookie.is_expired() {
+            return Ok(());
         }
         let bytes: usize = self
             .cookies
             .iter()
+            .chain(std::iter::once(&cookie))
             .map(|cookie| {
                 cookie.name().len()
                     + cookie.value().len()
@@ -144,9 +146,10 @@ impl SourceSession {
                     + cookie.path.as_ref().len()
             })
             .sum();
-        if self.cookies.len() > MAX_COOKIES || bytes > MAX_SESSION_BYTES {
+        if self.cookies.len() == MAX_COOKIES || bytes > MAX_SESSION_BYTES {
             return Err(Error::ResponseTooLarge);
         }
+        self.cookies.push(cookie);
         Ok(())
     }
 }

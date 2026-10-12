@@ -5,6 +5,11 @@ mod model;
 pub use model::*;
 pub use qbutt_content::{Error, Result};
 
+#[cfg(windows)]
+#[allow(dead_code)]
+#[path = "../src/browser/mod.rs"]
+mod browser;
+
 #[allow(dead_code)]
 mod guarded_http {
     include!("../src/http.rs");
@@ -21,6 +26,8 @@ mod http {
     use serde::de::DeserializeOwned;
     use url::Url;
 
+    #[cfg(windows)]
+    pub(crate) use super::guarded_http::validate_media_url;
     pub(crate) use super::guarded_http::{public_media_url, validate_https_url};
     use super::{Result, guarded_http};
 

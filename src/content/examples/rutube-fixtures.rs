@@ -6,6 +6,11 @@ mod model;
 pub use model::*;
 pub use qbutt_content::{Error, Result};
 
+#[cfg(windows)]
+#[allow(dead_code)]
+#[path = "../src/browser/mod.rs"]
+mod browser;
+
 #[allow(dead_code)]
 mod http {
     include!("../src/http.rs");
