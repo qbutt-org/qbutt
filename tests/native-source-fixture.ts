@@ -22,14 +22,10 @@ const status = Bun.spawnSync(["git", "status", "--porcelain", "--", source], {
 assert.equal(status.exitCode, 0, status.stderr.toString());
 assert.equal(status.stdout.toString().trim(), "", "SourceHttp is already changed; refusing to overwrite it");
 
-const backupDirectory = await mkdtemp(join(tmpdir(), "qbutt-native-http-fixture-"));
-const backup = join(backupDirectory, "http.rs");
-await copyFile(source, backup);
-
 const certificatePath = certificate.replaceAll("\\", "/");
 assert(!certificatePath.includes('"#') && !certificatePath.includes("\n"), "Invalid certificate path");
 const originalText = original.toString("utf8");
-const needle = /(\.dns_resolver\(Arc::new\(PublicResolver\)\)\r?\n)/g;
+const needle = /(impl SourceHttp \{[\s\S]*?\.dns_resolver\(Arc::new\(PublicResolver\)\)\r?\n)/g;
 assert.equal([...originalText.matchAll(needle)].length, 1, "SourceHttp builder changed; fixture overlay needs review");
 const lineEnding = originalText.includes("\r\n") ? "\r\n" : "\n";
 const override = hosts.map(host =>
@@ -42,6 +38,10 @@ const trust = [
     "            )",
 ].join(lineEnding) + lineEnding;
 const patched = Buffer.from(originalText.replace(needle, `$1${override}${trust}`));
+
+const backupDirectory = await mkdtemp(join(tmpdir(), "qbutt-native-http-fixture-"));
+const backup = join(backupDirectory, "http.rs");
+await copyFile(source, backup);
 
 async function run(command: string[]) {
     const process = Bun.spawn(command, {
