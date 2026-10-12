@@ -160,6 +160,8 @@ enum LibraryCommand {
     MangaSave {
         key: TranslationCacheKey,
         regions: Vec<PageRegion>,
+        additions: ContextAdditions,
+        evidence: Vec<EvidenceSegment>,
         reply: oneshot::Sender<LibraryResult<TranslationContext>>,
     },
     Retry {
@@ -308,12 +310,16 @@ impl LibraryWorker {
         &self,
         key: TranslationCacheKey,
         regions: Vec<PageRegion>,
+        additions: ContextAdditions,
+        evidence: Vec<EvidenceSegment>,
     ) -> LibraryResult<TranslationContext> {
         let (reply, received) = oneshot::channel();
         self.sender
             .send(LibraryCommand::MangaSave {
                 key,
                 regions,
+                additions,
+                evidence,
                 reply,
             })
             .await
@@ -490,6 +496,8 @@ impl LibraryWorker {
                         LibraryCommand::MangaSave {
                             key,
                             regions,
+                            additions,
+                            evidence,
                             reply,
                         } => {
                             let result = library
@@ -498,12 +506,7 @@ impl LibraryWorker {
                                     "translation library is unavailable",
                                 ))
                                 .and_then(|library| {
-                                    library.save_translation(
-                                        key,
-                                        &regions,
-                                        ContextAdditions::default(),
-                                        &[],
-                                    )
+                                    library.save_translation(key, &regions, additions, &evidence)
                                 });
                             let _ = reply.send(result);
                         }

@@ -1,6 +1,6 @@
-//! Confirmed translation conventions for one exact publication and language.
-//! Source text and model output are untrusted; only evidence from a chapter
-//! actually supplied to the job can be added to this context.
+//! Accepted translation conventions for one exact publication and language.
+//! Image observations identify model-read text on immutable page bytes; they
+//! are not independently verified OCR.
 
 use std::collections::{HashMap, HashSet};
 
@@ -18,6 +18,17 @@ pub struct ContextEvidence {
     pub chapter: ChapterRef,
     pub segment_id: String,
     pub quote: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_observation: Option<ImageObservation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImageObservation {
+    pub page: u32,
+    pub original_digest: String,
+    /// Left, top, right and bottom in millionths of the original page.
+    pub bounds: [u32; 4],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +77,7 @@ pub struct EvidenceSegment {
     pub chapter: ChapterRef,
     pub id: String,
     pub text: String,
+    pub image_observation: Option<ImageObservation>,
 }
 
 impl TranslationContext {
@@ -102,12 +114,7 @@ impl TranslationContext {
         let evidence: HashMap<_, _> = segments
             .iter()
             .filter(|segment| segment.chapter.variant.publication == *publication)
-            .map(|segment| {
-                (
-                    (&segment.chapter, segment.id.as_str()),
-                    segment.text.as_str(),
-                )
-            })
+            .map(|segment| ((&segment.chapter, segment.id.as_str()), segment))
             .collect();
 
         let mut next = self.clone();
@@ -320,20 +327,45 @@ fn validate_reference(
         return Err("evidence belongs to another publication");
     }
     validate_text(&evidence.segment_id, 128)?;
-    validate_text(&evidence.quote, 500)
+    validate_text(&evidence.quote, 500)?;
+    if let Some(image) = &evidence.image_observation {
+        image.validate()?;
+    }
+    Ok(())
 }
 
 fn validate_evidence(
     evidence: &ContextEvidence,
-    segments: &HashMap<(&ChapterRef, &str), &str>,
+    segments: &HashMap<(&ChapterRef, &str), &EvidenceSegment>,
 ) -> Result<(), &'static str> {
-    let text = segments
+    let segment = segments
         .get(&(&evidence.chapter, evidence.segment_id.as_str()))
         .ok_or("evidence segment was not supplied to the job")?;
-    if !text.contains(&evidence.quote) {
+    if segment.image_observation != evidence.image_observation {
+        return Err("evidence image does not match the supplied page region");
+    }
+    if !segment.text.contains(&evidence.quote) {
         return Err("evidence quote is absent from its source segment");
     }
     Ok(())
+}
+
+impl ImageObservation {
+    fn validate(&self) -> Result<(), &'static str> {
+        if self.original_digest.len() != 64
+            || !self
+                .original_digest
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || self.bounds[0] >= self.bounds[2]
+            || self.bounds[1] >= self.bounds[3]
+            || self.bounds[2] > 1_000_000
+            || self.bounds[3] > 1_000_000
+        {
+            return Err("image observation is invalid");
+        }
+        Ok(())
+    }
 }
 
 fn validate_text(value: &str, limit: usize) -> Result<(), &'static str> {

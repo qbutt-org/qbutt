@@ -2,11 +2,13 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use qbutt_content::translation::context::ContextAdditions;
+use qbutt_content::translation::context::{
+    ContextAdditions, ContextEvidence, EvidenceSegment, ImageObservation, TranslationTerm,
+};
 use qbutt_content::translation::text::{cache_key, restore_cached};
 use qbutt_content::{
-    ChapterRef, Library, PublicationRef, Source, TextChapter, TextSpan, TranslationSelection,
-    VariantRef, VariantSelector,
+    ChapterRef, Library, PublicationRef, Source, TextChapter, TextSpan, TranslationCacheKey,
+    TranslationSelection, VariantRef, VariantSelector,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -94,10 +96,119 @@ fn main() -> Result<()> {
                 .is_err()
         );
         assert_eq!(library.translation_selection("ru")?, Some(explicit));
+
+        let manga = ChapterRef {
+            variant: VariantRef {
+                publication: PublicationRef {
+                    source: Source::MangaDex,
+                    id: "11111111-1111-1111-1111-111111111111".into(),
+                },
+                selector: VariantSelector::MangaTranslation {
+                    language: "ja".into(),
+                    groups: vec![],
+                },
+            },
+            id: "22222222-2222-2222-2222-222222222222".into(),
+        };
+        let image = ImageObservation {
+            page: 0,
+            original_digest: "a".repeat(64),
+            bounds: [100_000, 200_000, 500_000, 600_000],
+        };
+        let evidence = EvidenceSegment {
+            chapter: manga.clone(),
+            id: "bubble-1".into(),
+            text: "フリーレン、待って！".into(),
+            image_observation: Some(image.clone()),
+        };
+        let reference = ContextEvidence {
+            chapter: manga.clone(),
+            segment_id: evidence.id.clone(),
+            quote: "フリーレン".into(),
+            image_observation: Some(image),
+        };
+        let term = TranslationTerm {
+            source: "フリーレン".into(),
+            target: "Фрирен".into(),
+            forms: vec![],
+            evidence: reference,
+        };
+        let manga_key = TranslationCacheKey {
+            chapter: manga.clone(),
+            page: Some(0),
+            target_language: "ru".into(),
+            original_digest: "a".repeat(64),
+            provider: "codex".into(),
+            model: "gpt-6.1-sol".into(),
+            effort: "low".into(),
+            context_revision: 0,
+            pipeline: 2,
+        };
+        let additions = ContextAdditions {
+            terms: vec![term.clone()],
+            facts: vec![],
+        };
+        let accepted = library.save_translation(
+            manga_key.clone(),
+            &vec!["Фрирен"],
+            additions,
+            &[evidence.clone()],
+        )?;
+        assert_eq!(accepted.revision, 1);
+        drop(library);
+
+        let mut library = Library::open(&profile)?;
+        let context = library.translation_context(&manga.variant.publication, "ru")?;
+        assert_eq!(context.terms, vec![term.clone()]);
+        let exact = TranslationCacheKey {
+            context_revision: context.revision,
+            ..manga_key.clone()
+        };
+        assert_eq!(
+            library.cached_translation::<Vec<String>>(&exact)?,
+            Some(vec!["Фрирен".into()])
+        );
+        let mut forged = term;
+        forged.source = "待って".into();
+        forged.evidence.quote = "待って".into();
+        forged
+            .evidence
+            .image_observation
+            .as_mut()
+            .unwrap()
+            .original_digest = "b".repeat(64);
+        let rejected = library.save_translation(
+            exact.clone(),
+            &vec!["Подожди"],
+            ContextAdditions {
+                terms: vec![forged],
+                facts: vec![],
+            },
+            &[evidence.clone()],
+        );
+        assert!(rejected.is_err());
+        let mut wrong_page = evidence;
+        wrong_page.image_observation.as_mut().unwrap().page = 1;
+        assert!(
+            library
+                .save_translation(
+                    exact,
+                    &vec!["Подожди"],
+                    ContextAdditions::default(),
+                    &[wrong_page]
+                )
+                .is_err()
+        );
+        assert_eq!(
+            library.translation_context(&manga.variant.publication, "ru")?,
+            context
+        );
         Ok(())
     })();
     std::fs::remove_dir_all(&profile)?;
     result?;
-    println!("PASS translation_cache exact_hit model_miss effort_miss language_miss v8_migration");
+    println!(
+        "PASS translation_cache exact_hit model_miss effort_miss language_miss v8_migration manga_image_context"
+    );
     Ok(())
 }

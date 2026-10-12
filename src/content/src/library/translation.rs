@@ -137,6 +137,17 @@ impl Library {
         evidence: &[EvidenceSegment],
     ) -> LibraryResult<TranslationContext> {
         key.validate()?;
+        if evidence.iter().any(|segment| {
+            segment.image_observation.as_ref().is_some_and(|image| {
+                segment.chapter != key.chapter
+                    || Some(image.page) != key.page
+                    || image.original_digest != key.original_digest
+            })
+        }) {
+            return Err(LibraryError::InvalidEntry(
+                "image evidence does not match the original page",
+            ));
+        }
         let encoded_content = serde_json::to_string(content)?;
         if encoded_content.len() > MAX_CACHED_BYTES {
             return Err(LibraryError::InvalidEntry(

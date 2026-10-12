@@ -16,11 +16,15 @@ use super::codex::{
     self, CodexCompletion, CodexError, CodexRequest, FunctionTool, InputImage, ToolCall,
     ToolFuture, ToolHandler, ToolOutput,
 };
+use super::context::{
+    ConfirmedFact, ContextAdditions, ContextEvidence, EvidenceSegment, ImageObservation,
+    TranslationContext, TranslationForm, TranslationTerm,
+};
 
 const MAX_REGIONS: usize = 60;
 const MAX_INK_BOXES: usize = 4096;
 const MAX_RENDERS: usize = 3;
-const PIPELINE_VERSION: u32 = 1;
+const PIPELINE_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Rect {
@@ -88,11 +92,12 @@ pub trait PageRenderer: Send + Sync + 'static {
 }
 
 pub struct PageJob {
+    pub chapter: ChapterRef,
+    pub page: u32,
     pub original: InputImage,
-    pub source_language: String,
     pub target_language: String,
-    /// Confirmed same-work names, forms and facts only; this is untrusted input.
-    pub work_context: Value,
+    /// Accepted same-work conventions with source provenance; this is untrusted input.
+    pub work_context: TranslationContext,
     pub model: Option<String>,
     pub effort: Option<String>,
 }
@@ -100,6 +105,49 @@ pub struct PageJob {
 pub struct PageResult {
     pub regions: Vec<PageRegion>,
     pub layers: RenderLayers,
+    pub additions: ContextAdditions,
+    pub evidence: Vec<EvidenceSegment>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PageOutput {
+    revision: usize,
+    terms: Vec<OutputTerm>,
+    facts: Vec<OutputFact>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutputEvidence {
+    region_id: String,
+    quote: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutputTerm {
+    source: String,
+    target: String,
+    forms: Vec<OutputForm>,
+    evidence: OutputEvidence,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutputForm {
+    source: String,
+    target: String,
+    evidence: OutputEvidence,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OutputFact {
+    subject: String,
+    attribute: String,
+    value: String,
+    evidence: OutputEvidence,
 }
 
 struct Revision {
@@ -223,14 +271,13 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     context_definitions: Vec<FunctionTool>,
     cancelled: watch::Receiver<bool>,
 ) -> codex::Result<PageResult> {
-    if job.target_language.trim().is_empty()
-        || job.target_language.len() > 32
-        || job.source_language.trim().is_empty()
-        || job.source_language.len() > 32
-        || job.work_context.to_string().len() > 32 * 1024
-    {
+    if job.target_language.trim().is_empty() || job.target_language.len() > 32 {
         return Err(CodexError::Protocol);
     }
+    job.chapter.validate().map_err(|_| CodexError::Protocol)?;
+    job.work_context
+        .validate(&job.chapter.variant.publication)
+        .map_err(|_| CodexError::Protocol)?;
     if context_definitions.iter().any(|tool| {
         !matches!(
             tool.name,
@@ -263,16 +310,12 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     let request = CodexRequest {
         instructions: PAGE_INSTRUCTIONS.to_owned(),
         prompt: json!({
-            "sourceLanguage": job.source_language,
             "targetLanguage": job.target_language,
-            "workContext": job.work_context,
-            "task": "Read and translate the attached manga page. Render it, inspect the real result, then return its accepted revision."
-        }).to_string(),
+            "workContext": job.work_context.search("", 80)
+        })
+        .to_string(),
         image: Some(job.original.clone()),
-        output_schema: json!({
-            "type": "object", "properties": {"revision": {"type": "integer", "minimum": 1, "maximum": 3}},
-            "required": ["revision"], "additionalProperties": false
-        }),
+        output_schema: page_output_schema(),
         model: job.model.clone(),
         effort: job.effort.clone(),
         tools: definitions,
@@ -280,26 +323,162 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     let result = codex::complete(request, &mut tools, cancelled.clone()).await;
     tools.cancelled.store(true, Ordering::Release);
     watcher.abort();
-    let CodexCompletion { value, .. } = result?;
-    let revision = value
-        .get("revision")
-        .and_then(Value::as_u64)
-        .and_then(|number| usize::try_from(number).ok())
-        .ok_or(CodexError::Protocol)?;
-    if revision == 0 || revision > tools.revisions.len() {
+    let CodexCompletion {
+        value,
+        model,
+        effort,
+        ..
+    } = result?;
+    if job
+        .model
+        .as_ref()
+        .is_some_and(|requested| requested != &model)
+        || job
+            .effort
+            .as_ref()
+            .is_some_and(|requested| requested != &effort)
+    {
+        return Err(CodexError::ModelUnavailable);
+    }
+    let output: PageOutput = serde_json::from_value(value).map_err(|_| CodexError::Protocol)?;
+    if output.revision == 0
+        || output.revision > tools.revisions.len()
+        || output.terms.len() > 20
+        || output.facts.len() > 20
+    {
         return Err(CodexError::Tool(
-            "Codex selected a page revision that was never rendered".into(),
+            "Codex selected an invalid page revision or too much context".into(),
         ));
     }
-    let accepted = tools.revisions.swap_remove(revision - 1);
+    let accepted = tools.revisions.swap_remove(output.revision - 1);
     if !all_regions_rendered(&accepted.regions, &accepted.layers.diagnostics) {
         return Err(CodexError::Tool(
             "The selected render still contains untranslated or overflowing regions".into(),
         ));
     }
+    let digest = format!("{:x}", Sha256::digest(&job.original.bytes));
+    let evidence: Vec<_> = accepted
+        .regions
+        .iter()
+        .map(|region| EvidenceSegment {
+            chapter: job.chapter.clone(),
+            id: region.id.clone(),
+            text: region.source_text.clone(),
+            image_observation: Some(ImageObservation {
+                page: job.page,
+                original_digest: digest.clone(),
+                bounds: observation_bounds(&region.bounds),
+            }),
+        })
+        .collect();
+    let additions = decode_additions(output.terms, output.facts, &evidence)?;
+    let mut context = job.work_context;
+    context
+        .apply(
+            &job.chapter.variant.publication,
+            additions.clone(),
+            &evidence,
+        )
+        .map_err(|reason| CodexError::Tool(reason.into()))?;
     Ok(PageResult {
         regions: accepted.regions,
         layers: accepted.layers,
+        additions,
+        evidence,
+    })
+}
+
+fn observation_bounds(bounds: &Rect) -> [u32; 4] {
+    let left = ((bounds.x * 1_000_000.0).round() as u32).min(999_999);
+    let top = ((bounds.y * 1_000_000.0).round() as u32).min(999_999);
+    let right = (((bounds.x + bounds.width) * 1_000_000.0).round() as u32)
+        .max(left + 1)
+        .min(1_000_000);
+    let bottom = (((bounds.y + bounds.height) * 1_000_000.0).round() as u32)
+        .max(top + 1)
+        .min(1_000_000);
+    [left, top, right, bottom]
+}
+
+fn decode_additions(
+    terms: Vec<OutputTerm>,
+    facts: Vec<OutputFact>,
+    segments: &[EvidenceSegment],
+) -> codex::Result<ContextAdditions> {
+    let evidence = |raw: OutputEvidence| -> codex::Result<ContextEvidence> {
+        let segment = segments
+            .iter()
+            .find(|segment| segment.id == raw.region_id)
+            .ok_or(CodexError::Protocol)?;
+        Ok(ContextEvidence {
+            chapter: segment.chapter.clone(),
+            segment_id: segment.id.clone(),
+            quote: raw.quote,
+            image_observation: segment.image_observation.clone(),
+        })
+    };
+    let terms = terms
+        .into_iter()
+        .map(|term| -> codex::Result<TranslationTerm> {
+            let forms = term
+                .forms
+                .into_iter()
+                .map(|form| {
+                    Ok(TranslationForm {
+                        source: form.source,
+                        target: form.target,
+                        evidence: evidence(form.evidence)?,
+                    })
+                })
+                .collect::<codex::Result<_>>()?;
+            Ok(TranslationTerm {
+                source: term.source,
+                target: term.target,
+                forms,
+                evidence: evidence(term.evidence)?,
+            })
+        })
+        .collect::<codex::Result<_>>()?;
+    let facts = facts
+        .into_iter()
+        .map(|fact| {
+            Ok(ConfirmedFact {
+                subject: fact.subject,
+                attribute: fact.attribute,
+                value: fact.value,
+                evidence: evidence(fact.evidence)?,
+            })
+        })
+        .collect::<codex::Result<_>>()?;
+    Ok(ContextAdditions { terms, facts })
+}
+
+fn page_output_schema() -> Value {
+    let text = |limit| json!({"type":"string","minLength":1,"maxLength":limit});
+    let evidence = json!({
+        "type":"object","properties":{
+            "region_id":text(64),"quote":text(500)
+        },"required":["region_id","quote"],"additionalProperties":false
+    });
+    json!({
+        "type":"object","properties":{
+            "revision":{"type":"integer","minimum":1,"maximum":3},
+            "terms":{"type":"array","maxItems":20,"items":{
+                "type":"object","properties":{
+                    "source":text(200),"target":text(300),
+                    "forms":{"type":"array","maxItems":16,"items":{
+                        "type":"object","properties":{
+                            "source":text(200),"target":text(300),"evidence":evidence.clone()
+                        },"required":["source","target","evidence"],"additionalProperties":false
+                    }},"evidence":evidence.clone()
+                },"required":["source","target","forms","evidence"],"additionalProperties":false
+            }},
+            "facts":{"type":"array","maxItems":20,"items":{
+                "type":"object","properties":{
+                    "subject":text(200),"attribute":text(80),"value":text(300),"evidence":evidence
+                },"required":["subject","attribute","value","evidence"],"additionalProperties":false
+            }}
+        },"required":["revision","terms","facts"],"additionalProperties":false
     })
 }
 
@@ -480,6 +659,12 @@ const PAGE_INSTRUCTIONS: &str = concat!(
     "Layout is safe space for horizontal target-language text inside bounds. ",
     "Render the page with render_page, examine the actual returned image, ",
     "and make at most two corrections when needed. ",
-    "Accept only a revision you actually rendered and saw. Return JSON with its revision number. ",
+    "Accept only a revision you actually rendered and saw. Return its revision number, ",
+    "plus at most 20 useful names, forms and explicit character facts for later pages. ",
+    "Each added convention must cite an accepted region ID and an exact source-text quote ",
+    "that supports it. These quotes are your readings of the image, not verified OCR. ",
+    "For gender, cite the subject's source name and an explicit textual clue in the same region; ",
+    "never infer it from appearance, voice, honorifics or your own translation. ",
+    "Leave uncertain or unsupported conventions out and return empty arrays when there are none. ",
     "Do not request files, shell, browsing or unrelated context."
 );

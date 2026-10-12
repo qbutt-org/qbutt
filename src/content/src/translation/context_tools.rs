@@ -84,7 +84,7 @@ pub fn tool_definitions() -> Vec<FunctionTool> {
         },
         FunctionTool {
             name: "read_context",
-            description: "Find confirmed names, forms and facts for a source term or character.",
+            description: "Find accepted names, forms and facts with their text or image evidence for a source term or character.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

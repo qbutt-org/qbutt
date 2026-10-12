@@ -214,11 +214,11 @@ async fn translate(
         .map_err(TranslationFailure::Codex)?;
         let result = manga::translate_page(
             PageJob {
+                chapter,
+                page: page as u32,
                 original: input,
-                source_language: "auto".into(),
                 target_language: language,
-                work_context: serde_json::to_value(lookup.context.search("", 80))
-                    .map_err(|_| TranslationFailure::Codex(CodexError::Protocol))?,
+                work_context: lookup.context,
                 model: Some(model),
                 effort: Some(effort),
             },
@@ -236,7 +236,12 @@ async fn translate(
             return Err(TranslationFailure::Codex(CodexError::Cancelled));
         }
         library
-            .save_manga_translation(lookup.key, result.regions)
+            .save_manga_translation(
+                lookup.key,
+                result.regions,
+                result.additions,
+                result.evidence,
+            )
             .await
             .map_err(TranslationFailure::Library)?;
         result.layers

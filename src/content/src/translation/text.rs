@@ -236,6 +236,7 @@ pub async fn translate_chapter(
                     chapter: original.reference.clone(),
                     id: source_block.id.clone(),
                     text: source_block.plain_text(),
+                    image_observation: None,
                 });
             }
             let fresh = decode_additions(response.terms, response.facts, tools.chapter_map())?;
@@ -447,6 +448,7 @@ fn decode_additions(
                 .clone(),
             segment_id: raw.segment_id,
             quote: raw.quote,
+            image_observation: None,
         })
     };
     let terms = terms
@@ -563,6 +565,7 @@ impl<S: ChapterTextSource> WorkChapterSource for TextSourceAdapter<'_, S> {
                     chapter: chapter.clone(),
                     id: block.id.clone(),
                     text: block.plain_text(),
+                    image_observation: None,
                 })
                 .collect();
             if parts.is_empty() && offset < loaded.blocks.len() {
