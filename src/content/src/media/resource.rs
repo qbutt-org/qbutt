@@ -86,12 +86,12 @@ impl Resources {
         )
         .await
         .map_err(|_| MediaGatewayError::Source)??;
+        if !valid_range_response(&response, Some("bytes=0-1023")) {
+            return Err(MediaGatewayError::InvalidDescriptor);
+        }
         let prefix = response_prefix(&mut response).await?;
         validate_bytes(&response, &prefix)?;
-        if prefix.get(4..8) != Some(b"ftyp")
-            || !mp4_content_type(&response)
-            || !valid_range_response(&response, Some("bytes=0-1023"))
-        {
+        if prefix.get(4..8) != Some(b"ftyp") || !mp4_content_type(&response) {
             return Err(MediaGatewayError::InvalidDescriptor);
         }
         Ok((
