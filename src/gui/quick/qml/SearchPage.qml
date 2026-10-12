@@ -57,7 +57,7 @@ Page {
 
     Shortcut {
         sequences: [StandardKey.Find]
-        enabled: root.visible && !root.backend.readerOpen && !sources.active
+        enabled: root.visible && !root.backend.readerOpen && !sources.visible
         onActivated: {
             root.backend.setListMode(Search.Search);
             query.forceActiveFocus();
@@ -71,7 +71,7 @@ Page {
             return;
 
         if (backend.sourceSettingsState === Sources.Failed) {
-            sources.active = true;
+            sources.open();
             return;
         }
 
@@ -186,7 +186,7 @@ Page {
                 objectName: "contentSources"
                 theme: appearance
                 text: qsTranslate("SourcePicker", "Sources")
-                onClicked: sources.active = true
+                onClicked: sources.open()
             }
 
             ActionButton {
@@ -387,21 +387,12 @@ Page {
         }
     }
 
-    Loader {
+    SourcePicker {
         id: sources
-        objectName: "contentSourcePickerLoader"
-        active: false
-
-        sourceComponent: SourcePicker {
-            backend: root.backend
-            theme: appearance
-            backdrop: root
-            Component.onCompleted: open()
-            onClosed: {
-                sources.active = false;
-                sourceButton.forceActiveFocus();
-            }
-        }
+        backend: root.backend
+        theme: appearance
+        backdrop: root
+        onClosed: sourceButton.forceActiveFocus()
     }
 
     Loader {
