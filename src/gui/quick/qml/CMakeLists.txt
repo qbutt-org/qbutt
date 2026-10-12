@@ -10,6 +10,7 @@ qt_add_qml_module(qbt_quick_ui STATIC
     QML_FILES
         ActionButton.qml
         ChapterPicker.qml
+        DownloadsPage.qml
         FacetField.qml
         IconButton.qml
         ModalPicker.qml

@@ -61,7 +61,7 @@ pub enum DownloadError {
 }
 
 pub struct DirectDownload {
-    reference: VariantRef,
+    origin: DownloadOrigin,
     title: String,
     url: Url,
     gateway: Option<MediaGateway>,
@@ -77,7 +77,7 @@ impl DirectDownload {
             return Err(DownloadError::InvalidSelection);
         }
         Ok(Self {
-            reference,
+            origin: DownloadOrigin::Catalog { reference },
             title,
             url,
             gateway: None,
@@ -103,11 +103,74 @@ impl DirectDownload {
             return Err(DownloadError::UnsafeAddress);
         }
         Ok(Self {
-            reference,
+            origin: DownloadOrigin::Catalog { reference },
             title,
             url,
             gateway: Some(gateway),
         })
+    }
+
+    pub fn captured(
+        source_host: String,
+        title: String,
+        prepared: PreparedPlayback,
+        gateway: MediaGateway,
+    ) -> Result<Self, DownloadError> {
+        let origin = DownloadOrigin::Browser { source_host };
+        origin.validate()?;
+        if title.trim().is_empty() {
+            return Err(DownloadError::InvalidSelection);
+        }
+        let url = prepared
+            .muxed_mp4_url()
+            .ok_or(DownloadError::UnsupportedMedia)?;
+        if !AddressPolicy::Gateway.valid(&url) || url.port() != gateway.proxy_url().port() {
+            return Err(DownloadError::UnsafeAddress);
+        }
+        Ok(Self {
+            origin,
+            title,
+            url,
+            gateway: Some(gateway),
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DownloadOrigin {
+    Catalog { reference: VariantRef },
+    Browser { source_host: String },
+}
+
+impl DownloadOrigin {
+    fn interrupted_message(&self) -> &'static str {
+        match self {
+            Self::Catalog { .. } => "Download interrupted. Resolve the original variant to retry.",
+            Self::Browser { .. } => "Download interrupted. Choose the video again in qcatch.",
+        }
+    }
+
+    fn validate(&self) -> Result<(), DownloadError> {
+        match self {
+            Self::Catalog { reference } => reference
+                .validate()
+                .map_err(|_| DownloadError::InvalidSelection),
+            Self::Browser { source_host } => {
+                if source_host.len() > 253
+                    || source_host.len() < 4
+                    || !source_host.contains('.')
+                    || !source_host.bytes().all(|byte| {
+                        byte.is_ascii_lowercase()
+                            || byte.is_ascii_digit()
+                            || matches!(byte, b'.' | b'-')
+                    })
+                {
+                    return Err(DownloadError::InvalidSelection);
+                }
+                Ok(())
+            }
+        }
     }
 }
 
@@ -127,7 +190,7 @@ pub enum DownloadStatus {
 pub struct DownloadJob {
     pub id: String,
     pub title: String,
-    pub reference: VariantRef,
+    pub origin: DownloadOrigin,
     pub status: DownloadStatus,
     pub bytes: u64,
     pub total_bytes: Option<u64>,
@@ -143,7 +206,7 @@ impl DownloadJob {
         Ok(Self {
             id: id.iter().map(|byte| format!("{byte:02x}")).collect(),
             title: request.title.clone(),
-            reference: request.reference.clone(),
+            origin: request.origin.clone(),
             status: DownloadStatus::Queued,
             bytes: 0,
             total_bytes: None,
@@ -167,9 +230,7 @@ impl DownloadJob {
         if self.title.trim().is_empty() {
             return Err("download title");
         }
-        self.reference
-            .validate()
-            .map_err(|_| "download reference")?;
+        self.origin.validate().map_err(|_| "download origin")?;
         Ok(())
     }
 }
@@ -236,6 +297,7 @@ impl<S: DownloadStorage> DownloadQueue<S> {
             job.validate()
                 .map_err(|_| DownloadError::Storage(LibraryError::CorruptEntry("download job")))?;
             let original = job.status;
+            let interrupted = job.origin.interrupted_message();
             if job.status == DownloadStatus::Publishing {
                 let completed = match &job.candidate {
                     Some(candidate) if candidate.path.parent() == Some(destination.as_path()) => {
@@ -252,13 +314,11 @@ impl<S: DownloadStorage> DownloadQueue<S> {
                     job.error = None;
                 } else {
                     job.status = DownloadStatus::Error;
-                    job.error =
-                        Some("Download interrupted. Resolve the original variant to retry.".into());
+                    job.error = Some(interrupted.into());
                 }
             } else if job.is_active() {
                 job.status = DownloadStatus::Error;
-                job.error =
-                    Some("Download interrupted. Resolve the original variant to retry.".into());
+                job.error = Some(interrupted.into());
             } else if job.status == DownloadStatus::Complete
                 && !job.path.as_ref().is_some_and(|path| path.is_file())
             {
@@ -302,11 +362,11 @@ impl<S: DownloadStorage> DownloadQueue<S> {
         if state.closed {
             return Err(DownloadError::Closing);
         }
-        if state
-            .jobs
-            .values()
-            .any(|current| current.reference == request.reference && current.is_active())
-        {
+        if state.jobs.values().any(|current| {
+            matches!(&request.origin, DownloadOrigin::Catalog { .. })
+                && current.origin == request.origin
+                && current.is_active()
+        }) {
             return Err(DownloadError::AlreadyQueued);
         }
         self.inner.storage.save(job.clone()).await?;
@@ -330,12 +390,13 @@ impl<S: DownloadStorage> DownloadQueue<S> {
         if !matches!(
             saved.status,
             DownloadStatus::Cancelled | DownloadStatus::Error
-        ) || saved.reference != request.reference
+        ) || saved.origin != request.origin
+            || !matches!(&saved.origin, DownloadOrigin::Catalog { .. })
         {
             return Err(DownloadError::Retry);
         }
         if state.jobs.values().any(|current| {
-            current.id != id && current.reference == request.reference && current.is_active()
+            current.id != id && current.origin == request.origin && current.is_active()
         }) {
             return Err(DownloadError::AlreadyQueued);
         }
@@ -444,8 +505,7 @@ impl<S: DownloadStorage> QueueInner<S> {
                             } else {
                                 job.status = DownloadStatus::Error;
                                 job.error = Some(if closing {
-                                    "Download interrupted. Resolve the original variant to retry."
-                                        .into()
+                                    job.origin.interrupted_message().into()
                                 } else {
                                     error.to_string()
                                 });

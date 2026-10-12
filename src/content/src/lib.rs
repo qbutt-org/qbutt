@@ -12,8 +12,9 @@ mod anitokyo;
 mod association;
 #[cfg(windows)]
 pub mod browser;
-#[cfg(windows)]
 mod byrut;
+#[cfg(windows)]
+mod captured_video;
 mod download;
 mod error;
 #[cfg(windows)]
@@ -49,10 +50,12 @@ pub use aniliberty::AniLiberty;
 pub use animespirit::AnimeSpirit;
 pub use anitokyo::AniTokyo;
 pub use association::{WorkAssociation, WorkGroup, rank_variants};
-#[cfg(windows)]
 pub use byrut::ByRut;
+#[cfg(windows)]
+pub use captured_video::{CapturedVideoError, resolve_captured_video};
 pub use download::{
-    DirectDownload, DownloadError, DownloadJob, DownloadQueue, DownloadStatus, DownloadStorage,
+    DirectDownload, DownloadError, DownloadJob, DownloadOrigin, DownloadQueue, DownloadStatus,
+    DownloadStorage,
 };
 pub use error::{Error, Result};
 #[cfg(windows)]

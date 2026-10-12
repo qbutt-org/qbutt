@@ -29,6 +29,7 @@ mod variant_filters;
 use crate::download_model;
 use crate::models;
 use crate::source_model;
+use downloads::CapturedIntent;
 use library::{DownloadStore, LibraryUpdate, LibraryWorker};
 use playback::PlaybackState;
 use reader::ReaderState;
@@ -247,6 +248,7 @@ pub mod ffi {
         #[qproperty(QString, local_book_error, cxx_name = "localBookError", READ = local_book_error, NOTIFY = local_book_error_changed)]
         #[qproperty(*mut VariantModel, variants, READ = variants_model, CONSTANT)]
         #[qproperty(*mut DownloadModel, downloads, READ = downloads_model, CONSTANT)]
+        #[qproperty(QString, downloads_state, cxx_name = "downloadsState", READ, NOTIFY)]
         #[qproperty(
             QString,
             variant_episode_filter,
@@ -558,6 +560,13 @@ pub mod ffi {
             READ = can_share_selected,
             NOTIFY = share_availability_changed
         )]
+        #[qproperty(
+            bool,
+            selected_variant_saveable,
+            cxx_name = "selectedVariantSaveable",
+            READ = selected_variant_saveable,
+            NOTIFY = selected_variant_state_changed
+        )]
         type ContentController = super::ContentControllerRust;
 
         fn retranslate(self: Pin<&mut ContentController>);
@@ -572,6 +581,23 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "downloadSelected"]
         fn download_selected(self: Pin<&mut Self>, id: QString) -> bool;
+        #[cxx_name = "downloadPlayback"]
+        fn download_playback(self: Pin<&mut Self>, launch_token: u64) -> bool;
+        #[cxx_name = "downloadCaptured"]
+        fn download_captured(
+            self: Pin<&mut Self>,
+            page: QString,
+            title: QString,
+            capture_id: QString,
+        ) -> bool;
+        #[cxx_name = "cancelCapturedDownload"]
+        fn cancel_captured_download(self: Pin<&mut Self>);
+        #[qsignal]
+        #[cxx_name = "capturedDownloadFinished"]
+        fn captured_download_finished(self: Pin<&mut Self>, capture_id: QString, reason: QString);
+        #[qsignal]
+        #[cxx_name = "downloadQueued"]
+        fn download_queued(self: Pin<&mut Self>);
         #[qinvokable]
         #[cxx_name = "cancelDownload"]
         fn cancel_download(self: Pin<&mut Self>, id: QString) -> bool;
@@ -605,6 +631,7 @@ pub mod ffi {
         #[qsignal]
         #[cxx_name = "shareAvailabilityChanged"]
         fn share_availability_changed(self: Pin<&mut Self>);
+        fn selected_variant_saveable(&self) -> bool;
         fn variant_episode_filter(&self) -> QString;
         fn variant_translation_filter(&self) -> QString;
         fn variant_source_filter(&self) -> QString;
@@ -926,8 +953,11 @@ pub struct ContentControllerRust {
     variants: UniquePtr<models::ffi::VariantModel>,
     sources: UniquePtr<source_model::ffi::SourceModel>,
     downloads: UniquePtr<download_model::ffi::DownloadModel>,
+    downloads_state: QString,
     download_queue: Option<Arc<qbutt_content::DownloadQueue<DownloadStore>>>,
     download_task: Option<JoinHandle<()>>,
+    captured_download: Pending,
+    captured_intent: Option<CapturedIntent>,
     source_status: SourceState,
     list_mode: ffi::ListMode,
 
@@ -1015,8 +1045,11 @@ impl Default for ContentControllerRust {
             variants: models::ffi::create_variant_model(),
             sources,
             downloads: download_model::ffi::create_download_model(),
+            downloads_state: QString::from("uninitialized"),
             download_queue: None,
             download_task: None,
+            captured_download: Pending::default(),
+            captured_intent: None,
             source_status,
             list_mode: ffi::ListMode::Search,
 
@@ -1067,6 +1100,7 @@ impl Drop for ContentControllerRust {
         self.inspection.cancel();
         self.resolution.cancel();
         self.shared_import.cancel();
+        self.captured_download.cancel();
         self.source_status.cancel_retries();
         if let Some(task) = self.download_task.take() {
             task.abort();

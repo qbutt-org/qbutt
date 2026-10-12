@@ -3,8 +3,10 @@
 
 #include <QEvent>
 #include <QBuffer>
+#include <QDesktopServices>
 #include <QHash>
 #include <QImageReader>
+#include <QFileInfo>
 #include <QQmlEngine>
 #include <QQuickImageProvider>
 #include <QQuickItem>
@@ -91,6 +93,9 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     connect(m_controller, &Qbutt::ContentController::torrentMetadataReady, this, &ContentView::torrentMetadataReady);
     connect(m_controller, &Qbutt::ContentController::videoReady, this, &ContentView::videoReady);
     connect(m_controller, &Qbutt::ContentController::browserReply, this, &ContentView::browserReply);
+    connect(m_controller, &Qbutt::ContentController::downloadQueued, this, &ContentView::downloadQueued);
+    connect(m_controller, &Qbutt::ContentController::capturedDownloadFinished,
+        this, &ContentView::capturedDownloadFinished);
     connect(m_controller, &Qbutt::ContentController::readerChanged, this, &ContentView::readerActiveChanged);
     connect(m_controller, &Qbutt::ContentController::readerAssetsCleared,
         this, [this](const quint64 generation) { m_readerImages->clear(generation); });
@@ -113,6 +118,48 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
 Content::ContentView::~ContentView()
 {
     m_controller->closeBrowserRelay();
+}
+
+QQuickWidget *Content::ContentView::createDownloadsView(QWidget *parent)
+{
+    auto *view = new QQuickWidget(parent);
+    view->setObjectName(QStringLiteral("downloadsView"));
+    view->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    view->setInitialProperties({{QStringLiteral("backend"), QVariant::fromValue(m_controller)}});
+    view->loadFromModule(QStringLiteral("Qbutt.Views"), QStringLiteral("DownloadsPage"));
+    if (view->rootObject())
+    {
+        connect(view->rootObject(), SIGNAL(openFolderRequested(QString)),
+            this, SLOT(openDownloadedFolder(QString)));
+    }
+    return view;
+}
+
+void Content::ContentView::initDownloads(const QString &destination)
+{
+    m_controller->initDownloads(destination);
+}
+
+bool Content::ContentView::downloadPlayback(const quint64 launchToken)
+{
+    return m_controller->downloadPlayback(launchToken);
+}
+
+bool Content::ContentView::downloadCapture(const QUrl &page, const QString &title, const QString &captureId)
+{
+    return m_controller->downloadCaptured(page.toString(QUrl::FullyEncoded), title, captureId);
+}
+
+void Content::ContentView::cancelCaptureDownload()
+{
+    m_controller->cancelCapturedDownload();
+}
+
+void Content::ContentView::openDownloadedFolder(const QString &path)
+{
+    const QFileInfo file(path);
+    if (file.isAbsolute() && file.isFile())
+        QDesktopServices::openUrl(QUrl::fromLocalFile(file.absolutePath()));
 }
 
 void Content::ContentView::initializeBrowser()

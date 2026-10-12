@@ -30,6 +30,11 @@ namespace Content
         void cancelBrowserRequest(quint64 generation, quint64 id);
         void closeBrowserSession(quint64 generation);
         void openSharedLink(const QUrl &url);
+        QQuickWidget *createDownloadsView(QWidget *parent);
+        void initDownloads(const QString &destination);
+        bool downloadPlayback(quint64 launchToken);
+        bool downloadCapture(const QUrl &page, const QString &title, const QString &captureId);
+        void cancelCaptureDownload();
 
     signals:
         void torrentReady(const QString &magnet);
@@ -43,6 +48,11 @@ namespace Content
         void searchFinished(bool failed);
         void browserReply(quint64 generation, quint64 id, const QByteArray &reply);
         void sharedLinkFailed(bool malformed);
+        void downloadQueued();
+        void capturedDownloadFinished(const QString &captureId, const QString &reason);
+
+    private slots:
+        void openDownloadedFolder(const QString &path);
 
     private:
         void changeEvent(QEvent *event) override;

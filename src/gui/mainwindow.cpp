@@ -44,8 +44,6 @@
 #include <QFileDialog>
 #include <QFileSystemWatcher>
 #include <QGuiApplication>
-#include <QJsonArray>
-#include <QJsonObject>
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
@@ -54,6 +52,7 @@
 #include <QMimeData>
 #include <QProgressBar>
 #include <QProgressDialog>
+#include <QQmlEngine>
 #include <QScreen>
 #include <QShortcut>
 #include <QSplitter>
@@ -78,7 +77,6 @@
 #include "aboutdialog.h"
 #include "content/browsercapture.h"
 #include "content/browserprerequisitewidget.h"
-#include "content/downloadswidget.h"
 #include "content/readerwidget.h"
 #include "content/sourcesdialog.h"
 #include "cookiesdialog.h"
@@ -221,7 +219,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
         m_playerPreparationDialog->show();
     });
     connect(Media::Player::instance(), &Media::Player::downloadRequested, this,
-        [this](const QUrl &url, const QString &title, const Media::PlaybackOptions &options)
+        [this](const QUrl &, const QString &, const Media::PlaybackOptions &options)
     {
         if (options.identity.startsWith(u"torrent:"))
         {
@@ -230,28 +228,11 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
             return;
         }
 
-        QJsonObject headers;
-        for (auto it = options.headers.cbegin(); it != options.headers.cend(); ++it)
-            headers.insert(it.key(), it.value());
-        QJsonArray subtitles;
-        for (const QUrl &subtitle : options.subtitles)
-            subtitles.append(QJsonObject {{u"url"_s, subtitle.toString()}});
-        QJsonObject resolved {{u"kind"_s, u"video"_s}, {u"url"_s, url.toString()},
-            {u"headers"_s, headers}, {u"audioUrl"_s, options.audioUrl.toString()},
-            {u"proxyUrl"_s, options.proxyUrl.toString()}, {u"subtitles"_s, subtitles}};
-        if (!options.audioTrack.title.isEmpty())
-        {
-            resolved.insert(u"audioTrack"_s, QJsonObject {{u"title"_s, options.audioTrack.title},
-                {u"type"_s, options.audioTrack.type}, {u"language"_s, options.audioTrack.language},
-                {u"codec"_s, options.audioTrack.codec}, {u"channels"_s, options.audioTrack.channels}});
-        }
-        const QJsonObject playback {{u"contentKind"_s, options.contentKind}, {u"identity"_s, options.identity},
-            {u"startPosition"_s, options.startPosition}};
-        QJsonObject request {{u"resolved"_s, resolved}, {u"title"_s, title}, {u"options"_s, playback}};
-        if (m_browserCapture)
-            request = m_browserCapture->downloadParameters(request);
-        m_tabs->setCurrentWidget(downloadsWidget());
-        m_downloadsWidget->enqueue(request);
+        if (options.launchToken && m_searchWidget && m_searchWidget->downloadPlayback(options.launchToken))
+            return;
+        if (m_browserCapture && m_browserCapture->requestPlaybackDownload(options.identity))
+            return;
+        QMessageBox::warning(this, tr("Downloads"), tr("This video cannot be saved as one MP4 file."));
     });
 
     Preferences *const pref = Preferences::instance();
@@ -868,7 +849,12 @@ Content::ContentView *MainWindow::ensureContentView()
     {
         m_searchWidget = new Content::ContentView(specialFolderLocation(SpecialFolder::Data).toString(), m_tabs);
         m_searchWidget->hide();
+        m_searchWidget->initDownloads(BitTorrent::Session::instance()->savePath().toString());
         connect(m_searchWidget, &Content::ContentView::browserReply, Content::Client::instance(), &Content::Client::replyBrowser);
+        connect(m_searchWidget, &Content::ContentView::downloadQueued, this, [this]
+        {
+            m_tabs->setCurrentWidget(downloadsWidget());
+        });
         connect(m_searchWidget, &Content::ContentView::torrentReady, this, [this](const QString &magnet)
         {
             app()->addTorrentManager()->addTorrent(magnet, {}, AddTorrentOption::ShowDialog);
@@ -1027,6 +1013,7 @@ void MainWindow::cleanup()
     delete m_browserCapture;
     m_browserCapture = nullptr;
     disconnect(Content::Client::instance(), nullptr, this, nullptr);
+    delete m_downloadsWidget;
     delete m_searchWidget;
     QThreadPool::globalInstance()->waitForDone();
 
@@ -1362,7 +1349,10 @@ void MainWindow::changeEvent(QEvent *event)
     if (m_localReader)
         m_tabs->setTabText(m_tabs->indexOf(m_localReader), tr("Read file…"));
     if (m_downloadsWidget)
+    {
         m_tabs->setTabText(m_tabs->indexOf(m_downloadsWidget), tr("Downloads"));
+        m_downloadsWidget->engine()->retranslate();
+    }
 }
 
 bool MainWindow::event(QEvent *e)
@@ -1690,11 +1680,16 @@ void MainWindow::acceptSharedLink(const QUrl &url)
         {
             QMessageBox::warning(this, tr("Playback"), message);
         });
-        connect(m_browserCapture, &Content::BrowserCapture::downloadRequested, this, [this](const QJsonObject &params)
+        connect(m_browserCapture, &Content::BrowserCapture::downloadRequested, this,
+            [this](const QUrl &page, const QString &title, const QString &captureId)
         {
-            m_tabs->setCurrentWidget(downloadsWidget());
-            m_downloadsWidget->enqueue(params);
+            if (!ensureContentView()->downloadCapture(page, title, captureId))
+                m_browserCapture->finishDownload(captureId, u"failed"_s);
         });
+        connect(m_browserCapture, &Content::BrowserCapture::downloadCancelled,
+            ensureContentView(), &Content::ContentView::cancelCaptureDownload);
+        connect(ensureContentView(), &Content::ContentView::capturedDownloadFinished,
+            m_browserCapture, &Content::BrowserCapture::finishDownload);
         connect(m_browserCapture, &Content::BrowserCapture::browserRequired, this, [this]
         {
             if (!m_browserPrerequisite)
@@ -1719,11 +1714,12 @@ void MainWindow::acceptSharedLink(const QUrl &url)
     activate();
 }
 
-Content::DownloadsWidget *MainWindow::downloadsWidget()
+QQuickWidget *MainWindow::downloadsWidget()
 {
     if (!m_downloadsWidget)
     {
-        m_downloadsWidget = new Content::DownloadsWidget(m_tabs);
+        auto *content = ensureContentView();
+        m_downloadsWidget = content->createDownloadsView(m_tabs);
         m_tabs->addTab(m_downloadsWidget, tr("Downloads"));
     }
     return m_downloadsWidget;

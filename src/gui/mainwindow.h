@@ -44,6 +44,7 @@ class QCloseEvent;
 class QComboBox;
 class QFileSystemWatcher;
 class QProgressDialog;
+class QQuickWidget;
 class QSplitter;
 class QString;
 class QTabWidget;
@@ -80,7 +81,6 @@ namespace Content
     class BrowserCapture;
     class BrowserPrerequisiteWidget;
     class ContentView;
-    class DownloadsWidget;
     class ReaderWidget;
     class SourcesDialog;
 }
@@ -210,7 +210,7 @@ private:
     void initializeIcons();
     void refreshTrayIconTooltip();
     void showReleaseUpdateDialog();
-    Content::DownloadsWidget *downloadsWidget();
+    QQuickWidget *downloadsWidget();
     void showCaptureProgress(const QString &message);
     void closeBrowserPrerequisite();
 
@@ -254,7 +254,7 @@ private:
     QSplitter *m_splitter = nullptr;
     QPointer<Content::ContentView> m_searchWidget;
     QPointer<Content::ReaderWidget> m_localReader;
-    QPointer<Content::DownloadsWidget> m_downloadsWidget;
+    QPointer<QQuickWidget> m_downloadsWidget;
     QPointer<Content::BrowserPrerequisiteWidget> m_browserPrerequisite;
     Content::BrowserCapture *m_browserCapture = nullptr;
     QPointer<RSSWidget> m_rssWidget;

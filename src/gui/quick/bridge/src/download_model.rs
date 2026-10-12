@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QByteArray, QHash, QModelIndex, QString, QVariant, QVector};
-use qbutt_content::{DownloadJob, DownloadStatus, VariantRef};
+use qbutt_content::{DownloadJob, DownloadOrigin, DownloadStatus, VariantRef};
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
@@ -108,6 +108,7 @@ impl ffi::DownloadModel {
                     .unwrap_or_default(),
             )),
             6 => QVariant::from(&QString::from(job.error.as_deref().unwrap_or_default())),
+            7 => QVariant::from(&matches!(&job.origin, DownloadOrigin::Catalog { .. })),
             _ => QVariant::default(),
         }
     }
@@ -115,13 +116,14 @@ impl ffi::DownloadModel {
     fn role_names(&self) -> ffi::QHash_i32_QByteArray {
         let mut roles = QHash::default();
         for (index, name) in [
-            "id",
+            "jobId",
             "title",
             "status",
             "bytes",
             "totalBytes",
             "path",
             "errorText",
+            "canRetry",
         ]
         .iter()
         .enumerate()
@@ -141,7 +143,10 @@ impl ffi::DownloadModel {
                         DownloadStatus::Cancelled | DownloadStatus::Error
                     )
             })
-            .map(|job| job.reference.clone())
+            .and_then(|job| match &job.origin {
+                DownloadOrigin::Catalog { reference } => Some(reference.clone()),
+                DownloadOrigin::Browser { .. } => None,
+            })
     }
 
     pub fn cancellable(&self, id: &str) -> bool {

@@ -6090,6 +6090,10 @@ Minimum requirement: %2.</source>
         <source>qbutt %1 is ready to install.</source>
         <translation>qbutt %1 готов к установке.</translation>
     </message>
+    <message>
+        <source>This video cannot be saved as one MP4 file.</source>
+        <translation>Это видео нельзя сохранить одним файлом MP4.</translation>
+    </message>
 </context>
 <context>
     <name>Media::Player</name>
@@ -18951,6 +18955,10 @@ Please choose a different name and try again.</source>
         <translation>Ссылка скопирована</translation>
     </message>
     <message>
+        <source>Save</source>
+        <translation>Сохранить</translation>
+    </message>
+    <message>
         <source>Watch</source>
         <translation>Смотреть</translation>
     </message>
@@ -19442,6 +19450,97 @@ Please choose a different name and try again.</source>
     <message>
         <source>Could not open this qcatch video.</source>
         <translation>Не удалось открыть это видео из qcatch.</translation>
+    </message>
+    <message>
+        <source>Preparing download…</source>
+        <translation>Подготавливаем загрузку…</translation>
+    </message>
+    <message>
+        <source>This video cannot be saved as one MP4 file.</source>
+        <translation>Это видео нельзя сохранить одним файлом MP4.</translation>
+    </message>
+    <message>
+        <source>This qcatch selection expired. Choose the video again in qcatch.</source>
+        <translation>Выбор видео устарел. Выберите его заново в qcatch.</translation>
+    </message>
+    <message>
+        <source>The download could not be queued.</source>
+        <translation>Не удалось добавить загрузку.</translation>
+    </message>
+</context>
+<context>
+    <name>DownloadsPage</name>
+    <message>
+        <source>Downloads</source>
+        <translation>Загрузки</translation>
+    </message>
+    <message>
+        <source>%1 B</source>
+        <translation>%1 Б</translation>
+    </message>
+    <message>
+        <source>%1 KB</source>
+        <translation>%1 КБ</translation>
+    </message>
+    <message>
+        <source>%1 MB</source>
+        <translation>%1 МБ</translation>
+    </message>
+    <message>
+        <source>%1 GB</source>
+        <translation>%1 ГБ</translation>
+    </message>
+    <message>
+        <source>Queued</source>
+        <translation>В очереди</translation>
+    </message>
+    <message>
+        <source>%1 of %2</source>
+        <translation>%1 из %2</translation>
+    </message>
+    <message>
+        <source>Downloading %1</source>
+        <translation>Скачано %1</translation>
+    </message>
+    <message>
+        <source>Saving file</source>
+        <translation>Сохранение файла</translation>
+    </message>
+    <message>
+        <source>Complete</source>
+        <translation>Готово</translation>
+    </message>
+    <message>
+        <source>Stopped</source>
+        <translation>Остановлено</translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation>Ошибка</translation>
+    </message>
+    <message>
+        <source>Choose the video again in qcatch</source>
+        <translation>Выберите видео заново в qcatch</translation>
+    </message>
+    <message>
+        <source>Open folder</source>
+        <translation>Открыть папку</translation>
+    </message>
+    <message>
+        <source>Stop download</source>
+        <translation>Остановить загрузку</translation>
+    </message>
+    <message>
+        <source>Retry</source>
+        <translation>Повторить</translation>
+    </message>
+    <message>
+        <source>Could not open downloads</source>
+        <translation>Не удалось открыть список загрузок</translation>
+    </message>
+    <message>
+        <source>No downloads yet</source>
+        <translation>Загрузок пока нет</translation>
     </message>
 </context>
 </TS>

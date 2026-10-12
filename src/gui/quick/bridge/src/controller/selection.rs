@@ -145,6 +145,18 @@ impl ffi::ContentController {
         })
     }
 
+    pub(super) fn selected_variant_saveable(&self) -> bool {
+        self.variants
+            .find(&self.selected_variant_id.to_string())
+            .is_some_and(|variant| {
+                matches!(
+                    &variant.reference.selector,
+                    qbutt_content::VariantSelector::YummyAnimeVideo { player, .. }
+                        if player == "Плеер VK"
+                )
+            })
+    }
+
     pub(super) fn variant_selection_state(&self) -> ffi::VariantSelectionState {
         if self.inspecting {
             return ffi::VariantSelectionState::Inspecting;

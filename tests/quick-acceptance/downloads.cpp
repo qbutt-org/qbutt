@@ -11,6 +11,8 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFileInfo>
+#include <QQuickItem>
+#include <QQuickWidget>
 #include <QSet>
 #include <QTimer>
 #include <QVariant>
@@ -86,7 +88,7 @@ void exerciseDownloads(const QString &profile)
     int errors = 0;
     for (int row = 0; row < model->rowCount(); ++row)
     {
-        const QString id = value(model, row, "id").toString();
+        const QString id = value(model, row, "jobId").toString();
         const QString status = value(model, row, "status").toString();
         require(id.size() == 32 && !ids.contains(id), u"Invalid persisted download identity"_s);
         ids.insert(id);
@@ -109,5 +111,15 @@ void exerciseDownloads(const QString &profile)
     }
     require(completed == 3 && errors == 1 && statuses.size() == 2,
         u"Persisted download states differ from generated fixture"_s);
-    qInfo().noquote() << "PASS native Qt downloads model jobs=4 complete=3 error=1";
+
+    QQuickWidget page;
+    page.setInitialProperties({{u"backend"_s, QVariant::fromValue(&controller)}});
+    page.loadFromModule(u"Qbutt.Views"_s, u"DownloadsPage"_s);
+    waitFor([&] { return page.status() != QQuickWidget::Loading; }, u"Downloads page"_s);
+    require(page.status() == QQuickWidget::Ready && page.rootObject(),
+        u"Downloads page did not load"_s);
+    auto *list = page.rootObject()->findChild<QQuickItem *>(u"contentDownloads"_s);
+    require(list && list->property("count").toInt() == 4,
+        u"Downloads page did not bind the persisted jobs"_s);
+    qInfo().noquote() << "PASS native Qt downloads model and page jobs=4 complete=3 error=1";
 }

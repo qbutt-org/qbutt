@@ -37,6 +37,13 @@ void Content::BrowserCapture::retry()
     if (m_variant.isEmpty())
         return;
 
+    if (m_downloadRetry)
+    {
+        if (!requestDownload(m_work, m_variant))
+            emit error(tr("Could not open this qcatch video."));
+        return;
+    }
+
     Client::instance()->cancel(m_request);
     m_request = Client::instance()->request(u"resolve"_s, {{u"work"_s, m_work}, {u"variant"_s, m_variant}});
     emit preparationChanged(tr("Opening qcatch video…"));
@@ -44,22 +51,76 @@ void Content::BrowserCapture::retry()
 
 void Content::BrowserCapture::cancel()
 {
+    if (!m_pendingCaptureId.isEmpty())
+    {
+        m_pendingCaptureId.clear();
+        emit downloadCancelled();
+    }
     Client::instance()->cancel(std::exchange(m_request, 0));
     m_work = {};
     m_variant = {};
+    m_downloadRetry = false;
     emit preparationChanged({});
 }
 
-QJsonObject Content::BrowserCapture::downloadParameters(const QJsonObject &params) const
+bool Content::BrowserCapture::requestPlaybackDownload(const QString &identity)
 {
-    QJsonObject request = params;
-    const QString identity = params.value(u"options"_s).toObject().value(u"identity"_s).toString();
-    if (!identity.isEmpty() && (identity == m_playback.value(u"identity"_s).toString()))
+    if (identity.isEmpty() || identity != m_playback.value(u"identity"_s).toString())
+        return false;
+
+    m_work = m_playback.value(u"work"_s).toObject();
+    m_variant = m_playback.value(u"variant"_s).toObject();
+    m_downloadRetry = true;
+    return requestDownload(m_work, m_variant);
+}
+
+bool Content::BrowserCapture::requestDownload(const QJsonObject &work, const QJsonObject &variant)
+{
+    if (!m_pendingCaptureId.isEmpty()
+        || variant.value(u"sourceId"_s).toString() != u"link"
+        || variant.value(u"transport"_s).toString() != u"video"
+        || variant.value(u"url"_s).toString() != work.value(u"url"_s).toString())
     {
-        request.insert(u"work"_s, m_playback.value(u"work"_s));
-        request.insert(u"variant"_s, m_playback.value(u"variant"_s));
+        return false;
     }
-    return request;
+    const QString prefix = work.value(u"id"_s).toString() + u":capture:"_s;
+    const QString variantId = variant.value(u"id"_s).toString();
+    if (prefix == u":capture:"_s || !variantId.startsWith(prefix))
+        return false;
+
+    const QUrl page(variant.value(u"url"_s).toString());
+    const QString title = work.value(u"title"_s).toString();
+    const QString captureId = variantId.mid(prefix.size());
+    if (!page.isValid() || title.isEmpty() || captureId.isEmpty())
+        return false;
+
+    m_pendingCaptureId = captureId;
+    emit preparationChanged(tr("Preparing download…"));
+    emit downloadRequested(page, title, captureId);
+    return true;
+}
+
+void Content::BrowserCapture::finishDownload(const QString &captureId, const QString &reason)
+{
+    if (captureId != m_pendingCaptureId)
+        return;
+    m_pendingCaptureId.clear();
+    emit preparationChanged({});
+    if (reason == u"browser_required")
+    {
+        m_downloadRetry = true;
+        emit browserRequired();
+        return;
+    }
+    m_downloadRetry = false;
+    if (reason.isEmpty())
+        emit completed();
+    else if (reason == u"unsupported")
+        emit error(tr("This video cannot be saved as one MP4 file."));
+    else if (reason == u"capture")
+        emit error(tr("This qcatch selection expired. Choose the video again in qcatch."));
+    else
+        emit error(tr("The download could not be queued."));
 }
 
 void Content::BrowserCapture::handleEvent(const qint64 id, const QString &event, const QJsonValue &data)
@@ -82,9 +143,12 @@ void Content::BrowserCapture::handleEvent(const qint64 id, const QString &event,
         if (action == u"download")
         {
             m_request = 0;
-            emit preparationChanged({});
-            emit downloadRequested({{u"work"_s, m_work}, {u"variant"_s, m_variant}});
-            emit completed();
+            m_downloadRetry = true;
+            if (!requestDownload(m_work, m_variant))
+            {
+                emit preparationChanged({});
+                emit error(tr("Could not open this qcatch video."));
+            }
         }
         else
         {

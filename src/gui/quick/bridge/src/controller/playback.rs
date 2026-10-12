@@ -28,6 +28,7 @@ pub struct PlaybackSave {
 
 pub(super) struct PlaybackLaunch {
     pub gateway: MediaGateway,
+    reference: VariantRef,
     save: Option<PlaybackSave>,
 }
 
@@ -51,6 +52,12 @@ pub(super) struct PlaybackState {
 }
 
 impl PlaybackState {
+    pub(super) fn reference_for(&self, token: u64) -> Option<VariantRef> {
+        self.launches
+            .get(&token)
+            .map(|launch| launch.reference.clone())
+    }
+
     pub(super) fn failed(&self) -> bool {
         self.saves
             .front()
@@ -176,6 +183,7 @@ impl ffi::ContentController {
             token,
             PlaybackLaunch {
                 gateway,
+                reference: save.variant.clone(),
                 save: Some(save),
             },
         );

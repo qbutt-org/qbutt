@@ -4,8 +4,7 @@ use crate::browser::{
     BrowserChoice, BrowserCommand, BrowserError, BrowserHandle, BrowserReply, BrowserResolver,
     ResolveKind, Selection,
 };
-use crate::model::playback::PlaybackSubtitle;
-use crate::{Error, PlaybackAudioTrack, PlaybackMedia, VariantRef, VariantSelector};
+use crate::{Error, PlaybackMedia, VariantRef, VariantSelector};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExternalVideoError {
@@ -70,27 +69,7 @@ pub async fn resolve_external_video(
     {
         return Err(BrowserError::SelectionChanged.into());
     }
-    Ok(PlaybackMedia {
-        url: media.url,
-        headers: media.headers,
-        audio_url: media.audio_url,
-        audio_track: media.audio_track.map(|track| PlaybackAudioTrack {
-            title: track.title,
-            kind: track.kind,
-            language: track.language,
-            codec: track.codec,
-            channels: track.channels,
-        }),
-        subtitles: media
-            .subtitles
-            .into_iter()
-            .map(|subtitle| PlaybackSubtitle {
-                title: subtitle.title,
-                url: subtitle.url,
-                language: subtitle.language,
-            })
-            .collect(),
-    })
+    Ok((*media).into())
 }
 
 fn vk_identity(url: &Url) -> Result<Url, Error> {

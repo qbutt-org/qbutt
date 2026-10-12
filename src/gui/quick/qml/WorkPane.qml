@@ -140,6 +140,18 @@ Pane {
                 color: root.theme.muted
             }
 
+            ActionButton {
+                objectName: "contentSaveVideo"
+                theme: root.theme
+                visible: root.backend.selectedVariantSaveable
+                text: qsTr("Save")
+                icon.source: root.theme.iconSource("download")
+                enabled: root.backend.selectedVariantState === Search.Available
+                    && root.backend.downloadsState === "ready"
+                    && !root.backend.resolving && root.selectedRow >= 0
+                onClicked: root.backend.downloadSelected(root.backend.selectedVariantId)
+            }
+
             BusyIndicator {
                 Layout.preferredWidth: 24
                 Layout.preferredHeight: 24
