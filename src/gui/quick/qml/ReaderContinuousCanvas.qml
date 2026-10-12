@@ -35,7 +35,8 @@ ScrollView {
     }
 
     function retainPosition(): void {
-        if (parent !== null && backend.readerMode === Reader.Continuous && pendingPosition === null)
+        if (parent !== null && backend.readerMode === Reader.Continuous && pendingPosition === null
+            && !userScrolling && !pageList.moving)
             requestPosition(backend.readerPages.generation, backend.readerPageIndex, backend.readerScrollOffset);
     }
 
@@ -83,6 +84,18 @@ ScrollView {
             first.pageIndex, last, first.pageIndex, offset, userMoved);
     }
 
+    function scrollPage(direction: int): void {
+        const maximum = Math.max(pageList.originY, pageList.originY + pageList.contentHeight - pageList.height);
+        pageList.cancelFlick();
+        const position = Math.max(pageList.originY,
+            Math.min(maximum, pageList.contentY + direction * pageList.height));
+        if (position === pageList.contentY)
+            return;
+
+        userScrolling = true;
+        pageList.contentY = position;
+    }
+
     Component.onCompleted: requestPosition(backend.readerPages.generation, backend.readerPageIndex, backend.readerScrollOffset)
 
     Connections {
@@ -101,29 +114,27 @@ ScrollView {
         function onPressedChanged(): void {
             if (root.ScrollBar.vertical.pressed)
                 root.userScrolling = true;
-            else {
+            else
                 root.saveScroll();
-                root.userScrolling = false;
-            }
         }
     }
 
     Keys.onPressed: event => {
-        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+        if ((event.key === Qt.Key_Up && !pageList.atYBeginning)
+            || (event.key === Qt.Key_Down && !pageList.atYEnd))
             root.userScrolling = true;
-            return;
-        }
+    }
 
-        if (event.key !== Qt.Key_PageUp && event.key !== Qt.Key_PageDown)
-            return;
+    Shortcut {
+        sequence: "PgUp"
+        enabled: root.visible && root.activeFocus
+        onActivated: root.scrollPage(-1)
+    }
 
-        const direction = event.key === Qt.Key_PageDown ? 1 : -1;
-        const maximum = Math.max(pageList.originY, pageList.originY + pageList.contentHeight - pageList.height);
-        pageList.cancelFlick();
-        root.userScrolling = true;
-        pageList.contentY = Math.max(pageList.originY,
-            Math.min(maximum, pageList.contentY + direction * pageList.height));
-        event.accepted = true;
+    Shortcut {
+        sequence: "PgDown"
+        enabled: root.visible && root.activeFocus
+        onActivated: root.scrollPage(1)
     }
 
     contentItem: ListView {
@@ -140,10 +151,7 @@ ScrollView {
             if (dragging)
                 root.userScrolling = true;
         }
-        onMovementEnded: {
-            root.saveScroll();
-            root.userScrolling = false;
-        }
+        onMovementEnded: root.saveScroll()
         onCountChanged: Qt.callLater(root.restorePosition)
         onWidthChanged: root.retainPosition()
         onHeightChanged: root.retainPosition()
@@ -160,7 +168,11 @@ ScrollView {
             target: null
             blocking: false
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
-            onWheel: root.userScrolling = true
+            onWheel: event => {
+                const delta = event.pixelDelta.y || event.angleDelta.y;
+                if ((delta > 0 && !pageList.atYBeginning) || (delta < 0 && !pageList.atYEnd))
+                    root.userScrolling = true;
+            }
             onActiveChanged: {
                 if (!active)
                     root.saveScroll();

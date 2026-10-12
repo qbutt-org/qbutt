@@ -16,6 +16,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeyEvent>
+#include <QMouseEvent>
+#include <QPointer>
 #include <QQuickItem>
 #include <QScopeGuard>
 #include <QSqlDatabase>
@@ -130,6 +132,7 @@ void exerciseReaderContinuous(Content::ContentView *view, const QString &profile
     auto *controller = view->findChild<Qbutt::ContentController *>();
     require(controller && controller->property("readerOpen").toBool(), u"Continuous fixture needs the live reading session"_s);
     settled(controller);
+    view->window()->resize(1248, 621);
     auto *pages = qobject_cast<QAbstractItemModel *>(controller->property("readerPages").value<QObject *>());
     require(pages && (pages->thread() == qApp->thread())
         && (pages->rowCount() == controller->property("readerPageCount").toInt()) && (pages->rowCount() > 8),
@@ -217,28 +220,124 @@ void exerciseReaderContinuous(Content::ContentView *view, const QString &profile
         && !controller->setReaderViewport(generation, -1, 0, 0, 0.2, true)
         && !controller->setReaderViewport(generation, 0, pages->rowCount(), 0, 0.2, true),
         u"Invalid or stale viewport changed the reader"_s);
+    view->window()->resize(1248, view->window()->height() + 457 - qRound(viewport->height()));
+    waitFor([&] { return (viewport->width() == 1200) && (viewport->height() == 457); },
+        u"Native Main viewport geometry"_s, 3'000);
+    const auto expectPosition = [&](const QString &operation, const double beforeY)
+    {
+        waitFor([&]
+        {
+            const int anchor = controller->property("readerPageIndex").toInt();
+            auto *page = pageAt(viewport, anchor);
+            auto *image = page ? page->findChild<QQuickItem *>(u"readerStripImage%1"_s.arg(anchor)) : nullptr;
+            const double y = viewport->property("contentY").toDouble();
+            if (!page || !image || !image->isVisible() || (image->property("status").toInt() != 1)
+                || (y <= beforeY) || (y < page->y()) || (y >= page->y() + page->height())
+                || controller->property("readerProgressPending").toBool())
+                return false;
+            const double offset = controller->property("readerScrollOffset").toDouble();
+            const auto progress = metadata(database).value(u"reader_progress"_s).toObject();
+            return (qAbs(y - page->y() - offset * page->height()) <= 1)
+                && (progress.value(u"page"_s).toInt() == anchor)
+                && (qAbs(progress.value(u"scroll_offset"_s).toDouble() - offset) < 0.000001);
+        }, operation, 10'000);
+    };
+    waitFor([&] { return scroll->property("pendingPosition").isNull(); }, u"Initial exact seek completion"_s);
     const double beforeKey = viewport->property("contentY").toDouble();
     key(view, Qt::Key_Down);
-    waitFor([&] { return viewport->property("contentY").toDouble() > beforeKey; }, u"Continuous real Down key"_s);
-    waitFor([&]
-    {
-        return controller->property("readerScrollOffset").toDouble() > 0
-            && !controller->property("readerProgressPending").toBool();
-    }, u"Decoded continuous user position"_s);
-    settled(controller);
-    const int anchor = controller->property("readerPageIndex").toInt();
-    auto *anchorPage = pageAt(viewport, anchor);
-    require(anchorPage && (qAbs(controller->property("readerScrollOffset").toDouble()
-        - (viewport->property("contentY").toDouble() - anchorPage->y()) / anchorPage->height()) < 0.000001)
-        && (metadata(database).value(u"reader_progress"_s).toObject().value(u"page"_s).toInt() == anchor),
-        u"Continuous progress is not relative to the actual rendered anchor page"_s);
+    expectPosition(u"Continuous Down persists the rendered position"_s, beforeKey);
     const QPointF wheelPosition = viewport->mapToScene(QPointF(viewport->width() / 2, viewport->height() / 2));
     QWheelEvent wheel(wheelPosition, wheelPosition, QPoint(), QPoint(0, -120), Qt::NoButton, Qt::NoModifier,
         Qt::NoScrollPhase, false);
     const double beforeWheel = viewport->property("contentY").toDouble();
     QCoreApplication::sendEvent(view, &wheel);
-    waitFor([&] { return viewport->property("contentY").toDouble() > beforeWheel; }, u"Continuous real wheel"_s);
+    expectPosition(u"Continuous wheel persists the rendered position"_s, beforeWheel);
+    waitFor([&] { return !viewport->property("moving").toBool() && !scroll->property("userScrolling").toBool(); },
+        u"Completed user movement before reopening"_s, 3'000);
+    require(QMetaObject::invokeMethod(reader(view), "selectPage", Q_ARG(int, 0)), u"Exact reader navigation for reopen"_s);
+    waitFor([&]
+    {
+        auto *item = pageAt(viewport, 0);
+        auto *image = item ? item->findChild<QQuickItem *>(u"readerStripImage0"_s) : nullptr;
+        return image && image->isVisible() && (image->property("status").toInt() == 1)
+            && (controller->property("readerPageIndex").toInt() == 0)
+            && (controller->property("readerScrollOffset").toDouble() == 0)
+            && (viewport->property("contentY").toDouble() == 0)
+            && scroll->property("pendingPosition").isNull();
+    }, u"Decoded first-page navigation before Back"_s);
     settled(controller);
+    QPointer<QQuickItem> previousReader = reader(view);
+    auto *back = previousReader->findChild<QQuickItem *>(u"readerBack"_s);
+    require(back && QMetaObject::invokeMethod(back, "clicked"), u"Reopen fixture Back action"_s);
+    waitFor([&]
+    {
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        return previousReader.isNull();
+    }, u"Closed reading presentation retirement"_s, 3'000);
+    for (const auto mode : {Qbutt::Search::ListMode::Favorites, Qbutt::Search::ListMode::History})
+    {
+        controller->setListMode(mode);
+        waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Stored view inspection before reopening"_s);
+    }
+    auto *open = view->rootObject()->findChild<QQuickItem *>(u"contentDownload"_s);
+    waitFor([&] { return open && open->isVisible() && open->isEnabled(); }, u"Stored exact manga Read action"_s);
+    require(QMetaObject::invokeMethod(open, "clicked"), u"Stored Read action did not run"_s);
+    scroll = reader(view)->findChild<QQuickItem *>(u"readerContinuousScroll"_s);
+    viewport = reader(view)->findChild<QQuickItem *>(u"readerContinuousViewport"_s);
+    require(scroll && viewport, u"Current reopened Continuous content is missing"_s);
+    waitFor([&]
+    {
+        auto *item = pageAt(viewport, 0);
+        auto *image = item ? item->findChild<QQuickItem *>(u"readerStripImage0"_s) : nullptr;
+        return image && image->isVisible() && (image->property("status").toInt() == 1)
+            && !controller->property("readerBusy").toBool() && scroll->property("pendingPosition").isNull();
+    }, u"Stable reopened Height first-page decode"_s);
+    require((viewport->width() == 1200) && (viewport->height() == 457)
+        && (controller->property("readerPageIndex").toInt() == 0)
+        && (controller->property("readerScrollOffset").toDouble() == 0), u"Reopen lost the exact first-page position"_s);
+    const double reopenedY = viewport->property("contentY").toDouble();
+    key(view, Qt::Key_Down);
+    expectPosition(u"Reopened Height Down persists the rendered position"_s, reopenedY);
+    const double afterDownY = viewport->property("contentY").toDouble();
+    const auto afterDown = metadata(database).value(u"reader_progress"_s).toObject();
+    waitFor([&]
+    {
+        auto *item = pageAt(viewport, 1);
+        auto *image = item ? item->findChild<QQuickItem *>(u"readerStripImage1"_s) : nullptr;
+        return image && image->isVisible() && (image->property("status").toInt() == 1);
+    }, u"Neighbor Image.Ready after completed Down input"_s);
+    require((qAbs(viewport->property("contentY").toDouble() - afterDownY) < 1)
+        && (metadata(database).value(u"reader_progress"_s).toObject() == afterDown),
+        u"Late visible neighbor decode rewound the confirmed user position"_s);
+    const QPointF reopenedWheelPosition = viewport->mapToScene(QPointF(viewport->width() / 2, viewport->height() / 2));
+    QWheelEvent reopenedWheel(reopenedWheelPosition, reopenedWheelPosition, QPoint(), QPoint(0, -120), Qt::NoButton,
+        Qt::NoModifier, Qt::NoScrollPhase, false);
+    const double beforeReopenedWheel = viewport->property("contentY").toDouble();
+    QCoreApplication::sendEvent(view, &reopenedWheel);
+    expectPosition(u"Reopened Height wheel persists the rendered position"_s, beforeReopenedWheel);
+    auto *bar = reader(view)->findChild<QQuickItem *>(u"readerContinuousScrollBar"_s);
+    require(bar && bar->isEnabled(), u"Reopened scrollbar is missing"_s);
+    const QPointF barPosition = bar->mapToScene(QPointF(bar->width() / 2, bar->height() / 2));
+    const QPointF globalBarPosition = view->mapToGlobal(barPosition.toPoint());
+    const double beforeBar = viewport->property("contentY").toDouble();
+    QWheelEvent overlappingWheel(reopenedWheelPosition, reopenedWheelPosition, QPoint(), QPoint(0, -120), Qt::NoButton,
+        Qt::NoModifier, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(view, &overlappingWheel);
+    QMouseEvent hover(QEvent::MouseMove, barPosition, globalBarPosition, Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(view, &hover);
+    QMouseEvent press(QEvent::MouseButtonPress, barPosition, globalBarPosition, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(view, &press);
+    require(bar->property("pressed").toBool() && scroll->property("userScrolling").toBool(),
+        u"Scrollbar press lost the active user movement"_s);
+    const QPointF dragPosition = bar->mapToScene(QPointF(bar->width() / 2, bar->height() * 0.6));
+    const QPointF globalDragPosition = view->mapToGlobal(dragPosition.toPoint());
+    QMouseEvent drag(QEvent::MouseMove, dragPosition, globalDragPosition, Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(view, &drag);
+    QMouseEvent release(QEvent::MouseButtonRelease, dragPosition, globalDragPosition, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(view, &release);
+    expectPosition(u"Reopened Height scrollbar persists the rendered position"_s, beforeBar);
+    waitFor([&] { return !bar->property("pressed").toBool() && !scroll->property("userScrolling").toBool(); },
+        u"Scrollbar and wheel movement completion"_s, 3'000);
 
     int delegates = 0;
     int decodedImages = 0;
@@ -294,9 +393,21 @@ void exerciseReaderContinuous(Content::ContentView *view, const QString &profile
         waitFor([&]
         {
             auto *lastItem = pageAt(viewport, lastPage);
-            return lastItem && (lastItem->height() <= viewport->height() + 1)
+            return lastItem && viewport->property("atYEnd").toBool()
+                && (lastItem->height() <= viewport->height() + 1)
                 && (lastItem->y() + 0.37 * lastItem->height() - viewport->property("contentY").toDouble() > 1);
         }, u"Physical short last-page clamp"_s);
+        settled(controller);
+        auto *clampedScroll = reader(view)->findChild<QQuickItem *>(u"readerContinuousScroll"_s);
+        require(clampedScroll && viewport->property("atYEnd").toBool(), u"Short last page is not physically clamped at the end"_s);
+        key(view, Qt::Key_Down);
+        key(view, Qt::Key_PageDown);
+        require(!clampedScroll->property("userScrolling").toBool(), u"Clamped no-op keys left user movement active"_s);
+        const QPointF boundaryPosition = viewport->mapToScene(QPointF(viewport->width() / 2, viewport->height() / 2));
+        QWheelEvent boundaryWheel(boundaryPosition, boundaryPosition, QPoint(), QPoint(0, -120), Qt::NoButton,
+            Qt::NoModifier, Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(view, &boundaryWheel);
+        waitFor([&] { return !clampedScroll->property("userScrolling").toBool(); }, u"Clamped wheel input completion"_s, 3'000);
         settled(controller);
         require((controller->property("readerPageIndex").toInt() == lastPage)
             && (controller->property("readerScrollOffset").toDouble() == 0.37)
