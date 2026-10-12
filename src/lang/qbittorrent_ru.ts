@@ -19067,6 +19067,14 @@ Please choose a different name and try again.</source>
         <translation>Не удалось сохранить настройки источников.</translation>
     </message>
     <message>
+        <source>Sign in to RuTracker to continue.</source>
+        <translation>Войдите на RuTracker, чтобы продолжить.</translation>
+    </message>
+    <message>
+        <source>RuTracker needs a manual check.</source>
+        <translation>RuTracker требует проверки вручную.</translation>
+    </message>
+    <message>
         <source>Could not get data from this source.</source>
         <translation>Не удалось получить данные от источника.</translation>
     </message>
@@ -19136,6 +19144,14 @@ Please choose a different name and try again.</source>
     <message>
         <source>Retry %1</source>
         <translation>Повторить %1</translation>
+    </message>
+    <message>
+        <source>Open %1</source>
+        <translation>Открыть %1</translation>
+    </message>
+    <message>
+        <source>Continue in %1</source>
+        <translation>Продолжить на %1</translation>
     </message>
     <message>
         <source>Sources</source>

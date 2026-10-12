@@ -22,6 +22,7 @@ const SESSION_LIFETIME: Duration = Duration::from_secs(30 * 60);
 struct Clearance {
     received: Instant,
     session: SourceSession,
+    manual: bool,
 }
 
 struct OperationSession {
@@ -68,6 +69,36 @@ impl RuTracker {
         if let Some(webview) = self.webview.get() {
             webview.close();
         }
+    }
+
+    /// An explicit source action opens the same profile used for silent checks.
+    pub async fn complete_check(&self) -> Result<()> {
+        let webview = self
+            .webview
+            .get()
+            .ok_or(Error::SourceCheck(WebViewError::Unavailable))?;
+        let checked = webview
+            .check(
+                self.origin.join("/forum/index.php").unwrap(),
+                WebViewCheck {
+                    interactive: true,
+                    ..WebViewCheck::default()
+                },
+            )
+            .await
+            .map_err(|error| match error {
+                WebViewError::CheckRequired | WebViewError::Canceled | WebViewError::Timeout => {
+                    Error::SourceCheckRequired
+                }
+                error => Error::SourceCheck(error),
+            })?;
+        let session = SourceSession::from_webview(self.origin.clone(), checked)?;
+        *self.clearance.lock().expect("RuTracker clearance lock") = Some(Clearance {
+            received: Instant::now(),
+            session,
+            manual: true,
+        });
+        Ok(())
     }
 
     pub async fn search(
@@ -143,6 +174,22 @@ impl RuTracker {
         browser: Option<&BrowserHandle>,
         choice: BrowserChoice,
     ) -> Result<OperationSession> {
+        let cached = {
+            let clearance = self.clearance.lock().expect("RuTracker clearance lock");
+            clearance
+                .as_ref()
+                .filter(|clearance| {
+                    clearance.received.elapsed() < SESSION_LIFETIME
+                        && !clearance.session.has_expired_cookie()
+                })
+                .map(|clearance| (clearance.session.clone(), clearance.manual))
+        };
+        if let Some((session, true)) = &cached {
+            return Ok(OperationSession {
+                http: session.clone(),
+                browser: BrowserBorrow::None,
+            });
+        }
         let mut browser_state = BrowserBorrow::None;
         if let Some(browser) = browser {
             let scope = self.origin.join("/forum/tracker.php").unwrap();
@@ -157,17 +204,7 @@ impl RuTracker {
                 Err(error) => browser_state = BrowserBorrow::Failed(error),
             }
         }
-        let cached = {
-            let clearance = self.clearance.lock().expect("RuTracker clearance lock");
-            clearance
-                .as_ref()
-                .filter(|clearance| {
-                    clearance.received.elapsed() < SESSION_LIFETIME
-                        && !clearance.session.has_expired_cookie()
-                })
-                .map(|clearance| clearance.session.clone())
-        };
-        if let Some(cached) = cached {
+        if let Some((cached, _)) = cached {
             return Ok(OperationSession {
                 http: cached,
                 browser: browser_state,
@@ -249,9 +286,11 @@ impl RuTracker {
                 *self.clearance.lock().expect("RuTracker clearance lock") = Some(Clearance {
                     received: Instant::now(),
                     session: session.http.clone(),
+                    manual: false,
                 });
                 Ok(body)
             }
+            Err(Error::Challenge) => Err(Error::SourceCheckRequired),
             result => result,
         }
     }

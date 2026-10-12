@@ -122,6 +122,8 @@ impl ffi::SourceModel {
                             SourceFailureReason::Http(401 | 403) => 2,
                             SourceFailureReason::VariantUnavailable
                             | SourceFailureReason::Http(404 | 410) => 3,
+                            SourceFailureReason::LoginRequired => 6,
+                            SourceFailureReason::SourceCheckRequired => 7,
                             _ => 0,
                         })
                     })
@@ -129,6 +131,16 @@ impl ffi::SourceModel {
             ),
             5 => QVariant::from(&row.pending),
             6 => QVariant::from(&row.retrying),
+            7 => QVariant::from(
+                &(row.source == Source::RuTracker
+                    && matches!(
+                        row.failure,
+                        Some(
+                            SourceFailureReason::LoginRequired
+                                | SourceFailureReason::SourceCheckRequired
+                        )
+                    )),
+            ),
             _ => QVariant::default(),
         }
     }
@@ -143,6 +155,7 @@ impl ffi::SourceModel {
             "failureText",
             "pending",
             "retrying",
+            "manualCheck",
         ]
         .iter()
         .enumerate()

@@ -251,7 +251,7 @@ fn webview_fixture() -> CheckResult {
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;
     let request: serde_json::Value = serde_json::from_str(&line)?;
-    assert_eq!(request["mode"], "silent");
+    assert!(request["mode"] == "silent" || request["mode"] == "interactive");
     let profile = Path::new(
         request["profileDirectory"]
             .as_str()
@@ -263,6 +263,9 @@ fn webview_fixture() -> CheckResult {
     );
     let url = request["url"].as_str().expect("fixture URL");
     let address = Url::parse(url)?;
+    if request["mode"] == "interactive" {
+        assert_eq!(address.path(), "/forum/index.php");
+    }
     let query = address.query_pairs().find(|(name, _)| name == "nm");
     let mode = query.as_ref().map(|(_, value)| value.as_ref());
     let response = match mode {
@@ -315,8 +318,15 @@ async fn webview_sessions(fixture: &Fixture) -> CheckResult {
                 assert_eq!(works.len(), 1);
                 assert_eq!(works[0].title, "Синтел [версия 2] & legal");
             }
-            "persistent" => assert!(matches!(result, Err(Error::Challenge))),
-            "manual" => assert!(matches!(result, Err(Error::SourceCheckRequired))),
+            "persistent" => assert!(matches!(result, Err(Error::SourceCheckRequired))),
+            "manual" => {
+                assert!(matches!(result, Err(Error::SourceCheckRequired)));
+                source.complete_check().await?;
+                let works = source
+                    .search("manual", Category::Anime, None, BrowserChoice::Auto)
+                    .await?;
+                assert_eq!(works.len(), 1);
+            }
             "fault" => assert!(matches!(
                 result,
                 Err(Error::SourceCheck(webview::WebViewError::Failed))
@@ -329,6 +339,8 @@ async fn webview_sessions(fixture: &Fixture) -> CheckResult {
             recent.len(),
             if matches!(query, "generated" | "persistent") {
                 3
+            } else if query == "manual" {
+                4
             } else {
                 2
             }
@@ -347,6 +359,28 @@ async fn webview_sessions(fixture: &Fixture) -> CheckResult {
         }
         source.close();
     }
+
+    fixture.case("login-until-cookie");
+    let source = rutracker::fixture(
+        http::fixture(fixture.client.clone(), fixture.origin.clone()),
+        fixture.origin.clone(),
+    );
+    source.initialize_webview(directory.clone(), app_dir.clone());
+    assert!(matches!(
+        source
+            .search("generated", Category::Anime, None, BrowserChoice::Auto)
+            .await,
+        Err(Error::LoginRequired)
+    ));
+    source.complete_check().await?;
+    assert_eq!(
+        source
+            .search("generated", Category::Anime, None, BrowserChoice::Auto)
+            .await?
+            .len(),
+        1
+    );
+    source.close();
 
     std::fs::remove_file(app_dir.join("qbutt-webview.exe"))?;
     std::fs::remove_dir(app_dir)?;

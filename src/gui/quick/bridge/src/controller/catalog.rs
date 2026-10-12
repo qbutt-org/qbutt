@@ -44,6 +44,13 @@ pub(super) struct Catalog {
 }
 
 impl Catalog {
+    pub(super) async fn complete_source_check(&self, source: Source) -> qbutt_content::Result<()> {
+        match source {
+            Source::RuTracker => self.rutracker.complete_check().await,
+            _ => Err(qbutt_content::Error::InvalidReference),
+        }
+    }
+
     pub(super) fn initialize_webview(&self, profile_dir: PathBuf, app_dir: PathBuf) {
         self.rutracker.initialize_webview(profile_dir, app_dir);
     }

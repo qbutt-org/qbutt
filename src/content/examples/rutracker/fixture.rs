@@ -185,6 +185,9 @@ fn response(
         && head.contains("bbsession=fixture-session");
     match case {
         "login" => return cp1251("200 OK", login()),
+        "login-until-cookie" if !head.contains("clearance=fixture-pass") => {
+            return cp1251("200 OK", login());
+        }
         "session" if !authenticated => return cp1251("200 OK", login()),
         "challenge" => {
             return cp1251(

@@ -36,12 +36,17 @@ namespace
         const script = selector => document.querySelector(selector) !== null;
         const anubis = script('script#anubis_challenge[type="application/json"]')
             && script('script#anubis-main[src*="/.within.website/x/cmd/anubis/"]');
-        const cloudflare = script('#challenge-form, #cf-challenge-running')
-            && script('script[src*="/cdn-cgi/challenge-platform/"]');
+        const cloudflare = script(`#challenge-form, #cf-challenge-running, .cf-turnstile,
+            script[src*="/cdn-cgi/challenge-platform/"]`);
         const ddg = script('script[src*="check.ddos-guard.net/check.js"]');
-        const captcha = script('form#captcha-form, form[action*="/captcha"]');
+        const captcha = script(`form#captcha-form, form[action*="/captcha"], input[name="cap_sid"],
+            input[name="g-recaptcha-response"], textarea[name="g-recaptcha-response"],
+            input[name="h-captcha-response"], .g-recaptcha, .h-captcha`);
+        const login = location.pathname === '/forum/login.php'
+            || (script('input[name="login_username"]') && script('input[name="login_password"]')
+                && !script('#logged-in-username'));
         return {url: location.href, ready: document.readyState === 'complete',
-            challenge: anubis || cloudflare || ddg || captcha};
+            challenge: anubis || cloudflare || ddg || captcha || login};
     })())JS";
 
     QString consumeString(LPWSTR value)

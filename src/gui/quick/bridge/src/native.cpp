@@ -86,6 +86,10 @@ QString Qbutt::sourceError(const std::int32_t reason)
         return QCoreApplication::translate("ContentController", "Could not load source settings.");
     case 5:
         return QCoreApplication::translate("ContentController", "Could not save source settings.");
+    case 6:
+        return QCoreApplication::translate("ContentController", "Sign in to RuTracker to continue.");
+    case 7:
+        return QCoreApplication::translate("ContentController", "RuTracker needs a manual check.");
     default:
         return QCoreApplication::translate("ContentController", "Could not get data from this source.");
     }

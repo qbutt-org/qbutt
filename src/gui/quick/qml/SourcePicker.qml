@@ -112,8 +112,11 @@ ModalPicker {
                                 objectName: "contentSourceRetry_" + sourceRow.model.sourceId
                                 theme: root.theme
                                 visible: sourceRow.model.failed
-                                text: qsTr("Try again")
-                                Accessible.name: qsTr("Retry %1").arg(sourceRow.model.name)
+                                text: sourceRow.model.manualCheck
+                                    ? qsTr("Open %1").arg(sourceRow.model.name) : qsTr("Try again")
+                                Accessible.name: sourceRow.model.manualCheck
+                                    ? qsTr("Continue in %1").arg(sourceRow.model.name)
+                                    : qsTr("Retry %1").arg(sourceRow.model.name)
                                 enabled: root.backend.sourceSettingsState !== Sources.Failed
                                     && sourceRow.model.enabled && !sourceRow.model.pending && !sourceRow.model.retrying
                                 onClicked: root.backend.retrySource(sourceRow.model.sourceId)

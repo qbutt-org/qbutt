@@ -616,6 +616,11 @@ impl ffi::ContentController {
         let Some(failure) = status.settings.failure.clone() else {
             return false;
         };
+        let manual_check = source == Source::RuTracker
+            && matches!(
+                failure.reason,
+                SourceFailureReason::LoginRequired | SourceFailureReason::SourceCheckRequired
+            );
         let Some(request) = self.source_request(failure.operation) else {
             return false;
         };
@@ -628,7 +633,14 @@ impl ffi::ContentController {
         let inspection_generation = self.inspection.generation;
         let retry_generation = status.retry.generation;
         let task = services.runtime.spawn(async move {
-            let result = catalog.execute(&request.operation).await;
+            let result = if manual_check {
+                match catalog.complete_source_check(source).await {
+                    Ok(()) => catalog.execute(&request.operation).await,
+                    Err(error) => Err(error),
+                }
+            } else {
+                catalog.execute(&request.operation).await
+            };
             let _ = thread.queue(move |mut controller| {
                 if !controller.source_request_current(&request)
                     || controller.source_status.status(source).retry.generation != retry_generation

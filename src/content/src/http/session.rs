@@ -12,9 +12,9 @@ const MAX_COOKIE_BYTES: usize = 16 * 1024;
 const MAX_SESSION_BYTES: usize = 256 * 1024;
 const MAX_COOKIE_HEADER_BYTES: usize = 64 * 1024;
 
-/// Credentials live only for the provider operation and never enter public
-/// models, persistence or diagnostics. Exact-origin HTTP guards remain external
-/// to RFC cookie domain/path matching.
+/// Credentials stay with a provider operation or its bounded source owner;
+/// they never enter public models, persistence or diagnostics. Exact-origin
+/// HTTP guards remain external to RFC cookie domain/path matching.
 #[derive(Clone)]
 pub(crate) struct SourceSession {
     pub(super) origin: Origin,
