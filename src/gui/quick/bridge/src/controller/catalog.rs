@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
-    AniLiberty, Chapter, ChapterRef, FitGirl, Kakuyomu, LibSession, MangaDex, MangaLib, Nyaa, RanobeHub,
-    RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation,
-    TextChapter, Work, YummyAnime,
+    AniLiberty, Chapter, ChapterRef, FitGirl, Kakuyomu, LibSession, MangaDex, MangaLib, Nyaa,
+    RanobeHub, RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source,
+    SourceOperation, TextChapter, Work, YummyAnime,
 };
 
 use super::browser::BrowserClient;

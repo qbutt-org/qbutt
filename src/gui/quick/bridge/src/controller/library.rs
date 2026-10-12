@@ -6,8 +6,8 @@ use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
     DownloadJob, DownloadStorage, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView,
-    LocalBook, PublicationRef, ReaderProgress,
-    ReaderSettings, SourceSettings, VariantPreferences, Work, WorkGroup,
+    LocalBook, PublicationRef, ReaderProgress, ReaderSettings, SourceSettings, VariantPreferences,
+    Work, WorkGroup,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};

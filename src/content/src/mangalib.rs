@@ -179,11 +179,7 @@ impl MangaLib {
         chapter.data.into_pages(selected.clone(), &server)
     }
 
-    pub async fn image_bytes(
-        &self,
-        image: &ChapterImage,
-        session: &LibSession,
-    ) -> Result<Vec<u8>> {
+    pub async fn image_bytes(&self, image: &ChapterImage, session: &LibSession) -> Result<Vec<u8>> {
         response::validate_image_url(&image.url)?;
         self.http
             .image(image.url.clone(), response::IMAGE_HOSTS, session)

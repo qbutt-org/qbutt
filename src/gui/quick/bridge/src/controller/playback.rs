@@ -8,7 +8,7 @@ use cxx_qt_lib::{QByteArray, QString, QUrl, QVector};
 use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
     Category, MediaGateway, PreparedPlayback, ResolvedContent, SourceOperation, Transport,
-    VariantPreferences, VariantRef, VariantSelector, Work, WorkGroup, resolve_external_video,
+    VariantPreferences, VariantRef, VariantSelector, WorkGroup, resolve_external_video,
 };
 
 use super::catalog::SourceResponse;
