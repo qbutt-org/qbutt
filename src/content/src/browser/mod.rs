@@ -121,6 +121,7 @@ pub struct BrowserHandle {
 /// Ephemeral native source credentials from one selected browser connection.
 /// This value never crosses the foreign wire, Qt models or diagnostics.
 pub struct BrowserSession {
+    pub(crate) identity: u64,
     pub(crate) url: Url,
     pub(crate) connection: BrowserConnection,
     pub(crate) cookies: Vec<BrowserCookie>,
@@ -189,7 +190,7 @@ impl BrowserHandle {
         choice: BrowserChoice,
         command: BrowserCommand,
     ) -> Result<BrowserReply, BrowserError> {
-        self.request_inner(choice, command, true)
+        self.request_inner(choice, command, true, None)
             .await
             .map(|outcome| outcome.reply)
     }
@@ -202,7 +203,7 @@ impl BrowserHandle {
         choice: BrowserChoice,
         command: BrowserCommand,
     ) -> Result<BrowserReply, BrowserError> {
-        self.request_inner(choice, command, false)
+        self.request_inner(choice, command, false, None)
             .await
             .map(|outcome| outcome.reply)
     }
@@ -215,16 +216,31 @@ impl BrowserHandle {
         choice: BrowserChoice,
         url: Url,
     ) -> Result<BrowserSession, BrowserError> {
+        self.session_from_connection(choice, url, None).await
+    }
+
+    pub(crate) async fn session_from_connection(
+        &self,
+        choice: BrowserChoice,
+        url: Url,
+        connection: Option<u64>,
+    ) -> Result<BrowserSession, BrowserError> {
         if url.scheme() != "https" {
             return Err(BrowserError::InvalidRequest);
         }
         let outcome = self
-            .request_inner(choice, BrowserCommand::Cookies { url: url.clone() }, false)
+            .request_inner(
+                choice,
+                BrowserCommand::Cookies { url: url.clone() },
+                false,
+                connection,
+            )
             .await?;
         let BrowserReply::Cookies(cookies) = outcome.reply else {
             return Err(BrowserError::InvalidResponse);
         };
         Ok(BrowserSession {
+            identity: outcome.identity,
             url,
             connection: outcome.connection,
             cookies,
@@ -235,15 +251,22 @@ impl BrowserHandle {
         &self,
         choice: BrowserChoice,
         url: Url,
+        connection: Option<u64>,
     ) -> Result<(BrowserSession, Option<String>), BrowserError> {
         let outcome = self
-            .request_inner(choice, BrowserCommand::LibSession { url }, false)
+            .request_inner(
+                choice,
+                BrowserCommand::LibSession { url },
+                false,
+                connection,
+            )
             .await?;
         let BrowserReply::LibSession(reply) = outcome.reply else {
             return Err(BrowserError::InvalidResponse);
         };
         Ok((
             BrowserSession {
+                identity: outcome.identity,
                 url: Url::parse("https://api.cdnlibs.org/api/").expect("fixed Lib API"),
                 connection: outcome.connection,
                 cookies: reply.cookies,
@@ -257,6 +280,7 @@ impl BrowserHandle {
         choice: BrowserChoice,
         command: BrowserCommand,
         wait_for_connection: bool,
+        connection: Option<u64>,
     ) -> Result<actor::Outcome, BrowserError> {
         command.validate()?;
         if *self.stopping.borrow() {
@@ -301,6 +325,7 @@ impl BrowserHandle {
         self.requests
             .try_send(actor::Request {
                 choice,
+                connection,
                 command,
                 reply,
                 deadline,

@@ -41,7 +41,7 @@ pub(super) async fn exchange(
     let wire = read(edge).await?;
     write_fragmented(edge, &json!({"id":wire["id"],"result":result})).await?;
     match (pending.await?, expected) {
-        (Ok(reply), None) => Ok(serde_json::to_value(reply)?),
+        (Ok(reply), None) => Ok(reply.into_wire()?),
         (Err(error), Some(expected)) if error == expected => Ok(Value::Null),
         (Err(error), expected) => {
             panic!("Unexpected bounded error {error:?}; expected {expected:?}")

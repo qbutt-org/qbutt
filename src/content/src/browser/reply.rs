@@ -15,8 +15,6 @@ pub enum ResolveKind {
     Torrent,
 }
 
-#[derive(Serialize)]
-#[serde(untagged)]
 pub enum BrowserReply {
     Cookies(Vec<BrowserCookie>),
     LibSession(LibSessionReply),
@@ -25,9 +23,24 @@ pub enum BrowserReply {
     VkSearch(VkSearchReply),
 }
 
+impl BrowserReply {
+    /// The transitional foreign adapter accepts these replies only. Native
+    /// account credentials deliberately have no serialization implementation.
+    pub fn into_wire(self) -> Result<serde_json::Value, BrowserError> {
+        match self {
+            Self::Cookies(reply) => serde_json::to_value(reply),
+            Self::Fetch(reply) => serde_json::to_value(reply),
+            Self::Resolved(reply) => serde_json::to_value(reply),
+            Self::VkSearch(reply) => serde_json::to_value(reply),
+            Self::LibSession(_) => return Err(BrowserError::InvalidRequest),
+        }
+        .map_err(|_| BrowserError::InvalidResponse)
+    }
+}
+
 /// Private qcatch wire response. Never expose this credential value to models,
 /// persistence or diagnostics.
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LibSessionReply {
     pub(crate) access_token: Option<String>,

@@ -16,12 +16,14 @@ use super::{
 
 pub(crate) struct Request {
     pub choice: BrowserChoice,
+    pub connection: Option<u64>,
     pub command: BrowserCommand,
     pub reply: oneshot::Sender<Result<Outcome, BrowserError>>,
     pub deadline: Instant,
 }
 
 pub(super) struct Outcome {
+    pub identity: u64,
     pub connection: BrowserConnection,
     pub reply: BrowserReply,
 }
@@ -128,7 +130,7 @@ pub(crate) async fn run(
                             Err(error.error())
                         } else {
                             request.command.reply(response.result.expect("validated response"))
-                                .map(|reply| Outcome { connection: request.metadata, reply })
+                                .map(|reply| Outcome { identity: connection, connection: request.metadata, reply })
                         };
                         let _ = request.reply.send(result);
                     }
@@ -149,7 +151,13 @@ pub(crate) async fn run(
                     let _ = request.reply.send(Err(BrowserError::Timeout));
                     continue;
                 }
-                let selected = choose(request.choice, &clients);
+                let selected = match request.connection {
+                    Some(connection) => clients.get(&connection)
+                        .filter(|client| client.metadata.is_some())
+                        .map(|_| connection)
+                        .ok_or(BrowserError::Disconnected),
+                    None => choose(request.choice, &clients),
+                };
                 let connection = match selected {
                     Ok(connection) if pending.len() < 16 => connection,
                     Ok(_) => {

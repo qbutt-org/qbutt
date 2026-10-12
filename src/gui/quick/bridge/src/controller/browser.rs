@@ -241,6 +241,11 @@ impl ffi::ContentController {
         let parsed = (request.as_slice().len() <= MAX_MESSAGE_BYTES)
             .then(|| serde_json::from_slice::<RelayRequest>(request.as_slice()).ok())
             .flatten()
+            // Lib account credentials remain inside the native provider path.
+            .filter(|request| {
+                !matches!(&request.command, RelayCommand::Browser(command)
+                if matches!(command.as_ref(), BrowserCommand::LibSession { .. }))
+            })
             .filter(|request| request.id == id && id > 0 && id <= MAX_BROWSER_ID);
         let Some(request) = parsed else {
             let reply = encode_response(failure(BrowserError::InvalidRequest));
@@ -292,7 +297,11 @@ impl ffi::ContentController {
                             if let Err(error) = command.validate() {
                                 failure(error)
                             } else if request.optional {
-                                match handle.request_connected(request.browser, *command).await {
+                                match handle
+                                    .request_connected(request.browser, *command)
+                                    .await
+                                    .and_then(|reply| reply.into_wire())
+                                {
                                     Ok(reply) => json!({ "result": reply }),
                                     Err(
                                         BrowserError::BrowserRequired
@@ -310,7 +319,11 @@ impl ffi::ContentController {
                                 failure(BrowserError::BrowserRequired)
                             } else {
                                 let page = recovery_page(&command);
-                                match handle.request(request.browser, *command).await {
+                                match handle
+                                    .request(request.browser, *command)
+                                    .await
+                                    .and_then(|reply| reply.into_wire())
+                                {
                                     Ok(reply) => json!({ "result": reply }),
                                     Err(error) => browser_failure(error, &page),
                                 }

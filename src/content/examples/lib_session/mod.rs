@@ -163,7 +163,7 @@ pub(super) async fn run() -> FixtureResult {
         &json!({"id":wire["id"],"result":[cookie("image", "img3.cdnlibs.org", "/")]}),
     )
     .await?;
-    let (mut http, _, image) = pending.await??;
+    let (mut http, original, image) = pending.await??;
     assert_eq!(image, b"generated image");
     let mut foreign = LibSession::anonymous(Source::MangaLib)?;
     assert!(matches!(
@@ -245,7 +245,84 @@ pub(super) async fn run() -> FixtureResult {
     assert_eq!(canceled["method"], "cancel");
     assert_eq!(canceled["id"], wire["id"]);
     println!("PASS bounded token/cookie/origin validation and in-flight cancellation");
+
+    let selected = handle.clone();
+    let pending = tokio::spawn(async move {
+        selected
+            .request_connected(
+                BrowserChoice::Edge,
+                BrowserCommand::LibSession {
+                    url: "https://ranobelib.me/".parse().unwrap(),
+                },
+            )
+            .await
+    });
+    let wire = pipe::read(&mut edge).await?;
+    pipe::write(
+        &mut edge,
+        &json!({"id":wire["id"],"result":fixture_session("generated.current")}),
+    )
+    .await?;
+    assert!(matches!(
+        pending.await??.into_wire(),
+        Err(BrowserError::InvalidRequest)
+    ));
+
+    let selected = handle.clone();
+    let pending = tokio::spawn(async move {
+        LibSession::from_browser(Source::RanobeLib, Some(&selected), BrowserChoice::Edge).await
+    });
+    let wire = pipe::read(&mut edge).await?;
+    pipe::write(
+        &mut edge,
+        &json!({"id":wire["id"],"result":fixture_session("generated.stale")}),
+    )
+    .await?;
+    let mut stale = pending.await??;
     drop(edge);
+
+    let mut replacement = tokio::net::windows::named_pipe::ClientOptions::new()
+        .open(discovery_value["pipe"].as_str().unwrap())?;
+    pipe::write(&mut replacement, &json!({"type":"hello","version":1,"browser":"edge","userAgent":"generated replacement","capabilities":["lib-session"]})).await?;
+    pipe::wait_agent(&handle, "generated replacement").await?;
+    let before = requests.load(Ordering::SeqCst);
+    assert!(matches!(
+        http.image(
+            "https://img3.cdnlibs.org/image".parse()?,
+            &["img3.cdnlibs.org"],
+            &original
+        )
+        .await,
+        Err(Error::BrowserSession(BrowserError::Disconnected))
+    ));
+    assert_eq!(requests.load(Ordering::SeqCst), before);
+    assert!(matches!(
+        http.json::<Value>(http.endpoint("/api/manga"), &mut stale)
+            .await,
+        Err(Error::BrowserSession(BrowserError::Disconnected))
+    ));
+    assert_eq!(requests.load(Ordering::SeqCst), before + 1);
+    assert!(
+        timeout(Duration::from_millis(150), pipe::read(&mut replacement))
+            .await
+            .is_err()
+    );
+    println!(
+        "PASS Lib replies cannot serialize; reconnect cannot replace chapter cookies or token reimport"
+    );
+
+    let selected = handle.clone();
+    let pending = tokio::spawn(async move {
+        LibSession::from_browser(Source::RanobeLib, Some(&selected), BrowserChoice::Edge).await
+    });
+    let wire = pipe::read(&mut replacement).await?;
+    assert_eq!(wire["method"], "lib-session");
+    drop(replacement);
+    assert!(matches!(
+        pending.await?,
+        Err(Error::BrowserSession(BrowserError::Disconnected))
+    ));
+    println!("PASS an interrupted account import cannot become anonymous");
     broker.shutdown().await?;
     assert!(!discovery.exists());
     fs::remove_dir(directory)?;

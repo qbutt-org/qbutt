@@ -16,7 +16,7 @@ pub struct LibSession {
     source: Source,
     api: SourceSession,
     #[cfg(windows)]
-    browser: Option<(BrowserHandle, BrowserChoice)>,
+    browser: Option<(BrowserHandle, u64)>,
 }
 
 impl LibSession {
@@ -43,19 +43,17 @@ impl LibSession {
             return Ok(session);
         };
         let site = Url::parse(site_origin(source)?).expect("fixed Lib site");
-        let (borrowed, token) = match browser.lib_session_connected(choice, site).await {
+        let (borrowed, token) = match browser.lib_session_connected(choice, site, None).await {
             Ok(session) => session,
-            Err(
-                BrowserError::BrowserRequired | BrowserError::Disconnected | BrowserError::Stopped,
-            ) => {
+            Err(BrowserError::BrowserRequired | BrowserError::Stopped) => {
                 return Ok(session);
             }
             Err(error) => return Err(browser_error(error)),
         };
+        session.browser = Some((browser.clone(), borrowed.identity));
         session.api =
             SourceSession::from_browser(Url::parse(API_ORIGIN).expect("fixed Lib API"), borrowed)?;
         session.api.set_bearer(token)?;
-        session.browser = Some((browser.clone(), choice));
         Ok(session)
     }
 }
@@ -108,10 +106,10 @@ impl LibHttp {
         // The site owns token refresh. Read its current value once after a 401;
         // a missing/expired session is a login failure, never an anonymous retry.
         #[cfg(windows)]
-        if let Some((browser, choice)) = &session.browser {
+        if let Some((browser, identity)) = &session.browser {
             let site = Url::parse(site_origin(self.source)?).expect("fixed Lib site");
             let (borrowed, token) = browser
-                .lib_session_connected(*choice, site)
+                .lib_session_connected(BrowserChoice::Auto, site, Some(*identity))
                 .await
                 .map_err(browser_error)?;
             if token.is_none() {
@@ -137,9 +135,9 @@ impl LibHttp {
         // redirects. This fresh jar contains only this CDN's browser cookies.
         let mut image_session = SourceSession::anonymous(url.clone())?;
         #[cfg(windows)]
-        if let Some((browser, choice)) = &session.browser {
+        if let Some((browser, identity)) = &session.browser {
             let borrowed = browser
-                .session_connected(*choice, url.clone())
+                .session_from_connection(BrowserChoice::Auto, url.clone(), Some(*identity))
                 .await
                 .map_err(browser_error)?;
             image_session = SourceSession::from_browser(url.clone(), borrowed)?;
