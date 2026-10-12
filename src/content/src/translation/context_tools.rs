@@ -40,35 +40,59 @@ pub fn tool_definitions() -> Vec<FunctionTool> {
         FunctionTool {
             name: "list_chapters",
             description: "List chapter titles and IDs from this exact publication, 30 at a time.",
-            input_schema: json!({"type":"object","properties":{
-                "offset":{"type":"integer","minimum":0},
-                "count":{"type":"integer","minimum":1,"maximum":30}
-            },"required":["offset","count"],"additionalProperties":false}),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "offset": { "type": "integer", "minimum": 0 },
+                    "count": { "type": "integer", "minimum": 1, "maximum": 30 }
+                },
+                "required": ["offset", "count"],
+                "additionalProperties": false
+            }),
         },
         FunctionTool {
             name: "get_chapter",
             description: "Read one bounded excerpt or image of an allowed chapter in this publication.",
-            input_schema: json!({"type":"object","properties":{
-                "chapter_id":{"type":"string"},
-                "offset":{"type":"integer","minimum":0}
-            },"required":["chapter_id","offset"],"additionalProperties":false}),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "chapter_id": { "type": "string" },
+                    "offset": { "type": "integer", "minimum": 0 }
+                },
+                "required": ["chapter_id", "offset"],
+                "additionalProperties": false
+            }),
         },
         FunctionTool {
             name: "search_work_text",
             description: "Search only the selected excerpts from up to four named chapters in this publication.",
-            input_schema: json!({"type":"object","properties":{
-                "query":{"type":"string","minLength":1,"maxLength":200},
-                "chapter_ids":{"type":"array","minItems":1,"maxItems":4,
-                    "items":{"type":"string"}},
-                "offset":{"type":"integer","minimum":0}
-            },"required":["query","chapter_ids","offset"],"additionalProperties":false}),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "minLength": 1, "maxLength": 200 },
+                    "chapter_ids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 4,
+                        "items": { "type": "string" }
+                    },
+                    "offset": { "type": "integer", "minimum": 0 }
+                },
+                "required": ["query", "chapter_ids", "offset"],
+                "additionalProperties": false
+            }),
         },
         FunctionTool {
             name: "read_context",
             description: "Find confirmed names, forms and facts for a source term or character.",
-            input_schema: json!({"type":"object","properties":{
-                "query":{"type":"string","minLength":1,"maxLength":200}
-            },"required":["query"],"additionalProperties":false}),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "minLength": 1, "maxLength": 200 }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
         },
     ]
 }
