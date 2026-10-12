@@ -183,12 +183,14 @@ pub enum VariantSelector {
         /// None identifies the API's null branch, not whichever translation is default.
         branch: Option<u64>,
     },
+    /// The original text published by the containing source publication.
+    OriginalText,
 }
 
 impl VariantSelector {
     pub(crate) fn validate(&self) -> crate::Result<()> {
         let valid = match self {
-            Self::RutubeVideo => true,
+            Self::RutubeVideo | Self::OriginalText => true,
             Self::Torrent { id } => *id != 0,
             Self::TorrentHash { info_hash } => {
                 info_hash.len() == 40
