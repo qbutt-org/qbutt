@@ -382,6 +382,7 @@ impl ffi::ContentController {
         let preferences = {
             let mut state = self.as_mut().rust_mut();
             state.resolution.cancel();
+            state.source_status.pending_variant_action = None;
             state.resolving = false;
             state.selected_variant_id = id.clone();
             let preferences = state
@@ -471,6 +472,7 @@ impl ffi::ContentController {
             let mut state = self.as_mut().rust_mut();
             state.inspection.cancel();
             state.resolution.cancel();
+            state.source_status.pending_variant_action = None;
             let changed = (
                 (state.inspection.generation, state.resolution.generation),
                 state.inspecting,

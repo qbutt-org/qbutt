@@ -5,6 +5,7 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
     LibraryResult, Source, SourceFailure, SourceFailureReason, SourceOperation, SourceSettings,
+    VariantRef,
 };
 
 use super::catalog::SourceResponse;
@@ -56,6 +57,14 @@ struct SourceStatus {
     retry: Pending,
 }
 
+/// An in-memory continuation of the user's Open action, never a persisted retry instruction.
+#[derive(Clone)]
+pub(super) struct PendingVariantAction {
+    pub reference: VariantRef,
+    pub id: QString,
+    pub resolution_generation: u64,
+}
+
 impl SourceStatus {
     fn enabled(&self) -> bool {
         match self.enabled_intent.as_ref().map(|intent| &intent.write) {
@@ -105,6 +114,7 @@ pub struct SourceState {
     active_query: Option<String>,
     deferred_query: Option<String>,
     retry_writes_after_load: bool,
+    pub(super) pending_variant_action: Option<PendingVariantAction>,
 }
 
 impl Default for SourceState {
@@ -131,6 +141,7 @@ impl Default for SourceState {
             active_query: None,
             deferred_query: None,
             retry_writes_after_load: false,
+            pending_variant_action: None,
         }
     }
 }
@@ -367,6 +378,14 @@ impl ffi::ContentController {
             let status = state.source_status.status_mut(source);
             status.epoch = status.epoch.wrapping_add(1);
             status.retry.cancel();
+            if state
+                .source_status
+                .pending_variant_action
+                .as_ref()
+                .is_some_and(|action| action.reference.publication.source == source)
+            {
+                state.source_status.pending_variant_action = None;
+            }
         }
         let epoch = self.source_status.status(source).epoch;
         let accepted = self
@@ -621,9 +640,27 @@ impl ffi::ContentController {
                 failure.reason,
                 SourceFailureReason::LoginRequired | SourceFailureReason::SourceCheckRequired
             );
+        if manual_check && self.resolving {
+            return false;
+        }
         let Some(request) = self.source_request(failure.operation) else {
             return false;
         };
+        let continuation = self
+            .source_status
+            .pending_variant_action
+            .as_ref()
+            .filter(|action| {
+                manual_check
+                    && request.operation == SourceOperation::Resolve(action.reference.clone())
+                    && self.resolution.generation == action.resolution_generation
+                    && self.selected_variant_id == action.id
+                    && self
+                        .variants
+                        .find(&action.id.to_string())
+                        .is_some_and(|variant| variant.reference == action.reference)
+            })
+            .cloned();
         let Some(services) = self.services.as_ref() else {
             return false;
         };
@@ -635,11 +672,12 @@ impl ffi::ContentController {
         let task = services.runtime.spawn(async move {
             let result = if manual_check {
                 match catalog.complete_source_check(source).await {
-                    Ok(()) => catalog.execute(&request.operation).await,
+                    Ok(()) if continuation.is_some() => Ok(None),
+                    Ok(()) => catalog.execute(&request.operation).await.map(Some),
                     Err(error) => Err(error),
                 }
             } else {
-                catalog.execute(&request.operation).await
+                catalog.execute(&request.operation).await.map(Some)
             };
             let _ = thread.queue(move |mut controller| {
                 if !controller.source_request_current(&request)
@@ -654,14 +692,43 @@ impl ffi::ContentController {
                     .status_mut(source)
                     .retry
                     .task = None;
+                if let (Some(action), Ok(None)) = (continuation.as_ref(), &result) {
+                    let current = controller
+                        .source_status
+                        .pending_variant_action
+                        .as_ref()
+                        .is_some_and(|pending| {
+                            pending.reference == action.reference
+                                && pending.id == action.id
+                                && pending.resolution_generation == action.resolution_generation
+                        })
+                        && controller.resolution.generation == action.resolution_generation
+                        && controller.selected_variant_id == action.id
+                        && controller
+                            .variants
+                            .find(&action.id.to_string())
+                            .is_some_and(|variant| variant.reference == action.reference);
+                    if current {
+                        controller
+                            .as_mut()
+                            .rust_mut()
+                            .source_status
+                            .pending_variant_action = None;
+                        controller.as_mut().resolve_variant(action.id.clone());
+                    }
+                    controller.publish_source(source);
+                    return;
+                }
                 controller.as_mut().source_outcome(&request, &result);
                 if !controller.source_request_current(&request) {
                     return;
                 }
                 match (&request.operation, result) {
-                    (SourceOperation::Search { query, .. }, Ok(SourceResponse::Search(works)))
-                        if controller.search.generation == search_generation
-                            && controller.source_status.active_query.as_ref() == Some(query) =>
+                    (
+                        SourceOperation::Search { query, .. },
+                        Ok(Some(SourceResponse::Search(works))),
+                    ) if controller.search.generation == search_generation
+                        && controller.source_status.active_query.as_ref() == Some(query) =>
                     {
                         for work in works {
                             if !controller.source_request_current(&request)
@@ -679,7 +746,7 @@ impl ffi::ContentController {
                     }
                     (
                         SourceOperation::Inspect { reference, .. },
-                        Ok(SourceResponse::Inspect(work)),
+                        Ok(Some(SourceResponse::Inspect(work))),
                     ) if controller.inspection.generation == inspection_generation
                         && controller
                             .selected_group
@@ -690,7 +757,8 @@ impl ffi::ContentController {
                             .as_mut()
                             .publish_inspected_work(work, inspection_generation);
                     }
-                    // Retrying resolution checks availability; it never starts playback/download.
+                    // A persisted Resolve failure only probes availability. The transient
+                    // action above is required before opening the selected variant again.
                     _ => {}
                 }
                 controller.publish_source(source);

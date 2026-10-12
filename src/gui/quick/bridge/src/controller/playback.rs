@@ -7,12 +7,14 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QByteArray, QString, QUrl, QVector};
 use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
-    Category, MediaGateway, PreparedPlayback, ResolvedContent, SourceOperation, Transport,
-    VariantPreferences, VariantRef, VariantSelector, WorkGroup, resolve_external_video,
+    Category, MediaGateway, PreparedPlayback, ResolvedContent, Source, SourceFailureReason,
+    SourceOperation, Transport, VariantPreferences, VariantRef, VariantSelector, WorkGroup,
+    resolve_external_video,
 };
 
 use super::catalog::SourceResponse;
 use super::library::LibraryAction;
+use super::sources::PendingVariantAction;
 use super::{Services, ffi};
 use crate::models;
 
@@ -386,6 +388,10 @@ impl ffi::ContentController {
             return;
         }
 
+        self.as_mut()
+            .rust_mut()
+            .source_status
+            .pending_variant_action = None;
         self.as_mut().rust_mut().resolution.cancel();
         let generation = self.resolution.generation;
         self.as_mut().set_error(None);
@@ -443,11 +449,31 @@ impl ffi::ContentController {
                     return;
                 }
                 controller.as_mut().rust_mut().resolution.task = None;
+                let needs_source_check = reference.publication.source == Source::RuTracker
+                    && result
+                        .as_ref()
+                        .err()
+                        .and_then(SourceFailureReason::from_error)
+                        .is_some_and(|reason| {
+                            matches!(
+                                reason,
+                                SourceFailureReason::LoginRequired
+                                    | SourceFailureReason::SourceCheckRequired
+                            )
+                        });
                 controller.as_mut().source_outcome(&request, &result);
                 if controller.resolution.generation != generation
                     || !controller.source_request_current(&request)
                 {
                     return;
+                }
+                if needs_source_check {
+                    controller.as_mut().rust_mut().source_status.pending_variant_action =
+                        Some(PendingVariantAction {
+                            reference: reference.clone(),
+                            id: id.clone(),
+                            resolution_generation: generation,
+                        });
                 }
                 controller.as_mut().set_resolving(false);
                 if controller.resolution.generation != generation
