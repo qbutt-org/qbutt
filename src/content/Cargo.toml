@@ -20,7 +20,6 @@ roxmltree = "=0.21.1"
 rbook = { version = "=0.7.12", default-features = false }
 zip = { version = "=9.0.1", default-features = false, features = ["deflate"] }
 getrandom = "=0.4.3"
-ring = "=0.17.14"
 httparse = "=1.10.1"
 percent-encoding = "=2.3.2"
 reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls"] }
