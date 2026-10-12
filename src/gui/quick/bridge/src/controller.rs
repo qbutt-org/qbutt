@@ -62,6 +62,15 @@ pub mod ffi {
     }
 
     #[qenum]
+    #[namespace = "Qbutt::Library"]
+    enum LibraryErrorKind {
+        None,
+        Opening,
+        Writing,
+        HistoryRead,
+    }
+
+    #[qenum]
     #[namespace = "Qbutt::Search"]
     enum VariantSelectionState {
         None,
@@ -242,8 +251,15 @@ pub mod ffi {
             QString,
             library_error_text,
             cxx_name = "libraryErrorText",
-            READ,
+            READ = library_error_text,
             NOTIFY
+        )]
+        #[qproperty(
+            LibraryErrorKind,
+            library_error_kind,
+            cxx_name = "libraryErrorKind",
+            READ,
+            NOTIFY = library_error_text_changed
         )]
         #[qproperty(bool, selected_favorite, cxx_name = "selectedFavorite", READ, NOTIFY)]
         #[qproperty(
@@ -301,6 +317,7 @@ pub mod ffi {
         fn favorites_model(&self) -> *mut WorkModel;
         fn history_model(&self) -> *mut WorkModel;
         fn is_library_pending(&self) -> bool;
+        fn library_error_text(&self) -> QString;
         fn variant_selection_state(&self) -> VariantSelectionState;
         fn selected_work_category(&self) -> QString;
         fn selected_variant_kind(&self) -> QString;
@@ -450,7 +467,7 @@ pub struct ContentControllerRust {
     library_error_generation: u64,
     library_updates: VecDeque<LibraryUpdate>,
     publishing_library: bool,
-    library_error_text: QString,
+    library_error_kind: ffi::LibraryErrorKind,
     library_worker: Option<LibraryWorker>,
 
     services: Option<Services>,
@@ -515,7 +532,7 @@ impl Default for ContentControllerRust {
             library_error_generation: 0,
             library_updates: VecDeque::new(),
             publishing_library: false,
-            library_error_text: QString::default(),
+            library_error_kind: ffi::LibraryErrorKind::None,
             library_worker: None,
 
             services,

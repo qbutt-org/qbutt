@@ -22,6 +22,7 @@
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QThreadPool>
 #include <QTimer>
 
 #include "qbutt_quick/src/controller.cxxqt.h"
@@ -155,6 +156,12 @@ void exerciseHistory()
 {
     QTemporaryDir profile;
     require(profile.isValid(), u"History profile creation failed"_s);
+    // The profile must outlive retired SQLite owners even when a scenario fails.
+    const auto drainOwners = qScopeGuard([]
+    {
+        if (!QThreadPool::globalInstance()->waitForDone(100'000))
+            qFatal("History fixture owners did not drain");
+    });
     QFile payload(profile.filePath(u"generated-unrelated-payload.txt"_s));
     require(payload.open(QIODevice::WriteOnly) && (payload.write("generated unrelated payload") == 27), u"Payload fixture failed"_s);
     payload.close();
@@ -164,6 +171,8 @@ void exerciseHistory()
     auto *favorites = model(*controller, "favorites");
     auto *works = model(*controller, "works");
     require((history != favorites) && (history != works) && (history->rowCount(QModelIndex()) == 0), u"Fresh History is not isolated"_s);
+    require(controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
+        == Qbutt::Library::LibraryErrorKind::None, u"Fresh library has an error kind"_s);
     controller->search(u"Frieren"_s);
     waitFor([&] { return !controller->property("busy").toBool(); }, u"Live catalog search"_s);
     require(controller->property("errorText").toString().isEmpty() && (works->indexOfId(publication) >= 0), u"Live manga is missing"_s);
@@ -333,6 +342,8 @@ void exerciseHistory()
     require(controller->removeHistory(publication), u"Faulted history removal was not queued"_s);
     settled(*controller);
     require(!controller->property("libraryErrorText").toString().isEmpty()
+        && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
+            == Qbutt::Library::LibraryErrorKind::Writing)
         && (history->rowCount(QModelIndex()) == 1) && (favorites->rowCount(QModelIndex()) == 1) && (entry(database, key) == beforeAbort),
         u"SQLite abort reported false removal or damaged saved metadata"_s);
     execute(database, u"DROP TRIGGER reject_history_remove"_s);
@@ -347,14 +358,44 @@ void exerciseHistory()
     controller->setSelectedFavorite(true);
     saved(*controller);
 
-    // The exact reading write commits, but another corrupt fixture entry makes
-    // the subsequent ordered snapshot fail. Retry rereads; it does not rewrite.
+    // Confirmed writes commit, but another corrupt fixture entry makes the
+    // ordered snapshot fail. Read failure cannot undo their acknowledgement.
     const auto beforeReadFault = entry(database, generatedKey);
-    writeEntry(database, generatedKey, QJsonObject {{u"generated_invalid"_s, true}});
+    QStringList staleBookmarks;
+    for (const bool favorite : {false, true})
+    {
+        writeEntry(database, generatedKey, beforeReadFault);
+        controller->setSelectedFavorite(!favorite);
+        saved(*controller);
+        require(controller->property("selectedFavorite").toBool() == !favorite, u"Bookmark fault setup did not settle"_s);
+        writeEntry(database, generatedKey, QJsonObject {{u"generated_invalid"_s, true}});
+        const auto beforeBookmark = entry(database, key);
+        controller->setSelectedFavorite(favorite);
+        settled(*controller);
+        const auto afterBookmark = entry(database, key);
+        require((controller->property("libraryErrorText").toString()
+                == QCoreApplication::translate("ContentController", "Could not load reading history."))
+            && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
+                == Qbutt::Library::LibraryErrorKind::HistoryRead)
+            && (afterBookmark.value(u"favorite"_s).toBool() == favorite)
+            && (favorites->rowCount(QModelIndex()) == (favorite ? 1 : 0))
+            && ((favorites->indexOfId(publication) >= 0) == favorite)
+            && (afterBookmark.value(u"last_opened"_s) == beforeBookmark.value(u"last_opened"_s))
+            && (afterBookmark.value(u"reader_progress"_s) == beforeBookmark.value(u"reader_progress"_s))
+            && (afterBookmark.value(u"preferences"_s) == beforeBookmark.value(u"preferences"_s))
+            && (controller->property("selectedVariantId").toString() == exact)
+            && (history->rowCount(QModelIndex()) == 1), u"Failed History read damaged a committed bookmark write"_s);
+        if (controller->property("selectedFavorite").toBool() != favorite)
+            staleBookmarks.append(favorite ? u"add"_s : u"remove"_s);
+    }
+    require(staleBookmarks.isEmpty(), u"Committed bookmark property stayed stale after History read failure: "_s
+        + staleBookmarks.join(u", "_s));
     controller->scrollReaderPage(confirmed, 0.75);
     settled(*controller);
     require((controller->property("libraryErrorText").toString()
             == QCoreApplication::translate("ContentController", "Could not load reading history."))
+        && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
+            == Qbutt::Library::LibraryErrorKind::HistoryRead)
         && controller->property("readerProgressErrorText").toString().isEmpty()
         && !controller->property("readerProgressPending").toBool()
         && (entry(database, key).value(u"reader_progress"_s).toObject().value(u"scroll_offset"_s).toDouble() == 0.75),
@@ -368,6 +409,32 @@ void exerciseHistory()
     saved(*controller);
     require((history->rowCount(QModelIndex()) == 1) && (history->idAt(0) == publication) && (entry(database, key) == committed),
         u"History read retry changed already committed reading"_s);
+
+    // An actual blocked SQLite writer holds the sole worker while its bounded
+    // queue fills. Rejected reads must report a read error and remain retryable.
+    execute(database, u"BEGIN IMMEDIATE"_s);
+    controller->setSelectedFavorite(true);
+    require(controller->property("libraryPending").toBool(), u"Queue fault did not accept its blocked writer"_s);
+    bool readRejected = false;
+    for (int request = 0; (request < 80) && !readRejected; ++request)
+        readRejected = !controller->refreshHistory();
+    const bool correctRejection = readRejected && (controller->property("libraryErrorText").toString()
+        == QCoreApplication::translate("ContentController", "Could not load reading history."))
+        && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
+            == Qbutt::Library::LibraryErrorKind::HistoryRead);
+    execute(database, u"COMMIT"_s);
+    settled(*controller);
+    require(correctRejection, u"Rejected History read reported a write error"_s);
+    require((controller->property("libraryErrorText").toString()
+            == QCoreApplication::translate("ContentController", "Could not load reading history."))
+        && (history->rowCount(QModelIndex()) == 1) && controller->property("selectedFavorite").toBool()
+        && (entry(database, key) == committed), u"Older accepted completion hid rejected History read or changed metadata"_s);
+    require(controller->refreshHistory(), u"Rejected History read could not retry after the queue drained"_s);
+    saved(*controller);
+    require((controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
+            == Qbutt::Library::LibraryErrorKind::None)
+        && (history->rowCount(QModelIndex()) == 1) && (entry(database, key) == committed),
+        u"History queue retry changed confirmed metadata"_s);
     controller->closeReader();
     controller.reset();
 
@@ -404,5 +471,5 @@ void exerciseHistory()
     require(payload.open(QIODevice::ReadOnly) && (payload.readAll() == "generated unrelated payload"), u"History removal changed unrelated payload"_s);
     payload.close();
     controller.reset();
-    qInfo().noquote() << u"PASS history confirmed_only=ok full_work=ok opened_order=ok restart=ok fresh_inspect=ok other_variant=ok delayed_intent=ok reentrant_publication=ok remove_retry=ok bookmark_independence=ok committed_snapshot_fault=ok snapshot_retry=ok missing_exact=ok exact_resume=ok payload_preserved=ok"_s;
+    qInfo().noquote() << u"PASS history confirmed_only=ok full_work=ok opened_order=ok restart=ok fresh_inspect=ok other_variant=ok delayed_intent=ok reentrant_publication=ok remove_retry=ok bookmark_independence=ok bookmark_snapshot_fault=ok committed_snapshot_fault=ok snapshot_retry=ok queue_read_retry=ok missing_exact=ok exact_resume=ok payload_preserved=ok"_s;
 }

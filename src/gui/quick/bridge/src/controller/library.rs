@@ -247,6 +247,15 @@ impl ffi::ContentController {
         self.library_pending != 0
     }
 
+    pub(super) fn library_error_text(&self) -> QString {
+        match self.library_error_kind {
+            ffi::LibraryErrorKind::Opening => ffi::content_error(4),
+            ffi::LibraryErrorKind::Writing => ffi::content_error(5),
+            ffi::LibraryErrorKind::HistoryRead => ffi::content_error(6),
+            _ => QString::default(),
+        }
+    }
+
     pub fn init_library(mut self: Pin<&mut Self>, profile_dir: QString) {
         if self.library_state != ffi::LibraryState::Uninitialized || self.library_worker.is_some() {
             return;
@@ -255,7 +264,8 @@ impl ffi::ContentController {
         if !profile.is_absolute() || self.services.is_none() {
             self.as_mut().rust_mut().library_state = ffi::LibraryState::Failed;
             self.as_mut().library_state_changed();
-            self.as_mut().set_library_error(ffi::content_error(4));
+            self.as_mut()
+                .set_library_error(ffi::LibraryErrorKind::Opening);
             return;
         }
         let worker = LibraryWorker::start(
@@ -287,19 +297,20 @@ impl ffi::ContentController {
             }
             Err(error) => {
                 ffi::log_content_error(&QString::from("library retry"), &QString::from(error));
-                self.as_mut().set_library_error(ffi::content_error(4));
+                self.as_mut()
+                    .set_library_error(ffi::LibraryErrorKind::Opening);
                 false
             }
         }
     }
 
-    pub(super) fn set_library_error(mut self: Pin<&mut Self>, error: QString) {
-        if !error.is_empty() {
+    pub(super) fn set_library_error(mut self: Pin<&mut Self>, kind: ffi::LibraryErrorKind) {
+        if kind != ffi::LibraryErrorKind::None {
             self.as_mut().rust_mut().library_error_generation =
                 self.library_error_generation.wrapping_add(1);
         }
-        if self.library_error_text != error {
-            self.as_mut().rust_mut().library_error_text = error;
+        if self.library_error_kind != kind {
+            self.as_mut().rust_mut().library_error_kind = kind;
             self.as_mut().library_error_text_changed();
         }
     }
@@ -415,11 +426,11 @@ impl ffi::ContentController {
                 (false, error_generation, None, result)
             }
         };
+        self.as_mut().refresh_selected_favorite();
         match result {
             Ok(()) => {
-                self.as_mut().refresh_selected_favorite();
                 if self.library_error_generation == error_generation {
-                    self.as_mut().set_library_error(QString::default());
+                    self.as_mut().set_library_error(ffi::LibraryErrorKind::None);
                 }
                 if initial {
                     self.as_mut().rust_mut().library_state = ffi::LibraryState::Ready;
@@ -455,14 +466,13 @@ impl ffi::ContentController {
                     &QString::from("library"),
                     &QString::from(error.to_string()),
                 );
-                self.as_mut()
-                    .set_library_error(ffi::content_error(if initial {
-                        4
-                    } else if history_read {
-                        6
-                    } else {
-                        5
-                    }));
+                self.as_mut().set_library_error(if initial {
+                    ffi::LibraryErrorKind::Opening
+                } else if history_read {
+                    ffi::LibraryErrorKind::HistoryRead
+                } else {
+                    ffi::LibraryErrorKind::Writing
+                });
                 if reader_failed {
                     self.as_mut().reader_changed();
                 }
@@ -480,6 +490,11 @@ impl ffi::ContentController {
         ) {
             return false;
         }
+        let error_kind = if matches!(&action, LibraryAction::History) {
+            ffi::LibraryErrorKind::HistoryRead
+        } else {
+            ffi::LibraryErrorKind::Writing
+        };
         match self
             .library_worker
             .as_ref()
@@ -496,7 +511,7 @@ impl ffi::ContentController {
             }
             Err(error) => {
                 ffi::log_content_error(&QString::from("library"), &QString::from(error));
-                self.as_mut().set_library_error(ffi::content_error(5));
+                self.as_mut().set_library_error(error_kind);
                 false
             }
         }
