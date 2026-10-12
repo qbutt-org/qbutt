@@ -42,81 +42,98 @@ ModalPicker {
             running: visible
         }
 
-        Repeater {
-            model: root.backend.sources
+        ScrollView {
+            id: sourceScroll
+            objectName: "contentSourcesScroll"
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.minimumHeight: 0
+            implicitHeight: sourceList.implicitHeight
+            contentWidth: availableWidth
+            clip: true
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-            delegate: ColumnLayout {
-                id: sourceRow
-                required property var model
+            ColumnLayout {
+                id: sourceList
+                width: sourceScroll.availableWidth
+                spacing: 24
 
-                Layout.fillWidth: true
-                spacing: 6
+                Repeater {
+                    model: root.backend.sources
 
-                RowLayout {
-                    spacing: 12
+                    delegate: ColumnLayout {
+                        id: sourceRow
+                        required property var model
 
-                    Switch {
-                        id: sourceToggle
-                        objectName: "contentSourceEnabled_" + sourceRow.model.sourceId
                         Layout.fillWidth: true
-                        Layout.minimumHeight: root.theme.controlHeight
-                        padding: 0
-                        spacing: 16
-                        text: sourceRow.model.name
-                        checked: sourceRow.model.enabled
-                        enabled: !sourceRow.model.pending && !sourceRow.model.retrying
-                        font.pixelSize: 16
-                        palette.windowText: enabled ? root.theme.foreground : root.theme.disabledText
-                        palette.dark: root.theme.accent
-                        palette.midlight: root.theme.controlPressed
-                        palette.mid: root.theme.controlBorder
-                        palette.window: root.theme.accentText
-                        onClicked: root.backend.setSourceEnabled(sourceRow.model.sourceId, checked)
-                    }
+                        spacing: 6
 
-                    Image {
-                        objectName: "contentSourceFailure_" + sourceRow.model.sourceId
-                        Layout.preferredWidth: 20
-                        Layout.preferredHeight: 20
-                        visible: sourceRow.model.failed
-                        source: root.theme.iconSource("error")
-                        sourceSize: Qt.size(20, 20)
-                        Accessible.ignored: true
-                    }
+                        RowLayout {
+                            spacing: 12
 
-                    BusyIndicator {
-                        objectName: "contentSourcePending_" + sourceRow.model.sourceId
-                        Layout.preferredWidth: 24
-                        Layout.preferredHeight: 24
-                        visible: sourceRow.model.pending || sourceRow.model.retrying
-                        running: visible
-                    }
+                            Switch {
+                                id: sourceToggle
+                                objectName: "contentSourceEnabled_" + sourceRow.model.sourceId
+                                Layout.fillWidth: true
+                                Layout.minimumHeight: root.theme.controlHeight
+                                padding: 0
+                                spacing: 16
+                                text: sourceRow.model.name
+                                checked: sourceRow.model.enabled
+                                enabled: !sourceRow.model.pending && !sourceRow.model.retrying
+                                font.pixelSize: 16
+                                palette.windowText: enabled ? root.theme.foreground : root.theme.disabledText
+                                palette.dark: root.theme.accent
+                                palette.midlight: root.theme.controlPressed
+                                palette.mid: root.theme.controlBorder
+                                palette.window: root.theme.accentText
+                                onClicked: root.backend.setSourceEnabled(sourceRow.model.sourceId, checked)
+                            }
 
-                    ActionButton {
-                        objectName: "contentSourceRetry_" + sourceRow.model.sourceId
-                        theme: root.theme
-                        visible: sourceRow.model.failed
-                        text: qsTr("Try again")
-                        Accessible.name: qsTr("Retry %1").arg(sourceRow.model.name)
-                        enabled: root.backend.sourceSettingsState !== Sources.Failed
-                            && sourceRow.model.enabled && !sourceRow.model.pending && !sourceRow.model.retrying
-                        onClicked: root.backend.retrySource(sourceRow.model.sourceId)
-                    }
-                }
+                            Image {
+                                objectName: "contentSourceFailure_" + sourceRow.model.sourceId
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                visible: sourceRow.model.failed
+                                source: root.theme.iconSource("error")
+                                sourceSize: Qt.size(20, 20)
+                                Accessible.ignored: true
+                            }
 
-                Label {
-                    objectName: "contentSourceFailureText_" + sourceRow.model.sourceId
-                    Layout.fillWidth: true
-                    Layout.leftMargin: sourceToggle.indicator.width + sourceToggle.spacing
-                    visible: sourceRow.model.failed
-                    text: sourceRow.model.failureText
-                    color: root.theme.muted
-                    wrapMode: Text.Wrap
-                    textFormat: Text.PlainText
+                            BusyIndicator {
+                                objectName: "contentSourcePending_" + sourceRow.model.sourceId
+                                Layout.preferredWidth: 24
+                                Layout.preferredHeight: 24
+                                visible: sourceRow.model.pending || sourceRow.model.retrying
+                                running: visible
+                            }
+
+                            ActionButton {
+                                objectName: "contentSourceRetry_" + sourceRow.model.sourceId
+                                theme: root.theme
+                                visible: sourceRow.model.failed
+                                text: qsTr("Try again")
+                                Accessible.name: qsTr("Retry %1").arg(sourceRow.model.name)
+                                enabled: root.backend.sourceSettingsState !== Sources.Failed
+                                    && sourceRow.model.enabled && !sourceRow.model.pending && !sourceRow.model.retrying
+                                onClicked: root.backend.retrySource(sourceRow.model.sourceId)
+                            }
+                        }
+
+                        Label {
+                            objectName: "contentSourceFailureText_" + sourceRow.model.sourceId
+                            Layout.fillWidth: true
+                            Layout.leftMargin: sourceToggle.indicator.width + sourceToggle.spacing
+                            visible: sourceRow.model.failed
+                            text: sourceRow.model.failureText
+                            color: root.theme.muted
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                        }
+                    }
                 }
             }
         }
-
         RowLayout {
             visible: root.backend.sourceSettingsState === Sources.Failed
             spacing: 16

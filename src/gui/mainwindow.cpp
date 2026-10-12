@@ -1434,7 +1434,7 @@ void MainWindow::updateContextControls()
     const bool contentActive = m_searchWidget && (m_tabs->currentWidget() == m_searchWidget);
     const bool readerActive = (contentActive && m_searchWidget->isReading())
         || (m_localReader && (m_tabs->currentWidget() == m_localReader));
-    m_ui->toolBar->setVisible(Preferences::instance()->isToolbarDisplayed() && !contentActive && !readerActive);
+    m_ui->toolBar->setVisible(Preferences::instance()->isToolbarDisplayed() && (m_tabs->currentWidget() == m_splitter));
     if (m_statusBar)
         m_statusBar->setVisible(!readerActive);
 }

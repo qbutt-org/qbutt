@@ -3470,7 +3470,7 @@ int main(int argc, char **argv)
             return 3;
     }
     QJsonObject evidence {{u"schema"_s, 1}, {u"suite"_s, u"qt-acceptance"_s}, {u"status"_s, u"running"_s},
-        {u"evidencePath"_s, spec.value(u"evidencePath"_s).toString()}, {u"profile"_s, QString::fromLocal8Bit(argv[1])},
+        {u"evidencePath"_s, spec.value(u"evidencePath"_s).toString()}, {u"profile"_s, spec.value(u"profile"_s).toString()},
         {u"checks"_s, QJsonArray {}}};
     writeEvidence(spec.value(u"evidencePath"_s).toString(), evidence);
     int result = 1;

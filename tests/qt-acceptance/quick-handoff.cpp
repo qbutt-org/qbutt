@@ -160,6 +160,31 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(root, u"Production QML root is missing"_s);
     waitFor([&] { return controller->getLibraryState() == Qbutt::Library::LibraryState::Ready; },
         10'000, u"Profile content library"_s);
+    waitFor([&]
+    {
+        return controller->property("sourceSettingsState").value<Qbutt::Sources::SettingsState>()
+            == Qbutt::Sources::SettingsState::Ready;
+    }, 10'000, u"Source settings"_s);
+    auto *sources = qobject_cast<QAbstractItemModel *>(controller->property("sources").value<QObject *>());
+    require(sources && (sources->rowCount() > 0), u"Source model is missing"_s);
+    for (int row = 0; row < sources->rowCount(); ++row)
+    {
+        const QString id = value(sources, row, "sourceId");
+        require(controller->setSourceEnabled(id, id == source), u"Source selection was rejected"_s);
+    }
+    waitFor([&]
+    {
+        for (int row = 0; row < sources->rowCount(); ++row)
+        {
+            const bool selected = value(sources, row, "sourceId") == source;
+            if ((value(sources, row, "pending") == u"true")
+                || (value(sources, row, "enabled") != (selected ? u"true" : u"false")))
+            {
+                return false;
+            }
+        }
+        return true;
+    }, 10'000, u"Isolated provider selection"_s);
     if (mainContent)
     {
         auto *background = root->property("background").value<QQuickItem *>();
