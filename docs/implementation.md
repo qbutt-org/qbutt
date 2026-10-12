@@ -140,6 +140,8 @@ Height/Width на `b80f2030f` с итоговыми QML/fixture изменени
 
 Native RU/Dark и EN/Light при 1280×720 и 1440×900 подтвердили fit после restart без повторного выбора, сохранение главы 141/страницы 2/scroll, обе стороны SQL abort и точный retry. Успешные History/progress/bookmark операции не скрывают ошибку fit. Основной агент сам нажал Height при отказе записи, повторил его и вернул Width, сверив UIA, SQLite и кадры. Удалён лишний wrapMode; повторные проверки и свежий source/render review прошли. Evidence: `C:/VMShared/qbutt-p3-reader-qa/settings-final.json` и `settings-root-personal.json`. Native Saving-at-Exit не наблюдался; его подтверждает process-сценарий. MainWindow/System/DPI/IME остаются открытыми.
 
+Live RU/EN в MainWindow и Options использует существующие переводчики Application; смена Locale обновляет QML и роли загруженных вариантов без нового запроса или потери выбора. `bun tests/qt-acceptance/language-switch.ts` прошёл три запуска с Apply, меню, QML, видимой подписью и accessibility видео, сохранением Locale и restart. Штатная поставка `windeployqt` с объединённым `qt_ru.qm` прошла без SDK-путей; отдельный `qtbase_ru.qm` ей не нужен. Удаление обновления модели воспроизвело старую подпись, восстановление прошло. Evidence: `C:/Tools/qbutt/language-switch-qa/evidence.json`. Native pointer и визуальная абляция этого исправления ещё не проверены.
+
 Совместная native-приёмка Continuous/MainWindow, ранобэ и перевод остаются открытыми. ReaderMode уже управляет работающим Continuous. Прежние Bun/Go потребители удаляются после их замены и приёмки.
 
 ### Ближайшая исполнимая работа

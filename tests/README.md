@@ -272,6 +272,23 @@ AniLiberty episode/quality, real mpv file-loaded and advancing time, History onl
 after ACK with the full Work/preferences, and retired gateway after stop.
 It does not establish native pointer or GPU playback.
 
+The `language-switch` scenario uses the deployed combined executable and Qt
+catalogs beside its `qt.conf`:
+
+```powershell
+$env:QBUTT_QT_ACCEPTANCE_EXE = 'C:/Tools/qbutt/language-switch-qa/runtime/qbutt-qt-acceptance.exe'
+$env:QBUTT_QT_ACCEPTANCE_BUNDLE = 'C:/Tools/qbutt/language-switch-qa/runtime'
+bun tests/qt-acceptance/language-switch.ts
+```
+
+It creates an isolated profile and runs RU → EN → RU → EN, restarts in EN,
+applies RU and restarts in RU. It checks the Main menus and tabs, Options,
+Qt's Apply button, QML text, an actual AniLiberty video delegate and accessibility,
+and unchanged exact selection. Locale must persist in the isolated configuration.
+The source metadata must be available; no video is resolved or downloaded.
+Require exit zero and `status: passed`. This offscreen scenario does not establish
+native pointer interaction or visual acceptance.
+
 The metadata cancellation scenario uses a generated private torrent and an
 isolated loopback session. It cancels before the first native add callback,
 then adds the same hash stopped and checks its destination and handle cleanup:
