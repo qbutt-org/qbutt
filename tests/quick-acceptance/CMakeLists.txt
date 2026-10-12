@@ -42,6 +42,8 @@ qt_add_executable(qbutt-quick-acceptance
     reader-settings.h
     reader-settings-ui.cpp
     reader-settings-ui.h
+    sharing.cpp
+    sharing.h
     torrent-source.cpp
     torrent-source.h
     sources.cpp

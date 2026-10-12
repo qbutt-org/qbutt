@@ -49,9 +49,11 @@ const server = Bun.serve({
                 ++searches;
                 return Response.json(releases);
             }
-            const match = /^\/api\/v1\/anime\/releases\/(9542|9543)$/.exec(url.pathname);
+            const match = /^\/api\/v1\/anime\/releases\/(9542|9543|9544)$/.exec(url.pathname);
             assert(match && !url.search, `Unexpected AniLiberty path: ${url.pathname}`);
             ++inspections;
+            if (match[1] === "9544")
+                return Response.json({ message: "Not found" }, { status: 404 });
             return Response.json(releases.find(item => item.id === Number(match[1])));
         } catch (error) {
             failure = error;
@@ -60,37 +62,44 @@ const server = Bun.serve({
     },
 });
 
-const child = spawn(executable, ["--library", "--lang", "ru"], {
-    windowsHide: true,
-    env: {
-        ...process.env,
-        QT_QPA_PLATFORM: "offscreen",
-        QT_QUICK_BACKEND: "software",
-    },
-});
-const exited = new Promise<number | null>((resolve, reject) => {
-    child.once("exit", resolve);
-    child.once("error", reject);
-});
-let output = "";
-function capture(chunk: Buffer) {
-    output = (output + chunk.toString("utf8")).slice(-64 * 1024);
+async function runScenario(scenario: string, expected: string) {
+    const child = spawn(executable, [`--${scenario}`, "--lang", "ru"], {
+        windowsHide: true,
+        env: {
+            ...process.env,
+            QT_QPA_PLATFORM: "offscreen",
+            QT_QUICK_BACKEND: "software",
+        },
+    });
+    const exited = new Promise<number | null>((resolve, reject) => {
+        child.once("exit", resolve);
+        child.once("error", reject);
+    });
+    let output = "";
+    function capture(chunk: Buffer) {
+        output = (output + chunk.toString("utf8")).slice(-64 * 1024);
+    }
+    child.stdout.on("data", capture);
+    child.stderr.on("data", capture);
+    const timer = setTimeout(() => child.kill(), 240_000);
+    try {
+        assert.equal(await exited, 0, output);
+        assert(output.includes(expected), output);
+    } finally {
+        clearTimeout(timer);
+        if (child.exitCode === null) {
+            child.kill();
+            await exited;
+        }
+    }
 }
-child.stdout.on("data", capture);
-child.stderr.on("data", capture);
-const timer = setTimeout(() => child.kill(), 240_000);
 
 try {
-    assert.equal(await exited, 0, output);
+    await runScenario("library", "PASS library favorites=ok");
+    await runScenario("sharing", "PASS share exact=unavailable");
     if (failure) throw failure;
-    assert(output.includes("PASS library favorites=ok"), output);
-    assert(searches >= 2 && inspections >= 2, "The native catalog did not repeat exact source operations");
+    assert(searches >= 2 && inspections >= 5, "The native catalog did not repeat exact source operations");
     console.log(JSON.stringify({ ok: true, searches, inspections }));
 } finally {
-    clearTimeout(timer);
-    if (child.exitCode === null) {
-        child.kill();
-        await exited;
-    }
     server.stop(true);
 }

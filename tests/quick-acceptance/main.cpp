@@ -41,6 +41,7 @@
 #include "reader-progress.h"
 #include "reader-settings.h"
 #include "reader.h"
+#include "sharing.h"
 #include "sources.h"
 #include "torrent-source.h"
 #include "variant-filters.h"
@@ -517,6 +518,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"exercise"_s, u"Run the bounded live metadata acceptance scenario and exit."_s});
     parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
     parser.addOption({u"downloads"_s, u"Inspect generated native download jobs through the Qt model."_s});
+    parser.addOption({u"sharing"_s, u"Run native shared-work import and isolation scenarios and exit."_s});
     parser.addOption({u"playback"_s, u"Run direct-video launch tokens, confirmed history and SQLite faults, then exit."_s});
     parser.addOption({u"mangalib"_s, u"Run native MangaLib reading, exact progress and source recovery, then exit."_s});
     parser.addOption({u"lib-session"_s, u"Run generated Lib account search and native reading, then exit."_s});
@@ -569,7 +571,8 @@ int main(int argc, char *argv[])
         && !parser.isSet(u"reader"_s) && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s)
         && !parser.isSet(u"variant-filters"_s));
 
-    if (parser.isSet(u"library"_s) || parser.isSet(u"downloads"_s) || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
+    if (parser.isSet(u"library"_s) || parser.isSet(u"sharing"_s) || parser.isSet(u"downloads"_s)
+        || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
         || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s) || parser.isSet(u"work-filter"_s)
         || parser.isSet(u"category"_s) || parser.isSet(u"sources"_s) || parser.isSet(u"playback"_s)
         || parser.isSet(u"nyaa"_s) || parser.isSet(u"mangalib"_s) || parser.isSet(u"lib-session"_s) || parser.isSet(u"variant-filters"_s))
@@ -582,6 +585,8 @@ int main(int argc, char *argv[])
                 exerciseDownloads(parser.value(u"profile"_s));
             else if (parser.isSet(u"variant-filters"_s))
                 exerciseVariantFilters();
+            else if (parser.isSet(u"sharing"_s))
+                exerciseSharing();
             else if (parser.isSet(u"mangalib"_s))
                 exerciseMangaLib();
             else if (parser.isSet(u"playback"_s))
