@@ -238,8 +238,8 @@ void exerciseReaderContinuous(Content::ContentView *view, const QString &profile
             const double offset = controller->property("readerScrollOffset").toDouble();
             const auto progress = metadata(database).value(u"reader_progress"_s).toObject();
             return (qAbs(y - page->y() - offset * page->height()) <= 1)
-                && (progress.value(u"page"_s).toInt() == anchor)
-                && (qAbs(progress.value(u"scroll_offset"_s).toDouble() - offset) < 0.000001);
+                && (progress.value(u"position"_s).toObject().value(u"page"_s).toInt() == anchor)
+                && (qAbs(progress.value(u"position"_s).toObject().value(u"scroll_offset"_s).toDouble() - offset) < 0.000001);
         }, operation, 10'000);
     };
     waitFor([&] { return scroll->property("pendingPosition").isNull(); }, u"Initial exact seek completion"_s);
@@ -379,8 +379,11 @@ void exerciseReaderContinuous(Content::ContentView *view, const QString &profile
     auto savedEntry = metadata(database);
     auto desired = savedEntry.value(u"reader_progress"_s).toObject();
     require(pages->rowCount() == 0, u"Closed model retained page rows"_s);
-    desired.insert(u"page"_s, lastPage);
-    desired.insert(u"scroll_offset"_s, 0.37);
+    desired.insert(u"position"_s, QJsonObject {
+        {u"kind"_s, u"page"_s},
+        {u"page"_s, lastPage},
+        {u"scroll_offset"_s, 0.37}
+    });
     savedEntry.insert(u"reader_progress"_s, desired);
     writeMetadata(database, savedEntry);
     controller->openReader();
@@ -569,7 +572,7 @@ void exerciseReaderContinuous(Content::ContentView *view, const QString &profile
     {
         return !controller->property("readerBusy").toBool()
             && !controller->property("readerProgressPending").toBool()
-            && (metadata(database).value(u"reader_progress"_s).toObject().value(u"page"_s).toInt() == 3);
+            && (metadata(database).value(u"reader_progress"_s).toObject().value(u"position"_s).toObject().value(u"page"_s).toInt() == 3);
     }, u"Reentrant retry preserves newer decoded navigation"_s, 10'000);
     require(navigatedDuringRetry && (controller->property("readerPageIndex").toInt() == 3)
         && controller->property("readerErrorText").toString().isEmpty(), u"Retry completion replaced newer navigation"_s);

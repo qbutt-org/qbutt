@@ -144,7 +144,9 @@ namespace
         auto reference = progress.value(u"chapter"_s).toObject();
         reference.insert(u"id"_s, chapter);
         progress.insert(u"chapter"_s, reference);
-        progress.insert(u"page"_s, page);
+        auto position = progress.value(u"position"_s).toObject();
+        position.insert(u"page"_s, page);
+        progress.insert(u"position"_s, position);
         metadata.insert(u"reader_progress"_s, progress);
         writeEntry(database, metadata);
     }
@@ -191,7 +193,7 @@ namespace
             require(sourceInsert.exec(), sourceInsert.lastError().text());
         }
 
-        execute(database, u"PRAGMA user_version = 6"_s);
+        execute(database, u"PRAGMA user_version = 7"_s);
         metadata.insert(u"last_opened"_s, QJsonValue::Null);
         metadata.insert(u"reader_progress"_s, QJsonValue::Null);
         QSqlQuery insert(database);
@@ -260,7 +262,7 @@ namespace
         controller.readerPageShown(controller.property("readerPageIndex").toInt(), recovered);
         controller.scrollReaderPage(recovered, 0.375);
         saved(controller);
-        require(entry(database).value(u"reader_progress"_s).toObject().value(u"scroll_offset"_s).toDouble() == 0.375,
+        require(entry(database).value(u"reader_progress"_s).toObject().value(u"position"_s).toObject().value(u"scroll_offset"_s).toDouble() == 0.375,
             u"Recovered owner did not accept exact FIFO progress writes"_s);
         controller.closeReader();
     }
@@ -351,8 +353,8 @@ void exerciseReaderProgress()
     saved(*controller);
     const QJsonObject secondShown = entry(database);
     const QJsonObject progress = secondShown.value(u"reader_progress"_s).toObject();
-    require((progress.value(u"page"_s).toInt() == 1)
-        && (progress.value(u"scroll_offset"_s).toDouble() == 0.625)
+    require((progress.value(u"position"_s).toObject().value(u"page"_s).toInt() == 1)
+        && (progress.value(u"position"_s).toObject().value(u"scroll_offset"_s).toDouble() == 0.625)
         && (progress.value(u"chapter"_s).toObject().value(u"id"_s).toString() == firstChapter),
         u"The confirmed exact second page was not saved"_s);
     controller->readerPageShown(0, firstPage);
@@ -413,7 +415,7 @@ void exerciseReaderProgress()
     require((controller->property("readerPageUrl").toUrl() == faultPage)
         && (restores.size() == restoresBeforeRetry)
         && controller->property("readerProgressErrorText").toString().isEmpty()
-        && (entry(database).value(u"reader_progress"_s).toObject().value(u"page"_s).toInt() == 0),
+        && (entry(database).value(u"reader_progress"_s).toObject().value(u"position"_s).toObject().value(u"page"_s).toInt() == 0),
         u"Render retry did not save the exact page"_s);
 
     controller->selectReaderPage(1);
@@ -433,7 +435,7 @@ void exerciseReaderProgress()
     saved(*controller);
     require((controller->property("readerPageUrl").toUrl() == queuePage)
         && controller->property("readerProgressErrorText").toString().isEmpty()
-        && (entry(database).value(u"reader_progress"_s).toObject().value(u"page"_s).toInt() == 1),
+        && (entry(database).value(u"reader_progress"_s).toObject().value(u"position"_s).toObject().value(u"page"_s).toInt() == 1),
         u"Rejected queue progress could not be retried on the displayed page"_s);
 
     execute(database, u"CREATE TRIGGER reject_stale_progress BEFORE UPDATE ON library "
@@ -508,8 +510,8 @@ void exerciseReaderProgress()
     saved(*controller);
     const QJsonObject retriedPage = entry(database);
     const QJsonObject previousPage = retriedPage.value(u"reader_progress"_s).toObject();
-    require((previousPage.value(u"page"_s).toInt() == 1)
-        && (previousPage.value(u"scroll_offset"_s).toDouble() == 0.375)
+    require((previousPage.value(u"position"_s).toObject().value(u"page"_s).toInt() == 1)
+        && (previousPage.value(u"position"_s).toObject().value(u"scroll_offset"_s).toDouble() == 0.375)
         && (previousPage.value(u"chapter"_s)
             == beforePreviousPageFault.value(u"reader_progress"_s).toObject().value(u"chapter"_s))
         && (controller->property("readerPageIndex").toInt() == 0)
@@ -553,8 +555,8 @@ void exerciseReaderProgress()
     saved(*controller);
     const QJsonObject previousChapter = entry(database).value(u"reader_progress"_s).toObject();
     require((previousChapter.value(u"chapter"_s).toObject().value(u"id"_s).toString() == firstChapter)
-        && (previousChapter.value(u"page"_s).toInt() == 0)
-        && (previousChapter.value(u"scroll_offset"_s).toDouble() == 0.8125)
+        && (previousChapter.value(u"position"_s).toObject().value(u"page"_s).toInt() == 0)
+        && (previousChapter.value(u"position"_s).toObject().value(u"scroll_offset"_s).toDouble() == 0.8125)
         && (controller->property("readerChapterId").toString() == acquiringChapter)
         && (restores.size() == restoresBeforeFailedChapterRetry),
         u"Retry replaced the confirmed snapshot with a failed acquiring chapter"_s);

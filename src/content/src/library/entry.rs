@@ -36,7 +36,7 @@ pub struct LastOpened {
 /// A position within original content. Text anchors survive width/font changes;
 /// image page offsets remain relative to the displayed image height.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ReaderPosition {
     Page { page: u32, scroll_offset: f64 },
     Text { block_id: String, offset: f64 },

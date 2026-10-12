@@ -184,7 +184,7 @@ void exerciseMangaLib()
     QSqlDatabase database = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"mangalib-faults"_s);
     database.setDatabaseName(QDir(profile.path()).filePath(u"content-library.sqlite"_s));
     require(database.open(), database.lastError().text());
-    waitFor([&] { return entry(database).value(u"reader_progress"_s).toObject().value(u"page"_s).toInt() == 1; }, u"MangaLib exact progress"_s);
+    waitFor([&] { return entry(database).value(u"reader_progress"_s).toObject().value(u"position"_s).toObject().value(u"page"_s).toInt() == 1; }, u"MangaLib exact progress"_s);
     controller->scrollReaderPage(second, 0.625);
     saved(controller);
     const auto captured = entry(database);

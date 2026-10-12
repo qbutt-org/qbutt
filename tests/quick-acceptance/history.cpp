@@ -399,7 +399,7 @@ void exerciseHistory()
             == Qbutt::Library::LibraryErrorKind::HistoryRead)
         && controller->property("readerProgressErrorText").toString().isEmpty()
         && !controller->property("readerProgressPending").toBool()
-        && (entry(database, key).value(u"reader_progress"_s).toObject().value(u"scroll_offset"_s).toDouble() == 0.75),
+        && (entry(database, key).value(u"reader_progress"_s).toObject().value(u"position"_s).toObject().value(u"scroll_offset"_s).toDouble() == 0.75),
         u"Failed snapshot masked committed reading or invented a rejected write"_s);
     const auto committed = entry(database, key);
     controller->retryReaderProgress();
