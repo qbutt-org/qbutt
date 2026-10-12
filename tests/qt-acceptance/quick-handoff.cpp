@@ -12,8 +12,10 @@
 #include <QDirIterator>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPointer>
@@ -92,6 +94,12 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         u"Peer discovery is enabled in the fixture"_s);
     require(!Net::PortForwarder::instance()->isEnabled(), u"Port forwarding is enabled in the fixture"_s);
 
+    const QString source = spec.value(u"source"_s).toString();
+    require((source == u"aniliberty") || (source == u"rutor"), u"Unsupported handoff source"_s);
+    const bool ruTor = source == u"rutor";
+    const QString sourceLabel = ruTor ? u"RuTor"_s : u"AniLiberty"_s;
+    const QString category = ruTor ? u"software"_s : u"anime"_s;
+
     const QDir payload(spec.value(u"payload"_s).toString());
     require(payload.exists() && payload.entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty(),
         u"Fixture payload directory must exist and be empty"_s);
@@ -116,39 +124,86 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     auto *root = view.rootObject();
     require(root, u"Production QML root is missing"_s);
     auto *query = root->findChild<QQuickItem *>(u"contentQuery"_s);
-    require(query && query->setProperty("text", u"Frieren"_s), u"Search field is missing"_s);
+    auto *categories = root->findChild<QQuickItem *>(u"contentCategory"_s);
+    int categoryIndex = -1;
+    require(categories && QMetaObject::invokeMethod(categories, "indexOfValue", Q_RETURN_ARG(int, categoryIndex),
+        Q_ARG(QVariant, QVariant(category))) && (categoryIndex >= 0)
+        && categories->setProperty("currentIndex", categoryIndex)
+        && (categories->property("currentValue").toString() == category), u"QML category control is missing"_s);
+    require(query && query->setProperty("text", ruTor ? u"Blender"_s : u"Frieren"_s), u"Search field is missing"_s);
     require(QMetaObject::invokeMethod(root, "submitSearch"), u"Search action is missing"_s);
     require(controller->property("busy").toBool(), u"Search did not start"_s);
-    waitFor([&] { return !controller->property("busy").toBool(); }, 50'000, u"AniLiberty search"_s);
-    require(controller->property("errorText").toString().isEmpty(), u"AniLiberty search failed"_s);
+    waitFor([&] { return !controller->property("busy").toBool(); }, 150'000, u"Catalog search"_s);
+    require(controller->property("errorText").toString().isEmpty(), u"Catalog search failed"_s);
 
-    const QString workId = u"aniliberty:9542"_s;
-    bool foundWork = false;
+    QString workId;
     for (int row = 0; row < works->rowCount(); ++row)
-        foundWork |= (value(works, row, "workId") == workId);
-    require(foundWork, u"Search did not return the expected Frieren publication"_s);
-    controller->selectWork(workId);
+    {
+        const QString id = value(works, row, "workId");
+        if ((value(works, row, "source") == sourceLabel) && (value(works, row, "category") == category)
+            && (!ruTor || value(works, row, "title").contains(u"Blender"_s, Qt::CaseInsensitive))
+            && (ruTor || (id == u"aniliberty:9542")))
+        {
+            workId = id;
+            break;
+        }
+    }
+    require(!workId.isEmpty() && (!ruTor || QRegularExpression(u"^rutor:[1-9][0-9]*$"_s).match(workId).hasMatch()),
+        u"Search did not return the expected typed publication"_s);
+    auto *results = root->findChild<QQuickItem *>(u"contentResults"_s);
+    auto *filtered = results ? qobject_cast<QAbstractItemModel *>(results->property("model").value<QObject *>()) : nullptr;
+    require(filtered && (filtered != works), u"Production QML category projection is missing"_s);
+    int projectedRow = -1;
+    for (int row = 0; row < filtered->rowCount(); ++row)
+    {
+        require(value(filtered, row, "category") == category, u"QML category filter included another category"_s);
+        if (value(filtered, row, "workId") == workId)
+            projectedRow = row;
+    }
+    require((projectedRow >= 0) && results->setProperty("currentIndex", projectedRow),
+        u"Publication is absent from its QML category"_s);
+    results->forceActiveFocus();
+    QKeyEvent enter(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    QCoreApplication::sendEvent(&view, &enter);
+    QKeyEvent enterRelease(QEvent::KeyRelease, Qt::Key_Return, Qt::NoModifier);
+    QCoreApplication::sendEvent(&view, &enterRelease);
+    require(controller->property("selectedWorkId").toString() == workId, u"QML selected an unfiltered source row"_s);
     require(controller->property("inspecting").toBool(), u"Inspection did not start"_s);
-    waitFor([&] { return !controller->property("inspecting").toBool(); }, 50'000, u"AniLiberty inspection"_s);
-    require(controller->property("errorText").toString().isEmpty(), u"AniLiberty inspection failed"_s);
-    require(variants->rowCount() >= 2, u"Exact selection check requires at least two torrent variants"_s);
+    waitFor([&] { return !controller->property("inspecting").toBool(); }, 50'000, u"Publication inspection"_s);
+    require(controller->property("errorText").toString().isEmpty(), u"Publication inspection failed"_s);
+    require(controller->property("selectedWorkCategory").toString() == category, u"Fresh category differs from the source route"_s);
+    require(!ruTor || controller->property("selectedWorkTitle").toString().contains(u"Blender"_s, Qt::CaseInsensitive),
+        u"RuTor inspection returned an unrelated software title"_s);
+    require(ruTor ? variants->rowCount() == 1 : variants->rowCount() >= 2,
+        u"Source did not return the required exact torrent variants"_s);
 
     const int selectedRow = variants->rowCount() - 1;
     const QString variantId = value(variants, selectedRow, "variantId");
     const QString infoHash = value(variants, selectedRow, "infoHash").toLower();
     require(value(variants, selectedRow, "kind") == u"torrent", u"Selected variant is not a torrent"_s);
+    require(value(variants, selectedRow, "source") == sourceLabel, u"Selected variant belongs to another source"_s);
     require(QRegularExpression(u"^[0-9a-f]{40}$"_s).match(infoHash).hasMatch(),
         u"Selected torrent has no verifiable SHA-1 metadata"_s);
-    require(infoHash != value(variants, 0, "infoHash").toLower(), u"Variants do not have distinct hashes"_s);
+    const QString defaultInfoHash = value(variants, 0, "infoHash").toLower();
+    if (ruTor)
+        require(variantId == workId + u":torrent:"_s + infoHash, u"RuTor lost its full-hash exact selector"_s);
+    else
+        require((selectedRow > 0) && (infoHash != defaultInfoHash), u"Variants do not have distinct hashes"_s);
     auto *list = root->findChild<QQuickItem *>(u"contentVariants"_s);
     auto *download = root->findChild<QQuickItem *>(u"contentDownload"_s);
-    require(list && download && list->setProperty("currentIndex", selectedRow), u"Variant controls are missing"_s);
+    require(list && download, u"Variant controls are missing"_s);
+    list->forceActiveFocus();
+    QKeyEvent lastVariant(QEvent::KeyPress, Qt::Key_End, Qt::NoModifier);
+    QCoreApplication::sendEvent(&view, &lastVariant);
+    QKeyEvent lastVariantRelease(QEvent::KeyRelease, Qt::Key_End, Qt::NoModifier);
+    QCoreApplication::sendEvent(&view, &lastVariantRelease);
     waitFor([&]
     {
         auto *item = list->property("currentItem").value<QObject *>();
-        return item && (item->property("variantId").toString() == variantId) && download->isEnabled();
+        return item && (item->property("variantId").toString() == variantId)
+            && (controller->property("selectedVariantId").toString() == variantId) && download->isEnabled();
     }, 5000, u"Exact QML variant selection"_s);
-    require(view.grab().save(screenshots.filePath(u"quick-search.png"_s)), u"Could not capture the selected variant"_s);
+    require(view.grabFramebuffer().save(screenshots.filePath(u"quick-search.png"_s)), u"Could not capture the selected variant"_s);
 
     int handoffs = 0;
     int added = 0;
@@ -186,7 +241,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     QCoreApplication::sendEvent(&view, &release);
     require(controller->property("resolving").toBool(), u"Download button did not resolve the selected variant"_s);
     waitFor([&] { return !controller->property("resolving").toBool(); }, 50'000, u"Exact torrent resolution"_s);
-    require(controller->property("errorText").toString().isEmpty(), u"AniLiberty resolution failed"_s);
+    require(controller->property("errorText").toString().isEmpty(), u"Exact resolution failed"_s);
     require(guiThread && (handoffs == 1) && managerAccepted && (failures == 0), u"Native torrent handoff failed"_s);
 
     QList<AddNewTorrentDialog *> dialogs;
@@ -227,10 +282,15 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     QJsonArray checks = evidence.value(u"checks"_s).toArray();
     checks.append(QJsonObject {
         {u"name"_s, u"quick-handoff"_s},
+        {u"source"_s, source},
+        {u"category"_s, category},
         {u"workId"_s, workId},
         {u"variantId"_s, variantId},
         {u"infoHash"_s, infoHash},
         {u"selectedRow"_s, selectedRow},
+        {u"projectedRow"_s, projectedRow},
+        {u"variantCount"_s, variants->rowCount()},
+        {u"defaultInfoHash"_s, defaultInfoHash},
         {u"handoffs"_s, handoffs},
         {u"cancellations"_s, cancellations},
         {u"exactDialogHash"_s, true},

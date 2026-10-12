@@ -9,6 +9,11 @@ import { assertQtRuntime } from "../qt-runtime";
 const source = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 assert(source, "Set QBUTT_QT_ACCEPTANCE_EXE to the combined Qt acceptance build");
 assert(process.platform === "win32", "Native torrent handoff acceptance currently requires Windows");
+const args = process.argv.slice(2);
+assert(args.length === 0 || (args.length === 2 && args[0] === "--source"),
+    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor]");
+const selectedSource = args[1] ?? "aniliberty";
+assert(selectedSource === "aniliberty" || selectedSource === "rutor", "Unsupported handoff source");
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
 const executable = resolve(source);
@@ -58,6 +63,7 @@ try {
     await writeFile(spec, JSON.stringify({
         schema: 1,
         mode: "quick-handoff",
+        source: selectedSource,
         evidencePath,
         profile,
         payload,
@@ -67,7 +73,7 @@ try {
     application = Bun.spawn([executable, `--profile=${profile}`], {
         cwd: bundle,
         windowsHide: !native,
-        timeout: 200_000,
+        timeout: 300_000,
         env: {
             ...process.env,
             [pathKey]: `${bundle};${process.env[pathKey] ?? ""}`,
@@ -94,13 +100,27 @@ try {
     assert.equal(check.torrentCount, 0);
     assert.equal(check.payloadEmpty, true);
     assert.equal(check.metadataPayloadEmpty, true);
-    assert(check.selectedRow > 0, "Scenario did not select a non-default variant");
+    assert.equal(check.source, selectedSource);
+    assert.equal(check.category, selectedSource === "rutor" ? "software" : "anime");
+    assert(check.projectedRow >= 0, "Scenario did not select a projected category row");
+    if (selectedSource === "rutor") {
+        assert.equal(check.variantCount, 1);
+        assert.equal(check.selectedRow, 0);
+        assert.match(check.workId, /^rutor:[1-9][0-9]*$/);
+        assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+    }
+    else {
+        assert.equal(check.workId, "aniliberty:9542");
+        assert(check.variantCount >= 2 && check.selectedRow > 0, "Scenario did not select a non-default variant");
+        assert.notEqual(check.infoHash, check.defaultInfoHash, "Scenario resolved the default variant");
+    }
     assert.match(check.infoHash, /^[0-9a-f]{40}$/);
     assert.deepEqual(await readdir(payload), [], "Cancelled handoff left payload files after application shutdown");
 
     await writeFile(join(root, "result.json"), JSON.stringify({
         status: "passed",
         evidencePath,
+        source: selectedSource,
         infoHash: check.infoHash,
         payloadEmptyAfterShutdown: true,
         executableSha256: createHash("sha256").update(await readFile(executable)).digest("hex"),
