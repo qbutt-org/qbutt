@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
-    AniLiberty, ByRut, Chapter, ChapterRef, FitGirl, FreeTP, Kakuyomu, LibSession, MangaDex,
-    MangaLib, Nyaa, OnlineFix, RanobeHub, RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker,
-    Rutube, Source, SourceOperation, TextChapter, Work, YummyAnime,
+    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, FitGirl, FreeTP, Kakuyomu,
+    LibSession, MangaDex, MangaLib, Nyaa, OnlineFix, RanobeHub, RanobeLib, ResolvedContent,
+    RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation, TextChapter, Work, YummyAnime,
 };
 
 use super::browser::BrowserClient;
@@ -23,7 +23,9 @@ pub enum SourceResponse {
 pub(super) struct Catalog {
     browser: BrowserClient,
     aniliberty: AniLiberty,
+    anitokyo: AniTokyo,
     yummyanime: YummyAnime,
+    animespirit: AnimeSpirit,
     pub(super) mangadex: Arc<MangaDex>,
     pub(super) mangalib: Arc<MangaLib>,
     rutor: RuTor,
@@ -45,7 +47,9 @@ impl Catalog {
         Ok(Self {
             browser,
             aniliberty: AniLiberty::new()?,
+            anitokyo: AniTokyo::new()?,
             yummyanime: YummyAnime::new()?,
+            animespirit: AnimeSpirit::new()?,
             mangadex: Arc::new(MangaDex::new()?),
             mangalib: Arc::new(MangaLib::new()?),
             rutor: RuTor::new()?,
@@ -78,7 +82,9 @@ impl Catalog {
                 let works = match source {
                     Source::LocalBook => Err(qbutt_content::Error::InvalidReference),
                     Source::AniLiberty => self.aniliberty.search(query).await,
+                    Source::AniTokyo => self.anitokyo.search(query).await,
                     Source::YummyAnime => self.yummyanime.search(query).await,
+                    Source::AnimeSpirit => self.animespirit.search(query).await,
                     Source::MangaDex => {
                         self.mangadex
                             .search(query, language.as_deref().unwrap())
@@ -133,7 +139,9 @@ impl Catalog {
                 let work = match reference.source {
                     Source::LocalBook => Err(qbutt_content::Error::InvalidReference),
                     Source::AniLiberty => self.aniliberty.inspect(reference).await,
+                    Source::AniTokyo => self.anitokyo.inspect(reference).await,
                     Source::YummyAnime => self.yummyanime.inspect(reference).await,
+                    Source::AnimeSpirit => self.animespirit.inspect(reference).await,
                     Source::MangaDex => {
                         self.mangadex
                             .inspect(reference, language.as_deref().unwrap())
@@ -182,7 +190,9 @@ impl Catalog {
             SourceOperation::Resolve(reference) => {
                 let resolved = match reference.publication.source {
                     Source::AniLiberty => self.aniliberty.resolve(reference).await,
+                    Source::AniTokyo => self.anitokyo.resolve(reference).await,
                     Source::YummyAnime => self.yummyanime.resolve(reference).await,
+                    Source::AnimeSpirit => self.animespirit.resolve(reference).await,
                     Source::RuTor => self.rutor.resolve(reference).await,
                     Source::RuTracker => {
                         self.rutracker
