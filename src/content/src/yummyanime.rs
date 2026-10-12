@@ -2,8 +2,6 @@
 mod aksor;
 #[path = "yummyanime/cvh.rs"]
 mod cvh;
-#[path = "yummyanime/kodik.rs"]
-mod kodik;
 #[path = "yummyanime/response.rs"]
 mod response;
 
@@ -14,6 +12,7 @@ use url::Url;
 use crate::http::{SourceHttp, public_media_url};
 use crate::{Error, PublicationRef, ResolvedContent, Result, VariantRef, VariantSelector, Work};
 
+use crate::kodik::{self, KodikVideo};
 use response::{Anime, Envelope};
 
 const ORIGIN: &str = "https://yani.tv";
@@ -90,7 +89,24 @@ impl YummyAnime {
         let (url, quality) = match video.player() {
             "Aksor" => aksor::resolve(&anime, video, &player).await?,
             "CVH" => cvh::resolve(&anime, video, &player).await?,
-            "Kodik" => kodik::resolve(video, &player).await?,
+            "Kodik" => {
+                let dubbing = video
+                    .data
+                    .dubbing
+                    .strip_prefix("Озвучка ")
+                    .or_else(|| video.data.dubbing.strip_prefix("Субтитры "))
+                    .unwrap_or(&video.data.dubbing);
+                kodik::resolve(
+                    KodikVideo {
+                        episode: &video.number,
+                        dubbing,
+                        subtitled: video.is_subtitled(),
+                        video: None,
+                    },
+                    &player,
+                )
+                .await?
+            }
             _ => {
                 return Ok(ResolvedContent::ExternalVideo {
                     reference: selected.clone(),

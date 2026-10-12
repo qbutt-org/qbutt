@@ -84,6 +84,10 @@ mod yummyanime {
     }
 }
 
+#[allow(dead_code)]
+#[path = "../src/kodik.rs"]
+mod kodik;
+
 #[path = "kodik/fixture.rs"]
 mod fixture;
 

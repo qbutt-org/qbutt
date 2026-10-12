@@ -20,6 +20,7 @@ mod fitgirl;
 mod freetp;
 mod http;
 mod kakuyomu;
+mod kodik;
 mod lib_api;
 mod library;
 mod local_books;
