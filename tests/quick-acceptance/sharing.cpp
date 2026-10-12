@@ -95,8 +95,9 @@ namespace
         controller.initLibrary(profile);
         waitFor([&]
         {
-            return controller.property("libraryState").value<Qbutt::Library::LibraryState>()
-                != Qbutt::Library::LibraryState::Loading;
+            const auto state = controller.property("libraryState").value<Qbutt::Library::LibraryState>();
+            return (state == Qbutt::Library::LibraryState::Ready)
+                || (state == Qbutt::Library::LibraryState::Failed);
         }, u"Isolated library"_s);
         require(controller.property("libraryState").value<Qbutt::Library::LibraryState>()
             == Qbutt::Library::LibraryState::Ready, controller.property("libraryErrorText").toString());

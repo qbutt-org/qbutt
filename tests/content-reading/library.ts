@@ -69,6 +69,7 @@ async function runScenario(scenario: string, expected: string) {
             ...process.env,
             QT_QPA_PLATFORM: "offscreen",
             QT_QUICK_BACKEND: "software",
+            QT_FORCE_STDERR_LOGGING: "1",
         },
     });
     const exited = new Promise<number | null>((resolve, reject) => {

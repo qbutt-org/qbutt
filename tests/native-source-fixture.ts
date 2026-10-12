@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
@@ -61,7 +61,7 @@ try {
     await writeFile(source, patched);
     patchedSource = true;
     await run(["cmake", "--build", buildDirectory, "--config", "RelWithDebInfo",
-        "--target", "qbutt-quick-acceptance", "--parallel", "6"]);
+        "--target", "qbutt-quick-acceptance"]);
     await run([process.execPath, fixture, executable, certificate, key]);
 } catch (error) {
     if (!patchedSource) {
@@ -77,8 +77,10 @@ try {
         await copyFile(backup, source);
         restored = (await readFile(source)).equals(original);
         assert(restored, `SourceHttp restoration failed; original saved at ${backup}`);
+        const restoredAt = new Date();
+        await utimes(source, restoredAt, restoredAt);
         await run(["cmake", "--build", buildDirectory, "--config", "RelWithDebInfo",
-            "--target", "qbutt-quick-acceptance", "--parallel", "6"]);
+            "--target", "qbutt-quick-acceptance"]);
     }
     if (restored)
         await rm(backupDirectory, { recursive: true, force: true });
