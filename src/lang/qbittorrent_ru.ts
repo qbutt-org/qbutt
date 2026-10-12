@@ -19058,6 +19058,18 @@ Please choose a different name and try again.</source>
 <context>
     <name>ReaderToolbar</name>
     <message>
+        <source>Pages</source>
+        <translation>Страницы</translation>
+    </message>
+    <message>
+        <source>Continuous</source>
+        <translation>Лента</translation>
+    </message>
+    <message>
+        <source>Reading mode</source>
+        <translation>Режим чтения</translation>
+    </message>
+    <message>
         <source>Back</source>
         <translation>Назад</translation>
     </message>

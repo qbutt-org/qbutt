@@ -13,33 +13,40 @@ FocusScope {
     required property ContentController backend
     required property Theme theme
     readonly property int fit: backend.readerFit
-    readonly property string errorText: {
-        if (backend.readerErrorText !== "")
-            return backend.readerErrorText;
-
-        return page.status === Image.Error ? qsTr("Could not display this page.") : "";
-    }
+    readonly property bool continuous: backend.readerMode === Reader.Continuous
+    readonly property string errorText: backend.readerErrorText
 
     function saveScroll(): void {
+        if (continuous) {
+            if (continuousCanvas.status === Loader.Ready)
+                (continuousCanvas.item as ReaderContinuousCanvas).saveScroll();
+            return;
+        }
+
         const range = viewport.contentHeight - viewport.height;
         if (fit !== Reader.Width || !page.visible || page.status !== Image.Ready || range <= 0)
             return;
 
-        backend.scrollReaderPage(page.source, Math.max(0, Math.min(1, viewport.contentY / range)));
+        backend.scrollReaderPage(page.source, Math.max(0, Math.min(1, viewport.contentY / page.height)));
     }
 
     function restoreScroll(offset: real): void {
         if (!page.visible || page.status !== Image.Ready || viewport.moving || scroll.ScrollBar.vertical.pressed)
             return;
 
-        viewport.contentY = offset * Math.max(0, viewport.contentHeight - viewport.height);
+        viewport.contentY = Math.min(offset * page.height,
+            Math.max(0, viewport.contentHeight - viewport.height));
     }
 
     Connections {
         target: root.backend
-        function onRestoreReaderScroll(url: url, offset: real): void {
-            if (page.source.toString() === url.toString())
+        function onReaderPositionRequested(generation: real, pageIndex: int, offset: real): void {
+            if (!root.continuous && generation === root.backend.readerPages.generation
+                && pageIndex === root.backend.readerPageIndex) {
+                viewport.cancelFlick();
                 root.restoreScroll(offset);
+                page.confirmPage();
+            }
         }
     }
 
@@ -57,8 +64,8 @@ FocusScope {
         anchors.fill: parent
         clip: true
         contentWidth: availableWidth
-        visible: root.errorText === ""
-        focus: true
+        visible: !root.continuous && root.errorText === ""
+        focus: !root.continuous
         focusPolicy: Qt.StrongFocus
         ScrollBar.vertical.objectName: "readerPageScrollBar"
         Keys.onReleased: event => {
@@ -81,16 +88,22 @@ FocusScope {
                 id: page
                 objectName: "readerPageImage"
                 width: viewport.width
-                height: root.fit === Reader.Height ? viewport.height : undefined
-                source: root.backend.readerPageUrl
+                height: root.fit === Reader.Height ? viewport.height
+                    : root.backend.readerImageWidth > 0
+                        ? Math.ceil(viewport.width * root.backend.readerImageHeight / root.backend.readerImageWidth)
+                        : 0
+                source: !root.continuous && viewport.width > 0 && viewport.height > 0
+                    ? root.backend.readerPageUrl : ""
                 onSourceChanged: {
                     viewport.cancelFlick();
                     viewport.contentY = 0;
                 }
                 sourceSize: root.fit === Reader.Height
-                    ? Qt.size(0, Math.ceil(viewport.height)) : Qt.size(Math.ceil(viewport.width), 0)
+                    ? Qt.size(0, Math.min(root.backend.readerImageHeight, Math.ceil(viewport.height)))
+                    : Qt.size(Math.min(root.backend.readerImageWidth, Math.ceil(viewport.width)), 0)
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
+                cache: false
                 visible: status === Image.Ready && !root.backend.readerBusy
                 Accessible.role: Accessible.Graphic
                 Accessible.name: qsTr("Page %1").arg(root.backend.readerPageIndex + 1)
@@ -98,8 +111,13 @@ FocusScope {
                 onVisibleChanged: Qt.callLater(confirmPage)
 
                 function confirmPage(): void {
+                    if (status === Image.Error) {
+                        root.backend.readerPageFailed(root.backend.readerPageIndex, source);
+                        return;
+                    }
+
                     if (visible && status === Image.Ready) {
-                        root.backend.readerPageShown(source);
+                        root.backend.readerPageShown(root.backend.readerPageIndex, source);
                         root.restoreScroll(root.backend.readerScrollOffset);
                     }
                 }
@@ -127,8 +145,21 @@ FocusScope {
 
     BusyIndicator {
         anchors.centerIn: parent
-        running: root.backend.readerBusy || page.status === Image.Loading
+        running: root.continuous ? root.backend.readerBusy && root.backend.readerPageCount === 0
+            : root.backend.readerBusy || page.status === Image.Loading
         visible: running
+    }
+
+    Loader {
+        id: continuousCanvas
+        anchors.fill: parent
+        active: root.continuous
+        visible: root.errorText === ""
+        focus: active
+        sourceComponent: ReaderContinuousCanvas {
+            backend: root.backend
+            theme: root.theme
+        }
     }
 
     ColumnLayout {

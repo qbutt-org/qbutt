@@ -45,6 +45,11 @@ Page {
                 root.backend.setReaderFit(fit);
                 canvas.forceActiveFocus();
             }
+            onModeRequested: mode => {
+                canvas.saveScroll();
+                root.backend.setReaderMode(mode);
+                canvas.forceActiveFocus();
+            }
         }
 
         RowLayout {
@@ -115,13 +120,13 @@ Page {
     }
 
     Shortcut {
-        sequences: ["Left", "PgUp"]
+        sequences: root.backend.readerMode === Reader.Paged ? ["Left", "PgUp"] : ["Left"]
         enabled: root.visible && !chapters.visible && !root.backend.readerBusy
         onActivated: root.selectPage(root.backend.readerPageIndex - 1)
     }
 
     Shortcut {
-        sequences: ["Right", "PgDown"]
+        sequences: root.backend.readerMode === Reader.Paged ? ["Right", "PgDown"] : ["Right"]
         enabled: root.visible && !chapters.visible && !root.backend.readerBusy
         onActivated: root.selectPage(root.backend.readerPageIndex + 1)
     }

@@ -13,7 +13,9 @@ qt_add_qml_module(qbt_quick_ui STATIC
         NavigationTab.qml
         QueryField.qml
         ReaderCanvas.qml
+        ReaderContinuousCanvas.qml
         ReaderPage.qml
+        ReaderStripPage.qml
         ReaderToolbar.qml
         SearchPage.qml
         SelectField.qml
