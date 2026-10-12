@@ -195,6 +195,16 @@ impl ffi::ContentController {
         }
     }
 
+    pub(in crate::controller) fn reader_translation_request_identity(&self) -> Option<(u64, u64)> {
+        self.reader.reference.as_ref()?;
+        let request_generation = if self.reader.is_text {
+            self.reader.translation.pending.generation
+        } else {
+            self.reader.manga_translation.pending.generation
+        };
+        Some((self.reader.chapter.generation, request_generation))
+    }
+
     pub(in crate::controller) fn reader_translation_busy(&self) -> bool {
         if self.reader.is_text {
             self.reader.translation.busy

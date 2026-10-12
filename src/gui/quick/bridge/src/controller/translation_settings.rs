@@ -91,6 +91,9 @@ impl ffi::ContentController {
             return false;
         };
         let language = self.reader_settings.value.translation_language.clone();
+        if self.translation_options.loading && self.translation_options.language == language {
+            return true;
+        }
         let qt_thread = self.qt_thread();
         let generation = self.translation_options.generation.wrapping_add(1);
         {
@@ -224,9 +227,12 @@ impl ffi::ContentController {
             return true;
         }
         let was_translated = self.reader_translation_requested();
-        if was_translated {
+        let restore_request = if was_translated {
             self.as_mut().reset_reader_translation();
-        }
+            self.reader_translation_request_identity()
+        } else {
+            None
+        };
         let qt_thread = self.qt_thread();
         let generation = self.translation_options.generation.wrapping_add(1);
         {
@@ -263,7 +269,10 @@ impl ffi::ContentController {
                     state.selection = choice;
                 }
                 controller.as_mut().reader_translation_options_changed();
-                if was_translated {
+                if restore_request.is_some_and(|request| {
+                    controller.reader_translation_request_identity() == Some(request)
+                        && !controller.reader_translation_requested()
+                }) {
                     controller.as_mut().restore_reader_translation();
                 }
             });

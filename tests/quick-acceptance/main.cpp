@@ -40,6 +40,7 @@
 #include "mangalib.h"
 #include "reader-progress.h"
 #include "reader-settings.h"
+#include "reader-translation-choice.h"
 #include "reader.h"
 #include "sharing.h"
 #include "sources.h"
@@ -527,6 +528,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"sources"_s, u"Run persisted source choices, exact retries and SQLite faults, then exit."_s});
     parser.addOption({u"history"_s, u"Run confirmed reading history and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
+    parser.addOption({u"reader-translation-choice"_s, u"Run delayed reader translation choice persistence and session acceptance, then exit."_s});
     parser.addOption({u"reader-progress"_s, u"Run exact reader progress and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader-settings"_s, u"Run reader settings persistence and SQLite faults, then exit."_s});
     parser.addOption({u"reader-settings-phase"_s, u"Run a reader settings restart fixture phase."_s, u"phase"_s});
@@ -568,7 +570,8 @@ int main(int argc, char *argv[])
         application.setPalette(palette);
     }
     application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s)
-        && !parser.isSet(u"reader"_s) && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s)
+        && !parser.isSet(u"reader"_s) && !parser.isSet(u"reader-translation-choice"_s)
+        && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s)
         && !parser.isSet(u"variant-filters"_s));
 
     if (parser.isSet(u"library"_s) || parser.isSet(u"sharing"_s) || parser.isSet(u"downloads"_s)
@@ -644,7 +647,8 @@ int main(int argc, char *argv[])
     });
     window->show();
 
-    if (parser.isSet(u"exercise"_s) || parser.isSet(u"reader"_s) || parser.isSet(u"worklist"_s))
+    if (parser.isSet(u"exercise"_s) || parser.isSet(u"reader"_s)
+        || parser.isSet(u"reader-translation-choice"_s) || parser.isSet(u"worklist"_s))
     {
         QTimer::singleShot(360'000, &application, [&application]
         {
@@ -653,12 +657,16 @@ int main(int argc, char *argv[])
         });
         QTimer::singleShot(0, &application,
             [&application, profilePath, window = QPointer(window), view = QPointer(view),
-                runReader = parser.isSet(u"reader"_s), runWorkList = parser.isSet(u"worklist"_s)]
+                runReader = parser.isSet(u"reader"_s),
+                runReaderTranslationChoice = parser.isSet(u"reader-translation-choice"_s),
+                runWorkList = parser.isSet(u"worklist"_s)]
         {
             try
             {
                 if (runWorkList)
                     exerciseWorkList(view);
+                else if (runReaderTranslationChoice)
+                    exerciseReaderTranslationChoiceRace(view, profilePath);
                 else if (runReader)
                     exerciseReader(view, profilePath);
                 else
