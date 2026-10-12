@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -52,9 +53,29 @@ try {
         "",
     ].join("\n"));
 
-    const phases = ["switch", "restart-en", "restart-ru"];
+    const phases = ["switch", "restart-en", "restart-ru", "notices"];
     const results: unknown[] = [];
     for (const phase of phases) {
+        if (phase === "notices") {
+            const database = new Database(join(profile, "qbutt", "data", "content-library.sqlite"));
+            try {
+                const failure = {
+                    operation: { search: { source: "ru_tor", query: "generated language failure", category: "software", language: null } },
+                    reason: "timeout",
+                };
+                database.query("UPDATE source_settings SET enabled = 0, failure = ?, revision = revision + 1 WHERE source = 'rutor'")
+                    .run(JSON.stringify(failure));
+                database.exec(`
+                    CREATE TRIGGER language_library_abort BEFORE INSERT ON library
+                    BEGIN SELECT RAISE(ABORT, 'generated language library failure'); END;
+                    CREATE TRIGGER language_source_abort BEFORE UPDATE ON source_settings
+                    BEGIN SELECT RAISE(ABORT, 'generated language source failure'); END;
+                `);
+            }
+            finally {
+                database.close();
+            }
+        }
         const evidencePath = join(root, `${phase}.json`);
         const spec = join(root, `${phase}-spec.json`);
         await writeFile(spec, JSON.stringify({ schema: 1, mode: "language-switch", phase, evidencePath, profile, payload, bundle }));
@@ -85,7 +106,7 @@ try {
         const check = evidence.checks.find((item: { name: string }) => item.name === "language-switch");
         assert(check, "Language evidence is missing");
         const expected = phase === "switch" ? ["ru", "en", "ru", "en"]
-            : phase === "restart-en" ? ["en", "ru"] : ["ru"];
+            : phase === "restart-en" ? ["en", "ru"] : phase === "notices" ? ["ru", "en", "ru"] : ["ru"];
         assert.deepEqual(check.labels.map((label: { locale: string }) => label.locale), expected);
         assert.equal(check.savedLocale, expected.at(-1));
         assert.equal(check.torrentCount, 0);

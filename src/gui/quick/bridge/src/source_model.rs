@@ -29,6 +29,8 @@ pub mod ffi {
         #[base = QAbstractListModel]
         type SourceModel = super::SourceModelRust;
 
+        fn retranslate(self: Pin<&mut SourceModel>);
+
         #[cxx_override]
         #[rust_name = "row_count"]
         fn rowCount(&self, parent: &QModelIndex) -> i32;
@@ -81,6 +83,17 @@ pub struct SourceModelRust {
 }
 
 impl ffi::SourceModel {
+    pub fn retranslate(mut self: Pin<&mut Self>) {
+        if self.rows.is_empty() {
+            return;
+        }
+        let parent = QModelIndex::default();
+        let first = self.index(0, 0, &parent);
+        let last = self.index(self.rows.len() as i32 - 1, 0, &parent);
+        self.as_mut()
+            .data_changed(&first, &last, &QVector::default());
+    }
+
     fn row_count(&self, parent: &QModelIndex) -> i32 {
         if parent.is_valid() {
             0

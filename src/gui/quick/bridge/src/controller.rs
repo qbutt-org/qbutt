@@ -356,7 +356,7 @@ pub mod ffi {
         #[qproperty(SearchState, search_state, cxx_name = "searchState", READ, NOTIFY)]
         #[qproperty(bool, inspecting, READ, NOTIFY)]
         #[qproperty(bool, resolving, READ, NOTIFY)]
-        #[qproperty(QString, error_text, cxx_name = "errorText", READ, NOTIFY)]
+        #[qproperty(QString, error_text, cxx_name = "errorText", READ = error_text, NOTIFY)]
         #[qproperty(QString, selected_work_id, cxx_name = "selectedWorkId", READ, NOTIFY)]
         #[qproperty(
             QString,
@@ -387,6 +387,9 @@ pub mod ffi {
             NOTIFY = selected_variant_state_changed
         )]
         type ContentController = super::ContentControllerRust;
+
+        fn retranslate(self: Pin<&mut ContentController>);
+        fn error_text(&self) -> QString;
 
         fn works_model(&self) -> *mut WorkModel;
         fn variants_model(&self) -> *mut VariantModel;
@@ -608,7 +611,7 @@ pub struct ContentControllerRust {
     search_state: ffi::SearchState,
     inspecting: bool,
     resolving: bool,
-    error_text: QString,
+    error_operation: Option<i32>,
     selected_work_id: QString,
     selected_work_title: QString,
     selected_work_description: QString,
@@ -664,11 +667,7 @@ impl Default for ContentControllerRust {
                 None
             }
         };
-        let error_text = if services.is_some() {
-            QString::default()
-        } else {
-            ffi::content_error(0)
-        };
+        let error_operation = services.is_none().then_some(0);
 
         let source_status = SourceState::default();
         let mut sources = source_model::ffi::create_source_model();
@@ -685,7 +684,7 @@ impl Default for ContentControllerRust {
             search_state: ffi::SearchState::Idle,
             inspecting: false,
             resolving: false,
-            error_text,
+            error_operation,
             selected_work_id: QString::default(),
             selected_work_title: QString::default(),
             selected_work_description: QString::default(),
@@ -769,9 +768,23 @@ impl ffi::ContentController {
         }
     }
 
-    fn set_error_text(mut self: Pin<&mut Self>, value: QString) {
-        if self.error_text != value {
-            self.as_mut().rust_mut().error_text = value;
+    pub fn retranslate(mut self: Pin<&mut Self>) {
+        self.as_mut().rust_mut().variants.pin_mut().retranslate();
+        self.as_mut().rust_mut().sources.pin_mut().retranslate();
+        self.as_mut().error_text_changed();
+        self.as_mut().library_error_text_changed();
+        self.as_mut().sources_changed();
+    }
+
+    fn error_text(&self) -> QString {
+        self.error_operation
+            .map(ffi::content_error)
+            .unwrap_or_default()
+    }
+
+    fn set_error(mut self: Pin<&mut Self>, value: Option<i32>) {
+        if self.error_operation != value {
+            self.as_mut().rust_mut().error_operation = value;
             self.as_mut().error_text_changed();
         }
     }
@@ -955,7 +968,7 @@ impl ffi::ContentController {
         if !self.as_mut().show_work(&work, generation) {
             return;
         }
-        self.as_mut().set_error_text(QString::default());
+        self.as_mut().set_error(None);
         if self.inspection.generation != generation {
             return;
         }
@@ -970,7 +983,7 @@ impl ffi::ContentController {
             return;
         }
         if self.services.is_none() {
-            self.as_mut().set_error_text(ffi::content_error(0));
+            self.as_mut().set_error(Some(0));
             return;
         }
         let Some(request) = request else {
@@ -1012,7 +1025,7 @@ impl ffi::ContentController {
                 if controller.inspection.generation == generation {
                     controller.as_mut().set_inspecting(false);
                     if controller.inspection.generation == generation
-                        && controller.error_text.is_empty()
+                        && controller.error_operation.is_none()
                     {
                         if controller.selected_variant_id.is_empty() {
                             controller.as_mut().select_initial_variant();

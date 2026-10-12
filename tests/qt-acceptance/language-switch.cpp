@@ -61,6 +61,18 @@ namespace
         return result;
     }
 
+    QQuickItem *visualItem(QQuickItem *parent, const QString &name)
+    {
+        if (!parent || (parent->objectName() == name))
+            return parent;
+        for (auto *item : parent->childItems())
+        {
+            if (auto *found = visualItem(item, name))
+                return found;
+        }
+        return nullptr;
+    }
+
     QString role(QAbstractItemModel *model, const int row, const QByteArray &name)
     {
         const auto roles = model->roleNames();
@@ -94,8 +106,9 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
     window->show();
 
     const QString phase = spec.value(u"phase"_s).toString();
+    const bool notices = phase == u"notices";
     const bool startupEnglish = phase == u"restart-en";
-    require((phase == u"switch") || startupEnglish || (phase == u"restart-ru"), u"Unknown language phase"_s);
+    require((phase == u"switch") || startupEnglish || (phase == u"restart-ru") || notices, u"Unknown language phase"_s);
     auto *optionsAction = child<QAction>(window, u"actionOptions"_s);
     optionsAction->trigger();
     auto *options = window->findChild<OptionsDialog *>();
@@ -142,6 +155,8 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
     {
         buttons->button(QDialogButtonBox::Cancel)->click();
         waitFor(u"Content library startup"_s, [&] { return controller->getLibraryState() == Qbutt::Library::LibraryState::Ready; });
+        require(controller->property("sourceSettingsState").value<Qbutt::Sources::SettingsState>()
+            == Qbutt::Sources::SettingsState::Ready, u"Source settings failed to load"_s);
         query->setProperty("text", u"Frieren"_s);
         controller->search(u"Frieren"_s);
         auto *works = qobject_cast<QAbstractItemModel *>(controller->property("works").value<QObject *>());
@@ -170,6 +185,27 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
         require(selectedRow >= 0, u"Fixture has no video episode"_s);
         const QString variantId = role(variants, selectedRow, "variantId");
         controller->selectVariant(variantId);
+        if (notices)
+        {
+            controller->setSelectedFavorite(true);
+            waitFor(u"Rejected generated library write"_s, [&]
+            {
+                return !controller->property("libraryPending").toBool()
+                    && !controller->property("libraryErrorText").toString().isEmpty();
+            });
+            require(controller->setSourceEnabled(u"mangadex"_s, false), u"Generated source intent was rejected before its write"_s);
+            waitFor(u"Rejected generated source write"_s, [&]
+            {
+                return controller->property("sourceSettingsState").value<Qbutt::Sources::SettingsState>()
+                    == Qbutt::Sources::SettingsState::Failed;
+            });
+            require(QMetaObject::invokeMethod(child<QQuickItem>(root, u"contentSources"_s), "clicked"),
+                u"Sources action did not open its overlay"_s);
+            waitFor(u"Sources failure overlay"_s, [&]
+            {
+                return root->findChild<QObject *>(u"contentSourcePicker"_s);
+            });
+        }
         auto *list = child<QQuickItem>(root, u"contentVariants"_s);
         require(QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(int, selectedRow), Q_ARG(int, 0)),
             u"Variant list positioning failed"_s);
@@ -181,7 +217,37 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
         language = child<QComboBox>(options, u"comboLanguage"_s);
         buttons = child<QDialogButtonBox>(options, u"buttonBox"_s);
         apply = buttons->button(QDialogButtonBox::Apply);
-        const QStringList choices = startupEnglish ? QStringList {u"ru"_s} : QStringList {u"en"_s, u"ru"_s, u"en"_s};
+        const auto checkNotices = [&]
+        {
+            if (!notices)
+                return;
+            const bool english = Preferences::instance()->getLocale() == u"en";
+            const QList<QPair<QString, const char *>> errors {
+                {u"contentSourceFailureText_rutor"_s, "The source did not respond in time."},
+                {u"contentSourceSettingsError"_s, "Could not save source settings."},
+                {u"contentLibraryError"_s, "Could not save the content library."}};
+            QJsonObject sample = labels.last().toObject();
+            for (const auto &[name, source] : errors)
+            {
+                auto *container = name == u"contentLibraryError" ? root
+                    : child<QObject>(root, u"contentSourcePicker"_s)->property("contentItem").value<QQuickItem *>();
+                auto *label = visualItem(container, name);
+                require(label && label->isVisible(), u"Notice is not visible: "_s + name);
+                waitFor(u"Live notice "_s + name, [&]
+                {
+                    const QString actual = label->property("text").toString();
+                    return actual == QCoreApplication::translate("ContentController", source)
+                        && ((actual == QString::fromUtf8(source)) == english);
+                });
+                sample[name] = label->property("text").toString();
+            }
+            labels.replace(labels.size() - 1, sample);
+            require(controller->getSelectedVariantId() == variantId && !controller->getSelectedFavorite(),
+                u"Error translation changed the exact selection or rejected bookmark"_s);
+        };
+        checkNotices();
+        const QStringList choices = startupEnglish ? QStringList {u"ru"_s}
+            : notices ? QStringList {u"en"_s, u"ru"_s} : QStringList {u"en"_s, u"ru"_s, u"en"_s};
         for (const QString &locale : choices)
         {
             const int index = language->findData(locale);
@@ -191,6 +257,7 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
             apply->click();
             const bool english = locale == u"en";
             checkLabels(english);
+            checkNotices();
             waitFor(u"Live native variant label"_s, [&]
             {
                 const QString label = role(variants, selectedRow, "label");

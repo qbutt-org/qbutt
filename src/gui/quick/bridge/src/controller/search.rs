@@ -56,7 +56,7 @@ impl ffi::ContentController {
         {
             return;
         }
-        self.as_mut().set_error_text(QString::default());
+        self.as_mut().set_error(None);
         if self.search.generation != generation {
             return;
         }
@@ -64,7 +64,7 @@ impl ffi::ContentController {
             return;
         }
         if self.services.is_none() {
-            self.as_mut().set_error_text(ffi::content_error(0));
+            self.as_mut().set_error(Some(0));
             if self.search.generation == generation {
                 self.as_mut().set_search_state(ffi::SearchState::Failed);
             }
