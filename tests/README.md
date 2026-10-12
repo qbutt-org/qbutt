@@ -73,6 +73,12 @@ environment; use `--lang ru` for Russian and `--dark` for Dark. The default is
 English and Light. This host uses an isolated application identity and does not
 open an existing qbutt profile.
 
+For native restart acceptance, use `--profile <absolute isolated directory>`
+and keep the same fixture for both launches. This option was exercised in the VM
+with RU/Dark and EN/Light; never point it at an existing user profile. Without the
+option, the host owns a fresh temporary profile until QApplication has drained
+its workers.
+
 The same executable's `--library` scenario uses a temporary profile and checks
 the native Favorites model, exact selection across reopening, fresh inspection,
 missing preferred variants, delayed initialization, nested model notifications,
@@ -101,6 +107,10 @@ action. Require exit zero and `PASS reader` with all checks passing. The scenari
 decodes actual cached pages, filters chapters without discarding the full list,
 changes the query during a native model reset, rejects invalid page indices,
 switches fit, cancels stale chapter work and reopens the exact translation.
+At 1280×720 and 1440×900 it checks the decoded image's aspect, viewport bounds
+and the full-height scrollbar hit area at the right edge in both fit modes.
+Reading content receives focus on entry and after a fit action. Tab reaches it;
+Up/Down scroll through the native control and update the saved position.
 It also makes the temporary cache destination a file, restores the environment
 and verifies that retry reloads the same chapter. It checks deletion of the
 retired page file and chapter directories after Back, reopening and retry.

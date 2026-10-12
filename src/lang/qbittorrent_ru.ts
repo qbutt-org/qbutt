@@ -18765,6 +18765,10 @@ Please choose a different name and try again.</source>
         <source>No favorites</source>
         <translation>Избранное пусто</translation>
     </message>
+    <message>
+        <source>Try again</source>
+        <translation>Повторить</translation>
+    </message>
 </context>
 <context>
     <name>WorkDelegate</name>
@@ -18920,6 +18924,13 @@ Please choose a different name and try again.</source>
         <source>Page %1</source>
         <translation>Страница %1</translation>
     </message>
+    <message>
+        <source>Try again</source>
+        <translation>Повторить</translation>
+    </message>
+</context>
+<context>
+    <name>ReaderPage</name>
     <message>
         <source>Try again</source>
         <translation>Повторить</translation>

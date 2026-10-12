@@ -15,6 +15,7 @@
 #include <QFileInfo>
 #include <QImageReader>
 #include <QKeyEvent>
+#include <QPointF>
 #include <QPointer>
 #include <QQuickItem>
 #include <QScopeGuard>
@@ -246,7 +247,8 @@ void exerciseReader(Content::ContentView *view)
     waitFor([&] { return !QFileInfo::exists(firstPage); }, u"Retired page cache cleanup"_s);
     auto *pageImage = view->rootObject()->findChild<QQuickItem *>(u"readerPageImage"_s);
     auto *viewport = view->rootObject()->findChild<QQuickItem *>(u"readerPageViewport"_s);
-    require(pageImage && viewport, u"Production reader image or viewport is missing"_s);
+    auto *scrollBar = view->rootObject()->findChild<QQuickItem *>(u"readerPageScrollBar"_s);
+    require(pageImage && viewport && scrollBar, u"Production reader image, viewport or scrollbar is missing"_s);
     const QSize decodedSize = QImageReader(secondPage).size();
     require(!decodedSize.isEmpty(), u"Decoded page size is missing"_s);
     const auto checkPageFit = [&](const Qbutt::Reader::ReaderFit fit)
@@ -256,6 +258,11 @@ void exerciseReader(Content::ContentView *view)
             u"Requested image fit did not reach the backend"_s);
         const qreal paintedWidth = pageImage->property("paintedWidth").toReal();
         const qreal paintedHeight = pageImage->property("paintedHeight").toReal();
+        const QPointF scrollBarOrigin = scrollBar->mapToItem(viewport, QPointF());
+        require((qAbs(scrollBar->height() - viewport->height()) < 1)
+            && (qAbs(scrollBarOrigin.y()) < 1)
+            && (qAbs(scrollBarOrigin.x() + scrollBar->width() - viewport->width()) < 1),
+            u"Reader scrollbar does not cover the viewport's right edge"_s);
         if (fit == Qbutt::Reader::ReaderFit::Height)
         {
             require((qAbs(pageImage->height() - viewport->height()) < 1)
@@ -287,6 +294,38 @@ void exerciseReader(Content::ContentView *view)
             checkPageFit(Qbutt::Reader::ReaderFit::Height);
         }
     }
+
+    auto *scroll = view->rootObject()->findChild<QQuickItem *>(u"readerPageScroll"_s);
+    require(scroll && scroll->hasActiveFocus(), u"Reading did not focus its scrollable content"_s);
+    for (const QString action : {u"readerHeightFit"_s, u"readerWidthFit"_s})
+    {
+        auto *button = view->rootObject()->findChild<QQuickItem *>(action);
+        require(button, u"Reading fit action is missing"_s);
+        button->forceActiveFocus(Qt::TabFocusReason);
+        require(QMetaObject::invokeMethod(button, "clicked"), u"Reading fit action did not run"_s);
+        require(scroll->hasActiveFocus(), u"Reading fit action did not return focus to content"_s);
+    }
+    checkPageFit(Qbutt::Reader::ReaderFit::Width);
+    for (const Qt::Key key : {Qt::Key_Down, Qt::Key_Up})
+    {
+        const qreal previousOffset = viewport->property("contentY").toReal();
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &release);
+        require(key == Qt::Key_Down ? viewport->property("contentY").toReal() > previousOffset
+                                   : viewport->property("contentY").toReal() < previousOffset,
+            u"Reading Up/Down did not scroll the page"_s);
+        const qreal range = viewport->property("contentHeight").toReal() - viewport->height();
+        require((range > 0) && (qAbs(controller->property("readerScrollOffset").toReal()
+            - viewport->property("contentY").toReal() / range) < 0.000001),
+            u"Keyboard reading position was not saved"_s);
+    }
+    auto *widthButton = view->rootObject()->findChild<QQuickItem *>(u"readerWidthFit"_s);
+    widthButton->forceActiveFocus(Qt::TabFocusReason);
+    QKeyEvent tab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
+    QCoreApplication::sendEvent(view, &tab);
+    require(scroll->hasActiveFocus(), u"Tab navigation skips the reading content"_s);
 
     controller->selectChapter(lastChapter);
     controller->selectChapter(firstChapter);

@@ -18,5 +18,5 @@ qt_add_qml_module(qbt_quick_ui STATIC
         WorkPane.qml
 )
 target_link_libraries(qbt_quick_ui PRIVATE Qt::QuickControls2)
-add_dependencies(qbt_quick_ui qbutt_quick)
-add_dependencies(qbt_quick_ui_qmllint qbutt_quick)
+add_dependencies(qbt_quick_ui cargo-build_qbutt_quick)
+add_dependencies(qbt_quick_ui_qmllint cargo-build_qbutt_quick)

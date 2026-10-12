@@ -10,6 +10,7 @@ ModalPicker {
     objectName: "readerChapterPicker"
 
     required property ContentController backend
+    signal chapterSelected(string id)
 
     onOpened: query.forceActiveFocus()
 
@@ -63,7 +64,7 @@ ModalPicker {
 
             function chooseCurrent(): void {
                 if (currentIndex >= 0) {
-                    root.backend.selectChapter(root.backend.readerChapters.idAt(currentIndex));
+                    root.chapterSelected(root.backend.readerChapters.idAt(currentIndex));
                     root.close();
                 }
             }
@@ -86,7 +87,7 @@ ModalPicker {
                 Accessible.name: chapter.number.length > 0 ? qsTr("Chapter %1").arg(chapter.number) : chapter.title
                 Accessible.selected: highlighted
                 onClicked: {
-                    root.backend.selectChapter(chapter.chapterId);
+                    root.chapterSelected(chapter.chapterId);
                     root.close();
                 }
 

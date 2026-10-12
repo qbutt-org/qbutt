@@ -11,7 +11,10 @@ Pane {
 
     required property ContentController backend
     required property Theme theme
+    signal backRequested
     signal chaptersRequested
+    signal pageRequested(int index)
+    signal fitRequested(int fit)
 
     padding: 0
     background: Item {}
@@ -23,7 +26,7 @@ Pane {
             objectName: "readerBack"
             theme: root.theme
             text: qsTr("Back")
-            onClicked: root.backend.closeReader()
+            onClicked: root.backRequested()
         }
 
         Label {
@@ -45,7 +48,7 @@ Pane {
             text: root.backend.readerChapterTitle !== "" ? root.backend.readerChapterTitle : qsTr("Chapters")
             Accessible.name: qsTr("Choose chapter")
             Accessible.description: text
-            enabled: root.backend.readerChapterId !== ""
+            enabled: root.backend.readerHasChapters && !root.backend.readerBusy
             onClicked: root.chaptersRequested()
 
             ToolTip {
@@ -68,7 +71,7 @@ Pane {
                 horizontalPadding: 0
                 Accessible.name: qsTr("Previous page")
                 enabled: root.backend.readerPageIndex > 0 && !root.backend.readerBusy
-                onClicked: root.backend.turnReaderPage(-1)
+                onClicked: root.pageRequested(root.backend.readerPageIndex - 1)
 
                 ToolTip {
                     parent: previous
@@ -94,7 +97,7 @@ Pane {
                 horizontalPadding: 0
                 Accessible.name: qsTr("Next page")
                 enabled: root.backend.readerPageIndex + 1 < root.backend.readerPageCount && !root.backend.readerBusy
-                onClicked: root.backend.turnReaderPage(1)
+                onClicked: root.pageRequested(root.backend.readerPageIndex + 1)
 
                 ToolTip {
                     parent: next
@@ -114,7 +117,7 @@ Pane {
                 text: qsTr("Height")
                 Accessible.name: qsTr("Fit to height")
                 checked: root.backend.readerFit === Reader.Height
-                onClicked: root.backend.setReaderFit(Reader.Height)
+                onClicked: root.fitRequested(Reader.Height)
 
                 ToolTip {
                     parent: heightFit
@@ -130,7 +133,7 @@ Pane {
                 text: qsTr("Width")
                 Accessible.name: qsTr("Fit to width")
                 checked: root.backend.readerFit === Reader.Width
-                onClicked: root.backend.setReaderFit(Reader.Width)
+                onClicked: root.fitRequested(Reader.Width)
 
                 ToolTip {
                     parent: widthFit

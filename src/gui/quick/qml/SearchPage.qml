@@ -119,13 +119,26 @@ Page {
             textFormat: Text.PlainText
         }
 
-        Label {
-            objectName: "contentLibraryError"
+        RowLayout {
             Layout.fillWidth: true
             visible: root.backend.libraryErrorText !== ""
-            text: root.backend.libraryErrorText
-            wrapMode: Text.Wrap
-            textFormat: Text.PlainText
+            spacing: 16
+
+            Label {
+                objectName: "contentLibraryError"
+                Layout.fillWidth: true
+                text: root.backend.libraryErrorText
+                wrapMode: Text.Wrap
+                textFormat: Text.PlainText
+            }
+
+            ActionButton {
+                objectName: "contentLibraryRetry"
+                theme: appearance
+                text: qsTr("Try again")
+                visible: root.backend.libraryState === Library.Failed
+                onClicked: root.backend.retryLibrary()
+            }
         }
 
         SplitView {

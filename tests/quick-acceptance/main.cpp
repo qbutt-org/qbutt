@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <stdexcept>
 
 #include <QAbstractItemModel>
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDebug>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QKeyEvent>
@@ -466,6 +468,8 @@ namespace
 
 int main(int argc, char *argv[])
 {
+    // Keep the fixture until QApplication has drained the owned workers.
+    std::unique_ptr<QTemporaryDir> temporaryProfile;
     QApplication application(argc, argv);
     QCoreApplication::setApplicationName(u"qbutt-quick-acceptance"_s);
     QCoreApplication::setOrganizationName(u"qbutt-acceptance"_s);
@@ -479,6 +483,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
     parser.addOption({u"reader-progress"_s, u"Run exact reader progress and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"worklist"_s, u"Run work list delegate and favorites acceptance, then exit."_s});
+    parser.addOption({u"profile"_s, u"Use an explicit isolated profile for restart acceptance."_s, u"directory"_s});
     parser.addOption({u"dark"_s, u"Use the dark system color scheme for visual inspection."_s});
     parser.addOption({u"lang"_s, u"Set the locale for this process."_s, u"locale"_s, u"en"_s});
     parser.process(application);
@@ -511,14 +516,24 @@ int main(int argc, char *argv[])
         }
     }
 
-    QTemporaryDir profile;
-    if (!profile.isValid())
+    QString profilePath = parser.value(u"profile"_s);
+    if (profilePath.isEmpty())
+    {
+        temporaryProfile = std::make_unique<QTemporaryDir>();
+        if (!temporaryProfile->isValid())
+            return 1;
+        profilePath = temporaryProfile->path();
+    }
+    else if (!QDir::isAbsolutePath(profilePath))
+    {
+        qCritical("Acceptance profile must be an absolute isolated directory");
         return 1;
+    }
     QPointer<QMainWindow> window = new QMainWindow;
     window->setAttribute(Qt::WA_DeleteOnClose);
     window->setWindowTitle(u"qbutt — Qt Quick acceptance"_s);
     window->resize(1280, 760);
-    auto *view = new Content::ContentView(profile.path(), window);
+    auto *view = new Content::ContentView(profilePath, window);
     window->setCentralWidget(view);
     QObject::connect(view, &Content::ContentView::torrentReady, window, [window](const QString &magnet)
     {
