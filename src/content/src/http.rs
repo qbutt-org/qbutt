@@ -11,7 +11,15 @@ use url::{Host, Url};
 use crate::{Error, Result};
 
 const MAX_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
+const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
+
+#[derive(Clone, Copy)]
+enum ResponseKind {
+    Json,
+    Html,
+    Image,
+}
 
 pub(crate) struct SourceHttp {
     client: reqwest::Client,
@@ -35,22 +43,40 @@ impl SourceHttp {
     }
 
     pub(crate) async fn json<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
-        let bytes = tokio::time::timeout(Duration::from_secs(45), self.fetch(url, true))
-            .await
-            .map_err(|_| Error::Timeout)??;
+        let bytes =
+            tokio::time::timeout(Duration::from_secs(45), self.fetch(url, ResponseKind::Json))
+                .await
+                .map_err(|_| Error::Timeout)??;
         serde_json::from_slice(&bytes).map_err(Error::Json)
     }
 
     pub(crate) async fn image(&self, url: Url) -> Result<Vec<u8>> {
-        tokio::time::timeout(Duration::from_secs(45), self.fetch(url, false))
-            .await
-            .map_err(|_| Error::Timeout)?
+        tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(url, ResponseKind::Image),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
     }
 
-    async fn fetch(&self, mut url: Url, same_origin: bool) -> Result<Vec<u8>> {
+    pub(crate) async fn html(&self, url: Url) -> Result<String> {
+        let bytes =
+            tokio::time::timeout(Duration::from_secs(45), self.fetch(url, ResponseKind::Html))
+                .await
+                .map_err(|_| Error::Timeout)??;
+        String::from_utf8(bytes).map_err(|_| Error::InvalidResponse("HTML is not UTF-8"))
+    }
+
+    async fn fetch(&self, mut url: Url, kind: ResponseKind) -> Result<Vec<u8>> {
+        let same_origin = !matches!(kind, ResponseKind::Image);
+        let max_bytes = if matches!(kind, ResponseKind::Html) {
+            MAX_HTML_BYTES
+        } else {
+            MAX_RESPONSE_BYTES
+        };
         for redirects in 0..=MAX_REDIRECTS {
             validate_https_url(&url)?;
-            // API redirects stay on the fixed origin. Image descriptors may
+            // Catalog redirects stay on the fixed origin. Image descriptors may
             // point to a volunteer CDN; every redirect uses the guarded resolver.
             if same_origin && url.origin() != self.origin.origin() {
                 return Err(Error::UnsafeAddress);
@@ -61,10 +87,10 @@ impl SourceHttp {
                 .get(url.clone())
                 .header(
                     ACCEPT,
-                    if same_origin {
-                        "application/json"
-                    } else {
-                        "image/*"
+                    match kind {
+                        ResponseKind::Json => "application/json",
+                        ResponseKind::Html => "text/html",
+                        ResponseKind::Image => "image/*",
                     },
                 )
                 .header(ACCEPT_ENCODING, "identity")
@@ -89,30 +115,33 @@ impl SourceHttp {
             if !response.status().is_success() {
                 return Err(Error::HttpStatus(response.status().as_u16()));
             }
-            if !same_origin
-                && !response
-                    .headers()
-                    .get(CONTENT_TYPE)
-                    .and_then(|value| value.to_str().ok())
-                    .is_some_and(|value| {
-                        value
-                            .split(';')
-                            .next()
-                            .is_some_and(|mime| mime.trim().starts_with("image/"))
-                    })
-            {
-                return Err(Error::InvalidResponse("page response is not an image"));
+            let mime = response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.split(';').next())
+                .map(str::trim);
+            match kind {
+                ResponseKind::Html
+                    if !mime.is_some_and(|value| value.eq_ignore_ascii_case("text/html")) =>
+                {
+                    return Err(Error::InvalidResponse("catalog response is not HTML"));
+                }
+                ResponseKind::Image if !mime.is_some_and(|value| value.starts_with("image/")) => {
+                    return Err(Error::InvalidResponse("page response is not an image"));
+                }
+                _ => {}
             }
             if response
                 .content_length()
-                .is_some_and(|size| size > MAX_RESPONSE_BYTES as u64)
+                .is_some_and(|size| size > max_bytes as u64)
             {
                 return Err(Error::ResponseTooLarge);
             }
 
             let mut bytes = Vec::new();
             while let Some(chunk) = response.chunk().await.map_err(network_error)? {
-                if chunk.len() > MAX_RESPONSE_BYTES - bytes.len() {
+                if chunk.len() > max_bytes - bytes.len() {
                     return Err(Error::ResponseTooLarge);
                 }
                 bytes.extend_from_slice(&chunk);

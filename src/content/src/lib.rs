@@ -11,6 +11,7 @@ mod http;
 mod library;
 mod mangadex;
 mod model;
+mod rutor;
 
 pub use aniliberty::AniLiberty;
 pub use library::{
@@ -19,6 +20,7 @@ pub use library::{
 };
 pub use mangadex::MangaDex;
 pub use model::*;
+pub use rutor::RuTor;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -8,6 +8,7 @@ use url::Url;
 pub enum Source {
     AniLiberty,
     MangaDex,
+    RuTor,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -21,6 +22,7 @@ impl PublicationRef {
     pub fn validate(&self) -> crate::Result<()> {
         match self.source {
             Source::AniLiberty => self.aniliberty_id().map(|_| ()),
+            Source::RuTor => self.rutor_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
             Source::MangaDex => Err(crate::Error::InvalidReference),
         }
@@ -28,7 +30,15 @@ impl PublicationRef {
 
     /// AniLiberty uses nonzero canonical decimal release IDs.
     pub(crate) fn aniliberty_id(&self) -> crate::Result<u64> {
-        if self.source != Source::AniLiberty {
+        self.decimal_id(Source::AniLiberty)
+    }
+
+    pub(crate) fn rutor_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::RuTor)
+    }
+
+    fn decimal_id(&self, source: Source) -> crate::Result<u64> {
+        if self.source != source {
             return Err(crate::Error::InvalidReference);
         }
         let id = self
@@ -66,6 +76,9 @@ pub enum VariantSelector {
     Torrent {
         id: u64,
     },
+    TorrentHash {
+        info_hash: String,
+    },
     Episode {
         id: String,
         quality: VideoQuality,
@@ -83,6 +96,12 @@ impl VariantSelector {
     pub(crate) fn validate(&self) -> crate::Result<()> {
         let valid = match self {
             Self::Torrent { id } => *id != 0,
+            Self::TorrentHash { info_hash } => {
+                info_hash.len() == 40
+                    && info_hash
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            }
             Self::Episode { id, .. } | Self::Rutube { episode_id: id } => {
                 !id.is_empty() && id.len() <= 128
             }
@@ -118,6 +137,7 @@ impl VariantRef {
                 | (Source::AniLiberty, VariantSelector::Episode { .. })
                 | (Source::AniLiberty, VariantSelector::Rutube { .. })
                 | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
+                | (Source::RuTor, VariantSelector::TorrentHash { .. })
         );
         if matches_source {
             Ok(())
@@ -132,6 +152,11 @@ impl VariantRef {
 pub enum Category {
     Anime,
     Manga,
+    Movies,
+    Tv,
+    Games,
+    Software,
+    Books,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -107,7 +107,9 @@ impl AniLiberty {
                     url,
                 })
             }
-            VariantSelector::MangaTranslation { .. } => Err(Error::InvalidReference),
+            VariantSelector::MangaTranslation { .. } | VariantSelector::TorrentHash { .. } => {
+                Err(Error::InvalidReference)
+            }
         }
     }
 
