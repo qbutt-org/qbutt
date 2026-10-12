@@ -63,7 +63,7 @@ impl SharedWork {
     }
 
     pub fn is_publication_shareable(publication: &PublicationRef) -> bool {
-        public_source(publication.source) && publication.validate().is_ok()
+        Source::ALL.contains(&publication.source) && publication.validate().is_ok()
     }
 
     pub fn to_url(&self) -> Result<String, ShareError> {
@@ -145,21 +145,3 @@ impl SharedWork {
     }
 }
 
-fn public_source(source: Source) -> bool {
-    matches!(
-        source,
-        Source::AniLiberty
-            | Source::YummyAnime
-            | Source::MangaDex
-            | Source::MangaLib
-            | Source::RanobeLib
-            | Source::RanobeHub
-            | Source::RuTor
-            | Source::RuTracker
-            | Source::Nyaa
-            | Source::Rutube
-            | Source::FitGirl
-            | Source::RoyalRoad
-            | Source::Kakuyomu
-    )
-}
