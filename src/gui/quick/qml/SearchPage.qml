@@ -47,6 +47,14 @@ Page {
         filterRegularExpression: new RegExp(categories.currentIndex > 0 ? "^" + categories.currentValue + "$" : "")
     }
 
+    Connections {
+        target: root.backend
+        function onSharedImportingChanged(): void {
+            if (root.backend.sharedImporting)
+                categories.currentIndex = 0;
+        }
+    }
+
     Shortcut {
         sequences: [StandardKey.Find]
         enabled: root.visible && !root.backend.readerOpen && !sources.active
