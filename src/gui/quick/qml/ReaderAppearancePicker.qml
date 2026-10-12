@@ -320,11 +320,13 @@ ModalPicker {
         }
     }
 
+    // QQuickWidget's implicit dialog parent is the hosting QWidget window.
     Dialogs.ColorDialog {
         id: backgroundDialog
         title: qsTr("Background")
         options: Dialogs.ColorDialog.DontUseNativeDialog | Dialogs.ColorDialog.NoEyeDropperButton
         popupType: Popup.Item
+        parentWindow: root.backdrop.Window.window
         onAccepted: root.backend.setReaderBackgroundColor(selectedColor.toString())
     }
 
@@ -333,6 +335,7 @@ ModalPicker {
         title: qsTr("Text color")
         options: Dialogs.ColorDialog.DontUseNativeDialog | Dialogs.ColorDialog.NoEyeDropperButton
         popupType: Popup.Item
+        parentWindow: root.backdrop.Window.window
         onAccepted: root.backend.setReaderTextColor(selectedColor.toString())
     }
 }
