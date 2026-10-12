@@ -2,6 +2,7 @@
 //! thread; this module creates no runtime, worker, network request or process.
 
 mod entry;
+mod local_books;
 mod schema;
 mod settings;
 mod sources;

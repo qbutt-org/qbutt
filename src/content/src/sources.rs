@@ -24,6 +24,7 @@ impl Source {
 
     pub fn id(self) -> &'static str {
         match self {
+            Self::LocalBook => "local_book",
             Self::AniLiberty => "aniliberty",
             Self::YummyAnime => "yani",
             Self::MangaDex => "mangadex",
@@ -46,6 +47,7 @@ impl Source {
 
     pub fn name(self) -> &'static str {
         match self {
+            Self::LocalBook => "Local book",
             Self::AniLiberty => "AniLiberty",
             Self::YummyAnime => "YummyAnime",
             Self::MangaDex => "MangaDex",
@@ -64,6 +66,7 @@ impl Source {
 
     pub fn categories(self) -> &'static [Category] {
         match self {
+            Self::LocalBook => &[Category::Books],
             Self::AniLiberty | Self::YummyAnime => &[Category::Anime],
             Self::MangaDex | Self::MangaLib => &[Category::Manga],
             Self::RanobeLib => &[Category::Books],
@@ -185,6 +188,7 @@ fn validate_reader(source: Source) -> crate::Result<()> {
             | Source::RoyalRoad
             | Source::Kakuyomu
             | Source::RanobeHub
+            | Source::LocalBook
     ) {
         Ok(())
     } else {
@@ -222,9 +226,11 @@ impl SourceFailureReason {
     /// Store a classification, never the provider's URL, response or error text.
     pub fn from_error(error: &Error) -> Option<Self> {
         match error {
-            Error::InvalidQuery | Error::InvalidReference | Error::UnsupportedAcquisition(_) => {
-                None
-            }
+            Error::InvalidQuery
+            | Error::InvalidReference
+            | Error::UnsupportedAcquisition(_)
+            | Error::LocalBookIo(_)
+            | Error::InvalidLocalBook(_) => None,
             Error::VariantUnavailable => Some(Self::VariantUnavailable),
             Error::HttpStatus(status) => Some(Self::Http(*status)),
             Error::Timeout => Some(Self::Timeout),

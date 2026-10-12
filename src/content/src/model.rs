@@ -6,6 +6,7 @@ use url::Url;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
+    LocalBook,
     AniLiberty,
     YummyAnime,
     MangaDex,
@@ -32,6 +33,16 @@ pub struct PublicationRef {
 impl PublicationRef {
     pub fn validate(&self) -> crate::Result<()> {
         match self.source {
+            Source::LocalBook
+                if self.id.len() == 64
+                    && self
+                        .id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()) =>
+            {
+                Ok(())
+            }
+            Source::LocalBook => Err(crate::Error::InvalidReference),
             Source::AniLiberty => self.aniliberty_id().map(|_| ()),
             Source::YummyAnime => self.yummyanime_id().map(|_| ()),
             Source::RuTor => self.rutor_id().map(|_| ()),
@@ -307,6 +318,7 @@ impl VariantRef {
                     Source::RanobeHub,
                     VariantSelector::RanobeHubTranslation { .. }
                 )
+                | (Source::LocalBook, VariantSelector::OriginalText)
         );
         if matches_source {
             Ok(())
@@ -348,6 +360,7 @@ impl ChapterRef {
     pub fn validate(&self) -> crate::Result<()> {
         self.variant.validate()?;
         if match self.variant.publication.source {
+            Source::LocalBook => canonical_decimal(&self.id),
             Source::MangaDex => canonical_uuid(&self.id),
             Source::MangaLib | Source::RanobeLib | Source::RanobeHub => canonical_decimal(&self.id),
             Source::RoyalRoad => self.id.split_once('/').is_some_and(|(fiction, chapter)| {

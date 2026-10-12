@@ -15,6 +15,7 @@ mod fitgirl;
 mod http;
 mod kakuyomu;
 mod library;
+mod local_books;
 mod mangadex;
 mod mangalib;
 mod media;
@@ -41,6 +42,7 @@ pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
     ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
 };
+pub use local_books::{LocalBook, LocalBookChapter, LocalBookFormat};
 pub use mangadex::MangaDex;
 pub use mangalib::MangaLib;
 pub use media::{MediaGateway, MediaGatewayError};
@@ -54,5 +56,5 @@ pub use rutor::RuTor;
 pub use rutracker::RuTracker;
 pub use rutube::Rutube;
 pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};
-pub use text::{TextBlock, TextBlockKind, TextChapter, TextChapterCache, TextSpan};
+pub use text::{TextBlock, TextBlockKind, TextChapter, TextChapterCache, TextImageAsset, TextSpan};
 pub use yummyanime::YummyAnime;

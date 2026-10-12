@@ -1,5 +1,9 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("The local book could not be read")]
+    LocalBookIo(#[source] std::io::Error),
+    #[error("{0}")]
+    InvalidLocalBook(&'static str),
     #[error("Enter a search query of at most 500 characters")]
     InvalidQuery,
     #[error("The publication does not belong to this source")]

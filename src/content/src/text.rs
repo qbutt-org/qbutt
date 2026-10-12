@@ -1,5 +1,5 @@
-//! Original chapter text. Providers select the chapter body; this module keeps
-//! only text, emphasis and ruby, with no executable markup or external assets.
+//! Original chapter content. Providers select the chapter body; local books
+//! may attach bounded images, but no executable markup or external resources.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -21,6 +21,9 @@ pub enum TextBlockKind {
     Paragraph,
     Heading,
     Separator,
+    ListItem { ordinal: Option<u32> },
+    Quote,
+    Image,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +38,17 @@ pub enum TextSpan {
         text: String,
         reading: String,
     },
+    Image {
+        asset_id: String,
+        alt: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TextImageAsset {
+    pub id: String,
+    pub media_type: String,
+    pub bytes: Arc<[u8]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +73,7 @@ impl TextBlock {
                         output.push(')');
                     }
                 }
+                TextSpan::Image { alt, .. } => output.push_str(alt),
             }
         }
         output
@@ -70,6 +85,8 @@ impl TextBlock {
 pub struct TextChapter {
     pub reference: ChapterRef,
     pub blocks: Vec<TextBlock>,
+    #[serde(skip)]
+    pub assets: Vec<TextImageAsset>,
 }
 
 impl TextChapter {
@@ -87,12 +104,44 @@ impl TextChapter {
         Self::from_blocks(reference, builder.blocks)
     }
 
+    pub fn from_local_html(
+        reference: ChapterRef,
+        body: &str,
+        resolve_image: &mut dyn FnMut(&str) -> Result<Option<TextImageAsset>>,
+    ) -> Result<Self> {
+        reference.validate()?;
+        if body.len() > MAX_HTML_BYTES {
+            return Err(Error::ResponseTooLarge);
+        }
+        let fragment = Html::parse_fragment(body);
+        let mut builder = ChapterBuilder {
+            image_resolver: Some(resolve_image),
+            ..ChapterBuilder::default()
+        };
+        builder.visit(fragment.root_element(), false, false, 0)?;
+        builder.finish(TextBlockKind::Paragraph)?;
+        Self::from_blocks_with_assets(reference, builder.blocks, builder.assets)
+    }
+
     /// Native structured sources share the same content anchors as HTML sources.
     /// Supplied IDs are replaced; layout and source DOM IDs are not persisted.
-    pub fn from_blocks(reference: ChapterRef, mut blocks: Vec<TextBlock>) -> Result<Self> {
+    pub fn from_blocks(reference: ChapterRef, blocks: Vec<TextBlock>) -> Result<Self> {
+        Self::from_blocks_with_assets(reference, blocks, Vec::new())
+    }
+
+    pub fn from_blocks_with_assets(
+        reference: ChapterRef,
+        mut blocks: Vec<TextBlock>,
+        assets: Vec<TextImageAsset>,
+    ) -> Result<Self> {
         let mut occurrences = HashMap::new();
         for block in &mut blocks {
-            let text = block.plain_text();
+            let mut text = block.plain_text();
+            for span in &block.spans {
+                if let TextSpan::Image { asset_id, .. } = span {
+                    text.push_str(asset_id);
+                }
+            }
             // FNV-1a is only an anchor, never a trust or integrity boundary.
             let hash = text.bytes().fold(0xcbf29ce484222325u64, |hash, byte| {
                 (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
@@ -101,7 +150,11 @@ impl TextChapter {
             block.id = format!("{hash:016x}-{occurrence}");
             *occurrence += 1;
         }
-        let chapter = Self { reference, blocks };
+        let chapter = Self {
+            reference,
+            blocks,
+            assets,
+        };
         chapter.validate()?;
         Ok(chapter)
     }
@@ -113,6 +166,7 @@ impl TextChapter {
             .map(|span| match span {
                 TextSpan::Text { text, .. } => text.len(),
                 TextSpan::Ruby { text, reading } => text.len() + reading.len(),
+                TextSpan::Image { alt, .. } => alt.len(),
             })
             .sum()
     }
@@ -134,6 +188,21 @@ impl TextChapter {
             return Err(Error::ResponseTooLarge);
         }
         let mut ids = HashSet::new();
+        let asset_ids = self
+            .assets
+            .iter()
+            .map(|asset| asset.id.as_str())
+            .collect::<HashSet<_>>();
+        if asset_ids.len() != self.assets.len()
+            || self
+                .assets
+                .iter()
+                .map(|asset| asset.bytes.len())
+                .sum::<usize>()
+                > 24 * 1024 * 1024
+        {
+            return Err(Error::ResponseTooLarge);
+        }
         for block in &self.blocks {
             if block.id.is_empty()
                 || block.id.len() > 128
@@ -141,6 +210,11 @@ impl TextChapter {
                 || !ids.insert(&block.id)
             {
                 return Err(Error::InvalidResponse("chapter text anchor is invalid"));
+            }
+            if block.spans.iter().any(|span| {
+                matches!(span, TextSpan::Image { asset_id, .. } if !asset_ids.contains(asset_id.as_str()))
+            }) {
+                return Err(Error::InvalidResponse("chapter image is missing"));
             }
         }
         Ok(())
@@ -184,14 +258,16 @@ impl TextChapterCache {
 }
 
 #[derive(Default)]
-struct ChapterBuilder {
+struct ChapterBuilder<'a> {
     blocks: Vec<TextBlock>,
     spans: Vec<TextSpan>,
+    assets: Vec<TextImageAsset>,
+    image_resolver: Option<&'a mut dyn FnMut(&str) -> Result<Option<TextImageAsset>>>,
     text_bytes: usize,
     span_count: usize,
 }
 
-impl ChapterBuilder {
+impl ChapterBuilder<'_> {
     fn visit(
         &mut self,
         element: ElementRef<'_>,
@@ -220,7 +296,6 @@ impl ChapterBuilder {
                 | "canvas"
                 | "video"
                 | "audio"
-                | "img"
                 | "rt"
                 | "rp"
                 | "noscript"
@@ -230,6 +305,31 @@ impl ChapterBuilder {
             return Ok(());
         }
         if element.value().attr("style").is_some_and(hidden_style) {
+            return Ok(());
+        }
+        if name == "img" {
+            if let (Some(source), Some(resolve)) =
+                (element.value().attr("src"), self.image_resolver.as_mut())
+            {
+                if let Some(asset) = resolve(source)? {
+                    self.finish(TextBlockKind::Paragraph)?;
+                    self.account(asset.id.len())?;
+                    self.spans.push(TextSpan::Image {
+                        asset_id: asset.id.clone(),
+                        alt: element
+                            .value()
+                            .attr("alt")
+                            .unwrap_or_default()
+                            .chars()
+                            .take(200)
+                            .collect(),
+                    });
+                    if !self.assets.iter().any(|existing| existing.id == asset.id) {
+                        self.assets.push(asset);
+                    }
+                    self.finish(TextBlockKind::Image)?;
+                }
+            }
             return Ok(());
         }
         if name == "br" {
@@ -262,7 +362,18 @@ impl ChapterBuilder {
         }
 
         let heading = matches!(name, "h1" | "h2" | "h3" | "h4" | "h5" | "h6");
-        let block = heading || matches!(name, "p" | "div" | "section" | "blockquote" | "li");
+        let inline_paragraph = name == "p"
+            && element
+                .parent()
+                .and_then(ElementRef::wrap)
+                .is_some_and(|parent| {
+                    matches!(
+                        parent.value().name(),
+                        "li" | "blockquote" | "h1" | "h2" | "h3"
+                    )
+                });
+        let block = !inline_paragraph
+            && (heading || matches!(name, "p" | "div" | "section" | "blockquote" | "li"));
         if block {
             self.finish(TextBlockKind::Paragraph)?;
         }
@@ -278,11 +389,28 @@ impl ChapterBuilder {
             }
         }
         if block {
-            self.finish(if heading {
+            let kind = if heading {
                 TextBlockKind::Heading
+            } else if name == "blockquote" {
+                TextBlockKind::Quote
+            } else if name == "li" {
+                let ordered = element
+                    .parent()
+                    .and_then(ElementRef::wrap)
+                    .is_some_and(|parent| parent.value().name() == "ol");
+                let ordinal = ordered.then(|| {
+                    element
+                        .prev_siblings()
+                        .filter_map(ElementRef::wrap)
+                        .filter(|sibling| sibling.value().name() == "li")
+                        .count() as u32
+                        + 1
+                });
+                TextBlockKind::ListItem { ordinal }
             } else {
                 TextBlockKind::Paragraph
-            })?;
+            };
+            self.finish(kind)?;
         }
         Ok(())
     }
@@ -330,7 +458,9 @@ impl ChapterBuilder {
             spans: std::mem::take(&mut self.spans),
         };
         let text = block.plain_text();
-        if text.trim().is_empty() && kind != TextBlockKind::Separator {
+        if text.trim().is_empty()
+            && !matches!(kind, TextBlockKind::Separator | TextBlockKind::Image)
+        {
             return Ok(());
         }
         if self.blocks.len() >= MAX_BLOCKS {
