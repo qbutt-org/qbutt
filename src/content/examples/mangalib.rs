@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     assert_eq!(pages.reference, chapters[0].reference);
     assert_eq!(pages.images.len(), 53);
-    let bytes = source.image_bytes(&pages.images[0], &mut session).await?;
+    let bytes = source.image_bytes(&pages.images[0], &session).await?;
     assert!(bytes.starts_with(&[0xff, 0xd8, 0xff]));
     assert!(bytes.len() > 100_000);
     let mut unavailable = variant.reference.clone();

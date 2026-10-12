@@ -150,7 +150,7 @@ pub(super) async fn run() -> FixtureResult {
             .image(
                 "https://img3.cdnlibs.org/image".parse().unwrap(),
                 &["img3.cdnlibs.org"],
-                &mut session,
+                &session,
             )
             .await?;
         Ok::<_, Error>((http, session, image))

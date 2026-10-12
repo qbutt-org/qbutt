@@ -182,7 +182,7 @@ impl MangaLib {
     pub async fn image_bytes(
         &self,
         image: &ChapterImage,
-        session: &mut LibSession,
+        session: &LibSession,
     ) -> Result<Vec<u8>> {
         response::validate_image_url(&image.url)?;
         self.http

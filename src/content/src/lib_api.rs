@@ -128,7 +128,7 @@ impl LibHttp {
         &self,
         url: Url,
         allowed_hosts: &[&str],
-        session: &mut LibSession,
+        session: &LibSession,
     ) -> Result<Vec<u8>> {
         if session.source != self.source {
             return Err(Error::InvalidReference);
