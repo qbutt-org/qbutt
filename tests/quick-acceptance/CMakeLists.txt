@@ -16,6 +16,8 @@ endif()
 
 qt_add_executable(qbutt-quick-acceptance
     main.cpp
+    category.cpp
+    category.h
     library.cpp
     library.h
     history.cpp

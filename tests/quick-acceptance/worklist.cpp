@@ -16,6 +16,7 @@
 #include <QTimer>
 
 #include "gui/quick/contentview.h"
+#include "gui/quick/qml/workfiltermodel.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
 #include "qbutt_quick/src/models.cxxqt.h"
 
@@ -55,6 +56,13 @@ namespace
         require(QMetaObject::invokeMethod(results, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item), Q_ARG(int, row)),
             u"Results delegate lookup failed"_s);
         return item;
+    }
+
+    Content::WorkFilterModel *visibleModel(QQuickItem *results, QAbstractItemModel *source)
+    {
+        auto *proxy = qobject_cast<Content::WorkFilterModel *>(results->property("model").value<QObject *>());
+        require(proxy && (proxy->sourceModel() == source), u"Production work proxy uses another source model"_s);
+        return proxy;
     }
 
     void verifyRow(QQuickItem *results, QAbstractItemModel *model, const int row, const QString &selected)
@@ -145,9 +153,10 @@ namespace
 
         controller->setListMode(Qbutt::Search::ListMode::History);
         settle(results);
-        require((results->property("model").value<QObject *>() == history) && (results->property("count").toInt() == 1),
+        auto *visible = visibleModel(results, history);
+        require(results->property("count").toInt() == 1,
             u"Production results did not switch to History"_s);
-        verifyRow(results, history, 0, publication);
+        verifyRow(results, visible, 0, publication);
         require(QMetaObject::invokeMethod(itemAt(results, 0), "clicked"), u"History row action is missing"_s);
         waitFor([&] { return !controller->property("inspecting").toBool(); }, u"History publication inspection"_s);
         auto *variants = qobject_cast<QAbstractItemModel *>(controller->property("variants").value<QObject *>());
@@ -192,7 +201,7 @@ namespace
             u"History removal retained its action or damaged Favorites"_s);
         controller->setListMode(Qbutt::Search::ListMode::Favorites);
         settle(results);
-        verifyRow(results, favorites, 0, publication);
+        verifyRow(results, visibleModel(results, favorites), 0, publication);
     }
 }
 
@@ -215,7 +224,8 @@ void exerciseWorkList(Content::ContentView *view)
     require(controller->property("errorText").toString().isEmpty() && (works->rowCount() > 5),
         u"Catalog did not produce a scrollable work list"_s);
     settle(results);
-    verifyRow(results, works, 0, controller->property("selectedWorkId").toString());
+    auto *visible = visibleModel(results, works);
+    verifyRow(results, visible, 0, controller->property("selectedWorkId").toString());
     results->forceActiveFocus();
     for (const Qt::Key key : {Qt::Key_End, Qt::Key_Home})
     {
@@ -224,7 +234,7 @@ void exerciseWorkList(Content::ContentView *view)
         QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
         QCoreApplication::sendEvent(view, &release);
         settle(results);
-        verifyRow(results, works, key == Qt::Key_End ? works->rowCount() - 1 : 0,
+        verifyRow(results, visible, key == Qt::Key_End ? visible->rowCount() - 1 : 0,
             controller->property("selectedWorkId").toString());
     }
     const QString publication = u"mangadex:b0b721ff-c388-4486-aa0f-c2b0bb321512"_s;
@@ -241,9 +251,9 @@ void exerciseWorkList(Content::ContentView *view)
     exerciseHistoryList(view, controller, results);
     controller->setListMode(Qbutt::Search::ListMode::Favorites);
     settle(results);
-    require((results->property("count").toInt() == 1)
-        && (results->property("model").value<QObject *>() == favorites), u"Results did not switch to Favorites"_s);
-    verifyRow(results, favorites, 0, publication);
+    visible = visibleModel(results, favorites);
+    require(results->property("count").toInt() == 1, u"Results did not switch to Favorites"_s);
+    verifyRow(results, visible, 0, publication);
     require(QMetaObject::invokeMethod(itemAt(results, 0), "clicked"), u"Favorite delegate action missing"_s);
     waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Favorite row click"_s);
     require((controller->property("selectedWorkId").toString() == publication)
@@ -255,10 +265,11 @@ void exerciseWorkList(Content::ContentView *view)
         && !itemAt(results, 0), u"Removed favorite retained a visible delegate"_s);
     controller->setListMode(Qbutt::Search::ListMode::Search);
     settle(results);
+    visible = visibleModel(results, works);
     const int selectedRow = results->property("currentIndex").toInt();
-    require((selectedRow >= 0) && (value(works, selectedRow, "workId") == publication),
+    require((selectedRow >= 0) && (value(visible, selectedRow, "workId") == publication),
         u"Search return lost selection"_s);
-    verifyRow(results, works, selectedRow, publication);
+    verifyRow(results, visible, selectedRow, publication);
 
     for (int row = works->rowCount() - 1; row >= 0; --row)
     {
@@ -283,17 +294,23 @@ void exerciseWorkList(Content::ContentView *view)
             settle(results);
             const auto *active = mode == Qbutt::Search::ListMode::Favorites ? typedFavorites : typedWorks;
             auto *activeModel = mode == Qbutt::Search::ListMode::Favorites ? favorites : works;
-            const int selectedIndex = active->indexOfId(publication);
+            visible = visibleModel(results, activeModel);
+            const int selectedIndex = visible->indexOfId(publication);
+            require(selectedIndex == active->indexOfId(publication), u"All-category proxy changed source order"_s);
             require(results->property("currentIndex").toInt() == selectedIndex,
                 u"Equal-count model switch lost the current selection index"_s);
             QQuickItem *selectedItem = itemAt(results, selectedIndex);
             require(selectedItem
                 && selectedItem->mapRectToItem(results, selectedItem->boundingRect()).intersects(results->boundingRect()),
-                u"Equal-count model switch left the selected work outside the view"_s);
+                u"Equal-count model switch left the selected work outside the view: mode=%1 iteration=%2 index=%3 id=%4 count=%5 contentY=%6 itemY=%7 viewportHeight=%8"_s
+                    .arg(static_cast<int>(mode)).arg(iteration).arg(results->property("currentIndex").toInt())
+                    .arg(visible->idAt(results->property("currentIndex").toInt())).arg(visible->rowCount())
+                    .arg(results->property("contentY").toDouble()).arg(selectedItem ? selectedItem->y() : -1)
+                    .arg(results->height()));
             for (int row = 0; row < activeModel->rowCount(); ++row)
             {
                 if (itemAt(results, row))
-                    verifyRow(results, activeModel, row, publication);
+                    verifyRow(results, visible, row, publication);
             }
         }
     }

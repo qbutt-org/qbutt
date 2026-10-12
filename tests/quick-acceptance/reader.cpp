@@ -25,6 +25,7 @@
 #include <QUrl>
 
 #include "gui/quick/contentview.h"
+#include "gui/quick/qml/workfiltermodel.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
 
 using namespace Qt::Literals::StringLiterals;
@@ -165,6 +166,15 @@ void exerciseReader(Content::ContentView *view, const QString &profileDir)
     waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Save manga favorite"_s);
     require(controller->property("selectedFavorite").toBool(), u"Manga favorite was not saved"_s);
     controller->setListMode(Qbutt::Search::ListMode::Favorites);
+    auto *visibleWorks = qobject_cast<Content::WorkFilterModel *>(results->property("model").value<QObject *>());
+    require(visibleWorks, u"Reader results do not use the production work proxy"_s);
+    auto *favoriteWorks = model(controller, "favorites");
+    waitFor([&]
+    {
+        return (visibleWorks->sourceModel() == favoriteWorks)
+            && (results->property("currentIndex").toInt() == visibleWorks->indexOfId(publication))
+            && (visibleWorks->idAt(results->property("currentIndex").toInt()) == publication);
+    }, u"Favorites exact visible selection"_s);
     require((results->property("currentIndex").toInt() == 0)
         && (controller->property("selectedVariantId").toString() == exact),
         u"Favorites switch lost the exact selected work or variant"_s);
@@ -173,8 +183,14 @@ void exerciseReader(Content::ContentView *view, const QString &profileDir)
     waitFor([&] { return results->property("count").toInt() == 0; }, u"Favorite view removal"_s);
     require(results->property("currentIndex").toInt() == -1, u"Removed favorite remained the current work"_s);
     controller->setListMode(Qbutt::Search::ListMode::Search);
+    waitFor([&]
+    {
+        return (visibleWorks->sourceModel() == works)
+            && (results->property("currentIndex").toInt() == visibleWorks->indexOfId(publication))
+            && (visibleWorks->idAt(results->property("currentIndex").toInt()) == publication);
+    }, u"Search exact visible selection"_s);
     require((results->property("currentIndex").toInt() >= 0)
-        && (value(works, results->property("currentIndex").toInt(), "workId") == publication)
+        && (visibleWorks->idAt(results->property("currentIndex").toInt()) == publication)
         && (controller->property("selectedVariantId").toString() == exact),
         u"Returning to search lost the exact selected work or variant"_s);
     require(!bindingLoopDetected.load(), u"Model change caused a work selection binding loop"_s);

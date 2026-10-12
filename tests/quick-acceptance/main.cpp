@@ -30,6 +30,7 @@
 #include <QUrlQuery>
 #include <QVariant>
 
+#include "category.h"
 #include "history.h"
 #include "library.h"
 #include "reader-progress.h"
@@ -495,6 +496,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"reader-settings-phase"_s, u"Run a reader settings restart fixture phase."_s, u"phase"_s});
     parser.addOption({u"worklist"_s, u"Run work list delegate and favorites acceptance, then exit."_s});
     parser.addOption({u"work-filter"_s, u"Run native work category filtering and exact identity scenarios, then exit."_s});
+    parser.addOption({u"category"_s, u"Run production category filtering and exact selection scenarios, then exit."_s});
     parser.addOption({u"profile"_s, u"Use an explicit isolated profile for restart acceptance."_s, u"directory"_s});
     parser.addOption({u"dark"_s, u"Use the dark system color scheme for visual inspection."_s});
     parser.addOption({u"lang"_s, u"Set the locale for this process."_s, u"locale"_s, u"en"_s});
@@ -509,14 +511,17 @@ int main(int argc, char *argv[])
     }
     QGuiApplication::styleHints()->setColorScheme(parser.isSet(u"dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
     application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s)
-        && !parser.isSet(u"reader"_s) && !parser.isSet(u"worklist"_s));
+        && !parser.isSet(u"reader"_s) && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s));
 
     if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
-        || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s) || parser.isSet(u"work-filter"_s))
+        || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s) || parser.isSet(u"work-filter"_s)
+        || parser.isSet(u"category"_s))
     {
         try
         {
-            if (parser.isSet(u"rutor"_s))
+            if (parser.isSet(u"category"_s))
+                exerciseCategory();
+            else if (parser.isSet(u"rutor"_s))
                 exerciseRuTor();
             else if (parser.isSet(u"work-filter"_s))
                 exerciseWorkFilter();
