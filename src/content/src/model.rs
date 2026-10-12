@@ -26,6 +26,8 @@ pub enum Source {
     OnlineFix,
     #[serde(rename = "freetp")]
     FreeTP,
+    #[serde(rename = "byrut")]
+    ByRut,
     RoyalRoad,
     Kakuyomu,
     RanobeHub,
@@ -60,6 +62,7 @@ impl PublicationRef {
             Source::FitGirl => self.fitgirl_slug().map(|_| ()),
             Source::OnlineFix => self.online_fix_path().map(|_| ()),
             Source::FreeTP => self.freetp_id().map(|_| ()),
+            Source::ByRut => self.byrut_slug().map(|_| ()),
             Source::RoyalRoad => self.royalroad_id().map(|_| ()),
             Source::RanobeHub => self.ranobehub_id().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
@@ -134,6 +137,25 @@ impl PublicationRef {
 
     pub(crate) fn freetp_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::FreeTP)
+    }
+
+    pub(crate) fn byrut_slug(&self) -> crate::Result<&str> {
+        let Some((number, slug)) = self.id.split_once('-') else {
+            return Err(crate::Error::InvalidReference);
+        };
+        if self.source != Source::ByRut
+            || !canonical_decimal(number)
+            || slug.is_empty()
+            || slug.len() > 200
+            || slug.starts_with('-')
+            || slug.ends_with('-')
+            || !slug
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            return Err(crate::Error::InvalidReference);
+        }
+        Ok(&self.id)
     }
 
     pub(crate) fn kakuyomu_id(&self) -> crate::Result<&str> {
@@ -355,6 +377,7 @@ impl VariantRef {
                 | (Source::FitGirl, VariantSelector::TorrentHash { .. })
                 | (Source::OnlineFix, VariantSelector::TorrentHash { .. })
                 | (Source::FreeTP, VariantSelector::TorrentHash { .. })
+                | (Source::ByRut, VariantSelector::TorrentHash { .. })
                 | (Source::Rutube, VariantSelector::RutubeVideo)
                 | (Source::RoyalRoad, VariantSelector::OriginalText)
                 | (Source::Kakuyomu, VariantSelector::OriginalText)

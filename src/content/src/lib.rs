@@ -10,6 +10,8 @@ mod aniliberty;
 mod association;
 #[cfg(windows)]
 pub mod browser;
+#[cfg(windows)]
+mod byrut;
 mod download;
 mod error;
 #[cfg(windows)]
@@ -41,6 +43,8 @@ mod yummyanime;
 
 pub use aniliberty::AniLiberty;
 pub use association::{WorkAssociation, WorkGroup, rank_variants};
+#[cfg(windows)]
+pub use byrut::ByRut;
 pub use download::{
     DirectDownload, DownloadError, DownloadJob, DownloadQueue, DownloadStatus, DownloadStorage,
 };
