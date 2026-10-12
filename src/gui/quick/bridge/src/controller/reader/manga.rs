@@ -328,7 +328,8 @@ impl ffi::ContentController {
                         .reader
                         .manga_translation
                         .cancel_job();
-                    controller.reader_changed();
+                    controller.as_mut().reader_changed();
+                    controller.as_mut().start_manga_translation();
                     return;
                 }
                 {
