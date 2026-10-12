@@ -285,6 +285,8 @@ It creates an isolated profile and runs RU → EN → RU → EN, restarts in EN,
 applies RU and restarts in RU. It checks the Main menus and tabs, Options,
 Qt's Apply button, QML text, an actual AniLiberty video delegate and accessibility,
 and unchanged exact selection. Locale must persist in the isolated configuration.
+Another launch seeds a source timeout and SQLite write failures, then checks the
+visible source, source settings and library errors through RU → EN → RU.
 The source metadata must be available; no video is resolved or downloaded.
 Require exit zero and `status: passed`. This offscreen scenario does not establish
 native pointer interaction or visual acceptance.
