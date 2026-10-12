@@ -30,6 +30,7 @@
 #include <QtSystemDetection>
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <memory>
 
@@ -56,8 +57,6 @@
 Q_IMPORT_PLUGIN(QICOPlugin)
 #endif // QBT_STATIC_QT
 
-#else // DISABLE_GUI
-#include <cstdio>
 #endif // DISABLE_GUI
 
 #include "base/global.h"
@@ -81,17 +80,20 @@ namespace
     {
         const QString help = QCoreApplication::translate("Main", "Run application with -h option to read about command line parameters.");
 #if defined(Q_OS_WIN) && !defined(DISABLE_GUI)
-        QMessageBox msgBox(QMessageBox::Critical, QCoreApplication::translate("Main", "Bad command line"),
-                           (message + u'\n' + help), QMessageBox::Ok);
-        msgBox.show(); // Need to be shown or to moveToCenter does not work
-        msgBox.move(Utils::Gui::screenCenter(&msgBox));
-        msgBox.exec();
-#else
+        if (QApplication::instance())
+        {
+            QMessageBox msgBox(QMessageBox::Critical, QCoreApplication::translate("Main", "Bad command line"),
+                               (message + u'\n' + help), QMessageBox::Ok);
+            msgBox.show(); // Need to be shown or to moveToCenter does not work
+            msgBox.move(Utils::Gui::screenCenter(&msgBox));
+            msgBox.exec();
+            return;
+        }
+#endif
         const QString errMsg = QCoreApplication::translate("Main", "Bad command line: ") + u'\n'
             + message + u'\n'
             + help + u'\n';
         fprintf(stderr, "%s", qUtf8Printable(errMsg));
-#endif
     }
 
     void displayErrorMessage(const QString &message)
