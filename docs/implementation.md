@@ -144,6 +144,8 @@ Live RU/EN в MainWindow и Options использует существующи�
 
 Совместная native-приёмка Continuous/MainWindow, ранобэ и перевод остаются открытыми. ReaderMode уже управляет работающим Continuous. Прежние Bun/Go потребители удаляются после их замены и приёмки.
 
+Проход по сопровождаемости native-кода завершён на `050f89dc2`: AniLiberty отделяет запросы от DTO/преобразования ответа, выбор работы и варианта собран в `controller/selection.rs`, ошибки Rust/Qt типизированы. Проверены общая сборка, чтение, Library, категории и live RU/EN: `C:/Tools/qbutt/main-combined-qa/maintainability-final-*.log`. Это проверка исходников и process-сценариев без изменения интерфейса. Устранение дублей каталога источников входит в текущий MangaLib/Nyaa срез; прежний TypeScript удаляется вместе с принятыми заменами.
+
 ### Ближайшая исполнимая работа
 
 1. Расширить native-поиск законченными MangaLib и Nyaa путями. MangaLib anonymous API уже вернул реальные search/details/113 chapters/manifest/JPEG; Nyaa production Rust search вернул 75 строк Frieren; inspect → exact TorrentHash → magnet прошёл, подмена hash отвергнута. Qt-интеграция ещё не принята. Провайдеры, точные ссылки, Sources, Qt dispatch и Library интегрируются в отдельных worktree. Поддержкой считается search → inspect → resolve → просмотр/чтение или точный torrent handoff, а не каталог или парсер. Затем переносить YummyAnime/VK, остальные reading/game/movie источники и Cardigann; авторизацию HDRezka явно настроить до участия в поиске.
