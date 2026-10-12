@@ -6,7 +6,7 @@ QtObject {
     required property color foreground
 
     readonly property color accent: "#009df7"
-    readonly property color accentText: "#101820"
+    readonly property color accentText: "#ffffff"
     readonly property color accentHovered: Qt.lighter(accent, 1.1)
     readonly property color accentPressed: Qt.darker(accent, 1.14)
     readonly property color muted: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.64)
