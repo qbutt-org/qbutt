@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{ReaderPosition, SourceOperation};
+use qbutt_content::{ReaderPosition, Source, SourceOperation};
 use tokio::sync::watch;
 
 use super::super::catalog::SourceResponse;
@@ -37,6 +37,30 @@ impl ffi::ContentController {
         let Some(reference) = self.reader.reference.clone() else {
             return;
         };
+        if reference.publication.source == Source::LocalBook {
+            let Some(book) = self
+                .local_book
+                .as_ref()
+                .filter(|book| book.variant() == reference)
+            else {
+                return;
+            };
+            let chapters = book.chapter_list();
+            self.as_mut()
+                .rust_mut()
+                .reader
+                .chapters
+                .pin_mut()
+                .replace(chapters);
+            if let Some(progress) = self.reader.resume.clone()
+                && self.reader.chapters.find(&progress.chapter.id).is_some()
+            {
+                self.load_chapter(QString::from(progress.chapter.id), progress.position);
+            } else if let Some(first) = self.reader.chapters.first() {
+                self.select_chapter(QString::from(first.id));
+            }
+            return;
+        }
         let Some(request) = self.source_request(SourceOperation::Chapters(reference)) else {
             return;
         };
@@ -187,6 +211,7 @@ impl ffi::ContentController {
             state.reader.error = QString::default();
             state.reader.busy = true;
             state.reader.position = None;
+            state.reader.text.original = None;
             if let ReaderPosition::Text { block_id, offset } = &resume {
                 state.reader.text.anchor = QString::from(block_id);
                 state.reader.text.offset = *offset;

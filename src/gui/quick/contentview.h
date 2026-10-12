@@ -11,6 +11,8 @@ namespace Qbutt
 
 namespace Content
 {
+    class ReaderImageProvider;
+
     class ContentView final : public QQuickWidget
     {
         Q_OBJECT
@@ -40,5 +42,6 @@ namespace Content
         void changeEvent(QEvent *event) override;
 
         Qbutt::ContentController *m_controller = nullptr;
+        ReaderImageProvider *m_readerImages = nullptr; // QQmlEngine owns the provider.
     };
 }

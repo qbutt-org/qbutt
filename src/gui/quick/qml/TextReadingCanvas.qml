@@ -164,28 +164,55 @@ ScrollView {
         onWidthChanged: root.retainPosition()
         onHeightChanged: root.retainPosition()
 
-        delegate: Label {
+        delegate: Column {
+            id: readingBlock
             required property string blockId
             required property int blockKind
             required property string plainText
             required property string richText
+            required property string imageId
+            required property int listOrdinal
 
             objectName: "readerTextBlock_%1".arg(blockId)
             width: ListView.view.width
-            leftPadding: Math.max(0, (width - 760) / 2)
-            rightPadding: leftPadding
-            topPadding: blockKind === 1 ? 16 : 0
-            bottomPadding: 18
-            text: richText
-            textFormat: Text.StyledText
-            wrapMode: Text.Wrap
-            color: root.theme.foreground
-            font.pixelSize: blockKind === 1 ? 24 : 20
-            font.weight: blockKind === 1 ? Font.DemiBold : Font.Normal
-            lineHeight: 1.3
-            horizontalAlignment: blockKind === 2 ? Text.AlignHCenter : Text.AlignLeft
-            Accessible.role: Accessible.StaticText
-            Accessible.name: plainText
+            height: implicitHeight + 18
+
+            Label {
+                visible: readingBlock.blockKind !== 5
+                width: readingBlock.width
+                leftPadding: Math.max(0, (width - 760) / 2) + (readingBlock.blockKind === 3 || readingBlock.blockKind === 4 ? 24 : 0)
+                rightPadding: Math.max(0, (width - 760) / 2)
+                topPadding: readingBlock.blockKind === 1 ? 16 : 0
+                text: readingBlock.blockKind === 3
+                    ? (readingBlock.listOrdinal >= 0 ? "%1. ".arg(readingBlock.listOrdinal) : "– ") + readingBlock.richText
+                    : readingBlock.richText
+                textFormat: Text.StyledText
+                wrapMode: Text.Wrap
+                color: root.theme.foreground
+                font.pixelSize: readingBlock.blockKind === 1 ? 24 : 20
+                font.weight: readingBlock.blockKind === 1 ? Font.DemiBold : Font.Normal
+                font.italic: readingBlock.blockKind === 4
+                lineHeight: 1.3
+                horizontalAlignment: readingBlock.blockKind === 2 ? Text.AlignHCenter : Text.AlignLeft
+                Accessible.role: Accessible.StaticText
+                Accessible.name: readingBlock.plainText
+            }
+
+            Image {
+                visible: readingBlock.blockKind === 5
+                x: Math.max(0, (readingBlock.width - 760) / 2)
+                width: Math.min(760, readingBlock.width)
+                height: status === Image.Ready && implicitWidth > 0
+                    ? width * implicitHeight / implicitWidth : 0
+                source: visible && readingBlock.imageId !== ""
+                    ? "image://reader/%1/%2".arg(root.backend.readerTextGeneration).arg(readingBlock.imageId) : ""
+                asynchronous: true
+                cache: false
+                fillMode: Image.PreserveAspectFit
+                Accessible.role: Accessible.Graphic
+                Accessible.name: readingBlock.plainText
+            }
+
             onHeightChanged: Qt.callLater(root.restorePosition)
         }
 

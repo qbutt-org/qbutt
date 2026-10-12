@@ -230,6 +230,7 @@ impl ffi::ContentController {
             state.reader.reference = Some(reference);
             state.reader.is_text = is_text;
             state.reader.text.cache.clear();
+            state.reader.text.original = None;
             state.reader.text.anchor = QString::default();
             state.reader.text.offset = 0.0;
             state.reader.chapter_id = QString::default();
@@ -288,8 +289,10 @@ impl ffi::ContentController {
             state.reader.error = QString::default();
             state.reader.reference = None;
             state.reader.text.cache.clear();
+            state.reader.text.original = None;
         }
         let generation = self.reader.chapter.generation;
+        self.as_mut().reader_assets_cleared(generation);
         self.as_mut()
             .rust_mut()
             .reader

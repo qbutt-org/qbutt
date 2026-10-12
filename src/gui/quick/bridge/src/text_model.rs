@@ -109,19 +109,43 @@ impl ffi::TextBlockModel {
                     TextBlockKind::Paragraph => 0i32,
                     TextBlockKind::Heading => 1,
                     TextBlockKind::Separator => 2,
+                    TextBlockKind::ListItem { .. } => 3,
+                    TextBlockKind::Quote => 4,
+                    TextBlockKind::Image => 5,
                 }),
             ),
             2 => QVariant::from(&QString::from(block.plain_text())),
             3 => QVariant::from(&QString::from(styled_text(&block.spans))),
+            4 => QVariant::from(&QString::from(
+                block
+                    .spans
+                    .iter()
+                    .find_map(|span| match span {
+                        TextSpan::Image { asset_id, .. } => Some(asset_id.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or_default(),
+            )),
+            5 => QVariant::from(&match block.kind {
+                TextBlockKind::ListItem { ordinal } => ordinal.map_or(-1, |number| number as i32),
+                _ => -1,
+            }),
             _ => QVariant::default(),
         }
     }
 
     fn role_names(&self) -> ffi::QHash_i32_QByteArray {
         let mut roles = QHash::default();
-        for (index, name) in ["blockId", "blockKind", "plainText", "richText"]
-            .iter()
-            .enumerate()
+        for (index, name) in [
+            "blockId",
+            "blockKind",
+            "plainText",
+            "richText",
+            "imageId",
+            "listOrdinal",
+        ]
+        .iter()
+        .enumerate()
         {
             roles.insert(256 + index as i32, QByteArray::from(*name));
         }
@@ -170,6 +194,7 @@ fn styled_text(spans: &[TextSpan]) -> String {
                     output.push(')');
                 }
             }
+            TextSpan::Image { .. } => {}
         }
     }
     output

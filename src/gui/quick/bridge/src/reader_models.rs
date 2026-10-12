@@ -152,6 +152,11 @@ impl ffi::ChapterModel {
         self.rows.len() as i32
     }
 
+    /// Exact chapter allowlist, independent of the chapter picker query.
+    pub fn all(&self) -> Vec<Chapter> {
+        self.rows.clone()
+    }
+
     pub fn replace(mut self: Pin<&mut Self>, chapters: Vec<Chapter>) {
         self.as_mut().rust_mut().pending = Some(chapters);
         if self.resetting {

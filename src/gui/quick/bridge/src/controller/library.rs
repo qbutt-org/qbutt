@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
-    Library, LibraryEntry, LibraryResult, LibraryView, PublicationRef, ReaderProgress,
+    Library, LibraryEntry, LibraryResult, LibraryView, LocalBook, PublicationRef, ReaderProgress,
     ReaderSettings, SourceSettings, VariantPreferences, Work, WorkGroup,
 };
 use tokio::runtime::Runtime;
@@ -17,6 +18,14 @@ use super::sources::SourceWrite;
 use crate::models;
 
 pub enum LibraryAction {
+    LocalBookImport {
+        book: Arc<LocalBook>,
+        generation: u64,
+    },
+    LocalBookPath {
+        reference: PublicationRef,
+        generation: u64,
+    },
     PlaybackHistory {
         token: u64,
         save: PlaybackSave,
@@ -62,6 +71,16 @@ pub struct ReaderSave {
 }
 
 pub enum LibraryUpdate {
+    LocalBookImport {
+        book: Arc<LocalBook>,
+        result: LibraryResult<()>,
+        generation: u64,
+    },
+    LocalBookPath {
+        reference: PublicationRef,
+        result: LibraryResult<Option<PathBuf>>,
+        generation: u64,
+    },
     Loaded {
         result: LibraryResult<(Vec<LibraryEntry>, Vec<Work>, ReaderSettings)>,
         sources: Option<LibraryResult<Vec<SourceSettings>>>,
@@ -217,6 +236,23 @@ impl LibraryWorker {
 
 fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
     let (result, reader_generation, playback_token) = match request.action {
+        LibraryAction::LocalBookImport { book, generation } => {
+            return LibraryUpdate::LocalBookImport {
+                result: library.save_local_book(&book),
+                book,
+                generation,
+            };
+        }
+        LibraryAction::LocalBookPath {
+            reference,
+            generation,
+        } => {
+            return LibraryUpdate::LocalBookPath {
+                result: library.local_book_path(&reference),
+                reference,
+                generation,
+            };
+        }
         LibraryAction::PlaybackHistory { token, save } => (
             library
                 .record_opened(&save.group, save.variant, save.preferences)
@@ -475,6 +511,22 @@ impl ffi::ContentController {
                 }
             );
         let (initial, error_generation, reader_generation, result) = match update {
+            LibraryUpdate::LocalBookImport {
+                book,
+                result,
+                generation,
+            } => {
+                self.complete_local_book_import(book, result, generation);
+                return;
+            }
+            LibraryUpdate::LocalBookPath {
+                reference,
+                result,
+                generation,
+            } => {
+                self.complete_local_book_path(reference, result, generation);
+                return;
+            }
             LibraryUpdate::SourceSettings { result } => {
                 self.load_source_settings(Some(result));
                 return;

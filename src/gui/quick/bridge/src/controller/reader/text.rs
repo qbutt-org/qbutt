@@ -4,7 +4,7 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{ReaderPosition, SourceOperation, TextChapter, TextChapterCache};
+use qbutt_content::{ReaderPosition, Source, SourceOperation, TextChapter, TextChapterCache};
 
 use super::super::sources::SourceRequest;
 use super::super::{Pending, ffi};
@@ -12,6 +12,7 @@ use crate::text_model;
 
 pub(super) struct TextReaderState {
     pub(super) blocks: UniquePtr<text_model::ffi::TextBlockModel>,
+    pub(super) original: Option<Arc<TextChapter>>,
     pub(super) anchor: QString,
     pub(super) offset: f64,
     pub(super) cache: TextChapterCache,
@@ -22,6 +23,7 @@ impl Default for TextReaderState {
     fn default() -> Self {
         Self {
             blocks: text_model::ffi::create_text_block_model(),
+            original: None,
             anchor: QString::default(),
             offset: 0.0,
             cache: TextChapterCache::default(),
@@ -68,6 +70,31 @@ impl ffi::ContentController {
         let reference = reference.clone();
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
+        if reference.variant.publication.source == Source::LocalBook {
+            let Some(book) = self.local_book.as_ref().cloned() else {
+                return;
+            };
+            let task = services.runtime.spawn_blocking(move || {
+                let result = book.read_chapter(&reference);
+                let _ = qt_thread.queue(move |mut controller| {
+                    if !controller.reader_source_current(generation, &request) {
+                        return;
+                    }
+                    let result = result.and_then(|chapter| {
+                        controller
+                            .as_mut()
+                            .rust_mut()
+                            .reader
+                            .text
+                            .cache
+                            .insert(chapter)
+                    });
+                    controller.complete_text_chapter(request, resume, generation, result);
+                });
+            });
+            self.as_mut().rust_mut().reader.chapter.task = Some(task);
+            return;
+        }
         let catalog = Arc::clone(&services.catalog);
         let load_limit = Arc::clone(&services.reader_load);
         let task = services.runtime.spawn(async move {
@@ -128,6 +155,14 @@ impl ffi::ContentController {
                 return;
             }
         };
+        self.as_mut().reader_assets_cleared(generation);
+        for asset in &chapter.assets {
+            self.as_mut().reader_asset(
+                generation,
+                QString::from(&asset.id),
+                cxx_qt_lib::QByteArray::from(asset.bytes.as_ref()),
+            );
+        }
         let (anchor, offset) = match resume {
             ReaderPosition::Text { block_id, offset }
                 if chapter.blocks.iter().any(|block| block.id == block_id) =>
@@ -138,6 +173,7 @@ impl ffi::ContentController {
         };
         {
             let mut state = self.as_mut().rust_mut();
+            state.reader.text.original = Some(Arc::clone(&chapter));
             state.reader.text.anchor = QString::from(anchor);
             state.reader.text.offset = offset;
             state.reader.busy = false;
@@ -197,6 +233,14 @@ impl ffi::ContentController {
     }
 
     fn prefetch_text_chapter(mut self: Pin<&mut Self>, chapter_generation: u64) {
+        if self
+            .reader
+            .reference
+            .as_ref()
+            .is_some_and(|reference| reference.publication.source == Source::LocalBook)
+        {
+            return;
+        }
         let Some(next) = self
             .reader
             .chapters

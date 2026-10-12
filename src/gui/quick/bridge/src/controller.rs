@@ -5,13 +5,14 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
-use qbutt_content::{PublicationRef, VariantPreferences, WorkAssociation, WorkGroup};
+use qbutt_content::{LocalBook, PublicationRef, VariantPreferences, WorkAssociation, WorkGroup};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
 mod browser;
 mod catalog;
 mod library;
+mod local_books;
 mod playback;
 mod reader;
 pub(crate) mod reader_pages;
@@ -231,6 +232,7 @@ pub mod ffi {
         #[qproperty(*mut WorkModel, works, READ = works_model, CONSTANT)]
         #[qproperty(*mut WorkModel, favorites, READ = favorites_model, CONSTANT)]
         #[qproperty(*mut WorkModel, history, READ = history_model, CONSTANT)]
+        #[qproperty(QString, local_book_error, cxx_name = "localBookError", READ = local_book_error, NOTIFY = local_book_error_changed)]
         #[qproperty(*mut VariantModel, variants, READ = variants_model, CONSTANT)]
         #[qproperty(
             QString,
@@ -671,6 +673,12 @@ pub mod ffi {
         #[qsignal]
         #[cxx_name = "readerChanged"]
         fn reader_changed(self: Pin<&mut Self>);
+        #[qsignal]
+        #[cxx_name = "readerAssetsCleared"]
+        fn reader_assets_cleared(self: Pin<&mut Self>, generation: u64);
+        #[qsignal]
+        #[cxx_name = "readerAsset"]
+        fn reader_asset(self: Pin<&mut Self>, generation: u64, id: QString, bytes: QByteArray);
 
         #[qinvokable]
         #[cxx_name = "initLibrary"]
@@ -721,6 +729,12 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "selectWork"]
         fn select_work(self: Pin<&mut Self>, id: QString);
+        #[qinvokable]
+        #[cxx_name = "importLocalBook"]
+        fn import_local_book(self: Pin<&mut Self>, url: QUrl);
+        fn local_book_error(&self) -> &QString;
+        #[qsignal]
+        fn local_book_error_changed(self: Pin<&mut Self>);
         #[qinvokable]
         #[cxx_name = "resolveVariant"]
         fn resolve_variant(self: Pin<&mut Self>, id: QString);
@@ -819,6 +833,9 @@ pub struct ContentControllerRust {
     resolution: Pending,
     playback: PlaybackState,
     reader: ReaderState,
+    local_book: Option<Arc<LocalBook>>,
+    local_book_load: Pending,
+    local_book_error: QString,
     reader_settings: ReaderSettingsState,
     browser_requests: HashMap<(u64, u64), JoinHandle<()>>,
 }
@@ -897,6 +914,9 @@ impl Default for ContentControllerRust {
             resolution: Pending::default(),
             playback: PlaybackState::default(),
             reader: ReaderState::default(),
+            local_book: None,
+            local_book_load: Pending::default(),
+            local_book_error: QString::default(),
             reader_settings: ReaderSettingsState::default(),
             browser_requests: HashMap::new(),
         }
@@ -910,6 +930,7 @@ impl Drop for ContentControllerRust {
         self.resolution.cancel();
         self.source_status.cancel_retries();
         self.reader.cancel();
+        self.local_book_load.cancel();
         for (_, request) in self.browser_requests.drain() {
             request.abort();
         }

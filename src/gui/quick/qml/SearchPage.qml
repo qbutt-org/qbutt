@@ -2,6 +2,7 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import Qbutt.Content
 
@@ -30,6 +31,14 @@ Page {
         id: appearance
         background: root.palette.window
         foreground: root.palette.windowText
+    }
+
+    FileDialog {
+        id: localBookPicker
+        objectName: "localBookPicker"
+        title: qsTr("Open book")
+        nameFilters: [qsTr("Books (*.epub *.fb2 *.txt)")]
+        onAccepted: root.backend.importLocalBook(selectedFile)
     }
 
     WorkFilterModel {
@@ -158,6 +167,13 @@ Page {
                 text: qsTranslate("SourcePicker", "Sources")
                 onClicked: sources.active = true
             }
+
+            ActionButton {
+                objectName: "contentOpenBook"
+                theme: appearance
+                text: qsTr("Open book")
+                onClicked: localBookPicker.open()
+            }
         }
 
         ProgressBar {
@@ -172,6 +188,15 @@ Page {
             Layout.fillWidth: true
             visible: root.backend.errorText !== ""
             text: root.backend.errorText
+            wrapMode: Text.Wrap
+            textFormat: Text.PlainText
+        }
+
+        Label {
+            objectName: "contentLocalBookError"
+            Layout.fillWidth: true
+            visible: root.backend.localBookError !== ""
+            text: root.backend.localBookError
             wrapMode: Text.Wrap
             textFormat: Text.PlainText
         }

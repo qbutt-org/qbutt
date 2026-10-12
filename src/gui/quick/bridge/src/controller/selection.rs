@@ -175,6 +175,16 @@ impl ffi::ContentController {
         let Some(work) = model.find(&id.to_string()).cloned() else {
             return;
         };
+        if work.reference.source == Source::LocalBook {
+            if self.selected_work_id == id && self.local_book.is_some() {
+                return;
+            }
+            let (generation, _) = self.as_mut().cancel_detail();
+            self.as_mut().rust_mut().variants.pin_mut().clear();
+            self.as_mut().set_selection(None, generation);
+            self.as_mut().load_local_book_from_library(work.reference);
+            return;
+        }
         let mut group = if self.list_mode == ffi::ListMode::Search {
             self.search_association
                 .groups()
@@ -447,6 +457,8 @@ impl ffi::ContentController {
             changed
         };
         self.as_mut().close_reader();
+        self.as_mut().rust_mut().local_book = None;
+        self.as_mut().rust_mut().local_book_load.cancel();
         if inspecting_changed {
             self.as_mut().inspecting_changed();
             self.as_mut().selected_variant_state_changed();

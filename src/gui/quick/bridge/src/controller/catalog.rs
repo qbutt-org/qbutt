@@ -70,6 +70,7 @@ impl Catalog {
                 language,
             } => {
                 let works = match source {
+                    Source::LocalBook => Err(qbutt_content::Error::InvalidReference),
                     Source::AniLiberty => self.aniliberty.search(query).await,
                     Source::YummyAnime => self.yummyanime.search(query).await,
                     Source::MangaDex => {
@@ -104,6 +105,7 @@ impl Catalog {
                 language,
             } => {
                 let work = match reference.source {
+                    Source::LocalBook => Err(qbutt_content::Error::InvalidReference),
                     Source::AniLiberty => self.aniliberty.inspect(reference).await,
                     Source::YummyAnime => self.yummyanime.inspect(reference).await,
                     Source::MangaDex => {
@@ -150,6 +152,7 @@ impl Catalog {
                     Source::Rutube => self.rutube.resolve(reference).await,
                     Source::FitGirl => self.fitgirl.resolve(reference).await,
                     Source::MangaDex
+                    | Source::LocalBook
                     | Source::MangaLib
                     | Source::RanobeLib
                     | Source::RanobeHub

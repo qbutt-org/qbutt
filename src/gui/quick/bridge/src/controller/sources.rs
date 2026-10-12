@@ -213,6 +213,9 @@ impl ffi::ContentController {
     }
 
     pub(super) fn source_enabled(&self, source: Source) -> bool {
+        if source == Source::LocalBook {
+            return self.local_book.is_some();
+        }
         self.source_status.load == LoadState::Ready && self.source_status.status(source).enabled()
     }
 
@@ -220,6 +223,13 @@ impl ffi::ContentController {
         let source = operation.source();
         if !self.source_enabled(source) || operation.validate().is_err() {
             return None;
+        }
+        if source == Source::LocalBook {
+            return Some(SourceRequest {
+                operation,
+                epoch: 0,
+                observed_revision: 0,
+            });
         }
         let status = self.source_status.status(source);
         Some(SourceRequest {
@@ -231,6 +241,20 @@ impl ffi::ContentController {
 
     pub(super) fn source_request_current(&self, request: &SourceRequest) -> bool {
         let source = request.operation.source();
+        if source == Source::LocalBook {
+            return self
+                .local_book
+                .as_ref()
+                .is_some_and(|book| match &request.operation {
+                    SourceOperation::Chapters(reference) => {
+                        reference.publication == book.reference()
+                    }
+                    SourceOperation::Chapter(reference) => {
+                        reference.variant.publication == book.reference()
+                    }
+                    _ => false,
+                });
+        }
         self.source_enabled(source) && self.source_status.status(source).epoch == request.epoch
     }
 
@@ -477,6 +501,9 @@ impl ffi::ContentController {
         request: &SourceRequest,
         result: &qbutt_content::Result<T>,
     ) {
+        if request.operation.source() == Source::LocalBook {
+            return;
+        }
         if !self.source_request_current(request) {
             return;
         }
