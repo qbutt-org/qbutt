@@ -428,7 +428,6 @@ pub enum ResolvedContent {
     },
     TorrentFile {
         reference: VariantRef,
-        title: String,
         metadata: TorrentMetadata,
     },
     DirectVideo {

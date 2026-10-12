@@ -348,7 +348,6 @@ impl ffi::ContentController {
                     Ok(SourceResponse::Resolve(ResolvedContent::TorrentFile {
                         reference: resolved,
                         metadata,
-                        ..
                     })) if resolved == reference => controller.as_mut().torrent_metadata_ready(
                         QString::from(models::variant_id(&reference)),
                         QByteArray::from(metadata.bytes()),
