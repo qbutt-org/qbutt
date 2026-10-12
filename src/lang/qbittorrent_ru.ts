@@ -19258,21 +19258,74 @@ Please choose a different name and try again.</source>
     </message>
 </context>
 <context>
-    <name>ReaderPage</name>
+    <name>ReaderAppearancePicker</name>
     <message>
-        <source>Try again</source>
-        <translation>Повторить</translation>
-    </message>
-</context>
-<context>
-    <name>ReaderToolbar</name>
-    <message>
-        <source>Previous chapter</source>
-        <translation>Предыдущая глава</translation>
+        <source>Reading appearance</source>
+        <translation>Оформление чтения</translation>
     </message>
     <message>
-        <source>Next chapter</source>
-        <translation>Следующая глава</translation>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Background</source>
+        <translation>Фон</translation>
+    </message>
+    <message>
+        <source>Default</source>
+        <translation>По умолчанию</translation>
+    </message>
+    <message>
+        <source>Change background color</source>
+        <translation>Изменить цвет фона</translation>
+    </message>
+    <message>
+        <source>Text color</source>
+        <translation>Цвет текста</translation>
+    </message>
+    <message>
+        <source>Change text color</source>
+        <translation>Изменить цвет текста</translation>
+    </message>
+    <message>
+        <source>Font</source>
+        <translation>Шрифт</translation>
+    </message>
+    <message>
+        <source>System</source>
+        <translation>Системный</translation>
+    </message>
+    <message>
+        <source>Font: %1</source>
+        <translation>Шрифт: %1</translation>
+    </message>
+    <message>
+        <source>Font size</source>
+        <translation>Размер шрифта</translation>
+    </message>
+    <message>
+        <source>Advanced settings</source>
+        <translation>Дополнительные настройки</translation>
+    </message>
+    <message>
+        <source>Line height</source>
+        <translation>Межстрочный интервал</translation>
+    </message>
+    <message>
+        <source>Line height, percent</source>
+        <translation>Межстрочный интервал в процентах</translation>
+    </message>
+    <message>
+        <source>Text width</source>
+        <translation>Ширина текста</translation>
+    </message>
+    <message>
+        <source>Text width, pixels</source>
+        <translation>Ширина текста в пикселях</translation>
+    </message>
+    <message>
+        <source>Reading mode</source>
+        <translation>Режим чтения</translation>
     </message>
     <message>
         <source>Pages</source>
@@ -19283,9 +19336,74 @@ Please choose a different name and try again.</source>
         <translation>Лента</translation>
     </message>
     <message>
-        <source>Reading mode</source>
-        <translation>Режим чтения</translation>
+        <source>Fit</source>
+        <translation>Масштаб</translation>
     </message>
+    <message>
+        <source>Height</source>
+        <translation>По высоте</translation>
+    </message>
+    <message>
+        <source>Fit to height</source>
+        <translation>По высоте окна</translation>
+    </message>
+    <message>
+        <source>Width</source>
+        <translation>По ширине</translation>
+    </message>
+    <message>
+        <source>Fit to width</source>
+        <translation>По ширине окна</translation>
+    </message>
+    <message>
+        <source>Reset to defaults</source>
+        <translation>Сбросить настройки</translation>
+    </message>
+</context>
+<context>
+    <name>ReaderFontPicker</name>
+    <message>
+        <source>Font</source>
+        <translation>Шрифт</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Find a font</source>
+        <translation>Найти шрифт</translation>
+    </message>
+    <message>
+        <source>System</source>
+        <translation>Системный</translation>
+    </message>
+</context>
+<context>
+    <name>ReaderPage</name>
+    <message>
+        <source>Try again</source>
+        <translation>Повторить</translation>
+    </message>
+    <message>
+        <source>Previous chapter</source>
+        <translation>Предыдущая глава</translation>
+    </message>
+    <message>
+        <source>Next chapter</source>
+        <translation>Следующая глава</translation>
+    </message>
+    <message>
+        <source>Previous page</source>
+        <translation>Предыдущая страница</translation>
+    </message>
+    <message>
+        <source>Next page</source>
+        <translation>Следующая страница</translation>
+    </message>
+</context>
+<context>
+    <name>ReaderToolbar</name>
     <message>
         <source>Back</source>
         <translation>Назад</translation>
@@ -19299,32 +19417,16 @@ Please choose a different name and try again.</source>
         <translation>Выбрать главу</translation>
     </message>
     <message>
-        <source>Previous page</source>
-        <translation>Предыдущая страница</translation>
+        <source>Chapter %1 of %2</source>
+        <translation>Глава %1 из %2</translation>
     </message>
     <message>
-        <source>Next page</source>
-        <translation>Следующая страница</translation>
+        <source>View</source>
+        <translation>Вид</translation>
     </message>
     <message>
-        <source>Page %1 of %2</source>
-        <translation>Страница %1 из %2</translation>
-    </message>
-    <message>
-        <source>Height</source>
-        <translation>По высоте</translation>
-    </message>
-    <message>
-        <source>Width</source>
-        <translation>По ширине</translation>
-    </message>
-    <message>
-        <source>Fit to height</source>
-        <translation>По высоте окна</translation>
-    </message>
-    <message>
-        <source>Fit to width</source>
-        <translation>По ширине окна</translation>
+        <source>Appearance</source>
+        <translation>Оформление</translation>
     </message>
 </context>
 <context>
