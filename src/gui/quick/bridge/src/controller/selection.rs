@@ -407,6 +407,13 @@ impl ffi::ContentController {
             return;
         }
         self.as_mut().selected_variant_id_changed();
+        if self.inspection.generation != generation
+            || self.resolution.generation != resolution_generation
+            || self.selected_variant_id != id
+        {
+            return;
+        }
+        self.as_mut().share_availability_changed();
         if self.inspection.generation == generation
             && self.resolution.generation == resolution_generation
             && self.selected_variant_id == id
