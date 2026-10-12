@@ -12,7 +12,7 @@ fn main() {
 }
 
 #[cfg(windows)]
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     windows::run().await
 }

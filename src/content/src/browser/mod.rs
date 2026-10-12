@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use tokio::sync::{Notify, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
+use tokio::time::{Instant, timeout_at};
 
 pub use command::*;
 pub use protocol::*;
@@ -59,6 +60,12 @@ pub enum BrowserError {
     Stopped,
     #[error("The source needs verification")]
     VerificationRequired,
+    #[error("Complete the source check in the browser")]
+    BrowserCheckRequired,
+    #[error("This content needs multiple audio tracks that cannot be forwarded")]
+    UnsupportedMultiAudio,
+    #[error("This content uses private tracks that cannot be forwarded")]
+    UnsupportedPrivateTracks,
     #[error("The selected capture expired. Choose the media again in qcatch.")]
     CaptureExpired,
     #[error("The browser could not resolve this content")]
@@ -82,6 +89,9 @@ impl BrowserError {
             Self::Timeout => "browser_timeout",
             Self::Stopped => "browser_stopped",
             Self::VerificationRequired => "verification_required",
+            Self::BrowserCheckRequired => "browser_check_required",
+            Self::UnsupportedMultiAudio => "unsupported_multi_audio",
+            Self::UnsupportedPrivateTracks => "unsupported_private_tracks",
             Self::CaptureExpired => "capture_expired",
             Self::SourceUnavailable => "source_unavailable",
         }
@@ -160,6 +170,8 @@ impl Drop for BrowserBroker {
 impl BrowserHandle {
     /// Dropping this future cancels queued or active work. One request occupies
     /// one of sixteen slots until completion, timeout, cancellation or disconnect.
+    /// The total deadline includes waiting for qcatch to reconnect: sixty seconds
+    /// for ordinary actions and eighty seconds for media resolution.
     pub async fn request(
         &self,
         choice: BrowserChoice,
@@ -174,12 +186,41 @@ impl BrowserHandle {
             .clone()
             .try_acquire_owned()
             .map_err(|_| BrowserError::Busy)?;
+        let deadline = Instant::now() + command.timeout();
+        let mut status = self.subscribe();
+        let mut stopping = self.stopping.subscribe();
+        let connected = async {
+            loop {
+                let ready = {
+                    let snapshot = status.borrow_and_update();
+                    if snapshot.stopped || *stopping.borrow() {
+                        return Err(BrowserError::Stopped);
+                    }
+                    snapshot.connections.iter().any(|connection| match choice {
+                        BrowserChoice::Auto => true,
+                        BrowserChoice::Edge => connection.browser == BrowserId::Edge,
+                        BrowserChoice::Chrome => connection.browser == BrowserId::Chrome,
+                    })
+                };
+                if ready {
+                    return Ok(());
+                }
+                tokio::select! {
+                    result = status.changed() => result.map_err(|_| BrowserError::Stopped)?,
+                    _ = stopping.changed() => return Err(BrowserError::Stopped),
+                }
+            }
+        };
+        timeout_at(deadline, connected)
+            .await
+            .map_err(|_| BrowserError::BrowserRequired)??;
         let (reply, response) = oneshot::channel();
         self.requests
             .try_send(actor::Request {
                 choice,
                 command,
                 reply,
+                deadline,
             })
             .map_err(|error| match error {
                 mpsc::error::TrySendError::Full(_) => BrowserError::Busy,

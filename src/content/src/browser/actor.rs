@@ -18,6 +18,7 @@ pub(crate) struct Request {
     pub choice: BrowserChoice,
     pub command: BrowserCommand,
     pub reply: oneshot::Sender<Result<BrowserReply, BrowserError>>,
+    pub deadline: Instant,
 }
 
 struct Client {
@@ -137,6 +138,10 @@ pub(crate) async fn run(
                 if request.reply.is_closed() {
                     continue;
                 }
+                if request.deadline <= Instant::now() {
+                    let _ = request.reply.send(Err(BrowserError::Timeout));
+                    continue;
+                }
                 let selected = choose(request.choice, &clients);
                 let connection = match selected {
                     Ok(connection) if pending.len() < 16 => connection,
@@ -174,7 +179,7 @@ pub(crate) async fn run(
                 }
                 pending.insert(id, Pending {
                     connection,
-                    deadline: Instant::now() + request.command.timeout(),
+                    deadline: request.deadline,
                     command: request.command,
                     reply: request.reply,
                 });
@@ -189,7 +194,11 @@ pub(crate) async fn run(
             })
             .collect();
         for id in expired {
-            let request = pending.remove(&id).expect("expired request");
+            // A full cancel queue disconnects its client and removes that
+            // connection's remaining requests from this same expiry batch.
+            let Some(request) = pending.remove(&id) else {
+                continue;
+            };
             let cancel = serde_json::to_vec(&serde_json::json!({ "id": id, "method": "cancel" }))
                 .expect("constant command");
             if clients

@@ -21,7 +21,8 @@ use fixture::{
     request, wait_status, write_fragmented,
 };
 use lifecycle::{
-    active_faults, cancellation, capacity, connection_identity, framing_faults, stale_discovery,
+    active_faults, cancellation, capacity, connection_grace, connection_identity, framing_faults,
+    stale_discovery,
 };
 use native_host::native_host_relay;
 use security::private_acl;
@@ -42,10 +43,6 @@ pub async fn run() -> FixtureResult {
         Err(BrowserError::OwnerExists)
     ));
     private_acl(File::open(&discovery)?.as_raw_handle());
-    assert_error(
-        handle.request(BrowserChoice::Auto, cookies()).await,
-        BrowserError::BrowserRequired,
-    );
     for address in [
         "http://127.0.0.1/",
         "https://10.0.0.1/",
@@ -137,6 +134,7 @@ pub async fn run() -> FixtureResult {
         BrowserError::Stopped,
     );
 
+    connection_grace(&discovery).await?;
     active_faults(&discovery).await?;
     stale_discovery(&discovery).await?;
     let broker = BrowserBroker::start(discovery.clone()).await?;
@@ -161,7 +159,7 @@ pub async fn run() -> FixtureResult {
     assert!(!discovery.exists());
     fs::remove_dir(&directory)?;
     println!(
-        "PASS browser_bridge=ok real_windows_pipe=ok private_acl=ok framing=ok exact_selection=ok connection_identity=ok cancellation=ok bounded_pending=ok shutdown=ok native_host={native_host}"
+        "PASS browser_bridge=ok real_windows_pipe=ok private_acl=ok framing=ok exact_selection=ok connection_identity=ok cancellation=ok batch_cancel=ok connection_grace=ok static_errors=ok bounded_pending=ok shutdown=ok native_host={native_host}"
     );
     Ok(())
 }

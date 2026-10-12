@@ -207,25 +207,36 @@ pub(super) async fn command_replies(
         Some(BrowserError::InvalidResponse),
     )
     .await?;
-    let pending = request(handle, BrowserChoice::Edge, cookies());
-    let wire = read(edge).await?;
-    write(
-        edge,
-        &json!({
-            "id": wire["id"],
-            "error": {
-                "code": "verification_required",
-                "message": "ephemeral-fixture-secret https://fixture.example/?token=secret",
-                "url": "https://fixture.example/?token=secret",
-            },
-        }),
-    )
-    .await?;
-    let error = match pending.await? {
-        Err(error) => error,
-        Ok(_) => panic!("Expected remote failure"),
-    };
-    assert_eq!(error, BrowserError::VerificationRequired);
-    assert!(!format!("{error:?} {error}").contains("secret"));
+    for expected in [
+        BrowserError::VerificationRequired,
+        BrowserError::BrowserCheckRequired,
+        BrowserError::Timeout,
+        BrowserError::UnsupportedMultiAudio,
+        BrowserError::UnsupportedPrivateTracks,
+        BrowserError::CaptureExpired,
+        BrowserError::SelectionChanged,
+    ] {
+        let pending = request(handle, BrowserChoice::Edge, cookies());
+        let wire = read(edge).await?;
+        write(
+            edge,
+            &json!({
+                "id": wire["id"],
+                "error": {
+                    "code": expected.code(),
+                    "message": "ephemeral-fixture-secret https://fixture.example/?token=secret",
+                    "url": "https://fixture.example/?token=secret",
+                },
+            }),
+        )
+        .await?;
+        let error = match pending.await? {
+            Err(error) => error,
+            Ok(_) => panic!("Expected remote failure"),
+        };
+        assert_eq!(error, expected);
+        assert_eq!(error.code(), expected.code());
+        assert!(!format!("{error:?} {error}").contains("secret"));
+    }
     Ok(())
 }

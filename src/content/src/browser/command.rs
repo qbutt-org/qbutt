@@ -120,10 +120,11 @@ impl BrowserCommand {
     }
 
     pub(crate) fn timeout(&self) -> Duration {
+        // Includes qcatch's reconnect alarm and the actual browser action.
         Duration::from_secs(if matches!(self, Self::Resolve { .. }) {
-            45
+            80
         } else {
-            20
+            60
         })
     }
 

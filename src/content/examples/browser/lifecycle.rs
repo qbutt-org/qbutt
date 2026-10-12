@@ -1,5 +1,7 @@
 use std::fs;
+use std::future::poll_fn;
 use std::path::Path;
+use std::task::Poll;
 use std::time::Duration;
 
 use qbutt_content::browser::{
@@ -123,6 +125,84 @@ pub(super) async fn stale_discovery(path: &Path) -> FixtureResult {
     Ok(())
 }
 
+pub(super) async fn connection_grace(discovery: &Path) -> FixtureResult {
+    let broker = BrowserBroker::start(discovery.to_path_buf()).await?;
+    let handle = broker.handle();
+    let canceled = request(&handle, BrowserChoice::Edge, cookies());
+    sleep(Duration::from_millis(30)).await;
+    assert!(!canceled.is_finished());
+    canceled.abort();
+    assert!(matches!(canceled.await, Err(error) if error.is_cancelled()));
+
+    let pending = request(&handle, BrowserChoice::Edge, cookies());
+    let chrome = extension(discovery, "chrome", "unselected warmup browser", true).await?;
+    wait_status(&handle, |status| status.connections.len() == 1).await?;
+    assert!(!pending.is_finished());
+    let mut edge = extension(discovery, "edge", "delayed selected browser", true).await?;
+    let wire = read(&mut edge).await?;
+    write(&mut edge, &json!({"id":wire["id"],"result":[]})).await?;
+    assert!(matches!(pending.await?, Ok(BrowserReply::Cookies(_))));
+    // The canceled pre-connection request must not appear after reconnection.
+    assert!(
+        timeout(Duration::from_millis(30), edge.read_u8())
+            .await
+            .is_err()
+    );
+
+    drop(chrome);
+    wait_status(&handle, |status| status.connections.len() == 1).await?;
+    let waiting = request(&handle, BrowserChoice::Chrome, cookies());
+    sleep(Duration::from_millis(30)).await;
+    assert!(!waiting.is_finished());
+    broker.shutdown().await?;
+    assert_error(waiting.await?, BrowserError::Stopped);
+    closed(&mut edge).await?;
+    Ok(())
+}
+
+async fn batch_cancellation(discovery: &Path, handle: &BrowserHandle) -> FixtureResult {
+    let blocked = extension(discovery, "edge", "batch canceled blocked writer", true).await?;
+    wait_status(handle, |status| status.connections.len() == 1).await?;
+    let mut pending = Vec::new();
+    for _ in 0..16 {
+        let command = serde_json::from_value(json!({
+            "method": "fetch",
+            "url": "https://fixture.example/",
+            "init": {"method": "POST", "body": "x".repeat(128 * 1024)},
+        }))?;
+        let mut request = Box::pin(handle.request(BrowserChoice::Edge, command));
+        // Poll each real request once so every receiver can be dropped in the
+        // same turn, rather than cancellation racing spawned-task scheduling.
+        poll_fn(|context| {
+            assert!(request.as_mut().poll(context).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+        pending.push(request);
+    }
+    sleep(Duration::from_millis(200)).await;
+    assert_error(
+        handle.request(BrowserChoice::Edge, cookies()).await,
+        BrowserError::Busy,
+    );
+    drop(pending);
+    wait_status(handle, |status| status.connections.is_empty()).await?;
+    assert!(!handle.status().stopped);
+    drop(blocked);
+    let mut edge = extension(discovery, "edge", "after batch cancellation", true).await?;
+    exchange(
+        handle,
+        &mut edge,
+        json!({"method":"cookies","url":"https://fixture.example/"}),
+        json!([]),
+        None,
+    )
+    .await?;
+    drop(edge);
+    wait_status(handle, |status| status.connections.is_empty()).await?;
+    Ok(())
+}
+
 pub(super) async fn active_faults(discovery: &Path) -> FixtureResult {
     let broker = BrowserBroker::start(discovery.to_path_buf()).await?;
     let handle = broker.handle();
@@ -160,13 +240,19 @@ pub(super) async fn active_faults(discovery: &Path) -> FixtureResult {
     write(&mut edge, &json!({"id":second_wire["id"],"result":[]})).await?;
     assert!(matches!(first.await?, Ok(BrowserReply::Cookies(_))));
     assert!(matches!(second.await?, Ok(BrowserReply::Cookies(_))));
+    drop(edge);
+    wait_status(&handle, |status| status.connections.is_empty()).await?;
+    batch_cancellation(discovery, &handle).await?;
 
-    // A complete idle connection may stay open. An active request expires
-    // after its fixed deadline and sends the same ID's cancellation frame.
+    // Connection grace and active work share one deadline. Delaying hello
+    // must not restart the sixty-second budget when the command is sent.
     let began = std::time::Instant::now();
     let pending = request(&handle, BrowserChoice::Edge, cookies());
+    sleep(Duration::from_secs(2)).await;
+    assert!(!pending.is_finished());
+    let mut edge = extension(discovery, "edge", "deadline after reconnect", true).await?;
     let wire = read(&mut edge).await?;
-    let cancel = timeout(Duration::from_secs(23), async {
+    let cancel = timeout(Duration::from_secs(61), async {
         let length = edge.read_u32_le().await? as usize;
         let mut body = vec![0u8; length];
         edge.read_exact(&mut body).await?;
@@ -175,7 +261,8 @@ pub(super) async fn active_faults(discovery: &Path) -> FixtureResult {
     .await??;
     assert_eq!(cancel, json!({"id":wire["id"],"method":"cancel"}));
     assert_error(pending.await?, BrowserError::Timeout);
-    assert!(began.elapsed() >= Duration::from_secs(20));
+    assert!(began.elapsed() >= Duration::from_secs(60));
+    assert!(began.elapsed() < Duration::from_secs(61));
     drop(edge);
     wait_status(&handle, |status| status.connections.is_empty()).await?;
 
