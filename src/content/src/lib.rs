@@ -9,6 +9,7 @@
 mod aniliberty;
 #[cfg(windows)]
 pub mod browser;
+mod fitgirl;
 mod http;
 mod library;
 mod mangadex;
@@ -23,6 +24,7 @@ mod torrent;
 mod yummyanime;
 
 pub use aniliberty::AniLiberty;
+pub use fitgirl::FitGirl;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
     ReaderMode, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
@@ -45,6 +47,8 @@ pub enum Error {
     InvalidReference,
     #[error("The selected variant is no longer available")]
     VariantUnavailable,
+    #[error("{0}")]
+    UnsupportedAcquisition(&'static str),
     #[error("The source returned invalid metadata: {0}")]
     InvalidResponse(&'static str),
     #[error("The source returned HTTP {0}")]

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::AniLiberty,
         Self::YummyAnime,
         Self::MangaDex,
@@ -14,6 +14,7 @@ impl Source {
         Self::RuTor,
         Self::Nyaa,
         Self::Rutube,
+        Self::FitGirl,
     ];
 
     pub fn id(self) -> &'static str {
@@ -25,6 +26,7 @@ impl Source {
             Self::RuTor => "rutor",
             Self::Nyaa => "nyaa",
             Self::Rutube => "rutube",
+            Self::FitGirl => "fitgirl",
         }
     }
 
@@ -41,6 +43,7 @@ impl Source {
             Self::RuTor => "RuTor",
             Self::Nyaa => "Nyaa.si",
             Self::Rutube => "Rutube",
+            Self::FitGirl => "FitGirl",
         }
     }
 
@@ -49,6 +52,7 @@ impl Source {
             Self::AniLiberty | Self::YummyAnime => &[Category::Anime],
             Self::MangaDex | Self::MangaLib => &[Category::Manga],
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
+            Self::FitGirl => &[Category::Games],
             Self::Nyaa => &[
                 Category::Anime,
                 Category::Games,
@@ -177,7 +181,9 @@ impl SourceFailureReason {
     /// Store a classification, never the provider's URL, response or error text.
     pub fn from_error(error: &Error) -> Option<Self> {
         match error {
-            Error::InvalidQuery | Error::InvalidReference => None,
+            Error::InvalidQuery | Error::InvalidReference | Error::UnsupportedAcquisition(_) => {
+                None
+            }
             Error::VariantUnavailable => Some(Self::VariantUnavailable),
             Error::HttpStatus(status) => Some(Self::Http(*status)),
             Error::Timeout => Some(Self::Timeout),

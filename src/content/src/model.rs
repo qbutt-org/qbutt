@@ -13,6 +13,8 @@ pub enum Source {
     RuTor,
     Nyaa,
     Rutube,
+    #[serde(rename = "fitgirl")]
+    FitGirl,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -30,6 +32,7 @@ impl PublicationRef {
             Source::RuTor => self.rutor_id().map(|_| ()),
             Source::Nyaa => self.nyaa_id().map(|_| ()),
             Source::Rutube => self.rutube_id().map(|_| ()),
+            Source::FitGirl => self.fitgirl_slug().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
             Source::MangaDex => Err(crate::Error::InvalidReference),
@@ -47,6 +50,23 @@ impl PublicationRef {
 
     pub(crate) fn nyaa_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::Nyaa)
+    }
+
+    pub(crate) fn fitgirl_slug(&self) -> crate::Result<&str> {
+        if self.source == Source::FitGirl
+            && !self.id.is_empty()
+            && self.id.len() <= 200
+            && !self.id.starts_with('-')
+            && !self.id.ends_with('-')
+            && self
+                .id
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            Ok(&self.id)
+        } else {
+            Err(crate::Error::InvalidReference)
+        }
     }
 
     pub(crate) fn rutube_id(&self) -> crate::Result<&str> {
@@ -227,6 +247,7 @@ impl VariantRef {
                 | (Source::MangaLib, VariantSelector::LibTranslation { .. })
                 | (Source::RuTor, VariantSelector::TorrentHash { .. })
                 | (Source::Nyaa, VariantSelector::TorrentHash { .. })
+                | (Source::FitGirl, VariantSelector::TorrentHash { .. })
                 | (Source::Rutube, VariantSelector::RutubeVideo)
         );
         if matches_source {
