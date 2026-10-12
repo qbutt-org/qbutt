@@ -34,6 +34,7 @@ impl ffi::ContentController {
             self.as_mut().set_local_book_error("library");
             return;
         }
+        self.as_mut().cancel_shared_import();
         self.as_mut().set_local_book_error("");
         self.as_mut().rust_mut().local_book_load.cancel();
         let generation = self.local_book_load.generation;
