@@ -112,7 +112,7 @@ pub(super) fn publication(
     let script = script.text().collect::<String>();
     let marker = "RalodePlayer.init(";
     let mut calls = script.match_indices(marker);
-    let (_, call) = calls
+    let (call, _) = calls
         .next()
         .ok_or(Error::InvalidResponse("missing AniTokyo episode manifest"))?;
     if calls.next().is_some() {
