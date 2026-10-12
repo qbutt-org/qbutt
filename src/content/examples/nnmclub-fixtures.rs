@@ -30,7 +30,12 @@ mod nnmclub {
     include!("../src/nnmclub.rs");
 
     pub(super) fn fixture(http: SourceHttp, origin: Url) -> NnmClub {
-        NnmClub { http, origin }
+        NnmClub {
+            http,
+            origin,
+            webview: std::sync::OnceLock::new(),
+            clearance: std::sync::Mutex::new(None),
+        }
     }
 }
 
@@ -54,20 +59,55 @@ const CHANGED: &str = "abcdef0123456789abcdef0123456789abcdef01";
 
 #[tokio::main]
 async fn main() -> CheckResult {
-    if std::env::args().nth(1).as_deref() == Some("--live") {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some("--live") {
+        let app_dir = args.next().ok_or("live check requires the app directory")?;
+        let profile_dir = args
+            .next()
+            .ok_or("live check requires an isolated profile directory")?;
         let source = qbutt_content::NnmClub::new()?;
-        let result = source
-            .search(
-                "Sintel",
-                qbutt_content::Category::Movies,
-                None,
-                qbutt_content::browser::BrowserChoice::Auto,
-            )
-            .await;
+        source.initialize_webview(profile_dir.into(), app_dir.into());
+        let result = async {
+            let works = source
+                .search(
+                    "Sintel",
+                    qbutt_content::Category::Movies,
+                    None,
+                    qbutt_content::browser::BrowserChoice::Auto,
+                )
+                .await?;
+            let found = works
+                .iter()
+                .find(|work| work.reference.id == "906013")
+                .ok_or(qbutt_content::Error::VariantUnavailable)?;
+            let work = source
+                .inspect(
+                    &found.reference,
+                    None,
+                    qbutt_content::browser::BrowserChoice::Auto,
+                )
+                .await?;
+            let selected = &work
+                .variants
+                .first()
+                .ok_or(qbutt_content::Error::VariantUnavailable)?
+                .reference;
+            let resolved = source
+                .resolve(selected, None, qbutt_content::browser::BrowserChoice::Auto)
+                .await?;
+            assert!(matches!(
+                resolved,
+                qbutt_content::ResolvedContent::Torrent { reference, .. }
+                    if reference == *selected
+            ));
+            Ok::<_, qbutt_content::Error>(works.len())
+        }
+        .await;
+        source.close();
         match result {
-            Ok(works) => println!("PASS live_nnmclub_search={} results", works.len()),
-            Err(qbutt_content::Error::Challenge) => {
-                println!("BLOCKED live_nnmclub_search=source_challenge")
+            Ok(count) => println!("PASS live_nnmclub_search={count} inspect=exact magnet=exact"),
+            Err(qbutt_content::Error::Challenge | qbutt_content::Error::SourceCheckRequired) => {
+                println!("BLOCKED live_nnmclub=source_check_required")
             }
             Err(error) => return Err(error.into()),
         }

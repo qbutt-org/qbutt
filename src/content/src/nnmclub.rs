@@ -1,7 +1,11 @@
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
 use url::Url;
 
 use crate::browser::{BrowserChoice, BrowserError, BrowserHandle};
 use crate::http::{SourceDocument, SourceHttp, SourceSession};
+use crate::webview::{WebViewCheck, WebViewError, WebViewSessions};
 use crate::{Category, Error, PublicationRef, ResolvedContent, Result, VariantRef, Work};
 
 #[path = "nnmclub/document.rs"]
@@ -11,11 +15,13 @@ mod response;
 
 const ORIGIN: &str = "https://nnmclub.to";
 
-/// Public tracker search and magnet acquisition. The browser supplies a session
-/// only when the site explicitly requires a verification or login step.
+/// Public tracker search and magnet acquisition. Source checks use an isolated
+/// WebView2 profile; a connected browser can also lend its current session.
 pub struct NnmClub {
     http: SourceHttp,
     origin: Url,
+    webview: OnceLock<WebViewSessions>,
+    clearance: Mutex<Option<SourceSession>>,
 }
 
 impl NnmClub {
@@ -24,7 +30,48 @@ impl NnmClub {
         Ok(Self {
             http: SourceHttp::new(origin.clone(), reqwest::header::HeaderMap::new())?,
             origin,
+            webview: OnceLock::new(),
+            clearance: Mutex::new(None),
         })
+    }
+
+    pub fn initialize_webview(&self, profile_dir: PathBuf, app_dir: PathBuf) {
+        let _ = self.webview.set(WebViewSessions::new(profile_dir, app_dir));
+    }
+
+    pub fn close(&self) {
+        self.clearance
+            .lock()
+            .expect("NNM-Club clearance lock")
+            .take();
+        if let Some(webview) = self.webview.get() {
+            webview.close();
+        }
+    }
+
+    pub async fn complete_check(&self) -> Result<()> {
+        let webview = self
+            .webview
+            .get()
+            .ok_or(Error::SourceCheck(WebViewError::Unavailable))?;
+        let checked = webview
+            .check(
+                self.origin.join("/forum/tracker.php").unwrap(),
+                WebViewCheck {
+                    interactive: true,
+                    ..WebViewCheck::default()
+                },
+            )
+            .await
+            .map_err(|error| match error {
+                WebViewError::CheckRequired | WebViewError::Canceled | WebViewError::Timeout => {
+                    Error::SourceCheckRequired
+                }
+                error => Error::SourceCheck(error),
+            })?;
+        let session = SourceSession::from_webview(self.origin.clone(), checked)?;
+        *self.clearance.lock().expect("NNM-Club clearance lock") = Some(session);
+        Ok(())
     }
 
     pub async fn search(
@@ -38,7 +85,7 @@ impl NnmClub {
             return Ok(Vec::new());
         }
         let query = document::query(query.trim())?;
-        let mut session = SourceSession::anonymous(self.origin.clone())?;
+        let mut session = self.source_session()?;
         let tracker = self.origin.join("/forum/tracker.php").unwrap();
         let taxonomy = self
             .document(tracker.clone(), None, &mut session, browser, choice)
@@ -79,7 +126,7 @@ impl NnmClub {
         choice: BrowserChoice,
     ) -> Result<response::Release> {
         publication.nnmclub_id()?;
-        let mut session = SourceSession::anonymous(self.origin.clone())?;
+        let mut session = self.source_session()?;
         let tracker = self.origin.join("/forum/tracker.php").unwrap();
         let taxonomy = self
             .document(tracker, None, &mut session, browser, choice)
@@ -104,23 +151,16 @@ impl NnmClub {
         browser: Option<&BrowserHandle>,
         choice: BrowserChoice,
     ) -> Result<String> {
-        let first = if let Some(form) = form {
-            self.http
-                .session_form_document(url.clone(), form, session)
-                .await?
-        } else {
-            self.http.session_document(url.clone(), session).await?
-        };
-        match checked_document(first, &url) {
+        match self.fetch_document(&url, form, session).await {
             Err(error @ (Error::Challenge | Error::LoginRequired)) => {
-                self.retry_with_browser(url, form, session, browser, choice, error)
+                self.recover_document(url, form, session, browser, choice, error)
                     .await
             }
             result => result,
         }
     }
 
-    async fn retry_with_browser(
+    async fn recover_document(
         &self,
         url: Url,
         form: Option<&str>,
@@ -129,21 +169,69 @@ impl NnmClub {
         choice: BrowserChoice,
         blocked: Error,
     ) -> Result<String> {
-        let Some(browser) = browser else {
+        if let Some(browser) = browser {
+            let scope = self.origin.join("/forum/tracker.php").unwrap();
+            match browser.session_connected(choice, scope).await {
+                Ok(borrowed) => {
+                    *session = SourceSession::from_browser(self.origin.clone(), borrowed)?;
+                    match self.fetch_document(&url, form, session).await {
+                        Err(Error::Challenge | Error::LoginRequired) => {}
+                        result => return result,
+                    }
+                }
+                Err(
+                    BrowserError::BrowserRequired
+                    | BrowserError::Disconnected
+                    | BrowserError::Stopped,
+                ) => {}
+                Err(BrowserError::ChoiceRequired) => return Err(Error::BrowserChoiceRequired),
+                Err(error) => return Err(Error::BrowserSession(error)),
+            }
+        }
+
+        let Some(webview) = self.webview.get() else {
             return Err(blocked);
         };
-        let scope = self.origin.join("/forum/tracker.php").unwrap();
-        let borrowed = match browser.session_connected(choice, scope).await {
-            Ok(session) => session,
-            Err(
-                BrowserError::BrowserRequired | BrowserError::Disconnected | BrowserError::Stopped,
-            ) => {
-                return Err(blocked);
+        let checked = webview
+            .check(
+                self.origin.join("/forum/tracker.php").unwrap(),
+                WebViewCheck::default(),
+            )
+            .await
+            .map_err(|error| match error {
+                WebViewError::CheckRequired => Error::SourceCheckRequired,
+                error => Error::SourceCheck(error),
+            })?;
+        *session = SourceSession::from_webview(self.origin.clone(), checked)?;
+        match self.fetch_document(&url, form, session).await {
+            Ok(body) => {
+                *self.clearance.lock().expect("NNM-Club clearance lock") = Some(session.clone());
+                Ok(body)
             }
-            Err(BrowserError::ChoiceRequired) => return Err(Error::BrowserChoiceRequired),
-            Err(error) => return Err(Error::BrowserSession(error)),
-        };
-        *session = SourceSession::from_browser(self.origin.clone(), borrowed)?;
+            Err(Error::Challenge | Error::LoginRequired) => Err(Error::SourceCheckRequired),
+            result => result,
+        }
+    }
+
+    fn source_session(&self) -> Result<SourceSession> {
+        if let Some(session) = self
+            .clearance
+            .lock()
+            .expect("NNM-Club clearance lock")
+            .as_ref()
+            .filter(|session| !session.has_expired_cookie())
+        {
+            return Ok(session.clone());
+        }
+        SourceSession::anonymous(self.origin.clone())
+    }
+
+    async fn fetch_document(
+        &self,
+        url: &Url,
+        form: Option<&str>,
+        session: &mut SourceSession,
+    ) -> Result<String> {
         let response = if let Some(form) = form {
             self.http
                 .session_form_document(url.clone(), form, session)
@@ -151,7 +239,7 @@ impl NnmClub {
         } else {
             self.http.session_document(url.clone(), session).await?
         };
-        checked_document(response, &url)
+        checked_document(response, url)
     }
 }
 

@@ -732,7 +732,7 @@ impl ffi::ContentController {
         let Some(failure) = status.settings.failure.clone() else {
             return false;
         };
-        let manual_check = source == Source::RuTracker
+        let manual_check = matches!(source, Source::RuTracker | Source::NnmClub)
             && matches!(
                 failure.reason,
                 SourceFailureReason::LoginRequired | SourceFailureReason::SourceCheckRequired
