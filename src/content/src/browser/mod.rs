@@ -59,7 +59,7 @@ pub enum BrowserError {
     Stopped,
     #[error("The source needs verification")]
     VerificationRequired,
-    #[error("The selected capture expired")]
+    #[error("The selected capture expired. Choose the media again in qcatch.")]
     CaptureExpired,
     #[error("The browser could not resolve this content")]
     SourceUnavailable,
