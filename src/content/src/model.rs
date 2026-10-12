@@ -392,7 +392,7 @@ pub(crate) fn canonical_decimal(value: &str) -> bool {
         .is_ok_and(|id| id != 0 && value == id.to_string())
 }
 
-// Kakuyomu's public work and episode identifiers can exceed u64.
+// Kakuyomu exposes decimal-string identifiers; retain their opaque identity.
 pub(crate) fn canonical_kakuyomu_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 32

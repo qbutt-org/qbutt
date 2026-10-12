@@ -12,6 +12,7 @@ pub mod browser;
 mod error;
 mod fitgirl;
 mod http;
+mod kakuyomu;
 mod library;
 mod mangadex;
 mod mangalib;
@@ -32,6 +33,7 @@ mod yummyanime;
 pub use aniliberty::AniLiberty;
 pub use error::{Error, Result};
 pub use fitgirl::FitGirl;
+pub use kakuyomu::Kakuyomu;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
     ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
