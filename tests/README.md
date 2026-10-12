@@ -281,6 +281,14 @@ within-block offset, finite bounds, atomic failure and immutable retry.
 Require exit zero and the respective `PASS` output. These fixtures do not
 establish QML viewport confirmation or native pointer interaction.
 
+Generate isolated local-book fixtures with
+`python tests/quick-acceptance/local-book-fixtures.py <fixture-directory>`, then
+run `cargo run --manifest-path src/content/Cargo.toml --example local-books --locked -- <fixture-directory>`.
+The fixture opens EPUB, FB2 and TXT, checks spine and section order,
+formatting, embedded images, changed-file identity and unsafe archive rejection.
+Open the same files through the native file dialog in a separate profile to
+confirm rendering and position restoration.
+
 Run `--reader-progress --lang ru` with the same offscreen environment to check
 the native progress bridge without QML acknowledgement. The consumer confirms
 each local page only after `QImageReader` has decoded it. Require exit zero and

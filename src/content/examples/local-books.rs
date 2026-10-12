@@ -61,8 +61,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fragments = LocalBook::open(directory.join("fragments.epub"))?;
     assert_eq!(fragments.chapters.len(), 2);
     assert_eq!(fragments.chapters[1].title, "Closing fragment");
+    let opening = fragments.read_chapter(&fragments.chapter_list()[0].reference)?;
+    assert!(
+        opening
+            .blocks
+            .iter()
+            .any(|block| block.kind == TextBlockKind::Image)
+    );
+    assert!(
+        !opening
+            .blocks
+            .iter()
+            .any(|block| block.plain_text() == "Closing fragment")
+    );
     let closing = fragments.read_chapter(&fragments.chapter_list()[1].reference)?;
-    assert_eq!(closing.assets.len(), 1);
+    assert!(closing.assets.is_empty());
+    assert!(
+        !closing
+            .blocks
+            .iter()
+            .any(|block| block.plain_text() == "Opening fragment")
+    );
     assert_eq!(
         closing.entry_anchor.as_deref(),
         closing
@@ -113,7 +132,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .open(&changed)?
         .write_all(b"changed")?;
     assert!(book.verify().is_err());
-    assert!(book.read_chapter(&book.chapter_list()[0].reference).is_err());
+    assert!(
+        book.read_chapter(&book.chapter_list()[0].reference)
+            .is_err()
+    );
     assert!(LocalBook::open(directory.join("bad-encoding.fb2")).is_err());
 
     println!("PASS local EPUB, FB2, TXT, changed-file and malformed-file checks");

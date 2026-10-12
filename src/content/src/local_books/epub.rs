@@ -62,24 +62,27 @@ impl LocalBook {
                 continue;
             }
             let path = resource.href().path().decode().into_owned();
-            let matching = toc_entries.iter().filter(|(target, _, _)| target == &path);
-            let mut found = false;
-            for (_, anchor, title) in matching {
-                found = true;
+            let matching = toc_entries
+                .iter()
+                .filter(|(target, _, _)| target == &path)
+                .collect::<Vec<_>>();
+            for (index, (_, anchor, title)) in matching.iter().enumerate() {
                 self.chapters.push(LocalBookChapter {
                     id: (self.chapters.len() + 1).to_string(),
                     title: title.clone(),
                     resource: resource.id().to_owned(),
                     anchor: anchor.clone(),
+                    end_anchor: matching.get(index + 1).and_then(|entry| entry.1.clone()),
                 });
             }
-            if !found {
+            if matching.is_empty() {
                 let id = (self.chapters.len() + 1).to_string();
                 self.chapters.push(LocalBookChapter {
                     id: id.clone(),
                     title: format!("Chapter {id}"),
                     resource: resource.id().to_owned(),
                     anchor: None,
+                    end_anchor: None,
                 });
             }
         }
@@ -138,6 +141,7 @@ impl LocalBook {
             &body,
             &mut resolve_image,
             chapter.anchor.as_deref(),
+            chapter.end_anchor.as_deref(),
         )?;
         Ok(chapter)
     }

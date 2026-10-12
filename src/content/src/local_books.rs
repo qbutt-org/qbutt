@@ -36,6 +36,7 @@ pub struct LocalBookChapter {
     pub title: String,
     resource: String,
     anchor: Option<String>,
+    end_anchor: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -90,6 +91,7 @@ impl LocalBook {
                 title: book.title.clone(),
                 resource: String::new(),
                 anchor: None,
+                end_anchor: None,
             }),
         }
         if book.chapters.is_empty() {

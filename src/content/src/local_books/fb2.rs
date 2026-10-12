@@ -53,6 +53,7 @@ impl LocalBook {
                 title: title.trim().chars().take(300).collect(),
                 resource: section.id().get().to_string(),
                 anchor: None,
+                end_anchor: None,
             });
         }
         if self.chapters.is_empty() {
@@ -61,6 +62,7 @@ impl LocalBook {
                 title: self.title.clone(),
                 resource: "body".into(),
                 anchor: None,
+                end_anchor: None,
             });
         }
         Ok(())
@@ -138,7 +140,7 @@ impl LocalBook {
             }))
         };
         let chapter =
-            TextChapter::from_local_html(reference.clone(), &html, &mut resolve_image, None)?;
+            TextChapter::from_local_html(reference.clone(), &html, &mut resolve_image, None, None)?;
         Ok(chapter)
     }
 }

@@ -112,6 +112,7 @@ impl TextChapter {
         body: &str,
         resolve_image: &mut dyn FnMut(&str) -> Result<Option<TextImageAsset>>,
         entry_fragment: Option<&str>,
+        end_fragment: Option<&str>,
     ) -> Result<Self> {
         reference.validate()?;
         if body.len() > MAX_HTML_BYTES {
@@ -121,15 +122,40 @@ impl TextChapter {
         let mut builder = ChapterBuilder {
             image_resolver: Some(resolve_image),
             entry_fragment,
+            end_fragment,
             ..ChapterBuilder::default()
         };
         builder.visit(fragment.root_element(), false, false, 0)?;
         builder.finish(TextBlockKind::Paragraph)?;
-        let entry_index = builder.entry_index;
-        let mut chapter = Self::from_blocks_with_assets(reference, builder.blocks, builder.assets)?;
-        chapter.entry_anchor = entry_index
-            .and_then(|index| chapter.blocks.get(index))
-            .map(|block| block.id.clone());
+        let total = builder.blocks.len();
+        let entry_found = builder.entry_index.is_some();
+        let start = builder.entry_index.unwrap_or(0);
+        let end = builder.end_index.unwrap_or(total);
+        let range = if (entry_fragment.is_some() && !entry_found) || end <= start {
+            0..total
+        } else {
+            start..end
+        };
+        let blocks = builder.blocks.drain(range).collect::<Vec<_>>();
+        let image_ids = blocks
+            .iter()
+            .flat_map(|block| &block.spans)
+            .filter_map(|span| match span {
+                TextSpan::Image { asset_id, .. } => Some(asset_id.as_str()),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        let assets = builder
+            .assets
+            .into_iter()
+            .filter(|asset| image_ids.contains(asset.id.as_str()))
+            .collect();
+        let mut chapter = Self::from_blocks_with_assets(reference, blocks, assets)?;
+        chapter.entry_anchor = if entry_found {
+            chapter.blocks.first().map(|block| block.id.clone())
+        } else {
+            None
+        };
         Ok(chapter)
     }
 
@@ -275,6 +301,8 @@ struct ChapterBuilder<'a> {
     assets: Vec<TextImageAsset>,
     entry_fragment: Option<&'a str>,
     entry_index: Option<usize>,
+    end_fragment: Option<&'a str>,
+    end_index: Option<usize>,
     image_resolver: Option<&'a mut dyn FnMut(&str) -> Result<Option<TextImageAsset>>>,
     asset_bytes: usize,
     text_bytes: usize,
@@ -391,6 +419,13 @@ impl ChapterBuilder<'_> {
                 .is_some_and(|fragment| element.value().attr("id") == Some(fragment))
         {
             self.entry_index = Some(self.blocks.len());
+        }
+        if self.end_index.is_none()
+            && self
+                .end_fragment
+                .is_some_and(|fragment| element.value().attr("id") == Some(fragment))
+        {
+            self.end_index = Some(self.blocks.len());
         }
         let bold = bold || matches!(name, "b" | "strong");
         let italic = italic || matches!(name, "i" | "em");
