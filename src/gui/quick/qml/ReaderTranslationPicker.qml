@@ -115,8 +115,8 @@ ModalPicker {
                 Layout.preferredWidth: 190
                 theme: root.theme
                 enabled: !root.backend.readerTranslationOptionsLoading
-                    && !root.backend.readerTranslationOptionsError
-                    && root.backend.readerTranslationModelCount > 0
+                    && (root.backend.readerTranslationModelCount > 0
+                        || root.backend.readerTranslationModel !== "")
                 Accessible.name: qsTr("Codex model")
                 textRole: "title"
                 valueRole: "id"

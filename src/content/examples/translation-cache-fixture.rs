@@ -112,7 +112,11 @@ fn main() -> Result<()> {
             .ok_or("automatic selection missing")?;
         assert!(!automatic.explicit);
         let offline_key = cache_key(&original, "ru", &automatic.model, &automatic.effort, 0)?;
-        assert!(library.cached_translation::<TextChapter>(&offline_key)?.is_some());
+        assert!(
+            library
+                .cached_translation::<TextChapter>(&offline_key)?
+                .is_some()
+        );
 
         let manga = ChapterRef {
             variant: VariantRef {

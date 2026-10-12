@@ -48,7 +48,7 @@ impl ReaderSettings {
             && (12..=36).contains(&self.font_size)
             && (110..=200).contains(&self.line_height)
             && (480..=1040).contains(&self.column_width)
-            && crate::model::canonical_language(&self.translation_language)
+            && matches!(self.translation_language.as_str(), "ru" | "en")
     }
 }
 

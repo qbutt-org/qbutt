@@ -142,10 +142,7 @@ pub async fn complete(
     let prepare = async {
         client.prepare(&executable, workspace.path()).await?;
         let (model, effort) = client
-            .select_model(
-                request.model.as_deref(),
-                request.effort.as_deref(),
-            )
+            .select_model(request.model.as_deref(), request.effort.as_deref())
             .await?;
         let thread = client
             .start_thread(&request, workspace.path(), &model)

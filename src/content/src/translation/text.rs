@@ -148,10 +148,7 @@ pub async fn translate_chapter(
         .map_err(|_| CodexError::Protocol)?;
     let (model, effort) = match (&options.model, &options.effort) {
         (Some(model), Some(effort)) => (model.clone(), effort.clone()),
-        _ => {
-            codex::resolve_selection(options.model.as_deref(), options.effort.as_deref())
-                .await?
-        }
+        _ => codex::resolve_selection(options.model.as_deref(), options.effort.as_deref()).await?,
     };
 
     let adapter = TextSourceAdapter(source);
