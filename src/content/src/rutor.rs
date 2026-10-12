@@ -29,11 +29,8 @@ impl RuTor {
     /// The caller owns fanout, cancellation and publication of partial results.
     pub async fn search(&self, query: &str, category: Category) -> Result<Vec<Work>> {
         let query = query.trim();
-        if query.is_empty()
-            || matches!(query, "." | "..")
-            || query.chars().count() > 500
-            || query.chars().any(char::is_control)
-        {
+        // The site applies its minimum to UTF-8 bytes, not Unicode characters.
+        if query.len() < 3 || query.chars().count() > 500 || query.chars().any(char::is_control) {
             return Err(Error::InvalidQuery);
         }
         let routes: &[u8] = match category {

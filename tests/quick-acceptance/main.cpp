@@ -20,6 +20,7 @@
 #include <QSet>
 #include <QStandardPaths>
 #include <QStatusBar>
+#include <QStringList>
 #include <QStyleHints>
 #include <QTemporaryDir>
 #include <QThread>
@@ -34,6 +35,7 @@
 #include "reader-progress.h"
 #include "reader-settings.h"
 #include "reader.h"
+#include "rutor.h"
 #include "worklist.h"
 
 #include "gui/quick/contentview.h"
@@ -191,7 +193,7 @@ namespace
         require(controller->property("errorText").toString().isEmpty(),
             u"Search failed: %1"_s.arg(controller->property("errorText").toString()));
         require(!wrongThread.load(), u"Model mutation was emitted outside the GUI thread"_s);
-        require((works->rowCount() > 0) && (works->rowCount() <= 500), u"Search returned an invalid row count"_s);
+        require((works->rowCount() > 0) && (works->rowCount() <= 5'550), u"Search returned an invalid row count"_s);
         require(!emptyResults->isVisible()
             && (controller->property("searchState").value<Qbutt::Search::SearchState>() == Qbutt::Search::SearchState::Succeeded),
             u"Completed search did not publish its successful outcome"_s);
@@ -210,7 +212,9 @@ namespace
             const QString source = value(works, row, "source");
             const QString category = value(works, row, "category");
             require(((source == u"AniLiberty") && (category == u"anime"))
-                || ((source == u"MangaDex") && (category == u"manga")),
+                || ((source == u"MangaDex") && (category == u"manga"))
+                || ((source == u"RuTor") && QStringList {u"movies"_s, u"tv"_s, u"anime"_s,
+                    u"games"_s, u"software"_s, u"books"_s}.contains(category)),
                 u"Incorrect work source or category role"_s);
             if (source == u"AniLiberty")
             {
@@ -482,6 +486,7 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     parser.addOption({u"exercise"_s, u"Run the bounded live metadata acceptance scenario and exit."_s});
     parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
+    parser.addOption({u"rutor"_s, u"Run native RuTor search, exact resolution and library persistence, then exit."_s});
     parser.addOption({u"history"_s, u"Run confirmed reading history and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
     parser.addOption({u"reader-progress"_s, u"Run exact reader progress and SQLite fault scenarios, then exit."_s});
@@ -505,11 +510,13 @@ int main(int argc, char *argv[])
         && !parser.isSet(u"reader"_s) && !parser.isSet(u"worklist"_s));
 
     if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
-        || parser.isSet(u"reader-settings"_s))
+        || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s))
     {
         try
         {
-            if (parser.isSet(u"reader-settings"_s))
+            if (parser.isSet(u"rutor"_s))
+                exerciseRuTor();
+            else if (parser.isSet(u"reader-settings"_s))
                 exerciseReaderSettings(parser.value(u"profile"_s), parser.value(u"reader-settings-phase"_s));
             else if (parser.isSet(u"history"_s))
                 exerciseHistory();

@@ -151,6 +151,7 @@ pub fn work_id(reference: &PublicationRef) -> String {
     match reference.source {
         Source::AniLiberty => format!("aniliberty:{}", reference.id),
         Source::MangaDex => format!("mangadex:{}", reference.id),
+        Source::RuTor => format!("rutor:{}", reference.id),
     }
 }
 
@@ -158,6 +159,7 @@ pub fn variant_id(reference: &VariantRef) -> String {
     let publication = work_id(&reference.publication);
     match &reference.selector {
         VariantSelector::Torrent { id } => format!("{publication}:torrent:{id}"),
+        VariantSelector::TorrentHash { info_hash } => format!("{publication}:torrent:{info_hash}"),
         VariantSelector::Episode { id, quality } => {
             format!("{publication}:episode:{id}:{}", quality.height())
         }
@@ -165,6 +167,26 @@ pub fn variant_id(reference: &VariantRef) -> String {
         VariantSelector::MangaTranslation { language, groups } => {
             format!("{publication}:translation:{language}:{}", groups.join("+"))
         }
+    }
+}
+
+pub fn category_key(category: Category) -> &'static str {
+    match category {
+        Category::Anime => "anime",
+        Category::Manga => "manga",
+        Category::Movies => "movies",
+        Category::Tv => "tv",
+        Category::Games => "games",
+        Category::Software => "software",
+        Category::Books => "books",
+    }
+}
+
+fn source_label(source: Source) -> &'static str {
+    match source {
+        Source::AniLiberty => "AniLiberty",
+        Source::MangaDex => "MangaDex",
+        Source::RuTor => "RuTor",
     }
 }
 
@@ -216,14 +238,8 @@ impl ffi::WorkModel {
         let text = match role - USER_ROLE {
             0 => work_id(&work.reference),
             1 => work.title.clone(),
-            2 => match work.reference.source {
-                Source::AniLiberty => "AniLiberty".into(),
-                Source::MangaDex => "MangaDex".into(),
-            },
-            3 => match work.category {
-                Category::Anime => "anime".into(),
-                Category::Manga => "manga".into(),
-            },
+            2 => source_label(work.reference.source).into(),
+            3 => category_key(work.category).into(),
             4 => work.year.map(|year| year.to_string()).unwrap_or_default(),
             _ => return QVariant::default(),
         };
@@ -354,10 +370,7 @@ impl ffi::VariantModel {
                 .title
                 .clone()
                 .unwrap_or_else(|| self.work_title.clone()),
-            2 => match variant.reference.publication.source {
-                Source::AniLiberty => "AniLiberty".into(),
-                Source::MangaDex => "MangaDex".into(),
-            },
+            2 => source_label(variant.reference.publication.source).into(),
             3 => match variant.transport {
                 Transport::Torrent => "torrent".into(),
                 Transport::Video => "video".into(),

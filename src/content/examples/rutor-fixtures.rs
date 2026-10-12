@@ -273,7 +273,18 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let before_unsupported = fixture.hits.load(Ordering::SeqCst);
     assert!(provider.search("legal", Category::Manga).await?.is_empty());
     assert_eq!(fixture.hits.load(Ordering::SeqCst), before_unsupported);
-    for query in ["", ".", "..", "\n", "bad\u{0}", &"x".repeat(501)] {
+    let before_invalid = fixture.hits.load(Ordering::SeqCst);
+    for query in [
+        "",
+        ".",
+        "..",
+        "a",
+        "ab",
+        "я",
+        "\n",
+        "bad\u{0}",
+        &"x".repeat(501),
+    ] {
         assert!(
             matches!(
                 provider.search(query, Category::Software).await,
@@ -281,6 +292,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             ),
             "invalid query was accepted: {query}"
         );
+    }
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), before_invalid);
+    for query in ["abc", "яя", "яяя"] {
+        assert_eq!(provider.search(query, Category::Software).await?.len(), 1);
     }
     for fault in [
         "json",

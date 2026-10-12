@@ -143,7 +143,17 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
     }
     if !matches!(
         (work.reference.source, work.category),
-        (Source::AniLiberty, Category::Anime) | (Source::MangaDex, Category::Manga)
+        (Source::AniLiberty, Category::Anime)
+            | (Source::MangaDex, Category::Manga)
+            | (
+                Source::RuTor,
+                Category::Movies
+                    | Category::Tv
+                    | Category::Anime
+                    | Category::Games
+                    | Category::Software
+                    | Category::Books
+            )
     ) {
         return Err("the work category does not match its source");
     }
@@ -170,6 +180,10 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
             (Source::AniLiberty, _) => variant.transport == Transport::Video,
             (Source::MangaDex, VariantSelector::MangaTranslation { .. }) => {
                 variant.transport == Transport::Manga
+            }
+            (Source::RuTor, VariantSelector::TorrentHash { info_hash }) => {
+                variant.transport == Transport::Torrent
+                    && variant.info_hash.as_deref() == Some(info_hash)
             }
             _ => false,
         };

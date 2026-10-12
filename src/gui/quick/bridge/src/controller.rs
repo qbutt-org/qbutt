@@ -6,7 +6,7 @@ use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
-    AniLiberty, MangaDex, PublicationRef, ResolvedContent, Source, VariantPreferences, Work,
+    AniLiberty, MangaDex, PublicationRef, ResolvedContent, RuTor, Source, VariantPreferences, Work,
 };
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
@@ -14,6 +14,7 @@ use tokio::task::JoinHandle;
 mod library;
 mod reader;
 mod reader_settings;
+mod search;
 
 use crate::models::{self, variant_id, work_id};
 use library::{LibraryUpdate, LibraryWorker};
@@ -327,7 +328,7 @@ pub mod ffi {
             selected_work_category,
             cxx_name = "selectedWorkCategory",
             READ = selected_work_category,
-            NOTIFY = selected_work_id_changed
+            NOTIFY
         )]
         #[qproperty(
             QString,
@@ -472,8 +473,9 @@ impl Pending {
 
 pub struct Services {
     runtime: Runtime,
-    source: Arc<AniLiberty>,
+    anime: Arc<AniLiberty>,
     manga: Arc<MangaDex>,
+    rutor: Arc<RuTor>,
     language: String,
 }
 
@@ -516,8 +518,9 @@ impl Default for ContentControllerRust {
     fn default() -> Self {
         let services = AniLiberty::new()
             .map_err(|error| error.to_string())
-            .and_then(|source| {
+            .and_then(|anime| {
                 let manga = MangaDex::new().map_err(|error| error.to_string())?;
+                let rutor = RuTor::new().map_err(|error| error.to_string())?;
                 Builder::new_multi_thread()
                     .worker_threads(2)
                     .enable_all()
@@ -525,8 +528,9 @@ impl Default for ContentControllerRust {
                     .map_err(|error| error.to_string())
                     .map(|runtime| Services {
                         runtime,
-                        source: Arc::new(source),
+                        anime: Arc::new(anime),
                         manga: Arc::new(manga),
+                        rutor: Arc::new(rutor),
                         language: ffi::content_language().to_string(),
                     })
             });
@@ -646,12 +650,12 @@ impl ffi::ContentController {
     }
 
     fn selected_work_category(&self) -> QString {
-        let category = self.selected_work.as_ref().map(|work| work.category);
-        QString::from(match category {
-            Some(qbutt_content::Category::Anime) => "anime",
-            Some(qbutt_content::Category::Manga) => "manga",
-            None => "",
-        })
+        let category = self
+            .selected_work
+            .as_ref()
+            .map(|work| models::category_key(work.category))
+            .unwrap_or_default();
+        QString::from(category)
     }
 
     fn selected_variant_kind(&self) -> QString {
@@ -665,135 +669,6 @@ impl ffi::ContentController {
             Some(qbutt_content::Transport::Manga) => "manga",
             None => "",
         })
-    }
-
-    pub fn search(mut self: Pin<&mut Self>, query: QString) {
-        let query = query.to_string().trim().to_owned();
-        self.as_mut().rust_mut().search.cancel();
-        let generation = self.search.generation;
-        let previous_selection_generation = self.inspection.generation;
-        let previous_resolution_generation = self.resolution.generation;
-        self.as_mut().set_search_state(ffi::SearchState::Idle);
-        if self.search.generation != generation
-            || self.inspection.generation != previous_selection_generation
-            || self.resolution.generation != previous_resolution_generation
-        {
-            return;
-        }
-        let (selection_generation, resolution_generation) = self.as_mut().cancel_detail();
-        if self.search.generation != generation
-            || self.inspection.generation != selection_generation
-            || self.resolution.generation != resolution_generation
-        {
-            return;
-        }
-
-        self.as_mut().rust_mut().works.pin_mut().clear();
-        if self.search.generation != generation
-            || self.inspection.generation != selection_generation
-            || self.resolution.generation != resolution_generation
-        {
-            return;
-        }
-        self.as_mut().rust_mut().variants.pin_mut().clear();
-        if self.search.generation != generation
-            || self.inspection.generation != selection_generation
-            || self.resolution.generation != resolution_generation
-        {
-            return;
-        }
-        if !self.as_mut().set_selection(None, selection_generation)
-            || self.search.generation != generation
-        {
-            return;
-        }
-        self.as_mut().set_error_text(QString::default());
-        if self.search.generation != generation {
-            return;
-        }
-        if query.is_empty() {
-            return;
-        }
-        if self.services.is_none() {
-            self.as_mut().set_error_text(ffi::content_error(0));
-            if self.search.generation == generation {
-                self.as_mut().set_search_state(ffi::SearchState::Failed);
-            }
-            return;
-        }
-        self.as_mut().set_search_state(ffi::SearchState::Searching);
-        if self.search.generation != generation {
-            return;
-        }
-
-        let qt_thread = self.qt_thread();
-        let services = self.services.as_ref().unwrap();
-        let source = Arc::clone(&services.source);
-        let manga = Arc::clone(&services.manga);
-        let language = services.language.clone();
-        let task = services.runtime.spawn(async move {
-            let anime_request = source.search(&query);
-            let manga_request = manga.search(&query, &language);
-            tokio::pin!(anime_request, manga_request);
-            let mut anime_finished = false;
-            let mut manga_finished = false;
-            let mut any_succeeded = false;
-            for _ in 0..2 {
-                let (source, result) = tokio::select! {
-                    result = &mut anime_request, if !anime_finished => {
-                        anime_finished = true;
-                        (Source::AniLiberty, result)
-                    }
-                    result = &mut manga_request, if !manga_finished => {
-                        manga_finished = true;
-                        (Source::MangaDex, result)
-                    }
-                };
-                any_succeeded |= result.is_ok();
-                let _ = qt_thread.queue(move |mut controller| {
-                    if controller.search.generation != generation {
-                        return;
-                    }
-                    match result {
-                        Ok(works) => {
-                            for work in works {
-                                if controller.search.generation != generation {
-                                    return;
-                                }
-                                controller.as_mut().rust_mut().works.pin_mut().update(work);
-                            }
-                        }
-                        Err(error) => ffi::log_content_error(
-                            &QString::from(format!("search {source:?}")),
-                            &QString::from(error.to_string()),
-                        ),
-                    }
-                });
-            }
-            let _ = qt_thread.queue(move |mut controller| {
-                if controller.search.generation != generation {
-                    return;
-                }
-                controller.as_mut().rust_mut().search.task = None;
-                let state = if any_succeeded {
-                    ffi::SearchState::Succeeded
-                } else {
-                    controller.as_mut().set_error_text(ffi::content_error(1));
-                    ffi::SearchState::Failed
-                };
-                if controller.search.generation == generation {
-                    controller.as_mut().set_search_state(state);
-                }
-            });
-        });
-        self.as_mut().rust_mut().search.task = Some(task);
-    }
-
-    pub fn cancel_search(mut self: Pin<&mut Self>) {
-        self.as_mut().rust_mut().search.cancel();
-        if self.is_searching() {
-            self.as_mut().set_search_state(ffi::SearchState::Cancelled);
-        }
     }
 
     fn cancel_detail(mut self: Pin<&mut Self>) -> (u64, u64) {
@@ -839,10 +714,12 @@ impl ffi::ContentController {
             .map(variant_id)
             .map(QString::from)
             .unwrap_or_default();
-        let (id_changed, title_changed, description_changed, variant_changed) = {
+        let (id_changed, category_changed, title_changed, description_changed, variant_changed) = {
             let mut state = self.as_mut().rust_mut();
             let changed = (
                 state.selected_work_id != id,
+                state.selected_work.as_ref().map(|work| work.category)
+                    != work.map(|work| work.category),
                 state.selected_work_title != title,
                 state.selected_work_description != description,
                 state.selected_variant_id != variant_id,
@@ -856,6 +733,12 @@ impl ffi::ContentController {
         };
         if id_changed {
             self.as_mut().selected_work_id_changed();
+        }
+        if self.inspection.generation != generation {
+            return false;
+        }
+        if category_changed {
+            self.as_mut().selected_work_category_changed();
         }
         if self.inspection.generation != generation {
             return false;
@@ -951,13 +834,15 @@ impl ffi::ContentController {
 
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
-        let source = Arc::clone(&services.source);
+        let anime = Arc::clone(&services.anime);
         let manga = Arc::clone(&services.manga);
+        let rutor = Arc::clone(&services.rutor);
         let language = services.language.clone();
         let task = services.runtime.spawn(async move {
             let result = match work.reference.source {
-                Source::AniLiberty => source.inspect(&work.reference).await,
+                Source::AniLiberty => anime.inspect(&work.reference).await,
                 Source::MangaDex => manga.inspect(&work.reference, &language).await,
+                Source::RuTor => rutor.inspect(&work.reference).await,
             };
             let _ = qt_thread.queue(move |mut controller| {
                 if controller.inspection.generation != generation {
@@ -1028,9 +913,14 @@ impl ffi::ContentController {
         }
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
-        let source = Arc::clone(&services.source);
+        let anime = Arc::clone(&services.anime);
+        let rutor = Arc::clone(&services.rutor);
         let task = services.runtime.spawn(async move {
-            let result = source.resolve(&reference).await;
+            let result = match reference.publication.source {
+                Source::AniLiberty => anime.resolve(&reference).await,
+                Source::RuTor => rutor.resolve(&reference).await,
+                Source::MangaDex => Err(qbutt_content::Error::InvalidReference),
+            };
             let _ = qt_thread.queue(move |mut controller| {
                 if controller.resolution.generation != generation {
                     return;
