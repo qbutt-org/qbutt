@@ -9,7 +9,7 @@ use qbutt_content::translation::context_tools::{
     ChapterExcerpt, WorkChapterSource, WorkContextTools, tool_definitions,
 };
 use qbutt_content::translation::manga::{self, PageJob};
-use qbutt_content::{Chapter, ChapterRef, LibraryError};
+use qbutt_content::{Chapter, ChapterRef, LibraryError, TranslationSelection};
 use tokio::sync::{Semaphore, watch};
 
 use super::super::catalog::Catalog;
@@ -127,9 +127,47 @@ async fn translate(
         .await
         .map_err(TranslationFailure::Cache)?;
     let input = manga::input_image(bytes).map_err(TranslationFailure::Codex)?;
-    let (model, effort) = codex::resolve_selection(None, None, false)
+    let saved = library
+        .translation_selection(language.clone())
         .await
-        .map_err(TranslationFailure::Codex)?;
+        .map_err(TranslationFailure::Library)?;
+    if let Some(selection) = &saved {
+        let key = manga::cache_key(
+            chapter.clone(),
+            page as u32,
+            &input,
+            &language,
+            &selection.model,
+            &selection.effort,
+            0,
+        );
+        let lookup = library
+            .manga_lookup(key)
+            .await
+            .map_err(TranslationFailure::Library)?;
+        if let Some(regions) = lookup.cached {
+            let layers =
+                manga::render_cached(input, regions, Arc::new(QtMangaRenderer), cancelled.clone())
+                    .await
+                    .map_err(TranslationFailure::Codex)?;
+            if *cancelled.borrow() {
+                return Err(TranslationFailure::Codex(CodexError::Cancelled));
+            }
+            let page = CachedPage::translated(original, layers.result_png, byte_limit)
+                .await
+                .map_err(TranslationFailure::Cache)?;
+            return Ok(Arc::new(page));
+        }
+    }
+
+    let explicit = saved.as_ref().filter(|selection| selection.explicit);
+    let (model, effort) = codex::resolve_selection(
+        explicit.map(|selection| selection.model.as_str()),
+        explicit.map(|selection| selection.effort.as_str()),
+        false,
+    )
+    .await
+    .map_err(TranslationFailure::Codex)?;
     let key = manga::cache_key(
         chapter.clone(),
         page as u32,
@@ -147,9 +185,23 @@ async fn translate(
         return Err(TranslationFailure::Codex(CodexError::Cancelled));
     }
     let layers = if let Some(regions) = lookup.cached {
-        manga::render_cached(input, regions, Arc::new(QtMangaRenderer), cancelled.clone())
+        let layers =
+            manga::render_cached(input, regions, Arc::new(QtMangaRenderer), cancelled.clone())
+                .await
+                .map_err(TranslationFailure::Codex)?;
+        if *cancelled.borrow() {
+            return Err(TranslationFailure::Codex(CodexError::Cancelled));
+        }
+        library
+            .remember_translation_selection(TranslationSelection {
+                target_language: language,
+                model,
+                effort,
+                explicit: explicit.is_some(),
+            })
             .await
-            .map_err(TranslationFailure::Codex)?
+            .map_err(TranslationFailure::Library)?;
+        layers
     } else {
         let source = MangaChapterSource { catalog };
         let mut tools = WorkContextTools::new(
