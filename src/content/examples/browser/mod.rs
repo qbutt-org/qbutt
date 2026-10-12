@@ -1,4 +1,5 @@
 mod commands;
+mod connected_only;
 mod fixture;
 mod lifecycle;
 mod native_host;
@@ -16,6 +17,7 @@ use serde_json::json;
 use tokio::time::timeout;
 
 use commands::command_replies;
+use connected_only::connected_only;
 use fixture::{
     FixtureResult, assert_error, closed, connect, cookies, exchange, extension, hello, read,
     request, wait_status, write_fragmented,
@@ -135,6 +137,7 @@ pub async fn run() -> FixtureResult {
     );
 
     connection_grace(&discovery).await?;
+    connected_only(&discovery).await?;
     active_faults(&discovery).await?;
     stale_discovery(&discovery).await?;
     let broker = BrowserBroker::start(discovery.clone()).await?;
@@ -159,7 +162,7 @@ pub async fn run() -> FixtureResult {
     assert!(!discovery.exists());
     fs::remove_dir(&directory)?;
     println!(
-        "PASS browser_bridge=ok real_windows_pipe=ok private_acl=ok framing=ok exact_selection=ok connection_identity=ok cancellation=ok batch_cancel=ok connection_grace=ok static_errors=ok bounded_pending=ok shutdown=ok native_host={native_host}"
+        "PASS browser_bridge=ok real_windows_pipe=ok private_acl=ok framing=ok exact_selection=ok connection_identity=ok cancellation=ok batch_cancel=ok connection_grace=ok connected_only=ok static_errors=ok bounded_pending=ok shutdown=ok native_host={native_host}"
     );
     Ok(())
 }
