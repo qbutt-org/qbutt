@@ -6,6 +6,9 @@ mod model;
 pub use model::*;
 pub use qbutt_content::{Error, Result};
 
+#[path = "../src/torrent.rs"]
+mod torrent;
+
 #[allow(dead_code)]
 mod http {
     include!("../src/http.rs");

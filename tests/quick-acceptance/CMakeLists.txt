@@ -34,8 +34,8 @@ qt_add_executable(qbutt-quick-acceptance
     reader-settings.h
     reader-settings-ui.cpp
     reader-settings-ui.h
-    rutor.cpp
-    rutor.h
+    torrent-source.cpp
+    torrent-source.h
     sources.cpp
     sources.h
     work-filter.cpp

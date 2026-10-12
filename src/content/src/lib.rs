@@ -12,8 +12,10 @@ mod library;
 mod mangadex;
 mod media;
 mod model;
+mod nyaa;
 mod rutor;
 mod sources;
+mod torrent;
 
 pub use aniliberty::AniLiberty;
 pub use library::{
@@ -23,6 +25,7 @@ pub use library::{
 pub use mangadex::MangaDex;
 pub use media::{MediaGateway, MediaGatewayError};
 pub use model::*;
+pub use nyaa::Nyaa;
 pub use rutor::RuTor;
 pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};
 

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
-    AniLiberty, LibraryResult, MangaDex, ResolvedContent, RuTor, Source, SourceFailure,
+    AniLiberty, LibraryResult, MangaDex, Nyaa, ResolvedContent, RuTor, Source, SourceFailure,
     SourceFailureReason, SourceOperation, SourceSettings, Work,
 };
 
@@ -181,6 +181,7 @@ pub async fn execute_operation(
     anime: Arc<AniLiberty>,
     manga: Arc<MangaDex>,
     rutor: Arc<RuTor>,
+    nyaa: Arc<Nyaa>,
 ) -> qbutt_content::Result<SourceResponse> {
     operation.validate()?;
     match operation {
@@ -194,6 +195,7 @@ pub async fn execute_operation(
                 Source::AniLiberty => anime.search(query).await,
                 Source::MangaDex => manga.search(query, language.as_deref().unwrap()).await,
                 Source::RuTor => rutor.search(query, *category).await,
+                Source::Nyaa => nyaa.search(query, *category).await,
             }?;
             Ok(SourceResponse::Search(works))
         }
@@ -205,6 +207,7 @@ pub async fn execute_operation(
                 Source::AniLiberty => anime.inspect(reference).await,
                 Source::MangaDex => manga.inspect(reference, language.as_deref().unwrap()).await,
                 Source::RuTor => rutor.inspect(reference).await,
+                Source::Nyaa => nyaa.inspect(reference).await,
             }?;
             Ok(SourceResponse::Inspect(work))
         }
@@ -212,6 +215,7 @@ pub async fn execute_operation(
             let resolved = match reference.publication.source {
                 Source::AniLiberty => anime.resolve(reference).await,
                 Source::RuTor => rutor.resolve(reference).await,
+                Source::Nyaa => nyaa.resolve(reference).await,
                 Source::MangaDex => Err(qbutt_content::Error::InvalidReference),
             }?;
             Ok(SourceResponse::Resolve(resolved))
@@ -625,12 +629,13 @@ impl ffi::ContentController {
         let anime = Arc::clone(&services.anime);
         let manga = Arc::clone(&services.manga);
         let rutor = Arc::clone(&services.rutor);
+        let nyaa = Arc::clone(&services.nyaa);
         let thread = self.qt_thread();
         let search_generation = self.search.generation;
         let inspection_generation = self.inspection.generation;
         let retry_generation = status.retry.generation;
         let task = services.runtime.spawn(async move {
-            let result = execute_operation(&request.operation, anime, manga, rutor).await;
+            let result = execute_operation(&request.operation, anime, manga, rutor, nyaa).await;
             let _ = thread.queue(move |mut controller| {
                 if !controller.source_request_current(&request)
                     || controller.source_status.status(source).retry.generation != retry_generation

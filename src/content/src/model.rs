@@ -9,6 +9,7 @@ pub enum Source {
     AniLiberty,
     MangaDex,
     RuTor,
+    Nyaa,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -23,6 +24,7 @@ impl PublicationRef {
         match self.source {
             Source::AniLiberty => self.aniliberty_id().map(|_| ()),
             Source::RuTor => self.rutor_id().map(|_| ()),
+            Source::Nyaa => self.nyaa_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
             Source::MangaDex => Err(crate::Error::InvalidReference),
         }
@@ -35,6 +37,10 @@ impl PublicationRef {
 
     pub(crate) fn rutor_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::RuTor)
+    }
+
+    pub(crate) fn nyaa_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::Nyaa)
     }
 
     fn decimal_id(&self, source: Source) -> crate::Result<u64> {
@@ -138,6 +144,7 @@ impl VariantRef {
                 | (Source::AniLiberty, VariantSelector::Rutube { .. })
                 | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
                 | (Source::RuTor, VariantSelector::TorrentHash { .. })
+                | (Source::Nyaa, VariantSelector::TorrentHash { .. })
         );
         if matches_source {
             Ok(())

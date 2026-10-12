@@ -5,7 +5,7 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
-use qbutt_content::{AniLiberty, MangaDex, PublicationRef, RuTor, VariantPreferences, Work};
+use qbutt_content::{AniLiberty, MangaDex, Nyaa, PublicationRef, RuTor, VariantPreferences, Work};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
@@ -617,6 +617,7 @@ pub struct Services {
     anime: Arc<AniLiberty>,
     manga: Arc<MangaDex>,
     rutor: Arc<RuTor>,
+    nyaa: Arc<Nyaa>,
     language: String,
     reader_load: Arc<tokio::sync::Semaphore>,
     reader_bytes: Arc<tokio::sync::Semaphore>,
@@ -668,6 +669,7 @@ impl Default for ContentControllerRust {
             .and_then(|anime| {
                 let manga = MangaDex::new().map_err(|error| error.to_string())?;
                 let rutor = RuTor::new().map_err(|error| error.to_string())?;
+                let nyaa = Nyaa::new().map_err(|error| error.to_string())?;
                 Builder::new_multi_thread()
                     .worker_threads(2)
                     .enable_all()
@@ -678,6 +680,7 @@ impl Default for ContentControllerRust {
                         anime: Arc::new(anime),
                         manga: Arc::new(manga),
                         rutor: Arc::new(rutor),
+                        nyaa: Arc::new(nyaa),
                         language: ffi::content_language().to_string(),
                         reader_load: Arc::new(tokio::sync::Semaphore::new(1)),
                         reader_bytes: Arc::new(tokio::sync::Semaphore::new(96 * 1024 * 1024)),

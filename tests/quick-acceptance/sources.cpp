@@ -19,6 +19,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QStringList>
 #include <QTemporaryDir>
 #include <QThreadPool>
 #include <QTimer>
@@ -149,8 +150,14 @@ void exerciseSources()
     });
 
     auto controller = std::make_unique<Qbutt::ContentController>();
+    auto *catalog = model(*controller, "sources");
+    const int sourceIdRole = catalog->roleNames().key("sourceId", -1);
+    require(sourceIdRole >= 0, u"Source identity role is missing"_s);
+    QStringList sourceIds;
+    for (int row = 0; row < catalog->rowCount(); ++row)
+        sourceIds.append(catalog->data(catalog->index(row, 0), sourceIdRole).toString());
     require(state(*controller) == Qbutt::Sources::SettingsState::Ready
-        && (model(*controller, "sources")->rowCount() == 3), u"Ephemeral source catalog is not ready"_s);
+        && !sourceIds.isEmpty(), u"Ephemeral source catalog is not ready"_s);
     bool reenteredInit = false;
     QObject initObserver;
     const auto initConnection = QObject::connect(controller.get(), &Qbutt::ContentController::sourcesChanged, &initObserver, [&]
@@ -169,7 +176,7 @@ void exerciseSources()
     QObject::disconnect(initConnection);
     require(reenteredInit && (controller->property("libraryState").value<Qbutt::Library::LibraryState>() == Qbutt::Library::LibraryState::Ready),
         u"Reentrant initialization replaced the owned profile/worker"_s);
-    for (const QString &id : {u"aniliberty"_s, u"mangadex"_s, u"rutor"_s})
+    for (const QString &id : sourceIds)
         require(controller->setSourceEnabled(id, false), u"Source disable rejected"_s);
     saved(*controller);
     controller.reset();
@@ -275,7 +282,7 @@ void exerciseSources()
     require(controller->retrySourceSettings(), u"Source snapshot retry rejected"_s);
     saved(*controller);
     require(state(*controller) == Qbutt::Sources::SettingsState::Ready
-        && (model(*controller, "sources")->rowCount() == 3), u"Source snapshot did not recover"_s);
+        && (model(*controller, "sources")->rowCount() == sourceIds.size()), u"Source snapshot did not recover"_s);
     controller.reset();
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Snapshot retry connection did not drain"_s);
 

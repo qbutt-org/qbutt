@@ -37,8 +37,8 @@
 #include "reader-progress.h"
 #include "reader-settings.h"
 #include "reader.h"
-#include "rutor.h"
 #include "sources.h"
+#include "torrent-source.h"
 #include "work-filter.h"
 #include "worklist.h"
 
@@ -498,6 +498,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
     parser.addOption({u"playback"_s, u"Run direct-video launch tokens, confirmed history and SQLite faults, then exit."_s});
     parser.addOption({u"rutor"_s, u"Run native RuTor search, exact resolution and library persistence, then exit."_s});
+    parser.addOption({u"nyaa"_s, u"Run native Nyaa search, exact resolution and library persistence, then exit."_s});
     parser.addOption({u"sources"_s, u"Run persisted source choices, exact retries and SQLite faults, then exit."_s});
     parser.addOption({u"history"_s, u"Run confirmed reading history and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
@@ -525,7 +526,7 @@ int main(int argc, char *argv[])
 
     if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
         || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s) || parser.isSet(u"work-filter"_s)
-        || parser.isSet(u"category"_s) || parser.isSet(u"sources"_s) || parser.isSet(u"playback"_s))
+        || parser.isSet(u"category"_s) || parser.isSet(u"sources"_s) || parser.isSet(u"playback"_s) || parser.isSet(u"nyaa"_s))
     {
         try
         {
@@ -536,7 +537,9 @@ int main(int argc, char *argv[])
             else if (parser.isSet(u"category"_s))
                 exerciseCategory();
             else if (parser.isSet(u"rutor"_s))
-                exerciseRuTor();
+                exerciseTorrentSource(TorrentCatalog::RuTor);
+            else if (parser.isSet(u"nyaa"_s))
+                exerciseTorrentSource(TorrentCatalog::Nyaa);
             else if (parser.isSet(u"work-filter"_s))
                 exerciseWorkFilter();
             else if (parser.isSet(u"reader-settings"_s))

@@ -180,9 +180,9 @@ namespace
         execute(database, u"CREATE TABLE source_settings (source TEXT PRIMARY KEY NOT NULL, "
             "enabled INTEGER NOT NULL, revision INTEGER NOT NULL, failure TEXT) STRICT"_s);
         execute(database, u"INSERT INTO source_settings (source, enabled, revision) VALUES "
-            "('aniliberty', 1, 0), ('mangadex', 1, 0), ('rutor', 1, 0)"_s);
+            "('aniliberty', 1, 0), ('mangadex', 1, 0), ('rutor', 1, 0), ('nyaa', 1, 0)"_s);
 
-        execute(database, u"PRAGMA user_version = 5"_s);
+        execute(database, u"PRAGMA user_version = 6"_s);
         metadata.insert(u"last_opened"_s, QJsonValue::Null);
         metadata.insert(u"reader_progress"_s, QJsonValue::Null);
         QSqlQuery insert(database);

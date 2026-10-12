@@ -87,6 +87,7 @@ impl ffi::ContentController {
         let anime = Arc::clone(&services.anime);
         let manga = Arc::clone(&services.manga);
         let rutor = Arc::clone(&services.rutor);
+        let nyaa = Arc::clone(&services.nyaa);
         let mut requests = Vec::new();
         for source in Source::ALL {
             for category in source.categories() {
@@ -112,9 +113,10 @@ impl ffi::ContentController {
                     let anime = Arc::clone(&anime);
                     let manga = Arc::clone(&manga);
                     let rutor = Arc::clone(&rutor);
+                    let nyaa = Arc::clone(&nyaa);
                     pending.spawn(async move {
                         let result =
-                            execute_operation(&request.operation, anime, manga, rutor).await;
+                            execute_operation(&request.operation, anime, manga, rutor, nyaa).await;
                         (request, result)
                     });
                 }

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{Category, ChapterRef, Source, Transport, VariantRef, VariantSelector, Work};
+use crate::{ChapterRef, Source, Transport, VariantRef, VariantSelector, Work};
 
 /// Raw provider labels are retained so reopening a work restores its dropdowns.
 /// Filters never replace the identity of an explicitly selected variant.
@@ -141,20 +141,7 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
     if work.title.trim().is_empty() {
         return Err("the work title is missing");
     }
-    if !matches!(
-        (work.reference.source, work.category),
-        (Source::AniLiberty, Category::Anime)
-            | (Source::MangaDex, Category::Manga)
-            | (
-                Source::RuTor,
-                Category::Movies
-                    | Category::Tv
-                    | Category::Anime
-                    | Category::Games
-                    | Category::Software
-                    | Category::Books
-            )
-    ) {
+    if !work.reference.source.categories().contains(&work.category) {
         return Err("the work category does not match its source");
     }
     if !public_url(&work.url) || work.cover.as_ref().is_some_and(|url| !public_url(url)) {
@@ -181,7 +168,7 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
             (Source::MangaDex, VariantSelector::MangaTranslation { .. }) => {
                 variant.transport == Transport::Manga
             }
-            (Source::RuTor, VariantSelector::TorrentHash { info_hash }) => {
+            (Source::RuTor | Source::Nyaa, VariantSelector::TorrentHash { info_hash }) => {
                 variant.transport == Transport::Torrent
                     && variant.info_hash.as_deref() == Some(info_hash)
             }

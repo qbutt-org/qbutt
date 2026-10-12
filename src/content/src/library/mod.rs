@@ -16,7 +16,7 @@ pub use entry::{LastOpened, LibraryEntry, ReaderProgress, VariantFilters, Varian
 pub use settings::{ReaderFit, ReaderMode, ReaderSettings};
 
 const APPLICATION_ID: i64 = 0x51424c42;
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 const DATABASE_NAME: &str = "content-library.sqlite";
 
 #[derive(Debug, thiserror::Error)]
@@ -90,15 +90,18 @@ impl Library {
                 ) STRICT;
                 INSERT INTO reader_settings (id, fit, mode) VALUES (1, 0, 0);
                 CREATE TABLE source_settings (
-                    source TEXT PRIMARY KEY NOT NULL CHECK (source IN ('aniliberty', 'mangadex', 'rutor')),
+                    source TEXT PRIMARY KEY NOT NULL,
                     enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
                     revision INTEGER NOT NULL CHECK (revision >= 0),
                     failure TEXT
-                ) STRICT;
-                INSERT INTO source_settings (source, enabled, revision) VALUES
-                    ('aniliberty', 1, 0), ('mangadex', 1, 0), ('rutor', 1, 0);",
-
+                ) STRICT;",
             )?;
+            for source in crate::Source::ALL {
+                transaction.execute(
+                    "INSERT INTO source_settings (source, enabled, revision) VALUES (?1, 1, 0)",
+                    [source.id()],
+                )?;
+            }
             transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if application_id != APPLICATION_ID {

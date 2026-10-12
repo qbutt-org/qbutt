@@ -131,8 +131,9 @@ impl ffi::ContentController {
         let anime = Arc::clone(&services.anime);
         let manga = Arc::clone(&services.manga);
         let rutor = Arc::clone(&services.rutor);
+        let nyaa = Arc::clone(&services.nyaa);
         let task = services.runtime.spawn(async move {
-            let result = execute_operation(&request.operation, anime, manga, rutor).await;
+            let result = execute_operation(&request.operation, anime, manga, rutor, nyaa).await;
             let _ = qt_thread.queue(move |mut controller| {
                 if controller.inspection.generation != generation
                     || !controller.source_request_current(&request)
