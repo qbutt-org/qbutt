@@ -90,6 +90,24 @@ socket/header limits, retirement, a 67-second single HTTPS GET and closure after
 full GET, private headers, manifest rejection and retirement. This does not
 establish controller, qplay or History UI.
 
+The native MP4 queue has a generated-file scenario. Use a fresh temporary
+directory so the fixture cannot touch an existing download or profile:
+
+```powershell
+$root = Join-Path $env:TEMP ('qbutt-downloads-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $root | Out-Null
+$media = Join-Path $root 'generated.mp4'
+ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=12' -t 3 -c:v libx264 -pix_fmt yuv420p $media
+cargo run --locked --offline -p qbutt-content --features download-fixture --example downloads -- (Join-Path $root 'run') $media
+```
+
+Require exit zero and `PASS native_downloads`. The fixture compares exact
+bytes, confirms progress, cancel, retry and restart, rejects an incomplete
+response, removes partial files and preserves an existing same-name payload.
+With the Qt acceptance executable built, run it offscreen with `--downloads
+--profile <run/profile>` and require `PASS native Qt downloads model`. The
+fixture does not exercise a visible Downloads page or live source media.
+
 RuTor has generated HTTPS/fault and two-process library scenarios:
 
 ```powershell
