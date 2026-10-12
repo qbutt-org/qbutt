@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{ShareError, SharedWork, Source, SourceOperation, Work};
+use qbutt_content::{ShareError, SharedWork, Source, SourceOperation};
 use tokio::task::JoinSet;
 
 use super::catalog::SourceResponse;
@@ -102,7 +102,7 @@ impl ffi::ContentController {
 
     pub(super) fn cancel_shared_import(mut self: Pin<&mut Self>) {
         {
-            let state = self.as_mut().rust_mut();
+            let mut state = self.as_mut().rust_mut();
             state.shared_import.cancel();
             state.shared_document = None;
             state.shared_works.clear();
