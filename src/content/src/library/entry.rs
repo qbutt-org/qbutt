@@ -232,7 +232,16 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
     if !work.reference.source.categories().contains(&work.category) {
         return Err("the work category does not match its source");
     }
-    let valid_publication_url = if work.reference.source == Source::RuTracker {
+    let valid_publication_url = if work.reference.source == Source::LocalBook {
+        work.url.scheme() == "qbutt-local"
+            && work.url.host_str() == Some(work.reference.id.as_str())
+            && work.url.port().is_none()
+            && work.url.username().is_empty()
+            && work.url.password().is_none()
+            && work.url.path() == ""
+            && work.url.query().is_none()
+            && work.url.fragment().is_none()
+    } else if work.reference.source == Source::RuTracker {
         work.url.scheme() == "https"
             && work.url.host_str() == Some("rutracker.org")
             && work.url.port().is_none()
@@ -270,6 +279,9 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
             }
             (Source::Rutube, VariantSelector::RutubeVideo) => variant.transport == Transport::Video,
             (Source::RoyalRoad | Source::Kakuyomu, VariantSelector::OriginalText) => {
+                variant.transport == Transport::Text
+            }
+            (Source::LocalBook, VariantSelector::OriginalText) => {
                 variant.transport == Transport::Text
             }
             (Source::MangaDex, VariantSelector::MangaTranslation { .. }) => {
