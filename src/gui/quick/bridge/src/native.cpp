@@ -3,7 +3,9 @@
 
 #include <utility>
 
+#include <QClipboard>
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QImageReader>
 #include <QLocale>
 #include <QLoggingCategory>
@@ -19,6 +21,11 @@
 #include "qbutt_quick/src/page_model.cxxqt.h"
 
 Q_LOGGING_CATEGORY(contentLog, "qbutt.content")
+
+void Qbutt::copyShareUrl(const QString &url)
+{
+    QGuiApplication::clipboard()->setText(url);
+}
 
 void Qbutt::retireContentServices(::rust::Box<Services> services)
 {

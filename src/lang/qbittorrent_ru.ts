@@ -5363,6 +5363,18 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
 <context>
     <name>MainWindow</name>
     <message>
+        <source>Shared work</source>
+        <translation>Материал по ссылке</translation>
+    </message>
+    <message>
+        <source>This qbutt link is invalid or unsupported.</source>
+        <translation>Ссылка qbutt повреждена или не поддерживается.</translation>
+    </message>
+    <message>
+        <source>Could not open this shared work. Check Sources and try the link again.</source>
+        <translation>Не удалось открыть материал по ссылке. Проверьте источники и попробуйте снова.</translation>
+    </message>
+    <message>
         <source>Downloads</source>
         <translation>Загрузки</translation>
     </message>
@@ -18930,6 +18942,14 @@ Please choose a different name and try again.</source>
 </context>
 <context>
     <name>WorkPane</name>
+    <message>
+        <source>Share</source>
+        <translation>Поделиться</translation>
+    </message>
+    <message>
+        <source>Link copied</source>
+        <translation>Ссылка скопирована</translation>
+    </message>
     <message>
         <source>Watch</source>
         <translation>Смотреть</translation>

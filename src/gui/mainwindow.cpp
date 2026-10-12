@@ -904,6 +904,13 @@ Content::ContentView *MainWindow::ensureContentView()
         connect(Media::Player::instance(), &Media::Player::playbackFinished,
             m_searchWidget, &Content::ContentView::finishPlayback);
         connect(m_searchWidget, &Content::ContentView::readerActiveChanged, this, &MainWindow::updateContextControls);
+        connect(m_searchWidget, &Content::ContentView::sharedLinkFailed, this, [this](const bool malformed)
+        {
+            const QString message = malformed
+                ? tr("This qbutt link is invalid or unsupported.")
+                : tr("Could not open this shared work. Check Sources and try the link again.");
+            QMessageBox::warning(this, tr("Shared work"), message);
+        });
         connect(m_searchWidget, &Content::ContentView::searchFinished, this, [this](const bool failed)
         {
             if (app()->desktopIntegration()->isNotificationsEnabled() && (currentTabWidget() != m_searchWidget))
@@ -1666,6 +1673,15 @@ void MainWindow::on_actionSearchWidget_triggered()
 
 void MainWindow::acceptSharedLink(const QUrl &url)
 {
+    if (url.host() == u"open")
+    {
+        displaySearchTab(true);
+        m_tabs->setCurrentWidget(ensureContentView());
+        m_searchWidget->openSharedLink(url);
+        activate();
+        return;
+    }
+
     if (!m_browserCapture)
     {
         m_browserCapture = new Content::BrowserCapture(this);

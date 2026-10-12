@@ -5,7 +5,9 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
-use qbutt_content::{LocalBook, PublicationRef, VariantPreferences, WorkAssociation, WorkGroup};
+use qbutt_content::{
+    LocalBook, PublicationRef, SharedWork, VariantPreferences, Work, WorkAssociation, WorkGroup,
+};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
@@ -20,6 +22,7 @@ pub(crate) mod reader_pages;
 mod reader_settings;
 mod search;
 mod selection;
+mod sharing;
 mod sources;
 mod variant_filters;
 
@@ -224,6 +227,8 @@ pub mod ffi {
         fn browserInstallations() -> Vec<BrowserInstallation>;
         #[rust_name = "browser_discovery_path"]
         fn browserDiscoveryPath() -> QString;
+        #[rust_name = "copy_share_url"]
+        fn copyShareUrl(url: &QString);
     }
 
     extern "Rust" {
@@ -545,6 +550,13 @@ pub mod ffi {
             READ = selected_variant_kind,
             NOTIFY = selected_variant_state_changed
         )]
+        #[qproperty(
+            bool,
+            can_share_selected,
+            cxx_name = "canShareSelected",
+            READ = can_share_selected,
+            NOTIFY = share_availability_changed
+        )]
         type ContentController = super::ContentControllerRust;
 
         fn retranslate(self: Pin<&mut ContentController>);
@@ -588,6 +600,10 @@ pub mod ffi {
         fn variant_selection_state(&self) -> VariantSelectionState;
         fn selected_work_category(&self) -> QString;
         fn selected_variant_kind(&self) -> QString;
+        fn can_share_selected(&self) -> bool;
+        #[qsignal]
+        #[cxx_name = "shareAvailabilityChanged"]
+        fn share_availability_changed(self: Pin<&mut Self>);
         fn variant_episode_filter(&self) -> QString;
         fn variant_translation_filter(&self) -> QString;
         fn variant_source_filter(&self) -> QString;
@@ -791,6 +807,14 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "selectVariant"]
         fn select_variant(self: Pin<&mut Self>, id: QString);
+        #[qinvokable]
+        #[cxx_name = "shareSelected"]
+        fn share_selected(self: Pin<&mut Self>) -> bool;
+        #[cxx_name = "openSharedLink"]
+        fn open_shared_link(self: Pin<&mut Self>, url: QString);
+        #[qsignal]
+        #[cxx_name = "sharedLinkFailed"]
+        fn shared_link_failed(self: Pin<&mut Self>, malformed: bool);
         fn is_searching(&self) -> bool;
         #[cxx_name = "initializeBrowser"]
         fn initialize_browser(self: Pin<&mut Self>);
@@ -932,6 +956,9 @@ pub struct ContentControllerRust {
     search: Pending,
     inspection: Pending,
     resolution: Pending,
+    shared_import: Pending,
+    shared_document: Option<SharedWork>,
+    shared_works: Vec<Work>,
     playback: PlaybackState,
     reader: ReaderState,
     local_book: Option<Arc<LocalBook>>,
@@ -1017,6 +1044,9 @@ impl Default for ContentControllerRust {
             search: Pending::default(),
             inspection: Pending::default(),
             resolution: Pending::default(),
+            shared_import: Pending::default(),
+            shared_document: None,
+            shared_works: Vec::new(),
             playback: PlaybackState::default(),
             reader: ReaderState::default(),
             local_book: None,
@@ -1033,6 +1063,7 @@ impl Drop for ContentControllerRust {
         self.search.cancel();
         self.inspection.cancel();
         self.resolution.cancel();
+        self.shared_import.cancel();
         self.source_status.cancel_retries();
         if let Some(task) = self.download_task.take() {
             task.abort();

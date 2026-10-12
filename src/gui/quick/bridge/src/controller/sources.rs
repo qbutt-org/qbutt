@@ -272,6 +272,8 @@ impl ffi::ContentController {
     }
 
     pub(super) fn source_settings_loading(mut self: Pin<&mut Self>) {
+        self.as_mut().rust_mut().shared_import.cancel();
+        self.as_mut().rust_mut().shared_works.clear();
         {
             let mut state = self.as_mut().rust_mut();
             state.source_status.load = LoadState::Loading;
@@ -308,6 +310,9 @@ impl ffi::ContentController {
                 self.as_mut().rust_mut().sources.pin_mut().replace(rows);
                 self.as_mut().rust_mut().source_status.load = LoadState::Ready;
                 self.as_mut().sources_changed();
+                if self.shared_document.is_some() {
+                    self.as_mut().begin_shared_import();
+                }
                 if self.source_status.retry_writes_after_load {
                     self.as_mut()
                         .rust_mut()
@@ -332,6 +337,9 @@ impl ffi::ContentController {
                 self.as_mut().rust_mut().source_status.load = LoadState::Failed;
                 self.as_mut().rust_mut().source_status.deferred_query = None;
                 self.as_mut().sources_changed();
+                if self.shared_document.is_some() {
+                    self.as_mut().shared_link_failed(false);
+                }
                 if self.is_searching() {
                     self.as_mut().cancel_search();
                 }

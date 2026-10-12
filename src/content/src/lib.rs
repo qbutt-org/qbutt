@@ -32,6 +32,7 @@ mod rutor;
 #[cfg(windows)]
 mod rutracker;
 mod rutube;
+mod sharing;
 mod sources;
 mod text;
 mod torrent;
@@ -65,6 +66,7 @@ pub use rutor::RuTor;
 #[cfg(windows)]
 pub use rutracker::RuTracker;
 pub use rutube::Rutube;
+pub use sharing::{ShareError, SharedWork};
 pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};
 pub use text::{TextBlock, TextBlockKind, TextChapter, TextChapterCache, TextImageAsset, TextSpan};
 pub use yummyanime::YummyAnime;

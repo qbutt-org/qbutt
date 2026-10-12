@@ -14,6 +14,14 @@ Pane {
     required property Item backdrop
     required property bool selectedInList
     padding: 0
+    property bool shareCopied: false
+
+    Connections {
+        target: root.backend
+        function onShareAvailabilityChanged(): void {
+            root.shareCopied = false;
+        }
+    }
 
     readonly property int sourceWidth: 116
     readonly property int sizeWidth: 80
@@ -111,6 +119,25 @@ Pane {
                 highlighted: true
                 enabled: root.backend.selectedVariantState === Search.Available && !root.backend.resolving && root.selectedRow >= 0
                 onClicked: root.openSelected()
+            }
+
+            ActionButton {
+                objectName: "contentShare"
+                theme: root.theme
+                visible: root.backend.canShareSelected
+                text: qsTr("Share")
+                icon.source: root.theme.iconSource("insert-link")
+                onClicked: {
+                    if (root.backend.shareSelected())
+                        root.shareCopied = true;
+                }
+            }
+
+            Label {
+                objectName: "contentShareFeedback"
+                visible: root.shareCopied
+                text: qsTr("Link copied")
+                color: root.theme.muted
             }
 
             BusyIndicator {

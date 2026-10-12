@@ -29,6 +29,7 @@ namespace Content
         void relayBrowserRequest(quint64 generation, quint64 id, const QByteArray &request);
         void cancelBrowserRequest(quint64 generation, quint64 id);
         void closeBrowserSession(quint64 generation);
+        void openSharedLink(const QUrl &url);
 
     signals:
         void torrentReady(const QString &magnet);
@@ -41,6 +42,7 @@ namespace Content
         void readerActiveChanged();
         void searchFinished(bool failed);
         void browserReply(quint64 generation, quint64 id, const QByteArray &reply);
+        void sharedLinkFailed(bool malformed);
 
     private:
         void changeEvent(QEvent *event) override;

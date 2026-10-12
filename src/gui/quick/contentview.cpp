@@ -97,6 +97,7 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     connect(m_controller, &Qbutt::ContentController::readerAsset,
         this, [this](const quint64 generation, const QString &id, const QByteArray &bytes)
         { m_readerImages->add(generation, id, bytes); });
+    connect(m_controller, &Qbutt::ContentController::sharedLinkFailed, this, &ContentView::sharedLinkFailed);
     connect(m_controller, &Qbutt::ContentController::searchStateChanged, this, [this]
     {
         const auto state = m_controller->getSearchState();
@@ -132,6 +133,11 @@ void Content::ContentView::cancelBrowserRequest(const quint64 generation, const 
 void Content::ContentView::closeBrowserSession(const quint64 generation)
 {
     m_controller->closeBrowserSession(generation);
+}
+
+void Content::ContentView::openSharedLink(const QUrl &url)
+{
+    m_controller->openSharedLink(url.toString(QUrl::FullyEncoded));
 }
 
 void Content::ContentView::giveFocusToSearchInput()
