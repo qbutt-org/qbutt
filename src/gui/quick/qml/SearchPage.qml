@@ -111,6 +111,7 @@ Page {
                 textRole: "label"
                 valueRole: "value"
                 Accessible.name: qsTr("Category")
+                onCurrentIndexChanged: Qt.callLater(works.revealSelection)
                 model: [
                     { label: qsTr("All"), value: "" },
                     { label: qsTr("Movies"), value: "movies" },
@@ -215,10 +216,16 @@ Page {
                         currentIndex = filteredWorks.indexOfId(root.backend.selectedWorkId);
                     }
 
+                    function revealSelection(): void {
+                        restoreSelection();
+                        if (currentIndex >= 0)
+                            positionViewAtIndex(currentIndex, ListView.Contain);
+                    }
+
                     Connections {
                         target: root.backend
                         function onSelectedWorkIdChanged(): void {
-                            works.restoreSelection();
+                            works.revealSelection();
                         }
                     }
 
@@ -229,6 +236,9 @@ Page {
                         }
                         function onRowsRemoved(): void {
                             Qt.callLater(works.restoreSelection);
+                        }
+                        function onSourceModelChanged(): void {
+                            Qt.callLater(works.revealSelection);
                         }
                         function onModelReset(): void {
                             Qt.callLater(works.restoreSelection);
