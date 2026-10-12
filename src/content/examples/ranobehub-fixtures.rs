@@ -229,9 +229,10 @@ async fn main() -> CheckResult<()> {
 }
 
 fn persist(encoded_work: &str, encoded_chapter: &str) -> CheckResult<()> {
-    use qbutt_content::{Library, ReaderPosition, ReaderProgress, VariantPreferences};
+    use qbutt_content::{Library, ReaderPosition, ReaderProgress, VariantPreferences, WorkGroup};
 
     let work: qbutt_content::Work = serde_json::from_str(encoded_work)?;
+    let group = WorkGroup::single(work);
     let chapter: qbutt_content::TextChapter = serde_json::from_str(encoded_chapter)?;
     let block_id = chapter.blocks[0].id.clone();
     let nonce = std::time::SystemTime::now()
@@ -241,7 +242,7 @@ fn persist(encoded_work: &str, encoded_chapter: &str) -> CheckResult<()> {
     std::fs::create_dir(&profile)?;
     let result = (|| -> CheckResult<()> {
         let mut library = Library::open(&profile)?;
-        library.set_favorite(&work, true)?;
+        library.set_favorite(&group, true)?;
         let choices = VariantPreferences {
             selected: Some(chapter.reference.variant.clone()),
             ..Default::default()
@@ -253,7 +254,7 @@ fn persist(encoded_work: &str, encoded_chapter: &str) -> CheckResult<()> {
                 offset: 0.625,
             },
         };
-        library.save_reader_progress(&work, choices, progress)?;
+        library.save_reader_progress(&group, choices, progress)?;
         drop(library);
         let status = std::process::Command::new(std::env::current_exe()?)
             .arg("--reopen")
@@ -274,7 +275,7 @@ fn verify_reopened(profile: &std::path::Path, block_id: &str) -> CheckResult<()>
     let entries = library.entries(LibraryView::History)?;
     assert_eq!(entries.len(), 1);
     let entry = &entries[0];
-    assert_eq!(entry.work.reference.source, Source::RanobeHub);
+    assert_eq!(entry.group.anchor.source, Source::RanobeHub);
     assert!(entry.favorite);
     let progress = entry.reader_progress.as_ref().unwrap();
     assert_eq!(progress.chapter.id, "101");
