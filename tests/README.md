@@ -43,6 +43,20 @@ scroll fraction across a process restart. It also checks that variant choices
 remain independent and rejected references, invalid positions and SQLite abort
 leave the previous confirmed entry intact.
 
+RuTor has generated HTTPS/fault and two-process library scenarios:
+
+```powershell
+cargo run --locked -p qbutt-content --example rutor-fixtures
+cargo run --locked -p qbutt-content --example rutor-library
+cargo run --locked -p qbutt-content --example rutor
+```
+
+The fixtures check bounded responses, confirmed category routes, guarded redirects,
+cancellation and exact publication/hash selection. Library reopening preserves all
+six supported categories, raw release/version titles and preferences; rejected
+references leave confirmed entries unchanged. The last command uses live public
+Software metadata and resolves the exact magnet without downloading a payload.
+
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in
 [development setup](../docs/development.md), then run:
@@ -90,6 +104,20 @@ Run it with the same offscreen environment;
 use `--library --lang ru` to check localized library errors. Require exit zero
 and the `PASS library` line with every reported check passing. This backend
 scenario does not replace native bookmark/tab acceptance.
+
+Run `--rutor --lang en` in that environment for live incremental Software search,
+fresh inspection, corrected category notifications, exact favorite reopening and
+the emitted `torrentReady` magnet. Run `--work-filter --lang en` for the production
+Qt proxy's role mapping, exact visible IDs, insertion/reset, source changes and
+destruction. These scenarios retain the original collection; neither adds a torrent.
+
+Run `--category --lang en` and `--category --lang ru` for the production category
+control. Generated stored publications exercise equal-count filters, hidden selection
+restoration, Search/Favorites/History, exact keyboard selection and empty states.
+A real search switches category during result insertion and verifies that no second
+search starts and no original rows disappear. Fresh inspection changes a cached
+category and must update the visible projection. Require exit zero and every `PASS`
+check. Native popup, pointer, focus and viewport acceptance remains separate.
 
 Run `--worklist --lang ru` with the same isolated offscreen environment to check
 the production results delegates. It scrolls the live metadata list, saves an
@@ -171,22 +199,26 @@ Use the VM for visual work without opening windows on the host desktop.
 
 The combined application's `quick-handoff` scenario searches live AniLiberty,
 selects a non-default variant, opens the normal Add Torrent dialog and cancels
-it. It checks the exact infohash, one handoff, the isolated destination and
-empty payload before and after shutdown:
+it. `--source rutor` checks a live Software publication and its full-hash selector.
+Both paths select through the production QML category projection, freshly resolve
+the exact variant and check one handoff, the isolated destination and empty
+payload before and after shutdown:
 
 ```powershell
 cmake --build --preset windows --target qbutt-qt-acceptance --parallel 6
 $env:QBUTT_QT_ACCEPTANCE_EXE = 'C:/VMShared/qbutt-p1-quick/qbutt-qt-acceptance.exe'
 bun tests/qt-acceptance/quick-handoff.ts
+bun tests/qt-acceptance/quick-handoff.ts --source rutor
 ```
 
 Deploy the current executable and its Qt Quick runtime together using
 `windeployqt --quickwidgets --qmldir src/gui/quick/qml`, including `qoffscreen`
 and `qt.conf`.
-`QBUTT_QT_ACCEPTANCE_BUNDLE` can point to an existing deployed runtime when the
-executable is elsewhere; the runner reuses it and cleans only its own profile,
-payload and temporary directories. This process-level scenario synthesizes Qt
-input; it does not replace native pointer acceptance.
+Use the executable inside that deployed directory: Qt resolves its QML imports
+relative to the executable, not the working directory. The runner cleans only its
+own profile, payload and temporary directories. This process-level scenario
+synthesizes Qt input; it does not replace native pointer acceptance or download
+a payload.
 
 The metadata cancellation scenario uses a generated private torrent and an
 isolated loopback session. It cancels before the first native add callback,
