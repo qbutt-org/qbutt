@@ -12,6 +12,7 @@ mod library;
 mod mangadex;
 mod model;
 mod rutor;
+mod sources;
 
 pub use aniliberty::AniLiberty;
 pub use library::{
@@ -21,6 +22,7 @@ pub use library::{
 pub use mangadex::MangaDex;
 pub use model::*;
 pub use rutor::RuTor;
+pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

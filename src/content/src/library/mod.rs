@@ -3,6 +3,7 @@
 
 mod entry;
 mod settings;
+mod sources;
 
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -15,7 +16,7 @@ pub use entry::{LastOpened, LibraryEntry, ReaderProgress, VariantFilters, Varian
 pub use settings::{ReaderFit, ReaderSettings};
 
 const APPLICATION_ID: i64 = 0x51424c42;
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const DATABASE_NAME: &str = "content-library.sqlite";
 
 #[derive(Debug, thiserror::Error)]
@@ -86,7 +87,15 @@ impl Library {
                     id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
                     fit INTEGER NOT NULL CHECK (fit IN (0, 1))
                 ) STRICT;
-                INSERT INTO reader_settings (id, fit) VALUES (1, 0);",
+                INSERT INTO reader_settings (id, fit) VALUES (1, 0);
+                CREATE TABLE source_settings (
+                    source TEXT PRIMARY KEY NOT NULL CHECK (source IN ('aniliberty', 'mangadex', 'rutor')),
+                    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                    revision INTEGER NOT NULL CHECK (revision >= 0),
+                    failure TEXT
+                ) STRICT;
+                INSERT INTO source_settings (source, enabled, revision) VALUES
+                    ('aniliberty', 1, 0), ('mangadex', 1, 0), ('rutor', 1, 0);",
             )?;
             transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -136,6 +145,29 @@ impl Library {
             |row| row.get(0),
         )?;
         if !settings_table_valid || settings_columns_valid != 2 {
+            return Err(LibraryError::InvalidSchema);
+        }
+        let sources_table_valid: bool = transaction.query_row(
+            "SELECT EXISTS (
+                SELECT 1 FROM pragma_table_list
+                WHERE schema = 'main' AND name = 'source_settings'
+                    AND type = 'table' AND ncol = 4 AND strict = 1
+            )",
+            [],
+            |row| row.get(0),
+        )?;
+        let sources_columns_valid: i64 = transaction.query_row(
+            "SELECT count(*) FROM pragma_table_xinfo('source_settings')
+             WHERE hidden = 0 AND (
+                 (cid = 0 AND name = 'source' AND type = 'TEXT' AND pk = 1 AND \"notnull\" = 1)
+                 OR (cid = 1 AND name = 'enabled' AND type = 'INTEGER' AND pk = 0 AND \"notnull\" = 1)
+                 OR (cid = 2 AND name = 'revision' AND type = 'INTEGER' AND pk = 0 AND \"notnull\" = 1)
+                 OR (cid = 3 AND name = 'failure' AND type = 'TEXT' AND pk = 0 AND \"notnull\" = 0)
+             )",
+            [],
+            |row| row.get(0),
+        )?;
+        if !sources_table_valid || sources_columns_valid != 4 {
             return Err(LibraryError::InvalidSchema);
         }
         transaction.commit()?;
