@@ -86,9 +86,11 @@ public:
     static void freeInstance();
     static Preferences *instance();
 
-    // Reader
+    // Content
     Content::ReaderSettings readerSettings() const;
     void setReaderSettings(const Content::ReaderSettings &settings);
+    QString browserChoice() const;
+    void setBrowserChoice(const QString &choice);
 
     // General options
     QString getLocale() const;
@@ -423,6 +425,7 @@ signals:
     void changed();
     void localeChanged();
     void readerSettingsChanged();
+    void browserChoiceChanged(const QString &choice);
 
 private:
     static Preferences *m_instance;

@@ -28,10 +28,11 @@ async function waitFor(condition: () => boolean | Promise<boolean>, operation: s
     }
 }
 
-function startHelper() {
+function startHelper(choice: "edge" | "chrome") {
     const session = ++generation;
     const process = spawn(Bun.which("bun")!, [join(import.meta.dir, "../../components/content/main.ts"),
-        "--data-dir", join(root, `helper-${session}`), "--app-dir", root, "--download-dir", join(root, "downloads")],
+        "--data-dir", join(root, `helper-${session}`), "--app-dir", root, "--download-dir", join(root, "downloads"),
+        "--browser-choice", choice],
         { windowsHide: true });
     children.push(process);
     const messages: { id: number; event: string; data?: any }[] = [];
@@ -75,11 +76,17 @@ try {
         if (session === generation && helper?.exitCode === null && helper.signalCode === null)
             helper?.stdin.write(JSON.stringify({ browserReply: response }) + "\n");
     };
-    let current = startHelper();
+    let current = startHelper("chrome");
     helper = current.process;
     current.send(1, "browserStatus");
     await waitFor(() => current.messages.some(message => message.id === 1 && message.event === "complete"), "helper browser status");
-    assert.equal(current.messages.find(message => message.event === "browser")?.data.connectedBrowser, "edge");
+    assert.equal(current.messages.find(message => message.event === "browser")?.data.ready, false,
+        "Configured Chrome must not borrow the connected Edge session");
+    current.send(5, "chooseBrowser", { browser: "edge" });
+    await waitFor(() => current.messages.some(message => message.id === 5 && message.event === "complete"), "live browser choice");
+    current.send(6, "browserStatus");
+    await waitFor(() => current.messages.some(message => message.id === 6 && message.event === "complete"), "chosen browser status");
+    assert.equal(current.messages.find(message => message.id === 6 && message.event === "browser")?.data.connectedBrowser, "edge");
     const captureId = crypto.randomUUID();
     const capture = openLink("qbutt://capture?d=" + Buffer.from(JSON.stringify({ v: 1,
         pageUrl: "https://example.com/watch", title: "Generated capture", action: "watch", captureId })).toString("base64url"));
@@ -97,7 +104,7 @@ try {
     current.process.stdin.end();
     await waitFor(() => current.process.exitCode !== null, "first helper shutdown");
     assert.equal(current.process.exitCode, 0);
-    current = startHelper();
+    current = startHelper("edge");
     helper = current.process;
     current.send(1, "browserStatus");
     await waitFor(() => current.messages.some(message => message.id === 1 && message.event === "complete"), "restarted helper status");
@@ -107,16 +114,24 @@ try {
     await waitFor(() => commands.filter(command => command.method === "resolve").length === 2, "restarted helper resolve");
     const second = commands.filter(command => command.method === "resolve")[1]!;
     assert.notEqual(second.id, active.id);
+    current.send(5, "chooseBrowser", { browser: "chrome" });
+    await waitFor(() => current.messages.some(message => message.id === 5 && message.event === "complete"), "choice during request");
     sendPeer({ id: second.id, result: { kind: "video", resolver: "direct", url: "https://example.com/generated.mp4", selection: { captureId } } });
     await waitFor(() => current.messages.some(message => message.id === 2 && message.event === "complete"), "exact capture terminal response");
     assert.equal(current.messages.filter(message => message.id === 2 && message.event === "resolved").length, 1);
+    current.send(6, "resolve", { variant: capture.variant });
+    await waitFor(() => current.messages.some(message => message.id === 6 && message.event === "error"), "new choice without connection");
+    assert.equal(commands.filter(command => command.method === "resolve").length, 2,
+        "Chrome request was sent to the old Edge session");
+    current.send(7, "chooseBrowser", { browser: "edge" });
+    await waitFor(() => current.messages.some(message => message.id === 7 && message.event === "complete"), "restore browser choice");
     current.send(4, "resolve", { variant: capture.variant });
     await waitFor(() => commands.filter(command => command.method === "resolve").length === 3, "request before helper crash");
     const abandoned = commands.filter(command => command.method === "resolve")[2]!;
     current.process.kill();
     await waitFor(() => current.process.exitCode !== null || current.process.signalCode !== null, "crashed helper exit");
     await waitFor(() => commands.some(command => command.method === "cancel" && command.id === abandoned.id), "helper exit cancels native request");
-    current = startHelper();
+    current = startHelper("edge");
     helper = current.process;
     sendPeer({ id: abandoned.id, result: { kind: "video", resolver: "direct", url: "https://example.com/generated.mp4", selection: { captureId } } });
     current.send(1, "browserStatus");
@@ -128,7 +143,12 @@ try {
     peer.stdin.end();
     await parent.close();
     await assert.rejects(readFile(discovery), { code: "ENOENT" });
-    console.log(JSON.stringify({ ok: true, scenarios: ["native-parent-helper-stdio", "exact-capture", "cancel-to-native-host", "one-terminal-response", "late-response-isolated", "helper-restart-single-owner", "helper-crash-cancels-native-request", "crash-restart-late-response-isolated", "owned-discovery-cleanup"] }));
+    console.log(JSON.stringify({ ok: true, scenarios: [
+        "native-parent-helper-stdio", "browser-choice-startup-and-live", "inflight-session-pinned",
+        "exact-capture", "cancel-to-native-host", "one-terminal-response", "late-response-isolated",
+        "helper-restart-single-owner", "helper-crash-cancels-native-request",
+        "crash-restart-late-response-isolated", "owned-discovery-cleanup",
+    ] }));
 }
 finally {
     for (const child of children) if (child.exitCode === null) child.kill();

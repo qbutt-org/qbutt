@@ -70,14 +70,7 @@ export class Catalog {
         const native = await Promise.all(this.providers.map(provider => this.settings.describe(provider.source)));
         const indexers = engines.filter(source => !replaced.has(source.id))
             .map(source => ({ ...source, health: this.settings.health(source.id) }));
-        return [...native, ...indexers,
-            await this.settings.describe(translationSource), await this.settings.describe({
-                id: "browser", name: "Browser", url: "https://github.com/qbutt-org/qbutt", categories: [], enabled: true,
-                settings: [{ name: "browser", label: "Browser", type: "select", value: "auto", options: [
-                    { value: "auto", label: "Automatic" },
-                    ...(await this.browser.status(signal)).browsers.map(browser => ({ value: browser.id, label: browser.name })),
-                ] }],
-            })];
+        return [...native, ...indexers, await this.settings.describe(translationSource)];
     }
 
     private async indexers(signal: AbortSignal): Promise<Source[]> {

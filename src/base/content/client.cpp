@@ -13,6 +13,7 @@
 #include "base/global.h"
 #include "base/path.h"
 #include "base/profile.h"
+#include "base/preferences.h"
 
 namespace
 {
@@ -178,7 +179,8 @@ qint64 Content::Client::request(const QString &method, const QJsonObject &params
             m_output.clear();
             const QString dataDir = QDir(Profile::instance()->location(SpecialFolder::Data).toString()).filePath(u"content"_s);
             m_process.start(QDir(QCoreApplication::applicationDirPath()).filePath(u"qbutt-content.exe"_s),
-                {u"--data-dir"_s, dataDir, u"--download-dir"_s, BitTorrent::Session::instance()->savePath().toString()});
+                {u"--data-dir"_s, dataDir, u"--download-dir"_s, BitTorrent::Session::instance()->savePath().toString(),
+                    u"--browser-choice"_s, Preferences::instance()->browserChoice()});
         }
         else if (m_process.state() == QProcess::Running)
         {

@@ -45,6 +45,7 @@ namespace Qbutt
     void retireReaderCache(::rust::Box<RetiredReaderCache> cache);
     void retireContentServices(::rust::Box<Services> services);
     ::rust::Vec<BrowserInstallation> browserInstallations();
+    bool openBrowserUrl(const QString &url, const QString &choice);
     QString browserDiscoveryPath();
     void copyShareUrl(const QString &url);
 }

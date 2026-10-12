@@ -3,7 +3,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
     AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, FitGirl, FreeTP, Kakuyomu,
     LibSession, MangaDex, MangaLib, Nyaa, OnlineFix, RanobeHub, RanobeLib, ResolvedContent,
@@ -88,6 +87,7 @@ impl Catalog {
         operation: &SourceOperation,
     ) -> qbutt_content::Result<SourceResponse> {
         operation.validate()?;
+        let choice = self.browser.choice();
         match operation {
             SourceOperation::Search {
                 source,
@@ -118,7 +118,7 @@ impl Catalog {
                                 query,
                                 *category,
                                 self.browser.existing_handle().await.as_ref(),
-                                BrowserChoice::Auto,
+                                choice,
                             )
                             .await
                     }
@@ -133,7 +133,7 @@ impl Catalog {
                                 query,
                                 *category,
                                 self.browser.existing_handle().await.as_ref(),
-                                BrowserChoice::Auto,
+                                choice,
                             )
                             .await
                     }
@@ -174,7 +174,7 @@ impl Catalog {
                             .inspect(
                                 reference,
                                 self.browser.existing_handle().await.as_ref(),
-                                BrowserChoice::Auto,
+                                choice,
                             )
                             .await
                     }
@@ -188,7 +188,7 @@ impl Catalog {
                             .inspect(
                                 reference,
                                 self.browser.existing_handle().await.as_ref(),
-                                BrowserChoice::Auto,
+                                choice,
                             )
                             .await
                     }
@@ -215,7 +215,7 @@ impl Catalog {
                             .resolve(
                                 reference,
                                 self.browser.existing_handle().await.as_ref(),
-                                BrowserChoice::Auto,
+                                choice,
                             )
                             .await
                     }
@@ -229,7 +229,7 @@ impl Catalog {
                             .resolve(
                                 reference,
                                 self.browser.existing_handle().await.as_ref(),
-                                BrowserChoice::Auto,
+                                choice,
                             )
                             .await
                     }
@@ -314,10 +314,11 @@ impl Catalog {
     }
 
     pub(super) async fn lib_session(&self, source: Source) -> qbutt_content::Result<LibSession> {
+        let choice = self.browser.choice();
         LibSession::from_browser(
             source,
             self.browser.existing_handle().await.as_ref(),
-            BrowserChoice::Auto,
+            choice,
         )
         .await
     }

@@ -87,9 +87,13 @@ QString Qbutt::sourceError(const std::int32_t reason)
     case 5:
         return QCoreApplication::translate("ContentController", "Could not save source settings.");
     case 6:
-        return QCoreApplication::translate("ContentController", "Sign in to RuTracker to continue.");
+        return QCoreApplication::translate("ContentController", "Sign in to this source to continue.");
     case 7:
         return QCoreApplication::translate("ContentController", "RuTracker needs a manual check.");
+    case 8:
+        return QCoreApplication::translate("ContentController", "Choose a browser under Options > Search > Browser.");
+    case 9:
+        return QCoreApplication::translate("ContentController", "Connect qcatch under Options > Search > Browser.");
     default:
         return QCoreApplication::translate("ContentController", "Could not get data from this source.");
     }

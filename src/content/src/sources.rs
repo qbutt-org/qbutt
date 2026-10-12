@@ -79,6 +79,15 @@ impl Source {
         }
     }
 
+    pub fn account_url(self) -> Option<&'static str> {
+        match self {
+            Self::RuTracker => Some("https://rutracker.org/forum/index.php"),
+            Self::MangaLib => Some("https://mangalib.me"),
+            Self::RanobeLib => Some("https://ranobelib.me"),
+            _ => None,
+        }
+    }
+
     pub fn categories(self) -> &'static [Category] {
         match self {
             Self::LocalBook => &[Category::Books],

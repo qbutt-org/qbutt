@@ -229,6 +229,8 @@ pub mod ffi {
         fn retireContentServices(services: Box<Services>);
         #[rust_name = "browser_installations"]
         fn browserInstallations() -> Vec<BrowserInstallation>;
+        #[rust_name = "open_browser_url"]
+        fn openBrowserUrl(url: &QString, choice: &QString) -> bool;
         #[rust_name = "browser_discovery_path"]
         fn browserDiscoveryPath() -> QString;
         #[rust_name = "copy_share_url"]
@@ -684,6 +686,14 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "retrySourceSettings"]
         fn retry_source_settings(self: Pin<&mut Self>) -> bool;
+        #[cxx_name = "setBrowserChoice"]
+        fn set_browser_choice(self: Pin<&mut Self>, choice: QString);
+        #[qinvokable]
+        #[cxx_name = "openSourceAccount"]
+        fn open_source_account(self: Pin<&mut Self>, id: QString) -> bool;
+        #[qsignal]
+        #[cxx_name = "sourceAccountOpened"]
+        fn source_account_opened(self: Pin<&mut Self>, id: QString, opened: bool);
         #[qsignal]
         #[cxx_name = "sourcesChanged"]
         fn sources_changed(self: Pin<&mut Self>);
@@ -1064,6 +1074,7 @@ pub struct ContentControllerRust {
     download_task: Option<JoinHandle<()>>,
     captured_download: Pending,
     captured_watch: Pending,
+    account_open: Pending,
     captured_intent: Option<CapturedIntent>,
     source_status: SourceState,
     list_mode: ffi::ListMode,
@@ -1158,6 +1169,7 @@ impl Default for ContentControllerRust {
             download_task: None,
             captured_download: Pending::default(),
             captured_watch: Pending::default(),
+            account_open: Pending::default(),
             captured_intent: None,
             source_status,
             list_mode: ffi::ListMode::Search,
@@ -1212,6 +1224,7 @@ impl Drop for ContentControllerRust {
         self.shared_import.cancel();
         self.captured_download.cancel();
         self.captured_watch.cancel();
+        self.account_open.cancel();
         self.source_status.cancel_retries();
         if let Some(task) = self.download_task.take() {
             task.abort();

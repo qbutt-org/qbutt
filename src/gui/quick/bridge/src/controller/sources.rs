@@ -182,6 +182,82 @@ pub struct SourceRequest {
 }
 
 impl ffi::ContentController {
+    pub fn open_source_account(mut self: Pin<&mut Self>, id: QString) -> bool {
+        let Some(url) = Source::from_id(&id.to_string()).and_then(Source::account_url) else {
+            return false;
+        };
+        let Some(browser) = self
+            .services
+            .as_ref()
+            .map(|services| services.browser.client())
+        else {
+            return false;
+        };
+        let choice = browser.choice();
+        let qt_thread = self.qt_thread();
+        self.as_mut().rust_mut().account_open.cancel();
+        let generation = self.account_open.generation;
+        let id = id.to_string();
+        let task = self.services.as_ref().unwrap().runtime.spawn(async move {
+            let choice = browser.account_choice(choice).await;
+            let _ = qt_thread.queue(move |mut controller| {
+                if controller.account_open.generation != generation {
+                    return;
+                }
+                controller.as_mut().rust_mut().account_open.task = None;
+                let opened = choice.is_some_and(|choice| {
+                    let name = match choice {
+                        qbutt_content::browser::BrowserChoice::Auto => "auto",
+                        qbutt_content::browser::BrowserChoice::Edge => "edge",
+                        qbutt_content::browser::BrowserChoice::Chrome => "chrome",
+                    };
+                    ffi::open_browser_url(&QString::from(url), &QString::from(name))
+                });
+                controller
+                    .as_mut()
+                    .source_account_opened(QString::from(id), opened);
+            });
+        });
+        self.as_mut().rust_mut().account_open.task = Some(task);
+        true
+    }
+
+    pub fn set_browser_choice(mut self: Pin<&mut Self>, value: QString) {
+        let choice = super::browser::choice(&value.to_string());
+        let Some(services) = self.services.as_ref() else {
+            return;
+        };
+        let client = services.browser.client();
+        if client.choice() == choice {
+            return;
+        }
+        client.set_choice(choice);
+        self.as_mut().rust_mut().account_open.cancel();
+
+        for source in [
+            Source::RuTracker,
+            Source::MangaLib,
+            Source::RanobeLib,
+            Source::ByRut,
+            Source::YummyAnime,
+        ] {
+            {
+                let mut state = self.as_mut().rust_mut();
+                let status = state.source_status.status_mut(source);
+                status.epoch = status.epoch.wrapping_add(1);
+                status.retry.cancel();
+            }
+            self.as_mut().publish_source(source);
+        }
+
+        if self.is_searching() {
+            let query = self.source_status.active_query.clone().unwrap_or_default();
+            self.search(QString::from(query));
+        } else if self.inspecting || self.resolving {
+            self.as_mut().cancel_detail();
+        }
+    }
+
     pub(super) fn sources_model(&self) -> *mut source_model::ffi::SourceModel {
         self.sources.as_ptr().cast_mut()
     }

@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QByteArray, QString, QUrl, QVector};
-use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
     Category, MediaGateway, PreparedPlayback, ResolvedContent, Source, SourceFailureReason,
     SourceOperation, Transport, VariantPreferences, VariantRef, VariantSelector, WorkGroup,
@@ -415,6 +414,7 @@ impl ffi::ContentController {
         let services = self.services.as_ref().unwrap();
         let catalog = Arc::clone(&services.catalog);
         let browser = services.browser.client();
+        let choice = browser.choice();
         let task = services.runtime.spawn(async move {
             let result = catalog.execute(&request.operation).await;
             let gateway = if matches!(
@@ -436,7 +436,7 @@ impl ffi::ContentController {
                         let handle = browser.handle().await.map_err(|_| ())?;
                         let media = resolve_external_video(
                             &handle,
-                            BrowserChoice::Auto,
+                            choice,
                             reference,
                             url.clone(),
                         )

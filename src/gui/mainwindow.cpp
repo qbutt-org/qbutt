@@ -848,6 +848,9 @@ Content::ContentView *MainWindow::ensureContentView()
     if (!m_searchWidget)
     {
         m_searchWidget = new Content::ContentView(specialFolderLocation(SpecialFolder::Data).toString(), m_tabs);
+        m_searchWidget->setBrowserChoice(Preferences::instance()->browserChoice());
+        connect(Preferences::instance(), &Preferences::browserChoiceChanged,
+            m_searchWidget, &Content::ContentView::setBrowserChoice);
         m_searchWidget->hide();
         m_searchWidget->initDownloads(BitTorrent::Session::instance()->savePath().toString());
         connect(m_searchWidget, &Content::ContentView::browserReply, Content::Client::instance(), &Content::Client::replyBrowser);

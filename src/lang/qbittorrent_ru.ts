@@ -19008,12 +19008,20 @@ Please choose a different name and try again.</source>
         <translation>Не удалось сохранить настройки источников.</translation>
     </message>
     <message>
-        <source>Sign in to RuTracker to continue.</source>
-        <translation>Войдите на RuTracker, чтобы продолжить.</translation>
+        <source>Sign in to this source to continue.</source>
+        <translation>Войдите на сайт источника, чтобы продолжить.</translation>
     </message>
     <message>
         <source>RuTracker needs a manual check.</source>
         <translation>RuTracker требует проверки вручную.</translation>
+    </message>
+    <message>
+        <source>Choose a browser under Options &gt; Search &gt; Browser.</source>
+        <translation>Выберите браузер: Настройки → Поиск → Браузер.</translation>
+    </message>
+    <message>
+        <source>Connect qcatch under Options &gt; Search &gt; Browser.</source>
+        <translation>Подключите qcatch: Настройки → Поиск → Браузер.</translation>
     </message>
     <message>
         <source>Could not get data from this source.</source>
@@ -19082,6 +19090,18 @@ Please choose a different name and try again.</source>
 </context>
 <context>
     <name>SourcePicker</name>
+    <message>
+        <source>Account</source>
+        <translation>Аккаунт</translation>
+    </message>
+    <message>
+        <source>Uses your browser session when available.</source>
+        <translation>Используется доступная сессия браузера.</translation>
+    </message>
+    <message>
+        <source>Could not open the browser. Choose another in Options &gt; Search &gt; Browser.</source>
+        <translation>Не удалось открыть браузер. Выберите другой в настройках поиска.</translation>
+    </message>
     <message>
         <source>Retry %1</source>
         <translation>Повторить %1</translation>

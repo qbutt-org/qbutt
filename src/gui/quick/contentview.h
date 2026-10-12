@@ -26,6 +26,7 @@ namespace Content
         bool confirmPlayback(quint64 launchToken);
         bool finishPlayback(quint64 launchToken);
         void initializeBrowser();
+        void setBrowserChoice(const QString &choice);
         void relayBrowserRequest(quint64 generation, quint64 id, const QByteArray &request);
         void cancelBrowserRequest(quint64 generation, quint64 id);
         void closeBrowserSession(quint64 generation);

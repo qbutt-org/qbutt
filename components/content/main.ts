@@ -106,9 +106,11 @@ async function run(): Promise<void> {
     const downloadDir = resolve(argument("--download-dir") || join(process.env.USERPROFILE || dataDir, "Downloads"));
     const store = await LibraryStore.open(dataDir);
     const settings = new SourceSettings(store);
-    const browserSettings = await settings.values("browser");
+    const browserChoice = argument("--browser-choice");
+    if (browserChoice && !["auto", "edge", "chrome"].includes(browserChoice))
+        throw new Error("Invalid browser choice.");
     const browser = new BrowserBridge({
-        browser: (browserSettings.browser || "auto") as BrowserChoice,
+        browser: (browserChoice || "auto") as BrowserChoice,
         emit: (event, data) => { void send(0, event, data); },
     });
     const catalog = new Catalog(dataDir, appDir, settings, browser);
@@ -271,12 +273,8 @@ async function run(): Promise<void> {
                 throw new Error("Select a source.");
             const changes = params.settings ? Object.fromEntries(Object.entries(object(params.settings))
                 .map(([key, value]) => [key, String(value)])) : undefined;
-            if (id === "browser" && changes?.browser && !["auto", "edge", "chrome", "firefox"].includes(changes.browser))
-                throw new Error("Select an installed browser.");
-            if (catalog.providers.some(provider => provider.source.id === id) || id === "ai" || id === "browser") {
+            if (catalog.providers.some(provider => provider.source.id === id) || id === "ai") {
                 await settings.configure(id, typeof params.enabled === "boolean" ? params.enabled : undefined, changes);
-                if (id === "browser")
-                    browser.setBrowser((changes?.browser || "auto") as BrowserChoice);
             }
             else
                 await catalog.engine.request("configureSource", { ...params, settings: changes }, () => {}, signal);
@@ -297,11 +295,17 @@ async function run(): Promise<void> {
             return;
         case "connectBrowser": {
             const choice = String(params.browser || "auto");
-            if (!["auto", "edge", "chrome", "firefox"].includes(choice))
+            if (!["auto", "edge", "chrome"].includes(choice))
                 throw new Error("Select an installed browser.");
-            await settings.configure("browser", undefined, { browser: choice });
             browser.setBrowser(choice as BrowserChoice);
             emit("browser", await browser.connectBrowser(choice as BrowserChoice, signal));
+            return;
+        }
+        case "chooseBrowser": {
+            const choice = String(params.browser || "auto");
+            if (!["auto", "edge", "chrome"].includes(choice))
+                throw new Error("Select an installed browser.");
+            browser.setBrowser(choice as BrowserChoice);
             return;
         }
         case "inspect": {

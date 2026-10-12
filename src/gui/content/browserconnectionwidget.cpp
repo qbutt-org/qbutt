@@ -17,6 +17,7 @@
 
 #include "base/content/client.h"
 #include "base/global.h"
+#include "base/preferences.h"
 
 Content::BrowserConnectionWidget::BrowserConnectionWidget(const bool chooseBrowser, QWidget *parent)
     : QWidget(parent)
@@ -31,8 +32,11 @@ Content::BrowserConnectionWidget::BrowserConnectionWidget(const bool chooseBrows
     browserLayout->addWidget(new QLabel(tr("Browser"), m_browserRow));
     m_browser = new QComboBox(m_browserRow);
     m_browser->setObjectName(u"contentBrowserChoice"_s);
+    m_browser->addItem(tr("Automatic"), u"auto"_s);
+    m_browser->addItem(u"Microsoft Edge"_s, u"edge"_s);
+    m_browser->addItem(u"Google Chrome"_s, u"chrome"_s);
     browserLayout->addWidget(m_browser, 1);
-    m_browserRow->hide();
+    m_browserRow->setVisible(m_chooseBrowser);
     layout->addWidget(m_browserRow);
 
     m_connect = new QPushButton(tr("Install extension"), this);
@@ -67,6 +71,9 @@ Content::BrowserConnectionWidget::BrowserConnectionWidget(const bool chooseBrows
     connect(m_connect, &QPushButton::clicked, this, &BrowserConnectionWidget::connectBrowser);
     connect(m_browser, &QComboBox::currentIndexChanged, this, [this]
     {
+        const QString choice = m_browser->currentData().toString();
+        Preferences::instance()->setBrowserChoice(choice);
+        Client::instance()->request(u"chooseBrowser"_s, {{u"browser"_s, choice}});
         m_poll->stop();
         Client::instance()->cancel(m_request);
         m_request = 0;
@@ -74,10 +81,11 @@ Content::BrowserConnectionWidget::BrowserConnectionWidget(const bool chooseBrows
         m_setup->hide();
         m_extensionDirectory->clear();
         m_extensionDirectory->hide();
-        m_status->clear();
-        m_connect->setText(m_installed ? tr("Connect extension") : tr("Install extension"));
-        m_connect->setEnabled(true);
-        m_connect->show();
+        m_status->setText(tr("Checking connection…"));
+        m_connect->setEnabled(false);
+        m_connect->hide();
+        m_poll->start();
+        refreshStatus();
     });
     connect(Client::instance(), &Client::eventReceived, this, &BrowserConnectionWidget::handleEvent);
 }
@@ -92,7 +100,7 @@ void Content::BrowserConnectionWidget::showEvent(QShowEvent *event)
     QWidget::showEvent(event);
     {
         const QSignalBlocker blocker(m_browser);
-        m_browser->clear();
+        m_browser->setCurrentIndex(m_browser->findData(Preferences::instance()->browserChoice()));
     }
     m_setup->hide();
     m_extensionDirectory->clear();
@@ -127,7 +135,7 @@ void Content::BrowserConnectionWidget::connectBrowser()
         return;
 
     m_poll->start();
-    if (!m_extensionDirectory->text().isEmpty() || (m_browser->currentIndex() < 0))
+    if (!m_extensionDirectory->text().isEmpty())
     {
         m_connect->setEnabled(false);
         m_status->setText(tr("Checking connection…"));
@@ -158,31 +166,13 @@ void Content::BrowserConnectionWidget::applyStatus(const QJsonObject &status)
         m_extensionDirectory->hide();
     }
 
-    if (m_browser->count() == 0)
-    {
-        const QSignalBlocker blocker(m_browser);
-        const QString detected = status.value(u"detected"_s).toString();
-        for (const QJsonValue &value : status.value(u"browsers"_s).toArray())
-        {
-            const QJsonObject browser = value.toObject();
-            const QString id = browser.value(u"id"_s).toString();
-            if ((id == u"edge") || (id == u"chrome"))
-                m_browser->addItem(browser.value(u"name"_s).toString(), id);
-        }
-        if (m_browser->findData(detected) >= 0)
-            m_browser->insertItem(0, tr("Automatic"), u"auto"_s);
-        const int selected = m_browser->findData(status.value(u"selected"_s).toString());
-        if (selected >= 0)
-            m_browser->setCurrentIndex(selected);
-        m_browserRow->setVisible((m_browser->count() > 0) && (m_chooseBrowser || (selected < 0)));
-    }
-
     const bool wasReady = m_ready;
     m_ready = status.value(u"ready"_s).toBool();
-    m_connect->setVisible(!m_ready && (m_browser->count() > 0));
+    const bool browserInstalled = !status.value(u"browsers"_s).toArray().isEmpty();
+    m_connect->setVisible(!m_ready && browserInstalled);
     m_connect->setText(!m_extensionDirectory->text().isEmpty() ? tr("Check connection")
         : (m_installed ? tr("Connect extension") : tr("Install extension")));
-    m_connect->setEnabled(!m_connecting && (m_browser->count() > 0));
+    m_connect->setEnabled(!m_connecting && browserInstalled);
     if (m_ready)
     {
         m_status->setText(tr("Connected"));
@@ -207,7 +197,7 @@ void Content::BrowserConnectionWidget::applyStatus(const QJsonObject &status)
     }
     if (!status.value(u"error"_s).toString().isEmpty())
         m_status->setText(tr("The browser connection is unavailable. Restart qbutt and try again."));
-    else if (m_browser->count() == 0)
+    else if (!browserInstalled)
         m_status->setText(tr("Install Microsoft Edge or Google Chrome to use qcatch."));
     else
         m_status->setText(m_extensionDirectory->text().isEmpty() ? QString() : tr("Waiting for the extension…"));
@@ -227,7 +217,7 @@ void Content::BrowserConnectionWidget::handleEvent(const qint64 id, const QStrin
     m_connecting = false;
     m_browser->setEnabled(true);
     m_progress->hide();
-    m_connect->setEnabled(m_browser->count() > 0);
+    m_connect->setEnabled(m_connect->isVisible());
     if (event == u"error")
     {
         m_poll->stop();

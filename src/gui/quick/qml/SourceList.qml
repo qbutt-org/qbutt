@@ -10,8 +10,17 @@ ColumnLayout {
 
     required property ContentController backend
     required property Theme theme
+    property string expandedSourceId: ""
+    property string openFailedSourceId: ""
 
     spacing: 16
+
+    Connections {
+        target: root.backend
+        function onSourceAccountOpened(sourceId, opened) {
+            root.openFailedSourceId = opened ? "" : sourceId
+        }
+    }
 
     BusyIndicator {
         objectName: "contentSourcesLoading"
@@ -71,6 +80,22 @@ ColumnLayout {
                             onClicked: root.backend.setSourceEnabled(sourceRow.model.sourceId, checked)
                         }
 
+                        Button {
+                            objectName: "contentSourceAccount_" + sourceRow.model.sourceId
+                            visible: sourceRow.model.accountSource
+                            Layout.preferredHeight: 28
+                            padding: 0
+                            flat: true
+                            text: qsTranslate("SourcePicker", "Account")
+                            font.pixelSize: 13
+                            palette.buttonText: root.theme.foreground
+                            onClicked: {
+                                root.expandedSourceId = root.expandedSourceId === sourceRow.model.sourceId
+                                    ? "" : sourceRow.model.sourceId
+                                root.openFailedSourceId = ""
+                            }
+                        }
+
                         Image {
                             objectName: "contentSourceFailure_" + sourceRow.model.sourceId
                             Layout.preferredWidth: 20
@@ -113,6 +138,34 @@ ColumnLayout {
                         color: root.theme.muted
                         wrapMode: Text.Wrap
                         textFormat: Text.PlainText
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: sourceCheck.indicator.width + sourceCheck.spacing
+                        visible: root.expandedSourceId === sourceRow.model.sourceId
+                        spacing: 12
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: root.openFailedSourceId === sourceRow.model.sourceId
+                                ? qsTranslate("SourcePicker", "Could not open the browser. Choose another in Options > Search > Browser.")
+                                : qsTranslate("SourcePicker", "Uses your browser session when available.")
+                            color: root.theme.muted
+                            wrapMode: Text.Wrap
+                            textFormat: Text.PlainText
+                        }
+
+                        ActionButton {
+                            objectName: "contentSourceOpen_" + sourceRow.model.sourceId
+                            theme: root.theme
+                            text: qsTranslate("SourcePicker", "Open %1").arg(sourceRow.model.name)
+                            onClicked: {
+                                root.openFailedSourceId = ""
+                                if (!root.backend.openSourceAccount(sourceRow.model.sourceId))
+                                    root.openFailedSourceId = sourceRow.model.sourceId
+                            }
+                        }
                     }
                 }
             }

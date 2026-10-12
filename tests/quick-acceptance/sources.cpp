@@ -158,6 +158,14 @@ void exerciseSources()
         sourceIds.append(catalog->data(catalog->index(row, 0), sourceIdRole).toString());
     require(state(*controller) == Qbutt::Sources::SettingsState::Ready
         && !sourceIds.isEmpty(), u"Ephemeral source catalog is not ready"_s);
+    for (const QString &id : sourceIds)
+    {
+        const bool hasAccount = (id == u"rutracker"_s) || (id == u"mangalib"_s) || (id == u"ranobelib"_s);
+        require(value(catalog, id, "accountSource").toBool() == hasAccount,
+            u"Source advertised an unsupported account action"_s);
+    }
+    require(!controller->openSourceAccount(u"aniliberty"_s),
+        u"Anonymous source unexpectedly opened an account action"_s);
     bool reenteredInit = false;
     QObject initObserver;
     const auto initConnection = QObject::connect(controller.get(), &Qbutt::ContentController::sourcesChanged, &initObserver, [&]
@@ -355,9 +363,19 @@ void exerciseSources()
     auto *globalRetry = picker->findChild<QQuickItem *>(u"contentSourceSettingsRetry"_s);
     auto *sourceError = visualItem(content, u"contentSourceFailureText_aniliberty"_s);
     auto *searchError = view.rootObject()->findChild<QQuickItem *>(u"contentError"_s);
+    auto *libAccount = visualItem(content, u"contentSourceAccount_mangalib"_s);
+    auto *libOpen = visualItem(content, u"contentSourceOpen_mangalib"_s);
+    auto *anonymousAccount = visualItem(content, u"contentSourceAccount_aniliberty"_s);
     require(toggle && localRetry && globalRetry && sourceError && searchError
         && toggle->property("checked").toBool() && sourceError->isVisible() && !searchError->isVisible(),
         u"Source failure was not visible only inside the production Sources overlay"_s);
+    require(libAccount && libAccount->isVisible() && libOpen && !libOpen->isVisible()
+        && anonymousAccount && !anonymousAccount->isVisible(),
+        u"Account action is visible on the wrong source or expanded by default"_s);
+    require(QMetaObject::invokeMethod(libAccount, "clicked") && libOpen->isVisible(),
+        u"Lib account details did not open"_s);
+    require(QMetaObject::invokeMethod(libAccount, "clicked") && !libOpen->isVisible(),
+        u"Lib account details did not close"_s);
     const auto key = [&]
     {
         toggle->forceActiveFocus(Qt::TabFocusReason);
@@ -398,7 +416,7 @@ void exerciseSources()
     {
         auto *close = picker->findChild<QQuickItem *>(u"contentSourcePickerClose"_s);
         require(close && QMetaObject::invokeMethod(close, "clicked"), u"Sources recovery overlay close failed"_s);
-        waitFor([&] { return !view.rootObject()->findChild<QObject *>(u"contentSourcePicker"_s); }, u"Sources recovery overlay exit"_s);
+        waitFor([&] { return !picker->property("opened").toBool(); }, u"Sources recovery overlay exit"_s);
         auto *query = view.rootObject()->findChild<QQuickItem *>(u"contentQuery"_s);
         require(query && query->setProperty("text", u"Frieren next"_s), u"Source recovery query field is missing"_s);
         if (returnKey)
@@ -434,7 +452,7 @@ void exerciseSources()
         && toggle->property("checked").toBool() && !globalRetry->isVisible() && localRetry->isEnabled(), u"Production Sources retry did not confirm the exact chosen setting"_s);
     auto *close = picker->findChild<QQuickItem *>(u"contentSourcePickerClose"_s);
     require(close && QMetaObject::invokeMethod(close, "clicked"), u"Sources overlay close failed"_s);
-    waitFor([&] { return !view.rootObject()->findChild<QObject *>(u"contentSourcePicker"_s); }, u"Sources overlay exit"_s);
+    waitFor([&] { return !picker->property("opened").toBool(); }, u"Sources overlay exit"_s);
     require(QMetaObject::invokeMethod(sourceButton, "clicked"), u"Sources overlay reopen failed"_s);
     waitFor([&]
     {
@@ -444,5 +462,5 @@ void exerciseSources()
     }, u"Sources overlay retained choice"_s);
     require(!searchError->isVisible(), u"Closing Sources leaked its source failure into search"_s);
 
-    qInfo("PASS sources=typed persisted_choices=restart loading_search=gated sqlite_write_retry=exact reentrant_choice=latest corrupt_source=isolated late_success=retained actual_inspect_search_retry=cleared actual_missing_publication=recorded source_handoff=none production_overlay=close_reopen source_switch=keyboard source_SQL_retry=QML");
+    qInfo("PASS sources=typed persisted_choices=restart loading_search=gated sqlite_write_retry=exact reentrant_choice=latest corrupt_source=isolated late_success=retained actual_inspect_search_retry=cleared actual_missing_publication=recorded source_handoff=none account_actions=exact production_overlay=close_reopen source_switch=keyboard source_SQL_retry=QML");
 }

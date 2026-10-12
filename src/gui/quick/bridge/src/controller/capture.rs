@@ -46,12 +46,13 @@ impl ffi::ContentController {
             return false;
         };
         let qt_thread = self.qt_thread();
+        let choice = browser.choice();
         self.as_mut().rust_mut().captured_watch.cancel();
         let generation = self.captured_watch.generation;
         let task = self.services.as_ref().unwrap().runtime.spawn(async move {
             let prepared = async {
                 let handle = browser.handle().await.map_err(|_| "browser_required")?;
-                let media = resolve_captured_video(&handle, page, capture_id.clone())
+                let media = resolve_captured_video(&handle, choice, page, capture_id.clone())
                     .await
                     .map_err(|error| match error {
                         CapturedVideoError::Browser(

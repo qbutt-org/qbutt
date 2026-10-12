@@ -132,6 +132,23 @@ void Preferences::setReaderSettings(const Content::ReaderSettings &settings)
     emit readerSettingsChanged();
 }
 
+QString Preferences::browserChoice() const
+{
+    const QString choice = value<QString>(u"Content/Browser"_s, u"auto"_s);
+    return ((choice == u"edge") || (choice == u"chrome")) ? choice : u"auto"_s;
+}
+
+void Preferences::setBrowserChoice(const QString &choice)
+{
+    if ((choice != u"auto") && (choice != u"edge") && (choice != u"chrome"))
+        return;
+    if (choice == browserChoice())
+        return;
+
+    setValue(u"Content/Browser"_s, choice);
+    emit browserChoiceChanged(choice);
+}
+
 // General options
 QString Preferences::getLocale() const
 {

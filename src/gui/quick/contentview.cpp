@@ -191,6 +191,11 @@ void Content::ContentView::initializeBrowser()
     m_controller->initializeBrowser();
 }
 
+void Content::ContentView::setBrowserChoice(const QString &choice)
+{
+    m_controller->setBrowserChoice(choice);
+}
+
 void Content::ContentView::relayBrowserRequest(const quint64 generation, const quint64 id, const QByteArray &request)
 {
     m_controller->relayBrowserRequest(generation, id, request);

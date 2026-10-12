@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::browser::{BrowserChoice, BrowserCommand, BrowserError, ResolveKind, Selection};
+use qbutt_content::browser::{BrowserCommand, BrowserError, ResolveKind, Selection};
 use qbutt_content::{
     CapturedVideoError, DirectDownload, DownloadQueue, MediaGateway, MediaGatewayError,
     ResolvedContent, SourceOperation, Transport, VariantSelector, resolve_captured_video,
@@ -215,11 +215,12 @@ impl ffi::ContentController {
             None => return false,
         };
         let qt_thread = self.qt_thread();
+        let choice = browser.choice();
         let generation = self.captured_download.generation;
         let task = self.services.as_ref().unwrap().runtime.spawn(async move {
             let prepared = async {
                 let handle = browser.handle().await.map_err(|_| "capture")?;
-                let media = resolve_captured_video(&handle, page, capture_id.clone())
+                let media = resolve_captured_video(&handle, choice, page, capture_id.clone())
                     .await
                     .map_err(|error| match error {
                         CapturedVideoError::Unsupported => "unsupported",
@@ -347,6 +348,7 @@ impl ffi::ContentController {
         };
         let catalog = Arc::clone(&services.catalog);
         let browser = services.browser.client();
+        let choice = browser.choice();
         let qt_thread = self.qt_thread();
         services.runtime.spawn(async move {
             let result = catalog.execute(&request.operation).await;
@@ -361,7 +363,7 @@ impl ffi::ContentController {
                         let handle = browser.handle().await.map_err(|_| ())?;
                         let media = resolve_external_video(
                             &handle,
-                            BrowserChoice::Auto,
+                            choice,
                             reference,
                             url.clone(),
                         )

@@ -2,20 +2,38 @@
 #include "qbutt_quick/native.h"
 
 #include <QDir>
+#include <QDesktopServices>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QProcess>
 #include <QSettings>
 #include <QStandardPaths>
-#include <QStringList>
+#include <QUrl>
 
 #include "qbutt_quick/src/controller.cxxqt.h"
 
 namespace
 {
 #ifdef Q_OS_WIN
+    QString browserPath(const bool edge)
+    {
+        const QString relative = edge ? QStringLiteral("Microsoft/Edge/Application/msedge.exe")
+            : QStringLiteral("Google/Chrome/Application/chrome.exe");
+        for (const QString &root : {qEnvironmentVariable("LOCALAPPDATA"), qEnvironmentVariable("ProgramFiles"),
+            qEnvironmentVariable("ProgramFiles(x86)")})
+        {
+            if (root.isEmpty())
+                continue;
+            const QString path = QDir(root).filePath(relative);
+            if (QFileInfo(path).isFile())
+                return path;
+        }
+        return {};
+    }
+
     Qbutt::NativeHostState nativeHostState(const bool edge)
     {
         auto state = Qbutt::NativeHostState::Missing;
@@ -64,22 +82,10 @@ namespace
     const QString choiceKey = QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice");
     const QSettings defaults {choiceKey, QSettings::NativeFormat};
     const QString progId = defaults.value(QStringLiteral("ProgId")).toString();
-    const QStringList roots {qEnvironmentVariable("LOCALAPPDATA"), qEnvironmentVariable("ProgramFiles"),
-        qEnvironmentVariable("ProgramFiles(x86)")};
     for (const QString &id : {QStringLiteral("edge"), QStringLiteral("chrome")})
     {
         const bool edge = id == QStringLiteral("edge");
-        const QString relative = edge ? QStringLiteral("Microsoft/Edge/Application/msedge.exe")
-            : QStringLiteral("Google/Chrome/Application/chrome.exe");
-        bool installed = false;
-        for (const QString &root : roots)
-        {
-            if (!root.isEmpty() && QFileInfo::exists(QDir(root).filePath(relative)))
-            {
-                installed = true;
-                break;
-            }
-        }
+        const bool installed = !browserPath(edge).isEmpty();
         browsers.push_back({id, edge ? QStringLiteral("Microsoft Edge") : QStringLiteral("Google Chrome"),
             progId.startsWith(edge ? QStringLiteral("MSEdgeHTM") : QStringLiteral("ChromeHTML"), Qt::CaseInsensitive),
             installed, nativeHostState(edge)});
@@ -96,4 +102,26 @@ QString Qbutt::browserDiscoveryPath()
 
     const QDir localData {QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)};
     return localData.filePath(QStringLiteral("qbutt/content/browser-bridge.json"));
+}
+
+bool Qbutt::openBrowserUrl(const QString &url, const QString &choice)
+{
+    const QUrl address {url, QUrl::StrictMode};
+    if (!address.isValid() || (address.scheme() != QStringLiteral("https"))
+        || !address.userInfo().isEmpty())
+    {
+        return false;
+    }
+
+    if (choice == QStringLiteral("auto"))
+        return QDesktopServices::openUrl(address);
+
+#ifdef Q_OS_WIN
+    if ((choice == QStringLiteral("edge")) || (choice == QStringLiteral("chrome")))
+    {
+        const QString executable = browserPath(choice == QStringLiteral("edge"));
+        return !executable.isEmpty() && QProcess::startDetached(executable, {address.toString(QUrl::FullyEncoded)});
+    }
+#endif
+    return false;
 }

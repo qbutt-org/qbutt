@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,10 @@ const [executable, certificate, key] = process.argv.slice(2);
 assert(executable && certificate && key, "Expected fixture acceptance executable, certificate and key");
 const root = await mkdtemp(join(tmpdir(), "qbutt-native-lib-session-"));
 const discovery = join(root, "browser.json");
+const pendingFile = join(root, "edge-pending");
+const lateFile = join(root, "edge-late");
+const ambiguityFile = join(root, "connect-chrome");
+const clearFile = join(root, "disconnect-chrome");
 const token = "generated.native.account";
 const imports = { mangalib: 0, ranobelib: 0 };
 let images = 0;
@@ -18,7 +22,9 @@ let cookieRequests = 0;
 let anonymousSearches = 0;
 let privateRequests = 0;
 let socket: Socket | undefined;
+let chrome: Socket | undefined;
 let failure: unknown;
+let delayed = false;
 
 function record(site: number, id: number) {
     return {
@@ -117,6 +123,10 @@ const child = spawn(executable, ["--lib-session"], {
     env: {
         ...process.env,
         QBUTT_BROWSER_BRIDGE_DISCOVERY: discovery,
+        QBUTT_LIB_SESSION_PENDING_FILE: pendingFile,
+        QBUTT_LIB_SESSION_LATE_FILE: lateFile,
+        QBUTT_LIB_SESSION_AMBIGUITY_FILE: ambiguityFile,
+        QBUTT_LIB_SESSION_CLEAR_FILE: clearFile,
         QT_QPA_PLATFORM: "offscreen",
         QT_QUICK_BACKEND: "software",
         QT_FORCE_STDERR_LOGGING: "1",
@@ -131,11 +141,19 @@ child.stdout.on("data", chunk => { output += chunk; });
 child.stderr.on("data", chunk => { output += chunk; });
 const timer = setTimeout(() => child.kill(), 100_000);
 
-function write(value: unknown) {
+function write(value: unknown, peer = socket!) {
     const body = Buffer.from(JSON.stringify(value));
     const header = Buffer.alloc(4);
     header.writeUInt32LE(body.length);
-    socket!.write(Buffer.concat([header, body]));
+    peer.write(Buffer.concat([header, body]));
+}
+
+async function waitForFile(path: string) {
+    for (let attempt = 0; attempt < 800 && child.exitCode === null; ++attempt) {
+        if (await readFile(path).then(() => true).catch(() => false)) return;
+        await Bun.sleep(100);
+    }
+    throw new Error(`Native Lib fixture did not reach ${path}:\n${output}`);
 }
 
 try {
@@ -172,7 +190,7 @@ try {
                     const source = url.hostname === "mangalib.me" ? "mangalib" : "ranobelib";
                     assert.equal(url.href, `https://${source}.me/`);
                     ++imports[source];
-                    write({ id: request.id, result: {
+                    const response = { id: request.id, result: {
                         accessToken: token,
                         cookies: [{
                             name: "api",
@@ -182,7 +200,20 @@ try {
                             secure: true,
                             hostOnly: true,
                         }],
-                    } });
+                    } };
+                    if (!delayed && source === "mangalib") {
+                        delayed = true;
+                        void writeFile(pendingFile, "").then(async () => {
+                            await Bun.sleep(500);
+                            write(response);
+                            await writeFile(lateFile, "");
+                        }).catch(error => {
+                            failure = error;
+                            child.kill();
+                        });
+                    } else {
+                        write(response);
+                    }
                 } else {
                     assert.equal(request.method, "cookies");
                     assert.equal(url.hostname, "img3.cdnlibs.org");
@@ -209,17 +240,39 @@ try {
         userAgent: "generated native Lib connection",
         capabilities: ["lib-session"],
     });
+    const ambiguity = (async () => {
+        await waitForFile(ambiguityFile);
+        chrome = createConnection(pipe);
+        await new Promise<void>((resolve, reject) => {
+            chrome!.once("connect", resolve);
+            chrome!.once("error", reject);
+        });
+        write({
+            type: "hello",
+            version: 1,
+            browser: "chrome",
+            userAgent: "generated second connection",
+            capabilities: ["lib-session"],
+        }, chrome);
+        await waitForFile(clearFile);
+        chrome.destroy();
+    })().catch(error => {
+        failure = error;
+        child.kill();
+    });
     assert.equal(await exited, 0, output);
+    await ambiguity;
     if (failure) throw failure;
     assert(output.includes("PASS Lib account"), output);
-    assert.equal(anonymousSearches, 1);
-    assert.deepEqual(imports, { mangalib: 4, ranobelib: 4 }, "Each operation imports once; image pages share their chapter session");
+    assert.equal(anonymousSearches, 3);
+    assert.deepEqual(imports, { mangalib: 5, ranobelib: 4 }, "Only the canceled Edge request adds an account import");
     assert(images >= 2 && cookieRequests >= 2 && privateRequests >= 12);
     assert(!output.includes(token), "Generated credential entered native diagnostics");
     console.log(JSON.stringify({ ok: true, imports, images, cookieRequests, anonymousSearches, privateRequests }));
 } finally {
     clearTimeout(timer);
     socket?.destroy();
+    chrome?.destroy();
     if (child.exitCode === null) {
         child.kill();
         await exited;

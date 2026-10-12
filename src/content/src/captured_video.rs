@@ -18,12 +18,13 @@ pub enum CapturedVideoError {
 /// The capture ID is ephemeral and never becomes download-job provenance.
 pub async fn resolve_captured_video(
     browser: &BrowserHandle,
+    choice: BrowserChoice,
     page: Url,
     capture_id: String,
 ) -> Result<PlaybackMedia, CapturedVideoError> {
     let reply = browser
         .request_connected(
-            BrowserChoice::Auto,
+            choice,
             BrowserCommand::Resolve {
                 url: page.clone(),
                 selection: Selection {

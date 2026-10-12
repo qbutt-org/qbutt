@@ -281,6 +281,12 @@ void exerciseLibSession()
     require(!qEnvironmentVariable("QBUTT_BROWSER_BRIDGE_DISCOVERY").isEmpty(), u"Isolated discovery is required"_s);
     QTemporaryDir profile;
     require(profile.isValid(), u"Lib session profile failed"_s);
+    const QString pendingFile = qEnvironmentVariable("QBUTT_LIB_SESSION_PENDING_FILE");
+    const QString lateFile = qEnvironmentVariable("QBUTT_LIB_SESSION_LATE_FILE");
+    const QString ambiguityFile = qEnvironmentVariable("QBUTT_LIB_SESSION_AMBIGUITY_FILE");
+    const QString clearFile = qEnvironmentVariable("QBUTT_LIB_SESSION_CLEAR_FILE");
+    require(!pendingFile.isEmpty() && !lateFile.isEmpty() && !ambiguityFile.isEmpty() && !clearFile.isEmpty(),
+        u"Lib session synchronization files missing"_s);
     const auto drain = qScopeGuard([]
     {
         if (!QThreadPool::globalInstance()->waitForDone(10'000))
@@ -307,6 +313,9 @@ void exerciseLibSession()
 
         bool connected = false;
         bool blocked = false;
+        bool ambiguous = false;
+        bool edgeWhileAmbiguous = false;
+        bool soleAgain = false;
         QObject::connect(&view, &Content::ContentView::browserReply, &view,
             [&](const quint64, const quint64 id, const QByteArray &reply)
         {
@@ -315,6 +324,12 @@ void exerciseLibSession()
                 connected = message.value(u"result"_s).toObject().value(u"ready"_s).toBool();
             if (id == 3)
                 blocked = message.value(u"error"_s).toObject().value(u"code"_s).toString() == u"browser_invalid_request"_s;
+            if (id == 4)
+                ambiguous = !message.value(u"result"_s).toObject().value(u"ready"_s).toBool();
+            if (id == 5)
+                edgeWhileAmbiguous = message.value(u"result"_s).toObject().value(u"ready"_s).toBool();
+            if (id == 6)
+                soleAgain = message.value(u"result"_s).toObject().value(u"ready"_s).toBool();
             require(!reply.contains("accessToken"), u"Lib credentials crossed the Qt relay"_s);
         });
         view.initializeBrowser();
@@ -326,8 +341,51 @@ void exerciseLibSession()
         status.start(50);
         waitFor([&] { return connected; }, u"Generated qcatch connection"_s);
         status.stop();
+        QObject::disconnect(&status, nullptr, &view, nullptr);
         view.relayBrowserRequest(1, 3, R"({"id":3,"browser":"auto","command":{"method":"lib-session","url":"https://mangalib.me/"}})");
         waitFor([&] { return blocked; }, u"Foreign Lib credential relay rejection"_s);
+
+        const auto mark = [](const QString &path)
+        {
+            QFile file(path);
+            require(file.open(QIODevice::WriteOnly), u"Lib fixture synchronization failed"_s);
+        };
+        mark(ambiguityFile);
+        QObject::connect(&status, &QTimer::timeout, &view, [&]
+        {
+            view.relayBrowserRequest(1, 4, R"({"id":4,"browser":"auto","command":{"method":"status"}})");
+            view.relayBrowserRequest(1, 5, R"({"id":5,"browser":"edge","command":{"method":"status"}})");
+        });
+        status.start(50);
+        waitFor([&] { return ambiguous && edgeWhileAmbiguous; }, u"Two connected browser ambiguity"_s);
+        status.stop();
+        QObject::disconnect(&status, nullptr, &view, nullptr);
+        mark(clearFile);
+        QObject::connect(&status, &QTimer::timeout, &view, [&]
+        {
+            view.relayBrowserRequest(1, 6, R"({"id":6,"browser":"auto","command":{"method":"status"}})");
+        });
+        status.start(50);
+        waitFor([&] { return soleAgain; }, u"Sole connected browser restored"_s);
+        status.stop();
+
+        view.setBrowserChoice(u"chrome"_s);
+        controller->search(u"Generated"_s);
+        waitFor([&] { return !controller->property("busy").toBool(); }, u"Chrome with only Edge connected"_s);
+        require(model(controller, "works")->rowCount() == 1,
+            u"Native Catalog borrowed Edge credentials for selected Chrome"_s);
+
+        view.setBrowserChoice(u"edge"_s);
+        controller->search(u"Generated"_s);
+        waitFor([&] { return QFile::exists(pendingFile); }, u"Edge request before browser choice change"_s);
+        require(controller->property("busy").toBool(), u"Old Edge operation finished before choice change"_s);
+        view.setBrowserChoice(u"chrome"_s);
+        waitFor([&] { return !controller->property("busy").toBool(); }, u"Chrome search after Edge cancellation"_s);
+        waitFor([&] { return QFile::exists(lateFile); }, u"Delayed Edge reply"_s);
+        require(model(controller, "works")->rowCount() == 1,
+            u"Late Edge reply replaced the selected Chrome result"_s);
+
+        view.setBrowserChoice(u"edge"_s);
 
         for (const QString source : {u"mangalib"_s, u"ranobelib"_s})
         {
@@ -366,5 +424,5 @@ void exerciseLibSession()
                 require(!database.readAll().contains("generated.native.account"), u"Lib credentials entered SQLite"_s);
         }
     }
-    qInfo("PASS Lib account native_search=complete foreign_relay=blocked MangaLib_pages=decoded RanobeLib_text=shown SQLite=no_credentials");
+    qInfo("PASS Lib account browser_choice=isolated late_reply=ignored auto_sole=ready auto_ambiguous=not_ready native_search=complete foreign_relay=blocked MangaLib_pages=decoded RanobeLib_text=shown SQLite=no_credentials");
 }

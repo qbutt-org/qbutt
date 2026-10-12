@@ -124,6 +124,8 @@ impl ffi::SourceModel {
                             | SourceFailureReason::Http(404 | 410) => 3,
                             SourceFailureReason::LoginRequired => 6,
                             SourceFailureReason::SourceCheckRequired => 7,
+                            SourceFailureReason::BrowserChoiceRequired => 8,
+                            SourceFailureReason::BrowserSession => 9,
                             _ => 0,
                         })
                     })
@@ -141,6 +143,7 @@ impl ffi::SourceModel {
                         )
                     )),
             ),
+            8 => QVariant::from(&row.source.account_url().is_some()),
             _ => QVariant::default(),
         }
     }
@@ -156,6 +159,7 @@ impl ffi::SourceModel {
             "pending",
             "retrying",
             "manualCheck",
+            "accountSource",
         ]
         .iter()
         .enumerate()

@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QByteArray;
 use qbutt_content::browser::{
-    BrowserBroker, BrowserChoice, BrowserCommand, BrowserError, BrowserHandle, BrowserStatus,
+    BrowserBroker, BrowserChoice, BrowserCommand, BrowserError, BrowserHandle, BrowserId,
+    BrowserStatus,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -27,6 +29,15 @@ pub(super) struct BrowserService {
 #[derive(Clone)]
 pub(super) struct BrowserClient {
     state: Arc<Mutex<BrowserState>>,
+    choice: Arc<RwLock<BrowserChoice>>,
+}
+
+pub(super) fn choice(value: &str) -> BrowserChoice {
+    match value {
+        "edge" => BrowserChoice::Edge,
+        "chrome" => BrowserChoice::Chrome,
+        _ => BrowserChoice::Auto,
+    }
 }
 
 enum BrowserState {
@@ -36,6 +47,32 @@ enum BrowserState {
 }
 
 impl BrowserClient {
+    pub(super) fn choice(&self) -> BrowserChoice {
+        *self.choice.read().expect("browser choice lock")
+    }
+
+    pub(super) fn set_choice(&self, value: BrowserChoice) {
+        *self.choice.write().expect("browser choice lock") = value;
+    }
+
+    pub(super) async fn account_choice(&self, choice: BrowserChoice) -> Option<BrowserChoice> {
+        if choice != BrowserChoice::Auto {
+            return Some(choice);
+        }
+
+        let Some(handle) = self.existing_handle().await else {
+            return Some(BrowserChoice::Auto);
+        };
+        match handle.status().connections.as_slice() {
+            [] => Some(BrowserChoice::Auto),
+            [connection] => Some(match connection.browser {
+                BrowserId::Edge => BrowserChoice::Edge,
+                BrowserId::Chrome => BrowserChoice::Chrome,
+            }),
+            _ => None,
+        }
+    }
+
     pub(super) async fn handle(&self) -> Result<BrowserHandle, BrowserError> {
         let mut state = self.state.lock().await;
         match &*state {
@@ -63,6 +100,7 @@ impl BrowserService {
         Self {
             client: BrowserClient {
                 state: Arc::new(Mutex::new(BrowserState::Idle(discovery))),
+                choice: Arc::new(RwLock::new(BrowserChoice::Auto)),
             },
             initialization: None,
         }
