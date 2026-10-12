@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::pin::Pin;
 
 use cxx_qt::CxxQtType;
@@ -169,6 +170,19 @@ pub fn variant_id(reference: &VariantRef) -> String {
             format!("{publication}:episode:{id}:{}", quality.height())
         }
         VariantSelector::Rutube { episode_id } => format!("{publication}:rutube:{episode_id}"),
+        VariantSelector::YummyAnimeVideo {
+            id,
+            episode,
+            dubbing,
+            player,
+            player_id,
+        } => {
+            let mut key = format!("{publication}:video:{id}:{player_id}");
+            for value in [episode, dubbing, player] {
+                write!(&mut key, ":{}:{value}", value.len()).expect("string formatting");
+            }
+            key
+        }
         VariantSelector::MangaTranslation { language, groups } => {
             format!("{publication}:translation:{language}:{}", groups.join("+"))
         }

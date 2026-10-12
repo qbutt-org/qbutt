@@ -6,8 +6,8 @@ use cxx_qt_lib::QString;
 use qbutt_content::{Source, SourceOperation};
 use tokio::task::JoinSet;
 
+use super::catalog::SourceResponse;
 use super::ffi;
-use super::sources::{SourceResponse, execute_operation};
 
 const MAX_SEARCH_REQUESTS: usize = 4;
 
@@ -84,11 +84,7 @@ impl ffi::ContentController {
 
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
-        let anime = Arc::clone(&services.anime);
-        let manga = Arc::clone(&services.manga);
-        let mangalib = Arc::clone(&services.mangalib);
-        let rutor = Arc::clone(&services.rutor);
-        let nyaa = Arc::clone(&services.nyaa);
+        let catalog = Arc::clone(&services.catalog);
         let mut requests = Vec::new();
         for source in Source::ALL {
             for category in source.categories() {
@@ -111,21 +107,9 @@ impl ffi::ContentController {
                 while pending.len() < MAX_SEARCH_REQUESTS
                     && let Some(request) = requests.next()
                 {
-                    let anime = Arc::clone(&anime);
-                    let manga = Arc::clone(&manga);
-                    let mangalib = Arc::clone(&mangalib);
-                    let rutor = Arc::clone(&rutor);
-                    let nyaa = Arc::clone(&nyaa);
+                    let catalog = Arc::clone(&catalog);
                     pending.spawn(async move {
-                        let result = execute_operation(
-                            &request.operation,
-                            anime,
-                            manga,
-                            rutor,
-                            nyaa,
-                            mangalib,
-                        )
-                        .await;
+                        let result = catalog.execute(&request.operation).await;
                         (request, result)
                     });
                 }

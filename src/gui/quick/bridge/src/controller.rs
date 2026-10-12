@@ -5,12 +5,11 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
-use qbutt_content::{
-    AniLiberty, MangaDex, MangaLib, Nyaa, PublicationRef, RuTor, VariantPreferences, Work,
-};
+use qbutt_content::{PublicationRef, VariantPreferences, Work};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
+mod catalog;
 mod library;
 mod playback;
 mod reader;
@@ -616,11 +615,7 @@ impl Pending {
 
 pub struct Services {
     runtime: Runtime,
-    anime: Arc<AniLiberty>,
-    manga: Arc<MangaDex>,
-    mangalib: Arc<MangaLib>,
-    rutor: Arc<RuTor>,
-    nyaa: Arc<Nyaa>,
+    catalog: Arc<catalog::Catalog>,
     language: String,
     reader_load: Arc<tokio::sync::Semaphore>,
     reader_bytes: Arc<tokio::sync::Semaphore>,
@@ -667,13 +662,9 @@ pub struct ContentControllerRust {
 
 impl Default for ContentControllerRust {
     fn default() -> Self {
-        let services = AniLiberty::new()
+        let services = catalog::Catalog::new()
             .map_err(|error| error.to_string())
-            .and_then(|anime| {
-                let manga = MangaDex::new().map_err(|error| error.to_string())?;
-                let mangalib = MangaLib::new().map_err(|error| error.to_string())?;
-                let rutor = RuTor::new().map_err(|error| error.to_string())?;
-                let nyaa = Nyaa::new().map_err(|error| error.to_string())?;
+            .and_then(|catalog| {
                 Builder::new_multi_thread()
                     .worker_threads(2)
                     .enable_all()
@@ -681,11 +672,7 @@ impl Default for ContentControllerRust {
                     .map_err(|error| error.to_string())
                     .map(|runtime| Services {
                         runtime,
-                        anime: Arc::new(anime),
-                        manga: Arc::new(manga),
-                        mangalib: Arc::new(mangalib),
-                        rutor: Arc::new(rutor),
-                        nyaa: Arc::new(nyaa),
+                        catalog: Arc::new(catalog),
                         language: ffi::content_language().to_string(),
                         reader_load: Arc::new(tokio::sync::Semaphore::new(1)),
                         reader_bytes: Arc::new(tokio::sync::Semaphore::new(96 * 1024 * 1024)),

@@ -23,8 +23,8 @@ pub(super) enum ReaderSource {
 impl Services {
     pub(super) fn reader_source(&self, source: Source) -> Option<ReaderSource> {
         match source {
-            Source::MangaDex => Some(ReaderSource::MangaDex(Arc::clone(&self.manga))),
-            Source::MangaLib => Some(ReaderSource::MangaLib(Arc::clone(&self.mangalib))),
+            Source::MangaDex => Some(ReaderSource::MangaDex(Arc::clone(&self.catalog.mangadex))),
+            Source::MangaLib => Some(ReaderSource::MangaLib(Arc::clone(&self.catalog.mangalib))),
             _ => None,
         }
     }

@@ -5,9 +5,9 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{Source, SourceOperation, Work};
 
+use super::catalog::SourceResponse;
 use super::ffi;
 use super::library::LibraryAction;
-use super::sources::{SourceResponse, execute_operation};
 use crate::models::{self, variant_id, work_id};
 
 impl ffi::ContentController {
@@ -128,14 +128,9 @@ impl ffi::ContentController {
 
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
-        let anime = Arc::clone(&services.anime);
-        let manga = Arc::clone(&services.manga);
-        let mangalib = Arc::clone(&services.mangalib);
-        let rutor = Arc::clone(&services.rutor);
-        let nyaa = Arc::clone(&services.nyaa);
+        let catalog = Arc::clone(&services.catalog);
         let task = services.runtime.spawn(async move {
-            let result =
-                execute_operation(&request.operation, anime, manga, rutor, nyaa, mangalib).await;
+            let result = catalog.execute(&request.operation).await;
             let _ = qt_thread.queue(move |mut controller| {
                 if controller.inspection.generation != generation
                     || !controller.source_request_current(&request)

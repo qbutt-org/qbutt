@@ -10,8 +10,8 @@ use qbutt_content::{
     VariantRef, Work,
 };
 
+use super::catalog::SourceResponse;
 use super::library::LibraryAction;
-use super::sources::{SourceResponse, execute_operation};
 use super::{Services, ffi};
 use crate::models;
 
@@ -306,14 +306,9 @@ impl ffi::ContentController {
         }
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
-        let anime = Arc::clone(&services.anime);
-        let manga = Arc::clone(&services.manga);
-        let mangalib = Arc::clone(&services.mangalib);
-        let rutor = Arc::clone(&services.rutor);
-        let nyaa = Arc::clone(&services.nyaa);
+        let catalog = Arc::clone(&services.catalog);
         let task = services.runtime.spawn(async move {
-            let result =
-                execute_operation(&request.operation, anime, manga, rutor, nyaa, mangalib).await;
+            let result = catalog.execute(&request.operation).await;
             let gateway = if matches!(
                 &result,
                 Ok(SourceResponse::Resolve(ResolvedContent::DirectVideo { .. }))
