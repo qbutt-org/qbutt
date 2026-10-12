@@ -296,10 +296,6 @@ impl<S: DownloadStorage> DownloadQueue<S> {
         self.inner.updates.subscribe()
     }
 
-    pub async fn jobs(&self) -> Vec<DownloadJob> {
-        ordered_jobs(&self.inner.state.lock().await.jobs)
-    }
-
     pub async fn enqueue(&self, request: DirectDownload) -> Result<DownloadJob, DownloadError> {
         let job = DownloadJob::queued(&request)?;
         let mut state = self.inner.state.lock().await;

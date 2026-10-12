@@ -191,11 +191,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let restored = DownloadQueue::open_fixture(store, destination.clone(), client).await?;
     let mut restored_updates = restored.subscribe();
-    let interrupted_job = restored
-        .jobs()
-        .await
-        .into_iter()
+    let interrupted_job = restored_updates
+        .borrow()
+        .iter()
         .find(|job| job.id == interrupted.id)
+        .cloned()
         .ok_or("interrupted job was lost")?;
     assert_eq!(interrupted_job.status, DownloadStatus::Error);
     assert!(
@@ -214,7 +214,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await;
     assert_eq!(fs::read(completed_after_restart.path.unwrap())?, *payload);
-    assert_eq!(restored.jobs().await.len(), 4);
+    assert_eq!(restored_updates.borrow().len(), 4);
     assert_eq!(fs::read(marker)?, b"unrelated user bytes");
     restored.close().await;
     server.abort();
