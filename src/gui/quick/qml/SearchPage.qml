@@ -45,6 +45,11 @@ Page {
         if (text.length === 0)
             return;
 
+        if (backend.sourceSettingsState === Sources.Failed) {
+            sources.active = true;
+            return;
+        }
+
         backend.setListMode(Search.Search);
         backend.search(text);
     }
