@@ -27,13 +27,11 @@ impl ffi::ContentController {
             .to_local_file()
             .map(|value| PathBuf::from(value.to_string()))
         else {
-            self.as_mut()
-                .set_local_book_error("select");
+            self.as_mut().set_local_book_error("select");
             return;
         };
         if self.library_state != ffi::LibraryState::Ready || self.services.is_none() {
-            self.as_mut()
-                .set_local_book_error("library");
+            self.as_mut().set_local_book_error("library");
             return;
         }
         self.as_mut().set_local_book_error("");
@@ -57,9 +55,7 @@ impl ffi::ContentController {
                                 if !controller.as_mut().submit_library(
                                     LibraryAction::LocalBookImport { book, generation },
                                 ) {
-                                    controller.set_local_book_error(
-                                        "save",
-                                    );
+                                    controller.set_local_book_error("save");
                                 }
                             }
                             Err(error) => {
@@ -86,8 +82,7 @@ impl ffi::ContentController {
             reference,
             generation,
         }) {
-            self.as_mut()
-                .set_local_book_error("library");
+            self.as_mut().set_local_book_error("library");
         }
     }
 
@@ -111,8 +106,7 @@ impl ffi::ContentController {
                     &QString::from("local book import"),
                     &QString::from(error.to_string()),
                 );
-                self.as_mut()
-                    .set_local_book_error("save");
+                self.as_mut().set_local_book_error("save");
             }
         }
     }
@@ -129,8 +123,7 @@ impl ffi::ContentController {
         let path = match result {
             Ok(Some(path)) => path,
             Ok(None) => {
-                self.as_mut()
-                    .set_local_book_error("missing");
+                self.as_mut().set_local_book_error("missing");
                 return;
             }
             Err(error) => {
@@ -138,8 +131,7 @@ impl ffi::ContentController {
                     &QString::from("local book path"),
                     &QString::from(error.to_string()),
                 );
-                self.as_mut()
-                    .set_local_book_error("read");
+                self.as_mut().set_local_book_error("read");
                 return;
             }
         };
@@ -154,9 +146,7 @@ impl ffi::ContentController {
                     if book.reference() == reference {
                         Ok(Arc::new(book))
                     } else {
-                        Err(qbutt_content::Error::InvalidLocalBook(
-                            "The book file changed since import",
-                        ))
+                        Err(Error::LocalBookChanged)
                     }
                 });
                 let _ = qt_thread.queue(move |mut controller| {
