@@ -351,6 +351,7 @@ Copy-Item -LiteralPath $bunLicense -Destination "$licenses/bun.txt"
 Copy-Item -LiteralPath (Join-Path $webviewSdk 'LICENSE.txt') -Destination "$licenses/WebView2-SDK.txt"
 Copy-Item -LiteralPath (Join-Path $webviewSdk 'NOTICE.txt') -Destination "$licenses/WebView2-NOTICE.txt"
 Copy-Item -LiteralPath (Join-Path $SourceDir 'resources/fonts/Neucha-OFL.txt') -Destination "$licenses/Neucha-OFL.txt"
+Copy-Item -LiteralPath (Join-Path $SourceDir 'src/icons/LICENSE-Tabler') -Destination "$licenses/Tabler-Icons.txt"
 Invoke-Native $bun @((Join-Path $SourceDir 'scripts/package-products.ts'), '--destination', $portable,
     '--cache', (Join-Path $DependencyRoot 'products'))
 Invoke-Native $bun @((Join-Path $SourceDir 'scripts/collect-content-notices.ts'), '--bundle', $portable, '--go', $go)
@@ -373,6 +374,10 @@ licenses/rust/standard-library/.
 Neucha by Jovanny Lemonad is bundled under the SIL Open Font License 1.1.
 License: licenses/Neucha-OFL.txt. Pinned source:
 $($lock.fonts.neucha.repository -replace '\.git$', '')/blob/$($lock.fonts.neucha.commit)/$($lock.fonts.neucha.path)
+
+Reader interface glyphs from Tabler Icons are bundled under MIT.
+License: licenses/Tabler-Icons.txt. Pinned source:
+$($lock.assets.tablerIcons.repository -replace '\.git$', '')/tree/$($lock.assets.tablerIcons.commit)/icons/outline
 
 qbutt-net is a separate process under GPLv3 (licenses/qbutt-net.txt).
 Source: $($lock.qbuttNet.repository -replace '\.git$', '')/tree/$($lock.qbuttNet.commit)

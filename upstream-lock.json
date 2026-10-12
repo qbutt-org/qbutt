@@ -71,6 +71,13 @@
       "commit": "d3cf2f5026bbb2f509325902db0a85e48f37ea17"
     }
   },
+  "assets": {
+    "tablerIcons": {
+      "repository": "https://github.com/tabler/tabler-icons.git",
+      "version": "3.49.0",
+      "commit": "bbed884d15354b5cebf2493371f20dc2d5e83eaf"
+    }
+  },
   "fonts": {
     "neucha": {
       "repository": "https://github.com/google/fonts.git",
