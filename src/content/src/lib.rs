@@ -7,6 +7,8 @@
 //! Library storage is synchronous and must be scheduled outside the GUI thread.
 
 mod aniliberty;
+#[cfg(windows)]
+pub mod browser;
 mod http;
 mod library;
 mod mangadex;
@@ -20,6 +22,8 @@ mod torrent;
 mod yummyanime;
 
 pub use aniliberty::AniLiberty;
+#[cfg(windows)]
+pub use browser::*;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
     ReaderMode, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
