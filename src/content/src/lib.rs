@@ -45,6 +45,8 @@ mod sources;
 mod text;
 mod torrent;
 pub mod translation;
+#[cfg(windows)]
+pub mod webview;
 mod yummyanime;
 
 pub use aniliberty::AniLiberty;

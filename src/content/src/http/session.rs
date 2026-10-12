@@ -82,6 +82,42 @@ impl SourceSession {
         Ok(source)
     }
 
+    #[cfg(windows)]
+    pub(crate) fn from_webview(
+        origin: Url,
+        session: crate::webview::WebViewSession,
+    ) -> Result<Self> {
+        let mut source = Self::anonymous(origin)?;
+        if session.url.origin() != source.origin {
+            return Err(Error::UnsafeAddress);
+        }
+        source.user_agent = Some(
+            HeaderValue::from_str(&session.user_agent)
+                .map_err(|_| Error::InvalidResponse("invalid WebView user agent"))?,
+        );
+        for browser in session.cookies {
+            let mut raw = RawCookie::build((browser.name, browser.value))
+                .path(browser.path)
+                .secure(browser.secure)
+                .http_only(browser.http_only);
+            if !browser.host_only {
+                raw = raw.domain(browser.domain);
+            }
+            let mut cookie = Cookie::try_from_raw_cookie(&raw.build(), &session.url)
+                .map_err(|_| Error::InvalidResponse("invalid WebView cookie"))?
+                .into_owned();
+            if let Some(expiry) = browser.expires {
+                let expiry = time::OffsetDateTime::from_unix_timestamp_nanos(
+                    (expiry * 1_000_000_000.0) as i128,
+                )
+                .map_err(|_| Error::InvalidResponse("invalid WebView cookie expiry"))?;
+                cookie.expires = CookieExpiration::AtUtc(expiry);
+            }
+            source.store(cookie)?;
+        }
+        Ok(source)
+    }
+
     pub(super) fn apply(&self, request: RequestBuilder, url: &Url) -> Result<RequestBuilder> {
         let mut cookies: Vec<_> = self
             .cookies
