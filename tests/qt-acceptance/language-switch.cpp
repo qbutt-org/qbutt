@@ -5,6 +5,7 @@
 #include <stdexcept>
 
 #include <QAbstractItemModel>
+#include <QAccessible>
 #include <QAction>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -159,7 +160,8 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
         const QString variantId = role(variants, selectedRow, "variantId");
         controller->selectVariant(variantId);
         auto *list = child<QQuickItem>(root, u"contentVariants"_s);
-        QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(QVariant, selectedRow), Q_ARG(QVariant, 0));
+        require(QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(int, selectedRow), Q_ARG(int, 0)),
+            u"Variant list positioning failed"_s);
         const QString workId = controller->getSelectedWorkId();
         const int variantCount = variants->rowCount();
         optionsAction->trigger();
@@ -183,12 +185,17 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
                 const QString label = role(variants, selectedRow, "label");
                 if (label.startsWith(u"Episode") != english)
                     return false;
-                for (auto *item : list->findChildren<QQuickItem *>())
-                {
-                    if (item->property("variantId").toString() == variantId)
-                        return item->property("label").toString() == label;
-                }
-                return false;
+                QQuickItem *item = nullptr;
+                require(QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item), Q_ARG(int, selectedRow)),
+                    u"Variant delegate lookup failed"_s);
+                if (!item)
+                    return false;
+                auto *accessible = QAccessible::queryAccessibleInterface(item);
+                return (item->property("variantId").toString() == variantId)
+                    && (item->property("label").toString() == label)
+                    && accessible && (accessible->text(QAccessible::Name) == label)
+                    && (child<QQuickItem>(root, u"contentDownload"_s)->property("text").toString()
+                        == QCoreApplication::translate("WorkPane", "Watch"));
             });
             require((controller->getSelectedWorkId() == workId) && (controller->getSelectedVariantId() == variantId)
                 && (variants->rowCount() == variantCount) && (query->property("text").toString() == u"Frieren")
