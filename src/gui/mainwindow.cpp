@@ -43,6 +43,7 @@
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QFileSystemWatcher>
+#include <QGuiApplication>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLabel>
@@ -53,6 +54,7 @@
 #include <QMimeData>
 #include <QProgressBar>
 #include <QProgressDialog>
+#include <QScreen>
 #include <QShortcut>
 #include <QSplitter>
 #include <QStatusBar>
@@ -1212,9 +1214,11 @@ void MainWindow::showEvent(QShowEvent *e)
         if (currentTabWidget() == m_transferListWidget)
             m_propertiesWidget->loadDynamicData();
 
-        // Make sure the window is initially centered
         if (!m_posInitialized)
         {
+            const QSize windowSize = QSize {1440, 900}.boundedTo(
+                QGuiApplication::primaryScreen()->availableGeometry().size());
+            resize(windowSize - (frameSize() - size()));
             move(Utils::Gui::screenCenter(this));
             m_posInitialized = true;
         }
