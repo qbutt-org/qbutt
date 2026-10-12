@@ -67,18 +67,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let browser = work
+    let kodik = work
         .variants
         .iter()
-        .find(|variant| variant.player.as_deref() == Some("Kodik"))
-        .ok_or("no browser-required video in live metadata")?;
-    match catalog.resolve(&browser.reference).await? {
-        ResolvedContent::ExternalVideo { reference, url, .. } => {
-            assert_eq!(reference, browser.reference);
+        .find(|variant| {
+            variant.player.as_deref() == Some("Kodik")
+                && variant.episode.as_deref() == Some("1")
+                && variant.translation.as_deref() == Some("AniLibria")
+        })
+        .ok_or("the exact live Kodik video is no longer available")?;
+    match catalog.resolve(&kodik.reference).await? {
+        ResolvedContent::DirectVideo {
+            reference,
+            url,
+            quality,
+            ..
+        } => {
+            assert_eq!(reference, kodik.reference);
             assert_eq!(url.scheme(), "https");
-            assert_eq!(url.host_str(), Some("kodikplayer.com"));
+            assert_eq!(quality.height(), 720);
+            println!("player=Kodik exact_episode_voice=ok direct_descriptor=720p");
         }
-        _ => return Err("a browser-required video was represented as direct playback".into()),
+        _ => return Err("the exact Kodik video resolved as a different transport".into()),
     }
 
     let invalid = PublicationRef {
@@ -131,7 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     for field in 0..5 {
-        let mut changed = browser.reference.clone();
+        let mut changed = kodik.reference.clone();
         let VariantSelector::YummyAnimeVideo {
             id,
             episode,
@@ -155,7 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
     println!(
-        "search={} inspected={} variants={} cvh_display_alias=ok subtitle_movie=ok browser_required=ok changed_id_episode_voice_player=rejected",
+        "search={} inspected={} variants={} cvh_display_alias=ok subtitle_movie=ok kodik_direct=ok changed_id_episode_voice_player=rejected",
         works.len(),
         work.reference.id,
         work.variants.len()

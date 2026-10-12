@@ -12,6 +12,7 @@ use crate::{Error, Result};
 
 const MAX_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
+const MAX_FORM_BYTES: usize = 16 * 1024;
 const MAX_REDIRECTS: usize = 5;
 
 #[derive(Clone, Copy)]
@@ -19,6 +20,7 @@ enum ResponseKind {
     Json,
     Html,
     Image,
+    Playlist,
 }
 
 pub(crate) struct SourceHttp {
@@ -44,9 +46,22 @@ impl SourceHttp {
     }
 
     pub(crate) async fn json<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
-        let bytes = tokio::time::timeout(
+        let (_, bytes) = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Json, &[]),
+            self.fetch(url, ResponseKind::Json, &[], None),
+        )
+        .await
+        .map_err(|_| Error::Timeout)??;
+        serde_json::from_slice(&bytes).map_err(Error::Json)
+    }
+
+    pub(crate) async fn form_json<T: DeserializeOwned>(&self, url: Url, form: &str) -> Result<T> {
+        if form.len() > MAX_FORM_BYTES {
+            return Err(Error::ResponseTooLarge);
+        }
+        let (_, bytes) = tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(url, ResponseKind::Json, &[], Some(form)),
         )
         .await
         .map_err(|_| Error::Timeout)??;
@@ -56,20 +71,39 @@ impl SourceHttp {
     pub(crate) async fn image(&self, url: Url, allowed_hosts: &[&str]) -> Result<Vec<u8>> {
         tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Image, allowed_hosts),
+            self.fetch(url, ResponseKind::Image, allowed_hosts, None),
         )
         .await
         .map_err(|_| Error::Timeout)?
+        .map(|(_, bytes)| bytes)
     }
 
     pub(crate) async fn html(&self, url: Url) -> Result<String> {
-        let bytes = tokio::time::timeout(
+        self.html_page(url).await.map(|(_, html)| html)
+    }
+
+    pub(crate) async fn html_page(&self, url: Url) -> Result<(Url, String)> {
+        let (url, bytes) = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Html, &[]),
+            self.fetch(url, ResponseKind::Html, &[], None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
-        String::from_utf8(bytes).map_err(|_| Error::InvalidResponse("HTML is not UTF-8"))
+        let html =
+            String::from_utf8(bytes).map_err(|_| Error::InvalidResponse("HTML is not UTF-8"))?;
+        Ok((url, html))
+    }
+
+    pub(crate) async fn playlist(&self, url: Url) -> Result<(Url, String)> {
+        let (url, bytes) = tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(url, ResponseKind::Playlist, &[], None),
+        )
+        .await
+        .map_err(|_| Error::Timeout)??;
+        let text = String::from_utf8(bytes)
+            .map_err(|_| Error::InvalidResponse("playlist is not UTF-8"))?;
+        Ok((url, text))
     }
 
     async fn fetch(
@@ -77,17 +111,18 @@ impl SourceHttp {
         mut url: Url,
         kind: ResponseKind,
         allowed_hosts: &[&str],
-    ) -> Result<Vec<u8>> {
-        let same_origin = !matches!(kind, ResponseKind::Image);
-        let max_bytes = if matches!(kind, ResponseKind::Html) {
+        form: Option<&str>,
+    ) -> Result<(Url, Vec<u8>)> {
+        let same_origin = matches!(kind, ResponseKind::Json | ResponseKind::Html);
+        let max_bytes = if matches!(kind, ResponseKind::Html | ResponseKind::Playlist) {
             MAX_HTML_BYTES
         } else {
             MAX_RESPONSE_BYTES
         };
         for redirects in 0..=MAX_REDIRECTS {
             validate_https_url(&url)?;
-            // Catalog redirects stay on the fixed origin. Image descriptors may
-            // point to a volunteer CDN; every redirect uses the guarded resolver.
+            // Catalog and form redirects stay on the fixed origin. Images and
+            // playlists may use public CDNs; every connection uses checked DNS.
             if same_origin && url.origin() != self.origin.origin() {
                 return Err(Error::UnsafeAddress);
             }
@@ -100,15 +135,25 @@ impl SourceHttp {
                 return Err(Error::UnsafeAddress);
             }
 
-            let mut response = self
-                .client
-                .get(url.clone())
+            let request = if let Some(form) = form {
+                self.client
+                    .post(url.clone())
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .body(form.to_owned())
+            } else {
+                self.client.get(url.clone())
+            };
+            let mut response = request
                 .header(
                     ACCEPT,
                     match kind {
                         ResponseKind::Json => "application/json",
                         ResponseKind::Html => "text/html",
                         ResponseKind::Image => "image/*",
+                        ResponseKind::Playlist => {
+                            "application/vnd.apple.mpegurl, application/x-mpegURL, text/plain"
+                        }
                     },
                 )
                 .header(ACCEPT_ENCODING, "identity")
@@ -117,7 +162,11 @@ impl SourceHttp {
                 .map_err(network_error)?;
 
             if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
-                if redirects == MAX_REDIRECTS {
+                // Do not turn a signed form submission into a different method
+                // or replay its body under ambiguous redirect semantics.
+                if redirects == MAX_REDIRECTS
+                    || form.is_some() && !matches!(response.status().as_u16(), 307 | 308)
+                {
                     return Err(Error::InvalidRedirect);
                 }
 
@@ -168,7 +217,7 @@ impl SourceHttp {
             if bytes.is_empty() {
                 return Err(Error::InvalidResponse("empty source response"));
             }
-            return Ok(bytes);
+            return Ok((url, bytes));
         }
 
         Err(Error::InvalidRedirect)

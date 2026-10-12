@@ -83,20 +83,24 @@ six supported categories, raw release/version titles and preferences; rejected
 references leave confirmed entries unchanged. The last command uses live public
 Software metadata and resolves the exact magnet without downloading a payload.
 
-YummyAnime has a generated HTTPS/SQLite scenario and a bounded live catalog check:
+YummyAnime has generated HTTPS/SQLite scenarios and a bounded live resolver check:
 
 ```powershell
 cargo run --locked --offline -p qbutt-content --example yummyanime-fixtures
+cargo run --locked --offline -p qbutt-content --example kodik-fixtures
 cargo run --locked -p qbutt-content --example yummyanime
 ```
 
 The generated scenario checks search and inspection, changed or missing exact
 identity, duplicate videos, browser challenges, redirects, response limits,
 cancellation and exact selection after reopening SQLite in another process.
-The live check resolves Frieren episode 1 with AniLibria on Aksor and CVH,
-distinguishes Kodik's browser requirement, and rejects changed episode, voice and
-player selectors. It requests metadata only; it does not establish media playback,
-browser capture or the native Qt interface.
+The Kodik scenario checks exact season, episode, movie and voice selection,
+subtitle type, ambiguous or changed IDs/hashes, the highest advertised quality,
+URL encoding, bounded form/HLS responses, final URLs, redirects and cancellation.
+The live check resolves Frieren episode 1 with AniLibria at 1080p on Aksor/CVH
+and 720p on Kodik, and rejects changed episode, voice and player selectors. It
+requests catalog/player metadata and HLS manifests; it does not establish media
+playback, browser capture or the native Qt interface.
 
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in

@@ -47,6 +47,22 @@ mod http {
         pub(crate) async fn json<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
             self.0.json(url).await
         }
+
+        pub(crate) async fn html_page(&self, url: Url) -> Result<(Url, String)> {
+            self.0.html_page(url).await
+        }
+
+        pub(crate) async fn form_json<T: DeserializeOwned>(
+            &self,
+            url: Url,
+            form: &str,
+        ) -> Result<T> {
+            self.0.form_json(url, form).await
+        }
+
+        pub(crate) async fn playlist(&self, url: Url) -> Result<(Url, String)> {
+            self.0.playlist(url).await
+        }
     }
 
     pub(super) fn fixture(client: reqwest::Client, origin: Url) -> SourceHttp {

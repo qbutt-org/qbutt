@@ -2,6 +2,8 @@
 mod aksor;
 #[path = "yummyanime/cvh.rs"]
 mod cvh;
+#[path = "yummyanime/kodik.rs"]
+mod kodik;
 #[path = "yummyanime/response.rs"]
 mod response;
 
@@ -88,6 +90,7 @@ impl YummyAnime {
         let (url, quality) = match video.player() {
             "Aksor" => aksor::resolve(&anime, video, &player).await?,
             "CVH" => cvh::resolve(&anime, video, &player).await?,
+            "Kodik" => kodik::resolve(video, &player).await?,
             _ => {
                 return Ok(ResolvedContent::ExternalVideo {
                     reference: selected.clone(),
