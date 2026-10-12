@@ -28,7 +28,11 @@ cxx_qt_import_qml_module(qbt_content_plugin
     SOURCE_CRATE qbutt_quick
 )
 if (WIN32)
-    target_link_libraries(qbutt_quick INTERFACE bcrypt)
+    target_link_libraries(qbutt_quick
+        INTERFACE
+            bcrypt
+            ntdll
+    )
 endif()
 
 qt_add_library(qbt_quick STATIC
