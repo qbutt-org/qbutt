@@ -12,18 +12,14 @@ ModalPicker {
     required property ContentController backend
     readonly property var modelChoices: {
         const choices = [{ title: qsTr("Automatic"), id: "" }];
-        const selected = backend.readerTranslationModel;
         for (let index = 0; index < backend.readerTranslationModelCount; ++index) {
             const model = backend.readerTranslationModelAt(index);
             choices.push({ title: model, id: model });
         }
-        if (selected !== "" && !choices.some(choice => choice.id === selected))
-            choices.push({ title: selected, id: selected });
         return choices;
     }
     readonly property var effortChoices: {
         const choices = [];
-        const selected = backend.readerTranslationEffort;
         const labels = {
             low: qsTr("Low"),
             medium: qsTr("Medium"),
@@ -36,8 +32,6 @@ ModalPicker {
             const effort = backend.readerTranslationEffortAt(index);
             choices.push({ title: labels[effort] ?? effort, id: effort });
         }
-        if (selected !== "" && !choices.some(choice => choice.id === selected))
-            choices.push({ title: selected, id: selected });
         return choices;
     }
 
@@ -123,6 +117,7 @@ ModalPicker {
                 model: root.modelChoices
                 currentIndex: root.modelChoices.findIndex(choice =>
                     choice.id === root.backend.readerTranslationModel)
+                displayText: currentIndex < 0 ? root.backend.readerTranslationModel : currentText
                 onActivated: root.backend.setReaderTranslationModel(currentValue)
             }
         }
@@ -149,6 +144,7 @@ ModalPicker {
                 model: root.effortChoices
                 currentIndex: root.effortChoices.findIndex(choice =>
                     choice.id === root.backend.readerTranslationEffort)
+                displayText: currentIndex < 0 ? root.backend.readerTranslationEffort : currentText
                 onActivated: root.backend.setReaderTranslationEffort(currentValue)
             }
         }
