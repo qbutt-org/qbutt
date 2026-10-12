@@ -484,6 +484,7 @@ void exerciseReaderProgress()
     controller->readerPageShown(controller->property("readerPageIndex").toInt(), afterReadFault);
     saved(*controller);
 
+    const QJsonObject beforePreviousPageFault = entry(database);
     execute(database, u"CREATE TRIGGER reject_previous_page BEFORE UPDATE ON library "
         "BEGIN SELECT RAISE(ABORT, 'generated pending page fault'); END"_s);
     controller->scrollReaderPage(afterReadFault, 0.375);
@@ -492,16 +493,32 @@ void exerciseReaderProgress()
     waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Previous page write failure"_s);
     require(!controller->property("readerProgressErrorText").toString().isEmpty(), u"Previous shown write failure was hidden"_s);
     execute(database, u"DROP TRIGGER reject_previous_page"_s);
+
+    controller->setVariantTranslationFilter(u"generated retry translation"_s);
+    controller->setVariantQuery(u"generated retry query"_s);
+    saved(*controller);
+    QJsonObject expectedPreferences = beforePreviousPageFault.value(u"preferences"_s).toObject();
+    QJsonObject expectedFilters = expectedPreferences.value(u"filters"_s).toObject();
+    expectedFilters.insert(u"translation"_s, u"generated retry translation"_s);
+    expectedFilters.insert(u"query"_s, u"generated retry query"_s);
+    expectedPreferences.insert(u"filters"_s, expectedFilters);
+
     const int restoresBeforePreviousRetry = restores.size();
     controller->retryReaderProgress();
     saved(*controller);
-    const QJsonObject previousPage = entry(database).value(u"reader_progress"_s).toObject();
+    const QJsonObject retriedPage = entry(database);
+    const QJsonObject previousPage = retriedPage.value(u"reader_progress"_s).toObject();
     require((previousPage.value(u"page"_s).toInt() == 1)
         && (previousPage.value(u"scroll_offset"_s).toDouble() == 0.375)
+        && (previousPage.value(u"chapter"_s)
+            == beforePreviousPageFault.value(u"reader_progress"_s).toObject().value(u"chapter"_s))
         && (controller->property("readerPageIndex").toInt() == 0)
         && (controller->property("readerPageUrl").toUrl() == unshownPage)
         && (restores.size() == restoresBeforePreviousRetry),
         u"Retry lost the immutable shown page after an unshown selection"_s);
+    require((retriedPage.value(u"work"_s) == beforePreviousPageFault.value(u"work"_s))
+        && (retriedPage.value(u"preferences"_s).toObject() == expectedPreferences),
+        u"Rendered page retry changed the captured work or selection, or restored older filters"_s);
     controller->readerPageShown(controller->property("readerPageIndex").toInt(), unshownPage);
     saved(*controller);
 

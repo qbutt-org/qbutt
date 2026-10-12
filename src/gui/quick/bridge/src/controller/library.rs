@@ -642,12 +642,28 @@ impl ffi::ContentController {
         }
     }
 
-    pub(super) fn submit_library(mut self: Pin<&mut Self>, action: LibraryAction) -> bool {
+    pub(super) fn submit_library(mut self: Pin<&mut Self>, mut action: LibraryAction) -> bool {
         if !matches!(
             self.library_state,
             ffi::LibraryState::Loading | ffi::LibraryState::Ready
         ) {
             return false;
+        }
+        // History keeps the exact confirmed content snapshot. Filter choices
+        // belong to the work and can change while that confirmation is pending.
+        let saved_filters = match &mut action {
+            LibraryAction::PlaybackHistory { save, .. } => {
+                Some((&save.work.reference, &mut save.preferences.filters))
+            }
+            LibraryAction::ReaderProgress { save, .. } => {
+                Some((&save.work.reference, &mut save.preferences.filters))
+            }
+            _ => None,
+        };
+        if let Some((reference, filters)) = saved_filters
+            && let Some(preferences) = self.work_preferences.get(reference)
+        {
+            filters.clone_from(&preferences.filters);
         }
         let error_kind = if matches!(&action, LibraryAction::History) {
             ffi::LibraryErrorKind::HistoryRead

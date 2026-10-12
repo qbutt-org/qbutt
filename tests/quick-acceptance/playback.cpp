@@ -277,7 +277,19 @@ void exercisePlayback()
     controller->selectWork(u"aniliberty:9542"_s);
     waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Reentrant retry publication"_s);
     const auto third = launch(videos.first());
-    exec(database, u"CREATE TRIGGER reject_reentrant_playback BEFORE UPDATE ON library BEGIN SELECT RAISE(ABORT, 'generated reentrant playback fault'); END;"_s);
+    const auto thirdExpected = entry(database);
+    controller->selectVariant(videos.at(1));
+    controller->setVariantQuery(u"before playback ACK"_s);
+    saved(*controller);
+    auto latestFilters = entry(database).value(u"preferences"_s).toObject().value(u"filters"_s).toObject();
+    require(latestFilters.value(u"query"_s).toString() == u"before playback ACK"_s,
+        u"Filter edit before playback ACK was not saved"_s);
+
+    // Reject only a confirmation carrying the new filter, proving the first
+    // history attempt already merges choices made after resolution.
+    exec(database, u"CREATE TRIGGER reject_reentrant_playback BEFORE UPDATE ON library "
+        "WHEN json_extract(NEW.entry, '$.preferences.filters.query') = 'before playback ACK' "
+        "BEGIN SELECT RAISE(ABORT, 'generated reentrant playback fault'); END;"_s);
     bool reentered = false;
     const auto connection = QObject::connect(controller, &Qbutt::ContentController::libraryErrorTextChanged, &observation, [&]
     {
@@ -285,6 +297,7 @@ void exercisePlayback()
         {
             reentered = true;
             exec(database, u"DROP TRIGGER reject_reentrant_playback"_s);
+            controller->setVariantQuery(u"after playback write failure"_s);
             require(controller->retryPlaybackHistory(), u"Reentrant exact playback retry was rejected"_s);
         }
     }, Qt::DirectConnection);
@@ -293,5 +306,15 @@ void exercisePlayback()
     QObject::disconnect(connection);
     listenerRetired(third.proxy);
     require(reentered && controller->property("libraryErrorText").toString().isEmpty(), u"Older failure publication replaced a successful reentrant retry"_s);
-    qInfo("PASS playback bridge=typed direct_variants=visible start_ACK=once rejection=no_history same_variant_token=unique full_work_prefs=immutable FIFO_pressure=retained SQL_retry=ordered reentrant_retry=retained QML_recovery=working gateway_terminal=retired");
+    latestFilters.insert(u"query"_s, u"after playback write failure"_s);
+    const auto thirdRecorded = entry(database);
+    const auto recordedPreferences = thirdRecorded.value(u"preferences"_s).toObject();
+    const auto expectedSelection = thirdExpected.value(u"preferences"_s).toObject().value(u"selected"_s);
+    require((thirdRecorded.value(u"work"_s) == thirdExpected.value(u"work"_s))
+        && (recordedPreferences.value(u"selected"_s) == expectedSelection)
+        && (thirdRecorded.value(u"last_opened"_s).toObject().value(u"variant"_s) == expectedSelection)
+        && (recordedPreferences.value(u"filters"_s).toObject() == latestFilters)
+        && (controller->property("selectedVariantId").toString() == videos.at(1)),
+        u"Playback retry lost newer filters or replaced the immutable played variant/current selection"_s);
+    qInfo("PASS playback bridge=typed direct_variants=visible start_ACK=once rejection=no_history same_variant_token=unique full_work_prefs=immutable FIFO_pressure=retained SQL_retry=ordered reentrant_retry=retained newer_filters=preserved QML_recovery=working gateway_terminal=retired");
 }
