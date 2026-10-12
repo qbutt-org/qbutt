@@ -5363,6 +5363,10 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
 <context>
     <name>MainWindow</name>
     <message>
+        <source>Downloads</source>
+        <translation>Загрузки</translation>
+    </message>
+    <message>
         <location filename="../gui/mainwindow.cpp" line="136"/>
         <source>Open media…</source>
         <translation>Открыть медиафайл…</translation>
@@ -19057,6 +19061,21 @@ Please choose a different name and try again.</source>
     <message>
         <source>Fit to width</source>
         <translation>По ширине окна</translation>
+    </message>
+</context>
+<context>
+    <name>Content::BrowserCapture</name>
+    <message>
+        <source>This shared link is not supported by this version.</source>
+        <translation>Эта ссылка не поддерживается в этой версии.</translation>
+    </message>
+    <message>
+        <source>Opening qcatch video…</source>
+        <translation>Открываем видео из qcatch…</translation>
+    </message>
+    <message>
+        <source>Could not open this qcatch video.</source>
+        <translation>Не удалось открыть это видео из qcatch.</translation>
     </message>
 </context>
 </TS>

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,9 +10,12 @@ import { assertQtRuntime } from "../qt-runtime";
 const source = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 assert(source, "Set QBUTT_QT_ACCEPTANCE_EXE to the combined Qt acceptance build");
 assert(process.platform === "win32", "Native torrent handoff acceptance currently requires Windows");
-const args = process.argv.slice(2);
+const input = process.argv.slice(2);
+const mainContent = input.includes("--main");
+assert(input.filter(arg => arg === "--main").length <= 1, "Repeated --main option");
+const args = input.filter(arg => arg !== "--main");
 assert(args.length === 0 || (args.length === 2 && args[0] === "--source"),
-    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor]");
+    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor] [--main]");
 const selectedSource = args[1] ?? "aniliberty";
 assert(selectedSource === "aniliberty" || selectedSource === "rutor", "Unsupported handoff source");
 
@@ -39,6 +43,9 @@ try {
         "Session\\PeXEnabled=false",
         "Session\\InterfaceAddress=127.0.0.1",
         "Session\\AddTorrentStopped=true",
+        `Session\\DefaultSavePath=${payload.replaceAll("\\", "/")}`,
+        "Session\\UseAutoTMM=false",
+        "Session\\UseTempPathEnabled=false",
         "Session\\AddTrackersEnabled=false",
         "Session\\AddTrackersFromURLEnabled=false",
         "[Network]",
@@ -53,7 +60,7 @@ try {
         "Connection\\ResolvePeerCountries=false",
         "Connection\\ResolvePeerHostNames=false",
         "WebUI\\Enabled=false",
-        "Search\\SearchEnabled=false",
+        `Search\\SearchEnabled=${mainContent}`,
         ...labAppearanceSettings("functional"),
         "",
     ].join("\n"));
@@ -62,7 +69,7 @@ try {
     const spec = join(root, "spec.json");
     await writeFile(spec, JSON.stringify({
         schema: 1,
-        mode: "quick-handoff",
+        mode: mainContent ? "main-content" : "quick-handoff",
         source: selectedSource,
         evidencePath,
         profile,
@@ -102,6 +109,30 @@ try {
     assert.equal(check.metadataPayloadEmpty, true);
     assert.equal(check.source, selectedSource);
     assert.equal(check.category, selectedSource === "rutor" ? "software" : "anime");
+    assert.equal(check.mainContent, mainContent);
+    if (mainContent) {
+        assert.equal(check.favoriteWritePendingAtExit, true);
+        const libraryPath = resolve(check.libraryPath);
+        assert(libraryPath.startsWith(resolve(profile) + sep), "Library escaped the selected profile");
+        const database = new Database(join(libraryPath, "content-library.sqlite"), { readonly: true });
+        try {
+            assert.equal((database.query("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check, "ok");
+            const records = database.query("SELECT entry FROM library").all() as { entry: string }[];
+            assert.equal(records.length, 1, "Unexpected persisted content entries");
+            const entry = JSON.parse(records[0].entry);
+            assert.equal(entry.favorite, true, "Accepted favorite write was lost at MainWindow shutdown");
+            assert.equal(entry.work.title.length > 0, true);
+            assert(entry.work.variants.length >= check.variantCount, "Favorite lost known variants");
+            assert.deepEqual(entry.preferences.selected.publication, entry.work.reference);
+            const selected = entry.work.variants.find((variant: { reference: unknown }) =>
+                JSON.stringify(variant.reference) === JSON.stringify(entry.preferences.selected));
+            assert(selected, "Favorite did not retain its exact selected variant");
+            assert.equal(selected.info_hash, check.infoHash);
+        }
+        finally {
+            database.close();
+        }
+    }
     assert(check.projectedRow >= 0, "Scenario did not select a projected category row");
     if (selectedSource === "rutor") {
         assert.equal(check.variantCount, 1);

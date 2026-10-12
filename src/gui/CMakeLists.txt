@@ -43,11 +43,11 @@ add_library(qbt_gui STATIC
     banlistoptionsdialog.h
     color.h
     colorscheme.h
+    content/browsercapture.h
     content/browserconnectionwidget.h
     content/browserprerequisitewidget.h
     content/chapterpicker.h
     content/downloadswidget.h
-    content/librarywidget.h
     content/modaloverlay.h
     content/readerimages.h
     content/readersettingsdialog.h
@@ -162,11 +162,11 @@ add_library(qbt_gui STATIC
     advancedsettings.cpp
     autoexpandabledialog.cpp
     banlistoptionsdialog.cpp
+    content/browsercapture.cpp
     content/browserconnectionwidget.cpp
     content/browserprerequisitewidget.cpp
     content/chapterpicker.cpp
     content/downloadswidget.cpp
-    content/librarywidget.cpp
     content/modaloverlay.cpp
     content/readerimages.cpp
     content/readersettingsdialog.cpp

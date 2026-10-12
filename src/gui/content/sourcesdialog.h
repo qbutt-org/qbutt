@@ -34,6 +34,7 @@ namespace Content
         void saveSource();
         void handleEvent(qint64 id, const QString &event, const QJsonValue &data);
 
+        const bool m_translationOnly;
         QListWidget *m_sources = nullptr;
         QLineEdit *m_filter = nullptr;
         QLabel *m_status = nullptr;

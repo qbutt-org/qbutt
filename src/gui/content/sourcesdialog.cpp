@@ -26,9 +26,10 @@
 
 Content::SourcesDialog::SourcesDialog(QWidget *parent, const QString &sourceId)
     : QDialog(parent)
-    , m_initialSource(sourceId)
+    , m_translationOnly {sourceId == u"ai"}
+    , m_initialSource {sourceId}
 {
-    setWindowTitle(tr("Sources"));
+    setWindowTitle(m_translationOnly ? tr("AI translation") : tr("Sources"));
     setMinimumSize(560, 360);
     resize(740, 480);
 
@@ -38,13 +39,15 @@ Content::SourcesDialog::SourcesDialog(QWidget *parent, const QString &sourceId)
     m_filter = new QLineEdit(this);
     m_filter->setPlaceholderText(tr("Find a source"));
     m_filter->setClearButtonEnabled(true);
+    m_filter->setVisible(!m_translationOnly);
     sourceList->addWidget(m_filter);
     m_sources = new QListWidget(this);
     m_sources->setObjectName(u"contentSourceList"_s);
     m_sources->setMinimumWidth(180);
     m_sources->setMaximumWidth(280);
+    m_sources->setVisible(!m_translationOnly);
     sourceList->addWidget(m_sources, 1);
-    body->addLayout(sourceList, 1);
+    body->addLayout(sourceList, m_translationOnly ? 0 : 1);
 
     auto *scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
@@ -69,6 +72,7 @@ Content::SourcesDialog::SourcesDialog(QWidget *parent, const QString &sourceId)
     m_check->hide();
     pageLayout->addWidget(m_check, 0, Qt::AlignLeft);
     m_enabled = new QCheckBox(tr("Use in search"), page);
+    m_enabled->setVisible(!m_translationOnly);
     pageLayout->addWidget(m_enabled);
     m_form = new QFormLayout;
     m_form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
@@ -91,6 +95,7 @@ Content::SourcesDialog::SourcesDialog(QWidget *parent, const QString &sourceId)
     layout->addWidget(m_status);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
     m_refresh = buttons->addButton(tr("Update sources"), QDialogButtonBox::ActionRole);
+    m_refresh->setVisible(!m_translationOnly);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(m_sources, &QListWidget::currentRowChanged, this, &SourcesDialog::selectSource);
@@ -329,6 +334,9 @@ void Content::SourcesDialog::handleEvent(const qint64 id, const QString &event, 
         m_catalog = {};
         for (const QString &sourceId : {u"browser"_s, u"ai"_s})
         {
+            if (m_translationOnly && (sourceId != u"ai"))
+                continue;
+
             for (const QJsonValue &value : data.toArray())
             {
                 if (value.toObject().value(u"id"_s).toString() == sourceId)
@@ -342,7 +350,7 @@ void Content::SourcesDialog::handleEvent(const qint64 id, const QString &event, 
         for (const QJsonValue &value : data.toArray())
         {
             const QString sourceId = value.toObject().value(u"id"_s).toString();
-            if ((sourceId != u"browser") && (sourceId != u"ai"))
+            if (!m_translationOnly && (sourceId != u"browser") && (sourceId != u"ai"))
                 m_catalog.append(value);
         }
         m_sources->clear();
@@ -367,7 +375,7 @@ void Content::SourcesDialog::handleEvent(const qint64 id, const QString &event, 
         const QList<QListWidgetItem *> matches = m_sources->findItems(selected, Qt::MatchExactly);
         m_sources->setCurrentItem(initialItem ? initialItem : (matches.isEmpty() ? m_sources->item(0) : matches.first()));
         filterSources();
-        m_status->setText(tr("%n source(s)", nullptr, m_catalog.size()));
+        m_status->setText(m_translationOnly ? QString() : tr("%n source(s)", nullptr, m_catalog.size()));
     }
     else if (event == u"error")
     {

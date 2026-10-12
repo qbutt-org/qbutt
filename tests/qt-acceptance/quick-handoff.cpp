@@ -2,9 +2,11 @@
 #include "quick-handoff.h"
 
 #include <functional>
+#include <memory>
 #include <stdexcept>
 
 #include <QAbstractItemModel>
+#include <QAction>
 #include <QApplication>
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -17,7 +19,9 @@
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QListWidget>
 #include <QMouseEvent>
+#include <QPalette>
 #include <QPointer>
 #include <QPushButton>
 #include <QQuickItem>
@@ -29,15 +33,19 @@
 #include "base/bittorrent/addtorrenterror.h"
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/torrentdescriptor.h"
+#include "base/media/player.h"
 #include "base/net/portforwarder.h"
 #include "base/preferences.h"
 #include "base/profile.h"
 #include "base/utils/fs.h"
 #include "gui/addnewtorrentdialog.h"
+#include "gui/content/sourcesdialog.h"
+#include "gui/content/downloadswidget.h"
 #include "gui/fspathedit.h"
 #include "gui/guiaddtorrentmanager.h"
 #include "gui/mainwindow.h"
 #include "gui/quick/contentview.h"
+#include "gui/uithememanager.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
 
 using namespace Qt::Literals::StringLiterals;
@@ -80,14 +88,25 @@ namespace
         }
         throw std::runtime_error("Missing model role: " + name.toStdString());
     }
+
+    void clickItem(QQuickWidget &view, QQuickItem *item)
+    {
+        const QPointF point = item->mapToScene(QPointF(item->width() / 2, item->height() / 2));
+        const QPointF global = view.mapToGlobal(point.toPoint());
+        QMouseEvent press(QEvent::MouseButtonPress, point, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&view, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, point, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(&view, &release);
+    }
 }
 
 void QuickHandoffAcceptance::run(Application &application, const QJsonObject &spec, QJsonObject &evidence)
 {
     auto *session = BitTorrent::Session::instance();
     auto *manager = static_cast<IGUIApplication &>(application).addTorrentManager();
+    const bool mainContent = spec.value(u"mode"_s).toString() == u"main-content";
     require(session && manager, u"Application did not initialize its torrent services"_s);
-    require(!Preferences::instance()->isSearchEnabled(), u"Legacy search must be disabled in this fixture"_s);
+    require(Preferences::instance()->isSearchEnabled() == mainContent, u"Unexpected search tab configuration"_s);
     require(session->torrents().isEmpty(), u"Fixture profile contains torrents"_s);
     require(session->networkInterfaceAddress() == u"127.0.0.1", u"Torrent traffic is not bound to loopback"_s);
     require(!session->isDHTEnabled() && !session->isLSDEnabled() && !session->isPeXEnabled(),
@@ -106,11 +125,28 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     const QDir screenshots(spec.value(u"screenshots"_s).toString());
     require(screenshots.exists(), u"Screenshot directory is missing"_s);
 
-    application.mainWindow()->hide();
-    Content::ContentView view(specialFolderLocation(SpecialFolder::Data).toString());
-    view.setWindowTitle(u"qbutt"_s);
-    view.resize(1280, 760);
-    view.show();
+    std::unique_ptr<Content::ContentView> isolatedView;
+    Content::ContentView *contentView = nullptr;
+    if (mainContent)
+    {
+        auto *window = application.mainWindow();
+        const auto views = window->findChildren<Content::ContentView *>();
+        require((views.size() == 1) && (window->currentTabWidget() == views.first()),
+            u"MainWindow did not open its only native content view"_s);
+        contentView = views.first();
+        window->resize(1440, 900);
+        window->show();
+    }
+    else
+    {
+        application.mainWindow()->hide();
+        isolatedView = std::make_unique<Content::ContentView>(specialFolderLocation(SpecialFolder::Data).toString());
+        contentView = isolatedView.get();
+        contentView->setWindowTitle(u"qbutt"_s);
+        contentView->resize(1280, 760);
+        contentView->show();
+    }
+    Content::ContentView &view = *contentView;
     waitFor([&] { return view.status() != QQuickWidget::Loading; }, 10'000, u"QML load"_s);
     require(view.status() == QQuickWidget::Ready, u"Production ContentView did not load"_s);
 
@@ -123,6 +159,33 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         u"Content models are not owned by the GUI thread"_s);
     auto *root = view.rootObject();
     require(root, u"Production QML root is missing"_s);
+    waitFor([&] { return controller->getLibraryState() == Qbutt::Library::LibraryState::Ready; },
+        10'000, u"Profile content library"_s);
+    if (mainContent)
+    {
+        require(root->property("palette").value<QPalette>().color(QPalette::Window) == view.palette().color(QPalette::Window),
+            u"Content palette differs from the main application"_s);
+        view.giveFocusToSearchInput();
+        auto *input = root->findChild<QQuickItem *>(u"contentQuery"_s);
+        require(input && input->hasActiveFocus(), u"MainWindow focus action did not focus QML search"_s);
+        UIThemeManager::instance()->previewColorScheme(ColorScheme::Dark);
+        waitFor([&] { return root->property("palette").value<QPalette>().color(QPalette::Window) == QColor(u"#202123"_s); },
+            5000, u"Main content dark palette"_s);
+        UIThemeManager::instance()->previewColorScheme(ColorScheme::Light);
+        waitFor([&] { return root->property("palette").value<QPalette>().color(QPalette::Window) == QColor(u"#f5f6f7"_s); },
+            5000, u"Main content light palette"_s);
+        auto *window = application.mainWindow();
+        auto *downloads = window->findChild<QAction *>(u"actionContentDownloads"_s);
+        require(downloads && downloads->isEnabled() && (downloads->shortcut() == QKeySequence(Qt::CTRL | Qt::Key_J))
+            && !window->findChild<Content::DownloadsWidget *>(), u"Direct downloads have no lazy manual entry"_s);
+        downloads->trigger();
+        auto *jobs = window->findChild<Content::DownloadsWidget *>();
+        require(jobs && (window->currentTabWidget() == jobs), u"Manual Downloads action did not open existing jobs"_s);
+        downloads->trigger();
+        require(window->findChildren<Content::DownloadsWidget *>().size() == 1, u"Downloads action duplicated its queue view"_s);
+        require(QMetaObject::invokeMethod(window, "displaySearchTab") && (window->currentTabWidget() == &view),
+            u"Returning from Downloads lost the native search view"_s);
+    }
     auto *query = root->findChild<QQuickItem *>(u"contentQuery"_s);
     auto *categories = root->findChild<QQuickItem *>(u"contentCategory"_s);
     int categoryIndex = -1;
@@ -225,6 +288,11 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     {
         ++handoffs;
         guiThread = guiThread && (QThread::currentThread() == qApp->thread());
+        if (mainContent)
+        {
+            managerAccepted = true;
+            return;
+        }
         BitTorrent::AddTorrentParams params;
         params.savePath = Path(payload.absolutePath());
         params.useAutoTMM = false;
@@ -233,12 +301,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         managerAccepted = manager->addTorrent(magnet, params, AddTorrentOption::ShowDialog);
     });
 
-    const QPointF point = download->mapToScene(QPointF(download->width() / 2, download->height() / 2));
-    const QPointF global = view.mapToGlobal(point.toPoint());
-    QMouseEvent press(QEvent::MouseButtonPress, point, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-    QCoreApplication::sendEvent(&view, &press);
-    QMouseEvent release(QEvent::MouseButtonRelease, point, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
-    QCoreApplication::sendEvent(&view, &release);
+    clickItem(view, download);
     require(controller->property("resolving").toBool(), u"Download button did not resolve the selected variant"_s);
     waitFor([&] { return !controller->property("resolving").toBool(); }, 50'000, u"Exact torrent resolution"_s);
     require(controller->property("errorText").toString().isEmpty(), u"Exact resolution failed"_s);
@@ -280,7 +343,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(!metadataFiles.hasNext(), u"Metadata request wrote a payload file"_s);
 
     QJsonArray checks = evidence.value(u"checks"_s).toArray();
-    checks.append(QJsonObject {
+    QJsonObject check {
         {u"name"_s, u"quick-handoff"_s},
         {u"source"_s, source},
         {u"category"_s, category},
@@ -296,7 +359,51 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         {u"exactDialogHash"_s, true},
         {u"torrentCount"_s, session->torrents().size()},
         {u"payloadEmpty"_s, true},
-        {u"metadataPayloadEmpty"_s, true}
-    });
+        {u"metadataPayloadEmpty"_s, true},
+        {u"mainContent"_s, mainContent}
+    };
+    if (mainContent)
+    {
+        require(application.mainWindow()->grab().save(screenshots.filePath(u"main-content.png"_s)),
+            u"Could not capture main content view"_s);
+        Media::Player::instance()->subtitleSettingsRequested();
+        auto *settings = application.mainWindow()->findChild<Content::SourcesDialog *>();
+        auto *sourceList = settings ? settings->findChild<QListWidget *>(u"contentSourceList"_s) : nullptr;
+        require(settings && settings->isVisible() && sourceList && sourceList->isHidden()
+            && (settings->windowTitle() == Content::SourcesDialog::tr("AI translation")),
+            u"Player subtitle settings did not open the AI-only settings view"_s);
+        settings->close();
+        check[u"playerAiSettingsRoute"_s] = true;
+        require(!controller->getSelectedFavorite(), u"Fresh profile unexpectedly has a favorite"_s);
+        auto *favorite = root->findChild<QQuickItem *>(u"contentFavorite"_s);
+        require(favorite && favorite->isEnabled(), u"Main favorite action is unavailable"_s);
+        clickItem(view, favorite);
+        require(controller->property("libraryPending").toBool(), u"Favorite did not enqueue an accepted write"_s);
+        auto *searchAction = application.mainWindow()->findChild<QAction *>(u"actionSearchWidget"_s);
+        require(searchAction && searchAction->isChecked(), u"Search visibility action is missing"_s);
+        searchAction->trigger();
+        require(!searchAction->isChecked() && !view.isVisible()
+            && (application.mainWindow()->findChild<Content::ContentView *>() == &view)
+            && (view.findChild<Qbutt::ContentController *>() == controller),
+            u"Hiding Search destroyed its accepted library write owner"_s);
+        searchAction->trigger();
+        require(searchAction->isChecked() && (application.mainWindow()->findChildren<Content::ContentView *>().size() == 1)
+            && (view.findChild<Qbutt::ContentController *>() == controller),
+            u"Reopening Search created a second library owner"_s);
+        require(QMetaObject::invokeMethod(application.mainWindow(), "displaySearchTab"), u"Could not return to Search"_s);
+        waitFor([&] { return controller->getSelectedFavorite() && !controller->property("libraryPending").toBool(); },
+            5000, u"Confirmed favorite after hiding and reopening Search"_s);
+        require(controller->getSelectedWorkId() == workId && controller->getSelectedVariantId() == variantId,
+            u"Search visibility changed the exact selection"_s);
+        check[u"oneLibraryOwnerAcrossVisibility"_s] = true;
+        clickItem(view, favorite);
+        waitFor([&] { return !controller->getSelectedFavorite() && !controller->property("libraryPending").toBool(); },
+            5000, u"Cleared favorite before Exit fixture"_s);
+        clickItem(view, favorite);
+        require(controller->property("libraryPending").toBool(), u"Exit did not retain an accepted favorite write"_s);
+        check[u"favoriteWritePendingAtExit"_s] = true;
+        check[u"libraryPath"_s] = specialFolderLocation(SpecialFolder::Data).toString();
+    }
+    checks.append(check);
     evidence.insert(u"checks"_s, checks);
 }

@@ -46,6 +46,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -57,6 +58,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QString>
+#include <QThreadPool>
 #include <QTimer>
 #include <QToolButton>
 
@@ -66,12 +68,17 @@
 #include "base/media/player.h"
 #include "base/path.h"
 #include "base/preferences.h"
+#include "base/profile.h"
 #include "base/rss/rss_folder.h"
 #include "base/rss/rss_session.h"
 #include "base/utils/misc.h"
 #include "base/version.h"
 #include "aboutdialog.h"
-#include "content/librarywidget.h"
+#include "content/browsercapture.h"
+#include "content/browserprerequisitewidget.h"
+#include "content/downloadswidget.h"
+#include "content/readerwidget.h"
+#include "content/sourcesdialog.h"
 #include "cookiesdialog.h"
 #include "desktopintegration.h"
 #include "downloadfromurldialog.h"
@@ -84,6 +91,7 @@
 #include "policiesdialog.h"
 #include "powermanagement/powermanagement.h"
 #include "profileimportdialog.h"
+#include "quick/contentview.h"
 #include "releaseupdatedialog.h"
 #include "properties/peerlistwidget.h"
 #include "properties/propertieswidget.h"
@@ -133,6 +141,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     , m_statusItem {std::make_unique<MacUtils::StatusItem>()}
 #endif // Q_OS_MACOS
 {
+    QLocale::setDefault(QLocale(Preferences::instance()->getLocale()));
     m_ui->setupUi(this);
     auto *openMedia = new QAction(tr("Open media…"), this);
     openMedia->setObjectName(u"actionOpenMedia"_s);
@@ -152,14 +161,47 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     m_ui->menuFile->insertAction(m_ui->actionCloseWindow, readFile);
     connect(readFile, &QAction::triggered, this, [this]
     {
-        displaySearchTab(true);
-        if (m_searchWidget->openLocalFile())
-            m_tabs->setCurrentWidget(m_searchWidget);
+        if (!m_localReader)
+        {
+            m_localReader = new Content::ReaderWidget(this);
+            connect(m_localReader, &Content::ReaderWidget::closed, this, [this]
+            {
+                m_tabs->removeTab(m_tabs->indexOf(m_localReader));
+                m_localReader->deleteLater();
+                m_localReader.clear();
+                displaySearchTab();
+            });
+        }
+        if (m_localReader->chooseFile())
+        {
+            if (m_tabs->indexOf(m_localReader) < 0)
+                m_tabs->addTab(m_localReader, tr("Read file…"));
+            m_tabs->setCurrentWidget(m_localReader);
+        }
+    });
+    auto *downloads = new QAction(tr("Downloads"), this);
+    downloads->setObjectName(u"actionContentDownloads"_s);
+    downloads->setShortcut(Qt::CTRL | Qt::Key_J);
+    m_ui->menuView->addAction(downloads);
+    connect(downloads, &QAction::triggered, this, [this]
+    {
+        m_tabs->setCurrentWidget(downloadsWidget());
     });
     connect(Media::Player::instance(), &Media::Player::error, this, [this](const QString &message)
     {
         QMessageBox::warning(this, tr("Playback"), message);
     }, Qt::QueuedConnection);
+    connect(Media::Player::instance(), &Media::Player::subtitleSettingsRequested, this, [this]
+    {
+        if (!m_subtitleSettings)
+        {
+            m_subtitleSettings = new Content::SourcesDialog(this, u"ai"_s);
+            m_subtitleSettings->setAttribute(Qt::WA_DeleteOnClose);
+        }
+        m_subtitleSettings->show();
+        m_subtitleSettings->raise();
+        m_subtitleSettings->activateWindow();
+    });
     connect(Media::Player::instance(), &Media::Player::preparationChanged, this, [this](const QString &message)
     {
         if (message.isEmpty())
@@ -214,8 +256,11 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
         }
         const QJsonObject playback {{u"contentKind"_s, options.contentKind}, {u"identity"_s, options.identity},
             {u"startPosition"_s, options.startPosition}};
-        displaySearchTab(true);
-        m_searchWidget->downloadMedia({{u"resolved"_s, resolved}, {u"title"_s, title}, {u"options"_s, playback}});
+        QJsonObject request {{u"resolved"_s, resolved}, {u"title"_s, title}, {u"options"_s, playback}};
+        if (m_browserCapture)
+            request = m_browserCapture->downloadParameters(request);
+        m_tabs->setCurrentWidget(downloadsWidget());
+        m_downloadsWidget->enqueue(request);
     });
 
     Preferences *const pref = Preferences::instance();
@@ -817,9 +862,13 @@ void MainWindow::displaySearchTab(bool enable)
     {
         if (!m_searchWidget)
         {
-            m_searchWidget = new Content::LibraryWidget(app(), this);
-            connect(m_searchWidget, &Content::LibraryWidget::readerActiveChanged, this, &MainWindow::updateContextControls);
-            connect(m_searchWidget, &Content::LibraryWidget::searchFinished, this, [this](const bool failed)
+            m_searchWidget = new Content::ContentView(specialFolderLocation(SpecialFolder::Data).toString(), m_tabs);
+            connect(m_searchWidget, &Content::ContentView::torrentReady, this, [this](const QString &magnet)
+            {
+                app()->addTorrentManager()->addTorrent(magnet, {}, AddTorrentOption::ShowDialog);
+            });
+            connect(m_searchWidget, &Content::ContentView::readerActiveChanged, this, &MainWindow::updateContextControls);
+            connect(m_searchWidget, &Content::ContentView::searchFinished, this, [this](const bool failed)
             {
                 if (app()->desktopIntegration()->isNotificationsEnabled() && (currentTabWidget() != m_searchWidget))
                 {
@@ -829,6 +878,9 @@ void MainWindow::displaySearchTab(bool enable)
                         app()->desktopIntegration()->showNotification(tr("Search Engine"), tr("Search has finished"));
                 }
             });
+        }
+        if (m_tabs->indexOf(m_searchWidget) < 0)
+        {
             m_tabs->insertTab(1, m_searchWidget,
 #ifndef Q_OS_MACOS
                 UIThemeManager::instance()->getIcon(u"edit-find"_s),
@@ -838,7 +890,7 @@ void MainWindow::displaySearchTab(bool enable)
     }
     else
     {
-        delete m_searchWidget;
+        m_tabs->removeTab(m_tabs->indexOf(m_searchWidget));
     }
 }
 
@@ -918,6 +970,11 @@ void MainWindow::cleanup()
     delete m_rssWidget;
 
     delete m_executableWatcher;
+
+    delete m_browserCapture;
+    m_browserCapture = nullptr;
+    delete m_searchWidget;
+    QThreadPool::globalInstance()->waitForDone();
 
     m_preventTimer->stop();
     delete m_pwr;
@@ -1014,9 +1071,7 @@ void MainWindow::displayTransferTab() const
 
 void MainWindow::displaySearchTab()
 {
-    if (!m_searchWidget)
-        displaySearchTab(true);
-
+    displaySearchTab(true);
     m_tabs->setCurrentWidget(m_searchWidget);
 }
 
@@ -1307,9 +1362,11 @@ void MainWindow::showStatusBar(bool show)
 void MainWindow::updateContextControls()
 {
     const bool contentActive = m_searchWidget && (m_tabs->currentWidget() == m_searchWidget);
-    m_ui->toolBar->setVisible(Preferences::instance()->isToolbarDisplayed() && !contentActive);
+    const bool readerActive = (contentActive && m_searchWidget->isReading())
+        || (m_localReader && (m_tabs->currentWidget() == m_localReader));
+    m_ui->toolBar->setVisible(Preferences::instance()->isToolbarDisplayed() && !contentActive && !readerActive);
     if (m_statusBar)
-        m_statusBar->setVisible(!contentActive || !m_searchWidget->isReading());
+        m_statusBar->setVisible(!readerActive);
 }
 
 void MainWindow::showFiltersSidebar(const bool show)
@@ -1536,9 +1593,86 @@ void MainWindow::on_actionSearchWidget_triggered()
 
 void MainWindow::acceptSharedLink(const QUrl &url)
 {
-    displaySearchTab();
-    m_searchWidget->acceptSharedLink(url);
+    if (!m_browserCapture)
+    {
+        m_browserCapture = new Content::BrowserCapture(this);
+        connect(m_browserCapture, &Content::BrowserCapture::preparationChanged, this, &MainWindow::showCaptureProgress);
+        connect(m_browserCapture, &Content::BrowserCapture::error, this, [this](const QString &message)
+        {
+            QMessageBox::warning(this, tr("Playback"), message);
+        });
+        connect(m_browserCapture, &Content::BrowserCapture::downloadRequested, this, [this](const QJsonObject &params)
+        {
+            m_tabs->setCurrentWidget(downloadsWidget());
+            m_downloadsWidget->enqueue(params);
+        });
+        connect(m_browserCapture, &Content::BrowserCapture::browserRequired, this, [this]
+        {
+            if (!m_browserPrerequisite)
+            {
+                m_browserPrerequisite = new Content::BrowserPrerequisiteWidget(m_tabs);
+                m_browserPrerequisite->setSource(u"qcatch"_s);
+                m_tabs->addTab(m_browserPrerequisite, u"qcatch"_s);
+                connect(m_browserPrerequisite, &Content::BrowserPrerequisiteWidget::connected,
+                    m_browserCapture, &Content::BrowserCapture::retry);
+                connect(m_browserPrerequisite, &Content::BrowserPrerequisiteWidget::backRequested, this, [this]
+                {
+                    m_browserCapture->cancel();
+                    closeBrowserPrerequisite();
+                    displaySearchTab();
+                });
+            }
+            m_tabs->setCurrentWidget(m_browserPrerequisite);
+        });
+        connect(m_browserCapture, &Content::BrowserCapture::completed, this, &MainWindow::closeBrowserPrerequisite);
+    }
+    m_browserCapture->open(url);
     activate();
+}
+
+Content::DownloadsWidget *MainWindow::downloadsWidget()
+{
+    if (!m_downloadsWidget)
+    {
+        m_downloadsWidget = new Content::DownloadsWidget(m_tabs);
+        m_tabs->addTab(m_downloadsWidget, tr("Downloads"));
+    }
+    return m_downloadsWidget;
+}
+
+void MainWindow::showCaptureProgress(const QString &message)
+{
+    if (message.isEmpty())
+    {
+        if (m_capturePreparationDialog)
+        {
+            m_capturePreparationDialog->hide();
+            m_capturePreparationDialog->deleteLater();
+            m_capturePreparationDialog.clear();
+        }
+        return;
+    }
+
+    if (!m_capturePreparationDialog)
+    {
+        m_capturePreparationDialog = new QProgressDialog(this);
+        m_capturePreparationDialog->setObjectName(u"capturePreparationDialog"_s);
+        m_capturePreparationDialog->setWindowTitle(u"qcatch"_s);
+        m_capturePreparationDialog->setRange(0, 0);
+        connect(m_capturePreparationDialog, &QProgressDialog::canceled, m_browserCapture, &Content::BrowserCapture::cancel);
+    }
+    m_capturePreparationDialog->setLabelText(message);
+    m_capturePreparationDialog->show();
+}
+
+void MainWindow::closeBrowserPrerequisite()
+{
+    if (m_browserPrerequisite)
+    {
+        m_tabs->removeTab(m_tabs->indexOf(m_browserPrerequisite));
+        m_browserPrerequisite->deleteLater();
+        m_browserPrerequisite.clear();
+    }
 }
 
 // Display an input dialog to prompt user for

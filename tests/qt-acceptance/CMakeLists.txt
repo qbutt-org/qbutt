@@ -2,8 +2,6 @@ qt_add_executable(qbutt-qt-acceptance
     main.cpp
     add-torrent-layout.cpp
     add-torrent-layout.h
-    content-library.cpp
-    content-library.h
     metadata-cancel.cpp
     metadata-cancel.h
     modal-overlay.cpp

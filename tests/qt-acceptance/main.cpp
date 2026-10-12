@@ -131,7 +131,6 @@
 #include "gui/transferlistwidget.h"
 #include "gui/uithememanager.h"
 #include "add-torrent-layout.h"
-#include "content-library.h"
 #include "metadata-cancel.h"
 #include "modal-overlay.h"
 #include "quick-handoff.h"
@@ -3148,7 +3147,8 @@ namespace
     {
         MainWindow *window = application.mainWindow();
         require(window && BitTorrent::Session::instance()->isRestored(), u"Production application did not finish startup"_s);
-        if (spec.value(u"mode"_s).toString() == u"quick-handoff")
+        if ((spec.value(u"mode"_s).toString() == u"quick-handoff")
+            || (spec.value(u"mode"_s).toString() == u"main-content"))
         {
             QuickHandoffAcceptance::run(application, spec, evidence);
             return;
@@ -3167,11 +3167,6 @@ namespace
         if (spec.value(u"mode"_s).toString() == u"reader-flow")
         {
             exerciseReaderFlow(window, spec, evidence);
-            return;
-        }
-        if (spec.value(u"mode"_s).toString() == u"content-library")
-        {
-            exerciseContentLibrary(window, spec, evidence);
             return;
         }
         if (spec.value(u"mode"_s).toString() == u"installed-update")

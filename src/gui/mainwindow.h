@@ -77,7 +77,12 @@ namespace MacUtils
 
 namespace Content
 {
-    class LibraryWidget;
+    class BrowserCapture;
+    class BrowserPrerequisiteWidget;
+    class ContentView;
+    class DownloadsWidget;
+    class ReaderWidget;
+    class SourcesDialog;
 }
 
 namespace Ui
@@ -203,6 +208,9 @@ private:
     void initializeIcons();
     void refreshTrayIconTooltip();
     void showReleaseUpdateDialog();
+    Content::DownloadsWidget *downloadsWidget();
+    void showCaptureProgress(const QString &message);
+    void closeBrowserPrerequisite();
 
     Ui::MainWindow *m_ui = nullptr;
 
@@ -221,6 +229,8 @@ private:
     QPointer<StatsDialog> m_statsDlg;
     QPointer<ReleaseUpdateDialog> m_releaseUpdateDialog;
     QPointer<QProgressDialog> m_playerPreparationDialog;
+    QPointer<QProgressDialog> m_capturePreparationDialog;
+    QPointer<Content::SourcesDialog> m_subtitleSettings;
     ReleaseUpdater *m_releaseUpdater = nullptr;
     QPointer<TorrentCreatorDialog> m_createTorrentDlg;
     QPointer<DownloadFromURLDialog> m_downloadFromURLDialog;
@@ -240,7 +250,11 @@ private:
     QAction *m_queueSeparator = nullptr;
     QAction *m_queueSeparatorMenu = nullptr;
     QSplitter *m_splitter = nullptr;
-    QPointer<Content::LibraryWidget> m_searchWidget;
+    QPointer<Content::ContentView> m_searchWidget;
+    QPointer<Content::ReaderWidget> m_localReader;
+    QPointer<Content::DownloadsWidget> m_downloadsWidget;
+    QPointer<Content::BrowserPrerequisiteWidget> m_browserPrerequisite;
+    Content::BrowserCapture *m_browserCapture = nullptr;
     QPointer<RSSWidget> m_rssWidget;
     QPointer<ExecutionLogWidget> m_executionLog;
     // Power Management
