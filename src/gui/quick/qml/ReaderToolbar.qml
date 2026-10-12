@@ -11,189 +11,105 @@ Pane {
 
     required property ContentController backend
     required property Theme theme
+    required property color foreground
     signal backRequested
     signal chaptersRequested
-    signal chapterTurnRequested(int offset)
-    signal pageRequested(int index)
-    signal fitRequested(int fit)
-    signal modeRequested(int mode)
+    signal appearanceRequested
 
     padding: 0
     background: Item {}
 
-    contentItem: ColumnLayout {
-        spacing: 12
+    contentItem: RowLayout {
+        spacing: 18
 
-        RowLayout {
+        ReaderChromeButton {
+            objectName: "readerBack"
+            theme: root.theme
+            foreground: root.foreground
+            icon.source: root.theme.iconSource("chevron-left")
+            text: qsTr("Back")
+            Accessible.name: qsTr("Back")
+            onClicked: root.backRequested()
+        }
+
+        ColumnLayout {
             Layout.fillWidth: true
-            spacing: 12
-
-            ActionButton {
-                objectName: "readerBack"
-                theme: root.theme
-                text: qsTr("Back")
-                onClicked: root.backRequested()
-            }
+            spacing: 0
 
             Label {
                 objectName: "readerTitle"
                 Layout.fillWidth: true
                 text: root.backend.readerTitle
-                font.pixelSize: 20
+                color: root.foreground
+                font.pixelSize: 17
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
                 textFormat: Text.PlainText
             }
 
-            ActionButton {
+            ReaderChromeButton {
                 id: chapter
                 objectName: "readerChapters"
-                Layout.preferredWidth: 240
+                Layout.maximumWidth: 360
+                Layout.preferredHeight: 25
+                horizontalPadding: 0
                 theme: root.theme
-                icon.source: root.theme.iconSource("go-down")
-                text: root.backend.readerChapterTitle !== "" ? root.backend.readerChapterTitle : qsTr("Chapters")
+                foreground: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.65)
+                text: root.backend.readerChapterCount > 0
+                    ? qsTr("Chapter %1 of %2").arg(root.backend.readerChapterIndex + 1)
+                        .arg(root.backend.readerChapterCount)
+                    : qsTr("Chapters")
                 Accessible.name: qsTr("Choose chapter")
-                Accessible.description: text
+                Accessible.description: root.backend.readerChapterTitle
                 enabled: root.backend.readerHasChapters && !root.backend.readerBusy
                 onClicked: root.chaptersRequested()
+
+                contentItem: RowLayout {
+                    spacing: 6
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: chapter.text
+                        color: chapter.foreground
+                        font: chapter.font
+                        elide: Text.ElideRight
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    Image {
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        source: root.theme.iconSource("chevron-down")
+                        sourceSize: Qt.size(18, 18)
+                        fillMode: Image.PreserveAspectFit
+                        Accessible.ignored: true
+                    }
+                }
 
                 ToolTip {
                     parent: chapter
                     visible: chapter.hovered
-                    text: chapter.text
-                }
-            }
-
-            RowLayout {
-                spacing: 8
-
-                ActionButton {
-                    id: previous
-                    objectName: "readerPreviousPage"
-                    Layout.preferredWidth: root.theme.controlHeight
-                    theme: root.theme
-                    text: "‹"
-                    font.pixelSize: 24
-                    horizontalPadding: 0
-                    Accessible.name: root.backend.readerIsText ? qsTr("Previous chapter") : qsTr("Previous page")
-                    enabled: !root.backend.readerBusy && (root.backend.readerIsText
-                        ? root.backend.readerChapterIndex > 0 : root.backend.readerPageIndex > 0)
-                    onClicked: {
-                        if (root.backend.readerIsText)
-                            root.chapterTurnRequested(-1);
-                        else
-                            root.pageRequested(root.backend.readerPageIndex - 1);
-                    }
-
-                    ToolTip {
-                        parent: previous
-                        visible: previous.hovered
-                        text: previous.Accessible.name
-                    }
-                }
-
-                Label {
-                    objectName: "readerPageNumber"
-                    Layout.preferredWidth: Math.max(116, implicitWidth)
-                    visible: !root.backend.readerIsText
-                    text: root.backend.readerPageCount > 0 ? qsTr("Page %1 of %2").arg(root.backend.readerPageIndex + 1).arg(root.backend.readerPageCount) : ""
-                    horizontalAlignment: Text.AlignHCenter
-                }
-
-                ActionButton {
-                    id: next
-                    objectName: "readerNextPage"
-                    Layout.preferredWidth: root.theme.controlHeight
-                    theme: root.theme
-                    text: "›"
-                    font.pixelSize: 24
-                    horizontalPadding: 0
-                    Accessible.name: root.backend.readerIsText ? qsTr("Next chapter") : qsTr("Next page")
-                    enabled: !root.backend.readerBusy && (root.backend.readerIsText
-                        ? root.backend.readerChapterIndex + 1 < root.backend.readerChapterCount
-                        : root.backend.readerPageIndex + 1 < root.backend.readerPageCount)
-                    onClicked: {
-                        if (root.backend.readerIsText)
-                            root.chapterTurnRequested(1);
-                        else
-                            root.pageRequested(root.backend.readerPageIndex + 1);
-                    }
-
-                    ToolTip {
-                        parent: next
-                        visible: next.hovered
-                        text: next.Accessible.name
-                    }
+                    text: root.backend.readerChapterTitle
                 }
             }
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-            visible: !root.backend.readerIsText
-            spacing: 12
+        ReaderChromeButton {
+            id: appearance
+            objectName: "readerAppearance"
+            Layout.preferredWidth: 56
+            theme: root.theme
+            foreground: root.foreground
+            text: root.backend.readerIsText ? qsTr("Aa") : qsTr("View")
+            font.pixelSize: root.backend.readerIsText ? 21 : root.theme.controlFontSize
+            Accessible.name: qsTr("Appearance")
+            onClicked: root.appearanceRequested()
 
-            SelectField {
-                objectName: "readerMode"
-                Layout.preferredWidth: 176
-                theme: root.theme
-                Accessible.name: qsTr("Reading mode")
-                textRole: "title"
-                valueRole: "mode"
-                model: [
-                    {
-                        title: qsTr("Pages"),
-                        mode: Reader.Paged
-                    },
-                    {
-                        title: qsTr("Continuous"),
-                        mode: Reader.Continuous
-                    }
-                ]
-                currentIndex: root.backend.readerMode === Reader.Continuous ? 1 : 0
-                onActivated: root.modeRequested(currentValue)
+            ToolTip {
+                parent: appearance
+                visible: appearance.hovered
+                text: appearance.Accessible.name
             }
-
-            RowLayout {
-                spacing: 8
-
-                ActionButton {
-                    id: heightFit
-                    objectName: "readerHeightFit"
-                    theme: root.theme
-                    text: qsTr("Height")
-                    Accessible.name: qsTr("Fit to height")
-                    checked: root.backend.readerFit === Reader.Height
-                    onClicked: root.fitRequested(Reader.Height)
-
-                    ToolTip {
-                        parent: heightFit
-                        visible: heightFit.hovered
-                        text: qsTr("Fit to height")
-                    }
-                }
-
-                ActionButton {
-                    id: widthFit
-                    objectName: "readerWidthFit"
-                    theme: root.theme
-                    text: qsTr("Width")
-                    Accessible.name: qsTr("Fit to width")
-                    checked: root.backend.readerFit === Reader.Width
-                    onClicked: root.fitRequested(Reader.Width)
-
-                    ToolTip {
-                        parent: widthFit
-                        visible: widthFit.hovered
-                        text: qsTr("Fit to width")
-                    }
-                }
-            }
-
-            Item {
-                Layout.fillWidth: true
-            }
-
         }
     }
 }

@@ -77,6 +77,7 @@ fn exercise(profile: &Path) -> Result<()> {
     library.save_reader_settings(ReaderSettings {
         fit: ReaderFit::Width,
         mode: ReaderMode::Continuous,
+        ..ReaderSettings::default()
     })?;
     library.set_source_enabled(Source::RuTor, false)?;
     let failed = library.record_source_failure(failure.clone())?;

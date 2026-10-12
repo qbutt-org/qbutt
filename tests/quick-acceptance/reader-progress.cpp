@@ -179,10 +179,22 @@ namespace
             "entry TEXT NOT NULL, updated_at INTEGER NOT NULL CHECK (updated_at >= 0)) STRICT"_s);
         execute(database, u"PRAGMA application_id = 1363299394"_s);
         execute(database, u"CREATE TABLE reader_settings (id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1), "
-            "fit INTEGER NOT NULL CHECK (fit IN (0, 1)), mode INTEGER NOT NULL CHECK (mode IN (0, 1))) STRICT"_s);
-        execute(database, u"INSERT INTO reader_settings VALUES (1, 0, 0)"_s);
+            "fit INTEGER NOT NULL CHECK (fit IN (0, 1)), mode INTEGER NOT NULL CHECK (mode IN (0, 1)), "
+            "background_color TEXT NOT NULL DEFAULT '', text_color TEXT NOT NULL DEFAULT '', "
+            "font_family TEXT NOT NULL DEFAULT '', font_size INTEGER NOT NULL DEFAULT 20, "
+            "line_height INTEGER NOT NULL DEFAULT 130, column_width INTEGER NOT NULL DEFAULT 760) STRICT"_s);
+        execute(database, u"INSERT INTO reader_settings (id, fit, mode) VALUES (1, 0, 0)"_s);
         execute(database, u"CREATE TABLE source_settings (source TEXT PRIMARY KEY NOT NULL, "
             "enabled INTEGER NOT NULL, revision INTEGER NOT NULL, failure TEXT) STRICT"_s);
+        execute(database, u"CREATE TABLE download_jobs (id TEXT PRIMARY KEY NOT NULL, "
+            "snapshot TEXT NOT NULL, updated_at INTEGER NOT NULL) STRICT"_s);
+        execute(database, u"CREATE TABLE local_books (publication_id TEXT PRIMARY KEY NOT NULL, "
+            "path TEXT NOT NULL) STRICT"_s);
+        execute(database, u"CREATE TABLE translation_context (publication TEXT NOT NULL, "
+            "language TEXT NOT NULL, revision INTEGER NOT NULL, context TEXT NOT NULL, "
+            "PRIMARY KEY (publication, language)) STRICT"_s);
+        execute(database, u"CREATE TABLE translated_content (key TEXT PRIMARY KEY NOT NULL, "
+            "content TEXT NOT NULL) STRICT"_s);
         QSqlQuery sourceInsert(database);
         require(sourceInsert.prepare(u"INSERT INTO source_settings (source, enabled, revision) VALUES (?, 1, 0)"_s),
             sourceInsert.lastError().text());
@@ -194,7 +206,7 @@ namespace
             require(sourceInsert.exec(), sourceInsert.lastError().text());
         }
 
-        execute(database, u"PRAGMA user_version = 7"_s);
+        execute(database, u"PRAGMA user_version = 8"_s);
         metadata.insert(u"last_opened"_s, QJsonValue::Null);
         metadata.insert(u"reader_progress"_s, QJsonValue::Null);
         QSqlQuery insert(database);

@@ -44,6 +44,9 @@
         <file>dark/go-bottom.svg</file>
         <file>dark/go-down.svg</file>
         <file>dark/chevron-down.svg</file>
+        <file>dark/chevron-left.svg</file>
+        <file>dark/chevron-right.svg</file>
+        <file>dark/close.svg</file>
         <file>dark/go-top.svg</file>
         <file>dark/go-up.svg</file>
         <file>dark/hash.svg</file>
@@ -397,6 +400,9 @@
         <file>go-bottom.svg</file>
         <file>go-down.svg</file>
         <file>chevron-down.svg</file>
+        <file>chevron-left.svg</file>
+        <file>chevron-right.svg</file>
+        <file>close.svg</file>
         <file>go-top.svg</file>
         <file>go-up.svg</file>
         <file>hash.svg</file>

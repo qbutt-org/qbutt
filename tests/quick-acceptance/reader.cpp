@@ -319,14 +319,22 @@ void exerciseReader(Content::ContentView *view, const QString &profileDir)
 
     auto *scroll = view->rootObject()->findChild<QQuickItem *>(u"readerPageScroll"_s);
     require(scroll && scroll->hasActiveFocus(), u"Reading did not focus its scrollable content"_s);
+    auto *appearance = view->rootObject()->findChild<QQuickItem *>(u"readerAppearance"_s);
+    auto *appearanceClose = view->rootObject()->findChild<QQuickItem *>(u"readerAppearanceClose"_s);
+    auto *appearancePicker = view->rootObject()->findChild<QObject *>(u"readerAppearancePicker"_s);
+    require(appearance && appearanceClose && appearancePicker, u"Reading appearance panel is missing"_s);
+    require(QMetaObject::invokeMethod(appearance, "clicked"), u"Reading appearance did not open"_s);
+    waitFor([&] { return appearancePicker->property("visible").toBool(); }, u"Reading appearance opening"_s);
     for (const QString action : {u"readerHeightFit"_s, u"readerWidthFit"_s})
     {
         auto *button = view->rootObject()->findChild<QQuickItem *>(action);
         require(button, u"Reading fit action is missing"_s);
         button->forceActiveFocus(Qt::TabFocusReason);
         require(QMetaObject::invokeMethod(button, "clicked"), u"Reading fit action did not run"_s);
-        require(scroll->hasActiveFocus(), u"Reading fit action did not return focus to content"_s);
     }
+    require(QMetaObject::invokeMethod(appearanceClose, "clicked"), u"Reading appearance did not close"_s);
+    waitFor([&] { return !appearancePicker->property("visible").toBool() && scroll->hasActiveFocus(); },
+        u"Reading appearance did not return focus to content"_s);
     checkPageFit(Qbutt::Reader::ReaderFit::Width);
     for (const Qt::Key key : {Qt::Key_Down, Qt::Key_Up})
     {
@@ -344,7 +352,8 @@ void exerciseReader(Content::ContentView *view, const QString &profileDir)
             u"Keyboard reading position was not saved"_s);
     }
     auto *widthButton = view->rootObject()->findChild<QQuickItem *>(u"readerWidthFit"_s);
-    widthButton->forceActiveFocus(Qt::TabFocusReason);
+    require(widthButton, u"Reading Width action disappeared"_s);
+    appearance->forceActiveFocus(Qt::TabFocusReason);
     for (int step = 0; (step < 8) && !scroll->hasActiveFocus(); ++step)
     {
         QKeyEvent tab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);

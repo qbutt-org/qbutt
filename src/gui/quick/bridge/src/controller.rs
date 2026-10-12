@@ -403,6 +403,48 @@ pub mod ffi {
             NOTIFY = reader_changed
         )]
         #[qproperty(
+            QString,
+            reader_background_color,
+            cxx_name = "readerBackgroundColor",
+            READ = reader_background_color,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_text_color,
+            cxx_name = "readerTextColor",
+            READ = reader_text_color,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_font_family,
+            cxx_name = "readerFontFamily",
+            READ = reader_font_family,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            i32,
+            reader_font_size,
+            cxx_name = "readerFontSize",
+            READ = reader_font_size,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            i32,
+            reader_line_height,
+            cxx_name = "readerLineHeight",
+            READ = reader_line_height,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            i32,
+            reader_column_width,
+            cxx_name = "readerColumnWidth",
+            READ = reader_column_width,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
             ReaderSettingsState,
             reader_settings_state,
             cxx_name = "readerSettingsState",
@@ -579,6 +621,12 @@ pub mod ffi {
         fn reader_page_count(&self) -> i32;
         fn reader_scroll_offset(&self) -> &f64;
         fn reader_fit(&self) -> ReaderFit;
+        fn reader_background_color(&self) -> QString;
+        fn reader_text_color(&self) -> QString;
+        fn reader_font_family(&self) -> QString;
+        fn reader_font_size(&self) -> i32;
+        fn reader_line_height(&self) -> i32;
+        fn reader_column_width(&self) -> i32;
         fn reader_settings_state(&self) -> ReaderSettingsState;
         fn reader_settings_error_text(&self) -> QString;
         fn chapter_query(&self) -> &QString;
@@ -604,6 +652,27 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "setReaderFit"]
         fn set_reader_fit(self: Pin<&mut Self>, fit: ReaderFit) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderBackgroundColor"]
+        fn set_reader_background_color(self: Pin<&mut Self>, color: QString) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderTextColor"]
+        fn set_reader_text_color(self: Pin<&mut Self>, color: QString) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderFontFamily"]
+        fn set_reader_font_family(self: Pin<&mut Self>, family: QString) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderFontSize"]
+        fn set_reader_font_size(self: Pin<&mut Self>, size: i32) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderLineHeight"]
+        fn set_reader_line_height(self: Pin<&mut Self>, height: i32) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderColumnWidth"]
+        fn set_reader_column_width(self: Pin<&mut Self>, width: i32) -> bool;
+        #[qinvokable]
+        #[cxx_name = "resetReaderAppearance"]
+        fn reset_reader_appearance(self: Pin<&mut Self>) -> bool;
         #[qinvokable]
         #[cxx_name = "retryReaderSettings"]
         fn retry_reader_settings(self: Pin<&mut Self>) -> bool;

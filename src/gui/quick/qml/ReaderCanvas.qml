@@ -12,10 +12,27 @@ FocusScope {
 
     required property ContentController backend
     required property Theme theme
+    required property color readingForeground
     readonly property int fit: backend.readerFit
     readonly property bool isText: backend.readerIsText
     readonly property bool continuous: backend.readerMode === Reader.Continuous
     readonly property string errorText: backend.readerErrorText
+    readonly property real readingProgress: {
+        if (isText)
+            return textCanvas.status === Loader.Ready
+                ? (textCanvas.item as TextReadingCanvas).readingProgress : 0;
+
+        if (continuous)
+            return continuousCanvas.status === Loader.Ready
+                ? (continuousCanvas.item as ReaderContinuousCanvas).readingProgress : 0;
+
+        if (backend.readerPageCount === 0)
+            return 0;
+
+        const visibleFraction = page.visible
+            ? Math.min(1, (viewport.contentY + viewport.height) / Math.max(1, page.height)) : 0;
+        return (backend.readerPageIndex + visibleFraction) / backend.readerPageCount;
+    }
 
     function saveScroll(): void {
         if (isText) {
@@ -35,6 +52,13 @@ FocusScope {
             return;
 
         backend.scrollReaderPage(page.source, Math.max(0, Math.min(1, viewport.contentY / page.height)));
+    }
+
+    function prepareAppearanceChange(): void {
+        if (isText && textCanvas.status === Loader.Ready) {
+            const text = textCanvas.item as TextReadingCanvas;
+            text.preservePosition();
+        }
     }
 
     function restoreScroll(offset: real): void {
@@ -132,19 +156,7 @@ FocusScope {
                 TapHandler {
                     acceptedButtons: Qt.LeftButton
                     enabled: page.visible
-                    onTapped: eventPoint => {
-                        root.forceActiveFocus(Qt.MouseFocusReason);
-                        const sideWidth = (page.width - page.paintedWidth) / 2
-                            + page.paintedWidth * 0.22;
-
-                        if (eventPoint.position.x < sideWidth) {
-                            root.saveScroll();
-                            root.backend.turnReaderPage(-1);
-                        } else if (eventPoint.position.x > page.width - sideWidth) {
-                            root.saveScroll();
-                            root.backend.turnReaderPage(1);
-                        }
-                    }
+                    onTapped: root.forceActiveFocus(Qt.MouseFocusReason)
                 }
             }
         }
@@ -178,7 +190,7 @@ FocusScope {
         focus: active
         sourceComponent: TextReadingCanvas {
             backend: root.backend
-            theme: root.theme
+            readingForeground: root.readingForeground
         }
     }
 
@@ -192,6 +204,7 @@ FocusScope {
             objectName: "readerError"
             Layout.fillWidth: true
             text: root.errorText
+            color: root.readingForeground
             wrapMode: Text.Wrap
             horizontalAlignment: Text.AlignHCenter
             textFormat: Text.PlainText

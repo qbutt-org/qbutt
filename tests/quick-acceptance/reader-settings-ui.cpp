@@ -63,9 +63,13 @@ void exerciseReaderSettingsUi(Content::ContentView *view, const QString &profile
     require(reader, u"Current production reader is missing"_s);
     auto *width = reader->findChild<QQuickItem *>(u"readerWidthFit"_s);
     auto *height = reader->findChild<QQuickItem *>(u"readerHeightFit"_s);
+    auto *appearance = reader->findChild<QQuickItem *>(u"readerAppearance"_s);
+    auto *picker = reader->findChild<QObject *>(u"readerAppearancePicker"_s);
+    auto *close = reader->findChild<QQuickItem *>(u"readerAppearanceClose"_s);
     auto *error = reader->findChild<QQuickItem *>(u"readerSettingsError"_s);
     auto *retry = reader->findChild<QQuickItem *>(u"readerSettingsRetry"_s);
-    require(width && height && error && retry, u"Production reading settings controls are missing"_s);
+    require(width && height && appearance && picker && close && error && retry,
+        u"Production reading settings controls are missing"_s);
     require(!error->isVisible() && !retry->isVisible(), u"Healthy settings displayed an error"_s);
 
     const QString connection = u"reader-settings-ui"_s;
@@ -98,8 +102,11 @@ void exerciseReaderSettingsUi(Content::ContentView *view, const QString &profile
     require(storedFit() == 0, u"UI fault did not start with saved Height"_s);
     execute(u"CREATE TRIGGER reader_settings_ui_abort BEFORE UPDATE ON reader_settings "
         "BEGIN SELECT RAISE(ABORT, 'reading settings UI fault'); END"_s);
+    require(QMetaObject::invokeMethod(appearance, "clicked"), u"QML Appearance action failed"_s);
+    waitFor([&] { return picker->property("visible").toBool(); }, u"Reading appearance opening"_s);
     width->forceActiveFocus(Qt::TabFocusReason);
     require(QMetaObject::invokeMethod(width, "clicked"), u"QML Width action failed"_s);
+    require(QMetaObject::invokeMethod(close, "clicked"), u"Reading appearance close failed"_s);
     waitFor([&]
     {
         return controller->property("readerSettingsState").value<Qbutt::Reader::ReaderSettingsState>()

@@ -11,14 +11,33 @@ Page {
 
     required property ContentController backend
     required property Theme theme
+    readonly property color defaultReadingBackground: theme.dark ? "#202520" : "#f7f5f0"
+    readonly property color defaultReadingForeground: theme.dark ? "#e7e9e3" : "#242923"
+    readonly property color readingBackground: backend.readerBackgroundColor !== ""
+        ? backend.readerBackgroundColor : defaultReadingBackground
+    readonly property color chromeForeground: backend.readerBackgroundColor !== ""
+        ? contrastingText(readingBackground) : defaultReadingForeground
+    readonly property color readingForeground: backend.readerIsText && backend.readerTextColor !== ""
+        ? backend.readerTextColor : chromeForeground
 
-    padding: 24
+    function contrastingText(background: color): color {
+        const linear = value => value <= 0.04045 ? value / 12.92
+            : Math.pow((value + 0.055) / 1.055, 2.4);
+        const luminance = linear(background.r) * 0.2126
+            + linear(background.g) * 0.7152 + linear(background.b) * 0.0722;
+        return luminance > 0.179 ? "#000000" : "#ffffff";
+    }
+
+    leftPadding: 48
+    rightPadding: 48
+    topPadding: 12
+    bottomPadding: 16
     focus: true
-    palette.windowText: theme.foreground
-    palette.text: theme.foreground
+    palette.windowText: chromeForeground
+    palette.text: chromeForeground
 
     background: Rectangle {
-        color: root.theme.background
+        color: root.readingBackground
     }
 
     function selectPage(index: int): void {
@@ -27,33 +46,53 @@ Page {
         canvas.forceActiveFocus();
     }
 
+    function turn(offset: int): void {
+        if (backend.readerBusy)
+            return;
+
+        if (backend.readerIsText) {
+            const next = backend.readerChapterIndex + offset;
+            if (next < 0 || next >= backend.readerChapterCount)
+                return;
+            canvas.saveScroll();
+            backend.turnReaderChapter(offset);
+        } else {
+            const next = backend.readerPageIndex + offset;
+            if (next < 0 || next >= backend.readerPageCount)
+                return;
+            selectPage(next);
+        }
+        canvas.forceActiveFocus();
+    }
+
     contentItem: ColumnLayout {
-        spacing: 20
+        spacing: 12
 
         ReaderToolbar {
+            id: toolbar
             Layout.fillWidth: true
             backend: root.backend
             theme: root.theme
+            foreground: root.chromeForeground
             onBackRequested: {
                 canvas.saveScroll();
                 root.backend.closeReader();
             }
             onChaptersRequested: chapters.open()
-            onChapterTurnRequested: offset => {
-                canvas.saveScroll();
-                root.backend.turnReaderChapter(offset);
-                canvas.forceActiveFocus();
-            }
-            onPageRequested: index => root.selectPage(index)
-            onFitRequested: fit => {
-                canvas.saveScroll();
-                root.backend.setReaderFit(fit);
-                canvas.forceActiveFocus();
-            }
-            onModeRequested: mode => {
-                canvas.saveScroll();
-                root.backend.setReaderMode(mode);
-                canvas.forceActiveFocus();
+            onAppearanceRequested: appearance.open()
+        }
+
+        Rectangle {
+            id: progressTrack
+            Layout.fillWidth: true
+            Layout.preferredHeight: 2
+            color: Qt.rgba(root.chromeForeground.r, root.chromeForeground.g,
+                root.chromeForeground.b, 0.12)
+
+            Rectangle {
+                width: parent.width * canvas.readingProgress
+                height: parent.height
+                color: root.theme.accent
             }
         }
 
@@ -109,6 +148,94 @@ Page {
             Layout.fillHeight: true
             backend: root.backend
             theme: root.theme
+            readingForeground: root.readingForeground
+        }
+    }
+
+    MouseArea {
+        x: 0
+        y: root.topPadding + toolbar.height + progressTrack.height + 12
+        width: root.leftPadding
+        height: root.height - y
+        enabled: !chapters.visible && !appearance.visible
+            && !root.backend.readerBusy
+        onClicked: root.turn(-1)
+    }
+
+    MouseArea {
+        x: root.width - root.rightPadding
+        y: root.topPadding + toolbar.height + progressTrack.height + 12
+        width: root.rightPadding
+        height: root.height - y
+        enabled: !chapters.visible && !appearance.visible
+            && !root.backend.readerBusy
+        onClicked: root.turn(1)
+    }
+
+    Rectangle {
+        id: navigation
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 24
+        width: navigationControls.implicitWidth + 12
+        height: 50
+        radius: height / 2
+        color: Qt.tint(root.readingBackground, Qt.rgba(root.chromeForeground.r,
+            root.chromeForeground.g, root.chromeForeground.b, 0.09))
+        visible: !root.backend.readerBusy && (root.backend.readerIsText
+            ? root.backend.readerChapterCount > 1 : root.backend.readerPageCount > 1)
+
+        RowLayout {
+            id: navigationControls
+            anchors.fill: parent
+            anchors.leftMargin: 4
+            anchors.rightMargin: 4
+            spacing: 2
+
+            ReaderChromeButton {
+                id: previous
+                objectName: "readerPreviousPage"
+                Layout.preferredWidth: 40
+                theme: root.theme
+                foreground: root.chromeForeground
+                icon.source: root.theme.iconSource("chevron-left")
+                horizontalPadding: 0
+                Accessible.name: root.backend.readerIsText
+                    ? qsTr("Previous chapter") : qsTr("Previous page")
+                enabled: root.backend.readerIsText
+                    ? root.backend.readerChapterIndex > 0 : root.backend.readerPageIndex > 0
+                opacity: enabled ? 1 : 0.38
+                onClicked: root.turn(-1)
+
+                ToolTip {
+                    parent: previous
+                    visible: previous.hovered
+                    text: previous.Accessible.name
+                }
+            }
+
+            ReaderChromeButton {
+                id: next
+                objectName: "readerNextPage"
+                Layout.preferredWidth: 40
+                theme: root.theme
+                foreground: root.chromeForeground
+                icon.source: root.theme.iconSource("chevron-right")
+                horizontalPadding: 0
+                Accessible.name: root.backend.readerIsText
+                    ? qsTr("Next chapter") : qsTr("Next page")
+                enabled: root.backend.readerIsText
+                    ? root.backend.readerChapterIndex + 1 < root.backend.readerChapterCount
+                    : root.backend.readerPageIndex + 1 < root.backend.readerPageCount
+                opacity: enabled ? 1 : 0.38
+                onClicked: root.turn(1)
+
+                ToolTip {
+                    parent: next
+                    visible: next.hovered
+                    text: next.Accessible.name
+                }
+            }
         }
     }
 
@@ -122,6 +249,30 @@ Page {
             canvas.saveScroll();
             root.backend.selectChapter(id);
         }
+    }
+
+    ReaderAppearancePicker {
+        id: appearance
+        backend: root.backend
+        theme: root.theme
+        backdrop: root
+        effectiveBackground: root.readingBackground
+        effectiveTextColor: root.readingForeground
+        onAppearanceChanging: {
+            if (root.backend.readerIsText)
+                canvas.prepareAppearanceChange();
+            else
+                canvas.saveScroll();
+        }
+        onFitRequested: fit => {
+            canvas.saveScroll();
+            root.backend.setReaderFit(fit);
+        }
+        onModeRequested: mode => {
+            canvas.saveScroll();
+            root.backend.setReaderMode(mode);
+        }
+        onClosed: canvas.forceActiveFocus()
     }
 
     Shortcut {

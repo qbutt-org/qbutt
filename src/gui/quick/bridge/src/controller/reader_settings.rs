@@ -37,6 +37,30 @@ impl ffi::ContentController {
         }
     }
 
+    pub(super) fn reader_background_color(&self) -> QString {
+        QString::from(&self.reader_settings.value.background_color)
+    }
+
+    pub(super) fn reader_text_color(&self) -> QString {
+        QString::from(&self.reader_settings.value.text_color)
+    }
+
+    pub(super) fn reader_font_family(&self) -> QString {
+        QString::from(&self.reader_settings.value.font_family)
+    }
+
+    pub(super) fn reader_font_size(&self) -> i32 {
+        self.reader_settings.value.font_size
+    }
+
+    pub(super) fn reader_line_height(&self) -> i32 {
+        self.reader_settings.value.line_height
+    }
+
+    pub(super) fn reader_column_width(&self) -> i32 {
+        self.reader_settings.value.column_width
+    }
+
     pub(super) fn reader_settings_state(&self) -> ffi::ReaderSettingsState {
         match self.library_state {
             ffi::LibraryState::Failed => ffi::ReaderSettingsState::Failed,
@@ -71,13 +95,80 @@ impl ffi::ContentController {
             ffi::ReaderFit::Width => ReaderFit::Width,
             _ => return false,
         };
+        let mut settings = self.reader_settings.value.clone();
+        settings.fit = fit;
+        self.as_mut().update_reader_settings(settings)
+    }
+
+    pub fn set_reader_background_color(mut self: Pin<&mut Self>, color: QString) -> bool {
+        let mut settings = self.reader_settings.value.clone();
+        settings.background_color = color.to_string();
+        self.as_mut().update_reader_settings(settings)
+    }
+
+    pub fn set_reader_text_color(mut self: Pin<&mut Self>, color: QString) -> bool {
+        let mut settings = self.reader_settings.value.clone();
+        settings.text_color = color.to_string();
+        self.as_mut().update_reader_settings(settings)
+    }
+
+    pub fn set_reader_font_family(mut self: Pin<&mut Self>, family: QString) -> bool {
+        let mut settings = self.reader_settings.value.clone();
+        settings.font_family = family.to_string();
+        self.as_mut().update_reader_settings(settings)
+    }
+
+    pub fn set_reader_font_size(mut self: Pin<&mut Self>, size: i32) -> bool {
+        let mut settings = self.reader_settings.value.clone();
+        settings.font_size = size;
+        self.as_mut().update_reader_settings(settings)
+    }
+
+    pub fn set_reader_line_height(mut self: Pin<&mut Self>, height: i32) -> bool {
+        let mut settings = self.reader_settings.value.clone();
+        settings.line_height = height;
+        self.as_mut().update_reader_settings(settings)
+    }
+
+    pub fn set_reader_column_width(mut self: Pin<&mut Self>, width: i32) -> bool {
+        let mut settings = self.reader_settings.value.clone();
+        settings.column_width = width;
+        self.as_mut().update_reader_settings(settings)
+    }
+
+    pub fn reset_reader_appearance(mut self: Pin<&mut Self>) -> bool {
+        let defaults = ReaderSettings::default();
+        let mut settings = self.reader_settings.value.clone();
+        settings.background_color = defaults.background_color;
+        if self.reader.is_text {
+            settings.text_color = defaults.text_color;
+            settings.font_family = defaults.font_family;
+            settings.font_size = defaults.font_size;
+            settings.line_height = defaults.line_height;
+            settings.column_width = defaults.column_width;
+        } else {
+            settings.fit = defaults.fit;
+            settings.mode = defaults.mode;
+        }
+        let mode_changed = self.reader_settings.value.mode != settings.mode;
+        let accepted = self.as_mut().update_reader_settings(settings);
+        if mode_changed {
+            self.reader_mode_changed();
+        }
+        accepted
+    }
+
+    fn update_reader_settings(mut self: Pin<&mut Self>, settings: ReaderSettings) -> bool {
+        if !settings.valid() {
+            return false;
+        }
         if self.library_state == ffi::LibraryState::Ready
-            && self.reader_settings.value.fit == fit
             && self.reader_settings.save == SaveState::Idle
+            && self.reader_settings.value == settings
         {
             return true;
         }
-        self.as_mut().rust_mut().reader_settings.value.fit = fit;
+        self.as_mut().rust_mut().reader_settings.value = settings;
         self.submit_reader_settings()
     }
 
@@ -97,15 +188,11 @@ impl ffi::ContentController {
             ffi::ReaderMode::Continuous => ReaderMode::Continuous,
             _ => return false,
         };
-        if self.library_state == ffi::LibraryState::Ready
-            && self.reader_settings.value.mode == mode
-            && self.reader_settings.save == SaveState::Idle
-        {
-            return true;
-        }
-        self.as_mut().rust_mut().reader_settings.value.mode = mode;
-        let accepted = self.as_mut().submit_reader_settings();
-        if self.reader_settings.value.mode == mode {
+        let changed = self.reader_settings.value.mode != mode;
+        let mut settings = self.reader_settings.value.clone();
+        settings.mode = mode;
+        let accepted = self.as_mut().update_reader_settings(settings);
+        if changed && self.reader_settings.value.mode == mode {
             self.reader_mode_changed();
         }
         accepted
@@ -113,7 +200,7 @@ impl ffi::ContentController {
 
     fn submit_reader_settings(mut self: Pin<&mut Self>) -> bool {
         let generation = self.reader_settings.generation.wrapping_add(1);
-        let settings = self.reader_settings.value;
+        let settings = self.reader_settings.value.clone();
         {
             let mut state = self.as_mut().rust_mut();
             state.reader_settings.generation = generation;

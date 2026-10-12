@@ -9,7 +9,10 @@ ScrollView {
     objectName: "readerTextScroll"
 
     required property ContentController backend
-    required property Theme theme
+    required property color readingForeground
+    readonly property real readingProgress: blocks.count === 0 ? 0
+        : blocks.contentHeight <= blocks.height ? 1 : Math.max(0, Math.min(1,
+            (blocks.contentY - blocks.originY) / (blocks.contentHeight - blocks.height)))
     property var pendingPosition: null
     property bool userScrolling: false
 
@@ -74,6 +77,21 @@ ScrollView {
             userScrolling = false;
         backend.setReaderTextViewport(backend.readerTextGeneration,
             backend.readerTextBlocks.idAt(index), offset, userMoved);
+    }
+
+    function preservePosition(): void {
+        if (pendingPosition !== null || blocks.count === 0)
+            return;
+
+        const index = blocks.indexAt(blocks.width / 2, blocks.contentY + 0.5);
+        const first = blocks.itemAtIndex(index);
+        if (!first || first.height <= 0)
+            return;
+
+        const blockId = backend.readerTextBlocks.idAt(index);
+        const offset = Math.max(0, Math.min(1, (blocks.contentY - first.y) / first.height));
+        backend.setReaderTextViewport(backend.readerTextGeneration, blockId, offset, true);
+        requestPosition(backend.readerTextGeneration, blockId, offset);
     }
 
     function retainPosition(): void {
@@ -180,19 +198,22 @@ ScrollView {
             Label {
                 visible: readingBlock.blockKind !== 5
                 width: readingBlock.width
-                leftPadding: Math.max(0, (width - 760) / 2) + (readingBlock.blockKind === 3 || readingBlock.blockKind === 4 ? 24 : 0)
-                rightPadding: Math.max(0, (width - 760) / 2)
+                leftPadding: Math.max(0, (width - root.backend.readerColumnWidth) / 2)
+                    + (readingBlock.blockKind === 3 || readingBlock.blockKind === 4 ? 24 : 0)
+                rightPadding: Math.max(0, (width - root.backend.readerColumnWidth) / 2)
                 topPadding: readingBlock.blockKind === 1 ? 16 : 0
                 text: readingBlock.blockKind === 3
                     ? (readingBlock.listOrdinal >= 0 ? "%1. ".arg(readingBlock.listOrdinal) : "– ") + readingBlock.richText
                     : readingBlock.richText
                 textFormat: Text.StyledText
                 wrapMode: Text.Wrap
-                color: root.theme.foreground
-                font.pixelSize: readingBlock.blockKind === 1 ? 24 : 20
+                color: root.readingForeground
+                font.family: root.backend.readerFontFamily !== ""
+                    ? root.backend.readerFontFamily : root.font.family
+                font.pixelSize: root.backend.readerFontSize + (readingBlock.blockKind === 1 ? 4 : 0)
                 font.weight: readingBlock.blockKind === 1 ? Font.DemiBold : Font.Normal
                 font.italic: readingBlock.blockKind === 4
-                lineHeight: 1.3
+                lineHeight: root.backend.readerLineHeight / 100
                 horizontalAlignment: readingBlock.blockKind === 2 ? Text.AlignHCenter : Text.AlignLeft
                 Accessible.role: Accessible.StaticText
                 Accessible.name: readingBlock.plainText
@@ -200,8 +221,8 @@ ScrollView {
 
             Image {
                 visible: readingBlock.blockKind === 5
-                x: Math.max(0, (readingBlock.width - 760) / 2)
-                width: Math.min(760, readingBlock.width)
+                x: Math.max(0, (readingBlock.width - root.backend.readerColumnWidth) / 2)
+                width: Math.min(root.backend.readerColumnWidth, readingBlock.width)
                 height: status === Image.Ready && implicitWidth > 0
                     ? width * implicitHeight / implicitWidth : 0
                 source: visible && readingBlock.imageId !== ""

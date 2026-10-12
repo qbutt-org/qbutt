@@ -10,6 +10,10 @@ ScrollView {
 
     required property ContentController backend
     required property Theme theme
+    readonly property real readingProgress: pageList.count === 0 ? 0
+        : Math.max(0, Math.min(1,
+            (pageList.contentY - pageList.originY + pageList.height)
+                / Math.max(1, pageList.contentHeight)))
     property var pendingPosition: null
     property bool userScrolling: false
 

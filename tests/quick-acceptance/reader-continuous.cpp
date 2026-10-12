@@ -172,8 +172,14 @@ void exerciseReaderContinuous(Content::ContentView *view, const QString &profile
     require(settings() == QSize(1, 0), u"Continuous fault must start in committed Paged/Width"_s);
     execute(database, u"CREATE TRIGGER continuous_settings_abort BEFORE UPDATE ON reader_settings "
         "BEGIN SELECT RAISE(ABORT, 'generated atomic reading settings fault'); END"_s);
+    auto *appearance = reader(view)->findChild<QQuickItem *>(u"readerAppearance"_s);
+    auto *appearanceClose = reader(view)->findChild<QQuickItem *>(u"readerAppearanceClose"_s);
+    auto *appearancePicker = reader(view)->findChild<QObject *>(u"readerAppearancePicker"_s);
     auto *mode = reader(view)->findChild<QQuickItem *>(u"readerMode"_s);
-    require(mode && mode->isEnabled(), u"Production reading-mode selector is missing"_s);
+    require(appearance && appearanceClose && appearancePicker && mode && mode->isEnabled(),
+        u"Production reading-mode selector is missing"_s);
+    require(QMetaObject::invokeMethod(appearance, "clicked"), u"Reading appearance did not open"_s);
+    waitFor([&] { return appearancePicker->property("visible").toBool(); }, u"Reading appearance opening"_s);
     mode->forceActiveFocus(Qt::TabFocusReason);
     key(view, Qt::Key_Space);
     auto *popup = mode->property("popup").value<QObject *>();
@@ -186,6 +192,7 @@ void exerciseReaderContinuous(Content::ContentView *view, const QString &profile
         return !popup->property("visible").toBool()
             && (controller->property("readerMode").value<Qbutt::Reader::ReaderMode>() == Qbutt::Reader::ReaderMode::Continuous);
     }, u"Actual mode popup keyboard selection"_s);
+    require(QMetaObject::invokeMethod(appearanceClose, "clicked"), u"Reading appearance did not close"_s);
     require(controller->setReaderFit(Qbutt::Reader::ReaderFit::Height), u"Applied Height intent was rejected"_s);
     waitFor([&]
     {

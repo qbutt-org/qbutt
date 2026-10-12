@@ -16,7 +16,11 @@ qt_add_qml_module(qbt_quick_ui STATIC
         NavigationTab.qml
         QueryField.qml
         ReaderCanvas.qml
+        ReaderAppearancePicker.qml
+        ReaderChromeButton.qml
+        ReaderColorSwatch.qml
         ReaderContinuousCanvas.qml
+        ReaderFontPicker.qml
         ReaderPage.qml
         ReaderStripPage.qml
         ReaderToolbar.qml

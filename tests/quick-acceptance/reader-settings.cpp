@@ -157,6 +157,10 @@ namespace
             && (scalar(fixture.database, u"SELECT count(*) FROM library"_s) == 0), u"Fresh profile defaults created history"_s);
         require(!controller.setReaderFit(static_cast<Fit>(42)) && (appliedFit(controller) == Fit::Height),
             u"Invalid fit changed the typed settings"_s);
+        require(!controller.setReaderFontSize(100) && !controller.setReaderBackgroundColor(u"#nothex"_s)
+            && (controller.property("readerFontSize").toInt() == 20)
+            && controller.property("readerBackgroundColor").toString().isEmpty(),
+            u"Invalid appearance changed the typed settings"_s);
         require(controller.setReaderFit(Fit::Width) && (settingsState(controller) == SettingsState::Saving),
             u"Accepted fit did not report Saving"_s);
         expectSaved(fixture, Fit::Width);
@@ -359,8 +363,14 @@ namespace
         {
             require((appliedFit(*controller) == Fit::Width)
                 && (controller->property("readerMode").value<Qbutt::Reader::ReaderMode>() == Qbutt::Reader::ReaderMode::Continuous)
+                && (controller->property("readerBackgroundColor").toString() == u"#fff6e6"_s)
+                && (controller->property("readerTextColor").toString() == u"#102030"_s)
+                && (controller->property("readerFontFamily").toString() == u"Georgia"_s)
+                && (controller->property("readerFontSize").toInt() == 24)
+                && (controller->property("readerLineHeight").toInt() == 150)
+                && (controller->property("readerColumnWidth").toInt() == 880)
                 && (settingsState(*controller) == SettingsState::Ready),
-                u"Fresh process did not restore committed Continuous/Width"_s);
+                u"Fresh process did not restore committed reading settings"_s);
             controller.reset();
         }
         else
@@ -378,7 +388,14 @@ namespace
             require(database.open(), database.lastError().text());
             execute(database, u"BEGIN IMMEDIATE"_s);
             require(controller->setReaderMode(Qbutt::Reader::ReaderMode::Continuous)
-                && controller->setReaderFit(Fit::Width) && (settingsState(*controller) == SettingsState::Saving),
+                && controller->setReaderFit(Fit::Width)
+                && controller->setReaderBackgroundColor(u"#fff6e6"_s)
+                && controller->setReaderTextColor(u"#102030"_s)
+                && controller->setReaderFontFamily(u"Georgia"_s)
+                && controller->setReaderFontSize(24)
+                && controller->setReaderLineHeight(150)
+                && controller->setReaderColumnWidth(880)
+                && (settingsState(*controller) == SettingsState::Saving),
                 u"Graceful Exit did not accept its blocked settings write"_s);
             controller.reset();
             execute(database, u"COMMIT"_s);
@@ -430,8 +447,11 @@ namespace
         require(database.open(), database.lastError().text());
         require((scalar(database, u"SELECT fit FROM reader_settings"_s) == 1)
             && (scalar(database, u"SELECT mode FROM reader_settings"_s) == 1)
+            && (scalar(database, u"SELECT font_size FROM reader_settings"_s) == 24)
+            && (scalar(database, u"SELECT line_height FROM reader_settings"_s) == 150)
+            && (scalar(database, u"SELECT column_width FROM reader_settings"_s) == 880)
             && (scalar(database, u"SELECT count(*) FROM library"_s) == 0),
-            u"Settings process did not persist exact Width or invented history"_s);
+            u"Settings process did not persist exact appearance or invented history"_s);
         require(unrelated.open(QIODevice::ReadOnly) && (unrelated.readAll() == "generated unrelated payload"),
             u"Settings process changed unrelated payload"_s);
     }
