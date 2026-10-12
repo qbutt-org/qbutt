@@ -24,6 +24,11 @@ try {
     await parent.start(false);
     await assert.rejects(readFile(discovery), { code: "ENOENT" });
     parent.forward(1, "browserInitialize");
+    const initializationDeadline = performance.now() + 2_000;
+    while (!await Bun.file(discovery).exists()) {
+        assert(performance.now() < initializationDeadline, "Production initialization did not publish discovery");
+        await Bun.sleep(10);
+    }
     await parent.status();
     const missingStarted = performance.now();
     await assert.rejects(parent.resolve(source, selection), (error: any) => error.code === "browser_required");

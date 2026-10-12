@@ -63,7 +63,7 @@ export class NativeBrowserFixture extends BrowserBridge {
         }
         if (initialize)
             this.forward(1, "browserInitialize");
-        await this.status();
+        await this.status(undefined, initialize);
     }
 
     forward(generation: number, event: string, data: unknown = {}): void {

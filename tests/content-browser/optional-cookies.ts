@@ -74,7 +74,8 @@ try {
     await assert.rejects(bridge.resolve("https://example.com/watch"), (error: any) => error.code === "browser_choice_required");
     const owned = JSON.parse(await readFile(discovery, "utf8"));
     other = new NativeBrowserFixture({ discoveryPath: discovery });
-    await other.start();
+    await other.start(false);
+    await assert.rejects(other.status(undefined, true), (error: any) => error.code === "browser_owner_exists");
     assert.deepEqual(await other.cookies("https://example.com/"), []);
     await other.close();
     assert.deepEqual(JSON.parse(await readFile(discovery, "utf8")), owned);
