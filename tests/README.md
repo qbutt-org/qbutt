@@ -5,8 +5,19 @@ the native Lib account transport with generated private-pipe and HTTPS peers on
 Windows. It needs free loopback port 443, uses its own temporary discovery and
 TLS trust, and never accesses the installed browser or a live profile. It covers
 account import before a partial anonymous search, one 401 retry, removal/expiry,
-API-origin isolation, CDN cookies without Bearer, bounded input and cancellation.
+API-origin isolation, CDN cookies without Bearer, bounded input, cancellation,
+connection replacement and interruption. Lib credentials are also rejected by
+the foreign reply adapter.
 Real qcatch site storage and live accounts remain separate acceptance scenarios.
+
+`tests/content-reading/lib-session.ts` runs the hidden Qt `--lib-session`
+scenario against generated HTTPS content and a private qcatch pipe. Pass the
+acceptance executable, PEM certificate and key. The fixture build resolves
+`api.cdnlibs.org` and `img3.cdnlibs.org` to `127.0.0.1:443` and trusts that
+certificate through a temporary `SourceHttp::new` builder overlay; restore the
+source and rebuild production transport afterwards. The scenario checks complete
+account search, native manga decoding and text reading, chapter-scoped imports,
+rejection of the Qt credential relay, and absence of credentials in SQLite.
 
 The lab generates its own legal payload and v1, v2 and hybrid torrents. It creates
 new directories under the OS temporary directory and never reuses an existing

@@ -13,6 +13,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -272,4 +273,98 @@ void exerciseMangaLib()
     require(!controller->property("readerOpen").toBool() && (entry(database).value(u"reader_progress"_s) == progress), u"Sources retry changed reading position or launched a reader"_s);
     close();
     qInfo("PASS MangaLib native_search=ok exact_translation=ok decoded_QML_read=ok full_work_history=ok favorites=ok progress_restart=ok disable_inflight=ok flags_restart=ok exact_missing_upload_retry=retained exact_JPEG_retry=cleared Sources_QML_action=ok");
+}
+
+void exerciseLibSession()
+{
+    require(QGuiApplication::platformName() == u"offscreen"_s, u"Lib session fixture requires offscreen Qt"_s);
+    require(!qEnvironmentVariable("QBUTT_BROWSER_BRIDGE_DISCOVERY").isEmpty(), u"Isolated discovery is required"_s);
+    QTemporaryDir profile;
+    require(profile.isValid(), u"Lib session profile failed"_s);
+    const auto drain = qScopeGuard([]
+    {
+        if (!QThreadPool::globalInstance()->waitForDone(10'000))
+            qFatal("Lib reader owners did not drain");
+    });
+    {
+        Content::ContentView view(profile.path());
+        view.resize(1440, 900);
+        view.show();
+        auto *controller = view.findChild<Qbutt::ContentController *>();
+        require(controller, u"Lib session controller missing"_s);
+        waitFor([&] { return controller->property("sourceSettingsState").value<Qbutt::Sources::SettingsState>() == Qbutt::Sources::SettingsState::Ready; }, u"Lib source preferences"_s);
+        auto *sources = model(controller, "sources");
+        for (int row = 0; row < sources->rowCount(); ++row)
+        {
+            const QString id = value(sources, row, "sourceId").toString();
+            require(controller->setSourceEnabled(id, id == u"mangalib"_s), u"Isolated Lib source selection failed"_s);
+        }
+        saved(controller);
+        controller->search(u"Generated"_s);
+        waitFor([&] { return !controller->property("busy").toBool(); }, u"Anonymous Lib search"_s);
+        require(model(controller, "works")->rowCount() == 1,
+            u"Anonymous fixture must omit the account publication: "_s + controller->property("errorText").toString());
+
+        bool connected = false;
+        bool blocked = false;
+        QObject::connect(&view, &Content::ContentView::browserReply, &view,
+            [&](const quint64, const quint64 id, const QByteArray &reply)
+        {
+            const QJsonObject message = QJsonDocument::fromJson(reply).object();
+            if (id == 2)
+                connected = message.value(u"result"_s).toObject().value(u"ready"_s).toBool();
+            if (id == 3)
+                blocked = message.value(u"error"_s).toObject().value(u"code"_s).toString() == u"browser_invalid_request"_s;
+            require(!reply.contains("accessToken"), u"Lib credentials crossed the Qt relay"_s);
+        });
+        view.initializeBrowser();
+        QTimer status;
+        QObject::connect(&status, &QTimer::timeout, &view, [&]
+        {
+            view.relayBrowserRequest(1, 2, R"({"id":2,"browser":"auto","command":{"method":"status"}})");
+        });
+        status.start(50);
+        waitFor([&] { return connected; }, u"Generated qcatch connection"_s);
+        status.stop();
+        view.relayBrowserRequest(1, 3, R"({"id":3,"browser":"auto","command":{"method":"lib-session","url":"https://mangalib.me/"}})");
+        waitFor([&] { return blocked; }, u"Foreign Lib credential relay rejection"_s);
+
+        for (const QString source : {u"mangalib"_s, u"ranobelib"_s})
+        {
+            require(controller->setSourceEnabled(u"mangalib"_s, source == u"mangalib"_s), u"MangaLib source selection failed"_s);
+            require(controller->setSourceEnabled(u"ranobelib"_s, source == u"ranobelib"_s), u"RanobeLib source selection failed"_s);
+            saved(controller);
+            controller->search(u"Generated"_s);
+            waitFor([&] { return !controller->property("busy").toBool(); }, u"Account Lib search"_s);
+            require(model(controller, "works")->rowCount() == 2, u"Connected account search remained partial"_s);
+            const QString publication = source + u":42--generated"_s;
+            controller->selectWork(publication);
+            waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Account Lib inspect"_s);
+            controller->selectVariant(publication + u":branch:null"_s);
+            require(model(controller, "variants")->rowCount() == 1, u"Exact account translation missing"_s);
+            controller->openReader();
+            if (source == u"mangalib"_s)
+            {
+                const QUrl first = decoded(controller);
+                controller->selectReaderPage(1);
+                require(decoded(controller) != first, u"Second account page was not decoded"_s);
+            }
+            else
+            {
+                waitFor([&] { return !controller->property("readerBusy").toBool(); }, u"Account text chapter"_s);
+                require(controller->property("readerIsText").toBool()
+                    && controller->property("readerErrorText").toString().isEmpty()
+                    && model(controller, "readerTextBlocks")->rowCount() == 2, u"Account text did not reach the native reader"_s);
+            }
+            controller->closeReader();
+            saved(controller);
+        }
+        for (const QString file : {u"content-library.sqlite"_s, u"content-library.sqlite-wal"_s})
+        {
+            QFile database(QDir(profile.path()).filePath(file));
+            if (database.open(QIODevice::ReadOnly))
+                require(!database.readAll().contains("generated.native.account"), u"Lib credentials entered SQLite"_s);
+        }
+    }
+    qInfo("PASS Lib account native_search=complete foreign_relay=blocked MangaLib_pages=decoded RanobeLib_text=shown SQLite=no_credentials");
 }

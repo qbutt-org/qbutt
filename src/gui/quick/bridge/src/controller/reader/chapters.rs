@@ -248,14 +248,11 @@ impl ffi::ContentController {
         self.as_mut().rust_mut().reader.position = Some(sender);
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
-        let Some(source) = services.reader_source(chapter.reference.variant.publication.source)
-        else {
-            return;
-        };
+        let catalog = Arc::clone(&services.catalog);
         let load_limit = Arc::clone(&services.reader_load);
         let byte_limit = Arc::clone(&services.reader_bytes);
         let task = services.runtime.spawn(read_chapter(
-            source, request, position, qt_thread, generation, load_limit, byte_limit,
+            catalog, request, position, qt_thread, generation, load_limit, byte_limit,
         ));
         self.as_mut().rust_mut().reader.chapter.task = Some(task);
     }

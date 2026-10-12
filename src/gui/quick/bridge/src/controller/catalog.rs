@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
-    AniLiberty, Chapter, ChapterRef, FitGirl, Kakuyomu, MangaDex, MangaLib, Nyaa, RanobeHub,
+    AniLiberty, Chapter, ChapterRef, FitGirl, Kakuyomu, LibSession, MangaDex, MangaLib, Nyaa, RanobeHub,
     RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation,
     TextChapter, Work, YummyAnime,
 };
@@ -78,7 +78,11 @@ impl Catalog {
                             .search(query, language.as_deref().unwrap())
                             .await
                     }
-                    Source::MangaLib => self.mangalib.search(query).await,
+                    Source::MangaLib => {
+                        self.mangalib
+                            .search(query, &mut self.lib_session(*source).await?)
+                            .await
+                    }
                     Source::RuTor => self.rutor.search(query, *category).await,
                     Source::RuTracker => {
                         self.rutracker
@@ -93,7 +97,11 @@ impl Catalog {
                     Source::Nyaa => self.nyaa.search(query, *category).await,
                     Source::Rutube => self.rutube.search(query, *category).await,
                     Source::FitGirl => self.fitgirl.search(query, *category).await,
-                    Source::RanobeLib => self.ranobelib.search(query).await,
+                    Source::RanobeLib => {
+                        self.ranobelib
+                            .search(query, &mut self.lib_session(*source).await?)
+                            .await
+                    }
                     Source::RanobeHub => self.ranobehub.search(query).await,
                     Source::RoyalRoad => self.royalroad.search(query).await,
                     Source::Kakuyomu => self.kakuyomu.search(query).await,
@@ -113,7 +121,11 @@ impl Catalog {
                             .inspect(reference, language.as_deref().unwrap())
                             .await
                     }
-                    Source::MangaLib => self.mangalib.inspect(reference).await,
+                    Source::MangaLib => {
+                        self.mangalib
+                            .inspect(reference, &mut self.lib_session(reference.source).await?)
+                            .await
+                    }
                     Source::RuTor => self.rutor.inspect(reference).await,
                     Source::RuTracker => {
                         self.rutracker
@@ -127,7 +139,11 @@ impl Catalog {
                     Source::Nyaa => self.nyaa.inspect(reference).await,
                     Source::Rutube => self.rutube.inspect(reference).await,
                     Source::FitGirl => self.fitgirl.inspect(reference).await,
-                    Source::RanobeLib => self.ranobelib.inspect(reference).await,
+                    Source::RanobeLib => {
+                        self.ranobelib
+                            .inspect(reference, &mut self.lib_session(reference.source).await?)
+                            .await
+                    }
                     Source::RanobeHub => self.ranobehub.inspect(reference).await,
                     Source::RoyalRoad => self.royalroad.inspect(reference).await,
                     Source::Kakuyomu => self.kakuyomu.inspect(reference).await,
@@ -164,8 +180,22 @@ impl Catalog {
             SourceOperation::Chapters(reference) => {
                 let chapters = match reference.publication.source {
                     Source::MangaDex => self.mangadex.chapters(reference).await,
-                    Source::MangaLib => self.mangalib.chapters(reference).await,
-                    Source::RanobeLib => self.ranobelib.chapters(reference).await,
+                    Source::MangaLib => {
+                        self.mangalib
+                            .chapters(
+                                reference,
+                                &mut self.lib_session(reference.publication.source).await?,
+                            )
+                            .await
+                    }
+                    Source::RanobeLib => {
+                        self.ranobelib
+                            .chapters(
+                                reference,
+                                &mut self.lib_session(reference.publication.source).await?,
+                            )
+                            .await
+                    }
                     Source::RanobeHub => self.ranobehub.chapters(reference).await,
                     Source::RoyalRoad => self.royalroad.chapters(reference).await,
                     Source::Kakuyomu => self.kakuyomu.chapters(reference).await,
@@ -183,21 +213,16 @@ impl Catalog {
                 Ok(SourceResponse::Chapter)
             }
             SourceOperation::Chapter(reference) | SourceOperation::ReaderPage { reference, .. } => {
-                let pages = match reference.variant.publication.source {
-                    Source::MangaDex => self.mangadex.chapter_pages(reference).await,
-                    Source::MangaLib => self.mangalib.chapter_pages(reference).await,
-                    _ => Err(qbutt_content::Error::InvalidReference),
-                }?;
+                let mut source = self
+                    .reader_source(reference.variant.publication.source)
+                    .await?;
+                let pages = source.chapter_pages(reference).await?;
                 if let SourceOperation::ReaderPage { page, .. } = operation {
                     let image = pages
                         .images
                         .get(*page as usize)
                         .ok_or(qbutt_content::Error::VariantUnavailable)?;
-                    match reference.variant.publication.source {
-                        Source::MangaDex => self.mangadex.image_bytes(image).await?,
-                        Source::MangaLib => self.mangalib.image_bytes(image).await?,
-                        _ => return Err(qbutt_content::Error::InvalidReference),
-                    };
+                    source.image_bytes(image).await?;
                     Ok(SourceResponse::ReaderPage)
                 } else {
                     Ok(SourceResponse::Chapter)
@@ -211,11 +236,23 @@ impl Catalog {
         reference: &ChapterRef,
     ) -> qbutt_content::Result<TextChapter> {
         match reference.variant.publication.source {
-            Source::RanobeLib => self.ranobelib.chapter_text(reference).await,
+            Source::RanobeLib => {
+                let mut session = self.lib_session(Source::RanobeLib).await?;
+                self.ranobelib.chapter_text(reference, &mut session).await
+            }
             Source::RanobeHub => self.ranobehub.chapter_text(reference).await,
             Source::RoyalRoad => self.royalroad.chapter_text(reference).await,
             Source::Kakuyomu => self.kakuyomu.chapter_text(reference).await,
             _ => Err(qbutt_content::Error::InvalidReference),
         }
+    }
+
+    pub(super) async fn lib_session(&self, source: Source) -> qbutt_content::Result<LibSession> {
+        LibSession::from_browser(
+            source,
+            self.browser.existing_handle().await.as_ref(),
+            BrowserChoice::Auto,
+        )
+        .await
     }
 }

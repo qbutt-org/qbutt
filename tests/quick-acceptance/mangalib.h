@@ -3,5 +3,6 @@
 #define QBT_QUICK_ACCEPTANCE_MANGALIB_H
 
 void exerciseMangaLib();
+void exerciseLibSession();
 
 #endif
