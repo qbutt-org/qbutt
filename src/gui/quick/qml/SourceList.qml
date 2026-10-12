@@ -11,7 +11,7 @@ ColumnLayout {
     required property ContentController backend
     required property Theme theme
 
-    spacing: 24
+    spacing: 16
 
     BusyIndicator {
         objectName: "contentSourcesLoading"
@@ -34,7 +34,7 @@ ColumnLayout {
         ColumnLayout {
             id: sourceList
             width: sourceScroll.availableWidth
-            spacing: 24
+            spacing: 6
 
             Repeater {
                 model: root.backend.sources
@@ -44,27 +44,30 @@ ColumnLayout {
                     required property var model
 
                     Layout.fillWidth: true
-                    spacing: 6
+                    spacing: 4
 
                     RowLayout {
                         spacing: 12
 
-                        Switch {
-                            id: sourceToggle
+                        CheckBox {
+                            id: sourceCheck
                             objectName: "contentSourceEnabled_" + sourceRow.model.sourceId
                             Layout.fillWidth: true
-                            Layout.minimumHeight: root.theme.controlHeight
+                            Layout.minimumHeight: 28
                             padding: 0
-                            spacing: 16
+                            spacing: 10
+                            indicator.width: 20
+                            indicator.height: 20
                             text: sourceRow.model.name
                             checked: sourceRow.model.enabled
                             enabled: !sourceRow.model.pending && !sourceRow.model.retrying
-                            font.pixelSize: 16
+                            font.pixelSize: 14
                             palette.windowText: enabled ? root.theme.foreground : root.theme.disabledText
-                            palette.dark: root.theme.accent
-                            palette.midlight: root.theme.controlPressed
-                            palette.mid: root.theme.controlBorder
-                            palette.window: root.theme.accentText
+                            palette.text: root.theme.accentText
+                            palette.base: checked ? root.theme.accent : root.theme.controlBackground
+                            palette.light: checked ? root.theme.accent : root.theme.controlPressed
+                            palette.mid: checked ? root.theme.accent : root.theme.controlBorder
+                            palette.highlight: root.theme.accent
                             onClicked: root.backend.setSourceEnabled(sourceRow.model.sourceId, checked)
                         }
 
@@ -104,7 +107,7 @@ ColumnLayout {
                     Label {
                         objectName: "contentSourceFailureText_" + sourceRow.model.sourceId
                         Layout.fillWidth: true
-                        Layout.leftMargin: sourceToggle.indicator.width + sourceToggle.spacing
+                        Layout.leftMargin: sourceCheck.indicator.width + sourceCheck.spacing
                         visible: sourceRow.model.failed
                         text: sourceRow.model.failureText
                         color: root.theme.muted
