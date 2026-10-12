@@ -4,6 +4,8 @@ pub enum Error {
     LocalBookIo(#[source] std::io::Error),
     #[error("{0}")]
     InvalidLocalBook(&'static str),
+    #[error("The book file changed since import")]
+    LocalBookChanged,
     #[error("Enter a search query of at most 500 characters")]
     InvalidQuery,
     #[error("The publication does not belong to this source")]

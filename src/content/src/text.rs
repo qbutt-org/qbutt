@@ -14,6 +14,7 @@ const MAX_TEXT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_BLOCKS: usize = 20_000;
 const MAX_SPANS: usize = 40_000;
 const MAX_DEPTH: usize = 128;
+const MAX_ASSET_BYTES: usize = 24 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -87,6 +88,8 @@ pub struct TextChapter {
     pub blocks: Vec<TextBlock>,
     #[serde(skip)]
     pub assets: Vec<TextImageAsset>,
+    #[serde(skip)]
+    pub entry_anchor: Option<String>,
 }
 
 impl TextChapter {
@@ -108,6 +111,7 @@ impl TextChapter {
         reference: ChapterRef,
         body: &str,
         resolve_image: &mut dyn FnMut(&str) -> Result<Option<TextImageAsset>>,
+        entry_fragment: Option<&str>,
     ) -> Result<Self> {
         reference.validate()?;
         if body.len() > MAX_HTML_BYTES {
@@ -116,11 +120,17 @@ impl TextChapter {
         let fragment = Html::parse_fragment(body);
         let mut builder = ChapterBuilder {
             image_resolver: Some(resolve_image),
+            entry_fragment,
             ..ChapterBuilder::default()
         };
         builder.visit(fragment.root_element(), false, false, 0)?;
         builder.finish(TextBlockKind::Paragraph)?;
-        Self::from_blocks_with_assets(reference, builder.blocks, builder.assets)
+        let entry_index = builder.entry_index;
+        let mut chapter = Self::from_blocks_with_assets(reference, builder.blocks, builder.assets)?;
+        chapter.entry_anchor = entry_index
+            .and_then(|index| chapter.blocks.get(index))
+            .map(|block| block.id.clone());
+        Ok(chapter)
     }
 
     /// Native structured sources share the same content anchors as HTML sources.
@@ -154,6 +164,7 @@ impl TextChapter {
             reference,
             blocks,
             assets,
+            entry_anchor: None,
         };
         chapter.validate()?;
         Ok(chapter)
@@ -199,7 +210,7 @@ impl TextChapter {
                 .iter()
                 .map(|asset| asset.bytes.len())
                 .sum::<usize>()
-                > 24 * 1024 * 1024
+                > MAX_ASSET_BYTES
         {
             return Err(Error::ResponseTooLarge);
         }
@@ -262,7 +273,10 @@ struct ChapterBuilder<'a> {
     blocks: Vec<TextBlock>,
     spans: Vec<TextSpan>,
     assets: Vec<TextImageAsset>,
+    entry_fragment: Option<&'a str>,
+    entry_index: Option<usize>,
     image_resolver: Option<&'a mut dyn FnMut(&str) -> Result<Option<TextImageAsset>>>,
+    asset_bytes: usize,
     text_bytes: usize,
     span_count: usize,
 }
@@ -292,7 +306,6 @@ impl ChapterBuilder<'_> {
                 | "link"
                 | "meta"
                 | "base"
-                | "svg"
                 | "canvas"
                 | "video"
                 | "audio"
@@ -307,28 +320,23 @@ impl ChapterBuilder<'_> {
         if element.value().attr("style").is_some_and(hidden_style) {
             return Ok(());
         }
-        if name == "img" {
-            if let (Some(source), Some(resolve)) =
-                (element.value().attr("src"), self.image_resolver.as_mut())
-            {
-                if let Some(asset) = resolve(source)? {
-                    self.finish(TextBlockKind::Paragraph)?;
-                    self.account(asset.id.len())?;
-                    self.spans.push(TextSpan::Image {
-                        asset_id: asset.id.clone(),
-                        alt: element
-                            .value()
-                            .attr("alt")
-                            .unwrap_or_default()
-                            .chars()
-                            .take(200)
-                            .collect(),
-                    });
-                    if !self.assets.iter().any(|existing| existing.id == asset.id) {
-                        self.assets.push(asset);
+        if name == "svg" {
+            for node in element.descendants().filter_map(ElementRef::wrap) {
+                if node.value().name() == "image" {
+                    if let Some(source) = node
+                        .value()
+                        .attr("href")
+                        .or_else(|| node.value().attr("xlink:href"))
+                    {
+                        self.image(source, node.value().attr("aria-label").unwrap_or_default())?;
                     }
-                    self.finish(TextBlockKind::Image)?;
                 }
+            }
+            return Ok(());
+        }
+        if name == "img" {
+            if let Some(source) = element.value().attr("src") {
+                self.image(source, element.value().attr("alt").unwrap_or_default())?;
             }
             return Ok(());
         }
@@ -376,6 +384,13 @@ impl ChapterBuilder<'_> {
             && (heading || matches!(name, "p" | "div" | "section" | "blockquote" | "li"));
         if block {
             self.finish(TextBlockKind::Paragraph)?;
+        }
+        if self.entry_index.is_none()
+            && self
+                .entry_fragment
+                .is_some_and(|fragment| element.value().attr("id") == Some(fragment))
+        {
+            self.entry_index = Some(self.blocks.len());
         }
         let bold = bold || matches!(name, "b" | "strong");
         let italic = italic || matches!(name, "i" | "em");
@@ -437,6 +452,30 @@ impl ChapterBuilder<'_> {
             });
         }
         Ok(())
+    }
+
+    fn image(&mut self, source: &str, alt: &str) -> Result<()> {
+        let Some(resolve) = self.image_resolver.as_mut() else {
+            return Ok(());
+        };
+        let Some(asset) = resolve(source)? else {
+            return Ok(());
+        };
+        self.finish(TextBlockKind::Paragraph)?;
+        self.account(asset.id.len())?;
+        self.spans.push(TextSpan::Image {
+            asset_id: asset.id.clone(),
+            alt: alt.chars().take(200).collect(),
+        });
+        if !self.assets.iter().any(|existing| existing.id == asset.id) {
+            self.asset_bytes = self
+                .asset_bytes
+                .checked_add(asset.bytes.len())
+                .filter(|total| *total <= MAX_ASSET_BYTES)
+                .ok_or(Error::ResponseTooLarge)?;
+            self.assets.push(asset);
+        }
+        self.finish(TextBlockKind::Image)
     }
 
     fn account(&mut self, bytes: usize) -> Result<()> {

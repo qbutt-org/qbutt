@@ -169,7 +169,13 @@ impl ffi::ContentController {
             {
                 (block_id, offset)
             }
-            _ => (chapter.blocks[0].id.clone(), 0.0),
+            _ => (
+                chapter
+                    .entry_anchor
+                    .clone()
+                    .unwrap_or_else(|| chapter.blocks[0].id.clone()),
+                0.0,
+            ),
         };
         {
             let mut state = self.as_mut().rust_mut();

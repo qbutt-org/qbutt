@@ -230,7 +230,8 @@ impl SourceFailureReason {
             | Error::InvalidReference
             | Error::UnsupportedAcquisition(_)
             | Error::LocalBookIo(_)
-            | Error::InvalidLocalBook(_) => None,
+            | Error::InvalidLocalBook(_)
+            | Error::LocalBookChanged => None,
             Error::VariantUnavailable => Some(Self::VariantUnavailable),
             Error::HttpStatus(status) => Some(Self::Http(*status)),
             Error::Timeout => Some(Self::Timeout),
