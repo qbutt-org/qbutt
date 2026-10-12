@@ -112,6 +112,8 @@ namespace
                 require(controller.setSourceEnabled(id, false), u"Could not isolate the fixture source"_s);
         }
         waitFor([&] { return !controller.property("libraryPending").toBool(); }, u"Source settings"_s);
+        require(controller.property("sourceSettingsState").value<Qbutt::Sources::SettingsState>()
+            == Qbutt::Sources::SettingsState::Ready, u"Fixture source settings failed"_s);
     }
 }
 
