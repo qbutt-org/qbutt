@@ -135,14 +135,28 @@ async fn connection(
     let request = lines
         .next()
         .ok_or_else(|| io::Error::other("Missing request"))?;
-    let target = request
-        .strip_prefix("GET ")
-        .and_then(|value| value.strip_suffix(" HTTP/1.1"))
-        .ok_or_else(|| io::Error::other("Unexpected fixture method"))?;
+    let mut request_parts = request.split_whitespace();
+    let method = request_parts
+        .next()
+        .ok_or_else(|| io::Error::other("Missing fixture method"))?;
+    let target = request_parts
+        .next()
+        .ok_or_else(|| io::Error::other("Missing fixture target"))?;
+    assert_eq!(request_parts.next(), Some("HTTP/1.1"));
     let headers: Vec<_> = lines
         .filter_map(|line| line.split_once(':'))
         .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_owned()))
         .collect();
+    let content_length = headers
+        .iter()
+        .find(|(name, _)| name == "content-length")
+        .map(|(_, value)| value.parse::<usize>())
+        .transpose()
+        .map_err(io::Error::other)?
+        .unwrap_or(0);
+    assert!(content_length <= 16 * 1024);
+    let mut body = vec![0; content_length];
+    stream.read_exact(&mut body).await?;
     let cookie_header = headers
         .iter()
         .find(|(name, _)| name == "cookie")
@@ -154,6 +168,76 @@ async fn connection(
         .filter(|value| !value.is_empty())
         .collect();
     match target {
+        "/metadata/get" | "/metadata/post" => {
+            if target.ends_with("post") {
+                assert_eq!(method, "POST");
+                assert_eq!(body, b"id=fixture&op=download1");
+            } else {
+                assert_eq!(method, "GET");
+                assert!(body.is_empty());
+            }
+            assert!(!headers.iter().any(|(name, _)| name == "x-requested-with"));
+            assert!(cookies.contains(&"form=rotated"));
+            response(
+                &mut stream,
+                200,
+                "Content-Type: application/x-bittorrent\r\n",
+                super::metadata::TORRENT,
+            )
+            .await?;
+        }
+        "/metadata/gate" => {
+            response(
+                &mut stream,
+                403,
+                "Content-Type: text/html\r\n",
+                b"<html>Generated verification gate</html>",
+            )
+            .await?
+        }
+        "/metadata/cross" => {
+            response(
+                &mut stream,
+                302,
+                "Location: https://other.example/\r\n",
+                b"",
+            )
+            .await?
+        }
+        "/metadata/large" => {
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                crate::TorrentMetadata::MAX_BYTES
+            );
+            stream.write_all(head.as_bytes()).await?;
+            let body = vec![b'x'; crate::TorrentMetadata::MAX_BYTES];
+            let _ = stream.write_all(&body).await;
+        }
+        "/metadata/oversize" => {
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                crate::TorrentMetadata::MAX_BYTES + 1
+            );
+            stream.write_all(head.as_bytes()).await?;
+        }
+        target if target.starts_with("/metadata/form/") => {
+            let code: u16 = target
+                .trim_start_matches("/metadata/form/")
+                .parse()
+                .map_err(io::Error::other)?;
+            assert!(matches!(code, 301 | 302 | 303 | 307 | 308));
+            assert_eq!(method, "POST");
+            assert_eq!(body, b"id=fixture&op=download1");
+            let target = if matches!(code, 307 | 308) {
+                "post"
+            } else {
+                "get"
+            };
+            let headers = format!(
+                "Location: /metadata/{target}\r\nSet-Cookie: form=rotated; Path=/metadata; Secure\r\n"
+            );
+            response(&mut stream, code, &headers, b"").await?;
+        }
         "/forum/start" => {
             assert_eq!(
                 headers
@@ -185,10 +269,11 @@ async fn connection(
             assert!(cookies.contains(&"temp=brief"));
             let (body, _, error) = encoding_rs::WINDOWS_1251.encode("Проверка источника");
             assert!(!error);
-            response(&mut stream, 403, "Content-Type: text/html; charset=windows-1251\r\nSet-Cookie: at_final=yes; Path=/forum; Secure\r\n", &body).await?;
+            response(&mut stream, 403, "Content-Type: text/html; charset=windows-1251\r\nSet-Cookie: at_final=yes; Path=/forum; Secure\r\nSet-Cookie: quoted=\"valid\"; Path=/forum; Secure\r\n", &body).await?;
         }
         "/forum/after" => {
             assert!(cookies.contains(&"at_final=yes") && cookies.contains(&"sid=new"));
+            assert!(cookies.contains(&"quoted=\"valid\""));
             assert!(!cookies.contains(&"temp=brief"));
             response(
                 &mut stream,

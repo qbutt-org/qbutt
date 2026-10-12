@@ -1,4 +1,5 @@
 mod http_acceptance;
+mod metadata;
 mod pipe;
 mod tls;
 
@@ -117,6 +118,7 @@ pub(super) async fn run() -> FixtureResult {
     println!("PASS browser cancellation and replacement isolation");
 
     http_acceptance::run(&fixture, &mut source).await?;
+    metadata::run(&fixture).await?;
     drop(replacement);
     drop(replacement_chrome);
     drop(chrome);

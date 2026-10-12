@@ -1,7 +1,7 @@
 //! Generated named-pipe and HTTPS integration acceptance. Production source
 //! files remain unchanged; only the fixture supplies its own TLS client/DNS.
 
-pub use qbutt_content::{Error, Result};
+pub use qbutt_content::{Error, Result, TorrentMetadata};
 
 #[cfg(windows)]
 #[allow(dead_code)]

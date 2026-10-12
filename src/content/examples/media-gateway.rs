@@ -2,7 +2,7 @@
 //! source is compiled unchanged. Only this example maps two fixture DNS names
 //! to local sockets; the product has no policy constructor or override.
 
-pub use qbutt_content::{Error, Result};
+pub use qbutt_content::{Error, Result, TorrentMetadata};
 
 #[cfg(windows)]
 #[allow(dead_code)]

@@ -120,7 +120,7 @@ impl SourceSession {
                 .bytes()
                 .any(|byte| !byte.is_ascii_graphic() || b"()<>@,;:\\\"/[]?={}".contains(&byte))
             || cookie
-                .value()
+                .value_trimmed()
                 .bytes()
                 .any(|byte| !byte.is_ascii_graphic() || b"\",;\\".contains(&byte))
         {

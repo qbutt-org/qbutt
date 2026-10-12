@@ -26,6 +26,7 @@ enum ResponseKind {
     Image,
     Playlist,
     Document,
+    Metadata,
 }
 
 /// Raw, bounded source content. Providers classify login/challenge responses and
@@ -70,9 +71,6 @@ impl SourceHttp {
     }
 
     pub(crate) async fn form_json<T: DeserializeOwned>(&self, url: Url, form: &str) -> Result<T> {
-        if form.len() > MAX_FORM_BYTES {
-            return Err(Error::ResponseTooLarge);
-        }
         let document = tokio::time::timeout(
             Duration::from_secs(45),
             self.fetch(url, ResponseKind::Json, &[], Some(form), None),
@@ -125,12 +123,25 @@ impl SourceHttp {
         url: Url,
         session: &mut SourceSession,
     ) -> Result<SourceDocument> {
-        if session.origin != self.origin.origin() {
-            return Err(Error::UnsafeAddress);
-        }
         tokio::time::timeout(
             Duration::from_secs(45),
             self.fetch(url, ResponseKind::Document, &[], None, Some(session)),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
+    }
+
+    /// Raw acquisition bytes retain HTTP/HTML gates for the provider to classify.
+    /// The native torrent handoff remains responsible for parsing the metadata.
+    pub(crate) async fn session_metadata(
+        &self,
+        url: Url,
+        session: &mut SourceSession,
+        form: Option<&str>,
+    ) -> Result<SourceDocument> {
+        tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(url, ResponseKind::Metadata, &[], form, Some(session)),
         )
         .await
         .map_err(|_| Error::Timeout)?
@@ -141,20 +152,24 @@ impl SourceHttp {
         mut url: Url,
         kind: ResponseKind,
         allowed_hosts: &[&str],
-        form: Option<&str>,
+        mut form: Option<&str>,
         mut session: Option<&mut SourceSession>,
     ) -> Result<SourceDocument> {
-        let same_origin = matches!(
-            kind,
-            ResponseKind::Json | ResponseKind::Html | ResponseKind::Document
-        );
-        let max_bytes = if matches!(
-            kind,
-            ResponseKind::Html | ResponseKind::Playlist | ResponseKind::Document
-        ) {
-            MAX_HTML_BYTES
-        } else {
-            MAX_RESPONSE_BYTES
+        if form.is_some_and(|form| form.len() > MAX_FORM_BYTES) {
+            return Err(Error::ResponseTooLarge);
+        }
+        if session
+            .as_ref()
+            .is_some_and(|session| session.origin != self.origin.origin())
+        {
+            return Err(Error::UnsafeAddress);
+        }
+        let raw = matches!(kind, ResponseKind::Document | ResponseKind::Metadata);
+        let same_origin = !matches!(kind, ResponseKind::Image | ResponseKind::Playlist);
+        let max_bytes = match kind {
+            ResponseKind::Metadata => crate::TorrentMetadata::MAX_BYTES,
+            ResponseKind::Html | ResponseKind::Playlist | ResponseKind::Document => MAX_HTML_BYTES,
+            ResponseKind::Json | ResponseKind::Image => MAX_RESPONSE_BYTES,
         };
         for redirects in 0..=MAX_REDIRECTS {
             validate_https_url(&url)?;
@@ -173,11 +188,16 @@ impl SourceHttp {
             }
 
             let request = if let Some(form) = form {
-                self.client
+                let request = self
+                    .client
                     .post(url.clone())
                     .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                    .header("X-Requested-With", "XMLHttpRequest")
-                    .body(form.to_owned())
+                    .body(form.to_owned());
+                if matches!(kind, ResponseKind::Json) {
+                    request.header("X-Requested-With", "XMLHttpRequest")
+                } else {
+                    request
+                }
             } else {
                 self.client.get(url.clone())
             };
@@ -192,6 +212,9 @@ impl SourceHttp {
                     match kind {
                         ResponseKind::Json => "application/json",
                         ResponseKind::Html | ResponseKind::Document => "text/html",
+                        ResponseKind::Metadata => {
+                            "application/x-bittorrent, application/octet-stream, text/html"
+                        }
                         ResponseKind::Image => "image/*",
                         ResponseKind::Playlist => {
                             "application/vnd.apple.mpegurl, application/x-mpegURL, text/plain"
@@ -208,12 +231,17 @@ impl SourceHttp {
             }
 
             if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
-                // Do not turn a signed form submission into a different method
-                // or replay its body under ambiguous redirect semantics.
-                if redirects == MAX_REDIRECTS
-                    || form.is_some() && !matches!(response.status().as_u16(), 307 | 308)
-                {
+                if redirects == MAX_REDIRECTS {
                     return Err(Error::InvalidRedirect);
+                }
+                if form.is_some() && !matches!(response.status().as_u16(), 307 | 308) {
+                    // Native acquisition follows browser form redirects. Signed
+                    // JSON forms retain their existing strict replay contract.
+                    if matches!(kind, ResponseKind::Metadata) {
+                        form = None;
+                    } else {
+                        return Err(Error::InvalidRedirect);
+                    }
                 }
 
                 let location = response
@@ -225,7 +253,7 @@ impl SourceHttp {
                 continue;
             }
 
-            if !matches!(kind, ResponseKind::Document) && !response.status().is_success() {
+            if !raw && !response.status().is_success() {
                 return Err(Error::HttpStatus(response.status().as_u16()));
             }
             let content_type = response
@@ -264,7 +292,7 @@ impl SourceHttp {
                 bytes.extend_from_slice(&chunk);
             }
 
-            if bytes.is_empty() && !matches!(kind, ResponseKind::Document) {
+            if bytes.is_empty() && !raw {
                 return Err(Error::InvalidResponse("empty source response"));
             }
             return Ok(SourceDocument {
