@@ -20,6 +20,8 @@ qt_add_executable(qbutt-quick-acceptance
     category.h
     library.cpp
     library.h
+    playback.cpp
+    playback.h
     history.cpp
     history.h
     reader.cpp
@@ -55,6 +57,7 @@ target_link_libraries(qbutt-quick-acceptance
         qbt_quick
         qbutt_quick
         Qt::Sql
+        Qt::Network
 )
 target_include_directories(qbutt-quick-acceptance PRIVATE "../../src")
 

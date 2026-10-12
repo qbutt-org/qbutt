@@ -12,10 +12,15 @@ use tokio::sync::mpsc::{self, Sender};
 
 use super::ffi;
 use super::ffi::ContentController;
+use super::playback::PlaybackSave;
 use super::sources::SourceWrite;
 use crate::models;
 
 pub enum LibraryAction {
+    PlaybackHistory {
+        token: u64,
+        save: PlaybackSave,
+    },
     SourceSettings,
     SourceWrite {
         write: SourceWrite,
@@ -69,6 +74,7 @@ pub enum LibraryUpdate {
         history: Option<LibraryResult<Vec<Work>>>,
         error_generation: u64,
         reader_generation: Option<u64>,
+        playback_token: Option<u64>,
     },
     ReaderResume {
         result: LibraryResult<Option<ReaderProgress>>,
@@ -210,7 +216,14 @@ impl LibraryWorker {
 }
 
 fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
-    let (result, reader_generation) = match request.action {
+    let (result, reader_generation, playback_token) = match request.action {
+        LibraryAction::PlaybackHistory { token, save } => (
+            library
+                .record_opened(&save.work, save.variant, save.preferences)
+                .map(Some),
+            None,
+            Some(token),
+        ),
         LibraryAction::SourceSettings => {
             return LibraryUpdate::SourceSettings {
                 result: library.source_settings(),
@@ -234,16 +247,19 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
             };
         }
         LibraryAction::Favorite { work, favorite } => {
-            (library.set_favorite(&work, favorite).map(Some), None)
+            (library.set_favorite(&work, favorite).map(Some), None, None)
         }
-        LibraryAction::Preferences { work, preferences } => {
-            (library.save_preferences(&work, preferences).map(Some), None)
-        }
+        LibraryAction::Preferences { work, preferences } => (
+            library.save_preferences(&work, preferences).map(Some),
+            None,
+            None,
+        ),
         LibraryAction::ReaderProgress { save, generation } => (
             library
                 .save_reader_progress(&save.work, save.preferences, save.progress)
                 .map(Some),
             Some(generation),
+            None,
         ),
         LibraryAction::ReaderResume {
             reference,
@@ -271,7 +287,9 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
                 error_generation: request.error_generation,
             };
         }
-        LibraryAction::RemoveHistory { reference } => (library.remove_history(&reference), None),
+        LibraryAction::RemoveHistory { reference } => {
+            (library.remove_history(&reference), None, None)
+        }
     };
     let history = result.as_ref().ok().map(|_| read_history(library));
     LibraryUpdate::Changed {
@@ -279,6 +297,7 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
         history,
         error_generation: request.error_generation,
         reader_generation,
+        playback_token,
     }
 }
 
@@ -314,11 +333,20 @@ impl ffi::ContentController {
     }
 
     pub(super) fn library_error_text(&self) -> QString {
-        match self.library_error_kind {
+        match self.current_library_error_kind() {
             ffi::LibraryErrorKind::Opening => ffi::content_error(4),
             ffi::LibraryErrorKind::Writing => ffi::content_error(5),
             ffi::LibraryErrorKind::HistoryRead => ffi::content_error(6),
+            ffi::LibraryErrorKind::PlaybackWriting => ffi::content_error(9),
             _ => QString::default(),
+        }
+    }
+
+    pub(super) fn current_library_error_kind(&self) -> ffi::LibraryErrorKind {
+        if self.playback.failed() {
+            ffi::LibraryErrorKind::PlaybackWriting
+        } else {
+            self.library_error_kind
         }
     }
 
@@ -425,6 +453,14 @@ impl ffi::ContentController {
     fn publish_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
         let mut settings_retry_generation = None;
         let mut initial_opened = false;
+        let playback_write_failed = matches!(
+            &update,
+            LibraryUpdate::Changed {
+                result: Err(_),
+                playback_token: Some(_),
+                ..
+            }
+        );
         let history_read = matches!(&update, LibraryUpdate::History { .. })
             || matches!(
                 &update,
@@ -499,7 +535,12 @@ impl ffi::ContentController {
                 history,
                 error_generation,
                 reader_generation,
+                playback_token,
             } => {
+                if let Some(token) = playback_token {
+                    self.as_mut()
+                        .complete_playback_history(token, result.is_ok());
+                }
                 if let Some(generation) = reader_generation {
                     self.as_mut()
                         .complete_reader_progress(generation, result.is_ok());
@@ -559,6 +600,9 @@ impl ffi::ContentController {
                         self.as_mut()
                             .resume_reader_settings_after_library_retry(generation);
                     }
+                    if self.playback.failed() {
+                        self.as_mut().retry_playback_history();
+                    }
                 }
             }
             Err(error) => {
@@ -567,6 +611,7 @@ impl ffi::ContentController {
                     state.library_state = ffi::LibraryState::Failed;
                     if !initial_opened {
                         state.library_pending = 0;
+                        self.as_mut().playback_library_failed();
                     }
                     self.as_mut().reader_settings_library_failed();
                     self.as_mut().reader_library_failed()
@@ -577,7 +622,7 @@ impl ffi::ContentController {
                     &QString::from("library"),
                     &QString::from(error.to_string()),
                 );
-                if self.library_error_generation == error_generation {
+                if !playback_write_failed && self.library_error_generation == error_generation {
                     self.as_mut().set_library_error(if initial {
                         ffi::LibraryErrorKind::Opening
                     } else if history_read {
@@ -613,6 +658,7 @@ impl ffi::ContentController {
             LibraryAction::ReaderSettings { .. }
                 | LibraryAction::SourceSettings
                 | LibraryAction::SourceWrite { .. }
+                | LibraryAction::PlaybackHistory { .. }
         );
         match self
             .library_worker

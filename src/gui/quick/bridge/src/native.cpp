@@ -82,6 +82,21 @@ QString Qbutt::contentLanguage()
     return locale.language() == QLocale::C ? QStringLiteral("en") : locale.name().section(u'_', 0, 0).toLower();
 }
 
+QString Qbutt::formatVideoLabel(const QString &episode, const QString &quality, const QString &player, const QString &title)
+{
+    const QString label = !episode.isEmpty()
+        ? QCoreApplication::translate("ContentController", "Episode %1").arg(episode)
+        : !title.isEmpty() ? title : QCoreApplication::translate("ContentController", "Video");
+    QString details = quality;
+    if (!player.isEmpty())
+    {
+        if (!details.isEmpty())
+            details += QStringLiteral(", ");
+        details += player;
+    }
+    return details.isEmpty() ? label : QStringLiteral("%1 [%2]").arg(label, details);
+}
+
 QString Qbutt::formatTranslationLabel(const QString &language, const QString &translation)
 {
     const QLocale locale {language};
@@ -157,6 +172,14 @@ QString Qbutt::contentError(const std::int32_t operation)
         return QCoreApplication::translate("ContentController", "Could not load history.");
     case 7:
         return QCoreApplication::translate("ContentController", "Could not save reading settings.");
+    case 8:
+        return QCoreApplication::translate("ContentController", "Could not start playback.");
+    case 9:
+        return QCoreApplication::translate("ContentController", "Could not save playback history.");
+    case 10:
+        return QCoreApplication::translate("ContentController", "Finish another playback or save pending history first.");
+    case 11:
+        return QCoreApplication::translate("ContentController", "Playback from this external source is not available yet.");
     default:
         return QCoreApplication::translate("ContentController", "Could not save the content library.");
     }

@@ -172,11 +172,23 @@ void exerciseLibrary()
         && (typedVariants->idAt(0) == controller->property("selectedVariantId").toString())
         && (controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
             == Qbutt::Search::VariantSelectionState::Available), u"Typed lookup or initial native selection failed"_s);
-    selectedVariant = value(variants, variantCount - 1, "variantId");
+    int lastTorrent = -1;
+    int firstTorrent = -1;
+    for (int row = 0; row < variantCount; ++row)
+    {
+        if (value(variants, row, "kind") == u"torrent"_s)
+        {
+            if (firstTorrent < 0)
+                firstTorrent = row;
+            lastTorrent = row;
+        }
+    }
+    require((firstTorrent >= 0) && (firstTorrent != lastTorrent), u"Two exact torrents are required"_s);
+    selectedVariant = value(variants, lastTorrent, "variantId");
     require((typedVariants->idAt(typedVariants->indexOfId(selectedVariant)) == selectedVariant)
         && typedVariants->idAt(-1).isEmpty() && typedVariants->idAt(variantCount).isEmpty()
         && (typedVariants->indexOfId(u"missing-variant"_s) == -1), u"Typed variant lookup failed"_s);
-    expectedHash = value(variants, variantCount - 1, "infoHash");
+    expectedHash = value(variants, lastTorrent, "infoHash");
     controller->selectVariant(selectedVariant);
     controller->setSelectedFavorite(true);
     saved(*controller);
@@ -271,7 +283,7 @@ void exerciseLibrary()
     controller->setSelectedFavorite(true);
     saved(*controller);
 
-    const QString previousVariant = value(variants, 0, "variantId");
+    const QString previousVariant = value(variants, firstTorrent, "variantId");
     controller->selectVariant(previousVariant);
     saved(*controller);
     controller->selectVariant(selectedVariant);

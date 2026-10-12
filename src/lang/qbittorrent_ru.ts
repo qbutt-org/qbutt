@@ -18856,6 +18856,10 @@ Please choose a different name and try again.</source>
 <context>
     <name>WorkPane</name>
     <message>
+        <source>Watch</source>
+        <translation>Смотреть</translation>
+    </message>
+    <message>
         <source>Remove from history</source>
         <translation>Убрать из истории</translation>
     </message>
@@ -18902,6 +18906,30 @@ Please choose a different name and try again.</source>
 </context>
 <context>
     <name>ContentController</name>
+    <message>
+        <source>Episode %1</source>
+        <translation>Серия %1</translation>
+    </message>
+    <message>
+        <source>Video</source>
+        <translation>Видео</translation>
+    </message>
+    <message>
+        <source>Could not start playback.</source>
+        <translation>Не удалось начать просмотр.</translation>
+    </message>
+    <message>
+        <source>Could not save playback history.</source>
+        <translation>Не удалось сохранить историю просмотра.</translation>
+    </message>
+    <message>
+        <source>Finish another playback or save pending history first.</source>
+        <translation>Завершите другой просмотр или сохраните историю.</translation>
+    </message>
+    <message>
+        <source>Playback from this external source is not available yet.</source>
+        <translation>Просмотр с этого внешнего источника пока недоступен.</translation>
+    </message>
     <message>
         <source>The source did not respond in time.</source>
         <translation>Источник не ответил вовремя.</translation>

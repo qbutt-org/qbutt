@@ -142,6 +142,13 @@ pub mod ffi {
         fn formatSize(bytes: u64) -> QString;
         #[rust_name = "format_translation_label"]
         fn formatTranslationLabel(language: &QString, translation: &QString) -> QString;
+        #[rust_name = "format_video_label"]
+        fn formatVideoLabel(
+            episode: &QString,
+            quality: &QString,
+            player: &QString,
+            title: &QString,
+        ) -> QString;
     }
 }
 
@@ -352,6 +359,14 @@ impl ffi::VariantModel {
             let translation = QString::from(variant.translation.as_deref().unwrap_or_default());
             return QVariant::from(&ffi::format_translation_label(&language, &translation));
         }
+        if role == USER_ROLE + 1 && variant.transport == Transport::Video {
+            return QVariant::from(&ffi::format_video_label(
+                &QString::from(variant.episode.as_deref().unwrap_or_default()),
+                &QString::from(variant.quality.as_deref().unwrap_or_default()),
+                &QString::from(variant.player.as_deref().unwrap_or_default()),
+                &QString::from(variant.title.as_deref().unwrap_or_default()),
+            ));
+        }
         let text = match role - USER_ROLE {
             0 => variant_id(&variant.reference),
             1 => variant
@@ -408,11 +423,7 @@ impl ffi::VariantModel {
         self.as_mut().rust_mut().revision = self.revision.wrapping_add(1);
         let revision = self.revision;
         self.as_mut().rust_mut().work_title.clone_from(&work.title);
-        let variants: Vec<_> = work
-            .variants
-            .iter()
-            .filter(|variant| matches!(variant.transport, Transport::Torrent | Transport::Manga))
-            .collect();
+        let variants = &work.variants;
         let parent = QModelIndex::default();
 
         for row in (0..self.rows.len()).rev() {

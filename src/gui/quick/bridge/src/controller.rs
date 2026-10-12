@@ -6,13 +6,13 @@ use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
-    AniLiberty, MangaDex, PublicationRef, ResolvedContent, RuTor, Source, SourceOperation,
-    VariantPreferences, Work,
+    AniLiberty, MangaDex, PublicationRef, RuTor, Source, SourceOperation, VariantPreferences, Work,
 };
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
 mod library;
+mod playback;
 mod reader;
 pub(crate) mod reader_pages;
 mod reader_settings;
@@ -22,6 +22,7 @@ mod sources;
 use crate::models::{self, variant_id, work_id};
 use crate::source_model;
 use library::{LibraryUpdate, LibraryWorker};
+use playback::PlaybackState;
 use reader::ReaderState;
 use reader_pages::{RetiredReaderCache, clean_retired_reader_cache};
 use reader_settings::ReaderSettingsState;
@@ -115,6 +116,7 @@ pub mod ffi {
         Opening,
         Writing,
         HistoryRead,
+        PlaybackWriting,
     }
 
     #[qenum]
@@ -332,7 +334,7 @@ pub mod ffi {
             LibraryErrorKind,
             library_error_kind,
             cxx_name = "libraryErrorKind",
-            READ,
+            READ = current_library_error_kind,
             NOTIFY = library_error_text_changed
         )]
         #[qproperty(bool, selected_favorite, cxx_name = "selectedFavorite", READ, NOTIFY)]
@@ -407,6 +409,7 @@ pub mod ffi {
         fn history_model(&self) -> *mut WorkModel;
         fn is_library_pending(&self) -> bool;
         fn library_error_text(&self) -> QString;
+        fn current_library_error_kind(&self) -> LibraryErrorKind;
         fn variant_selection_state(&self) -> VariantSelectionState;
         fn selected_work_category(&self) -> QString;
         fn selected_variant_kind(&self) -> QString;
@@ -538,6 +541,26 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "resolveVariant"]
         fn resolve_variant(self: Pin<&mut Self>, id: QString);
+        #[qinvokable]
+        #[cxx_name = "confirmPlayback"]
+        fn confirm_playback(self: Pin<&mut Self>, token: u64) -> bool;
+        #[qinvokable]
+        #[cxx_name = "finishPlayback"]
+        fn finish_playback(self: Pin<&mut Self>, token: u64) -> bool;
+        #[qinvokable]
+        #[cxx_name = "retryPlaybackHistory"]
+        fn retry_playback_history(self: Pin<&mut Self>) -> bool;
+        #[qsignal]
+        #[cxx_name = "videoReady"]
+        fn video_ready(
+            self: Pin<&mut Self>,
+            token: u64,
+            identity: QString,
+            url: QUrl,
+            proxy_url: QUrl,
+            title: QString,
+            content_kind: QString,
+        );
 
         #[qsignal]
         #[cxx_name = "torrentReady"]
@@ -570,6 +593,7 @@ pub struct Services {
     language: String,
     reader_load: Arc<tokio::sync::Semaphore>,
     reader_bytes: Arc<tokio::sync::Semaphore>,
+    retired_gateways: Vec<JoinHandle<()>>,
 }
 
 pub struct ContentControllerRust {
@@ -605,6 +629,7 @@ pub struct ContentControllerRust {
     search: Pending,
     inspection: Pending,
     resolution: Pending,
+    playback: PlaybackState,
     reader: ReaderState,
     reader_settings: ReaderSettingsState,
 }
@@ -629,6 +654,7 @@ impl Default for ContentControllerRust {
                         language: ffi::content_language().to_string(),
                         reader_load: Arc::new(tokio::sync::Semaphore::new(1)),
                         reader_bytes: Arc::new(tokio::sync::Semaphore::new(96 * 1024 * 1024)),
+                        retired_gateways: Vec::new(),
                     })
             });
         let services = match services {
@@ -680,6 +706,7 @@ impl Default for ContentControllerRust {
             search: Pending::default(),
             inspection: Pending::default(),
             resolution: Pending::default(),
+            playback: PlaybackState::default(),
             reader: ReaderState::default(),
             reader_settings: ReaderSettingsState::default(),
         }
@@ -693,6 +720,11 @@ impl Drop for ContentControllerRust {
         self.resolution.cancel();
         self.source_status.cancel_retries();
         self.reader.cancel();
+        if let Some(services) = &mut self.services {
+            for (_, launch) in self.playback.launches.drain() {
+                services.retire_gateway(launch.gateway);
+            }
+        }
         // Closing the sender drains accepted writes and closes SQLite on its worker.
         self.library_worker.take();
         if let Some(services) = self.services.take() {
@@ -992,89 +1024,5 @@ impl ffi::ContentController {
             });
         });
         self.as_mut().rust_mut().inspection.task = Some(task);
-    }
-
-    pub fn resolve_variant(mut self: Pin<&mut Self>, id: QString) {
-        if self.resolving || self.inspecting {
-            return;
-        }
-        let Some(variant) = self.variants.find(&id.to_string()) else {
-            return;
-        };
-        let reference = variant.reference.clone();
-        let Some(request) = self.source_request(SourceOperation::Resolve(reference.clone())) else {
-            return;
-        };
-        let selection_generation = self.inspection.generation;
-        self.as_mut().select_variant(id.clone());
-        if self.inspection.generation != selection_generation
-            || self.selected_variant_id != id
-            || !self.source_request_current(&request)
-        {
-            return;
-        }
-        if self.services.is_none() {
-            self.as_mut().set_error_text(ffi::content_error(0));
-            return;
-        }
-
-        self.as_mut().rust_mut().resolution.cancel();
-        let generation = self.resolution.generation;
-        self.as_mut().set_error_text(QString::default());
-        if self.resolution.generation != generation {
-            return;
-        }
-        self.as_mut().set_resolving(true);
-        if self.resolution.generation != generation {
-            return;
-        }
-        let qt_thread = self.qt_thread();
-        let services = self.services.as_ref().unwrap();
-        let anime = Arc::clone(&services.anime);
-        let manga = Arc::clone(&services.manga);
-        let rutor = Arc::clone(&services.rutor);
-        let task = services.runtime.spawn(async move {
-            let result = execute_operation(&request.operation, anime, manga, rutor).await;
-            let _ = qt_thread.queue(move |mut controller| {
-                if controller.resolution.generation != generation
-                    || !controller.source_request_current(&request)
-                {
-                    return;
-                }
-                controller.as_mut().rust_mut().resolution.task = None;
-                controller.as_mut().source_outcome(&request, &result);
-                if controller.resolution.generation != generation
-                    || !controller.source_request_current(&request)
-                {
-                    return;
-                }
-                let magnet = match result {
-                    Ok(SourceResponse::Resolve(ResolvedContent::Torrent {
-                        reference: resolved,
-                        magnet,
-                        ..
-                    })) if resolved == reference => Some(QString::from(magnet.as_str())),
-                    Err(_) => None,
-                    Ok(_) => {
-                        ffi::log_content_error(
-                            &QString::from("resolve"),
-                            &QString::from("Resolved variant does not match the selected torrent"),
-                        );
-                        controller.as_mut().set_error_text(ffi::content_error(3));
-                        None
-                    }
-                };
-                if controller.resolution.generation != generation {
-                    return;
-                }
-                controller.as_mut().set_resolving(false);
-                if controller.resolution.generation == generation
-                    && let Some(magnet) = magnet
-                {
-                    controller.as_mut().torrent_ready(magnet);
-                }
-            });
-        });
-        self.as_mut().rust_mut().resolution.task = Some(task);
     }
 }

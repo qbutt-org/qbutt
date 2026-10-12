@@ -193,11 +193,15 @@ Page {
                 objectName: "contentLibraryRetry"
                 theme: appearance
                 text: qsTr("Try again")
-                visible: root.backend.libraryState === Library.Failed || root.backend.libraryErrorKind === Library.HistoryRead
+                visible: root.backend.libraryState === Library.Failed
+                    || root.backend.libraryErrorKind === Library.HistoryRead
+                    || root.backend.libraryErrorKind === Library.PlaybackWriting
                 enabled: !root.backend.libraryPending
                 onClicked: {
                     if (root.backend.libraryState === Library.Failed)
                         root.backend.retryLibrary();
+                    else if (root.backend.libraryErrorKind === Library.PlaybackWriting)
+                        root.backend.retryPlaybackHistory();
                     else
                         root.backend.refreshHistory();
                 }

@@ -84,8 +84,10 @@ Pane {
             ActionButton {
                 objectName: "contentDownload"
                 theme: root.theme
-                text: root.backend.selectedVariantKind === "manga" ? qsTr("Read") : qsTr("Download")
-                icon.source: root.theme.iconSource(root.backend.selectedVariantKind === "manga" ? "help-contents" : "download")
+                text: root.backend.selectedVariantKind === "manga" ? qsTr("Read")
+                    : root.backend.selectedVariantKind === "video" ? qsTr("Watch") : qsTr("Download")
+                icon.source: root.theme.iconSource(root.backend.selectedVariantKind === "manga" ? "help-contents"
+                    : root.backend.selectedVariantKind === "video" ? "torrent-start" : "download")
                 highlighted: true
                 enabled: root.backend.selectedVariantState === Search.Available && !root.backend.resolving
                 onClicked: root.openSelected()

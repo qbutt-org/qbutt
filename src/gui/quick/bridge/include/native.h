@@ -30,6 +30,7 @@ namespace Qbutt
     QString formatSize(std::uint64_t bytes);
     QString contentLanguage();
     QString formatTranslationLabel(const QString &language, const QString &translation);
+    QString formatVideoLabel(const QString &episode, const QString &quality, const QString &player, const QString &title);
     QString readerError(std::int32_t operation);
     QString chapterTitle(const QString &number, const QString &volume, const QString &title);
     QSize validatedImageSize(const QString &path);
