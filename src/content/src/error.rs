@@ -14,9 +14,9 @@ pub enum Error {
     VariantUnavailable,
     #[error("{0}")]
     UnsupportedAcquisition(&'static str),
-    #[error("Sign in at https://rutracker.org/forum/ and retry this action")]
+    #[error("Sign in to the source in the browser and retry this action")]
     LoginRequired,
-    #[error("Complete the check at https://rutracker.org/forum/ and retry this action")]
+    #[error("Complete the source check in the browser and retry this action")]
     Challenge,
     #[error("Choose a connected browser and retry this action")]
     BrowserChoiceRequired,

@@ -156,6 +156,7 @@ fn recovery_page(command: &BrowserCommand) -> String {
     let mut page = match command {
         BrowserCommand::Resolve { url, referrer, .. } => referrer.as_ref().unwrap_or(url).clone(),
         BrowserCommand::Cookies { url }
+        | BrowserCommand::LibSession { url }
         | BrowserCommand::Fetch { url, .. }
         | BrowserCommand::VkSearch { url, .. } => url.clone(),
     };

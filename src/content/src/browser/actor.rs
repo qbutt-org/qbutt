@@ -162,8 +162,12 @@ pub(crate) async fn run(
                     }
                 };
                 let metadata = clients[&connection].metadata.as_ref().expect("selected client");
-                if matches!(request.command, BrowserCommand::VkSearch { .. })
-                    && !metadata.capabilities.iter().any(|value| value == "vk-search")
+                let capability = match request.command {
+                    BrowserCommand::VkSearch { .. } => Some("vk-search"),
+                    BrowserCommand::LibSession { .. } => Some("lib-session"),
+                    _ => None,
+                };
+                if capability.is_some_and(|required| !metadata.capabilities.iter().any(|value| value == required))
                 {
                     let _ = request.reply.send(Err(BrowserError::UpdateRequired));
                     continue;

@@ -25,6 +25,8 @@ pub struct FetchInit {
 pub enum BrowserCommand {
     #[serde(rename = "cookies")]
     Cookies { url: Url },
+    #[serde(rename = "lib-session")]
+    LibSession { url: Url },
     #[serde(rename = "fetch")]
     Fetch {
         url: Url,
@@ -59,6 +61,7 @@ impl BrowserCommand {
     pub fn validate(&self) -> Result<(), BrowserError> {
         public_url(match self {
             Self::Cookies { url }
+            | Self::LibSession { url }
             | Self::Fetch { url, .. }
             | Self::Resolve { url, .. }
             | Self::VkSearch { url, .. } => url,
@@ -108,6 +111,14 @@ impl BrowserCommand {
                     return Err(BrowserError::InvalidRequest);
                 }
             }
+            Self::LibSession { url } => {
+                if !matches!(
+                    url.as_str(),
+                    "https://mangalib.me/" | "https://ranobelib.me/"
+                ) {
+                    return Err(BrowserError::InvalidRequest);
+                }
+            }
             Self::Cookies { .. } => {}
         }
         if serde_json::to_vec(self)
@@ -139,6 +150,23 @@ impl BrowserCommand {
                     return Err(BrowserError::InvalidResponse);
                 }
                 Ok(BrowserReply::Cookies(cookies))
+            }
+            Self::LibSession { .. } => {
+                let reply: LibSessionReply = serde_json::from_value(value).map_err(invalid)?;
+                let api = Url::parse("https://api.cdnlibs.org/api/").expect("fixed Lib API");
+                if reply.cookies.len() > 512
+                    || reply.cookies.iter().any(|cookie| !cookie.valid_for(&api))
+                    || reply.access_token.as_ref().is_some_and(|token| {
+                        token.is_empty()
+                            || token.len() > 16 * 1024
+                            || !token.bytes().all(|byte| {
+                                byte.is_ascii_alphanumeric() || b"-._~+/=".contains(&byte)
+                            })
+                    })
+                {
+                    return Err(BrowserError::InvalidResponse);
+                }
+                Ok(BrowserReply::LibSession(reply))
             }
             Self::Fetch { .. } => {
                 let reply: FetchReply = serde_json::from_value(value).map_err(invalid)?;

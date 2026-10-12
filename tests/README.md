@@ -1,5 +1,13 @@
 # Integration lab
 
+`cargo run --manifest-path src/content/Cargo.toml --example lib-session` checks
+the native Lib account transport with generated private-pipe and HTTPS peers on
+Windows. It needs free loopback port 443, uses its own temporary discovery and
+TLS trust, and never accesses the installed browser or a live profile. It covers
+account import before a partial anonymous search, one 401 retry, removal/expiry,
+API-origin isolation, CDN cookies without Bearer, bounded input and cancellation.
+Real qcatch site storage and live accounts remain separate acceptance scenarios.
+
 The lab generates its own legal payload and v1, v2 and hybrid torrents. It creates
 new directories under the OS temporary directory and never reuses an existing
 output tree. Manifests contain exact lengths, SHA-256 hashes, native torrent file

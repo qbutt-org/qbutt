@@ -80,6 +80,35 @@ impl SourceHttp {
         serde_json::from_slice(&document.body).map_err(Error::Json)
     }
 
+    pub(crate) async fn session_json<T: DeserializeOwned>(
+        &self,
+        url: Url,
+        session: &mut SourceSession,
+    ) -> Result<T> {
+        let document = tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(url, ResponseKind::Json, &[], None, Some(session)),
+        )
+        .await
+        .map_err(|_| Error::Timeout)??;
+        serde_json::from_slice(&document.body).map_err(Error::Json)
+    }
+
+    pub(crate) async fn session_image(
+        &self,
+        url: Url,
+        allowed_hosts: &[&str],
+        session: &mut SourceSession,
+    ) -> Result<Vec<u8>> {
+        tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(url, ResponseKind::Image, allowed_hosts, None, Some(session)),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
+        .map(|document| document.body)
+    }
+
     pub(crate) async fn image(&self, url: Url, allowed_hosts: &[&str]) -> Result<Vec<u8>> {
         tokio::time::timeout(
             Duration::from_secs(45),
@@ -160,7 +189,7 @@ impl SourceHttp {
         }
         if session
             .as_ref()
-            .is_some_and(|session| session.origin != self.origin.origin())
+            .is_some_and(|session| session.origin != url.origin())
         {
             return Err(Error::UnsafeAddress);
         }

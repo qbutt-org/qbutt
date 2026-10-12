@@ -19,9 +19,19 @@ pub enum ResolveKind {
 #[serde(untagged)]
 pub enum BrowserReply {
     Cookies(Vec<BrowserCookie>),
+    LibSession(LibSessionReply),
     Fetch(FetchReply),
     Resolved(Box<ResolvedMedia>),
     VkSearch(VkSearchReply),
+}
+
+/// Private qcatch wire response. Never expose this credential value to models,
+/// persistence or diagnostics.
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LibSessionReply {
+    pub(crate) access_token: Option<String>,
+    pub(crate) cookies: Vec<BrowserCookie>,
 }
 
 #[derive(Deserialize, Serialize)]

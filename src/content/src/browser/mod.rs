@@ -63,6 +63,8 @@ pub enum BrowserError {
     VerificationRequired,
     #[error("Complete the source check in the browser")]
     BrowserCheckRequired,
+    #[error("Sign in to the source in the browser")]
+    LoginRequired,
     #[error("This content needs multiple audio tracks that cannot be forwarded")]
     UnsupportedMultiAudio,
     #[error("This content uses private tracks that cannot be forwarded")]
@@ -91,6 +93,7 @@ impl BrowserError {
             Self::Stopped => "browser_stopped",
             Self::VerificationRequired => "verification_required",
             Self::BrowserCheckRequired => "browser_check_required",
+            Self::LoginRequired => "login_required",
             Self::UnsupportedMultiAudio => "unsupported_multi_audio",
             Self::UnsupportedPrivateTracks => "unsupported_private_tracks",
             Self::CaptureExpired => "capture_expired",
@@ -226,6 +229,27 @@ impl BrowserHandle {
             connection: outcome.connection,
             cookies,
         })
+    }
+
+    pub(crate) async fn lib_session_connected(
+        &self,
+        choice: BrowserChoice,
+        url: Url,
+    ) -> Result<(BrowserSession, Option<String>), BrowserError> {
+        let outcome = self
+            .request_inner(choice, BrowserCommand::LibSession { url }, false)
+            .await?;
+        let BrowserReply::LibSession(reply) = outcome.reply else {
+            return Err(BrowserError::InvalidResponse);
+        };
+        Ok((
+            BrowserSession {
+                url: Url::parse("https://api.cdnlibs.org/api/").expect("fixed Lib API"),
+                connection: outcome.connection,
+                cookies: reply.cookies,
+            },
+            reply.access_token,
+        ))
     }
 
     async fn request_inner(

@@ -4,29 +4,34 @@
 use std::error::Error;
 use std::time::Duration;
 
-use qbutt_content::{PublicationRef, RanobeLib, Source, Transport, VariantSelector};
+use qbutt_content::{LibSession, PublicationRef, RanobeLib, Source, Transport, VariantSelector};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let source = RanobeLib::new()?;
-    assert!(source.search("\n").await.is_err());
-    assert!(source.search(&"x".repeat(501)).await.is_err());
+    let mut session = LibSession::anonymous(Source::RanobeLib)?;
+    assert!(source.search("\n", &mut session).await.is_err());
+    assert!(source.search(&"x".repeat(501), &mut session).await.is_err());
     let reference = PublicationRef {
         source: Source::RanobeLib,
         id: "94231--rezero-kara-hajimeru-isekai-seikatsu-outo-no-ichinichi-hen".into(),
     };
-    let cancelled = tokio::time::timeout(Duration::from_millis(1), source.search("Re:Zero")).await;
+    let cancelled = tokio::time::timeout(
+        Duration::from_millis(1),
+        source.search("Re:Zero", &mut session),
+    )
+    .await;
     assert!(
         cancelled.is_err(),
         "expected an in-flight request to be cancelled"
     );
-    let found = source.search("Re:Zero").await?;
+    let found = source.search("Re:Zero", &mut session).await?;
     assert!(
         found
             .iter()
             .any(|work| work.reference == reference && work.needs_inspection)
     );
-    let work = source.inspect(&reference).await?;
+    let work = source.inspect(&reference, &mut session).await?;
     assert!(!work.needs_inspection);
     let variant = work
         .variants
@@ -39,9 +44,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
         .ok_or("known public translation missing")?;
     assert_eq!(variant.transport, Transport::Text);
-    let chapters = source.chapters(&variant.reference).await?;
+    let chapters = source.chapters(&variant.reference, &mut session).await?;
     let selected = chapters.get(1).ok_or("public nonfirst chapter missing")?;
-    let chapter = source.chapter_text(&selected.reference).await?;
+    let chapter = source
+        .chapter_text(&selected.reference, &mut session)
+        .await?;
     assert_eq!(chapter.reference, selected.reference);
     assert!(chapter.blocks.len() > 20 && chapter.text_bytes() > 5_000);
 
@@ -56,13 +63,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
         })
         .ok_or("second public translation missing")?;
-    let alternative_chapters = source.chapters(&alternative.reference).await?;
+    let alternative_chapters = source
+        .chapters(&alternative.reference, &mut session)
+        .await?;
     let alternative_chapter = alternative_chapters
         .iter()
         .skip(1)
         .find(|chapter| chapter.volume == selected.volume && chapter.number == selected.number)
         .ok_or("same nonfirst chapter missing from the second translation")?;
-    let alternative_text = source.chapter_text(&alternative_chapter.reference).await?;
+    let alternative_text = source
+        .chapter_text(&alternative_chapter.reference, &mut session)
+        .await?;
     assert_eq!(alternative_text.reference, alternative_chapter.reference);
     assert_ne!(alternative_text.reference, chapter.reference);
     assert!(alternative_text.text_bytes() > 5_000);
@@ -70,7 +81,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut missing = selected.reference.clone();
     missing.id = u64::MAX.to_string();
     assert!(matches!(
-        source.chapter_text(&missing).await,
+        source.chapter_text(&missing, &mut session).await,
         Err(qbutt_content::Error::VariantUnavailable)
     ));
     let mut missing_branch = variant.reference.clone();
@@ -78,13 +89,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         branch: Some(u64::MAX),
     };
     assert!(matches!(
-        source.chapters(&missing_branch).await,
+        source.chapters(&missing_branch, &mut session).await,
         Err(qbutt_content::Error::VariantUnavailable)
     ));
     let mut foreign = reference.clone();
     foreign.source = Source::MangaLib;
     assert!(matches!(
-        source.inspect(&foreign).await,
+        source.inspect(&foreign, &mut session).await,
         Err(qbutt_content::Error::InvalidReference)
     ));
     println!(

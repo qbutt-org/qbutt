@@ -2,7 +2,7 @@ use cookie_store::Cookie;
 #[cfg(windows)]
 use cookie_store::{CookieExpiration, RawCookie};
 use reqwest::RequestBuilder;
-use reqwest::header::{COOKIE, HeaderMap, HeaderValue, SET_COOKIE, USER_AGENT};
+use reqwest::header::{AUTHORIZATION, COOKIE, HeaderMap, HeaderValue, SET_COOKIE, USER_AGENT};
 use url::{Origin, Url};
 
 use crate::{Error, Result};
@@ -19,6 +19,7 @@ pub(crate) struct SourceSession {
     pub(super) origin: Origin,
     user_agent: Option<HeaderValue>,
     cookies: Vec<Cookie<'static>>,
+    authorization: Option<HeaderValue>,
 }
 
 impl SourceSession {
@@ -28,7 +29,21 @@ impl SourceSession {
             origin: origin.origin(),
             user_agent: None,
             cookies: Vec::new(),
+            authorization: None,
         })
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn set_bearer(&mut self, token: Option<String>) -> Result<()> {
+        self.authorization = token
+            .map(|token| {
+                let mut value = HeaderValue::from_str(&format!("Bearer {token}"))
+                    .map_err(|_| Error::InvalidResponse("invalid source authorization"))?;
+                value.set_sensitive(true);
+                Ok(value)
+            })
+            .transpose()?;
+        Ok(())
     }
 
     #[cfg(windows)]
@@ -88,7 +103,12 @@ impl SourceSession {
         }
         let header = HeaderValue::from_str(&header)
             .map_err(|_| Error::InvalidResponse("invalid source cookie"))?;
-        let request = request.header(COOKIE, header);
+        let mut request = request.header(COOKIE, header);
+        if url.origin() == self.origin
+            && let Some(authorization) = &self.authorization
+        {
+            request = request.header(AUTHORIZATION, authorization);
+        }
         Ok(match &self.user_agent {
             Some(user_agent) => request.header(USER_AGENT, user_agent),
             None => request,

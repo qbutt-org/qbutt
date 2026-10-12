@@ -109,6 +109,7 @@ impl RemoteError {
         match self.code.as_str() {
             "verification_required" => BrowserError::VerificationRequired,
             "browser_check_required" => BrowserError::BrowserCheckRequired,
+            "login_required" => BrowserError::LoginRequired,
             "browser_timeout" => BrowserError::Timeout,
             "unsupported_multi_audio" => BrowserError::UnsupportedMultiAudio,
             "unsupported_private_tracks" => BrowserError::UnsupportedPrivateTracks,

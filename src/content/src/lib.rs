@@ -14,6 +14,7 @@ mod error;
 mod fitgirl;
 mod http;
 mod kakuyomu;
+mod lib_api;
 mod library;
 mod local_books;
 mod mangadex;
@@ -38,6 +39,7 @@ pub use association::{WorkAssociation, WorkGroup, rank_variants};
 pub use error::{Error, Result};
 pub use fitgirl::FitGirl;
 pub use kakuyomu::Kakuyomu;
+pub use lib_api::LibSession;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
     ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
