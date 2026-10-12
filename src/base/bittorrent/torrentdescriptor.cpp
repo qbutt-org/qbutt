@@ -90,9 +90,19 @@ const int TORRENTDESCRIPTOR_TYPEID = qRegisterMetaType<BitTorrent::TorrentDescri
 
 nonstd::expected<BitTorrent::TorrentDescriptor, QString>
 BitTorrent::TorrentDescriptor::load(const QByteArray &data) noexcept
+{
+    return load(data, loadTorrentLimits());
+}
+
+nonstd::expected<BitTorrent::TorrentDescriptor, QString>
+BitTorrent::TorrentDescriptor::load(const QByteArray &data, const lt::load_torrent_limits &limits) noexcept
 try
 {
-    return TorrentDescriptor(lt::load_torrent_buffer(lt::span<const char>(data.data(), data.size()), loadTorrentLimits()));
+    // libtorrent applies max_buffer_size only when reading a file from disk.
+    if (data.size() > limits.max_buffer_size)
+        return nonstd::make_unexpected(QString::fromStdString(lt::error_code(lt::errors::metadata_too_large).message()));
+
+    return TorrentDescriptor(lt::load_torrent_buffer(lt::span<const char>(data.data(), data.size()), limits));
 }
 catch (const lt::system_error &err)
 {

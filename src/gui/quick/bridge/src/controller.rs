@@ -712,6 +712,10 @@ pub mod ffi {
         #[qsignal]
         #[cxx_name = "torrentReady"]
         fn torrent_ready(self: Pin<&mut Self>, magnet: QString);
+
+        #[qsignal]
+        #[cxx_name = "torrentMetadataReady"]
+        fn torrent_metadata_ready(self: Pin<&mut Self>, identity: QString, data: QByteArray);
     }
 
     impl cxx_qt::Threading for ContentController {}

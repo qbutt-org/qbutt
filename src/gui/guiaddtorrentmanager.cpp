@@ -29,7 +29,11 @@
 
 #include "guiaddtorrentmanager.h"
 
+#include <libtorrent/load_torrent.hpp>
+
+#include <QFutureWatcher>
 #include <QScreen>
+#include <QtConcurrentRun>
 
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/torrentdescriptor.h"
@@ -147,6 +151,35 @@ bool GUIAddTorrentManager::addTorrent(const QString &source, const BitTorrent::A
     }
 
     return false;
+}
+
+bool GUIAddTorrentManager::addTorrentData(const QString &source, const QByteArray &data, const BitTorrent::AddTorrentParams &params)
+{
+    if (source.isEmpty())
+        return false;
+
+    const auto *pref = Preferences::instance();
+    lt::load_torrent_limits limits;
+    limits.max_buffer_size = static_cast<int>(pref->getTorrentFileSizeLimit());
+    limits.max_decode_depth = pref->getBdecodeDepthLimit();
+    limits.max_decode_tokens = pref->getBdecodeTokenLimit();
+
+    using LoadResult = nonstd::expected<BitTorrent::TorrentDescriptor, QString>;
+    auto *watcher = new QFutureWatcher<LoadResult> {this};
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, source, params]
+    {
+        const LoadResult result = watcher->result();
+        watcher->deleteLater();
+        if (result)
+            showTorrent(source, result.value(), params);
+        else
+            handleAddTorrentFailed(source, result.error());
+    });
+    watcher->setFuture(QtConcurrent::run([data, limits]
+    {
+        return BitTorrent::TorrentDescriptor::load(data, limits);
+    }));
+    return true;
 }
 
 void GUIAddTorrentManager::onDownloadFinished(const Net::DownloadResult &result)

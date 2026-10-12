@@ -873,6 +873,11 @@ Content::ContentView *MainWindow::ensureContentView()
         {
             app()->addTorrentManager()->addTorrent(magnet, {}, AddTorrentOption::ShowDialog);
         });
+        connect(m_searchWidget, &Content::ContentView::torrentMetadataReady, this,
+            [this](const QString &identity, const QByteArray &data)
+        {
+            app()->addTorrentManager()->addTorrentData(identity, data);
+        });
         connect(m_searchWidget, &Content::ContentView::videoReady, this,
             [this](const quint64 launchToken, const QString &identity, const QUrl &url,
                 const QUrl &proxyUrl, const QString &title, const QString &contentKind)

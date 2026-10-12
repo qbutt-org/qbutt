@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::{QString, QUrl};
+use cxx_qt_lib::{QByteArray, QString, QUrl};
 use qbutt_content::{
     Category, MediaGateway, ResolvedContent, SourceOperation, Transport, VariantPreferences,
     VariantRef, Work,
@@ -345,6 +345,14 @@ impl ffi::ContentController {
                     })) if resolved == reference => controller
                         .as_mut()
                         .torrent_ready(QString::from(magnet.as_str())),
+                    Ok(SourceResponse::Resolve(ResolvedContent::TorrentFile {
+                        reference: resolved,
+                        metadata,
+                        ..
+                    })) if resolved == reference => controller.as_mut().torrent_metadata_ready(
+                        QString::from(models::variant_id(&reference)),
+                        QByteArray::from(metadata.bytes()),
+                    ),
                     Ok(SourceResponse::Resolve(ResolvedContent::DirectVideo {
                         reference: resolved,
                         title,

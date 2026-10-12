@@ -29,6 +29,7 @@ namespace Content
 
     signals:
         void torrentReady(const QString &magnet);
+        void torrentMetadataReady(const QString &identity, const QByteArray &data);
         void videoReady(quint64 launchToken, const QString &identity, const QUrl &url,
             const QUrl &proxyUrl, const QString &title, const QString &contentKind);
         void readerActiveChanged();

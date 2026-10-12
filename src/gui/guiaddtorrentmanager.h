@@ -64,6 +64,7 @@ public:
     ~GUIAddTorrentManager() override;
 
     bool addTorrent(const QString &source, const BitTorrent::AddTorrentParams &params = {}, AddTorrentOption option = AddTorrentOption::Default);
+    bool addTorrentData(const QString &source, const QByteArray &data, const BitTorrent::AddTorrentParams &params = {});
     bool showTorrent(const QString &source, const BitTorrent::TorrentDescriptor &torrentDescr, const BitTorrent::AddTorrentParams &params = {});
 
 signals:

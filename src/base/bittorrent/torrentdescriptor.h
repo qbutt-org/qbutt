@@ -41,6 +41,11 @@
 #include "base/path.h"
 #include "torrentinfo.h"
 
+namespace libtorrent
+{
+    struct load_torrent_limits;
+}
+
 class QByteArray;
 class QUrl;
 
@@ -66,6 +71,7 @@ namespace BitTorrent
         void setTorrentInfo(TorrentInfo torrentInfo);
 
         static nonstd::expected<TorrentDescriptor, QString> load(const QByteArray &data) noexcept;
+        static nonstd::expected<TorrentDescriptor, QString> load(const QByteArray &data, const lt::load_torrent_limits &limits) noexcept;
         static nonstd::expected<TorrentDescriptor, QString> loadFromFile(const Path &path) noexcept;
         static nonstd::expected<TorrentDescriptor, QString> parse(const QString &str) noexcept;
         nonstd::expected<void, QString> saveToFile(const Path &path) const;

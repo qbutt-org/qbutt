@@ -16,6 +16,7 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     m_controller->initLibrary(profileDir);
     m_controller->setObjectName(QStringLiteral("contentController"));
     connect(m_controller, &Qbutt::ContentController::torrentReady, this, &ContentView::torrentReady);
+    connect(m_controller, &Qbutt::ContentController::torrentMetadataReady, this, &ContentView::torrentMetadataReady);
     connect(m_controller, &Qbutt::ContentController::videoReady, this, &ContentView::videoReady);
     connect(m_controller, &Qbutt::ContentController::browserReply, this, &ContentView::browserReply);
     connect(m_controller, &Qbutt::ContentController::readerChanged, this, &ContentView::readerActiveChanged);
