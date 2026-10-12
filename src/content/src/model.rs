@@ -7,6 +7,7 @@ use url::Url;
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     AniLiberty,
+    YummyAnime,
     MangaDex,
     MangaLib,
     RuTor,
@@ -24,6 +25,7 @@ impl PublicationRef {
     pub fn validate(&self) -> crate::Result<()> {
         match self.source {
             Source::AniLiberty => self.aniliberty_id().map(|_| ()),
+            Source::YummyAnime => self.yummyanime_id().map(|_| ()),
             Source::RuTor => self.rutor_id().map(|_| ()),
             Source::Nyaa => self.nyaa_id().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
@@ -63,6 +65,10 @@ impl PublicationRef {
         id.parse().map_err(|_| crate::Error::InvalidReference)
     }
 
+    pub(crate) fn yummyanime_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::YummyAnime)
+    }
+
     fn decimal_id(&self, source: Source) -> crate::Result<u64> {
         if self.source != source {
             return Err(crate::Error::InvalidReference);
@@ -81,6 +87,9 @@ impl PublicationRef {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VideoQuality {
+    P144,
+    P240,
+    P360,
     P480,
     P720,
     P1080,
@@ -89,6 +98,9 @@ pub enum VideoQuality {
 impl VideoQuality {
     pub fn height(self) -> u16 {
         match self {
+            Self::P144 => 144,
+            Self::P240 => 240,
+            Self::P360 => 360,
             Self::P480 => 480,
             Self::P720 => 720,
             Self::P1080 => 1080,
@@ -112,6 +124,13 @@ pub enum VariantSelector {
     Rutube {
         episode_id: String,
     },
+    YummyAnimeVideo {
+        id: u64,
+        episode: String,
+        dubbing: String,
+        player: String,
+        player_id: u64,
+    },
     MangaTranslation {
         language: String,
         groups: Vec<String>,
@@ -134,6 +153,23 @@ impl VariantSelector {
             }
             Self::Episode { id, .. } | Self::Rutube { episode_id: id } => {
                 !id.is_empty() && id.len() <= 128
+            }
+            Self::YummyAnimeVideo {
+                id,
+                episode,
+                dubbing,
+                player,
+                player_id,
+            } => {
+                *id != 0
+                    && *player_id != 0
+                    && [(episode, 128), (dubbing, 512), (player, 128)]
+                        .into_iter()
+                        .all(|(value, limit)| {
+                            !value.trim().is_empty()
+                                && value.len() <= limit
+                                && !value.chars().any(char::is_control)
+                        })
             }
             Self::MangaTranslation { language, groups } => {
                 canonical_language(language)
@@ -167,6 +203,7 @@ impl VariantRef {
             (Source::AniLiberty, VariantSelector::Torrent { .. })
                 | (Source::AniLiberty, VariantSelector::Episode { .. })
                 | (Source::AniLiberty, VariantSelector::Rutube { .. })
+                | (Source::YummyAnime, VariantSelector::YummyAnimeVideo { .. })
                 | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
                 | (Source::MangaLib, VariantSelector::LibTranslation { .. })
                 | (Source::RuTor, VariantSelector::TorrentHash { .. })

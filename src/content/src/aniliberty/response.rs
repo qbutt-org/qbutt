@@ -182,6 +182,7 @@ impl Episode {
             VideoQuality::P480 => &self.hls_480,
             VideoQuality::P720 => &self.hls_720,
             VideoQuality::P1080 => &self.hls_1080,
+            _ => return None,
         };
         stream.as_deref().filter(|value| !value.is_empty())
     }

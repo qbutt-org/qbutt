@@ -17,6 +17,7 @@ mod nyaa;
 mod rutor;
 mod sources;
 mod torrent;
+mod yummyanime;
 
 pub use aniliberty::AniLiberty;
 pub use library::{
@@ -30,6 +31,7 @@ pub use model::*;
 pub use nyaa::Nyaa;
 pub use rutor::RuTor;
 pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};
+pub use yummyanime::YummyAnime;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

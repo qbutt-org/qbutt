@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::AniLiberty,
+        Self::YummyAnime,
         Self::MangaDex,
         Self::MangaLib,
         Self::RuTor,
@@ -17,6 +18,7 @@ impl Source {
     pub fn id(self) -> &'static str {
         match self {
             Self::AniLiberty => "aniliberty",
+            Self::YummyAnime => "yani",
             Self::MangaDex => "mangadex",
             Self::MangaLib => "mangalib",
             Self::RuTor => "rutor",
@@ -31,6 +33,7 @@ impl Source {
     pub fn name(self) -> &'static str {
         match self {
             Self::AniLiberty => "AniLiberty",
+            Self::YummyAnime => "YummyAnime",
             Self::MangaDex => "MangaDex",
             Self::MangaLib => "MangaLib",
             Self::RuTor => "RuTor",
@@ -40,7 +43,7 @@ impl Source {
 
     pub fn categories(self) -> &'static [Category] {
         match self {
-            Self::AniLiberty => &[Category::Anime],
+            Self::AniLiberty | Self::YummyAnime => &[Category::Anime],
             Self::MangaDex | Self::MangaLib => &[Category::Manga],
             Self::Nyaa => &[
                 Category::Anime,
