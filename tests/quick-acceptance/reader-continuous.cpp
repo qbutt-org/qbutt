@@ -252,6 +252,15 @@ void exerciseReaderContinuous(Content::ContentView *view, const QString &profile
     const double beforeWheel = viewport->property("contentY").toDouble();
     QCoreApplication::sendEvent(view, &wheel);
     expectPosition(u"Continuous wheel persists the rendered position"_s, beforeWheel);
+
+    const double beforePageDown = viewport->property("contentY").toDouble();
+    key(view, Qt::Key_PageDown);
+    waitFor([&] { return viewport->property("contentY").toDouble() > beforePageDown; }, u"Continuous Page Down"_s);
+    const double beforePageUp = viewport->property("contentY").toDouble();
+    key(view, Qt::Key_PageUp);
+    waitFor([&] { return viewport->property("contentY").toDouble() < beforePageUp; }, u"Continuous Page Up"_s);
+    settled(controller);
+
     waitFor([&] { return !viewport->property("moving").toBool() && !scroll->property("userScrolling").toBool(); },
         u"Completed user movement before reopening"_s, 3'000);
     require(QMetaObject::invokeMethod(reader(view), "selectPage", Q_ARG(int, 0)), u"Exact reader navigation for reopen"_s);
