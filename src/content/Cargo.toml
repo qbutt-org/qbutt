@@ -24,6 +24,7 @@ ring = "=0.17.14"
 httparse = "=1.10.1"
 percent-encoding = "=2.3.2"
 reqwest = { version = "0.12.24", default-features = false, features = ["rustls-tls"] }
+ring = "=0.17.14"
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
 scraper = { version = "=0.27.0", default-features = false }
 sha2 = "=0.10.9"
