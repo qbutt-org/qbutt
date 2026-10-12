@@ -25,8 +25,7 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     });
 
     setResizeMode(QQuickWidget::SizeRootObjectToView);
-    setInitialProperties({{QStringLiteral("backend"), QVariant::fromValue(m_controller)},
-        {QStringLiteral("palette"), QVariant::fromValue(palette())}});
+    setInitialProperties({{QStringLiteral("backend"), QVariant::fromValue(m_controller)}});
     loadFromModule(QStringLiteral("Qbutt.Views"), QStringLiteral("SearchPage"));
 }
 
@@ -50,8 +49,6 @@ bool Content::ContentView::isReading() const
 void Content::ContentView::changeEvent(QEvent *event)
 {
     QQuickWidget::changeEvent(event);
-    if ((event->type() == QEvent::PaletteChange) && rootObject())
-        rootObject()->setProperty("palette", QVariant::fromValue(palette()));
-    else if (event->type() == QEvent::LanguageChange)
+    if (event->type() == QEvent::LanguageChange)
         engine()->retranslate();
 }

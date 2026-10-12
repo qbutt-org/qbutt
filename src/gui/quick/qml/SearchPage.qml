@@ -16,7 +16,15 @@ Page {
     implicitWidth: 1200
     implicitHeight: 560
     padding: 24
+    palette.window: applicationPalette.window
+    palette.windowText: applicationPalette.windowText
     palette.highlight: appearance.accent
+
+    SystemPalette {
+        id: applicationPalette
+        objectName: "contentApplicationPalette"
+        colorGroup: SystemPalette.Active
+    }
 
     Theme {
         id: appearance

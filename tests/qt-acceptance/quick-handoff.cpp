@@ -163,16 +163,43 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         10'000, u"Profile content library"_s);
     if (mainContent)
     {
-        require(root->property("palette").value<QPalette>().color(QPalette::Window) == view.palette().color(QPalette::Window),
-            u"Content palette differs from the main application"_s);
+        auto *background = root->property("background").value<QQuickItem *>();
+        auto *applicationPalette = root->findChild<QObject *>(u"contentApplicationPalette"_s);
+        auto *search = root->findChild<QQuickItem *>(u"contentSearch"_s);
+        auto *buttonTheme = search ? search->property("theme").value<QObject *>() : nullptr;
+        auto *buttonLabel = search ? search->property("contentItem").value<QQuickItem *>() : nullptr;
+        require(background && applicationPalette && buttonTheme && buttonLabel, u"Native QML theme objects are missing"_s);
+        require((applicationPalette->property("window").value<QColor>() == qApp->palette().color(QPalette::Window))
+            && (applicationPalette->property("windowText").value<QColor>() == qApp->palette().color(QPalette::WindowText)),
+            u"QML SystemPalette differs from QApplication"_s);
+        require(background->property("color").value<QColor>() == view.palette().color(QPalette::Window),
+            u"Content palette differs: QML="_s + background->property("color").value<QColor>().name()
+            + u", QWidget="_s + view.palette().color(QPalette::Window).name());
         view.giveFocusToSearchInput();
         auto *input = root->findChild<QQuickItem *>(u"contentQuery"_s);
         require(input && input->hasActiveFocus(), u"MainWindow focus action did not focus QML search"_s);
+        input->setProperty("text", ruTor ? u"Blender"_s : u"Frieren"_s);
         UIThemeManager::instance()->previewColorScheme(ColorScheme::Dark);
-        waitFor([&] { return root->property("palette").value<QPalette>().color(QPalette::Window) == QColor(u"#202123"_s); },
+        waitFor([&]
+        {
+            return (background->property("color").value<QColor>() == QColor(u"#202123"_s))
+                && (applicationPalette->property("window").value<QColor>() == qApp->palette().color(QPalette::Window))
+                && (applicationPalette->property("windowText").value<QColor>() == qApp->palette().color(QPalette::WindowText))
+                && (buttonTheme->property("background").value<QColor>() == QColor(u"#202123"_s))
+                && (buttonTheme->property("foreground").value<QColor>() == qApp->palette().color(QPalette::WindowText))
+                && (buttonLabel->property("color").value<QColor>() == QColor(Qt::white));
+        },
             5000, u"Main content dark palette"_s);
         UIThemeManager::instance()->previewColorScheme(ColorScheme::Light);
-        waitFor([&] { return root->property("palette").value<QPalette>().color(QPalette::Window) == QColor(u"#f5f6f7"_s); },
+        waitFor([&]
+        {
+            return (background->property("color").value<QColor>() == QColor(u"#f5f6f7"_s))
+                && (applicationPalette->property("window").value<QColor>() == qApp->palette().color(QPalette::Window))
+                && (applicationPalette->property("windowText").value<QColor>() == qApp->palette().color(QPalette::WindowText))
+                && (buttonTheme->property("background").value<QColor>() == QColor(u"#f5f6f7"_s))
+                && (buttonTheme->property("foreground").value<QColor>() == qApp->palette().color(QPalette::WindowText))
+                && (buttonLabel->property("color").value<QColor>() == QColor(Qt::white));
+        },
             5000, u"Main content light palette"_s);
         auto *window = application.mainWindow();
         auto *downloads = window->findChild<QAction *>(u"actionContentDownloads"_s);
