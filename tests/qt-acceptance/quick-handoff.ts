@@ -121,10 +121,16 @@ try {
             assert.equal(records.length, 1, "Unexpected persisted content entries");
             const entry = JSON.parse(records[0].entry);
             assert.equal(entry.favorite, true, "Accepted favorite write was lost at MainWindow shutdown");
-            assert.equal(entry.work.title.length > 0, true);
-            assert(entry.work.variants.length >= check.variantCount, "Favorite lost known variants");
-            assert.deepEqual(entry.preferences.selected.publication, entry.work.reference);
-            const selected = entry.work.variants.find((variant: { reference: unknown }) =>
+            const group = entry.group;
+            const anchor = group.publications.find((publication: { reference: unknown }) =>
+                JSON.stringify(publication.reference) === JSON.stringify(group.anchor));
+            assert(anchor?.title.length > 0, "Favorite lost its anchor publication");
+            assert(group.references.some((reference: unknown) =>
+                JSON.stringify(reference) === JSON.stringify(entry.preferences.selected.publication)),
+                "Favorite lost the selected publication reference");
+            const variants = group.publications.flatMap((publication: { variants: unknown[] }) => publication.variants);
+            assert(variants.length >= check.variantCount, "Favorite lost known variants");
+            const selected = variants.find((variant: { reference: unknown }) =>
                 JSON.stringify(variant.reference) === JSON.stringify(entry.preferences.selected));
             assert(selected, "Favorite did not retain its exact selected variant");
             assert.equal(selected.info_hash, check.infoHash);
