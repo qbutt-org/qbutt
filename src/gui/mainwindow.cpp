@@ -908,7 +908,7 @@ Content::ContentView *MainWindow::ensureContentView()
         {
             const QString message = malformed
                 ? tr("This qbutt link is invalid or unsupported.")
-                : tr("Could not open this shared work. Check Sources and try the link again.");
+                : tr("Could not open all sources in this link. Check Sources and reopen the link to retry.");
             QMessageBox::warning(this, tr("Shared work"), message);
         });
         connect(m_searchWidget, &Content::ContentView::searchFinished, this, [this](const bool failed)

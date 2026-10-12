@@ -5371,8 +5371,8 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Ссылка qbutt повреждена или не поддерживается.</translation>
     </message>
     <message>
-        <source>Could not open this shared work. Check Sources and try the link again.</source>
-        <translation>Не удалось открыть материал по ссылке. Проверьте источники и попробуйте снова.</translation>
+        <source>Could not open all sources in this link. Check Sources and reopen the link to retry.</source>
+        <translation>Не удалось открыть все источники по ссылке. Проверьте раздел «Источники» и откройте ссылку снова.</translation>
     </message>
     <message>
         <source>Downloads</source>

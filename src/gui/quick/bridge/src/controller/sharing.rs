@@ -148,6 +148,15 @@ impl ffi::ContentController {
                 requests.push(request);
             }
         }
+        let preferred_request = document.preferred().and_then(|preferred| {
+            requests.iter().position(|request| {
+                matches!(&request.operation, SourceOperation::Inspect { reference, .. }
+                    if reference == &preferred.publication)
+            })
+        });
+        if let Some(index) = preferred_request {
+            requests.swap(0, index);
+        }
         if requests.is_empty() {
             self.as_mut().set_shared_importing(false);
             if self.shared_import.generation == generation {
@@ -161,7 +170,7 @@ impl ffi::ContentController {
         let task = services.runtime.spawn(async move {
             let mut pending = requests.into_iter();
             let mut active = JoinSet::new();
-            for _ in 0..4 {
+            for _ in 0..if preferred_request.is_some() { 1 } else { 4 } {
                 let Some(request) = pending.next() else {
                     break;
                 };
@@ -192,20 +201,43 @@ impl ffi::ContentController {
                             let Some(document) = controller.shared_document.clone() else {
                                 return;
                             };
-                            let publications = document.publications().to_vec();
+                            if controller.shared_works.is_empty() && document.preferred().is_some()
+                            {
+                                controller
+                                    .as_mut()
+                                    .rust_mut()
+                                    .work_preferences
+                                    .entry(work.reference.clone())
+                                    .or_default()
+                                    .selected = None;
+                            }
                             controller.as_mut().rust_mut().shared_works.push(work);
                             let works = controller.shared_works.clone();
+                            let publications: Vec<_> = document
+                                .publications()
+                                .iter()
+                                .filter(|reference| {
+                                    works.iter().any(|work| &work.reference == *reference)
+                                })
+                                .cloned()
+                                .collect();
+                            let preferred = document
+                                .preferred()
+                                .filter(|variant| publications.contains(&variant.publication))
+                                .cloned();
                             if !controller.as_mut().show_shared_publications(
                                 publications,
                                 works,
-                                document.preferred().cloned(),
+                                preferred,
                             ) {
                                 controller.as_mut().rust_mut().shared_works.pop();
                             }
                         }
                     });
                 }
-                if let Some(request) = pending.next() {
+                while active.len() < 4
+                    && let Some(request) = pending.next()
+                {
                     let catalog = Arc::clone(&catalog);
                     active.spawn(async move {
                         let result = catalog.execute(&request.operation).await;
@@ -226,8 +258,15 @@ impl ffi::ContentController {
                     controller.as_mut().shared_link_failed(false);
                     return;
                 }
-                controller.as_mut().rust_mut().shared_document = None;
+                let complete = controller.shared_document.as_ref().is_some_and(|document| {
+                    controller.shared_works.len() == document.publications().len()
+                });
                 controller.as_mut().rust_mut().shared_works.clear();
+                if complete {
+                    controller.as_mut().rust_mut().shared_document = None;
+                } else {
+                    controller.as_mut().shared_link_failed(false);
+                }
             });
         });
         self.as_mut().rust_mut().shared_import.task = Some(task);
