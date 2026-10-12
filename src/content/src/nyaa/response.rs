@@ -199,10 +199,11 @@ pub(crate) fn release(body: &str, origin: &Url, expected: &PublicationRef) -> Re
                         || codes[0].split_once('_').map(|(main, _)| main)
                             != codes[1].split_once('_').map(|(main, _)| main)
                         || !codes[0].ends_with("_0")
-                        || category
-                            .replace(site_category(&codes[1])?.ok_or(Error::VariantUnavailable)?)
-                            .is_some()
                     {
+                        return Err(Error::InvalidResponse("ambiguous publication category"));
+                    }
+                    let actual = site_category(&codes[1])?.ok_or(Error::VariantUnavailable)?;
+                    if category.replace(actual).is_some() {
                         return Err(Error::InvalidResponse("ambiguous publication category"));
                     }
                 }

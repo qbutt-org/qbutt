@@ -8,7 +8,12 @@ pub(crate) fn magnet(input: &str) -> Result<(Url, String)> {
     let mut identities = url.query_pairs().filter(|(name, _)| name == "xt");
     let hash = identities
         .next()
-        .and_then(|(_, value)| value.strip_prefix("urn:btih:").map(str::to_ascii_lowercase))
+        .and_then(|(_, value)| {
+            let (prefix, hash) = value.split_at_checked("urn:btih:".len())?;
+            prefix
+                .eq_ignore_ascii_case("urn:btih:")
+                .then(|| hash.to_ascii_lowercase())
+        })
         .ok_or(Error::InvalidResponse("missing torrent hash"))?;
     if input.len() > 32 * 1024
         || url.scheme() != "magnet"

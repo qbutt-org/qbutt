@@ -134,7 +134,9 @@ void exerciseReader(Content::ContentView *view, const QString &profileDir)
         found |= value(works, row, "workId") == publication;
         animeFound |= value(works, row, "source") == u"AniLiberty";
     }
-    require(found && animeFound, u"Mixed search did not retain both source classes"_s);
+    require(found && animeFound,
+        u"Mixed search did not retain both source classes: MangaDex=%1 AniLiberty=%2 rows=%3"_s
+            .arg(found).arg(animeFound).arg(works->rowCount()));
     require((controller->property("selectedWorkId").toString() == publication)
         && (results->property("currentIndex").toInt() >= 0)
         && (value(works, results->property("currentIndex").toInt(), "workId") == publication)

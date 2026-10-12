@@ -144,7 +144,9 @@ impl ffi::ContentController {
                 &QString::from(error.to_string()),
             );
         }
-        if self.reader_settings.generation != generation {
+        if self.reader_settings.generation != generation
+            || self.reader_settings.save != SaveState::Pending
+        {
             return;
         }
         self.as_mut().rust_mut().reader_settings.save = if result.is_ok() {

@@ -266,22 +266,8 @@ struct TorrentQuality {
 
 impl Torrent {
     pub(super) fn magnet(&self) -> Result<Url> {
-        let magnet = Url::parse(&self.magnet)
-            .map_err(|_| Error::InvalidResponse("invalid torrent magnet"))?;
-        let identity = format!("urn:btih:{}", self.hash);
-        let mut identifiers = magnet.query_pairs().filter(|(name, _)| name == "xt");
-        let matches_hash = identifiers
-            .next()
-            .is_some_and(|(_, value)| value.eq_ignore_ascii_case(&identity));
-        if magnet.scheme() != "magnet"
-            || magnet.host().is_some()
-            || !magnet.path().is_empty()
-            || self.magnet.len() > 32 * 1024
-            || self.hash.len() != 40
-            || !self.hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-            || !matches_hash
-            || identifiers.next().is_some()
-        {
+        let (magnet, hash) = crate::torrent::magnet(&self.magnet)?;
+        if !hash.eq_ignore_ascii_case(&self.hash) {
             return Err(Error::InvalidResponse(
                 "torrent magnet does not match its hash",
             ));

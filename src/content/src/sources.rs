@@ -127,13 +127,9 @@ impl SourceOperation {
                 reference.validate()?;
                 validate_reader(reference.publication.source)
             }
-            Self::Chapter(reference) => {
-                reference.validate()?;
-                validate_reader(reference.variant.publication.source)
-            }
+            Self::Chapter(reference) => reference.validate(),
             Self::ReaderPage { reference, page } => {
                 reference.validate()?;
-                validate_reader(reference.variant.publication.source)?;
                 if *page < 2000 {
                     Ok(())
                 } else {

@@ -138,11 +138,15 @@ namespace
     void expectSaved(Fixture &fixture, const Fit fit)
     {
         settle(*fixture.controller);
+        const int storedFit = scalar(fixture.database, u"SELECT fit FROM reader_settings WHERE id = 1"_s);
         require((settingsState(*fixture.controller) == SettingsState::Ready)
             && fixture.controller->property("readerSettingsErrorText").toString().isEmpty()
             && (appliedFit(*fixture.controller) == fit)
-            && (scalar(fixture.database, u"SELECT fit FROM reader_settings WHERE id = 1"_s) == (fit == Fit::Width ? 1 : 0)),
-            u"Reader settings did not confirm the actual committed fit"_s);
+            && (storedFit == (fit == Fit::Width ? 1 : 0)),
+            u"Reader settings did not confirm the actual committed fit: expected=%1 applied=%2 stored=%3 state=%4 library=%5"_s
+                .arg(static_cast<int>(fit)).arg(static_cast<int>(appliedFit(*fixture.controller)))
+                .arg(storedFit).arg(static_cast<int>(settingsState(*fixture.controller)))
+                .arg(static_cast<int>(fixture.controller->property("libraryState").value<LibraryState>())));
     }
 
     void exerciseLateLoadAndWrites()

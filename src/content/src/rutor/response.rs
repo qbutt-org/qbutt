@@ -258,8 +258,11 @@ pub(crate) fn release(body: &str, origin: &Url, expected: &PublicationRef) -> Re
                     return Err(Error::InvalidResponse("ambiguous torrent size"));
                 }
             }
-            "Раздают" if seeders.replace(number(&value)?).is_some() => {
-                return Err(Error::InvalidResponse("ambiguous seed count"));
+            "Раздают" => {
+                let previous = seeders.replace(number(&value)?);
+                if previous.is_some() {
+                    return Err(Error::InvalidResponse("ambiguous seed count"));
+                }
             }
             _ => {}
         }

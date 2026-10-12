@@ -69,6 +69,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(parsed[0].variants[0].seeders, Some(1234));
     assert!(parsed[0].variants[0].languages.is_empty());
     assert!(parsed[0].needs_inspection);
+    let uppercase_topic = search_page(9, "1", "B", true).replace("urn:btih:", "URN:BTIH:");
+    let uppercase_rows = response::search(&uppercase_topic, &origin, 9, Category::Software)?;
+    assert_eq!(
+        uppercase_rows[0].variants[0].info_hash.as_deref(),
+        Some(HASH)
+    );
     assert!(
         response::search(
             &search_page(9, "1", "B", false),
