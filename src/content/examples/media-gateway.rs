@@ -64,11 +64,7 @@ async fn main() -> AcceptanceResult<()> {
     assert_eq!(proxy.password().unwrap().len(), 48);
     assert_eq!(proxy.host_str(), Some("127.0.0.1"));
     assert!(proxy.query().is_none() && proxy.fragment().is_none());
-    let auth = format!(
-        "Basic {}",
-        base64::engine::general_purpose::STANDARD
-            .encode(format!("qbutt:{}", proxy.password().unwrap()))
-    );
+    let auth = authorization(&proxy);
     let origin = plain.origin.as_str().trim_end_matches('/');
     let unauthorized = request(&proxy, &format!("GET {origin}/legal HTTP/1.1\r\n\r\n")).await?;
     assert!(unauthorized.starts_with(b"HTTP/1.1 407"));
@@ -172,6 +168,15 @@ async fn main() -> AcceptanceResult<()> {
     )
     .await?;
     assert!(oversized.starts_with(b"HTTP/1.1 400"));
+    let too_many_headers = request(
+        &proxy,
+        &format!(
+            "GET {origin}/legal HTTP/1.1\r\nProxy-Authorization: {auth}\r\n{}\r\n",
+            "X-Header: value\r\n".repeat(64)
+        ),
+    )
+    .await?;
+    assert!(too_many_headers.starts_with(b"HTTP/1.1 400"));
     let pipeline = request(&proxy, &format!("GET {origin}/legal HTTP/1.1\r\nProxy-Authorization: {auth}\r\n\r\nGET /second HTTP/1.1\r\n\r\n")).await?;
     assert!(pipeline.starts_with(b"HTTP/1.1 400"));
     let bad_response = client.get(format!("{origin}/large-head")).send().await?;
@@ -269,11 +274,95 @@ async fn main() -> AcceptanceResult<()> {
     assert!(TcpStream::connect(("127.0.0.1", port)).await.is_err());
     assert_eq!(plain.leaked_headers.load(Ordering::SeqCst), 0);
     assert_eq!(tls.leaked_headers.load(Ordering::SeqCst), 0);
+    exercise_bounds(&plain.origin).await?;
     plain.stop().await;
     tls.stop().await;
     println!(
-        "PASS media-gateway auth=required credentials=not_forwarded methods=bounded framing=checked public_ip_dns_mixed=guarded redirects=guarded tls=validated http_connect=ok headers=bounded retirement=all_sockets_closed drop=closed"
+        "PASS media-gateway auth=required credentials=not_forwarded methods=bounded framing=checked public_ip_dns_mixed=guarded redirects=guarded tls=validated http_connect=ok headers=bounded sockets=32_pairs timeout=checked retirement=all_sockets_closed drop=closed"
     );
+    Ok(())
+}
+
+fn authorization(proxy: &Url) -> String {
+    format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD
+            .encode(format!("qbutt:{}", proxy.password().unwrap()))
+    )
+}
+
+async fn exercise_bounds(origin: &Url) -> AcceptanceResult<()> {
+    let gateway = MediaGateway::start().await?;
+    let proxy = gateway.proxy_url().clone();
+    let auth = authorization(&proxy);
+    let mut tunnels = Vec::new();
+    for _ in 0..32 {
+        let mut socket = TcpStream::connect(("127.0.0.1", proxy.port().unwrap())).await?;
+        socket
+            .write_all(
+                format!(
+                    "CONNECT fixture.example:{} HTTP/1.1\r\nProxy-Authorization: {auth}\r\n\r\n",
+                    origin.port().unwrap()
+                )
+                .as_bytes(),
+            )
+            .await?;
+        let mut established = vec![0; b"HTTP/1.1 200 Connection Established\r\n\r\n".len()];
+        tokio::time::timeout(Duration::from_secs(2), socket.read_exact(&mut established)).await??;
+        assert!(established.starts_with(b"HTTP/1.1 200"));
+        tunnels.push(socket);
+    }
+    let mut excess = TcpStream::connect(("127.0.0.1", proxy.port().unwrap())).await?;
+    let mut byte = [0];
+    assert!(
+        matches!(
+            tokio::time::timeout(Duration::from_secs(2), excess.read(&mut byte)).await?,
+            Ok(0) | Err(_)
+        ),
+        "connection beyond 32 pairs was accepted"
+    );
+    gateway.close().await;
+    for socket in &mut tunnels {
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(2), socket.read(&mut byte)).await?,
+            Ok(0) | Err(_)
+        ));
+    }
+
+    let gateway = MediaGateway::start().await?;
+    let proxy = gateway.proxy_url().clone();
+    let auth = authorization(&proxy);
+    let started = std::time::Instant::now();
+    let stalled = format!(
+        "GET {} HTTP/1.1\r\nProxy-Authorization: {auth}\r\n\r\n",
+        origin.join("stall")?
+    );
+    let (header_timeout, response_timeout) =
+        tokio::try_join!(request(&proxy, "GET "), request(&proxy, &stalled))?;
+    assert!(header_timeout.starts_with(b"HTTP/1.1 400"));
+    assert!(response_timeout.starts_with(b"HTTP/1.1 502"));
+    assert!((Duration::from_millis(9800)..Duration::from_secs(14)).contains(&started.elapsed()));
+    println!("PASS media-gateway-timeout request_head=10s upstream_head=10s sockets=32_pairs");
+
+    let mut idle = TcpStream::connect(("127.0.0.1", proxy.port().unwrap())).await?;
+    idle.write_all(
+        format!(
+            "CONNECT fixture.example:{} HTTP/1.1\r\nProxy-Authorization: {auth}\r\n\r\n",
+            origin.port().unwrap()
+        )
+        .as_bytes(),
+    )
+    .await?;
+    let mut established = vec![0; b"HTTP/1.1 200 Connection Established\r\n\r\n".len()];
+    idle.read_exact(&mut established).await?;
+    let started = std::time::Instant::now();
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(63), idle.read(&mut byte)).await?,
+        Ok(0) | Err(_)
+    ));
+    assert!((Duration::from_secs(59)..Duration::from_secs(63)).contains(&started.elapsed()));
+    gateway.close().await;
+    println!("PASS media-gateway-timeout tunnel_idle=60s physical_socket=closed");
     Ok(())
 }
 
@@ -476,6 +565,9 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
         leaks.fetch_add(1, Ordering::SeqCst);
     }
     let path = head.split_whitespace().nth(1).unwrap_or("");
+    if path == "/stall" {
+        return socket.read(&mut byte).await.map(|_| ());
+    }
     if path == "/large-head" {
         socket
             .write_all(
