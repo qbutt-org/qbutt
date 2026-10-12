@@ -167,10 +167,11 @@ impl ffi::ContentController {
 
         let qt_thread = self.qt_thread();
         let catalog = Arc::clone(&services.catalog);
+        let initial_parallelism = if preferred_request.is_some() { 1 } else { 4 };
         let task = services.runtime.spawn(async move {
             let mut pending = requests.into_iter();
             let mut active = JoinSet::new();
-            for _ in 0..if preferred_request.is_some() { 1 } else { 4 } {
+            for _ in 0..initial_parallelism {
                 let Some(request) = pending.next() else {
                     break;
                 };
