@@ -23,6 +23,7 @@ mod rutor;
 mod rutracker;
 mod rutube;
 mod sources;
+mod text;
 mod torrent;
 mod yummyanime;
 
@@ -43,4 +44,5 @@ pub use rutor::RuTor;
 pub use rutracker::RuTracker;
 pub use rutube::Rutube;
 pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};
+pub use text::{TextBlock, TextBlockKind, TextChapter, TextSpan};
 pub use yummyanime::YummyAnime;
