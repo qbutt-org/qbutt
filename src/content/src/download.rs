@@ -279,13 +279,7 @@ impl<S: DownloadStorage> DownloadQueue<S> {
         if !destination.is_absolute() {
             return Err(DownloadError::Io(io::ErrorKind::InvalidInput.into()));
         }
-        fs::create_dir_all(&destination).await?;
-        let staging = destination.join(".qbutt-staging");
-        fs::create_dir_all(&staging).await?;
-        let metadata = fs::symlink_metadata(&staging).await?;
-        if !metadata.is_dir() || staging_is_reparse_point(&metadata) {
-            return Err(DownloadError::Io(io::ErrorKind::PermissionDenied.into()));
-        }
+        safe_staging_exists(&destination).await?;
         let mut records = HashMap::new();
         for mut job in storage.load().await? {
             job.validate()
@@ -550,6 +544,11 @@ impl<S: DownloadStorage> QueueInner<S> {
         }
         self.update(id, |job| job.status = DownloadStatus::Downloading)
             .await?;
+        let staging = self.destination.join(".qbutt-staging");
+        fs::create_dir_all(&staging).await?;
+        if !safe_staging_exists(&self.destination).await? {
+            return Err(DownloadError::Io(io::ErrorKind::NotFound.into()));
+        }
         let partial = partial_path(&self.destination, id);
         let (progress_sender, mut progress_receiver) = watch::channel((0, None));
         let mut last_reported = 0;
@@ -643,6 +642,16 @@ fn partial_path(destination: &Path, id: &str) -> PathBuf {
         .join(format!("{id}.part"))
 }
 
+async fn safe_staging_exists(destination: &Path) -> Result<bool, DownloadError> {
+    let staging = destination.join(".qbutt-staging");
+    match fs::symlink_metadata(&staging).await {
+        Ok(metadata) if metadata.is_dir() && !staging_is_reparse_point(&metadata) => Ok(true),
+        Ok(_) => Err(DownloadError::Io(io::ErrorKind::PermissionDenied.into())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
 #[cfg(windows)]
 fn staging_is_reparse_point(metadata: &std::fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
@@ -657,6 +666,9 @@ fn staging_is_reparse_point(metadata: &std::fs::Metadata) -> bool {
 }
 
 async fn remove_partial(destination: &Path, id: &str) -> Result<(), DownloadError> {
+    if !safe_staging_exists(destination).await? {
+        return Ok(());
+    }
     match fs::remove_file(partial_path(destination, id)).await {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),

@@ -84,7 +84,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let destination = root.join("downloads");
     fs::create_dir_all(&destination)?;
     let marker = destination.join("user-file.mp4");
-    fs::write(&marker, b"unrelated user bytes")?;
 
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
     let address: SocketAddr = listener.local_addr()?;
@@ -127,6 +126,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = Store(Arc::new(Mutex::new(Library::open(&profile)?)));
     let queue =
         DownloadQueue::open_fixture(store.clone(), destination.clone(), client.clone()).await?;
+    assert!(fs::read_dir(&destination)?.next().is_none());
+    fs::write(&marker, b"unrelated user bytes")?;
     let mut updates = queue.subscribe();
 
     let collision = destination.join("Generated.mp4");
@@ -226,7 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .any(|bytes| bytes == b"fixture.example")
     );
     println!(
-        "PASS native_downloads bytes={} complete=3 cancel=1 retry=2 incomplete=1 interrupted_restart=1 collision=1",
+        "PASS native_downloads bytes={} complete=3 cancel=1 retry=2 incomplete=1 interrupted_restart=1 collision=1 fresh_open=untouched",
         payload.len()
     );
     Ok(())
