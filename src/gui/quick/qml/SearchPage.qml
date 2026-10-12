@@ -71,6 +71,19 @@ Page {
         backend.search(text);
     }
 
+    function localBookErrorText(code: string): string {
+        switch (code) {
+        case "select": return qsTr("Choose an EPUB, FB2 or TXT file");
+        case "library": return qsTr("The library is not ready");
+        case "save": return qsTr("The book could not be saved");
+        case "missing": return qsTr("The book file is no longer available");
+        case "read": return qsTr("The book path could not be read");
+        case "changed": return qsTr("The book file changed since import");
+        case "large": return qsTr("The book exceeds the size limit");
+        default: return qsTr("The book could not be opened");
+        }
+    }
+
     background: Rectangle {
         color: appearance.background
     }
@@ -196,7 +209,7 @@ Page {
             objectName: "contentLocalBookError"
             Layout.fillWidth: true
             visible: root.backend.localBookError !== ""
-            text: root.backend.localBookError
+            text: root.localBookErrorText(root.backend.localBookError)
             wrapMode: Text.Wrap
             textFormat: Text.PlainText
         }

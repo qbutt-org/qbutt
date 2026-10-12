@@ -18770,6 +18770,46 @@ Please choose a different name and try again.</source>
 <context>
     <name>SearchPage</name>
     <message>
+        <source>Open book</source>
+        <translation>Открыть книгу</translation>
+    </message>
+    <message>
+        <source>Books (*.epub *.fb2 *.txt)</source>
+        <translation>Книги (*.epub *.fb2 *.txt)</translation>
+    </message>
+    <message>
+        <source>Choose an EPUB, FB2 or TXT file</source>
+        <translation>Выберите файл EPUB, FB2 или TXT</translation>
+    </message>
+    <message>
+        <source>The library is not ready</source>
+        <translation>Библиотека пока недоступна</translation>
+    </message>
+    <message>
+        <source>The book could not be saved</source>
+        <translation>Не удалось сохранить книгу</translation>
+    </message>
+    <message>
+        <source>The book file is no longer available</source>
+        <translation>Файл книги больше недоступен</translation>
+    </message>
+    <message>
+        <source>The book path could not be read</source>
+        <translation>Не удалось прочитать путь к книге</translation>
+    </message>
+    <message>
+        <source>The book file changed since import</source>
+        <translation>Файл книги изменился после добавления</translation>
+    </message>
+    <message>
+        <source>The book exceeds the size limit</source>
+        <translation>Размер книги превышает допустимый предел</translation>
+    </message>
+    <message>
+        <source>The book could not be opened</source>
+        <translation>Не удалось открыть книгу</translation>
+    </message>
+    <message>
         <source>Category</source>
         <translation>Категория</translation>
     </message>
@@ -18849,6 +18889,10 @@ Please choose a different name and try again.</source>
 <context>
     <name>WorkDelegate</name>
     <message>
+        <source>Local book</source>
+        <translation>Локальная книга</translation>
+    </message>
+    <message>
         <source>Movies</source>
         <translation>Фильмы</translation>
     </message>
@@ -18875,6 +18919,13 @@ Please choose a different name and try again.</source>
     <message>
         <source>Manga</source>
         <translation>Манга</translation>
+    </message>
+</context>
+<context>
+    <name>VariantDelegate</name>
+    <message>
+        <source>Local book</source>
+        <translation>Локальная книга</translation>
     </message>
 </context>
 <context>

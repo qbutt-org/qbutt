@@ -57,7 +57,7 @@ ItemDelegate {
 
         Label {
             Layout.preferredWidth: root.sourceWidth
-            text: root.source
+            text: root.source === "Local book" ? qsTr("Local book") : root.source
             color: root.theme.muted
             elide: Text.ElideRight
             textFormat: Text.PlainText

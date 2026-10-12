@@ -213,7 +213,7 @@ ScrollView {
                 Accessible.name: readingBlock.plainText
             }
 
-            onHeightChanged: Qt.callLater(root.restorePosition)
+            onHeightChanged: Qt.callLater(root.retainPosition)
         }
 
         TapHandler {

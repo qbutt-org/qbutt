@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QString, QUrl};
-use qbutt_content::{LibraryResult, LocalBook, PublicationRef};
+use qbutt_content::{Error, LibraryResult, LocalBook, PublicationRef};
 
 use super::ffi;
 use super::library::LibraryAction;
@@ -28,12 +28,12 @@ impl ffi::ContentController {
             .map(|value| PathBuf::from(value.to_string()))
         else {
             self.as_mut()
-                .set_local_book_error("Choose a local EPUB, FB2 or TXT file");
+                .set_local_book_error("select");
             return;
         };
         if self.library_state != ffi::LibraryState::Ready || self.services.is_none() {
             self.as_mut()
-                .set_local_book_error("The library is not ready");
+                .set_local_book_error("library");
             return;
         }
         self.as_mut().set_local_book_error("");
@@ -58,11 +58,17 @@ impl ffi::ContentController {
                                     LibraryAction::LocalBookImport { book, generation },
                                 ) {
                                     controller.set_local_book_error(
-                                        "The book could not be saved to the library",
+                                        "save",
                                     );
                                 }
                             }
-                            Err(error) => controller.set_local_book_error(&error.to_string()),
+                            Err(error) => {
+                                ffi::log_content_error(
+                                    &QString::from("local book import"),
+                                    &QString::from(error.to_string()),
+                                );
+                                controller.set_local_book_error(local_book_error_code(&error));
+                            }
                         }
                     });
                 });
@@ -81,7 +87,7 @@ impl ffi::ContentController {
             generation,
         }) {
             self.as_mut()
-                .set_local_book_error("The library is not ready");
+                .set_local_book_error("library");
         }
     }
 
@@ -106,7 +112,7 @@ impl ffi::ContentController {
                     &QString::from(error.to_string()),
                 );
                 self.as_mut()
-                    .set_local_book_error("The book could not be saved to the library");
+                    .set_local_book_error("save");
             }
         }
     }
@@ -124,7 +130,7 @@ impl ffi::ContentController {
             Ok(Some(path)) => path,
             Ok(None) => {
                 self.as_mut()
-                    .set_local_book_error("The original book file is no longer available");
+                    .set_local_book_error("missing");
                 return;
             }
             Err(error) => {
@@ -133,7 +139,7 @@ impl ffi::ContentController {
                     &QString::from(error.to_string()),
                 );
                 self.as_mut()
-                    .set_local_book_error("The book path could not be read from the library");
+                    .set_local_book_error("read");
                 return;
             }
         };
@@ -160,7 +166,13 @@ impl ffi::ContentController {
                     controller.as_mut().rust_mut().local_book_load.task = None;
                     match result {
                         Ok(book) => controller.show_local_book(book),
-                        Err(error) => controller.set_local_book_error(&error.to_string()),
+                        Err(error) => {
+                            ffi::log_content_error(
+                                &QString::from("local book reopen"),
+                                &QString::from(error.to_string()),
+                            );
+                            controller.set_local_book_error(local_book_error_code(&error));
+                        }
                     }
                 });
             });
@@ -178,5 +190,14 @@ impl ffi::ContentController {
         if self.inspection.generation == generation {
             self.open_reader();
         }
+    }
+}
+
+fn local_book_error_code(error: &Error) -> &'static str {
+    match error {
+        Error::LocalBookIo(_) => "missing",
+        Error::ResponseTooLarge => "large",
+        Error::LocalBookChanged => "changed",
+        _ => "invalid",
     }
 }

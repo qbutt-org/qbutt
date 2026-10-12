@@ -55,12 +55,18 @@ public:
         buffer.open(QIODevice::ReadOnly);
         QImageReader reader(&buffer);
         const QSize original = reader.size();
-        if (!original.isValid() || original.width() > 4096 || original.height() > 4096)
+        if (!original.isValid())
             return {};
         if (size)
             *size = original;
+        QSize bounds(4096, 4096);
         if (requestedSize.isValid())
-            reader.setScaledSize(original.scaled(requestedSize, Qt::KeepAspectRatio));
+            bounds = QSize(qMin(bounds.width(), requestedSize.width()),
+                qMin(bounds.height(), requestedSize.height()));
+        const QSize decoded = original.width() > bounds.width() || original.height() > bounds.height()
+            ? original.scaled(bounds, Qt::KeepAspectRatio) : original;
+        if (decoded != original)
+            reader.setScaledSize(decoded);
         return reader.read();
     }
 
