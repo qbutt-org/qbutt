@@ -34,6 +34,7 @@ a download:
 ```powershell
 cargo run --locked --offline -p qbutt-content --example library
 cargo run --locked --offline -p qbutt-content --example reader_progress
+cargo run --locked --offline -p qbutt-content --example sources
 ```
 
 Require exit code zero and every reported check to pass. This checks storage;
@@ -42,6 +43,13 @@ The reader example preserves the exact chapter, zero-based page and normalized
 scroll fraction across a process restart. It also checks that variant choices
 remain independent and rejected references, invalid positions and SQLite abort
 leave the previous confirmed entry intact.
+
+The sources scenario reopens persisted enablement and the exact failed operation
+in a second process. It checks that unrelated, stale and repeated-operation
+success cannot clear the current failure, that SQLite abort preserves the prior
+record, and that corrupt source metadata does not prevent reading independent
+library and reader settings. This does not establish Sources UI or browser
+authorization.
 
 RuTor has generated HTTPS/fault and two-process library scenarios:
 
