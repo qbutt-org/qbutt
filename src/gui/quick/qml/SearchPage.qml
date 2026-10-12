@@ -10,7 +10,8 @@ Page {
     objectName: "contentQuickSearch"
 
     required property ContentController backend
-    readonly property WorkModel activeWorks: backend.listMode === Search.Favorites ? backend.favorites : backend.works
+    readonly property WorkModel activeWorks: backend.listMode === Search.History ? backend.history
+        : backend.listMode === Search.Favorites ? backend.favorites : backend.works
 
     implicitWidth: 1200
     implicitHeight: 560
@@ -55,10 +56,11 @@ Page {
 
             TabBar {
                 objectName: "contentModes"
-                Layout.preferredWidth: searchMode.implicitWidth + favoritesMode.implicitWidth + spacing
+                Layout.preferredWidth: searchMode.implicitWidth + favoritesMode.implicitWidth + historyMode.implicitWidth + 2 * spacing
                 spacing: 8
-                currentIndex: root.backend.listMode === Search.Favorites ? 1 : 0
-                onCurrentIndexChanged: root.backend.setListMode(currentIndex === 1 ? Search.Favorites : Search.Search)
+                currentIndex: root.backend.listMode === Search.History ? 2 : root.backend.listMode === Search.Favorites ? 1 : 0
+                onCurrentIndexChanged: root.backend.setListMode(currentIndex === 2 ? Search.History
+                    : currentIndex === 1 ? Search.Favorites : Search.Search)
 
                 background: Item {}
 
@@ -74,6 +76,13 @@ Page {
                     objectName: "contentFavoritesMode"
                     theme: appearance
                     text: qsTr("Favorites")
+                }
+
+                NavigationTab {
+                    id: historyMode
+                    objectName: "contentHistoryMode"
+                    theme: appearance
+                    text: qsTr("History")
                 }
             }
 
@@ -136,8 +145,14 @@ Page {
                 objectName: "contentLibraryRetry"
                 theme: appearance
                 text: qsTr("Try again")
-                visible: root.backend.libraryState === Library.Failed
-                onClicked: root.backend.retryLibrary()
+                visible: root.backend.libraryState === Library.Failed || root.backend.libraryErrorKind === Library.HistoryRead
+                enabled: !root.backend.libraryPending
+                onClicked: {
+                    if (root.backend.libraryState === Library.Failed)
+                        root.backend.retryLibrary();
+                    else
+                        root.backend.refreshHistory();
+                }
             }
         }
 
@@ -217,9 +232,10 @@ Page {
                     objectName: "contentEmptyResults"
                     anchors.centerIn: parent
                     width: parent.width - 32
-                    visible: works.count === 0 && (root.backend.listMode === Search.Favorites
+                    visible: works.count === 0 && (root.backend.listMode !== Search.Search
                         ? root.backend.libraryState === Library.Ready : root.backend.searchState === Search.Succeeded)
-                    text: root.backend.listMode === Search.Favorites ? qsTr("No favorites") : qsTr("No titles found")
+                    text: root.backend.listMode === Search.History ? qsTr("History is empty")
+                        : root.backend.listMode === Search.Favorites ? qsTr("No favorites") : qsTr("No titles found")
                     color: appearance.muted
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
@@ -227,7 +243,7 @@ Page {
 
                 BusyIndicator {
                     anchors.centerIn: parent
-                    visible: root.backend.listMode === Search.Favorites
+                    visible: root.backend.listMode !== Search.Search
                         && (root.backend.libraryState === Library.Uninitialized || root.backend.libraryState === Library.Loading)
                     running: visible
                 }
@@ -238,6 +254,7 @@ Page {
                 SplitView.minimumWidth: 560
                 backend: root.backend
                 theme: appearance
+                selectedInList: works.currentIndex >= 0
                 leftPadding: 24
             }
         }
@@ -245,6 +262,7 @@ Page {
 
     Loader {
         id: reader
+        objectName: "contentReaderLoader"
         parent: root
         anchors.fill: parent
         active: root.backend.readerOpen

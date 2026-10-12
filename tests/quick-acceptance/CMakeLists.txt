@@ -18,6 +18,8 @@ qt_add_executable(qbutt-quick-acceptance
     main.cpp
     library.cpp
     library.h
+    history.cpp
+    history.h
     reader.cpp
     reader.h
     reader-progress.cpp

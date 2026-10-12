@@ -18742,6 +18742,14 @@ Please choose a different name and try again.</source>
 <context>
     <name>SearchPage</name>
     <message>
+        <source>History</source>
+        <translation>История</translation>
+    </message>
+    <message>
+        <source>History is empty</source>
+        <translation>История пуста</translation>
+    </message>
+    <message>
         <source>Search titles</source>
         <translation>Поиск произведений</translation>
     </message>
@@ -18783,6 +18791,10 @@ Please choose a different name and try again.</source>
 </context>
 <context>
     <name>WorkPane</name>
+    <message>
+        <source>Remove from history</source>
+        <translation>Убрать из истории</translation>
+    </message>
     <message>
         <source>Read</source>
         <translation>Читать</translation>
@@ -18871,8 +18883,8 @@ Please choose a different name and try again.</source>
         <translation>Не удалось сохранить библиотеку.</translation>
     </message>
     <message>
-        <source>Could not load reading history.</source>
-        <translation>Не удалось загрузить историю чтения.</translation>
+        <source>Could not load history.</source>
+        <translation>Не удалось загрузить историю.</translation>
     </message>
     <message>
         <source>Could not start content services.</source>

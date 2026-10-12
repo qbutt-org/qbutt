@@ -29,6 +29,7 @@
 #include <QUrlQuery>
 #include <QVariant>
 
+#include "history.h"
 #include "library.h"
 #include "reader-progress.h"
 #include "reader.h"
@@ -480,6 +481,7 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     parser.addOption({u"exercise"_s, u"Run the bounded live metadata acceptance scenario and exit."_s});
     parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
+    parser.addOption({u"history"_s, u"Run confirmed reading history and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
     parser.addOption({u"reader-progress"_s, u"Run exact reader progress and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"worklist"_s, u"Run work list delegate and favorites acceptance, then exit."_s});
@@ -499,11 +501,13 @@ int main(int argc, char *argv[])
     application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s)
         && !parser.isSet(u"reader"_s) && !parser.isSet(u"worklist"_s));
 
-    if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s))
+    if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s))
     {
         try
         {
-            if (parser.isSet(u"reader-progress"_s))
+            if (parser.isSet(u"history"_s))
+                exerciseHistory();
+            else if (parser.isSet(u"reader-progress"_s))
                 exerciseReaderProgress();
             else
                 exerciseLibrary();

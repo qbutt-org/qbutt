@@ -11,6 +11,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QKeyEvent>
+#include <QObject>
 #include <QQuickItem>
 #include <QTimer>
 
@@ -87,6 +88,112 @@ namespace
         QTimer::singleShot(150, &loop, &QEventLoop::quit);
         loop.exec();
     }
+
+    void exerciseHistoryList(Content::ContentView *view, Qbutt::ContentController *controller, QQuickItem *results)
+    {
+        const QString publication = controller->property("selectedWorkId").toString();
+        const QString exact = controller->property("selectedVariantId").toString();
+        auto *history = qobject_cast<QAbstractItemModel *>(controller->property("history").value<QObject *>());
+        auto *favorites = qobject_cast<QAbstractItemModel *>(controller->property("favorites").value<QObject *>());
+        require(history && favorites && (history->rowCount() == 0) && (favorites->rowCount() == 1),
+            u"History list fixture is not isolated"_s);
+        auto *read = view->rootObject()->findChild<QQuickItem *>(u"contentDownload"_s);
+        require(read && read->property("enabled").toBool() && QMetaObject::invokeMethod(read, "clicked"),
+            u"Production reading action did not run"_s);
+        waitFor([&]
+        {
+            return (history->rowCount() == 1) && !controller->property("libraryPending").toBool();
+        }, u"Rendered page History acknowledgement"_s);
+        auto *readerLoader = view->rootObject()->findChild<QQuickItem *>(u"contentReaderLoader"_s);
+        require(readerLoader, u"Reader Loader is missing"_s);
+        auto *reader = readerLoader->property("item").value<QQuickItem *>();
+        require(reader, u"Current reader page is missing"_s);
+
+        QObject confirmationObserver;
+        int pageWrites = 0;
+        QObject::connect(controller, &Qbutt::ContentController::readerChanged, &confirmationObserver, [&]
+        {
+            if (controller->property("readerProgressPending").toBool())
+                ++pageWrites;
+        });
+        auto *next = reader->findChild<QQuickItem *>(u"readerNextPage"_s);
+        require(next && next->property("enabled").toBool() && QMetaObject::invokeMethod(next, "clicked"),
+            u"History fixture could not turn its actual page"_s);
+        auto *page = reader->findChild<QQuickItem *>(u"readerPageImage"_s);
+        waitFor([&]
+        {
+            return (pageWrites > 0) && page && page->isVisible() && !controller->property("readerBusy").toBool()
+                && (controller->property("readerPageIndex").toInt() == 1)
+                && !controller->property("libraryPending").toBool();
+        }, u"Second rendered reading page"_s);
+        auto *fit = reader->findChild<QQuickItem *>(u"readerWidthFit"_s);
+        require(fit && QMetaObject::invokeMethod(fit, "clicked"), u"History reading fit action is missing"_s);
+        auto *viewport = reader->findChild<QQuickItem *>(u"readerPageViewport"_s);
+        waitFor([&] { return page->isVisible() && viewport && (viewport->property("contentHeight").toReal() > viewport->height()); },
+            u"Scrollable rendered history page"_s);
+        QKeyEvent down(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &down);
+        QKeyEvent released(QEvent::KeyRelease, Qt::Key_Down, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &released);
+        waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Exact reading offset"_s);
+        const double offset = controller->property("readerScrollOffset").toDouble();
+        const QString chapter = controller->property("readerChapterId").toString();
+        require((offset > 0) && controller->property("libraryErrorText").toString().isEmpty(),
+            u"History reading position was not confirmed"_s);
+        auto *back = reader->findChild<QQuickItem *>(u"readerBack"_s);
+        require(back && QMetaObject::invokeMethod(back, "clicked"), u"History reading Back action is missing"_s);
+
+        controller->setListMode(Qbutt::Search::ListMode::History);
+        settle(results);
+        require((results->property("model").value<QObject *>() == history) && (results->property("count").toInt() == 1),
+            u"Production results did not switch to History"_s);
+        verifyRow(results, history, 0, publication);
+        require(QMetaObject::invokeMethod(itemAt(results, 0), "clicked"), u"History row action is missing"_s);
+        waitFor([&] { return !controller->property("inspecting").toBool(); }, u"History publication inspection"_s);
+        auto *variants = qobject_cast<QAbstractItemModel *>(controller->property("variants").value<QObject *>());
+        require(variants && (variants->rowCount() > 1) && (controller->property("selectedVariantId").toString() == exact),
+            u"History lost the exact choice or other variants"_s);
+        const int writesBeforeReopen = pageWrites;
+        require(read->property("enabled").toBool() && QMetaObject::invokeMethod(read, "clicked")
+            && controller->property("readerOpen").toBool(), u"History reading action did not open its exact variant"_s);
+        reader = readerLoader->property("item").value<QQuickItem *>();
+        require(reader, u"Resumed current reader page is missing"_s);
+        page = reader->findChild<QQuickItem *>(u"readerPageImage"_s);
+        viewport = reader->findChild<QQuickItem *>(u"readerPageViewport"_s);
+        auto *canvas = reader->findChild<QQuickItem *>(u"readerCanvas"_s);
+        require(page && viewport && canvas, u"Resumed current reader canvas is incomplete"_s);
+        waitFor([&]
+        {
+            return !canvas->property("errorText").toString().isEmpty()
+                || (page->isVisible() && !controller->property("readerBusy").toBool());
+        }, u"History reading resume"_s);
+        require(canvas->property("errorText").toString().isEmpty(), canvas->property("errorText").toString());
+        require((controller->property("readerChapterId").toString() == chapter)
+            && (controller->property("readerPageIndex").toInt() == 1)
+            && (qAbs(controller->property("readerScrollOffset").toDouble() - offset) < 0.000001),
+            u"History reopened another position: chapter=%1 page=%2 offset=%3 expected_chapter=%4 expected_page=1 expected_offset=%5"_s
+                .arg(controller->property("readerChapterId").toString()).arg(controller->property("readerPageIndex").toInt())
+                .arg(controller->property("readerScrollOffset").toDouble()).arg(chapter).arg(offset));
+        waitFor([&] { return (pageWrites > writesBeforeReopen) && !controller->property("libraryPending").toBool(); },
+            u"Resumed visible page History acknowledgement"_s);
+        const double range = viewport->property("contentHeight").toDouble() - viewport->height();
+        require((range > 0) && (qAbs(viewport->property("contentY").toDouble() - offset * range) < 1),
+            u"History did not restore the actual visible page position"_s);
+        back = reader->findChild<QQuickItem *>(u"readerBack"_s);
+        require(back && QMetaObject::invokeMethod(back, "clicked"), u"History resumed Back action is missing"_s);
+        settle(results);
+        auto *remove = view->rootObject()->findChild<QQuickItem *>(u"contentRemoveHistory"_s);
+        require(remove && remove->isVisible() && remove->property("enabled").toBool()
+            && QMetaObject::invokeMethod(remove, "clicked"), u"History removal action did not run"_s);
+        waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Confirmed History removal"_s);
+        settle(results);
+        require((history->rowCount() == 0) && (results->property("currentIndex").toInt() == -1)
+            && !remove->isVisible() && (favorites->rowCount() == 1) && controller->property("selectedFavorite").toBool(),
+            u"History removal retained its action or damaged Favorites"_s);
+        controller->setListMode(Qbutt::Search::ListMode::Favorites);
+        settle(results);
+        verifyRow(results, favorites, 0, publication);
+    }
 }
 
 void exerciseWorkList(Content::ContentView *view)
@@ -131,6 +238,7 @@ void exerciseWorkList(Content::ContentView *view)
     waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Save isolated favorite"_s);
     require((favorites->rowCount() == 1) && (value(favorites, 0, "workId") == publication),
         u"Favorite model persisted another publication"_s);
+    exerciseHistoryList(view, controller, results);
     controller->setListMode(Qbutt::Search::ListMode::Favorites);
     settle(results);
     require((results->property("count").toInt() == 1)
@@ -189,5 +297,5 @@ void exerciseWorkList(Content::ContentView *view)
             }
         }
     }
-    qInfo("PASS worklist visible_roles=ok accessible_rows=ok scroll=ok favorite_swap=ok removal=ok equal_count=ok exact_selection=ok");
+    qInfo("PASS worklist visible_roles=ok accessible_rows=ok scroll=ok favorite_swap=ok history_swap=ok history_resume=ok history_remove=ok removal=ok equal_count=ok exact_selection=ok");
 }

@@ -374,7 +374,7 @@ void exerciseHistory()
         settled(*controller);
         const auto afterBookmark = entry(database, key);
         require((controller->property("libraryErrorText").toString()
-                == QCoreApplication::translate("ContentController", "Could not load reading history."))
+                == QCoreApplication::translate("ContentController", "Could not load history."))
             && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
                 == Qbutt::Library::LibraryErrorKind::HistoryRead)
             && (afterBookmark.value(u"favorite"_s).toBool() == favorite)
@@ -393,7 +393,7 @@ void exerciseHistory()
     controller->scrollReaderPage(confirmed, 0.75);
     settled(*controller);
     require((controller->property("libraryErrorText").toString()
-            == QCoreApplication::translate("ContentController", "Could not load reading history."))
+            == QCoreApplication::translate("ContentController", "Could not load history."))
         && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
             == Qbutt::Library::LibraryErrorKind::HistoryRead)
         && controller->property("readerProgressErrorText").toString().isEmpty()
@@ -419,14 +419,14 @@ void exerciseHistory()
     for (int request = 0; (request < 80) && !readRejected; ++request)
         readRejected = !controller->refreshHistory();
     const bool correctRejection = readRejected && (controller->property("libraryErrorText").toString()
-        == QCoreApplication::translate("ContentController", "Could not load reading history."))
+        == QCoreApplication::translate("ContentController", "Could not load history."))
         && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
             == Qbutt::Library::LibraryErrorKind::HistoryRead);
     execute(database, u"COMMIT"_s);
     settled(*controller);
     require(correctRejection, u"Rejected History read reported a write error"_s);
     require((controller->property("libraryErrorText").toString()
-            == QCoreApplication::translate("ContentController", "Could not load reading history."))
+            == QCoreApplication::translate("ContentController", "Could not load history."))
         && (history->rowCount(QModelIndex()) == 1) && controller->property("selectedFavorite").toBool()
         && (entry(database, key) == committed), u"Older accepted completion hid rejected History read or changed metadata"_s);
     require(controller->refreshHistory(), u"Rejected History read could not retry after the queue drained"_s);

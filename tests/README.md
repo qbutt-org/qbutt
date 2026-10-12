@@ -93,8 +93,11 @@ scenario does not replace native bookmark/tab acceptance.
 
 Run `--worklist --lang ru` with the same isolated offscreen environment to check
 the production results delegates. It scrolls the live metadata list, saves an
-exact translation, switches Search/Favorites, invokes the row action and removes the favorite,
-then repeatedly swaps equal-count models with different row order. It compares
+exact translation, switches Search/Favorites/History, invokes the row action and
+removes the favorite. Actual QML image acknowledgement records reading; reopening
+from History retains the full variant list, exact translation, chapter, page and
+rendered scroll position. Removing History leaves the bookmark and progress intact.
+It then repeatedly swaps equal-count models with different row order and compares
 every instantiated row's five model roles, rendered title, accessible name and
 selection state with the active model. Require exit zero and `PASS worklist`
 with every reported check passing. This process scenario does not establish
@@ -135,16 +138,17 @@ must leave history empty; confirmed reading retains the full known work and
 current choices. This scenario does not establish QML `Image.Ready`, native
 pointer interaction or application Exit with an accepted write.
 
-The native History process scenario is `exerciseHistory()` in
-`quick-acceptance/history.cpp`. It checks confirmed reading, full Work and exact
+Run `--history --lang ru` with the same isolated offscreen environment for the
+native History bridge. Require exit zero and `PASS history`. It checks confirmed
+reading, full Work and exact
 choices, action-time ordering across restart, fresh inspection, delayed choices,
 reentrant model publication, SQLite removal abort and retry, independent
 bookmarks, retained progress and unrelated payload. A committed reading write
 followed by a failed history snapshot must retain successful reader status;
-`refreshHistory()` retries the read without another write. The scoped native
-implementation was checked through an external offscreen driver using the
-same built libraries; `--history` host wiring and pointer acceptance remain
-separate steps.
+`refreshHistory()` retries the read without another write. Rejected reads report
+a History error, and an older snapshot failure preserves a newer reentrant write
+error. This bridge scenario does not establish QML acknowledgement or native
+pointer interaction; those use the production work list and deployed host.
 
 The standalone acceptance target enables `QT_QML_DEBUG` for development preview;
 the shipping application does not inherit it. The project-local `qt-preview`

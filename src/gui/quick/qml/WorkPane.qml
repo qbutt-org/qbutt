@@ -11,6 +11,7 @@ Pane {
 
     required property ContentController backend
     required property Theme theme
+    required property bool selectedInList
     padding: 0
 
     readonly property int sourceWidth: 116
@@ -52,34 +53,28 @@ Pane {
                 textFormat: Text.PlainText
             }
 
-            ToolButton {
-                id: bookmark
+            IconButton {
                 objectName: "contentFavorite"
+                theme: root.theme
                 Layout.alignment: Qt.AlignTop
-                display: AbstractButton.IconOnly
                 icon.source: root.backend.selectedFavorite ? "qrc:/icons/bookmark-active.svg" : root.theme.iconSource("bookmark")
-                icon.color: "transparent"
                 text: root.backend.selectedFavorite ? qsTr("Remove from favorites") : qsTr("Add to favorites")
                 Accessible.checkable: true
                 Accessible.checked: root.backend.selectedFavorite
                 enabled: root.backend.libraryState === Library.Ready && !root.backend.libraryPending && !root.backend.inspecting
-                opacity: enabled ? 1 : 0.45
                 onClicked: root.backend.setSelectedFavorite(!root.backend.selectedFavorite)
+            }
 
-                ToolTip {
-                    parent: bookmark
-                    visible: bookmark.hovered
-                    text: bookmark.text
-                }
-
-                background: Rectangle {
-                    implicitWidth: root.theme.controlHeight
-                    implicitHeight: root.theme.controlHeight
-                    radius: root.theme.radius
-                    color: bookmark.down ? root.theme.controlPressed : bookmark.hovered ? root.theme.hover : "transparent"
-                    border.width: bookmark.visualFocus ? 2 : 0
-                    border.color: root.theme.accent
-                }
+            IconButton {
+                objectName: "contentRemoveHistory"
+                theme: root.theme
+                Layout.alignment: Qt.AlignTop
+                visible: root.backend.listMode === Search.History && root.selectedInList
+                icon.source: root.theme.iconSource("edit-clear")
+                text: qsTr("Remove from history")
+                enabled: root.backend.libraryState === Library.Ready
+                    && !root.backend.libraryPending && !root.backend.inspecting
+                onClicked: root.backend.removeHistory(root.backend.selectedWorkId)
             }
         }
 
