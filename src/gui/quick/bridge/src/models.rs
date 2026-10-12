@@ -194,6 +194,9 @@ pub fn variant_id(reference: &VariantRef) -> String {
             "{publication}:branch:{}",
             branch.map_or_else(|| "null".into(), |id| id.to_string())
         ),
+        VariantSelector::RanobeHubTranslation { branch } => {
+            format!("{publication}:branch:{branch}")
+        }
     }
 }
 

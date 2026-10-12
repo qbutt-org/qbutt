@@ -112,7 +112,7 @@ impl ffi::ContentController {
             self.as_mut().list_mode_changed();
         }
         if let Some(preferred) = preferred {
-            let state = self.as_mut().rust_mut();
+            let mut state = self.as_mut().rust_mut();
             let preferences = state.work_preferences.entry(anchor).or_default();
             if !same_anchor || preferences.selected.is_none() {
                 preferences.selected = Some(preferred);
