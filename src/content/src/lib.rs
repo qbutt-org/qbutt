@@ -15,6 +15,7 @@ mod error;
 #[cfg(windows)]
 mod external_video;
 mod fitgirl;
+mod freetp;
 mod http;
 mod kakuyomu;
 mod lib_api;
@@ -47,6 +48,7 @@ pub use error::{Error, Result};
 #[cfg(windows)]
 pub use external_video::{ExternalVideoError, resolve_external_video};
 pub use fitgirl::FitGirl;
+pub use freetp::FreeTP;
 pub use kakuyomu::Kakuyomu;
 pub use lib_api::LibSession;
 pub use library::{
