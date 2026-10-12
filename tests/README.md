@@ -51,6 +51,25 @@ record, and that corrupt source metadata does not prevent reading independent
 library and reader settings. This does not establish Sources UI or browser
 authorization.
 
+Run `--sources --lang ru` in the isolated offscreen host to check the typed
+SourceModel and production Sources overlay. The scenario covers delayed profile
+initialization, persisted enablement, ordered writes, stale/reentrant outcomes,
+exact operation retry and SQLite failures. Require exit zero and `PASS sources`.
+This process scenario does not establish native pointer, blur or browser login.
+
+The protected playback transport has a generated HTTP/HTTPS integration scenario:
+
+```powershell
+cargo run --locked --offline -p qbutt-content --example media-gateway -- 'C:/Tools/qbutt/native-media-gateway-fixtures' 'C:/Program Files/mpv/mpv.com'
+```
+
+Pass the existing generated fixture directory and the actual mpv executable as
+quoted paths in PowerShell. The scenario requires its local HLS/TLS fixture files;
+it does not use a live application profile. Require exit zero and all checks to
+pass. It exercises real mpv decoding, TLS trust, proxy authentication and framing,
+socket/header limits, retirement, a 67-second single HTTPS GET and closure after
+60 seconds of silence. This does not establish controller, qplay or History UI.
+
 RuTor has generated HTTPS/fault and two-process library scenarios:
 
 ```powershell
@@ -159,8 +178,10 @@ retired page file and chapter directories after Back, reopening and retry.
 Live publication availability
 is an external prerequisite; a timeout is a failure.
 
-This process scenario does not establish pointer interaction, popup blur,
-application deactivation, continuous reading, persisted progress or translation.
+The same reader scenario also exercises the production continuous list, confirmed
+page-relative anchors, mode/fit persistence, automatic relayout, stale decode
+acknowledgements and settings failure/retry. It does not establish native pointer
+interaction, popup blur, application deactivation or translation.
 Check the reader and chapter picker in the deployed Windows host separately.
 
 Run `--reader-settings --lang ru` in the same offscreen environment for typed
@@ -217,6 +238,7 @@ cmake --build --preset windows --target qbutt-qt-acceptance --parallel 6
 $env:QBUTT_QT_ACCEPTANCE_EXE = 'C:/VMShared/qbutt-p1-quick/qbutt-qt-acceptance.exe'
 bun tests/qt-acceptance/quick-handoff.ts
 bun tests/qt-acceptance/quick-handoff.ts --source rutor
+bun tests/qt-acceptance/quick-handoff.ts --main
 ```
 
 Deploy the current executable and its Qt Quick runtime together using
@@ -227,6 +249,13 @@ relative to the executable, not the working directory. The runner cleans only it
 own profile, payload and temporary directories. This process-level scenario
 synthesizes Qt input; it does not replace native pointer acceptance or download
 a payload.
+
+`--main` runs through the actual MainWindow ContentView. It checks one controller
+and library owner across hide/reopen, accepted Favorites writes at application
+Exit, the Downloads and AI-settings routes, and actual QML Light/Dark palette
+roles with white primary-action text. The Qt acceptance executable and its
+dependencies must be deployed together. This still synthesizes Qt input; native
+pointer and System appearance acceptance are separate.
 
 The metadata cancellation scenario uses a generated private torrent and an
 isolated loopback session. It cancels before the first native add callback,
