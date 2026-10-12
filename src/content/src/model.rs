@@ -14,6 +14,7 @@ pub enum Source {
     AniLiberty,
     AniTokyo,
     YummyAnime,
+    AnimeSpirit,
     MangaDex,
     MangaLib,
     RanobeLib,
@@ -57,6 +58,7 @@ impl PublicationRef {
             Source::AniLiberty => self.aniliberty_id().map(|_| ()),
             Source::AniTokyo => self.anitokyo_id().map(|_| ()),
             Source::YummyAnime => self.yummyanime_id().map(|_| ()),
+            Source::AnimeSpirit => self.animespirit_id().map(|_| ()),
             Source::RuTor => self.rutor_id().map(|_| ()),
             Source::RuTracker => self.rutracker_id().map(|_| ()),
             Source::Nyaa => self.nyaa_id().map(|_| ()),
@@ -224,6 +226,10 @@ impl PublicationRef {
         self.decimal_id(Source::YummyAnime)
     }
 
+    pub(crate) fn animespirit_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::AnimeSpirit)
+    }
+
     fn decimal_id(&self, source: Source) -> crate::Result<u64> {
         if self.source != source {
             return Err(crate::Error::InvalidReference);
@@ -294,6 +300,16 @@ pub enum VariantSelector {
         episode: String,
         dubbing: String,
     },
+    AnimeSpiritKodik {
+        player_kind: String,
+        player_id: u64,
+        episode: String,
+        episode_id: String,
+        episode_hash: String,
+        voice: String,
+        kodik_translation: String,
+        subtitled: bool,
+    },
     MangaTranslation {
         language: String,
         groups: Vec<String>,
@@ -360,6 +376,34 @@ impl VariantSelector {
                     && dubbing.len() <= 512
                     && !dubbing.chars().any(char::is_control)
             }
+            Self::AnimeSpiritKodik {
+                player_kind,
+                player_id,
+                episode,
+                episode_id,
+                episode_hash,
+                voice,
+                kodik_translation,
+                ..
+            } => {
+                matches!(player_kind.as_str(), "serial" | "season")
+                    && *player_id != 0
+                    && !episode.is_empty()
+                    && episode.len() <= 16
+                    && episode.bytes().all(|byte| byte.is_ascii_digit())
+                    && canonical_decimal(episode_id)
+                    && episode_hash.len() == 32
+                    && episode_hash
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                    && [(voice, 256), (kodik_translation, 256)]
+                        .into_iter()
+                        .all(|(value, limit)| {
+                            !value.trim().is_empty()
+                                && value.len() <= limit
+                                && !value.chars().any(char::is_control)
+                        })
+            }
             Self::MangaTranslation { language, groups } => {
                 canonical_language(language)
                     && groups.len() <= 32
@@ -394,6 +438,10 @@ impl VariantRef {
                 | (Source::AniLiberty, VariantSelector::Rutube { .. })
                 | (Source::YummyAnime, VariantSelector::YummyAnimeVideo { .. })
                 | (Source::AniTokyo, VariantSelector::AniTokyoVideo { .. })
+                | (
+                    Source::AnimeSpirit,
+                    VariantSelector::AnimeSpiritKodik { .. }
+                )
                 | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
                 | (Source::MangaLib, VariantSelector::LibTranslation { .. })
                 | (Source::RanobeLib, VariantSelector::LibTranslation { .. })

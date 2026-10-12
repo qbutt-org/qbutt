@@ -31,6 +31,7 @@ impl Source {
             Self::AniLiberty => "aniliberty",
             Self::AniTokyo => "anitokyo",
             Self::YummyAnime => "yani",
+            Self::AnimeSpirit => "animespirit",
             Self::MangaDex => "mangadex",
             Self::MangaLib => "mangalib",
             Self::RanobeLib => "ranobelib",
@@ -58,6 +59,7 @@ impl Source {
             Self::AniLiberty => "AniLiberty",
             Self::AniTokyo => "AniTokyo",
             Self::YummyAnime => "YummyAnime",
+            Self::AnimeSpirit => "AnimeSpirit",
             Self::MangaDex => "MangaDex",
             Self::MangaLib => "MangaLib",
             Self::RanobeLib => "RanobeLib",
@@ -78,7 +80,9 @@ impl Source {
     pub fn categories(self) -> &'static [Category] {
         match self {
             Self::LocalBook => &[Category::Books],
-            Self::AniLiberty | Self::AniTokyo | Self::YummyAnime => &[Category::Anime],
+            Self::AniLiberty | Self::AniTokyo | Self::YummyAnime | Self::AnimeSpirit => {
+                &[Category::Anime]
+            }
             Self::MangaDex | Self::MangaLib => &[Category::Manga],
             Self::RanobeLib => &[Category::Books],
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
