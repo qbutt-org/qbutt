@@ -13,9 +13,13 @@ fn main() {
                 "src/source_model.rs",
                 "src/download_model.rs",
                 "src/page_model.rs",
+                "src/translation_render.rs",
             ])
             .cpp_file("src/native.cpp")
             .cpp_file("src/browser.cpp")
+            .cpp_file("src/translation_render.cpp")
+            .cpp_file("../../content/mangarender.cpp")
+            .qrc("../../content/reader.qrc")
             .crate_include_root(Some("include".into()));
 
     // SAFETY: This only matches CMake's UTF-8 source and execution character sets.

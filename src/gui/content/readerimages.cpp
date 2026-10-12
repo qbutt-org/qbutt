@@ -11,8 +11,6 @@
 #include <QContextMenuEvent>
 #include <QCoreApplication>
 #include <QDir>
-#include <QFont>
-#include <QFontDatabase>
 #include <QImageReader>
 #include <QKeyEvent>
 #include <QMenu>
@@ -24,68 +22,15 @@
 #include <QResizeEvent>
 #include <QScopedValueRollback>
 #include <QScrollBar>
-#include <QTextLayout>
-#include <QTextOption>
 #include <QUrl>
 
 #include "base/global.h"
-
-namespace
-{
-    QPainterPath typesetText(QString text, const QRectF &rect, QFont font, const int maximumPixels)
-    {
-        text.replace(u'\n', QChar::LineSeparator);
-        QTextOption option;
-        option.setWrapMode(QTextOption::WordWrap);
-
-        for (int pixels = maximumPixels; pixels > 0; --pixels)
-        {
-            font.setPixelSize(pixels);
-            QTextLayout layout(text, font);
-            layout.setTextOption(option);
-            layout.beginLayout();
-            qreal height = 0;
-            bool fits = true;
-            while (true)
-            {
-                QTextLine line = layout.createLine();
-                if (!line.isValid())
-                    break;
-
-                line.setLineWidth(rect.width());
-                line.setPosition(QPointF((rect.width() - line.naturalTextWidth()) / 2, height));
-                height += line.height();
-                fits = fits && (line.naturalTextWidth() <= rect.width());
-            }
-            layout.endLayout();
-            if (!fits || (height > rect.height()))
-                continue;
-
-            QPainterPath path;
-            const QPointF origin(rect.left(), rect.top() + ((rect.height() - height) / 2));
-            for (int index = 0; index < layout.lineCount(); ++index)
-            {
-                const QTextLine line = layout.lineAt(index);
-                const QString fragment = text.mid(line.textStart(), line.textLength()).trimmed();
-                path.addText(origin + line.position() + QPointF(0, line.ascent()), font, fragment);
-            }
-            return path;
-        }
-        return {};
-    }
-}
+#include "mangarender.h"
 
 Content::ImagePages::ImagePages(QWidget *parent)
     : QAbstractScrollArea(parent)
 {
-    static const QString mangaFamily = []
-    {
-        const int fontId = QFontDatabase::addApplicationFont(u":/reader/Neucha.ttf"_s);
-        const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
-        Q_ASSERT(!families.isEmpty());
-        return families.constFirst();
-    }();
-    setFont(QFont(mangaFamily));
+    setFont(MangaRender::mangaFont());
     setFrameShape(QFrame::NoFrame);
     viewport()->setCursor(Qt::PointingHandCursor);
     viewport()->setMouseTracking(true);
@@ -267,7 +212,7 @@ void Content::ImagePages::paintEvent(QPaintEvent *event)
             const qreal margin = qMin(qMax(qreal(1), 3 * scale), qMin(regionArea.width(), regionArea.height()) / 4);
             const QRectF textRect = regionArea.adjusted(margin, margin, -margin, -margin);
             const int maximumPixels = qMax(1, qRound(qMin(textRect.height(), 28 * scale)));
-            const QPainterPath path = typesetText(text, textRect, font(), maximumPixels);
+            const QPainterPath path = MangaRender::typesetText(text, textRect, font(), maximumPixels).path;
             const bool light = region.value(u"ink"_s).toString() == u"light";
             painter.strokePath(path, QPen(light ? Qt::black : Qt::white, qMax(qreal(0.75), 1.5 * scale),
                 Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));

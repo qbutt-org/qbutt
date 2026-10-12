@@ -47,6 +47,7 @@ add_library(qbt_gui STATIC
     content/browserconnectionwidget.h
     content/browserprerequisitewidget.h
     content/chapterpicker.h
+    content/mangarender.h
     content/modaloverlay.h
     content/readerimages.h
     content/readersettingsdialog.h
@@ -271,7 +272,7 @@ add_library(qbt_gui STATIC
     ${UI_HEADERS}
 )
 
-target_sources(qbt_gui INTERFACE about.qrc themes.qrc content/reader.qrc)
+target_sources(qbt_gui INTERFACE about.qrc themes.qrc)
 
 # UI headers will be generated in ${CMAKE_CURRENT_BINARY_DIR}
 target_include_directories(qbt_gui PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

@@ -4,4 +4,5 @@
 pub mod codex;
 pub mod context;
 pub mod context_tools;
+pub mod manga;
 pub mod text;

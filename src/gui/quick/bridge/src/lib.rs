@@ -7,3 +7,6 @@ mod page_model;
 mod reader_models;
 mod source_model;
 mod text_model;
+mod translation_render;
+
+pub use translation_render::QtMangaRenderer;
