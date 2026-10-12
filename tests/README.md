@@ -363,11 +363,19 @@ cmake --build --preset windows --target qbutt-qt-acceptance --parallel 8
 $env:QBUTT_QT_ACCEPTANCE_EXE = "$PWD/build/dev/qbutt-qt-acceptance.exe"
 $env:QBUTT_QT_ACCEPTANCE_BUNDLE = 'C:/VMShared/qbutt-p1-package/portable'
 bun tests/qt-acceptance/metadata-cancel.ts
+bun tests/qt-acceptance/metadata-cancel.ts --torrent-data
 ```
 
 Use your deployed portable directory for `QBUTT_QT_ACCEPTANCE_BUNDLE`. The runner
 requires exit zero and a passing evidence file; it removes its temporary profile
 and payload directory after the application exits.
+
+The `--torrent-data` scenario passes generated metadata through the production
+ContentController, MainWindow and asynchronous native add manager into the normal
+add dialog. It checks malformed data, byte/decode limits captured before worker
+dispatch, manager destruction, exact libtorrent hash/file paths and cancellation
+without creating payload. It uses an offscreen application and does not establish
+provider acquisition or native pointer interaction.
 
 ## Content, reading and playback
 

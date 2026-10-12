@@ -3172,6 +3172,12 @@ namespace
             exerciseMetadataCancel(spec, evidence);
             return;
         }
+        if (spec.value(u"mode"_s).toString() == u"torrent-data")
+        {
+            window->hide();
+            exerciseTorrentData(application, spec, evidence);
+            return;
+        }
         if (spec.value(u"mode"_s).toString() == u"modal-overlay")
         {
             exerciseModalOverlay(window, spec, evidence);

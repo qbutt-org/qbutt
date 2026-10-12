@@ -9,6 +9,9 @@ import { encode } from "../network-lab/bencode";
 import { assertQtRuntime } from "../qt-runtime";
 
 const executable = process.env.QBUTT_QT_ACCEPTANCE_EXE;
+assert(process.argv.length === 2 || (process.argv.length === 3 && process.argv[2] === "--torrent-data"),
+    "Usage: bun tests/qt-acceptance/metadata-cancel.ts [--torrent-data]");
+const mode = process.argv[2] === "--torrent-data" ? "torrent-data" : "metadata-cancel";
 assert(executable, "Set QBUTT_QT_ACCEPTANCE_EXE to the built Qt acceptance driver");
 const bundle = resolve(process.env.QBUTT_QT_ACCEPTANCE_BUNDLE ?? dirname(executable));
 assertQtRuntime(bundle);
@@ -24,6 +27,8 @@ try {
         "[BitTorrent]",
         "Session\\DHTEnabled=false", "Session\\LSDEnabled=false", "Session\\PeXEnabled=false",
         "Session\\InterfaceAddress=127.0.0.1",
+        "Session\\AddTorrentStopped=true",
+        `Session\\DefaultSavePath=${destination.replaceAll("\\", "/")}`,
         "Session\\AddTrackersEnabled=false", "Session\\AddTrackersFromURLEnabled=false",
         "[Network]", "PortForwardingEnabled=false",
         "[Core]", "AutoOpenTorrentFiles=false",
@@ -43,7 +48,7 @@ try {
     const evidencePath = join(root, "evidence.json");
     const specPath = join(root, "spec.json");
     await writeFile(specPath, JSON.stringify({
-        mode: "metadata-cancel", evidencePath, torrentPath, destination,
+        mode, evidencePath, torrentPath, destination,
     }, null, 2));
 
     const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") ?? "PATH";
@@ -60,7 +65,7 @@ try {
     assert.equal(await application.exited, 0, `Metadata cancellation acceptance failed; inspect ${root}`);
     const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
     assert.equal(evidence.status, "passed");
-    assert(evidence.checks.some((check: { name: string }) => check.name === "metadata-cancel"));
+    assert(evidence.checks.some((check: { name: string }) => check.name === mode));
     console.log(JSON.stringify({ status: "passed", evidencePath, checks: evidence.checks }, null, 2));
 }
 finally {
