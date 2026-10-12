@@ -13,10 +13,17 @@ FocusScope {
     required property ContentController backend
     required property Theme theme
     readonly property int fit: backend.readerFit
+    readonly property bool isText: backend.readerIsText
     readonly property bool continuous: backend.readerMode === Reader.Continuous
     readonly property string errorText: backend.readerErrorText
 
     function saveScroll(): void {
+        if (isText) {
+            if (textCanvas.status === Loader.Ready)
+                (textCanvas.item as TextReadingCanvas).saveScroll();
+            return;
+        }
+
         if (continuous) {
             if (continuousCanvas.status === Loader.Ready)
                 (continuousCanvas.item as ReaderContinuousCanvas).saveScroll();
@@ -41,7 +48,7 @@ FocusScope {
     Connections {
         target: root.backend
         function onReaderPositionRequested(generation: real, pageIndex: int, offset: real): void {
-            if (!root.continuous && generation === root.backend.readerPages.generation
+            if (!root.isText && !root.continuous && generation === root.backend.readerPages.generation
                 && pageIndex === root.backend.readerPageIndex) {
                 viewport.cancelFlick();
                 root.restoreScroll(offset);
@@ -64,8 +71,8 @@ FocusScope {
         anchors.fill: parent
         clip: true
         contentWidth: availableWidth
-        visible: !root.continuous && root.errorText === ""
-        focus: !root.continuous
+        visible: !root.isText && !root.continuous && root.errorText === ""
+        focus: visible
         focusPolicy: Qt.StrongFocus
         ScrollBar.vertical.objectName: "readerPageScrollBar"
         Keys.onReleased: event => {
@@ -92,7 +99,7 @@ FocusScope {
                     : root.backend.readerImageWidth > 0
                         ? Math.ceil(viewport.width * root.backend.readerImageHeight / root.backend.readerImageWidth)
                         : 0
-                source: !root.continuous && viewport.width > 0 && viewport.height > 0
+                source: !root.isText && !root.continuous && viewport.width > 0 && viewport.height > 0
                     ? root.backend.readerPageUrl : ""
                 onSourceChanged: {
                     viewport.cancelFlick();
@@ -145,7 +152,8 @@ FocusScope {
 
     BusyIndicator {
         anchors.centerIn: parent
-        running: root.continuous ? root.backend.readerBusy && root.backend.readerPageCount === 0
+        running: root.isText ? root.backend.readerBusy
+            : root.continuous ? root.backend.readerBusy && root.backend.readerPageCount === 0
             : root.backend.readerBusy || page.status === Image.Loading
         visible: running
     }
@@ -153,10 +161,22 @@ FocusScope {
     Loader {
         id: continuousCanvas
         anchors.fill: parent
-        active: root.continuous
+        active: !root.isText && root.continuous
         visible: root.errorText === ""
         focus: active
         sourceComponent: ReaderContinuousCanvas {
+            backend: root.backend
+            theme: root.theme
+        }
+    }
+
+    Loader {
+        id: textCanvas
+        anchors.fill: parent
+        active: root.isText
+        visible: root.errorText === "" && !root.backend.readerBusy
+        focus: active
+        sourceComponent: TextReadingCanvas {
             backend: root.backend
             theme: root.theme
         }

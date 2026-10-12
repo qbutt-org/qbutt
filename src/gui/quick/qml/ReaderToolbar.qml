@@ -13,6 +13,7 @@ Pane {
     required property Theme theme
     signal backRequested
     signal chaptersRequested
+    signal chapterTurnRequested(int offset)
     signal pageRequested(int index)
     signal fitRequested(int fit)
     signal modeRequested(int mode)
@@ -62,10 +63,74 @@ Pane {
                     text: chapter.text
                 }
             }
+
+            RowLayout {
+                spacing: 8
+
+                ActionButton {
+                    id: previous
+                    objectName: "readerPreviousPage"
+                    Layout.preferredWidth: root.theme.controlHeight
+                    theme: root.theme
+                    text: "‹"
+                    font.pixelSize: 24
+                    horizontalPadding: 0
+                    Accessible.name: root.backend.readerIsText ? qsTr("Previous chapter") : qsTr("Previous page")
+                    enabled: !root.backend.readerBusy && (root.backend.readerIsText
+                        ? root.backend.readerChapterIndex > 0 : root.backend.readerPageIndex > 0)
+                    onClicked: {
+                        if (root.backend.readerIsText)
+                            root.chapterTurnRequested(-1);
+                        else
+                            root.pageRequested(root.backend.readerPageIndex - 1);
+                    }
+
+                    ToolTip {
+                        parent: previous
+                        visible: previous.hovered
+                        text: previous.Accessible.name
+                    }
+                }
+
+                Label {
+                    objectName: "readerPageNumber"
+                    Layout.preferredWidth: Math.max(116, implicitWidth)
+                    visible: !root.backend.readerIsText
+                    text: root.backend.readerPageCount > 0 ? qsTr("Page %1 of %2").arg(root.backend.readerPageIndex + 1).arg(root.backend.readerPageCount) : ""
+                    horizontalAlignment: Text.AlignHCenter
+                }
+
+                ActionButton {
+                    id: next
+                    objectName: "readerNextPage"
+                    Layout.preferredWidth: root.theme.controlHeight
+                    theme: root.theme
+                    text: "›"
+                    font.pixelSize: 24
+                    horizontalPadding: 0
+                    Accessible.name: root.backend.readerIsText ? qsTr("Next chapter") : qsTr("Next page")
+                    enabled: !root.backend.readerBusy && (root.backend.readerIsText
+                        ? root.backend.readerChapterIndex + 1 < root.backend.readerChapterCount
+                        : root.backend.readerPageIndex + 1 < root.backend.readerPageCount)
+                    onClicked: {
+                        if (root.backend.readerIsText)
+                            root.chapterTurnRequested(1);
+                        else
+                            root.pageRequested(root.backend.readerPageIndex + 1);
+                    }
+
+                    ToolTip {
+                        parent: next
+                        visible: next.hovered
+                        text: next.Accessible.name
+                    }
+                }
+            }
         }
 
         RowLayout {
             Layout.fillWidth: true
+            visible: !root.backend.readerIsText
             spacing: 12
 
             SelectField {
@@ -129,54 +194,6 @@ Pane {
                 Layout.fillWidth: true
             }
 
-            RowLayout {
-                spacing: 8
-
-                ActionButton {
-                    id: previous
-                    objectName: "readerPreviousPage"
-                    Layout.preferredWidth: root.theme.controlHeight
-                    theme: root.theme
-                    text: "‹"
-                    font.pixelSize: 24
-                    horizontalPadding: 0
-                    Accessible.name: qsTr("Previous page")
-                    enabled: root.backend.readerPageIndex > 0 && !root.backend.readerBusy
-                    onClicked: root.pageRequested(root.backend.readerPageIndex - 1)
-
-                    ToolTip {
-                        parent: previous
-                        visible: previous.hovered
-                        text: qsTr("Previous page")
-                    }
-                }
-
-                Label {
-                    objectName: "readerPageNumber"
-                    Layout.preferredWidth: Math.max(116, implicitWidth)
-                    text: root.backend.readerPageCount > 0 ? qsTr("Page %1 of %2").arg(root.backend.readerPageIndex + 1).arg(root.backend.readerPageCount) : ""
-                    horizontalAlignment: Text.AlignHCenter
-                }
-
-                ActionButton {
-                    id: next
-                    objectName: "readerNextPage"
-                    Layout.preferredWidth: root.theme.controlHeight
-                    theme: root.theme
-                    text: "›"
-                    font.pixelSize: 24
-                    horizontalPadding: 0
-                    Accessible.name: qsTr("Next page")
-                    enabled: root.backend.readerPageIndex + 1 < root.backend.readerPageCount && !root.backend.readerBusy
-                    onClicked: root.pageRequested(root.backend.readerPageIndex + 1)
-
-                    ToolTip {
-                        parent: next
-                        visible: next.hovered
-                        text: qsTr("Next page")
-                    }
-                }
-            }
         }
     }
 }

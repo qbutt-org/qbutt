@@ -39,6 +39,11 @@ Page {
                 root.backend.closeReader();
             }
             onChaptersRequested: chapters.open()
+            onChapterTurnRequested: offset => {
+                canvas.saveScroll();
+                root.backend.turnReaderChapter(offset);
+                canvas.forceActiveFocus();
+            }
             onPageRequested: index => root.selectPage(index)
             onFitRequested: fit => {
                 canvas.saveScroll();
@@ -121,25 +126,25 @@ Page {
 
     Shortcut {
         sequences: root.backend.readerMode === Reader.Paged ? ["Left", "PgUp"] : ["Left"]
-        enabled: root.visible && !chapters.visible && !root.backend.readerBusy
+        enabled: root.visible && !root.backend.readerIsText && !chapters.visible && !root.backend.readerBusy
         onActivated: root.selectPage(root.backend.readerPageIndex - 1)
     }
 
     Shortcut {
         sequences: root.backend.readerMode === Reader.Paged ? ["Right", "PgDown"] : ["Right"]
-        enabled: root.visible && !chapters.visible && !root.backend.readerBusy
+        enabled: root.visible && !root.backend.readerIsText && !chapters.visible && !root.backend.readerBusy
         onActivated: root.selectPage(root.backend.readerPageIndex + 1)
     }
 
     Shortcut {
         sequence: "Home"
-        enabled: root.visible && !chapters.visible && !root.backend.readerBusy
+        enabled: root.visible && !root.backend.readerIsText && !chapters.visible && !root.backend.readerBusy
         onActivated: root.selectPage(0)
     }
 
     Shortcut {
         sequence: "End"
-        enabled: root.visible && !chapters.visible && !root.backend.readerBusy
+        enabled: root.visible && !root.backend.readerIsText && !chapters.visible && !root.backend.readerBusy
         onActivated: root.selectPage(root.backend.readerPageCount - 1)
     }
 

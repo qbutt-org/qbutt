@@ -23,6 +23,7 @@ qt_add_qml_module(qbt_quick_ui STATIC
         SearchPage.qml
         SelectField.qml
         SourcePicker.qml
+        TextReadingCanvas.qml
         Theme.qml
         VariantDelegate.qml
         VariantFilters.qml

@@ -19192,6 +19192,14 @@ Please choose a different name and try again.</source>
 <context>
     <name>ReaderToolbar</name>
     <message>
+        <source>Previous chapter</source>
+        <translation>Предыдущая глава</translation>
+    </message>
+    <message>
+        <source>Next chapter</source>
+        <translation>Следующая глава</translation>
+    </message>
+    <message>
         <source>Pages</source>
         <translation>Страницы</translation>
     </message>
