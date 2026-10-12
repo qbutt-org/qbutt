@@ -11,6 +11,7 @@ Page {
 
     required property ContentController backend
     required property Theme theme
+    readonly property int contentMargin: 48
     readonly property color defaultReadingBackground: theme.dark ? "#202520" : "#f7f5f0"
     readonly property color defaultReadingForeground: theme.dark ? "#e7e9e3" : "#242923"
     readonly property color readingBackground: backend.readerBackgroundColor !== ""
@@ -28,10 +29,6 @@ Page {
         return luminance > 0.179 ? "#000000" : "#ffffff";
     }
 
-    leftPadding: 48
-    rightPadding: 48
-    topPadding: 12
-    bottomPadding: 16
     focus: true
     palette.windowText: chromeForeground
     palette.text: chromeForeground
@@ -65,175 +62,183 @@ Page {
         canvas.forceActiveFocus();
     }
 
-    contentItem: ColumnLayout {
-        spacing: 12
+    contentItem: Item {
+        ColumnLayout {
+            id: readerLayout
+            anchors.fill: parent
+            anchors.leftMargin: root.contentMargin
+            anchors.rightMargin: root.contentMargin
+            anchors.topMargin: 12
+            anchors.bottomMargin: 16
+            spacing: 12
 
-        ReaderToolbar {
-            id: toolbar
-            Layout.fillWidth: true
-            backend: root.backend
-            theme: root.theme
-            foreground: root.chromeForeground
-            onBackRequested: {
-                canvas.saveScroll();
-                root.backend.closeReader();
+            ReaderToolbar {
+                id: toolbar
+                Layout.fillWidth: true
+                backend: root.backend
+                theme: root.theme
+                foreground: root.chromeForeground
+                onBackRequested: {
+                    canvas.saveScroll();
+                    root.backend.closeReader();
+                }
+                onChaptersRequested: chapters.open()
+                onAppearanceRequested: appearance.open()
             }
-            onChaptersRequested: chapters.open()
-            onAppearanceRequested: appearance.open()
+
+            Rectangle {
+                id: progressTrack
+                Layout.fillWidth: true
+                Layout.preferredHeight: 2
+                color: Qt.rgba(root.chromeForeground.r, root.chromeForeground.g,
+                    root.chromeForeground.b, 0.12)
+
+                Rectangle {
+                    width: parent.width * canvas.readingProgress
+                    height: parent.height
+                    color: root.theme.accent
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: root.backend.readerSettingsState === Reader.Failed
+                    && root.backend.libraryState === Library.Ready
+                spacing: 16
+
+                Label {
+                    objectName: "readerSettingsError"
+                    Layout.fillWidth: true
+                    text: root.backend.readerSettingsErrorText
+                    textFormat: Text.PlainText
+                }
+
+                ActionButton {
+                    objectName: "readerSettingsRetry"
+                    theme: root.theme
+                    text: qsTr("Try again")
+                    onClicked: {
+                        root.backend.retryReaderSettings();
+                        canvas.forceActiveFocus();
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: root.backend.readerProgressErrorText !== ""
+                spacing: 16
+
+                Label {
+                    objectName: "readerProgressError"
+                    Layout.fillWidth: true
+                    text: root.backend.readerProgressErrorText
+                    wrapMode: Text.Wrap
+                    textFormat: Text.PlainText
+                }
+
+                ActionButton {
+                    objectName: "readerProgressRetry"
+                    theme: root.theme
+                    text: qsTr("Try again")
+                    enabled: !root.backend.readerProgressPending
+                    onClicked: root.backend.retryReaderProgress()
+                }
+            }
+
+            ReaderCanvas {
+                id: canvas
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                backend: root.backend
+                theme: root.theme
+                readingForeground: root.readingForeground
+            }
+        }
+
+        MouseArea {
+            x: 0
+            y: readerLayout.y + toolbar.height + progressTrack.height + readerLayout.spacing * 2
+            width: root.contentMargin
+            height: root.height - y
+            enabled: !chapters.visible && !appearance.visible
+                && !root.backend.readerBusy
+            onClicked: root.turn(-1)
+        }
+
+        MouseArea {
+            x: root.width - root.contentMargin
+            y: readerLayout.y + toolbar.height + progressTrack.height + readerLayout.spacing * 2
+            width: root.contentMargin
+            height: root.height - y
+            enabled: !chapters.visible && !appearance.visible
+                && !root.backend.readerBusy
+            onClicked: root.turn(1)
         }
 
         Rectangle {
-            id: progressTrack
-            Layout.fillWidth: true
-            Layout.preferredHeight: 2
-            color: Qt.rgba(root.chromeForeground.r, root.chromeForeground.g,
-                root.chromeForeground.b, 0.12)
+            id: navigation
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 24
+            width: navigationControls.implicitWidth + 12
+            height: 50
+            radius: height / 2
+            color: Qt.tint(root.readingBackground, Qt.rgba(root.chromeForeground.r,
+                root.chromeForeground.g, root.chromeForeground.b, 0.09))
+            visible: !root.backend.readerBusy && (root.backend.readerIsText
+                ? root.backend.readerChapterCount > 1 : root.backend.readerPageCount > 1)
 
-            Rectangle {
-                width: parent.width * canvas.readingProgress
-                height: parent.height
-                color: root.theme.accent
-            }
-        }
+            RowLayout {
+                id: navigationControls
+                anchors.fill: parent
+                anchors.leftMargin: 4
+                anchors.rightMargin: 4
+                spacing: 2
 
-        RowLayout {
-            Layout.fillWidth: true
-            visible: root.backend.readerSettingsState === Reader.Failed
-                && root.backend.libraryState === Library.Ready
-            spacing: 16
+                ReaderChromeButton {
+                    id: previous
+                    objectName: "readerPreviousPage"
+                    Layout.preferredWidth: 40
+                    theme: root.theme
+                    foreground: root.chromeForeground
+                    icon.source: root.theme.iconSource("chevron-left")
+                    horizontalPadding: 0
+                    Accessible.name: root.backend.readerIsText
+                        ? qsTr("Previous chapter") : qsTr("Previous page")
+                    enabled: root.backend.readerIsText
+                        ? root.backend.readerChapterIndex > 0 : root.backend.readerPageIndex > 0
+                    opacity: enabled ? 1 : 0.38
+                    onClicked: root.turn(-1)
 
-            Label {
-                objectName: "readerSettingsError"
-                Layout.fillWidth: true
-                text: root.backend.readerSettingsErrorText
-                textFormat: Text.PlainText
-            }
-
-            ActionButton {
-                objectName: "readerSettingsRetry"
-                theme: root.theme
-                text: qsTr("Try again")
-                onClicked: {
-                    root.backend.retryReaderSettings();
-                    canvas.forceActiveFocus();
+                    ToolTip {
+                        parent: previous
+                        visible: previous.hovered
+                        text: previous.Accessible.name
+                    }
                 }
-            }
-        }
 
-        RowLayout {
-            Layout.fillWidth: true
-            visible: root.backend.readerProgressErrorText !== ""
-            spacing: 16
+                ReaderChromeButton {
+                    id: next
+                    objectName: "readerNextPage"
+                    Layout.preferredWidth: 40
+                    theme: root.theme
+                    foreground: root.chromeForeground
+                    icon.source: root.theme.iconSource("chevron-right")
+                    horizontalPadding: 0
+                    Accessible.name: root.backend.readerIsText
+                        ? qsTr("Next chapter") : qsTr("Next page")
+                    enabled: root.backend.readerIsText
+                        ? root.backend.readerChapterIndex + 1 < root.backend.readerChapterCount
+                        : root.backend.readerPageIndex + 1 < root.backend.readerPageCount
+                    opacity: enabled ? 1 : 0.38
+                    onClicked: root.turn(1)
 
-            Label {
-                objectName: "readerProgressError"
-                Layout.fillWidth: true
-                text: root.backend.readerProgressErrorText
-                wrapMode: Text.Wrap
-                textFormat: Text.PlainText
-            }
-
-            ActionButton {
-                objectName: "readerProgressRetry"
-                theme: root.theme
-                text: qsTr("Try again")
-                enabled: !root.backend.readerProgressPending
-                onClicked: root.backend.retryReaderProgress()
-            }
-        }
-
-        ReaderCanvas {
-            id: canvas
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            backend: root.backend
-            theme: root.theme
-            readingForeground: root.readingForeground
-        }
-    }
-
-    MouseArea {
-        x: 0
-        y: root.topPadding + toolbar.height + progressTrack.height + 12
-        width: root.leftPadding
-        height: root.height - y
-        enabled: !chapters.visible && !appearance.visible
-            && !root.backend.readerBusy
-        onClicked: root.turn(-1)
-    }
-
-    MouseArea {
-        x: root.width - root.rightPadding
-        y: root.topPadding + toolbar.height + progressTrack.height + 12
-        width: root.rightPadding
-        height: root.height - y
-        enabled: !chapters.visible && !appearance.visible
-            && !root.backend.readerBusy
-        onClicked: root.turn(1)
-    }
-
-    Rectangle {
-        id: navigation
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.margins: 24
-        width: navigationControls.implicitWidth + 12
-        height: 50
-        radius: height / 2
-        color: Qt.tint(root.readingBackground, Qt.rgba(root.chromeForeground.r,
-            root.chromeForeground.g, root.chromeForeground.b, 0.09))
-        visible: !root.backend.readerBusy && (root.backend.readerIsText
-            ? root.backend.readerChapterCount > 1 : root.backend.readerPageCount > 1)
-
-        RowLayout {
-            id: navigationControls
-            anchors.fill: parent
-            anchors.leftMargin: 4
-            anchors.rightMargin: 4
-            spacing: 2
-
-            ReaderChromeButton {
-                id: previous
-                objectName: "readerPreviousPage"
-                Layout.preferredWidth: 40
-                theme: root.theme
-                foreground: root.chromeForeground
-                icon.source: root.theme.iconSource("chevron-left")
-                horizontalPadding: 0
-                Accessible.name: root.backend.readerIsText
-                    ? qsTr("Previous chapter") : qsTr("Previous page")
-                enabled: root.backend.readerIsText
-                    ? root.backend.readerChapterIndex > 0 : root.backend.readerPageIndex > 0
-                opacity: enabled ? 1 : 0.38
-                onClicked: root.turn(-1)
-
-                ToolTip {
-                    parent: previous
-                    visible: previous.hovered
-                    text: previous.Accessible.name
-                }
-            }
-
-            ReaderChromeButton {
-                id: next
-                objectName: "readerNextPage"
-                Layout.preferredWidth: 40
-                theme: root.theme
-                foreground: root.chromeForeground
-                icon.source: root.theme.iconSource("chevron-right")
-                horizontalPadding: 0
-                Accessible.name: root.backend.readerIsText
-                    ? qsTr("Next chapter") : qsTr("Next page")
-                enabled: root.backend.readerIsText
-                    ? root.backend.readerChapterIndex + 1 < root.backend.readerChapterCount
-                    : root.backend.readerPageIndex + 1 < root.backend.readerPageCount
-                opacity: enabled ? 1 : 0.38
-                onClicked: root.turn(1)
-
-                ToolTip {
-                    parent: next
-                    visible: next.hovered
-                    text: next.Accessible.name
+                    ToolTip {
+                        parent: next
+                        visible: next.hovered
+                        text: next.Accessible.name
+                    }
                 }
             }
         }

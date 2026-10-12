@@ -140,7 +140,7 @@ impl ffi::ContentController {
         let defaults = ReaderSettings::default();
         let mut settings = self.reader_settings.value.clone();
         settings.background_color = defaults.background_color;
-        if self.reader.is_text {
+        if self.reader_is_text() {
             settings.text_color = defaults.text_color;
             settings.font_family = defaults.font_family;
             settings.font_size = defaults.font_size;
