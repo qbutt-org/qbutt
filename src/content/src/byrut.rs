@@ -461,7 +461,8 @@ fn selector(value: &str) -> Selector {
 }
 
 fn optional<'a>(root: ElementRef<'a>, value: &str) -> Result<Option<ElementRef<'a>>> {
-    let mut elements = root.select(&selector(value));
+    let selector = selector(value);
+    let mut elements = root.select(&selector);
     let first = elements.next();
     if elements.next().is_some() {
         return Err(Error::InvalidResponse("ambiguous ByRut metadata"));

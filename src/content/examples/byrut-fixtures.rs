@@ -4,8 +4,11 @@
 #[path = "../src/model.rs"]
 mod model;
 pub use model::*;
-pub use qbutt_content::{Error, Result};
+#[path = "../src/error.rs"]
+mod error;
+pub use error::{Error, Result};
 
+#[allow(dead_code)]
 #[path = "../src/torrent.rs"]
 mod torrent;
 
@@ -43,6 +46,10 @@ use url::Url;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--live") {
+        return live().await;
+    }
+
     let fixture = Fixture::start().await?;
     let provider = byrut::fixture(
         http::fixture(fixture.client.clone(), fixture.origin.clone()),
@@ -65,6 +72,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .inspect(&found[0].reference, None, browser::BrowserChoice::Auto)
         .await?;
     assert_eq!(work.variants.len(), 1);
+    assert_eq!(
+        work.variants[0].info_hash.as_deref(),
+        Some("8aa48ccd171ff9e64325b54367e9aedcc2ce6af6")
+    );
+    assert_eq!(
+        torrent::info_hash(changed_torrent())?,
+        "c6efc810a63332cbaf4ad8384e0ee6ed3b473f4d"
+    );
+    assert!(torrent::info_hash(b"not bencoded metadata").is_err());
     assert!(
         work.variants[0]
             .title
@@ -162,6 +178,48 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     fixture.stop().await;
     println!(
         "PASS byrut_fixtures generated_https search inspect exact_torrent replaced_metadata_rejected faults_rejected game_payload=none"
+    );
+    Ok(())
+}
+
+async fn live() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let provider = byrut::ByRut::new()?;
+    let found = provider
+        .search(
+            "Stardew Valley",
+            Category::Games,
+            None,
+            browser::BrowserChoice::Auto,
+        )
+        .await?;
+    let publication = found
+        .iter()
+        .find(|work| work.reference.id == "2799-stardew-valley")
+        .ok_or("live ByRut search omitted the expected publication")?;
+    let work = provider
+        .inspect(&publication.reference, None, browser::BrowserChoice::Auto)
+        .await?;
+    let selected = work
+        .variants
+        .first()
+        .ok_or("live ByRut article has no torrent")?;
+    let resolved = provider
+        .resolve(&selected.reference, None, browser::BrowserChoice::Auto)
+        .await?;
+    let ResolvedContent::TorrentFile {
+        reference,
+        metadata,
+    } = resolved
+    else {
+        return Err("live ByRut resolve did not return torrent metadata".into());
+    };
+    assert_eq!(reference, selected.reference);
+    println!(
+        "PASS byrut_live {} {} {} metadata_bytes={} game_payload=none",
+        work.reference.id,
+        selected.title.as_deref().unwrap_or_default(),
+        selected.info_hash.as_deref().unwrap_or_default(),
+        metadata.bytes().len()
     );
     Ok(())
 }
