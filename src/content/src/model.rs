@@ -394,6 +394,29 @@ pub struct Work {
     pub needs_inspection: bool,
 }
 
+/// Acquired .torrent bytes, kept in memory until the native libtorrent handoff.
+/// This is not a persistent reference and does not claim a validated infohash.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TorrentMetadata(Vec<u8>);
+
+impl TorrentMetadata {
+    pub const MAX_BYTES: usize = 10 * 1024 * 1024;
+
+    pub fn new(bytes: Vec<u8>) -> crate::Result<Self> {
+        if bytes.is_empty() {
+            return Err(crate::Error::InvalidResponse("empty torrent metadata"));
+        }
+        if bytes.len() > Self::MAX_BYTES {
+            return Err(crate::Error::ResponseTooLarge);
+        }
+        Ok(Self(bytes))
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 /// A resolution is a fresh acquisition descriptor, not a persistent share link.
 /// DirectVideo does not imply that a player has been launched or a stream read.
 #[derive(Clone, PartialEq, Eq)]
@@ -402,6 +425,11 @@ pub enum ResolvedContent {
         reference: VariantRef,
         title: String,
         magnet: Url,
+    },
+    TorrentFile {
+        reference: VariantRef,
+        title: String,
+        metadata: TorrentMetadata,
     },
     DirectVideo {
         reference: VariantRef,
