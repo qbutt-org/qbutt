@@ -9,17 +9,17 @@ import zlib
 from pathlib import Path
 
 
-def png() -> bytes:
+def png(width: int = 96, height: int = 64) -> bytes:
     def chunk(kind: bytes, body: bytes) -> bytes:
         return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
 
     pixels = b"".join(
-        b"\0" + b"".join(bytes((0, 157, 247)) if x < 48 else bytes((255, 190, 80))
-                          for x in range(96))
-        for _ in range(64)
+        b"\0" + b"".join(bytes((0, 157, 247)) if x < width // 2 else bytes((255, 190, 80))
+                          for x in range(width))
+        for _ in range(height)
     )
     return (b"\x89PNG\r\n\x1a\n"
-            + chunk(b"IHDR", struct.pack(">2I5B", 96, 64, 8, 2, 0, 0, 0))
+            + chunk(b"IHDR", struct.pack(">2I5B", width, height, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b""))
 
 
@@ -123,6 +123,7 @@ def main() -> None:
     destination.mkdir(parents=True, exist_ok=True)
     illustration = png()
     create_epub(destination / "native.epub", illustration)
+    create_epub(destination / "highres.epub", png(5000, 3000))
     create_fragment_epub(destination / "fragments.epub", illustration)
     shutil.copyfile(destination / "native.epub", destination / "unsafe.epub")
     with zipfile.ZipFile(destination / "unsafe.epub", "a") as book:
