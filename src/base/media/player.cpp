@@ -1343,7 +1343,7 @@ void Player::subtitleFailure(const QString &message)
     if (m_subtitles.command == SubtitleCommand::None)
         m_subtitles.loading = {};
     const QString explanation = message.isEmpty()
-        ? tr("Subtitle translation is unavailable. Retry or open AI translation settings in Sources.") : message;
+        ? tr("Subtitle translation is unavailable. Retry or open Options > Search > Subtitle translation.") : message;
     publishSubtitleState(u"error"_s, explanation);
     applySubtitles();
 }

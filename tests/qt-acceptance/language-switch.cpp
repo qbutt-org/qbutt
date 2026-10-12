@@ -99,7 +99,11 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
     require((views.size() == 1) && (window->currentTabWidget() == views.first()),
         u"MainWindow did not open its native content view"_s);
     auto *view = views.first();
-    require(view->status() == QQuickWidget::Ready && view->rootObject(), u"Main QML did not load"_s);
+    QStringList qmlErrors;
+    for (const auto &error : view->errors())
+        qmlErrors.append(error.toString());
+    require(view->status() == QQuickWidget::Ready && view->rootObject(),
+        u"Main QML did not load: "_s + qmlErrors.join(u"; "_s));
     auto *root = view->rootObject();
     auto *controller = child<Qbutt::ContentController>(view, u"contentController"_s);
     window->resize(1440, 900);
@@ -113,6 +117,11 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
     optionsAction->trigger();
     auto *options = window->findChild<OptionsDialog *>();
     require(options && options->isVisible(), u"Main Options action did not open the dialog"_s);
+    auto *sources = child<QQuickWidget>(options, u"sourcesView"_s);
+    require(sources->status() == QQuickWidget::Ready && sources->rootObject(),
+        u"Options Sources QML did not load"_s);
+    require(sources->rootObject()->property("backend").value<QObject *>() == controller,
+        u"Options Sources does not share the search controller"_s);
     auto *language = child<QComboBox>(options, u"comboLanguage"_s);
     auto *buttons = child<QDialogButtonBox>(options, u"buttonBox"_s);
     auto *apply = buttons->button(QDialogButtonBox::Apply);

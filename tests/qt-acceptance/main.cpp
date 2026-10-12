@@ -118,6 +118,7 @@
 #include "gui/mainwindow.h"
 #include "gui/networkdiagnosticsdialog.h"
 #include "gui/optionsdialog.h"
+#include "gui/quick/contentview.h"
 #include "gui/pathswidget.h"
 #include "gui/policiesdialog.h"
 #include "gui/profileimportdialog.h"
@@ -411,7 +412,7 @@ namespace
 
     void exercisePaths(Application &application, MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
-        OptionsDialog dialog {&application, window};
+        OptionsDialog dialog {&application, window->findChild<Content::ContentView *>(u"contentView"_s), window};
         dialog.resize(1100, 900);
         dialog.showConnectionTab();
         dialog.show();
@@ -2071,7 +2072,7 @@ namespace
     void exerciseNetworkRestore(Application &application, MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
         const bool expectedEnabled = spec.value(u"mode"_s) == u"network-enabled-restore"_s;
-        OptionsDialog dialog {&application, window};
+        OptionsDialog dialog {&application, window->findChild<Content::ContentView *>(u"contentView"_s), window};
         dialog.showConnectionTab();
         dialog.show();
         auto *enabled = requiredChild<QCheckBox>(&dialog, u"mihomoEnabled"_s);
@@ -2511,7 +2512,7 @@ namespace
             };
             const QByteArray darkIcon = iconDigest(retainedIcon);
             {
-                OptionsDialog preview {&application, window};
+                OptionsDialog preview {&application, window->findChild<Content::ContentView *>(u"contentView"_s), window};
                 preview.show();
                 auto *previewScheme = requiredChild<QComboBox>(&preview, u"comboColorScheme"_s);
                 auto *previewPages = requiredChild<QListWidget>(&preview, u"tabSelection"_s);
@@ -2577,7 +2578,7 @@ namespace
             captureAbout(u"product-dark"_s);
         }
 #endif
-        OptionsDialog options {&application, window};
+        OptionsDialog options {&application, window->findChild<Content::ContentView *>(u"contentView"_s), window};
         options.resize(840, 760);
         options.show();
         QCoreApplication::processEvents();
@@ -2808,7 +2809,7 @@ namespace
                         && (session->configuredDownloadSpeedLimit() == 1234567)
                         && (session->configuredUploadSpeedLimit() == 765432),
                     u"Unrelated Options apply rounded or enabled saved speed caps"_s);
-                OptionsDialog reopened {&application, window};
+                OptionsDialog reopened {&application, window->findChild<Content::ContentView *>(u"contentView"_s), window};
                 require(requiredChild<QCheckBox>(&reopened, u"checkAutoRemoveCompletedTorrents"_s)->isChecked()
                         && requiredChild<QCheckBox>(&reopened, u"checkDownloadProgressOverlay"_s)->isChecked(),
                     u"Saved download options did not survive reopening"_s);
@@ -2816,7 +2817,7 @@ namespace
                 remove->setChecked(false);
                 overlaySetting->setChecked(false);
                 apply->click();
-                OptionsDialog disabled {&application, window};
+                OptionsDialog disabled {&application, window->findChild<Content::ContentView *>(u"contentView"_s), window};
                 require(!Preferences::instance()->isDownloadProgressOverlayEnabled()
                         && !requiredChild<QCheckBox>(&disabled, u"checkDownloadProgressOverlay"_s)->isChecked(),
                     u"Explicitly disabled download overlay did not survive reopening"_s);
@@ -2945,7 +2946,8 @@ namespace
     {
         auto *watcher = TorrentFilesWatcher::instance();
         require(!watcher->isAutoOpenEnabled(), u"Auto-open fixture did not disable Desktop watching"_s);
-        OptionsDialog options {&application, application.mainWindow()};
+        OptionsDialog options {&application,
+            application.mainWindow()->findChild<Content::ContentView *>(u"contentView"_s), application.mainWindow()};
         auto *enabled = requiredChild<QGroupBox>(&options, u"groupAutoOpenTorrents"_s);
         auto *folder = requiredChild<FileSystemPathEdit>(&options, u"autoOpenTorrentFolder"_s);
         auto *buttons = requiredChild<QDialogButtonBox>(&options, u"buttonBox"_s);

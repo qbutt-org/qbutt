@@ -82,7 +82,7 @@ namespace Content
     class BrowserPrerequisiteWidget;
     class ContentView;
     class ReaderWidget;
-    class SourcesDialog;
+    class TranslationSettingsDialog;
 }
 
 namespace Ui
@@ -232,7 +232,7 @@ private:
     QPointer<ReleaseUpdateDialog> m_releaseUpdateDialog;
     QPointer<QProgressDialog> m_playerPreparationDialog;
     QPointer<QProgressDialog> m_capturePreparationDialog;
-    QPointer<Content::SourcesDialog> m_subtitleSettings;
+    QPointer<Content::TranslationSettingsDialog> m_subtitleSettings;
     ReleaseUpdater *m_releaseUpdater = nullptr;
     QPointer<TorrentCreatorDialog> m_createTorrentDlg;
     QPointer<DownloadFromURLDialog> m_downloadFromURLDialog;

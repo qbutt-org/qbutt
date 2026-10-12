@@ -31,6 +31,7 @@ namespace Content
         void closeBrowserSession(quint64 generation);
         void openSharedLink(const QUrl &url);
         QQuickWidget *createDownloadsView(QWidget *parent);
+        QQuickWidget *createSourcesView(QWidget *parent);
         void initDownloads(const QString &destination);
         bool downloadPlayback(quint64 launchToken);
         bool downloadCapture(const QUrl &page, const QString &title, const QString &captureId);
@@ -59,6 +60,7 @@ namespace Content
 
     private:
         void changeEvent(QEvent *event) override;
+        bool eventFilter(QObject *watched, QEvent *event) override;
 
         Qbutt::ContentController *m_controller = nullptr;
         ReaderImageProvider *m_readerImages = nullptr; // QQmlEngine owns the provider.

@@ -3205,43 +3205,35 @@ Disable encryption: Only connect to peers without protocol encryption</string>
          <number>0</number>
         </property>
         <item>
-         <widget class="QScrollArea" name="searchPageScrollArea">
-          <property name="widgetResizable">
-           <bool>true</bool>
-          </property>
-          <widget class="QWidget" name="searchPageScrollAreaWidgetContents">
-           <property name="geometry">
-            <rect>
-             <x>0</x>
-             <y>0</y>
-             <width>521</width>
-             <height>541</height>
-            </rect>
-           </property>
-           <layout class="QVBoxLayout" name="searchPageScrollAreaWidgetContentsLayout">
-            <item alignment="Qt::AlignmentFlag::AlignLeft">
-             <widget class="QPushButton" name="sourcesSettingsButton">
-              <property name="text">
-               <string>Sources…</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <spacer name="searchPageScrollAreaSpacer">
-              <property name="orientation">
-               <enum>Qt::Orientation::Vertical</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>20</width>
-                <height>422</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
-           </layout>
-          </widget>
-         </widget>
+         <layout class="QHBoxLayout" name="contentSettingsActions">
+          <item>
+           <widget class="QPushButton" name="browserSettingsButton">
+            <property name="text">
+             <string>Browser…</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="translationSettingsButton">
+            <property name="text">
+             <string>Subtitle translation…</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="contentSettingsActionsSpacer">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>0</width>
+              <height>0</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
         </item>
        </layout>
       </widget>

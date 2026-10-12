@@ -52,7 +52,7 @@ add_library(qbt_gui STATIC
     content/readerimages.h
     content/readersettingsdialog.h
     content/readerwidget.h
-    content/sourcesdialog.h
+    content/translationsettingsdialog.h
     cookiesdialog.h
     cookiesmodel.h
     deletionconfirmationdialog.h
@@ -170,7 +170,7 @@ add_library(qbt_gui STATIC
     content/readerimages.cpp
     content/readersettingsdialog.cpp
     content/readerwidget.cpp
-    content/sourcesdialog.cpp
+    content/translationsettingsdialog.cpp
     cookiesdialog.cpp
     cookiesmodel.cpp
     deletionconfirmationdialog.cpp

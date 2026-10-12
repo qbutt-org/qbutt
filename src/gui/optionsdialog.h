@@ -49,6 +49,11 @@ enum DoubleClickAction
     SHOW_OPTIONS = 4
 };
 
+namespace Content
+{
+    class ContentView;
+}
+
 namespace Net
 {
     enum class ProxyType;
@@ -80,7 +85,7 @@ class OptionsDialog final : public GUIApplicationComponent<QDialog>
     };
 
 public:
-    explicit OptionsDialog(IGUIApplication *app, QWidget *parent = nullptr);
+    explicit OptionsDialog(IGUIApplication *app, Content::ContentView *content, QWidget *parent = nullptr);
     ~OptionsDialog() override;
 
 public slots:

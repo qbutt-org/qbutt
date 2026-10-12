@@ -78,7 +78,7 @@
 #include "content/browsercapture.h"
 #include "content/browserprerequisitewidget.h"
 #include "content/readerwidget.h"
-#include "content/sourcesdialog.h"
+#include "content/translationsettingsdialog.h"
 #include "cookiesdialog.h"
 #include "desktopintegration.h"
 #include "downloadfromurldialog.h"
@@ -184,7 +184,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     {
         if (!m_subtitleSettings)
         {
-            m_subtitleSettings = new Content::SourcesDialog(this, u"ai"_s);
+            m_subtitleSettings = new Content::TranslationSettingsDialog(this);
             m_subtitleSettings->setAttribute(Qt::WA_DeleteOnClose);
         }
         m_subtitleSettings->show();
@@ -1018,6 +1018,7 @@ void MainWindow::cleanup()
     m_browserCapture = nullptr;
     disconnect(Content::Client::instance(), nullptr, this, nullptr);
     delete m_downloadsWidget;
+    delete m_options;
     delete m_searchWidget;
     QThreadPool::globalInstance()->waitForDone();
 
@@ -1619,7 +1620,7 @@ void MainWindow::on_actionOptions_triggered()
     }
     else
     {
-        m_options = new OptionsDialog(app(), this);
+        m_options = new OptionsDialog(app(), ensureContentView(), this);
         m_options->setAttribute(Qt::WA_DeleteOnClose);
         m_options->open();
     }

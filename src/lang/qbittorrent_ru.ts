@@ -3758,32 +3758,32 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Проверьте сессию источника в разделе «Источники».</translation>
     </message>
     <message>
-        <source>Codex is unavailable. Install it and sign in, or choose another AI service in Sources.</source>
-        <translation>Codex недоступен. Установите его и войдите в аккаунт или выберите другой AI-сервис в разделе «Источники».</translation>
+        <source>Codex is unavailable. Install it and sign in, or choose another service under Options &gt; Search &gt; Subtitle translation.</source>
+        <translation>Codex недоступен. Установите его и войдите в аккаунт или выберите другой сервис: Настройки → Поиск → Перевод субтитров.</translation>
     </message>
     <message>
-        <source>Sign in to your AI service or check its API key in Sources.</source>
-        <translation>Войдите в AI-сервис или проверьте его API-ключ в разделе «Источники».</translation>
+        <source>Sign in to your AI service or check its API key under Options &gt; Search &gt; Subtitle translation.</source>
+        <translation>Войдите в AI-сервис или проверьте его API-ключ: Настройки → Поиск → Перевод субтитров.</translation>
     </message>
     <message>
-        <source>Check the AI translation settings in Sources.</source>
-        <translation>Проверьте настройки AI-перевода в разделе «Источники».</translation>
+        <source>Check Options &gt; Search &gt; Subtitle translation.</source>
+        <translation>Проверьте параметры в разделе Настройки → Поиск → Перевод субтитров.</translation>
     </message>
     <message>
         <source>AI translation took too long. Retry.</source>
         <translation>AI-перевод занял слишком много времени. Повторите попытку.</translation>
     </message>
     <message>
-        <source>The AI service could not complete the translation. Retry or check its settings in Sources.</source>
-        <translation>AI-сервис не смог завершить перевод. Повторите попытку или проверьте его настройки в разделе «Источники».</translation>
+        <source>Translation failed. Retry or check Options &gt; Search &gt; Subtitle translation.</source>
+        <translation>Не удалось перевести. Повторите попытку или проверьте параметры: Настройки → Поиск → Перевод субтитров.</translation>
     </message>
     <message>
         <source>The AI service returned an invalid translation. Retry or choose another model.</source>
         <translation>AI-сервис вернул некорректный перевод. Повторите попытку или выберите другую модель.</translation>
     </message>
     <message>
-        <source>This AI service cannot translate with the current settings. Choose another service or model in Sources.</source>
-        <translation>AI-сервис не может выполнить перевод с текущими настройками. Выберите другой сервис или модель в разделе «Источники».</translation>
+        <source>Choose another service or model under Options &gt; Search &gt; Subtitle translation.</source>
+        <translation>Выберите другой сервис или модель: Настройки → Поиск → Перевод субтитров.</translation>
     </message>
     <message>
         <source>The source check is unavailable. Reinstall qbutt.</source>
@@ -3883,8 +3883,8 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
     <message>
         <location filename="../base/content/client.cpp" line="47"/>
-        <source>Choose an installed browser in Sources.</source>
-        <translation>Выберите установленный браузер в разделе «Источники».</translation>
+        <source>Choose a browser under Options &gt; Search &gt; Browser.</source>
+        <translation>Выберите браузер: Настройки → Поиск → Браузер.</translation>
     </message>
     <message>
         <location filename="../base/content/client.cpp" line="49"/>
@@ -4567,15 +4567,7 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
 </context>
 <context>
-    <name>Content::SourcesDialog</name>
-    <message>
-        <source>Premium account session cookies</source>
-        <translation>Cookies сессии Premium-аккаунта</translation>
-    </message>
-    <message>
-        <source>Site address</source>
-        <translation>Адрес сайта</translation>
-    </message>
+    <name>Content::TranslationSettingsDialog</name>
     <message>
         <source>Automatic</source>
         <translation>Автоматически</translation>
@@ -4601,95 +4593,32 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <translation>Совместимый с OpenAI</translation>
     </message>
     <message>
-        <source>Check again</source>
-        <translation>Проверить снова</translation>
-    </message>
-    <message>
-        <source>Checking…</source>
-        <translation>Проверка…</translation>
-    </message>
-    <message>
-        <source>Browser</source>
-        <translation>Браузер</translation>
-    </message>
-    <message>
         <source>AI translation</source>
         <translation>AI-перевод</translation>
     </message>
     <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="24"/>
-        <source>Sources</source>
-        <translation>Источники</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="32"/>
-        <source>Find a source</source>
-        <translation>Найти источник</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="53"/>
-        <source>Use in search</source>
-        <translation>Использовать в поиске</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="62"/>
         <source>Save</source>
         <translation>Сохранить</translation>
     </message>
     <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="70"/>
-        <source>Loading sources…</source>
-        <translation>Загрузка источников…</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="74"/>
-        <source>Update sources</source>
-        <translation>Обновить источники</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="82"/>
-        <source>Updating sources…</source>
-        <translation>Обновление источников…</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="155"/>
-        <source>Advanced settings</source>
-        <translation>Дополнительные настройки</translation>
-    </message>
-    <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="191"/>
-        <location filename="../gui/content/sourcesdialog.cpp" line="305"/>
         <source>Saved</source>
         <translation>Сохранено</translation>
     </message>
     <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="193"/>
         <source>Clear saved value</source>
         <translation>Очистить сохранённое значение</translation>
     </message>
     <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="198"/>
         <source>Will be cleared</source>
         <translation>Будет очищено</translation>
     </message>
     <message>
-        <location filename="../gui/content/sourcesdialog.cpp" line="229"/>
-        <location filename="../gui/content/sourcesdialog.cpp" line="303"/>
         <source>Saving…</source>
         <translation>Сохранение…</translation>
     </message>
-    <message numerus="yes">
-        <location filename="../gui/content/sourcesdialog.cpp" line="287"/>
-        <source>%n source(s)</source>
-        <translation>
-            <numerusform>%n источник</numerusform>
-            <numerusform>%n источника</numerusform>
-            <numerusform>%n источников</numerusform>
-        </translation>
-    </message>
     <message>
-        <source>Complete check</source>
-        <translation>Пройти проверку</translation>
+        <source>Loading…</source>
+        <translation>Загрузка…</translation>
     </message>
 </context>
 <context>
@@ -6085,8 +6014,8 @@ Minimum requirement: %2.</source>
         <translation>Не удалось включить перевод субтитров. Выберите исходную дорожку субтитров.</translation>
     </message>
     <message>
-        <source>Subtitle translation is unavailable. Retry or open AI translation settings in Sources.</source>
-        <translation>Перевод субтитров недоступен. Повторите попытку или откройте настройки AI-перевода в разделе «Источники».</translation>
+        <source>Subtitle translation is unavailable. Retry or open Options &gt; Search &gt; Subtitle translation.</source>
+        <translation>Перевод субтитров недоступен. Повторите попытку или откройте Настройки → Поиск → Перевод субтитров.</translation>
     </message>
     <message>
         <source>The original subtitle track is no longer available. Choose another track.</source>
@@ -10990,6 +10919,18 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
     <message>
         <source>Speed limit must be zero or greater.</source>
         <translation>Ограничение скорости должно быть неотрицательным.</translation>
+    </message>
+    <message>
+        <source>Browser…</source>
+        <translation>Браузер…</translation>
+    </message>
+    <message>
+        <source>Browser</source>
+        <translation>Браузер</translation>
+    </message>
+    <message>
+        <source>Subtitle translation…</source>
+        <translation>Перевод субтитров…</translation>
     </message>
 </context>
 <context>

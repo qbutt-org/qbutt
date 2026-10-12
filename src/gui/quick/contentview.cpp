@@ -126,6 +126,7 @@ QQuickWidget *Content::ContentView::createDownloadsView(QWidget *parent)
 {
     auto *view = new QQuickWidget(parent);
     view->setObjectName(QStringLiteral("downloadsView"));
+    view->installEventFilter(this);
     view->setResizeMode(QQuickWidget::SizeRootObjectToView);
     view->setInitialProperties({{QStringLiteral("backend"), QVariant::fromValue(m_controller)}});
     view->loadFromModule(QStringLiteral("Qbutt.Views"), QStringLiteral("DownloadsPage"));
@@ -134,6 +135,17 @@ QQuickWidget *Content::ContentView::createDownloadsView(QWidget *parent)
         connect(view->rootObject(), SIGNAL(openFolderRequested(QString)),
             this, SLOT(openDownloadedFolder(QString)));
     }
+    return view;
+}
+
+QQuickWidget *Content::ContentView::createSourcesView(QWidget *parent)
+{
+    auto *view = new QQuickWidget(parent);
+    view->setObjectName(QStringLiteral("sourcesView"));
+    view->installEventFilter(this);
+    view->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    view->setInitialProperties({{QStringLiteral("backend"), QVariant::fromValue(m_controller)}});
+    view->loadFromModule(QStringLiteral("Qbutt.Views"), QStringLiteral("SourcesPage"));
     return view;
 }
 
@@ -234,4 +246,14 @@ void Content::ContentView::changeEvent(QEvent *event)
         m_controller->retranslate();
         engine()->retranslate();
     }
+}
+
+bool Content::ContentView::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange)
+    {
+        if (auto *view = qobject_cast<QQuickWidget *>(watched))
+            view->engine()->retranslate();
+    }
+    return QQuickWidget::eventFilter(watched, event);
 }

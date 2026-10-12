@@ -19,7 +19,6 @@
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QLabel>
-#include <QListWidget>
 #include <QMouseEvent>
 #include <QPalette>
 #include <QPointer>
@@ -39,7 +38,7 @@
 #include "base/profile.h"
 #include "base/utils/fs.h"
 #include "gui/addnewtorrentdialog.h"
-#include "gui/content/sourcesdialog.h"
+#include "gui/content/translationsettingsdialog.h"
 #include "gui/fspathedit.h"
 #include "gui/guiaddtorrentmanager.h"
 #include "gui/mainwindow.h"
@@ -454,10 +453,9 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         require(application.mainWindow()->grab().save(screenshots.filePath(u"main-content.png"_s)),
             u"Could not capture main content view"_s);
         Media::Player::instance()->subtitleSettingsRequested();
-        auto *settings = application.mainWindow()->findChild<Content::SourcesDialog *>();
-        auto *sourceList = settings ? settings->findChild<QListWidget *>(u"contentSourceList"_s) : nullptr;
-        require(settings && settings->isVisible() && sourceList && sourceList->isHidden()
-            && (settings->windowTitle() == Content::SourcesDialog::tr("AI translation")),
+        auto *settings = application.mainWindow()->findChild<Content::TranslationSettingsDialog *>();
+        require(settings && settings->isVisible()
+            && (settings->windowTitle() == Content::TranslationSettingsDialog::tr("AI translation")),
             u"Player subtitle settings did not open the AI-only settings view"_s);
         settings->close();
         check[u"playerAiSettingsRoute"_s] = true;

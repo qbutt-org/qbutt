@@ -61,7 +61,7 @@ namespace
         else if (code == u"browser_error")
             message = Content::Client::tr("Could not read the source in the browser. Open the source and try again.");
         else if (code == u"browser_choice_required")
-            message = Content::Client::tr("Choose an installed browser in Sources.");
+            message = Content::Client::tr("Choose a browser under Options > Search > Browser.");
         else if (code == u"browser_unsupported")
             message = Content::Client::tr("qcatch supports Microsoft Edge and Google Chrome.");
         else if (code == u"webview_unavailable")
@@ -79,19 +79,19 @@ namespace
         else if (code == u"source_authorization_required")
             message = Content::Client::tr("Save your account session in Sources before using this source.");
         else if (code == u"ai_unavailable")
-            message = Content::Client::tr("Codex is unavailable. Install it and sign in, or choose another AI service in Sources.");
+            message = Content::Client::tr("Codex is unavailable. Install it and sign in, or choose another service under Options > Search > Subtitle translation.");
         else if (code == u"ai_authentication")
-            message = Content::Client::tr("Sign in to your AI service or check its API key in Sources.");
+            message = Content::Client::tr("Sign in to your AI service or check its API key under Options > Search > Subtitle translation.");
         else if (code == u"ai_configuration")
-            message = Content::Client::tr("Check the AI translation settings in Sources.");
+            message = Content::Client::tr("Check Options > Search > Subtitle translation.");
         else if (code == u"ai_timeout")
             message = Content::Client::tr("AI translation took too long. Retry.");
         else if (code == u"ai_provider")
-            message = Content::Client::tr("The AI service could not complete the translation. Retry or check its settings in Sources.");
+            message = Content::Client::tr("Translation failed. Retry or check Options > Search > Subtitle translation.");
         else if (code == u"ai_invalid-response")
             message = Content::Client::tr("The AI service returned an invalid translation. Retry or choose another model.");
         else if (code == u"ai_capability")
-            message = Content::Client::tr("This AI service cannot translate with the current settings. Choose another service or model in Sources.");
+            message = Content::Client::tr("Choose another service or model under Options > Search > Subtitle translation.");
         if (!message.isEmpty())
             failure.insert(u"message"_s, message);
         return failure;

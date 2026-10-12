@@ -42,6 +42,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMessageBox>
+#include <QVBoxLayout>
 
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/sharelimits.h"
@@ -67,10 +68,12 @@
 #include "addnewtorrentdialog.h"
 #include "advancedsettings.h"
 #include "banlistoptionsdialog.h"
-#include "content/sourcesdialog.h"
+#include "content/browserconnectionwidget.h"
+#include "content/translationsettingsdialog.h"
 #include "interfaces/iguiapplication.h"
 #include "ipsubnetwhitelistoptionsdialog.h"
 #include "pathswidget.h"
+#include "quick/contentview.h"
 #include "rss/automatedrssdownloader.h"
 #include "ui_optionsdialog.h"
 #include "uithemedialog.h"
@@ -150,7 +153,7 @@ namespace
 }
 
 // Constructor
-OptionsDialog::OptionsDialog(IGUIApplication *app, QWidget *parent)
+OptionsDialog::OptionsDialog(IGUIApplication *app, Content::ContentView *content, QWidget *parent)
     : GUIApplicationComponent(app, parent)
     , m_ui {new Ui::OptionsDialog}
     , m_storeDialogSize {SETTINGS_KEY(u"Size"_s)}
@@ -198,9 +201,23 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, QWidget *parent)
     loadSpeedTabOptions();
     loadBittorrentTabOptions();
     loadRSSTabOptions();
-    connect(m_ui->sourcesSettingsButton, &QPushButton::clicked, this, [this]
+    m_ui->searchPageLayout->insertWidget(0, content->createSourcesView(m_ui->tabSearchPage), 1);
+    connect(m_ui->browserSettingsButton, &QPushButton::clicked, this, [this]
     {
-        auto *dialog = new Content::SourcesDialog(this);
+        auto *dialog = new QDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setWindowTitle(tr("Browser"));
+        auto *layout = new QVBoxLayout(dialog);
+        layout->addWidget(new Content::BrowserConnectionWidget(true, dialog));
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+        connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+        layout->addWidget(buttons);
+        dialog->resize(520, 240);
+        dialog->open();
+    });
+    connect(m_ui->translationSettingsButton, &QPushButton::clicked, this, [this]
+    {
+        auto *dialog = new Content::TranslationSettingsDialog(this);
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->open();
     });

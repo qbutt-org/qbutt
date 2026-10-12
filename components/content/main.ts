@@ -1,7 +1,7 @@
 import { dirname, join, resolve } from "node:path";
 
 import { BrowserBridge, type BrowserChoice } from "./browser";
-import { Catalog } from "./catalog";
+import { Catalog, translationSource } from "./catalog";
 import { maxMessageBytes, type Request, type ResolvedContent, type SearchRequest, type Variant, type Work } from "./contracts";
 import { DownloadQueue } from "./downloads";
 import { resolveVariant } from "./media";
@@ -21,7 +21,7 @@ import { PlaybackStreams } from "./streams";
 import { handleSubtitleRequest } from "./subtitles/service";
 
 const persistenceMethods = new Set([
-    "configureSource", "remember", "progress", "remove",
+    "configureSource", "configureTranslation", "remember", "progress", "remove",
     "reader.position", "reader.glossary", "reader.correct",
 ]);
 
@@ -231,6 +231,16 @@ async function run(): Promise<void> {
                 return;
             }
             await catalog.search({ ...params, query, category: params.category || "all" } as SearchRequest, signal, emit);
+            return;
+        }
+        case "translationSettings":
+            emit("translationSettings", await settings.describe(translationSource));
+            return;
+        case "configureTranslation": {
+            const changes = Object.fromEntries(Object.entries(object(params.settings))
+                .map(([key, value]) => [key, String(value)]));
+            await settings.configure("ai", undefined, changes);
+            emit("translationSettings", await settings.describe(translationSource));
             return;
         }
         case "sources":
