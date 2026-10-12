@@ -87,6 +87,13 @@ namespace Media
             Finished
         };
 
+        enum class RuntimeProbeState
+        {
+            Idle,
+            Probing,
+            Retiring
+        };
+
         struct Playback
         {
             QUrl url;
@@ -144,7 +151,11 @@ namespace Media
 
         bool startPlayback(const QUrl &url, const QString &title, const PlaybackOptions &options);
         void startPending();
-        bool startPrepared(const QJsonObject &runtime);
+        void startPrepared();
+        void cancelPreparation();
+        void failPreparation(const QString &message);
+        void readRuntimeInfo();
+        void finishRuntimeProbe(int exitCode, QProcess::ExitStatus exitStatus);
         bool prepareCookies();
         void stopProcess();
         void finishPlayback();
@@ -162,6 +173,7 @@ namespace Media
         void subtitleAction(const QString &action);
         void publishSubtitleState(const QString &state = {}, const QString &message = {}, const QJsonObject &progress = {});
         void requestSubtitles();
+        void receiveSubtitleEvent(qint64 id, const QString &event, const QJsonValue &data);
         void receiveSubtitles(const QString &event, const QJsonObject &data);
         void applySubtitles();
         void sendSubtitleCommand(const QJsonArray &command, SubtitleCommand stage);
@@ -170,21 +182,25 @@ namespace Media
 
         std::unique_ptr<QTemporaryFile> m_cookies;
         QProcess m_process;
+        QProcess m_runtimeProbe;
         QLocalSocket m_ipc;
+        QTimer m_runtimeTimer;
         QTimer m_connectTimer;
         QTimer m_stopTimer;
         QTimer m_saveTimer;
         QElapsedTimer m_startupTime;
         QByteArray m_messages;
+        QByteArray m_runtimeOutput;
         Playback m_current;
         Playback m_pending;
         QString m_pipeName;
+        QString m_executable;
+        RuntimeProbeState m_runtimeProbeState = RuntimeProbeState::Idle;
         double m_position = 0;
         double m_duration = 0;
         int m_initialAudioId = 0;
         bool m_playing = false;
         bool m_stopping = false;
-        qint64 m_preparationRequest = 0;
         SubtitleTranslation m_subtitles;
         int m_nextSubtitleCommand = 10;
 

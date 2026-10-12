@@ -6086,6 +6086,30 @@ Minimum requirement: %2.</source>
         <translation>Подготовка проигрывателя…</translation>
     </message>
     <message>
+        <source>Install qplay to watch videos.</source>
+        <translation>Для просмотра видео установите qplay.</translation>
+    </message>
+    <message>
+        <source>qplay did not respond. Try opening the video again.</source>
+        <translation>qplay не ответил. Попробуйте открыть видео ещё раз.</translation>
+    </message>
+    <message>
+        <source>qplay could not start. Reinstall qplay.</source>
+        <translation>Не удалось запустить qplay. Переустановите его.</translation>
+    </message>
+    <message>
+        <source>qplay returned an invalid response. Reinstall qplay.</source>
+        <translation>qplay вернул некорректный ответ. Переустановите его.</translation>
+    </message>
+    <message>
+        <source>Install qplay %1 or newer to watch videos.</source>
+        <translation>Для просмотра видео установите qplay %1 или новее.</translation>
+    </message>
+    <message>
+        <source>The qplay installation is incomplete. Reinstall qplay.</source>
+        <translation>Установка qplay повреждена. Переустановите его.</translation>
+    </message>
+    <message>
         <source>Russian [AI translation]</source>
         <translation>Русский [AI-перевод]</translation>
     </message>

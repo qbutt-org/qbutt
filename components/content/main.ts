@@ -5,7 +5,6 @@ import { Catalog } from "./catalog";
 import { maxMessageBytes, type Request, type ResolvedContent, type SearchRequest, type Variant, type Work } from "./contracts";
 import { DownloadQueue } from "./downloads";
 import { resolveVariant } from "./media";
-import { mediaRuntime } from "./media-runtime";
 import { publicUrl, safeError } from "./net";
 import { NetworkProxy } from "./networkproxy";
 import { productExecutable } from "./products";
@@ -189,10 +188,6 @@ async function run(): Promise<void> {
         }
 
         switch (method) {
-        case "mediaRuntime": {
-            const runtime = await mediaRuntime(appDir, signal);
-            return { player: runtime.player };
-        }
         case "search": {
             const query = String(params.query || "").trim();
             if (query.startsWith("qbutt:")) {

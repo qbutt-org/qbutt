@@ -97,35 +97,19 @@ Player::Player(QObject *parent)
 {
     connect(StreamServer::instance(), &StreamServer::error, this, &Player::error);
     connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, &Player::stop);
-    connect(Content::Client::instance(), &Content::Client::eventReceived, this,
-        [this](const qint64 id, const QString &event, const QJsonValue &data)
+    m_runtimeProbe.setStandardErrorFile(QProcess::nullDevice());
+    m_runtimeTimer.setSingleShot(true);
+    m_runtimeTimer.setInterval(30000);
+    connect(&m_runtimeTimer, &QTimer::timeout, this, [this]
     {
-        if ((id != 0) && (id == m_subtitles.request))
-        {
-            receiveSubtitles(event, data.toObject());
-            return;
-        }
-        if ((id == 0) || (id != m_preparationRequest))
-            return;
-
-        if ((event != u"complete") && (event != u"error"))
-            return;
-
-        m_preparationRequest = 0;
-        if (event == u"error")
-        {
-            Playback pending = std::exchange(m_pending, {});
-            StreamServer::instance()->closeStream(pending.url);
-            finishLaunch(pending);
-            if (m_preparationRequest == 0)
-                emit preparationChanged({});
-            emit error(data.toObject().value(u"message"_s).toString());
-            return;
-        }
-        if (m_pending.url.isValid())
-            startPrepared(data.toObject());
-        if (m_preparationRequest == 0)
-            emit preparationChanged({});
+        failPreparation(tr("qplay did not respond. Try opening the video again."));
+    });
+    connect(&m_runtimeProbe, &QProcess::readyReadStandardOutput, this, &Player::readRuntimeInfo);
+    connect(&m_runtimeProbe, &QProcess::finished, this, &Player::finishRuntimeProbe);
+    connect(&m_runtimeProbe, &QProcess::errorOccurred, this, [this](const QProcess::ProcessError processError)
+    {
+        if (processError == QProcess::FailedToStart)
+            finishRuntimeProbe(-1, QProcess::CrashExit);
     });
 
     m_process.setStandardOutputFile(QProcess::nullDevice());
@@ -174,6 +158,12 @@ Player::Player(QObject *parent)
 Player::~Player()
 {
     stop();
+    m_runtimeProbe.disconnect(this);
+    if (m_runtimeProbe.state() != QProcess::NotRunning)
+    {
+        m_runtimeProbe.kill();
+        m_runtimeProbe.waitForFinished(1000);
+    }
     if ((m_process.state() != QProcess::NotRunning) && !m_process.waitForFinished(1000))
     {
         m_process.kill();
@@ -332,35 +322,21 @@ bool Player::playTorrent(BitTorrent::Torrent *torrent, const int fileIndex, cons
 void Player::stop()
 {
     Playback pending = std::exchange(m_pending, {});
-    if (m_preparationRequest != 0)
-    {
-        Content::Client::instance()->cancel(std::exchange(m_preparationRequest, 0));
-        emit preparationChanged({});
-    }
+    cancelPreparation();
     StreamServer::instance()->closeStream(pending.url);
-    finishLaunch(pending);
     stopProcess();
+    finishLaunch(pending);
+    if (m_runtimeProbeState != RuntimeProbeState::Probing)
+        emit preparationChanged({});
 }
 
-void Player::startPending()
+void Player::startPrepared()
 {
-    if (m_pending.url.isValid() && (m_preparationRequest == 0))
+    if (!QFileInfo(m_executable).isFile())
     {
-        m_preparationRequest = Content::Client::instance()->request(u"mediaRuntime"_s);
-        emit preparationChanged(tr("Preparing player…"));
-    }
-}
-
-bool Player::startPrepared(const QJsonObject &runtime)
-{
-    const QString executable = runtime.value(u"player"_s).toString();
-    if (!QFileInfo::exists(executable))
-    {
-        Playback pending = std::exchange(m_pending, {});
-        StreamServer::instance()->closeStream(pending.url);
-        finishLaunch(pending);
-        emit error(tr("The player is missing. Try opening the video again."));
-        return false;
+        m_executable.clear();
+        failPreparation(tr("The player is missing. Try opening the video again."));
+        return;
     }
 
     m_current = std::exchange(m_pending, {});
@@ -371,7 +347,7 @@ bool Player::startPrepared(const QJsonObject &runtime)
     if (!prepareCookies())
     {
         stopProcess();
-        return false;
+        return;
     }
     m_pipeName = u"qbutt-mpv-"_s + QUuid::createUuid().toString(QUuid::WithoutBraces);
 #ifdef Q_OS_WIN
@@ -398,10 +374,9 @@ bool Player::startPrepared(const QJsonObject &runtime)
             arguments.append(u"--profile-dir="_s + profile);
     }
     if ((m_current.options.contentKind == u"anime") || (m_current.options.contentKind == u"movie"))
-        arguments.append(u"--script-opts=video_profile-override="_s + m_current.options.contentKind);
+        arguments.append(u"--script-opts-append=video_profile-override="_s + m_current.options.contentKind);
 
-    m_process.start(executable, arguments);
-    return m_process.state() != QProcess::NotRunning;
+    m_process.start(m_executable, arguments);
 }
 
 bool Player::prepareCookies()
@@ -1051,13 +1026,21 @@ void Player::requestSubtitles()
     const QString identity = m_current.options.identity.isEmpty()
         ? QString::fromUtf8(m_current.url.toEncoded()) : m_current.options.identity;
     m_subtitles.requestedBucket = bucket;
-    m_subtitles.request = Content::Client::instance()->request(u"subtitles.ahead"_s,
+    auto *client = Content::Client::instance();
+    connect(client, &Content::Client::eventReceived, this, &Player::receiveSubtitleEvent, Qt::UniqueConnection);
+    m_subtitles.request = client->request(u"subtitles.ahead"_s,
         {{u"identity"_s, identity}, {u"url"_s, QString::fromUtf8(m_current.url.toEncoded())},
             {u"headers"_s, headers}, {u"proxyUrl"_s, QString::fromUtf8(m_current.options.proxyUrl.toEncoded())},
             {u"track"_s, m_subtitles.source}, {u"position"_s, position},
             {u"startTime"_s, m_subtitles.source.contains(u"url"_s) ? 0 : m_subtitles.startTime.value()},
             {u"targetLanguage"_s, u"ru"_s}});
     publishSubtitleState(u"translating"_s);
+}
+
+void Player::receiveSubtitleEvent(const qint64 id, const QString &event, const QJsonValue &data)
+{
+    if ((id != 0) && (id == m_subtitles.request))
+        receiveSubtitles(event, data.toObject());
 }
 
 void Player::receiveSubtitles(const QString &event, const QJsonObject &data)

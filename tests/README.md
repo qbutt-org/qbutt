@@ -265,8 +265,8 @@ $env:QBUTT_LAB_QPLAY = 'C:/Tools/qbutt/main-combined-qa/runtime/qplay/qplay.exe'
 bun tests/qt-acceptance/native-watch.ts
 ```
 
-The bundle must include the matching `qbutt-content.exe` and verified qplay
-distribution for the current mediaRuntime owner. The runner uses a fresh profile
+The bundle must include the verified qplay distribution. Native Watch does not
+need `qbutt-content.exe`. The runner uses a fresh profile
 and headless video/audio output. Require exit zero and passing evidence: exact
 AniLiberty episode/quality, real mpv file-loaded and advancing time, History only
 after ACK with the full Work/preferences, and retired gateway after stop.
@@ -391,6 +391,14 @@ ranges, actual decoding and seeking, restored priorities, cancellation,
 completion leases and replay after the seed stops for v1, v2 and hybrid torrents.
 Native pointer, appearance and hardware playback checks remain separate VM
 acceptance; a headless decoder does not establish those results.
+
+`bun tests/media-runtime.ts` exercises C++ qplay discovery/verification and
+actual mpv playback without the Bun content helper. Run it in the MSVC developer
+environment with the same Qt acceptance, bundle and qplay variables. It includes
+missing/incompatible installations, failed processes, the 64 KiB bound, the
+30-second timeout, cancellation/retry and retained qplay script capabilities.
+`--case=<name>` repeats one affected scenario. Inspect the resulting process PIDs
+and require that each has exited; GUI/GPU acceptance remains separate.
 
 On Windows, run the lab from an elevated terminal with PowerShell 7 available.
 Before launching a fixture, the shared runner registers persistent inbound firewall

@@ -33,11 +33,11 @@ namespace
             throw std::runtime_error(message.toStdString());
     }
 
-    void waitFor(const QString &label, const std::function<bool()> &ready)
+    void waitFor(const QString &label, const std::function<bool()> &ready, const int timeout = 20000)
     {
         QElapsedTimer elapsed;
         elapsed.start();
-        while (!ready() && (elapsed.elapsed() < 20000))
+        while (!ready() && (elapsed.elapsed() < timeout))
         {
             QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
             QThread::msleep(1);
@@ -73,6 +73,7 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
         const QJsonObject wanted = selection.value(u"audioTrack"_s).toObject();
         Media::PlaybackOptions options;
         options.identity = selection.value(u"identity"_s).toString();
+        options.contentKind = selection.value(u"contentKind"_s).toString();
         options.launchToken = selection.value(u"legacyLaunch"_s).toBool() ? 0 : ++launchToken;
         options.legacyIdentity = selection.value(u"legacyIdentity"_s).toString();
         options.proxyUrl = QUrl(selection.value(u"proxyUrl"_s).toString());
@@ -133,7 +134,26 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
         });
         require(player->playUrl(url, selection.value(u"name"_s).toString(), options),
             u"Player rejected the legal media fixture"_s);
-        if (selection.value(u"stopBeforeLoaded"_s).toBool())
+        if (selection.value(u"stopDuringPreparation"_s).toBool() || selection.value(u"cancelPreparationAndRetry"_s).toBool())
+        {
+            waitFor(u"Actual runtime probe process"_s, [&]
+            {
+                QFile trace(spec.value(u"probeTracePath"_s).toString());
+                return trace.exists() && (trace.size() > 0);
+            });
+        }
+        if (selection.value(u"cancelPreparationAndRetry"_s).toBool())
+        {
+            player->stop();
+            expectedFinished.append(options.launchToken);
+            require(startedTokens.isEmpty() && (finishedTokens == expectedFinished),
+                u"Cancelled preparation lost or confirmed its token"_s);
+            qputenv("QBUTT_LAB_QPLAY", spec.value(u"retryPlayerPath"_s).toString().toUtf8());
+            options.launchToken = ++launchToken;
+            require(player->playUrl(url, selection.value(u"name"_s).toString(), options),
+                u"Player rejected retry after preparation cancellation"_s);
+        }
+        if (selection.value(u"stopBeforeLoaded"_s).toBool() || selection.value(u"stopDuringPreparation"_s).toBool())
         {
             player->stop();
             Media::Player::freeInstance();
@@ -151,7 +171,8 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
             require(startedTokens.isEmpty() && (finishedTokens == expectedFinished),
                 u"Replacing pending playback lost or confirmed its previous token"_s);
         }
-        waitFor(u"Actual mpv voice selection"_s, [&] { return !started.isEmpty() || !errors.isEmpty(); });
+        waitFor(u"Actual mpv voice selection"_s, [&] { return !started.isEmpty() || !errors.isEmpty(); },
+            selection.value(u"timeoutMs"_s).toInt(20000));
 
         QJsonObject check {{u"name"_s, selection.value(u"name"_s)}, {u"identity"_s, options.identity}};
         if (selection.value(u"rejected"_s).toBool())

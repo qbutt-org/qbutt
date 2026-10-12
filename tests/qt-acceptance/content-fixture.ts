@@ -13,8 +13,6 @@ const inspections = new Map<string, number>();
 const library = await LibraryStore.open(join(dirname(logPath), "library"));
 const searchWorks = new Map<string, Work>();
 const fixtureStages = new Map<string, () => void>();
-let runtimeRequests = 0;
-let heldRuntime: { id: number; release: () => void } | undefined;
 let continueEpisodes: (() => void) | undefined;
 let browserInstalled = false;
 let browserReady = false;
@@ -428,16 +426,6 @@ async function handle(request: Request): Promise<void> {
         const { id: workId, ...progress } = params;
         log("progress", String(workId), { params });
         library.update(String(workId), { progress: progress as Record<string, string | number> });
-    } else if (method === "mediaRuntime") {
-        log("mediaRuntime", "", { id });
-        if (++runtimeRequests === 1) {
-            await new Promise<void>(release => {
-                heldRuntime = { id, release };
-            });
-        }
-        emit(id, "complete", { player: process.env.QBUTT_LAB_QPLAY });
-        log("runtimeReady", "", { id });
-        return;
     } else if (method === "holdLibrarySnapshot") {
         holdNextLibraryWork = String(params.workId);
     } else if (method === "library") {
@@ -486,10 +474,6 @@ async function handle(request: Request): Promise<void> {
         return;
     } else if (method === "cancel") {
         log("cancel", "", { id: params.id });
-        if (heldRuntime && (heldRuntime.id === params.id)) {
-            heldRuntime.release();
-            heldRuntime = undefined;
-        }
     } else if (method === "jobs") {
         emit(id, "jobs", []);
     } else {

@@ -79,10 +79,7 @@ async function subtitles(request: Request) {
 }
 
 async function handle(request: Request) {
-    if (request.method === "mediaRuntime") {
-        emit(request.id, "complete", { player: process.env.QBUTT_LAB_QPLAY });
-    }
-    else if (request.method === "subtitles.ahead") {
+    if (request.method === "subtitles.ahead") {
         await subtitles(request);
     }
     else if (request.method === "cancel") {

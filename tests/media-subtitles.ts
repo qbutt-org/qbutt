@@ -18,6 +18,7 @@ const realHelper = process.env.QBUTT_SUBTITLE_REAL_HELPER;
 const locale = process.argv.find(argument => argument.startsWith("--locale="))?.slice(9) || "en";
 assert(["en", "ru"].includes(locale), "Use --locale=en or --locale=ru");
 const localizationOnly = process.argv.includes("--localization");
+const selectedScenario = process.argv.find(argument => argument.startsWith("--scenario="))?.slice(11);
 assert(driver && bundle && qplay,
     "Set QBUTT_QT_ACCEPTANCE_EXE, QBUTT_QT_ACCEPTANCE_BUNDLE and QBUTT_LAB_QPLAY");
 process.env.QBUTT_LAB_PATHS = "1";
@@ -171,7 +172,9 @@ Dialogue: 0,0:00:00.00,0:05:00.00,Default,,0,0,0,,{\\i1}${realHelper ? "Rin will
         { name: "retry-ai", mode: "retry", mediaPath: ass, expectedFailure: authenticationMessage },
         { name: "retry-player-load", mode: "retry-load", mediaPath: ass },
         { name: "late-track-after-eof", mode: "late-track", mediaPath: bare, lateSubtitle: originalSrt },
-    ]).map(scenario => ({ ...scenario, identity: `subtitles:${scenario.name}` }));
+    ]).map(scenario => ({ ...scenario, identity: `subtitles:${scenario.name}` }))
+        .filter(scenario => !selectedScenario || scenario.name === selectedScenario);
+    assert(fixtureScenarios.length > 0, "Unknown subtitle scenario");
     const scenarios = realHelper ? ["real-codex", "real-codex-cached"].map(name => ({
         name, mode: "real-codex", mediaPath: ass, expectedTracks: 4, identity: "subtitles:real-codex",
     })) : fixtureScenarios;

@@ -22,7 +22,6 @@ assert(driver && bundle && qplay,
 process.env.QBUTT_LAB_PATHS = "1";
 const runtimeInfo = await resolveMediaRuntime(bundle, AbortSignal.timeout(30_000));
 const mediaRuntime = runtimeInfo.runtimeDir;
-const helper = process.env.QBUTT_CONTENT_EXE || join(bundle, "qbutt-content.exe");
 assertQtRuntime(bundle);
 const root = await mkdtemp(join(tmpdir(), "qbutt-media-audio-"));
 const runtime = join(root, "runtime");
@@ -192,7 +191,6 @@ try {
         await cp(join(bundle, name), join(runtime, name), { recursive: true });
     const executable = join(runtime, "qbutt-qt-acceptance.exe");
     await copyFile(driver, executable);
-    await copyFile(helper, join(runtime, "qbutt-content.exe"));
     await writeFile(join(qplayProfile, "config", "mpv.conf"),
         `vo=null\nao=null\nosc=no\nhwdec=no\nkeep-open=yes\nscript="${playerScript.replaceAll("\\", "/")}"\n`);
     await writeFile(playerScript, `
@@ -278,7 +276,6 @@ mp.register_event("file-loaded", function() record("file-loaded") end)
         bookmarks: { originalWorkId, regroupedWorkId: regrouped.id, stableIdentity: online.identity,
             fileResume: true, changedUrlResume: true, legacyImportedOnce: true, stableWins: true, explicitRestartSkipsImport: true },
         mediaRequests,
-        helper: { path: helper, sha256: createHash("sha256").update(await readFile(helper)).digest("hex") },
         driver: { path: driver, sha256: createHash("sha256").update(await readFile(driver)).digest("hex") },
         mediaRuntime,
     }, null, 2));
