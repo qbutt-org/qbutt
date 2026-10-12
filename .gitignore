@@ -45,3 +45,6 @@ src/icons/skin/build-icons/icons/*.png
 # CMake build directory
 build/
 cmake-build-*/
+
+# Rust workspace build directory
+/target/
