@@ -30,7 +30,7 @@ pub struct PlaybackSave {
 
 pub(super) struct PlaybackLaunch {
     pub gateway: MediaGateway,
-    reference: VariantRef,
+    reference: Option<VariantRef>,
     save: Option<PlaybackSave>,
 }
 
@@ -57,7 +57,7 @@ impl PlaybackState {
     pub(super) fn reference_for(&self, token: u64) -> Option<VariantRef> {
         self.launches
             .get(&token)
-            .map(|launch| launch.reference.clone())
+            .and_then(|launch| launch.reference.clone())
     }
 
     pub(super) fn failed(&self) -> bool {
@@ -97,11 +97,12 @@ impl ffi::ContentController {
     pub(super) fn accept_video(
         mut self: Pin<&mut Self>,
         gateway: MediaGateway,
-        save: PlaybackSave,
+        save: Option<PlaybackSave>,
+        capture_id: Option<&str>,
         url: QUrl,
         title: QString,
         prepared: Option<PreparedPlayback>,
-    ) {
+    ) -> bool {
         if !self.playback_capacity() {
             self.as_mut()
                 .rust_mut()
@@ -110,16 +111,23 @@ impl ffi::ContentController {
                 .unwrap()
                 .retire_gateway(gateway);
             self.set_error(Some(ffi::ContentError::PlaybackPending));
-            return;
+            return false;
         }
         let token = NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed);
-        let identity = QString::from(format!("video:{}", models::variant_id(&save.variant)));
-        let content_kind = QString::from(
-            match save.group.anchor_work().map(|work| work.category).unwrap() {
+        let identity = match (&save, capture_id) {
+            (Some(save), None) => {
+                QString::from(format!("video:{}", models::variant_id(&save.variant)))
+            }
+            (None, Some(capture_id)) => QString::from(format!("capture:{capture_id}")),
+            _ => return false,
+        };
+        let content_kind = QString::from(match &save {
+            Some(save) => match save.group.anchor_work().map(|work| work.category).unwrap() {
                 Category::Movies => "movie",
                 category => models::category_key(category),
             },
-        );
+            None => "movie",
+        });
         let proxy = if prepared.is_some() {
             QUrl::default()
         } else {
@@ -186,8 +194,8 @@ impl ffi::ContentController {
             token,
             PlaybackLaunch {
                 gateway,
-                reference: save.variant.clone(),
-                save: Some(save),
+                reference: save.as_ref().map(|save| save.variant.clone()),
+                save,
             },
         );
         self.video_ready(
@@ -205,6 +213,7 @@ impl ffi::ContentController {
             audio_channels,
             subtitles,
         );
+        true
     }
 
     pub(super) fn playback_capacity(&self) -> bool {
@@ -502,13 +511,16 @@ impl ffi::ContentController {
                         url,
                         ..
                     })) if resolved == reference => match gateway.unwrap() {
-                        Ok(gateway) => controller.as_mut().accept_video(
-                            gateway,
-                            save,
-                            QUrl::from(&QString::from(url.as_str())),
-                            QString::from(title),
-                            None,
-                        ),
+                        Ok(gateway) => {
+                            controller.as_mut().accept_video(
+                                gateway,
+                                Some(save),
+                                None,
+                                QUrl::from(&QString::from(url.as_str())),
+                                QString::from(title),
+                                None,
+                            );
+                        }
                         Err(_) => controller
                             .as_mut()
                             .set_error(Some(ffi::ContentError::Playback)),
@@ -521,7 +533,7 @@ impl ffi::ContentController {
                         Some(Ok((gateway, prepared))) => {
                             let url = QUrl::from(&QString::from(prepared.url.as_str()));
                             controller.as_mut().accept_video(
-                                gateway, save, url, QString::from(title), Some(prepared),
+                                gateway, Some(save), None, url, QString::from(title), Some(prepared),
                             );
                         }
                         Some(Err(())) => controller

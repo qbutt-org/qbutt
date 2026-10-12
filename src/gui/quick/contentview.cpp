@@ -96,6 +96,8 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     connect(m_controller, &Qbutt::ContentController::downloadQueued, this, &ContentView::downloadQueued);
     connect(m_controller, &Qbutt::ContentController::capturedDownloadFinished,
         this, &ContentView::capturedDownloadFinished);
+    connect(m_controller, &Qbutt::ContentController::capturedWatchFinished,
+        this, &ContentView::capturedWatchFinished);
     connect(m_controller, &Qbutt::ContentController::readerChanged, this, &ContentView::readerActiveChanged);
     connect(m_controller, &Qbutt::ContentController::readerAssetsCleared,
         this, [this](const quint64 generation) { m_readerImages->clear(generation); });
@@ -153,6 +155,16 @@ bool Content::ContentView::downloadCapture(const QUrl &page, const QString &titl
 void Content::ContentView::cancelCaptureDownload()
 {
     m_controller->cancelCapturedDownload();
+}
+
+bool Content::ContentView::watchCapture(const QUrl &page, const QString &title, const QString &captureId)
+{
+    return m_controller->watchCaptured(page.toString(QUrl::FullyEncoded), title, captureId);
+}
+
+void Content::ContentView::cancelCaptureWatch()
+{
+    m_controller->cancelCapturedWatch();
 }
 
 void Content::ContentView::openDownloadedFolder(const QString &path)

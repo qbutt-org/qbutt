@@ -179,7 +179,10 @@ impl ffi::ContentController {
             return false;
         };
         let title = title.to_string();
-        if title.trim().is_empty() || title.len() > 512 || title.chars().any(char::is_control) {
+        if title.trim().is_empty()
+            || title.encode_utf16().count() > 512
+            || title.chars().any(char::is_control)
+        {
             return false;
         }
         let capture_id = capture_id.to_string();

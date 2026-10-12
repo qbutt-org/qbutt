@@ -12,6 +12,7 @@ use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
 mod browser;
+mod capture;
 mod catalog;
 mod downloads;
 mod library;
@@ -596,6 +597,18 @@ pub mod ffi {
         ) -> bool;
         #[cxx_name = "cancelCapturedDownload"]
         fn cancel_captured_download(self: Pin<&mut Self>);
+        #[cxx_name = "watchCaptured"]
+        fn watch_captured(
+            self: Pin<&mut Self>,
+            page: QString,
+            title: QString,
+            capture_id: QString,
+        ) -> bool;
+        #[cxx_name = "cancelCapturedWatch"]
+        fn cancel_captured_watch(self: Pin<&mut Self>);
+        #[qsignal]
+        #[cxx_name = "capturedWatchFinished"]
+        fn captured_watch_finished(self: Pin<&mut Self>, capture_id: QString, reason: QString);
         #[qsignal]
         #[cxx_name = "capturedDownloadFinished"]
         fn captured_download_finished(self: Pin<&mut Self>, capture_id: QString, reason: QString);
@@ -971,6 +984,7 @@ pub struct ContentControllerRust {
     download_queue: Option<Arc<qbutt_content::DownloadQueue<DownloadStore>>>,
     download_task: Option<JoinHandle<()>>,
     captured_download: Pending,
+    captured_watch: Pending,
     captured_intent: Option<CapturedIntent>,
     source_status: SourceState,
     list_mode: ffi::ListMode,
@@ -1063,6 +1077,7 @@ impl Default for ContentControllerRust {
             download_queue: None,
             download_task: None,
             captured_download: Pending::default(),
+            captured_watch: Pending::default(),
             captured_intent: None,
             source_status,
             list_mode: ffi::ListMode::Search,
@@ -1115,6 +1130,7 @@ impl Drop for ContentControllerRust {
         self.resolution.cancel();
         self.shared_import.cancel();
         self.captured_download.cancel();
+        self.captured_watch.cancel();
         self.source_status.cancel_retries();
         if let Some(task) = self.download_task.take() {
             task.abort();

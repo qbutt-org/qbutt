@@ -35,6 +35,8 @@ namespace Content
         bool downloadPlayback(quint64 launchToken);
         bool downloadCapture(const QUrl &page, const QString &title, const QString &captureId);
         void cancelCaptureDownload();
+        bool watchCapture(const QUrl &page, const QString &title, const QString &captureId);
+        void cancelCaptureWatch();
 
     signals:
         void torrentReady(const QString &magnet);
@@ -50,6 +52,7 @@ namespace Content
         void sharedLinkFailed(bool malformed);
         void downloadQueued();
         void capturedDownloadFinished(const QString &captureId, const QString &reason);
+        void capturedWatchFinished(const QString &captureId, const QString &reason);
 
     private slots:
         void openDownloadedFolder(const QString &path);

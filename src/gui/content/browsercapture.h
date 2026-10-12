@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 
-#include <QJsonObject>
 #include <QObject>
 #include <QUrl>
-
-class QJsonValue;
 
 namespace Content
 {
@@ -15,32 +12,38 @@ namespace Content
 
     public:
         explicit BrowserCapture(QObject *parent = nullptr);
-        ~BrowserCapture() override;
 
         void open(const QUrl &url);
         void retry();
         void cancel();
         bool requestPlaybackDownload(const QString &identity);
         void finishDownload(const QString &captureId, const QString &reason);
+        void finishWatch(const QString &captureId, const QString &reason);
 
     signals:
         void preparationChanged(const QString &message);
         void browserRequired();
         void error(const QString &message);
         void downloadRequested(const QUrl &page, const QString &title, const QString &captureId);
+        void watchRequested(const QUrl &page, const QString &title, const QString &captureId);
         void downloadCancelled();
+        void watchCancelled();
         void completed();
 
     private:
-        void handleEvent(qint64 id, const QString &event, const QJsonValue &data);
-        void play(const QJsonObject &resolved);
-        bool requestDownload(const QJsonObject &work, const QJsonObject &variant);
+        enum class Action { None, Watch, Download };
 
-        qint64 m_request = 0;
-        QJsonObject m_work;
-        QJsonObject m_variant;
-        QJsonObject m_playback;
-        QString m_pendingCaptureId;
-        bool m_downloadRetry = false;
+        void dispatch();
+        void finish(const QString &captureId, const QString &reason, Action action);
+
+        QUrl m_page;
+        QString m_title;
+        QString m_captureId;
+        Action m_action = Action::None;
+        bool m_pending = false;
+
+        QUrl m_playbackPage;
+        QString m_playbackTitle;
+        QString m_playbackCaptureId;
     };
 }

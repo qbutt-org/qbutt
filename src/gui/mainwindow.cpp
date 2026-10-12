@@ -880,7 +880,11 @@ Content::ContentView *MainWindow::ensureContentView()
             options.audioTrack = {audioTitle, audioType, audioLanguage, audioCodec, audioChannels};
             options.subtitles = subtitles;
             if (!Media::Player::instance()->playUrl(url, title, options))
+            {
                 m_searchWidget->finishPlayback(launchToken);
+                if (m_browserCapture && identity.startsWith(u"capture:"_s))
+                    m_browserCapture->finishWatch(identity.mid(8), u"failed"_s);
+            }
         });
         connect(Media::Player::instance(), &Media::Player::playbackStarted, m_searchWidget,
             [view = m_searchWidget](const QString &, const quint64 launchToken)
@@ -1686,10 +1690,20 @@ void MainWindow::acceptSharedLink(const QUrl &url)
             if (!ensureContentView()->downloadCapture(page, title, captureId))
                 m_browserCapture->finishDownload(captureId, u"failed"_s);
         });
+        connect(m_browserCapture, &Content::BrowserCapture::watchRequested, this,
+            [this](const QUrl &page, const QString &title, const QString &captureId)
+        {
+            if (!ensureContentView()->watchCapture(page, title, captureId))
+                m_browserCapture->finishWatch(captureId, u"failed"_s);
+        });
         connect(m_browserCapture, &Content::BrowserCapture::downloadCancelled,
             ensureContentView(), &Content::ContentView::cancelCaptureDownload);
+        connect(m_browserCapture, &Content::BrowserCapture::watchCancelled,
+            ensureContentView(), &Content::ContentView::cancelCaptureWatch);
         connect(ensureContentView(), &Content::ContentView::capturedDownloadFinished,
             m_browserCapture, &Content::BrowserCapture::finishDownload);
+        connect(ensureContentView(), &Content::ContentView::capturedWatchFinished,
+            m_browserCapture, &Content::BrowserCapture::finishWatch);
         connect(m_browserCapture, &Content::BrowserCapture::browserRequired, this, [this]
         {
             if (!m_browserPrerequisite)
