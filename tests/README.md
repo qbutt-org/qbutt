@@ -301,6 +301,15 @@ acknowledgements and settings failure/retry. It does not establish native pointe
 interaction, popup blur, application deactivation or translation.
 Check the reader and chapter picker in the deployed Windows host separately.
 
+Run `--reader-translation-choice --lang ru` in the same offscreen environment
+for delayed translation-choice persistence. This scenario needs the live MangaDex
+publication used by the reader fixture. It holds the SQLite writer while the
+user switches to Original, reopens the reader or choice panel, or changes the
+target language. The saved choice must be acknowledged without restoring a
+translation in an obsolete reader session. Require exit zero and
+`PASS reader_translation_choice`. This checks controller state and persistence,
+not a completed AI translation or native pointer interaction.
+
 Run `--reader-settings --lang ru` in the same offscreen environment for typed
 profile-wide fit persistence through the existing SQLite worker. Require exit
 zero and `PASS reader_settings`. The fixture checks Height defaults, explicit
