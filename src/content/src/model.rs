@@ -18,6 +18,7 @@ pub enum Source {
     #[serde(rename = "fitgirl")]
     FitGirl,
     RoyalRoad,
+    Kakuyomu,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -40,6 +41,7 @@ impl PublicationRef {
             Source::RoyalRoad => self.royalroad_id().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
             Source::RanobeLib => self.ranobelib_id().map(|_| ()),
+            Source::Kakuyomu => self.kakuyomu_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
             Source::MangaDex => Err(crate::Error::InvalidReference),
         }
@@ -73,6 +75,14 @@ impl PublicationRef {
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
         {
+            Ok(&self.id)
+        } else {
+            Err(crate::Error::InvalidReference)
+        }
+    }
+
+    pub(crate) fn kakuyomu_id(&self) -> crate::Result<&str> {
+        if self.source == Source::Kakuyomu && canonical_kakuyomu_id(&self.id) {
             Ok(&self.id)
         } else {
             Err(crate::Error::InvalidReference)
@@ -276,6 +286,7 @@ impl VariantRef {
                 | (Source::FitGirl, VariantSelector::TorrentHash { .. })
                 | (Source::Rutube, VariantSelector::RutubeVideo)
                 | (Source::RoyalRoad, VariantSelector::OriginalText)
+                | (Source::Kakuyomu, VariantSelector::OriginalText)
         );
         if matches_source {
             Ok(())
@@ -321,6 +332,9 @@ impl ChapterRef {
             Source::MangaLib | Source::RanobeLib => canonical_decimal(&self.id),
             Source::RoyalRoad => self.id.split_once('/').is_some_and(|(fiction, chapter)| {
                 fiction == self.variant.publication.id && canonical_decimal(chapter)
+            }),
+            Source::Kakuyomu => self.id.split_once('/').is_some_and(|(work, episode)| {
+                work == self.variant.publication.id && canonical_kakuyomu_id(episode)
             }),
             _ => false,
         } {
@@ -376,6 +390,14 @@ pub(crate) fn canonical_decimal(value: &str) -> bool {
     value
         .parse::<u64>()
         .is_ok_and(|id| id != 0 && value == id.to_string())
+}
+
+// Kakuyomu's public work and episode identifiers can exceed u64.
+pub(crate) fn canonical_kakuyomu_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 32
+        && !value.starts_with('0')
+        && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 pub(crate) fn canonical_language(value: &str) -> bool {

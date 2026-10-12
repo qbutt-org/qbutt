@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::AniLiberty,
         Self::YummyAnime,
         Self::MangaDex,
@@ -18,6 +18,7 @@ impl Source {
         Self::Rutube,
         Self::FitGirl,
         Self::RoyalRoad,
+        Self::Kakuyomu,
     ];
 
     pub fn id(self) -> &'static str {
@@ -33,6 +34,7 @@ impl Source {
             Self::Rutube => "rutube",
             Self::FitGirl => "fitgirl",
             Self::RoyalRoad => "royalroad",
+            Self::Kakuyomu => "kakuyomu",
         }
     }
 
@@ -53,6 +55,7 @@ impl Source {
             Self::Rutube => "Rutube",
             Self::FitGirl => "FitGirl",
             Self::RoyalRoad => "Royal Road",
+            Self::Kakuyomu => "Kakuyomu",
         }
     }
 
@@ -64,6 +67,7 @@ impl Source {
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
             Self::FitGirl => &[Category::Games],
             Self::RoyalRoad => &[Category::Books],
+            Self::Kakuyomu => &[Category::Books],
             Self::Nyaa => &[
                 Category::Anime,
                 Category::Games,

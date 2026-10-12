@@ -216,7 +216,7 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
                 variant.transport == Transport::Video
             }
             (Source::Rutube, VariantSelector::RutubeVideo) => variant.transport == Transport::Video,
-            (Source::RoyalRoad, VariantSelector::OriginalText) => {
+            (Source::RoyalRoad | Source::Kakuyomu, VariantSelector::OriginalText) => {
                 variant.transport == Transport::Text
             }
             (Source::MangaDex, VariantSelector::MangaTranslation { .. }) => {
