@@ -18972,6 +18972,21 @@ Please choose a different name and try again.</source>
     </message>
 </context>
 <context>
+    <name>SourcePicker</name>
+    <message>
+        <source>Sources</source>
+        <translation>Источники</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Try again</source>
+        <translation>Повторить</translation>
+    </message>
+</context>
+<context>
     <name>ChapterPicker</name>
     <message>
         <source>Chapters</source>

@@ -32,7 +32,7 @@ Page {
 
     Shortcut {
         sequences: [StandardKey.Find]
-        enabled: root.visible && !root.backend.readerOpen
+        enabled: root.visible && !root.backend.readerOpen && !sources.active
         onActivated: {
             root.backend.setListMode(Search.Search);
             query.forceActiveFocus();
@@ -136,6 +136,14 @@ Page {
                     else
                         root.submitSearch();
                 }
+            }
+
+            ActionButton {
+                id: sourceButton
+                objectName: "contentSources"
+                theme: appearance
+                text: qsTranslate("SourcePicker", "Sources")
+                onClicked: sources.active = true
             }
         }
 
@@ -310,6 +318,23 @@ Page {
                 selectedInList: works.currentIndex >= 0
                     && filteredWorks.idAt(works.currentIndex) === root.backend.selectedWorkId
                 leftPadding: 24
+            }
+        }
+    }
+
+    Loader {
+        id: sources
+        objectName: "contentSourcePickerLoader"
+        active: false
+
+        sourceComponent: SourcePicker {
+            backend: root.backend
+            theme: appearance
+            backdrop: root
+            Component.onCompleted: open()
+            onClosed: {
+                sources.active = false;
+                sourceButton.forceActiveFocus();
             }
         }
     }
