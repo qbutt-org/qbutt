@@ -466,13 +466,15 @@ impl ffi::ContentController {
                     &QString::from("library"),
                     &QString::from(error.to_string()),
                 );
-                self.as_mut().set_library_error(if initial {
-                    ffi::LibraryErrorKind::Opening
-                } else if history_read {
-                    ffi::LibraryErrorKind::HistoryRead
-                } else {
-                    ffi::LibraryErrorKind::Writing
-                });
+                if self.library_error_generation == error_generation {
+                    self.as_mut().set_library_error(if initial {
+                        ffi::LibraryErrorKind::Opening
+                    } else if history_read {
+                        ffi::LibraryErrorKind::HistoryRead
+                    } else {
+                        ffi::LibraryErrorKind::Writing
+                    });
+                }
                 if reader_failed {
                     self.as_mut().reader_changed();
                 }

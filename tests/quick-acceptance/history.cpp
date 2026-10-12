@@ -435,6 +435,56 @@ void exerciseHistory()
             == Qbutt::Library::LibraryErrorKind::None)
         && (history->rowCount(QModelIndex()) == 1) && (entry(database, key) == committed),
         u"History queue retry changed confirmed metadata"_s);
+
+    // A confirmed bookmark notification can reject a newer write while the
+    // completion still holds an older failed History snapshot.
+    bool rejectedInBookmarkObserver = false;
+    std::exception_ptr bookmarkObserverError;
+    const auto saturationObserver = QObject::connect(controller.get(), &Qbutt::ContentController::selectedFavoriteChanged,
+        &observation, [&]
+    {
+        try
+        {
+            execute(database, u"BEGIN IMMEDIATE"_s);
+            for (int request = 0; (request < 80) && !rejectedInBookmarkObserver; ++request)
+            {
+                controller->setSelectedFavorite(false);
+                rejectedInBookmarkObserver = controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
+                    == Qbutt::Library::LibraryErrorKind::Writing;
+            }
+            execute(database, u"COMMIT"_s);
+            require(rejectedInBookmarkObserver && !controller->property("selectedFavorite").toBool()
+                && !entry(database, key).value(u"favorite"_s).toBool(), u"Bookmark observer did not reject a newer write"_s);
+        }
+        catch (...)
+        {
+            bookmarkObserverError = std::current_exception();
+        }
+    }, Qt::DirectConnection);
+    writeEntry(database, generatedKey, QJsonObject {{u"generated_invalid"_s, true}});
+    controller->setSelectedFavorite(false);
+    settled(*controller);
+    QObject::disconnect(saturationObserver);
+    if (bookmarkObserverError)
+        std::rethrow_exception(bookmarkObserverError);
+    const auto acknowledgedBookmark = entry(database, key);
+    require(rejectedInBookmarkObserver
+        && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>()
+            == Qbutt::Library::LibraryErrorKind::Writing)
+        && (controller->property("libraryErrorText").toString()
+            == QCoreApplication::translate("ContentController", "Could not save the content library.")),
+        u"Older History failure replaced the reentrant write rejection"_s);
+    require(!acknowledgedBookmark.value(u"favorite"_s).toBool()
+        && !controller->property("selectedFavorite").toBool() && (favorites->rowCount(QModelIndex()) == 0)
+        && (acknowledgedBookmark.value(u"preferences"_s) == committed.value(u"preferences"_s))
+        && (acknowledgedBookmark.value(u"reader_progress"_s) == committed.value(u"reader_progress"_s))
+        && (acknowledgedBookmark.value(u"last_opened"_s) == committed.value(u"last_opened"_s)),
+        u"Preserving the newer error damaged the confirmed bookmark acknowledgement"_s);
+    writeEntry(database, generatedKey, beforeReadFault);
+    controller->setSelectedFavorite(true);
+    saved(*controller);
+    require((entry(database, key) == committed) && controller->property("selectedFavorite").toBool(),
+        u"Explicit bookmark retry did not restore confirmed metadata"_s);
     controller->closeReader();
     controller.reset();
 
@@ -471,5 +521,5 @@ void exerciseHistory()
     require(payload.open(QIODevice::ReadOnly) && (payload.readAll() == "generated unrelated payload"), u"History removal changed unrelated payload"_s);
     payload.close();
     controller.reset();
-    qInfo().noquote() << u"PASS history confirmed_only=ok full_work=ok opened_order=ok restart=ok fresh_inspect=ok other_variant=ok delayed_intent=ok reentrant_publication=ok remove_retry=ok bookmark_independence=ok bookmark_snapshot_fault=ok committed_snapshot_fault=ok snapshot_retry=ok queue_read_retry=ok missing_exact=ok exact_resume=ok payload_preserved=ok"_s;
+    qInfo().noquote() << u"PASS history confirmed_only=ok full_work=ok opened_order=ok restart=ok fresh_inspect=ok other_variant=ok delayed_intent=ok reentrant_publication=ok remove_retry=ok bookmark_independence=ok bookmark_snapshot_fault=ok committed_snapshot_fault=ok snapshot_retry=ok queue_read_retry=ok reentrant_error_order=ok missing_exact=ok exact_resume=ok payload_preserved=ok"_s;
 }
