@@ -7,8 +7,8 @@ use roxmltree::{Document, Node, NodeId, ParsingOptions};
 use sha2::{Digest, Sha256};
 
 use super::{
-    LocalBook, LocalBookChapter, MAX_ARCHIVE_ENTRIES, MAX_CHAPTER_BYTES, MAX_IMAGE_BYTES,
-    check_html_size, decode_text, escape_html, image_media_type, valid_image_bytes,
+    LocalBook, LocalBookChapter, MAX_ARCHIVE_ENTRIES, MAX_IMAGE_BYTES, check_html_size,
+    decode_text, escape_html, image_media_type, valid_image_bytes,
 };
 use crate::{ChapterRef, Error, Result, TextChapter, TextImageAsset};
 
