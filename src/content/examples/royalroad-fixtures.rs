@@ -51,7 +51,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .ok_or("persisted fiction missing")?;
         assert!(entry.favorite);
         assert_eq!(
-            entry.work.variants[0].transport,
+            entry.group.anchor_work().unwrap().variants[0].transport,
             qbutt_content::Transport::Text
         );
         assert_eq!(
@@ -123,7 +123,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .as_nanos()
     ));
     let mut library = qbutt_content::Library::open(&profile)?;
-    library.set_favorite(&stored_work, true)?;
+    library.set_favorite(&qbutt_content::WorkGroup::single(stored_work.clone()), true)?;
     let preferences = qbutt_content::VariantPreferences {
         selected: Some(stored_chapter.variant.clone()),
         ..Default::default()
@@ -135,10 +135,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             offset: 0.25,
         },
     };
-    library.save_reader_progress(&stored_work, preferences, progress)?;
+    library.save_reader_progress(
+        &qbutt_content::WorkGroup::single(stored_work.clone()),
+        preferences,
+        progress,
+    )?;
     let mut invalid_work = stored_work.clone();
     invalid_work.variants[0].transport = qbutt_content::Transport::Manga;
-    assert!(library.set_favorite(&invalid_work, false).is_err());
+    assert!(
+        library
+            .set_favorite(
+                &qbutt_content::WorkGroup::single(invalid_work.clone()),
+                false
+            )
+            .is_err()
+    );
     drop(library);
     let status = std::process::Command::new(std::env::current_exe()?)
         .arg(&profile)

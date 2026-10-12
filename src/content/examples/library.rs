@@ -48,15 +48,21 @@ fn exercise(root: &Path) -> Result<()> {
     let work = fixture();
     let mut library = Library::open(&profile)?;
     assert!(library.entries(LibraryView::All)?.is_empty());
-    library.set_favorite(&work, true)?;
-    library.save_preferences(&work, preferences(&work, 0))?;
+    library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), true)?;
+    library.save_preferences(
+        &qbutt_content::WorkGroup::single(work.clone()),
+        preferences(&work, 0),
+    )?;
     assert!(library.entries(LibraryView::History)?.is_empty());
     library.record_opened(
-        &work,
+        &qbutt_content::WorkGroup::single(work.clone()),
         work.variants[0].reference.clone(),
         preferences(&work, 0),
     )?;
-    library.save_preferences(&work, preferences(&work, 1))?;
+    library.save_preferences(
+        &qbutt_content::WorkGroup::single(work.clone()),
+        preferences(&work, 1),
+    )?;
     drop(library);
 
     let status = Command::new(std::env::current_exe()?)
@@ -78,11 +84,11 @@ fn exercise(root: &Path) -> Result<()> {
     partial.aliases = vec!["New generated alias".into()];
     partial.identifiers = BTreeMap::from([("new".into(), "2".into())]);
     partial.variants.truncate(1);
-    library.set_favorite(&partial, false)?;
+    library.set_favorite(&qbutt_content::WorkGroup::single(partial.clone()), false)?;
     let entry = library.get(&work.reference)?.ok_or("missing saved work")?;
     assert!(!entry.favorite);
-    assert_eq!(entry.work.title, partial.title);
-    assert_eq!(entry.work.variants, work.variants);
+    assert_eq!(entry.group.anchor_work().unwrap().title, partial.title);
+    assert_eq!(entry.group.anchor_work().unwrap().variants, work.variants);
     assert_eq!(entry.preferences, preferences(&work, 1));
     assert_eq!(
         entry.last_opened.as_ref().unwrap().variant,
@@ -106,21 +112,24 @@ fn exercise(root: &Path) -> Result<()> {
     authoritative.needs_inspection = false;
     authoritative.aliases.clear();
     authoritative.identifiers.clear();
-    let replaced = library.set_favorite(&authoritative, false)?;
-    assert!(replaced.work.description.is_none());
-    assert!(replaced.work.cover.is_none());
-    assert!(replaced.work.year.is_none());
-    assert!(replaced.work.aliases.is_empty());
-    assert!(replaced.work.identifiers.is_empty());
+    let replaced = library.set_favorite(
+        &qbutt_content::WorkGroup::single(authoritative.clone()),
+        false,
+    )?;
+    assert!(replaced.group.anchor_work().unwrap().description.is_none());
+    assert!(replaced.group.anchor_work().unwrap().cover.is_none());
+    assert!(replaced.group.anchor_work().unwrap().year.is_none());
+    assert!(replaced.group.anchor_work().unwrap().aliases.is_empty());
+    assert!(replaced.group.anchor_work().unwrap().identifiers.is_empty());
 
-    library.set_favorite(&work, true)?;
+    library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), true)?;
     let entry = library
         .remove_history(&work.reference)?
         .ok_or("missing saved work")?;
     assert!(entry.favorite);
     assert!(entry.last_opened.is_none());
     assert_eq!(entry.preferences, preferences(&work, 1));
-    assert_eq!(entry.work.variants, work.variants);
+    assert_eq!(entry.group.anchor_work().unwrap().variants, work.variants);
     assert!(library.entries(LibraryView::History)?.is_empty());
     assert_eq!(library.entries(LibraryView::Favorites)?.len(), 1);
 
@@ -128,7 +137,7 @@ fn exercise(root: &Path) -> Result<()> {
     let mut invalid = preferences(&work, 0);
     invalid.selected.as_mut().unwrap().publication.id = "another-publication".into();
     assert!(matches!(
-        library.save_preferences(&partial, invalid),
+        library.save_preferences(&qbutt_content::WorkGroup::single(partial.clone()), invalid),
         Err(LibraryError::InvalidEntry(_))
     ));
     assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -140,7 +149,10 @@ fn exercise(root: &Path) -> Result<()> {
             variant.reference.publication = invalid_work.reference.clone();
         }
         assert!(matches!(
-            library.set_favorite(&invalid_work, true),
+            library.set_favorite(
+                &qbutt_content::WorkGroup::single(invalid_work.clone()),
+                true
+            ),
             Err(LibraryError::InvalidEntry(_))
         ));
         assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -148,7 +160,10 @@ fn exercise(root: &Path) -> Result<()> {
     let mut zero_torrent = work.clone();
     zero_torrent.variants[1].reference.selector = VariantSelector::Torrent { id: 0 };
     assert!(matches!(
-        library.set_favorite(&zero_torrent, false),
+        library.set_favorite(
+            &qbutt_content::WorkGroup::single(zero_torrent.clone()),
+            false
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
     assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -158,7 +173,11 @@ fn exercise(root: &Path) -> Result<()> {
         selector: VariantSelector::Torrent { id: u64::MAX },
     };
     assert!(matches!(
-        library.record_opened(&partial, missing, preferences(&work, 0)),
+        library.record_opened(
+            &qbutt_content::WorkGroup::single(partial.clone()),
+            missing,
+            preferences(&work, 0)
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
     assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -168,7 +187,7 @@ fn exercise(root: &Path) -> Result<()> {
         "https://anilibria.top/poster.jpg?token=generated-secret",
     )?);
     assert!(matches!(
-        library.set_favorite(&private, false),
+        library.set_favorite(&qbutt_content::WorkGroup::single(private.clone()), false),
         Err(LibraryError::InvalidEntry(_))
     ));
     assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -180,7 +199,7 @@ fn exercise(root: &Path) -> Result<()> {
          BEGIN SELECT RAISE(ABORT, 'generated integration fault'); END;",
     )?;
     assert!(matches!(
-        library.set_favorite(&partial, false),
+        library.set_favorite(&qbutt_content::WorkGroup::single(partial.clone()), false),
         Err(LibraryError::Sqlite(_))
     ));
     assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -231,7 +250,7 @@ fn exercise(root: &Path) -> Result<()> {
         Err(LibraryError::CorruptEntry(_))
     ));
     assert!(matches!(
-        library.set_favorite(&work, false),
+        library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), false),
         Err(LibraryError::CorruptEntry(_))
     ));
     assert_eq!(
@@ -242,20 +261,21 @@ fn exercise(root: &Path) -> Result<()> {
     drop(library);
 
     let mut corrupt_id = before.clone();
-    corrupt_id.work.reference.id = "not-a-publication-id".into();
-    for variant in &mut corrupt_id.work.variants {
-        variant.reference.publication = corrupt_id.work.reference.clone();
+    corrupt_id.group.publications[0].reference.id = "not-a-publication-id".into();
+    let invalid_reference = corrupt_id.group.publications[0].reference.clone();
+    for variant in &mut corrupt_id.group.publications[0].variants {
+        variant.reference.publication = invalid_reference.clone();
     }
     raw.execute(
         "UPDATE library SET reference = ?1, entry = ?2",
         rusqlite::params![
-            serde_json::to_string(&corrupt_id.work.reference)?,
+            serde_json::to_string(&corrupt_id.group.publications[0].reference)?,
             serde_json::to_string(&corrupt_id)?,
         ],
     )?;
     let library = Library::open(&profile)?;
     assert!(matches!(
-        library.get(&corrupt_id.work.reference),
+        library.get(&corrupt_id.group.publications[0].reference),
         Err(LibraryError::CorruptEntry(_))
     ));
     assert!(matches!(
@@ -265,7 +285,7 @@ fn exercise(root: &Path) -> Result<()> {
     drop(library);
 
     let mut corrupt_torrent = before.clone();
-    corrupt_torrent.work = zero_torrent;
+    corrupt_torrent.group = qbutt_content::WorkGroup::single(zero_torrent);
     raw.execute(
         "UPDATE library SET reference = ?1, entry = ?2",
         rusqlite::params![
@@ -366,7 +386,7 @@ fn verify_reopened(profile: &Path, partial: bool) -> Result<()> {
     let entry = library
         .get(&work.reference)?
         .ok_or("missing reopened work")?;
-    assert_eq!(entry.work, work);
+    assert_eq!(entry.group.anchor_work().unwrap(), &work);
     assert_eq!(entry.preferences, preferences(&work, 1));
     assert_eq!(entry.favorite, !partial);
     assert_eq!(

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -37,6 +38,7 @@ impl ffi::ContentController {
             return;
         }
 
+        self.as_mut().rust_mut().search_association.clear();
         self.as_mut().rust_mut().works.pin_mut().clear();
         if self.search.generation != generation
             || self.inspection.generation != selection_generation
@@ -150,8 +152,13 @@ impl ffi::ContentController {
                             {
                                 return;
                             }
-                            controller.as_mut().rust_mut().works.pin_mut().update(work);
+                            controller
+                                .as_mut()
+                                .rust_mut()
+                                .search_association
+                                .update(work);
                         }
+                        controller.as_mut().refresh_search_groups(generation);
                     }
                 });
             }
@@ -170,6 +177,75 @@ impl ffi::ContentController {
             });
         });
         self.as_mut().rust_mut().search.task = Some(task);
+    }
+
+    pub(super) fn refresh_search_groups(mut self: Pin<&mut Self>, generation: u64) {
+        if self.search.generation != generation {
+            return;
+        }
+        let mut groups = self.search_association.groups();
+        for group in &mut groups {
+            if let Some(saved) = group
+                .references
+                .iter()
+                .find(|reference| self.known_groups.contains_key(*reference))
+            {
+                group.anchor = saved.clone();
+            }
+        }
+        if self.list_mode == ffi::ListMode::Search
+            && let Some(selected) = &self.selected_group
+        {
+            if let Some(group) = groups
+                .iter_mut()
+                .find(|group| group.references.contains(&selected.anchor))
+            {
+                group.anchor = selected.anchor.clone();
+                for publication in &mut group.publications {
+                    if publication.needs_inspection
+                        && let Some(inspected) = selected.publication(&publication.reference)
+                        && !inspected.needs_inspection
+                    {
+                        *publication = inspected.clone();
+                    }
+                }
+                for reference in &selected.references {
+                    if selected.publication(reference).is_none()
+                        && !group.references.contains(reference)
+                    {
+                        group.references.push(reference.clone());
+                    }
+                }
+            }
+        }
+        let visible: HashSet<_> = groups.iter().map(|group| group.anchor.clone()).collect();
+        for reference in self.works.references() {
+            if !visible.contains(&reference) {
+                self.as_mut().rust_mut().works.pin_mut().remove(&reference);
+                if self.search.generation != generation {
+                    return;
+                }
+            }
+        }
+        for group in &groups {
+            if let Some(work) = group.anchor_work() {
+                self.as_mut()
+                    .rust_mut()
+                    .works
+                    .pin_mut()
+                    .update(work.clone());
+                if self.search.generation != generation {
+                    return;
+                }
+            }
+        }
+        if self.list_mode == ffi::ListMode::Search
+            && let Some(selected) = &self.selected_group
+            && let Some(group) = groups.iter().find(|group| group.anchor == selected.anchor)
+        {
+            let selection_generation = self.inspection.generation;
+            self.as_mut().show_group(group, selection_generation);
+        }
     }
 
     pub fn cancel_search(mut self: Pin<&mut Self>) {

@@ -108,28 +108,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let profile =
         std::env::temp_dir().join(format!("qbutt-mangadex-{}-{nonce}", std::process::id()));
     let mut library = Library::open(&profile)?;
-    library.set_favorite(&work, true)?;
+    library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), true)?;
     let preferences = VariantPreferences {
         selected: Some(variant.reference.clone()),
         ..Default::default()
     };
-    library.save_preferences(&work, preferences.clone())?;
+    library.save_preferences(
+        &qbutt_content::WorkGroup::single(work.clone()),
+        preferences.clone(),
+    )?;
     let mut wrong_transport = work.clone();
     wrong_transport.variants[0].transport = Transport::Torrent;
     assert!(matches!(
-        library.set_favorite(&wrong_transport, false),
+        library.set_favorite(
+            &qbutt_content::WorkGroup::single(wrong_transport.clone()),
+            false
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
     let mut wrong_source = work.clone();
     wrong_source.variants[0].reference.selector = VariantSelector::Torrent { id: 1 };
     assert!(matches!(
-        library.set_favorite(&wrong_source, false),
+        library.set_favorite(
+            &qbutt_content::WorkGroup::single(wrong_source.clone()),
+            false
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
     let mut wrong_category = work.clone();
     wrong_category.category = Category::Anime;
     assert!(matches!(
-        library.set_favorite(&wrong_category, false),
+        library.set_favorite(
+            &qbutt_content::WorkGroup::single(wrong_category.clone()),
+            false
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
     assert!(library.get(&work.reference)?.unwrap().favorite);
@@ -138,7 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let saved = library
         .get(&work.reference)?
         .ok_or("saved manga was lost")?;
-    assert_eq!(saved.work, work);
+    assert_eq!(saved.group.anchor_work().unwrap(), &work);
     assert_eq!(saved.preferences, preferences);
     assert!(saved.last_opened.is_none());
     drop(library);

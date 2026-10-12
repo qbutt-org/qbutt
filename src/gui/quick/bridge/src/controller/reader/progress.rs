@@ -168,15 +168,15 @@ impl ffi::ContentController {
         let Some(variant) = self.reader.reference.clone() else {
             return;
         };
-        let Some(work) = self.selected_work.clone() else {
+        let Some(group) = self.selected_group.clone() else {
             return;
         };
-        if variant.publication != work.reference {
+        if !group.references.contains(&variant.publication) {
             return;
         }
         let preferences = self
             .work_preferences
-            .get(&work.reference)
+            .get(&group.anchor)
             .cloned()
             .unwrap_or_default();
         let progress = ReaderProgress {
@@ -187,7 +187,7 @@ impl ffi::ContentController {
             position: position.clone(),
         };
         self.as_mut().rust_mut().reader.progress_save = Some(ReaderSave {
-            work,
+            group,
             preferences,
             progress,
         });

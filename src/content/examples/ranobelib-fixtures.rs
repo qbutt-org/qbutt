@@ -270,7 +270,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir(&profile)?;
     let persisted = (|| -> std::result::Result<(), Box<dyn std::error::Error>> {
         let mut library = qbutt_content::Library::open(&profile)?;
-        library.set_favorite(&saved, true)?;
+        library.set_favorite(&qbutt_content::WorkGroup::single(saved.clone()), true)?;
         assert!(library.source_settings()?.iter().any(|setting| {
             setting.source == qbutt_content::Source::RanobeLib && setting.enabled
         }));
@@ -279,9 +279,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let entry = library
             .get(&saved.reference)?
             .ok_or("saved text work missing")?;
-        assert_eq!(entry.work, saved);
+        assert_eq!(entry.group.anchor_work().unwrap(), &saved);
         assert_eq!(
-            entry.work.variants[0].transport,
+            entry.group.anchor_work().unwrap().variants[0].transport,
             qbutt_content::Transport::Text
         );
         Ok(())

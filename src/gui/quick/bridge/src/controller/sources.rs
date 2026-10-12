@@ -10,7 +10,7 @@ use qbutt_content::{
 use super::catalog::SourceResponse;
 use super::library::LibraryAction;
 use super::{Pending, ffi};
-use crate::{models, source_model};
+use crate::source_model;
 
 #[derive(Clone)]
 pub enum SourceWrite {
@@ -340,12 +340,19 @@ impl ffi::ContentController {
             self.as_mut().close_disabled_reader(source);
         }
         if self.source_status.status(source).epoch == epoch
-            && self
-                .selected_work
-                .as_ref()
-                .is_some_and(|work| work.reference.source == source)
+            && self.selected_group.as_ref().is_some_and(|group| {
+                self.work_preferences
+                    .get(&group.anchor)
+                    .and_then(|preferences| preferences.selected.as_ref())
+                    .is_some_and(|variant| variant.publication.source == source)
+            })
         {
-            self.as_mut().cancel_detail();
+            let was_resolving = self.resolving;
+            self.as_mut().rust_mut().resolution.cancel();
+            self.as_mut().rust_mut().resolving = false;
+            if was_resolving {
+                self.as_mut().resolving_changed();
+            }
             self.as_mut().selected_variant_state_changed();
         }
         accepted
@@ -611,23 +618,26 @@ impl ffi::ContentController {
                             {
                                 break;
                             }
-                            controller.as_mut().rust_mut().works.pin_mut().update(work);
+                            controller
+                                .as_mut()
+                                .rust_mut()
+                                .search_association
+                                .update(work);
                         }
+                        controller.as_mut().refresh_search_groups(search_generation);
                     }
                     (
                         SourceOperation::Inspect { reference, .. },
                         Ok(SourceResponse::Inspect(work)),
                     ) if controller.inspection.generation == inspection_generation
                         && controller
-                            .selected_work
+                            .selected_group
                             .as_ref()
-                            .map(|work| &work.reference)
-                            == Some(reference) =>
+                            .is_some_and(|group| group.references.contains(reference)) =>
                     {
-                        let shown = controller.as_mut().show_work(&work, inspection_generation);
-                        if shown && controller.works.find(&models::work_id(reference)).is_some() {
-                            controller.as_mut().rust_mut().works.pin_mut().update(work);
-                        }
+                        controller
+                            .as_mut()
+                            .publish_inspected_work(work, inspection_generation);
                     }
                     // Retrying resolution checks availability; it never starts playback/download.
                     _ => {}

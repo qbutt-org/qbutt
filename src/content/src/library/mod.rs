@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use crate::{PublicationRef, VariantRef, Work};
+use crate::{PublicationRef, VariantRef, WorkGroup};
 
 pub use entry::{
     LastOpened, LibraryEntry, ReaderPosition, ReaderProgress, VariantFilters, VariantPreferences,
@@ -86,17 +86,21 @@ impl Library {
         Ok(entries)
     }
 
-    pub fn set_favorite(&mut self, work: &Work, favorite: bool) -> LibraryResult<LibraryEntry> {
-        self.update(work, |entry, _| entry.favorite = favorite)
+    pub fn set_favorite(
+        &mut self,
+        group: &WorkGroup,
+        favorite: bool,
+    ) -> LibraryResult<LibraryEntry> {
+        self.update(group, |entry, _| entry.favorite = favorite)
     }
 
     /// Save dropdowns and exact selection without recording an opened item.
     pub fn save_preferences(
         &mut self,
-        work: &Work,
+        group: &WorkGroup,
         preferences: VariantPreferences,
     ) -> LibraryResult<LibraryEntry> {
-        self.update(work, |entry, _| entry.preferences = preferences)
+        self.update(group, |entry, _| entry.preferences = preferences)
     }
 
     /// Call only after the actual content action succeeds, never on selection
@@ -104,11 +108,11 @@ impl Library {
     /// committed atomically with the full known work.
     pub fn record_opened(
         &mut self,
-        work: &Work,
+        group: &WorkGroup,
         variant: VariantRef,
         preferences: VariantPreferences,
     ) -> LibraryResult<LibraryEntry> {
-        self.update(work, |entry, at_unix_millis| {
+        self.update(group, |entry, at_unix_millis| {
             entry.preferences = preferences;
             entry.last_opened = Some(LastOpened {
                 variant,
@@ -121,11 +125,11 @@ impl Library {
     /// this. Progress and successful reading history share one atomic write.
     pub fn save_reader_progress(
         &mut self,
-        work: &Work,
+        group: &WorkGroup,
         preferences: VariantPreferences,
         progress: ReaderProgress,
     ) -> LibraryResult<LibraryEntry> {
-        self.update(work, |entry, at_unix_millis| {
+        self.update(group, |entry, at_unix_millis| {
             entry.preferences = preferences;
             entry.last_opened = Some(LastOpened {
                 variant: progress.chapter.variant.clone(),
@@ -155,19 +159,19 @@ impl Library {
 
     fn update(
         &mut self,
-        work: &Work,
+        group: &WorkGroup,
         change: impl FnOnce(&mut LibraryEntry, i64),
     ) -> LibraryResult<LibraryEntry> {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut entry = match read_entry(&transaction, &work.reference)? {
+        let mut entry = match read_entry(&transaction, &group.anchor)? {
             Some(mut entry) => {
-                entry.refresh(work);
+                entry.refresh(group);
                 entry
             }
             None => LibraryEntry {
-                work: work.clone(),
+                group: group.clone(),
                 preferences: VariantPreferences::default(),
                 favorite: false,
                 last_opened: None,
@@ -202,7 +206,7 @@ fn read_entry(
 fn decode_entry(key: &str, metadata: &str) -> LibraryResult<LibraryEntry> {
     let entry: LibraryEntry = serde_json::from_str(metadata)?;
     entry.validate().map_err(LibraryError::CorruptEntry)?;
-    if serde_json::to_string(&entry.work.reference)? != key {
+    if serde_json::to_string(&entry.group.anchor)? != key {
         return Err(LibraryError::CorruptEntry(
             "the row identity does not match its work",
         ));
@@ -218,7 +222,7 @@ fn write_entry(connection: &Connection, entry: &LibraryEntry, timestamp: i64) ->
              entry = excluded.entry,
              updated_at = excluded.updated_at",
         params![
-            serde_json::to_string(&entry.work.reference)?,
+            serde_json::to_string(&entry.group.anchor)?,
             serde_json::to_string(entry)?,
             timestamp,
         ],

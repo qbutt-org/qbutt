@@ -257,9 +257,9 @@ async fn exercise(catalog: &yummyanime::YummyAnime, fixture: &Fixture) -> CheckR
 fn save_and_reopen(profile: &Path, work: &Work) -> CheckResult<()> {
     let work: qbutt_content::Work = serde_json::from_value(serde_json::to_value(work)?)?;
     let mut library = Library::open(profile)?;
-    library.set_favorite(&work, true)?;
+    library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), true)?;
     library.save_preferences(
-        &work,
+        &qbutt_content::WorkGroup::single(work.clone()),
         VariantPreferences {
             selected: Some(work.variants[1].reference.clone()),
             filters: VariantFilters {
@@ -275,7 +275,11 @@ fn save_and_reopen(profile: &Path, work: &Work) -> CheckResult<()> {
     let confirmed = library.get(&work.reference)?.unwrap();
     let mut invalid = work.clone();
     invalid.variants[0].transport = qbutt_content::Transport::Torrent;
-    assert!(library.set_favorite(&invalid, false).is_err());
+    assert!(
+        library
+            .set_favorite(&qbutt_content::WorkGroup::single(invalid.clone()), false)
+            .is_err()
+    );
     assert_eq!(library.get(&work.reference)?.unwrap(), confirmed);
     drop(library);
     let status = std::process::Command::new(std::env::current_exe()?)
@@ -294,10 +298,10 @@ fn reopen(profile: &Path) -> CheckResult<()> {
     let entries = library.entries(LibraryView::Favorites)?;
     assert_eq!(entries.len(), 1);
     let entry = &entries[0];
-    assert_eq!(entry.work.variants.len(), 2);
+    assert_eq!(entry.group.anchor_work().unwrap().variants.len(), 2);
     assert_eq!(
         entry.preferences.selected.as_ref(),
-        Some(&entry.work.variants[1].reference)
+        Some(&entry.group.anchor_work().unwrap().variants[1].reference)
     );
     assert_eq!(
         entry.preferences.filters.translation.as_deref(),
@@ -310,7 +314,9 @@ fn reopen(profile: &Path) -> CheckResult<()> {
         dubbing,
         player,
         player_id,
-    } = &entry.work.variants[1].reference.selector
+    } = &entry.group.anchor_work().unwrap().variants[1]
+        .reference
+        .selector
     else {
         unreachable!()
     };

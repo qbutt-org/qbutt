@@ -5,7 +5,7 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
-use qbutt_content::{PublicationRef, VariantPreferences, Work};
+use qbutt_content::{PublicationRef, VariantPreferences, WorkAssociation, WorkGroup};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
@@ -800,7 +800,9 @@ pub struct ContentControllerRust {
     selected_work_description: QString,
     selected_favorite: bool,
     selected_variant_id: QString,
-    selected_work: Option<Work>,
+    selected_group: Option<WorkGroup>,
+    search_association: WorkAssociation,
+    known_groups: HashMap<PublicationRef, WorkGroup>,
     work_preferences: HashMap<PublicationRef, VariantPreferences>,
 
     library_state: ffi::LibraryState,
@@ -876,7 +878,9 @@ impl Default for ContentControllerRust {
             selected_work_description: QString::default(),
             selected_favorite: false,
             selected_variant_id: QString::default(),
-            selected_work: None,
+            selected_group: None,
+            search_association: WorkAssociation::default(),
+            known_groups: HashMap::new(),
             work_preferences: HashMap::new(),
 
             library_state: ffi::LibraryState::Uninitialized,

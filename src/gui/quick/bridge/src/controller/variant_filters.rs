@@ -9,9 +9,9 @@ use super::library::LibraryAction;
 
 impl ffi::ContentController {
     fn selected_filters(&self) -> Option<&VariantFilters> {
-        let work = self.selected_work.as_ref()?;
+        let group = self.selected_group.as_ref()?;
         self.work_preferences
-            .get(&work.reference)
+            .get(&group.anchor)
             .map(|preferences| &preferences.filters)
     }
 
@@ -115,10 +115,10 @@ impl ffi::ContentController {
         if self.library_state != ffi::LibraryState::Ready {
             return;
         }
-        let Some(work) = self.selected_work.clone() else {
+        let Some(group) = self.selected_group.clone() else {
             return;
         };
-        let previous = self.work_preferences.get(&work.reference).cloned();
+        let previous = self.work_preferences.get(&group.anchor).cloned();
         let mut preferences = previous.clone().unwrap_or_default();
         update(&mut preferences.filters);
         if previous.as_ref() == Some(&preferences)
@@ -126,13 +126,13 @@ impl ffi::ContentController {
         {
             return;
         }
-        let reference = work.reference.clone();
+        let reference = group.anchor.clone();
         self.as_mut()
             .rust_mut()
             .work_preferences
             .insert(reference.clone(), preferences.clone());
         let accepted = self.as_mut().submit_library(LibraryAction::Preferences {
-            work,
+            group,
             preferences: preferences.clone(),
         });
         if !accepted && self.work_preferences.get(&reference) == Some(&preferences) {

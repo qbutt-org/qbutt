@@ -454,7 +454,7 @@ fn library_profile(directory: &Path, work: &Work) -> CheckResult {
             .unwrap()
             .enabled
     );
-    library.set_favorite(&work, true)?;
+    library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), true)?;
     for (error, reason) in [
         (
             StoredError::LoginRequired,
@@ -488,11 +488,21 @@ fn library_profile(directory: &Path, work: &Work) -> CheckResult {
     ] {
         let mut invalid = work.clone();
         invalid.url = url.parse()?;
-        assert!(library.set_favorite(&invalid, true).is_err());
+        assert!(
+            library
+                .set_favorite(&qbutt_content::WorkGroup::single(invalid.clone()), true)
+                .is_err()
+        );
     }
     drop(library);
     let library = Library::open(directory)?;
-    assert_eq!(library.entries(LibraryView::Favorites)?[0].work, work);
+    assert_eq!(
+        library.entries(LibraryView::Favorites)?[0]
+            .group
+            .anchor_work()
+            .unwrap(),
+        &work
+    );
     let failure = library
         .source_settings()?
         .into_iter()

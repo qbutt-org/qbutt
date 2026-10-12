@@ -5,7 +5,7 @@ use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
     Library, LibraryEntry, LibraryResult, LibraryView, PublicationRef, ReaderProgress,
-    ReaderSettings, SourceSettings, VariantPreferences, Work,
+    ReaderSettings, SourceSettings, VariantPreferences, Work, WorkGroup,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};
@@ -27,11 +27,11 @@ pub enum LibraryAction {
         generation: u64,
     },
     Favorite {
-        work: Work,
+        group: WorkGroup,
         favorite: bool,
     },
     Preferences {
-        work: Work,
+        group: WorkGroup,
         preferences: VariantPreferences,
     },
     ReaderProgress {
@@ -56,7 +56,7 @@ pub enum LibraryAction {
 /// Navigation cannot replace it; a later confirmed render can.
 #[derive(Clone)]
 pub struct ReaderSave {
-    pub work: Work,
+    pub group: WorkGroup,
     pub preferences: VariantPreferences,
     pub progress: ReaderProgress,
 }
@@ -219,7 +219,7 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
     let (result, reader_generation, playback_token) = match request.action {
         LibraryAction::PlaybackHistory { token, save } => (
             library
-                .record_opened(&save.work, save.variant, save.preferences)
+                .record_opened(&save.group, save.variant, save.preferences)
                 .map(Some),
             None,
             Some(token),
@@ -246,17 +246,17 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
                 result,
             };
         }
-        LibraryAction::Favorite { work, favorite } => {
-            (library.set_favorite(&work, favorite).map(Some), None, None)
+        LibraryAction::Favorite { group, favorite } => {
+            (library.set_favorite(&group, favorite).map(Some), None, None)
         }
-        LibraryAction::Preferences { work, preferences } => (
-            library.save_preferences(&work, preferences).map(Some),
+        LibraryAction::Preferences { group, preferences } => (
+            library.save_preferences(&group, preferences).map(Some),
             None,
             None,
         ),
         LibraryAction::ReaderProgress { save, generation } => (
             library
-                .save_reader_progress(&save.work, save.preferences, save.progress)
+                .save_reader_progress(&save.group, save.preferences, save.progress)
                 .map(Some),
             Some(generation),
             None,
@@ -302,9 +302,12 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
 }
 
 fn read_history(library: &Library) -> LibraryResult<Vec<Work>> {
-    library
-        .entries(LibraryView::History)
-        .map(|entries| entries.into_iter().map(|entry| entry.work).collect())
+    library.entries(LibraryView::History).map(|entries| {
+        entries
+            .into_iter()
+            .filter_map(|entry| entry.group.anchor_work().cloned())
+            .collect()
+    })
 }
 
 impl ffi::ContentController {
@@ -517,15 +520,21 @@ impl ffi::ContentController {
                         self.as_mut()
                             .rust_mut()
                             .work_preferences
-                            .entry(entry.work.reference.clone())
+                            .entry(entry.group.anchor.clone())
                             .or_insert_with(|| entry.preferences.clone());
-                    }
-                    for entry in entries.into_iter().filter(|entry| entry.favorite) {
                         self.as_mut()
                             .rust_mut()
-                            .favorites
-                            .pin_mut()
-                            .update(entry.work);
+                            .known_groups
+                            .insert(entry.group.anchor.clone(), entry.group.clone());
+                    }
+                    for entry in entries.into_iter().filter(|entry| entry.favorite) {
+                        if let Some(work) = entry.group.anchor_work() {
+                            self.as_mut()
+                                .rust_mut()
+                                .favorites
+                                .pin_mut()
+                                .update(work.clone());
+                        }
                     }
                     self.as_mut().rust_mut().history.pin_mut().replace(history);
                 });
@@ -548,18 +557,24 @@ impl ffi::ContentController {
                 }
                 let result = result.and_then(|entry| {
                     if let Some(entry) = entry {
+                        self.as_mut()
+                            .rust_mut()
+                            .known_groups
+                            .insert(entry.group.anchor.clone(), entry.group.clone());
                         if entry.favorite {
-                            self.as_mut()
-                                .rust_mut()
-                                .favorites
-                                .pin_mut()
-                                .update(entry.work);
+                            if let Some(work) = entry.group.anchor_work() {
+                                self.as_mut()
+                                    .rust_mut()
+                                    .favorites
+                                    .pin_mut()
+                                    .update(work.clone());
+                            }
                         } else {
                             self.as_mut()
                                 .rust_mut()
                                 .favorites
                                 .pin_mut()
-                                .remove(&entry.work.reference);
+                                .remove(&entry.group.anchor);
                         }
                     }
                     history.transpose().map(|history| {
@@ -580,8 +595,8 @@ impl ffi::ContentController {
                 if initial {
                     self.as_mut().rust_mut().library_state = ffi::LibraryState::Ready;
                     let generation = self.inspection.generation;
-                    if let Some(work) = self.selected_work.clone()
-                        && self.as_mut().set_selection(Some(&work), generation)
+                    if let Some(group) = self.selected_group.clone()
+                        && self.as_mut().set_selection(Some(&group), generation)
                     {
                         self.as_mut().selected_variant_state_changed();
                         if self.inspection.generation == generation && !self.inspecting {
@@ -653,10 +668,10 @@ impl ffi::ContentController {
         // belong to the work and can change while that confirmation is pending.
         let saved_filters = match &mut action {
             LibraryAction::PlaybackHistory { save, .. } => {
-                Some((&save.work.reference, &mut save.preferences.filters))
+                Some((&save.group.anchor, &mut save.preferences.filters))
             }
             LibraryAction::ReaderProgress { save, .. } => {
-                Some((&save.work.reference, &mut save.preferences.filters))
+                Some((&save.group.anchor, &mut save.preferences.filters))
             }
             _ => None,
         };

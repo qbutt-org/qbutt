@@ -51,8 +51,11 @@ fn exercise(profile: &Path) -> Result<()> {
     let mut library = Library::open(profile)?;
     for (index, category) in CATEGORIES.into_iter().enumerate() {
         let work = fixture((index + 1) as u64, category);
-        library.set_favorite(&work, true)?;
-        library.save_preferences(&work, preferences(&work))?;
+        library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), true)?;
+        library.save_preferences(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            preferences(&work),
+        )?;
     }
     assert!(library.entries(LibraryView::History)?.is_empty());
     drop(library);
@@ -105,7 +108,7 @@ fn exercise(profile: &Path) -> Result<()> {
 
     for rejected in invalid {
         assert!(matches!(
-            library.set_favorite(&rejected, false),
+            library.set_favorite(&qbutt_content::WorkGroup::single(rejected.clone()), false),
             Err(LibraryError::InvalidEntry(_))
         ));
         assert_eq!(library.entries(LibraryView::All)?, before);
@@ -115,18 +118,21 @@ fn exercise(profile: &Path) -> Result<()> {
         info_hash: "abcdef0123456789abcdef0123456789abcdef0123".into(),
     };
     assert!(matches!(
-        library.save_preferences(&work, rejected_preferences),
+        library.save_preferences(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            rejected_preferences
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
     assert_eq!(library.entries(LibraryView::All)?, before);
 
     let mut refreshed = work.clone();
     refreshed.title = "Generated tool 2.0 [Windows]".into();
-    library.set_favorite(&refreshed, true)?;
+    library.set_favorite(&qbutt_content::WorkGroup::single(refreshed.clone()), true)?;
     let entry = library
         .get(&work.reference)?
         .ok_or("missing refreshed entry")?;
-    assert_eq!(entry.work, refreshed);
+    assert_eq!(entry.group.anchor_work().unwrap(), &refreshed);
     assert_eq!(entry.preferences, preferences(&work));
     assert!(entry.last_opened.is_none());
     assert!(library.entries(LibraryView::History)?.is_empty());
@@ -145,7 +151,7 @@ fn verify_reopened(profile: &Path) -> Result<()> {
         let entry = library
             .get(&work.reference)?
             .ok_or("missing reopened entry")?;
-        assert_eq!(entry.work, work);
+        assert_eq!(entry.group.anchor_work().unwrap(), &work);
         assert_eq!(entry.preferences, preferences(&work));
         assert!(entry.favorite && entry.last_opened.is_none());
     }

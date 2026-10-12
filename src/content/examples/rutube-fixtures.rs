@@ -231,7 +231,7 @@ fn persist_work(encoded: &str) -> CheckResult<()> {
     work.url = url::Url::parse(&format!("https://rutube.ru/video/{}/", work.reference.id))?;
     let mut library = Library::open(&profile)?;
     library.record_opened(
-        &work,
+        &qbutt_content::WorkGroup::single(work.clone()),
         work.variants[0].reference.clone(),
         VariantPreferences {
             selected: Some(work.variants[0].reference.clone()),
@@ -258,25 +258,35 @@ fn verify_library(profile: &std::path::Path) -> CheckResult<()> {
     let entries = library.entries(LibraryView::History)?;
     assert_eq!(entries.len(), 1);
     let entry = &entries[0];
-    assert_eq!(entry.work.reference.source, Source::Rutube);
-    assert_eq!(entry.work.reference.id, fixture::ID);
     assert_eq!(
-        entry.work.variants[0].reference.selector,
+        entry.group.anchor_work().unwrap().reference.source,
+        Source::Rutube
+    );
+    assert_eq!(entry.group.anchor_work().unwrap().reference.id, fixture::ID);
+    assert_eq!(
+        entry.group.anchor_work().unwrap().variants[0]
+            .reference
+            .selector,
         VariantSelector::RutubeVideo
     );
     assert_eq!(
         entry.preferences.selected.as_ref(),
-        Some(&entry.work.variants[0].reference)
+        Some(&entry.group.anchor_work().unwrap().variants[0].reference)
     );
     assert_eq!(
         &entry.last_opened.as_ref().unwrap().variant,
-        &entry.work.variants[0].reference
+        &entry.group.anchor_work().unwrap().variants[0].reference
     );
     assert_eq!(
-        entry.work.url.as_str(),
+        entry.group.anchor_work().unwrap().url.as_str(),
         format!("https://rutube.ru/video/{}/", fixture::ID)
     );
-    assert_eq!(entry.work.variants[0].quality.as_deref(), Some("1080p"));
+    assert_eq!(
+        entry.group.anchor_work().unwrap().variants[0]
+            .quality
+            .as_deref(),
+        Some("1080p")
+    );
     println!(
         "PASS rutube_library exact_publication_variant=restart selection=restart metadata=public"
     );

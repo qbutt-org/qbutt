@@ -221,11 +221,19 @@ fn check_library(work: &Work) -> std::result::Result<(), Box<dyn std::error::Err
     std::fs::create_dir(&profile)?;
     {
         let mut library = qbutt_content::Library::open(&profile)?;
-        library.set_favorite(&work, true)?;
+        library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), true)?;
     }
     {
         let library = qbutt_content::Library::open(&profile)?;
-        assert_eq!(library.get(&work.reference)?.unwrap().work, work);
+        assert_eq!(
+            library
+                .get(&work.reference)?
+                .unwrap()
+                .group
+                .anchor_work()
+                .unwrap(),
+            &work
+        );
     }
     std::fs::remove_dir_all(profile)?;
     Ok(())

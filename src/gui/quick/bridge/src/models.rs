@@ -4,7 +4,7 @@ use std::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QByteArray, QHash, QModelIndex, QString, QStringList, QVariant, QVector};
 use qbutt_content::{
-    Category, PublicationRef, Transport, Variant, VariantRef, VariantSelector, Work,
+    Category, PublicationRef, Transport, Variant, VariantRef, VariantSelector, Work, WorkGroup,
 };
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
@@ -273,6 +273,13 @@ impl ffi::WorkModel {
         self.rows.iter().find(|work| work_id(&work.reference) == id)
     }
 
+    pub fn references(&self) -> Vec<PublicationRef> {
+        self.rows
+            .iter()
+            .map(|work| work.reference.clone())
+            .collect()
+    }
+
     pub fn clear(mut self: Pin<&mut Self>) {
         if self.rows.is_empty() {
             return;
@@ -470,11 +477,18 @@ impl ffi::VariantModel {
         self.as_mut().end_reset_model();
     }
 
-    pub fn update(mut self: Pin<&mut Self>, work: &Work) {
+    pub fn update_group(mut self: Pin<&mut Self>, group: &WorkGroup, language: Option<&str>) {
+        let Some(work) = group.anchor_work() else {
+            return;
+        };
+        let variants = group.variants(language);
+        self.as_mut().update_variants(&work.title, &variants);
+    }
+
+    fn update_variants(mut self: Pin<&mut Self>, title: &str, variants: &[Variant]) {
         self.as_mut().rust_mut().revision = self.revision.wrapping_add(1);
         let revision = self.revision;
-        self.as_mut().rust_mut().work_title.clone_from(&work.title);
-        let variants = &work.variants;
+        self.as_mut().rust_mut().work_title = title.to_owned();
         let parent = QModelIndex::default();
 
         for row in (0..self.rows.len()).rev() {

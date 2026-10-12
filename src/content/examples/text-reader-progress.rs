@@ -44,8 +44,11 @@ fn exercise(profile: &Path) -> Result<()> {
         ..Default::default()
     };
     let mut library = Library::open(profile)?;
-    library.set_favorite(&work, true)?;
-    library.save_preferences(&work, preferences.clone())?;
+    library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), true)?;
+    library.save_preferences(
+        &qbutt_content::WorkGroup::single(work.clone()),
+        preferences.clone(),
+    )?;
     assert!(library.entries(LibraryView::History)?.is_empty());
     for offset in [0.0, 1.0] {
         let mut boundary = progress.clone();
@@ -53,9 +56,17 @@ fn exercise(profile: &Path) -> Result<()> {
             block_id: chapter.blocks[10].id.clone(),
             offset,
         };
-        library.save_reader_progress(&work, preferences.clone(), boundary)?;
+        library.save_reader_progress(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            preferences.clone(),
+            boundary,
+        )?;
     }
-    let saved = library.save_reader_progress(&work, preferences.clone(), progress.clone())?;
+    let saved = library.save_reader_progress(
+        &qbutt_content::WorkGroup::single(work.clone()),
+        preferences.clone(),
+        progress.clone(),
+    )?;
     assert_eq!(saved.reader_progress, Some(progress.clone()));
     assert_eq!(saved.last_opened.unwrap().variant, progress.chapter.variant);
     drop(library);
@@ -76,7 +87,11 @@ fn exercise(profile: &Path) -> Result<()> {
             offset,
         };
         assert!(matches!(
-            library.save_reader_progress(&work, preferences.clone(), invalid),
+            library.save_reader_progress(
+                &qbutt_content::WorkGroup::single(work.clone()),
+                preferences.clone(),
+                invalid
+            ),
             Err(LibraryError::InvalidEntry(_))
         ));
         assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -88,7 +103,11 @@ fn exercise(profile: &Path) -> Result<()> {
             offset: 0.0,
         };
         assert!(matches!(
-            library.save_reader_progress(&work, preferences.clone(), invalid),
+            library.save_reader_progress(
+                &qbutt_content::WorkGroup::single(work.clone()),
+                preferences.clone(),
+                invalid
+            ),
             Err(LibraryError::InvalidEntry(_))
         ));
     }
@@ -98,13 +117,21 @@ fn exercise(profile: &Path) -> Result<()> {
         scroll_offset: 0.0,
     };
     assert!(matches!(
-        library.save_reader_progress(&work, preferences.clone(), invalid),
+        library.save_reader_progress(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            preferences.clone(),
+            invalid
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
     let mut wrong_work = progress.clone();
     wrong_work.chapter.id = "1002/2002".into();
     assert!(matches!(
-        library.save_reader_progress(&work, preferences.clone(), wrong_work),
+        library.save_reader_progress(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            preferences.clone(),
+            wrong_work
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
 
@@ -119,12 +146,20 @@ fn exercise(profile: &Path) -> Result<()> {
         offset: 0.875,
     };
     assert!(matches!(
-        library.save_reader_progress(&work, preferences.clone(), intent.clone()),
+        library.save_reader_progress(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            preferences.clone(),
+            intent.clone()
+        ),
         Err(LibraryError::Sqlite(_))
     ));
     assert_eq!(library.get(&work.reference)?.unwrap(), before);
     raw.execute_batch("DROP TRIGGER reject_text_progress;")?;
-    let retried = library.save_reader_progress(&work, preferences, intent.clone())?;
+    let retried = library.save_reader_progress(
+        &qbutt_content::WorkGroup::single(work.clone()),
+        preferences,
+        intent.clone(),
+    )?;
     assert_eq!(retried.reader_progress, Some(intent.clone()));
     assert_eq!(serde_json::to_vec(&chapter)?, original);
     let retained = library.remove_history(&work.reference)?.unwrap();
@@ -153,7 +188,7 @@ fn verify_reopened(profile: &Path) -> Result<()> {
     let entry = library
         .get(&work.reference)?
         .ok_or("missing saved original text")?;
-    assert_eq!(entry.work, work);
+    assert_eq!(entry.group.anchor_work().unwrap(), &work);
     assert_eq!(entry.reader_progress, Some(progress.clone()));
     assert_eq!(entry.last_opened.unwrap().variant, progress.chapter.variant);
     assert!(entry.favorite);

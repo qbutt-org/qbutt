@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{ChapterRef, Source, Transport, VariantRef, VariantSelector, Work};
+use crate::{ChapterRef, Source, Transport, VariantRef, VariantSelector, Work, WorkGroup};
 
 /// Raw provider labels are retained so reopening a work restores its dropdowns.
 /// Filters never replace the identity of an explicitly selected variant.
@@ -52,7 +52,7 @@ pub struct ReaderProgress {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LibraryEntry {
-    pub work: Work,
+    pub group: WorkGroup,
     pub preferences: VariantPreferences,
     pub favorite: bool,
     pub last_opened: Option<LastOpened>,
@@ -61,25 +61,57 @@ pub struct LibraryEntry {
 
 impl LibraryEntry {
     pub(super) fn validate(&self) -> std::result::Result<(), &'static str> {
-        validate_work(&self.work)?;
+        if self.group.references.is_empty() || !self.group.references.contains(&self.group.anchor) {
+            return Err("the work group has no resolved anchor publication");
+        }
+        let anchor = self
+            .group
+            .anchor_work()
+            .ok_or("the work group has no resolved anchor publication")?;
+        if !self.group.is_confirmed() {
+            return Err("the resolved publications lack a confirmed association");
+        }
+        let mut references = HashSet::new();
+        for reference in &self.group.references {
+            reference
+                .validate()
+                .map_err(|_| "an associated publication reference is invalid")?;
+            if !reference.source.categories().contains(&anchor.category) {
+                return Err("an associated source does not support the work category");
+            }
+            if !references.insert(reference) {
+                return Err("an associated publication reference is repeated");
+            }
+        }
+        let mut publications = HashSet::new();
+        for work in &self.group.publications {
+            validate_work(work)?;
+            if !references.contains(&work.reference) || !publications.insert(&work.reference) {
+                return Err("an associated publication is missing or repeated");
+            }
+            if work.category != anchor.category {
+                return Err("associated publications have different categories");
+            }
+        }
 
-        for selected in self
-            .preferences
-            .selected
-            .iter()
-            .chain(self.last_opened.iter().map(|opened| &opened.variant))
-            .chain(
-                self.reader_progress
-                    .iter()
-                    .map(|progress| &progress.chapter.variant),
-            )
-        {
-            if !self
-                .work
-                .variants
+        if let Some(selected) = &self.preferences.selected {
+            selected
+                .validate()
+                .map_err(|_| "the selected variant reference is invalid")?;
+            if !references.contains(&selected.publication) {
+                return Err("the selected variant belongs to another work group");
+            }
+        }
+        for selected in self.last_opened.iter().map(|opened| &opened.variant).chain(
+            self.reader_progress
                 .iter()
-                .any(|variant| &variant.reference == selected)
-            {
+                .map(|progress| &progress.chapter.variant),
+        ) {
+            if !self.group.publications.iter().any(|work| {
+                work.variants
+                    .iter()
+                    .any(|variant| &variant.reference == selected)
+            }) {
                 return Err("the exact selected variant is absent from the work");
             }
         }
@@ -96,9 +128,10 @@ impl LibraryEntry {
                 .validate()
                 .map_err(|_| "the saved chapter reference is invalid")?;
             let transport = self
-                .work
-                .variants
+                .group
+                .publications
                 .iter()
+                .flat_map(|work| &work.variants)
                 .find(|variant| variant.reference == progress.chapter.variant)
                 .map(|variant| variant.transport);
             let offset = match &progress.position {
@@ -134,39 +167,59 @@ impl LibraryEntry {
         Ok(())
     }
 
-    pub(super) fn refresh(&mut self, work: &Work) {
-        let mut refreshed = work.clone();
-        // Search metadata is partial; an inspected publication is authoritative.
-        if work.needs_inspection {
-            refreshed.description = refreshed
-                .description
-                .or_else(|| self.work.description.clone());
-            refreshed.cover = refreshed.cover.or_else(|| self.work.cover.clone());
-            refreshed.year = work.year.or(self.work.year);
-            for alias in &self.work.aliases {
-                if !refreshed.aliases.contains(alias) {
-                    refreshed.aliases.push(alias.clone());
-                }
-            }
-            for (key, value) in &self.work.identifiers {
-                refreshed
-                    .identifiers
-                    .entry(key.clone())
-                    .or_insert_with(|| value.clone());
+    pub(super) fn refresh(&mut self, group: &WorkGroup) {
+        for work in &group.publications {
+            if let Some(previous) = self
+                .group
+                .publications
+                .iter_mut()
+                .find(|previous| previous.reference == work.reference)
+            {
+                refresh_publication(previous, work);
+            } else {
+                self.group.publications.push(work.clone());
             }
         }
-        let known = work
-            .variants
-            .iter()
-            .map(|variant| &variant.reference)
-            .collect::<HashSet<_>>();
-        for variant in &self.work.variants {
-            if !known.contains(&variant.reference) {
-                refreshed.variants.push(variant.clone());
+        for reference in &group.references {
+            if !self.group.references.contains(reference) {
+                self.group.references.push(reference.clone());
             }
         }
-        self.work = refreshed;
     }
+}
+
+fn refresh_publication(previous: &mut Work, work: &Work) {
+    let mut refreshed = work.clone();
+    // Search metadata is partial; an inspected publication is authoritative.
+    if work.needs_inspection {
+        refreshed.description = refreshed
+            .description
+            .or_else(|| previous.description.clone());
+        refreshed.cover = refreshed.cover.or_else(|| previous.cover.clone());
+        refreshed.year = work.year.or(previous.year);
+        for alias in &previous.aliases {
+            if !refreshed.aliases.contains(alias) {
+                refreshed.aliases.push(alias.clone());
+            }
+        }
+        for (key, value) in &previous.identifiers {
+            refreshed
+                .identifiers
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
+        }
+    }
+    let known = refreshed
+        .variants
+        .iter()
+        .map(|variant| variant.reference.clone())
+        .collect::<HashSet<_>>();
+    for variant in &previous.variants {
+        if !known.contains(&variant.reference) {
+            refreshed.variants.push(variant.clone());
+        }
+    }
+    *previous = refreshed;
 }
 
 fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {

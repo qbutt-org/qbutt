@@ -7,7 +7,7 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QByteArray, QString, QUrl};
 use qbutt_content::{
     Category, MediaGateway, ResolvedContent, SourceOperation, Transport, VariantPreferences,
-    VariantRef, Work,
+    VariantRef, WorkGroup,
 };
 
 use super::catalog::SourceResponse;
@@ -20,7 +20,7 @@ const MAX_PLAYBACK_INTENTS: usize = 64;
 
 #[derive(Clone)]
 pub struct PlaybackSave {
-    pub work: Work,
+    pub group: WorkGroup,
     pub variant: VariantRef,
     pub preferences: VariantPreferences,
 }
@@ -99,10 +99,12 @@ impl ffi::ContentController {
         }
         let token = NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed);
         let identity = QString::from(format!("video:{}", models::variant_id(&save.variant)));
-        let content_kind = QString::from(match save.work.category {
-            Category::Movies => "movie",
-            category => models::category_key(category),
-        });
+        let content_kind = QString::from(
+            match save.group.anchor_work().map(|work| work.category).unwrap() {
+                Category::Movies => "movie",
+                category => models::category_key(category),
+            },
+        );
         let proxy = QUrl::from(&QString::from(gateway.proxy_url().as_str()));
         self.as_mut().rust_mut().playback.launches.insert(
             token,
@@ -270,17 +272,17 @@ impl ffi::ContentController {
             return;
         }
 
-        let Some(work) = self.selected_work.clone() else {
+        let Some(group) = self.selected_group.clone() else {
             return;
         };
         let mut preferences = self
             .work_preferences
-            .get(&work.reference)
+            .get(&group.anchor)
             .cloned()
             .unwrap_or_default();
         preferences.selected = Some(reference.clone());
         let save = PlaybackSave {
-            work,
+            group,
             variant: reference.clone(),
             preferences,
         };

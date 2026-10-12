@@ -42,8 +42,11 @@ fn exercise(profile: &Path) -> Result<()> {
     let progress = position(&work);
     let preferences = choices(&work, 0);
     let mut library = Library::open(profile)?;
-    library.set_favorite(&work, true)?;
-    library.save_preferences(&work, preferences.clone())?;
+    library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), true)?;
+    library.save_preferences(
+        &qbutt_content::WorkGroup::single(work.clone()),
+        preferences.clone(),
+    )?;
     assert!(library.entries(LibraryView::History)?.is_empty());
     for offset in [0.0, 1.0] {
         let mut boundary = progress.clone();
@@ -51,10 +54,18 @@ fn exercise(profile: &Path) -> Result<()> {
             page: 3,
             scroll_offset: offset,
         };
-        library.save_reader_progress(&work, preferences.clone(), boundary)?;
+        library.save_reader_progress(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            preferences.clone(),
+            boundary,
+        )?;
     }
-    let saved = library.save_reader_progress(&work, preferences.clone(), progress.clone())?;
-    assert_eq!(saved.work, work);
+    let saved = library.save_reader_progress(
+        &qbutt_content::WorkGroup::single(work.clone()),
+        preferences.clone(),
+        progress.clone(),
+    )?;
+    assert_eq!(saved.group.anchor_work().unwrap(), &work);
     assert_eq!(saved.preferences, preferences);
     assert_eq!(saved.reader_progress, Some(progress.clone()));
     assert_eq!(
@@ -64,7 +75,10 @@ fn exercise(profile: &Path) -> Result<()> {
     assert!(saved.last_opened.as_ref().unwrap().at_unix_millis > 0);
 
     // A new dropdown selection retains the last actually rendered branch.
-    library.save_preferences(&work, choices(&work, 1))?;
+    library.save_preferences(
+        &qbutt_content::WorkGroup::single(work.clone()),
+        choices(&work, 1),
+    )?;
     drop(library);
     let status = Command::new(std::env::current_exe()?)
         .arg("--reopen")
@@ -84,7 +98,11 @@ fn exercise(profile: &Path) -> Result<()> {
             scroll_offset: offset,
         };
         assert!(matches!(
-            library.save_reader_progress(&work, choices(&work, 0), invalid),
+            library.save_reader_progress(
+                &qbutt_content::WorkGroup::single(work.clone()),
+                choices(&work, 0),
+                invalid
+            ),
             Err(LibraryError::InvalidEntry(_))
         ));
         assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -95,21 +113,33 @@ fn exercise(profile: &Path) -> Result<()> {
         scroll_offset: 0.0,
     };
     assert!(matches!(
-        library.save_reader_progress(&work, choices(&work, 0), invalid),
+        library.save_reader_progress(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            choices(&work, 0),
+            invalid
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
     for id in ["invalid-chapter", "00000000-0000-0000-0000-000000000000"] {
         let mut invalid = progress.clone();
         invalid.chapter.id = id.into();
         assert!(matches!(
-            library.save_reader_progress(&work, choices(&work, 0), invalid),
+            library.save_reader_progress(
+                &qbutt_content::WorkGroup::single(work.clone()),
+                choices(&work, 0),
+                invalid
+            ),
             Err(LibraryError::InvalidEntry(_))
         ));
     }
     let mut invalid = progress.clone();
     invalid.chapter.variant.publication.id = "33333333-3333-3333-3333-333333333333".into();
     assert!(matches!(
-        library.save_reader_progress(&work, choices(&work, 0), invalid),
+        library.save_reader_progress(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            choices(&work, 0),
+            invalid
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
     let mut missing_variant = progress.clone();
@@ -118,7 +148,11 @@ fn exercise(profile: &Path) -> Result<()> {
         groups: Vec::new(),
     };
     assert!(matches!(
-        library.save_reader_progress(&work, choices(&work, 0), missing_variant),
+        library.save_reader_progress(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            choices(&work, 0),
+            missing_variant
+        ),
         Err(LibraryError::InvalidEntry(_))
     ));
     assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -134,7 +168,11 @@ fn exercise(profile: &Path) -> Result<()> {
         scroll_offset: 0.625,
     };
     assert!(matches!(
-        library.save_reader_progress(&work, choices(&work, 0), next),
+        library.save_reader_progress(
+            &qbutt_content::WorkGroup::single(work.clone()),
+            choices(&work, 0),
+            next
+        ),
         Err(LibraryError::Sqlite(_))
     ));
     assert_eq!(library.get(&work.reference)?.unwrap(), before);
@@ -173,7 +211,7 @@ fn verify_reopened(profile: &Path) -> Result<()> {
     let entry = library
         .get(&work.reference)?
         .ok_or("missing reopened reader work")?;
-    assert_eq!(entry.work, work);
+    assert_eq!(entry.group.anchor_work().unwrap(), &work);
     assert_eq!(entry.preferences, choices(&work, 1));
     assert_eq!(entry.reader_progress, Some(position(&work)));
     assert_eq!(
