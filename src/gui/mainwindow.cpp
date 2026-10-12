@@ -46,7 +46,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLabel>
-#include <QLocale>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -141,12 +140,8 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     , m_statusItem {std::make_unique<MacUtils::StatusItem>()}
 #endif // Q_OS_MACOS
 {
-    QLocale::setDefault(QLocale(Preferences::instance()->getLocale()));
     m_ui->setupUi(this);
-    auto *openMedia = new QAction(tr("Open media…"), this);
-    openMedia->setObjectName(u"actionOpenMedia"_s);
-    m_ui->menuFile->insertAction(m_ui->actionCloseWindow, openMedia);
-    connect(openMedia, &QAction::triggered, this, [this]
+    connect(m_ui->actionOpenMedia, &QAction::triggered, this, [this]
     {
         const QString path = QFileDialog::getOpenFileName(this, tr("Open media"), {},
             tr("Media files (*.mkv *.mp4 *.webm *.avi *.mov *.m4v *.wmv *.mpeg *.mpg *.ts *.m2ts *.mp3 *.flac *.wav *.ogg *.opus *.m4a *.aac);;All files (*)"));
@@ -156,10 +151,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
             Media::Player::instance()->playUrl(url, url.fileName());
         }
     });
-    auto *readFile = new QAction(tr("Read file…"), this);
-    readFile->setObjectName(u"actionReadFile"_s);
-    m_ui->menuFile->insertAction(m_ui->actionCloseWindow, readFile);
-    connect(readFile, &QAction::triggered, this, [this]
+    connect(m_ui->actionReadFile, &QAction::triggered, this, [this]
     {
         if (!m_localReader)
         {
@@ -179,11 +171,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
             m_tabs->setCurrentWidget(m_localReader);
         }
     });
-    auto *downloads = new QAction(tr("Downloads"), this);
-    downloads->setObjectName(u"actionContentDownloads"_s);
-    downloads->setShortcut(Qt::CTRL | Qt::Key_J);
-    m_ui->menuView->addAction(downloads);
-    connect(downloads, &QAction::triggered, this, [this]
+    connect(m_ui->actionContentDownloads, &QAction::triggered, this, [this]
     {
         m_tabs->setCurrentWidget(downloadsWidget());
     });
@@ -455,7 +443,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     m_ui->actionAbout->setMenuRole(QAction::AboutRole);
     m_ui->actionUpdateStatus->setMenuRole(QAction::ApplicationSpecificRole);
     m_ui->actionOptions->setMenuRole(QAction::PreferencesRole);
-    m_ui->menuOptions->addAction(tr("Completion policies…"), this, [this]
+    connect(m_ui->actionCompletionPolicies, &QAction::triggered, this, [this]
     {
         auto *dialog = new PoliciesDialog(this);
         dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -470,10 +458,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 #endif
 
     connect(m_ui->actionManageCookies, &QAction::triggered, this, &MainWindow::manageCookies);
-    auto *importProfile = new QAction {tr("Import profile..."), this};
-    importProfile->setObjectName(u"actionImportProfile"_s);
-    m_ui->menuOptions->insertAction(m_ui->actionOptions, importProfile);
-    connect(importProfile, &QAction::triggered, this, [this]
+    connect(m_ui->actionImportProfile, &QAction::triggered, this, [this]
     {
         auto *dialog = new ProfileImportDialog {this};
         dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -1302,6 +1287,30 @@ void MainWindow::createTorrentTriggered(const Path &path)
         m_createTorrentDlg->setAttribute(Qt::WA_DeleteOnClose);
         m_createTorrentDlg->show();
     }
+}
+
+void MainWindow::changeEvent(QEvent *event)
+{
+    QMainWindow::changeEvent(event);
+    if (event->type() != QEvent::LanguageChange)
+        return;
+
+    m_ui->retranslateUi(this);
+#ifdef Q_OS_UNIX
+    m_ui->actionOptions->setText(tr("Preferences"));
+#endif
+    m_columnFilterEdit->setPlaceholderText(tr("Filter torrents..."));
+    m_tabs->setTabText(m_tabs->indexOf(m_splitter), tr("Transfers"));
+    if (m_searchWidget)
+        m_tabs->setTabText(m_tabs->indexOf(m_searchWidget), tr("Search"));
+    if (m_rssWidget)
+        handleRSSUnreadCountUpdated(RSS::Session::instance()->rootFolder()->unreadCount());
+    if (m_executionLog)
+        m_tabs->setTabText(m_tabs->indexOf(m_executionLog), tr("Execution Log"));
+    if (m_localReader)
+        m_tabs->setTabText(m_tabs->indexOf(m_localReader), tr("Read file…"));
+    if (m_downloadsWidget)
+        m_tabs->setTabText(m_tabs->indexOf(m_downloadsWidget), tr("Downloads"));
 }
 
 bool MainWindow::event(QEvent *e)

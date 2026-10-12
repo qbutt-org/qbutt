@@ -421,6 +421,7 @@ public slots:
 
 signals:
     void changed();
+    void localeChanged();
     void readerSettingsChanged();
 
 private:

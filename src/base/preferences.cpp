@@ -145,6 +145,7 @@ void Preferences::setLocale(const QString &locale)
         return;
 
     setValue(u"Preferences/General/Locale"_s, locale);
+    emit localeChanged();
 }
 
 bool Preferences::useCustomUITheme() const

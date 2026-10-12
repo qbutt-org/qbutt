@@ -333,7 +333,8 @@ Application::Application(int &argc, char **argv)
         Preferences::instance()->setWinStartup(true);
 #endif
 
-    initializeTranslation();
+    updateTranslation();
+    connect(Preferences::instance(), &Preferences::localeChanged, this, &Application::updateTranslation);
 
     connect(this, &QCoreApplication::aboutToQuit, this, &Application::cleanup);
     connect(m_instanceManager, &ApplicationInstanceManager::messageReceived, this, &Application::processMessage);
@@ -1209,11 +1210,13 @@ bool Application::event(QEvent *ev)
 #endif // Q_OS_MACOS
 #endif // DISABLE_GUI
 
-void Application::initializeTranslation()
+void Application::updateTranslation()
 {
-    Preferences *const pref = Preferences::instance();
-    // Load translation
-    const QString localeStr = pref->getLocale();
+    removeTranslator(&m_translator);
+    removeTranslator(&m_qtTranslator);
+
+    const QString localeStr = Preferences::instance()->getLocale();
+    QLocale::setDefault(QLocale(localeStr));
 
     if (m_qtTranslator.load((u"qtbase_" + localeStr), QLibraryInfo::path(QLibraryInfo::TranslationsPath))
         || m_qtTranslator.load((u"qt_" + localeStr), QLibraryInfo::path(QLibraryInfo::TranslationsPath)))

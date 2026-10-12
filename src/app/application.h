@@ -161,7 +161,7 @@ private:
     WebUI *webUI() const override;
 #endif
 
-    void initializeTranslation();
+    void updateTranslation();
     void processParams(const QBtCommandLineParameters &params);
     void runExternalProgram(const QString &programTemplate, const BitTorrent::Torrent *torrent) const;
     void sendNotificationEmail(const BitTorrent::Torrent *torrent);

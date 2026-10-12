@@ -6,6 +6,7 @@
 #include <QQuickItem>
 
 #include "qbutt_quick/src/controller.cxxqt.h"
+#include "qbutt_quick/src/models.cxxqt.h"
 
 Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     : QQuickWidget(parent)
@@ -61,5 +62,8 @@ void Content::ContentView::changeEvent(QEvent *event)
 {
     QQuickWidget::changeEvent(event);
     if (event->type() == QEvent::LanguageChange)
+    {
+        m_controller->variants_model()->retranslate();
         engine()->retranslate();
+    }
 }

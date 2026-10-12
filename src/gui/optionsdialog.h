@@ -118,9 +118,11 @@ private slots:
 #endif
 
 private:
+    void changeEvent(QEvent *event) override;
     void showEvent(QShowEvent *e) override;
 
     // Methods
+    void updateTranslation();
     bool applySettings();
     void saveOptions() const;
 

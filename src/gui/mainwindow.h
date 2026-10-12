@@ -194,6 +194,7 @@ private:
     void populateDesktopIntegrationMenu();
 
     void closeEvent(QCloseEvent *) override;
+    void changeEvent(QEvent *event) override;
     void showEvent(QShowEvent *) override;
     void keyPressEvent(QKeyEvent *event) override;
     bool event(QEvent *e) override;

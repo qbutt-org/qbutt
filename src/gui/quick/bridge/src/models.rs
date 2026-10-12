@@ -85,6 +85,8 @@ pub mod ffi {
         #[base = QAbstractListModel]
         type VariantModel = super::VariantModelRust;
 
+        fn retranslate(self: Pin<&mut VariantModel>);
+
         #[qinvokable]
         #[cxx_name = "idAt"]
         fn id_at(&self, row: i32) -> QString;
@@ -313,6 +315,17 @@ pub struct VariantModelRust {
 }
 
 impl ffi::VariantModel {
+    pub fn retranslate(mut self: Pin<&mut Self>) {
+        if self.rows.is_empty() {
+            return;
+        }
+        let parent = QModelIndex::default();
+        let first = self.index(0, 0, &parent);
+        let last = self.index(self.rows.len() as i32 - 1, 0, &parent);
+        self.as_mut()
+            .data_changed(&first, &last, &QVector::default());
+    }
+
     pub fn id_at(&self, row: i32) -> QString {
         self.rows
             .get(row as usize)

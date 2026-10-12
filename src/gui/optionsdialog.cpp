@@ -42,7 +42,6 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMessageBox>
-#include <QTranslator>
 
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/sharelimits.h"
@@ -159,14 +158,8 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, QWidget *parent)
     , m_storeLastViewedPage {SETTINGS_KEY(u"LastViewedPage"_s)}
 {
     m_ui->setupUi(this);
-    QString certificateInfo = m_ui->lblWebUICertInfo->text();
-    certificateInfo.replace(u"<a "_s, u"<a style=\"text-decoration: none\" "_s);
-    m_ui->lblWebUICertInfo->setText(certificateInfo);
+    updateTranslation();
     m_applyButton = m_ui->buttonBox->button(QDialogButtonBox::Apply);
-
-#ifdef Q_OS_UNIX
-    setWindowTitle(tr("Preferences"));
-#endif
 
     m_ui->hsplitter->setCollapsible(0, false);
     m_ui->hsplitter->setCollapsible(1, false);
@@ -432,18 +425,7 @@ void OptionsDialog::saveBehaviorTabOptions() const
     auto *pref = Preferences::instance();
     auto *session = BitTorrent::Session::instance();
 
-    // Load the translation
-    const QString locale = getLocale();
-    if (pref->getLocale() != locale)
-    {
-        auto *translator = new QTranslator;
-        if (translator->load(u":/lang/qbittorrent_"_s + locale))
-            qDebug("%s locale recognized, using translation.", qUtf8Printable(locale));
-        else
-            qDebug("%s locale unrecognized, using default (en).", qUtf8Printable(locale));
-        qApp->installTranslator(translator);
-    }
-    pref->setLocale(locale);
+    pref->setLocale(getLocale());
 
 #ifdef QBT_HAS_COLORSCHEME_OPTION
     UIThemeManager::instance()->setColorScheme(m_ui->comboColorScheme->currentData().value<ColorScheme>());
@@ -1530,6 +1512,24 @@ void OptionsDialog::loadSplitterState()
         splitterSizes.append(string.toInt());
 
     m_ui->hsplitter->setSizes(splitterSizes);
+}
+
+void OptionsDialog::changeEvent(QEvent *event)
+{
+    QDialog::changeEvent(event);
+    if (event->type() == QEvent::LanguageChange)
+        updateTranslation();
+}
+
+void OptionsDialog::updateTranslation()
+{
+    m_ui->retranslateUi(this);
+    QString certificateInfo = m_ui->lblWebUICertInfo->text();
+    certificateInfo.replace(u"<a "_s, u"<a style=\"text-decoration: none\" "_s);
+    m_ui->lblWebUICertInfo->setText(certificateInfo);
+#ifdef Q_OS_UNIX
+    setWindowTitle(tr("Preferences"));
+#endif
 }
 
 void OptionsDialog::showEvent(QShowEvent *e)
