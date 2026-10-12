@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "reader.h"
+#include "reader-continuous.h"
 #include "reader-settings-ui.h"
 
 #include <atomic>
@@ -261,7 +262,7 @@ void exerciseReader(Content::ContentView *view, const QString &profileDir)
     const QString secondPage = readyPage(controller);
     require((controller->property("readerPageIndex").toInt() == 1) && (firstPage != secondPage),
         u"Page turn did not acquire the exact second page"_s);
-    waitFor([&] { return !QFileInfo::exists(firstPage); }, u"Retired page cache cleanup"_s);
+    require(QFileInfo::exists(firstPage), u"Adjacent page was evicted before leaving the reader window"_s);
     auto *pageImage = view->rootObject()->findChild<QQuickItem *>(u"readerPageImage"_s);
     auto *viewport = view->rootObject()->findChild<QQuickItem *>(u"readerPageViewport"_s);
     auto *scrollBar = view->rootObject()->findChild<QQuickItem *>(u"readerPageScrollBar"_s);
@@ -337,14 +338,21 @@ void exerciseReader(Content::ContentView *view, const QString &profileDir)
             u"Reading Up/Down did not scroll the page"_s);
         const qreal range = viewport->property("contentHeight").toReal() - viewport->height();
         require((range > 0) && (qAbs(controller->property("readerScrollOffset").toReal()
-            - viewport->property("contentY").toReal() / range) < 0.000001),
+            - viewport->property("contentY").toReal() / pageImage->height()) < 0.000001),
             u"Keyboard reading position was not saved"_s);
     }
     auto *widthButton = view->rootObject()->findChild<QQuickItem *>(u"readerWidthFit"_s);
     widthButton->forceActiveFocus(Qt::TabFocusReason);
-    QKeyEvent tab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
-    QCoreApplication::sendEvent(view, &tab);
+    for (int step = 0; (step < 8) && !scroll->hasActiveFocus(); ++step)
+    {
+        QKeyEvent tab(QEvent::KeyPress, Qt::Key_Tab, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &tab);
+        QKeyEvent released(QEvent::KeyRelease, Qt::Key_Tab, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &released);
+    }
     require(scroll->hasActiveFocus(), u"Tab navigation skips the reading content"_s);
+
+    exerciseReaderContinuous(view, profileDir);
 
     controller->selectChapter(lastChapter);
     controller->selectChapter(firstChapter);
@@ -386,15 +394,28 @@ void exerciseReader(Content::ContentView *view, const QString &profileDir)
         qputenv("TEMP", originalTemp);
         qputenv("TMP", originalTmp);
     });
+    require(controller->setReaderMode(Qbutt::Reader::ReaderMode::Continuous), u"Continuous cache fault mode was rejected"_s);
     qputenv("TEMP", blockedPath.toLocal8Bit());
     qputenv("TMP", blockedPath.toLocal8Bit());
     controller->openReader();
     waitFor([&] { return !controller->property("readerErrorText").toString().isEmpty(); }, u"Actual cache creation failure"_s);
     require(!controller->property("readerBusy").toBool() && (controller->property("readerPageCount").toInt() > 0),
         u"Cache creation failure did not reach a retryable reader state"_s);
+    auto *readerLoader = view->rootObject()->findChild<QObject *>(u"contentReaderLoader"_s);
+    auto *currentReader = readerLoader ? readerLoader->property("item").value<QQuickItem *>() : nullptr;
+    require(currentReader, u"Current reader Loader item is missing"_s);
+    auto *cacheError = currentReader->findChild<QQuickItem *>(u"readerError"_s);
+    auto *cacheRetry = currentReader->findChild<QQuickItem *>(u"readerRetry"_s);
+    require(cacheError && cacheRetry, u"Continuous manifest cache failure controls are missing"_s);
+    waitFor([&]
+    {
+        return cacheError->isVisible()
+            && (cacheError->property("text").toString() == controller->property("readerErrorText").toString())
+            && cacheRetry->isVisible() && cacheRetry->isEnabled();
+    }, u"Continuous manifest cache failure error and retry"_s);
     qputenv("TEMP", originalTemp);
     qputenv("TMP", originalTmp);
-    controller->retryReader();
+    require(QMetaObject::invokeMethod(cacheRetry, "clicked"), u"Continuous cache failure Retry did not run"_s);
     const QString retried = readyPage(controller);
     require(controller->property("readerChapterId").toString() == firstChapter,
         u"Cache failure retry substituted another chapter"_s);

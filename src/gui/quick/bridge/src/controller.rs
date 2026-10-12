@@ -14,6 +14,7 @@ use tokio::task::JoinHandle;
 
 mod library;
 mod reader;
+pub(crate) mod reader_pages;
 mod reader_settings;
 mod search;
 mod sources;
@@ -21,7 +22,8 @@ mod sources;
 use crate::models::{self, variant_id, work_id};
 use crate::source_model;
 use library::{LibraryUpdate, LibraryWorker};
-use reader::{ReaderState, RetiredReaderCache, clean_retired_reader_cache};
+use reader::ReaderState;
+use reader_pages::{RetiredReaderCache, clean_retired_reader_cache};
 use reader_settings::ReaderSettingsState;
 use sources::SourceState;
 use sources::{SourceResponse, execute_operation};
@@ -51,6 +53,22 @@ pub mod ffi {
     enum ReaderFit {
         Height,
         Width,
+    }
+
+    #[qenum]
+    #[namespace = "Qbutt::Reader"]
+    enum ReaderMode {
+        Paged,
+        Continuous,
+    }
+
+    #[qenum]
+    #[namespace = "Qbutt::Reader"]
+    enum ReaderPageState {
+        PageUnloaded,
+        PageLoading,
+        PageReady,
+        PageFailed,
     }
 
     #[qenum]
@@ -114,6 +132,8 @@ pub mod ffi {
         type QString = cxx_qt_lib::QString;
         include!("cxx-qt-lib/qurl.h");
         type QUrl = cxx_qt_lib::QUrl;
+        include!("cxx-qt-lib/qsize.h");
+        type QSize = cxx_qt_lib::QSize;
     }
 
     unsafe extern "C++" {
@@ -124,6 +144,8 @@ pub mod ffi {
         type SourceModel = crate::source_model::ffi::SourceModel;
         include!("qbutt_quick/src/reader_models.cxxqt.h");
         type ChapterModel = crate::reader_models::ffi::ChapterModel;
+        include!("qbutt_quick/src/page_model.cxxqt.h");
+        type PageModel = crate::page_model::ffi::PageModel;
         include!("qbutt_quick/native.h");
         #[rust_name = "content_error"]
         fn contentError(operation: i32) -> QString;
@@ -135,8 +157,8 @@ pub mod ffi {
         fn readerError(operation: i32) -> QString;
         #[rust_name = "chapter_title"]
         fn chapterTitle(number: &QString, volume: &QString, title: &QString) -> QString;
-        #[rust_name = "validated_image_url"]
-        fn validatedImageUrl(path: &QString) -> QString;
+        #[rust_name = "validated_image_size"]
+        fn validatedImageSize(path: &QString) -> QSize;
         #[rust_name = "retire_reader_cache"]
         fn retireReaderCache(cache: Box<RetiredReaderCache>);
         #[rust_name = "retire_content_services"]
@@ -160,6 +182,10 @@ pub mod ffi {
         #[qproperty(*mut SourceModel, sources, READ = sources_model, CONSTANT)]
         #[qproperty(SettingsState, source_settings_state, cxx_name = "sourceSettingsState", READ = source_settings_state, NOTIFY = sources_changed)]
         #[qproperty(QString, source_settings_error_text, cxx_name = "sourceSettingsErrorText", READ = source_settings_error_text, NOTIFY = sources_changed)]
+        #[qproperty(*mut PageModel, reader_pages, cxx_name = "readerPages", READ = reader_pages, CONSTANT)]
+        #[qproperty(ReaderMode, reader_mode, cxx_name = "readerMode", READ = reader_mode, NOTIFY = reader_changed)]
+        #[qproperty(i32, reader_image_width, cxx_name = "readerImageWidth", READ = reader_image_width, NOTIFY = reader_changed)]
+        #[qproperty(i32, reader_image_height, cxx_name = "readerImageHeight", READ = reader_image_height, NOTIFY = reader_changed)]
         #[qproperty(
             *mut ChapterModel,
             reader_chapters,
@@ -385,18 +411,22 @@ pub mod ffi {
         fn selected_work_category(&self) -> QString;
         fn selected_variant_kind(&self) -> QString;
         fn reader_chapters(&self) -> *mut ChapterModel;
+        fn reader_pages(&self) -> *mut PageModel;
+        fn reader_mode(&self) -> ReaderMode;
+        fn reader_image_width(&self) -> i32;
+        fn reader_image_height(&self) -> i32;
         fn reader_open(&self) -> bool;
         fn reader_has_chapters(&self) -> bool;
         fn reader_busy(&self) -> bool;
-        fn reader_error_text(&self) -> &QString;
+        fn reader_error_text(&self) -> QString;
         fn reader_progress_error_text(&self) -> &QString;
         fn reader_progress_pending(&self) -> bool;
         fn reader_title(&self) -> &QString;
         fn reader_chapter_title(&self) -> &QString;
         fn reader_chapter_id(&self) -> &QString;
-        fn reader_page_url(&self) -> &QUrl;
+        fn reader_page_url(&self) -> QUrl;
         fn reader_page_index(&self) -> &i32;
-        fn reader_page_count(&self) -> &i32;
+        fn reader_page_count(&self) -> i32;
         fn reader_scroll_offset(&self) -> &f64;
         fn reader_fit(&self) -> ReaderFit;
         fn reader_settings_state(&self) -> ReaderSettingsState;
@@ -435,7 +465,27 @@ pub mod ffi {
         fn retry_reader(self: Pin<&mut Self>);
         #[qinvokable]
         #[cxx_name = "readerPageShown"]
-        fn reader_page_shown(self: Pin<&mut Self>, url: QUrl);
+        fn reader_page_shown(self: Pin<&mut Self>, index: i32, url: QUrl);
+        #[qinvokable]
+        #[cxx_name = "readerPageFailed"]
+        fn reader_page_failed(self: Pin<&mut Self>, index: i32, url: QUrl);
+        #[qinvokable]
+        #[cxx_name = "setReaderViewport"]
+        fn set_reader_viewport(
+            self: Pin<&mut Self>,
+            generation: u64,
+            first: i32,
+            last: i32,
+            anchor: i32,
+            offset: f64,
+            user_moved: bool,
+        ) -> bool;
+        #[qinvokable]
+        #[cxx_name = "retryReaderPage"]
+        fn retry_reader_page(self: Pin<&mut Self>, generation: u64, index: i32);
+        #[qinvokable]
+        #[cxx_name = "setReaderMode"]
+        fn set_reader_mode(self: Pin<&mut Self>, mode: ReaderMode) -> bool;
         #[qinvokable]
         #[cxx_name = "scrollReaderPage"]
         fn scroll_reader_page(self: Pin<&mut Self>, url: QUrl, offset: f64);
@@ -443,8 +493,13 @@ pub mod ffi {
         #[cxx_name = "retryReaderProgress"]
         fn retry_reader_progress(self: Pin<&mut Self>);
         #[qsignal]
-        #[cxx_name = "restoreReaderScroll"]
-        fn restore_reader_scroll(self: Pin<&mut Self>, url: QUrl, offset: f64);
+        #[cxx_name = "readerPositionRequested"]
+        fn reader_position_requested(
+            self: Pin<&mut Self>,
+            generation: u64,
+            index: i32,
+            offset: f64,
+        );
         #[qsignal]
         #[cxx_name = "readerChanged"]
         fn reader_changed(self: Pin<&mut Self>);
@@ -513,6 +568,8 @@ pub struct Services {
     manga: Arc<MangaDex>,
     rutor: Arc<RuTor>,
     language: String,
+    reader_load: Arc<tokio::sync::Semaphore>,
+    reader_bytes: Arc<tokio::sync::Semaphore>,
 }
 
 pub struct ContentControllerRust {
@@ -570,6 +627,8 @@ impl Default for ContentControllerRust {
                         manga: Arc::new(manga),
                         rutor: Arc::new(rutor),
                         language: ffi::content_language().to_string(),
+                        reader_load: Arc::new(tokio::sync::Semaphore::new(1)),
+                        reader_bytes: Arc::new(tokio::sync::Semaphore::new(96 * 1024 * 1024)),
                     })
             });
         let services = match services {

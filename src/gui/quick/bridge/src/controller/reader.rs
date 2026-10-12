@@ -1,35 +1,54 @@
-use std::collections::{BTreeMap, btree_map::Entry};
-use std::io::Write;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use cxx::UniquePtr;
-use cxx_qt::{CxxQtThread, CxxQtType, Threading};
+use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QString, QUrl};
-use qbutt_content::{
-    ChapterPages, ChapterRef, LibraryResult, MangaDex, ReaderProgress, Transport, VariantRef,
-};
-use tempfile::{NamedTempFile, TempDir, TempPath};
+use qbutt_content::{ChapterRef, LibraryResult, ReaderProgress, Transport, VariantRef};
 use tokio::sync::watch;
 
 use super::library::{LibraryAction, ReaderSave};
+use super::reader_pages::{PageEvent, read_chapter};
 use super::{Pending, ffi};
+use crate::page_model;
 use crate::reader_models;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct ReaderViewport {
+    pub(super) first: usize,
+    pub(super) last: usize,
+    pub(super) anchor: usize,
+    pub(super) retry: Option<(u64, usize)>,
+    pub(super) revision: u64,
+}
+
+impl ReaderViewport {
+    fn page(index: usize) -> Self {
+        Self {
+            first: index,
+            last: index,
+            anchor: index,
+            retry: None,
+            revision: 0,
+        }
+    }
+
+    pub(super) fn retained(self, count: usize) -> std::ops::RangeInclusive<usize> {
+        self.first.saturating_sub(1)..=self.last.saturating_add(2).min(count.saturating_sub(1))
+    }
+}
 
 pub(super) struct ReaderState {
     chapters: UniquePtr<reader_models::ffi::ChapterModel>,
+    pages: UniquePtr<page_model::ffi::PageModel>,
     reference: Option<VariantRef>,
     busy: bool,
     error: QString,
     chapter_title: QString,
     chapter_id: QString,
-    page_url: QUrl,
     page_index: i32,
-    page_count: i32,
     scroll_offset: f64,
-    page_shown: bool,
+    shown_position: Option<(i32, f64)>,
     resume: Option<ReaderProgress>,
     progress_generation: u64,
     progress_pending: bool,
@@ -38,23 +57,22 @@ pub(super) struct ReaderState {
     query: QString,
     loading: Pending,
     chapter: Pending,
-    position: Option<watch::Sender<usize>>,
+    position: Option<watch::Sender<ReaderViewport>>,
 }
 
 impl Default for ReaderState {
     fn default() -> Self {
         Self {
             chapters: reader_models::ffi::create_chapter_model(),
+            pages: page_model::ffi::create_page_model(),
             reference: None,
             busy: false,
             error: QString::default(),
             chapter_title: QString::default(),
             chapter_id: QString::default(),
-            page_url: QUrl::default(),
             page_index: 0,
-            page_count: 0,
             scroll_offset: 0.0,
-            page_shown: false,
+            shown_position: None,
             resume: None,
             progress_generation: 0,
             progress_pending: false,
@@ -81,6 +99,157 @@ impl ReaderState {
 }
 
 impl ffi::ContentController {
+    pub(super) fn complete_reader_manifest(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        count: usize,
+    ) {
+        if self.reader.chapter.generation != generation || self.reader.reference.is_none() {
+            return;
+        }
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .pages
+            .pin_mut()
+            .reset(generation, count);
+        if self.reader.chapter.generation != generation || self.reader.reference.is_none() {
+            return;
+        }
+        self.as_mut().reader_changed();
+        if self.reader.chapter.generation == generation && self.reader.reference.is_some() {
+            let index = self.reader.page_index;
+            let offset = self.reader.scroll_offset;
+            self.reader_position_requested(generation, index, offset);
+        }
+    }
+
+    pub(super) fn complete_reader_page(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        request: ReaderViewport,
+        index: usize,
+        event: PageEvent,
+    ) {
+        if self.reader.chapter.generation != generation || self.reader.reference.is_none() {
+            return;
+        }
+        let Some(viewport) = self
+            .reader
+            .position
+            .as_ref()
+            .map(|position| *position.borrow())
+        else {
+            return;
+        };
+        if viewport != request
+            || (index != viewport.anchor
+                && !viewport
+                    .retained(self.reader.pages.count())
+                    .contains(&index))
+        {
+            return;
+        }
+        match event {
+            PageEvent::Loading => self
+                .as_mut()
+                .rust_mut()
+                .reader
+                .pages
+                .pin_mut()
+                .loading(generation, index),
+            PageEvent::Ready(page) => {
+                if self.reader.pages.failed(index) {
+                    return;
+                }
+                self.as_mut()
+                    .rust_mut()
+                    .reader
+                    .pages
+                    .pin_mut()
+                    .ready(generation, index, page);
+            }
+            PageEvent::Failed => self
+                .as_mut()
+                .rust_mut()
+                .reader
+                .pages
+                .pin_mut()
+                .fail(generation, index),
+        }
+        if self.reader.chapter.generation != generation
+            || self.reader.reference.is_none()
+            || self
+                .reader
+                .position
+                .as_ref()
+                .map(|position| *position.borrow())
+                != Some(request)
+        {
+            return;
+        }
+        let index = self.reader.page_index as usize;
+        {
+            let mut state = self.as_mut().rust_mut();
+            state.reader.busy = state.reader.error.is_empty()
+                && state.reader.pages.url(index).is_empty()
+                && !state.reader.pages.failed(index);
+        }
+        self.reader_changed();
+    }
+
+    pub(super) fn complete_reader_error(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        page: Option<usize>,
+        operation: i32,
+    ) {
+        if self.reader.chapter.generation != generation
+            || self.reader.reference.is_none()
+            || page.is_some_and(|page| page != self.reader.page_index as usize)
+        {
+            return;
+        }
+        self.as_mut().rust_mut().reader.error = ffi::reader_error(operation);
+        self.as_mut().rust_mut().reader.busy = false;
+        self.reader_changed();
+    }
+
+    pub(super) fn reader_mode_changed(mut self: Pin<&mut Self>) {
+        if self.reader.reference.is_none() || self.reader.pages.count() as i32 == 0 {
+            return;
+        }
+        let generation = self.reader.chapter.generation;
+        let index = self.reader.page_index;
+        let offset = self.reader.scroll_offset;
+        if self
+            .as_mut()
+            .apply_reader_window(ReaderViewport::page(index as usize))
+            && self.reader.chapter.generation == generation
+            && self.reader.page_index == index
+            && self.reader.scroll_offset == offset
+        {
+            self.reader_position_requested(generation, index, offset);
+        }
+    }
+
+    pub(super) fn reader_pages(&self) -> *mut page_model::ffi::PageModel {
+        self.reader.pages.as_ptr().cast_mut()
+    }
+
+    pub(super) fn reader_image_width(&self) -> i32 {
+        self.reader
+            .pages
+            .dimensions(self.reader.page_index as usize)
+            .0
+    }
+
+    pub(super) fn reader_image_height(&self) -> i32 {
+        self.reader
+            .pages
+            .dimensions(self.reader.page_index as usize)
+            .1
+    }
     pub(super) fn reader_chapters(&self) -> *mut reader_models::ffi::ChapterModel {
         self.reader.chapters.as_ptr().cast_mut()
     }
@@ -97,8 +266,14 @@ impl ffi::ContentController {
         self.reader.reference.is_some() && self.reader.chapters.first().is_some()
     }
 
-    pub(super) fn reader_error_text(&self) -> &QString {
-        &self.reader.error
+    pub(super) fn reader_error_text(&self) -> QString {
+        if self.reader_mode() == ffi::ReaderMode::Paged
+            && self.reader.pages.failed(self.reader.page_index as usize)
+        {
+            ffi::reader_error(2)
+        } else {
+            self.reader.error.clone()
+        }
     }
 
     pub(super) fn reader_progress_error_text(&self) -> &QString {
@@ -157,16 +332,16 @@ impl ffi::ContentController {
         &self.reader.chapter_id
     }
 
-    pub(super) fn reader_page_url(&self) -> &QUrl {
-        &self.reader.page_url
+    pub(super) fn reader_page_url(&self) -> QUrl {
+        self.reader.pages.url(self.reader.page_index as usize)
     }
 
     pub(super) fn reader_page_index(&self) -> &i32 {
         &self.reader.page_index
     }
 
-    pub(super) fn reader_page_count(&self) -> &i32 {
-        &self.reader.page_count
+    pub(super) fn reader_page_count(&self) -> i32 {
+        self.reader.pages.count() as i32
     }
 
     pub(super) fn reader_scroll_offset(&self) -> &f64 {
@@ -205,16 +380,24 @@ impl ffi::ContentController {
             state.reader.reference = Some(reference);
             state.reader.chapter_id = QString::default();
             state.reader.chapter_title = QString::default();
-            state.reader.page_url = QUrl::default();
-            state.reader.page_count = 0;
             state.reader.page_index = 0;
             state.reader.scroll_offset = 0.0;
-            state.reader.page_shown = false;
+            state.reader.shown_position = None;
             state.reader.resume = None;
             state.reader.busy = true;
             state.reader.error = QString::default();
         }
         let generation = self.reader.loading.generation;
+        let chapter_generation = self.reader.chapter.generation;
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .pages
+            .pin_mut()
+            .reset(chapter_generation, 0);
+        if self.reader.reference.is_none() || self.reader.loading.generation != generation {
+            return;
+        }
         self.as_mut()
             .rust_mut()
             .reader
@@ -239,9 +422,15 @@ impl ffi::ContentController {
             state.reader.cancel();
             state.reader.busy = false;
             state.reader.error = QString::default();
-            state.reader.page_url = QUrl::default();
             state.reader.reference = None;
         }
+        let generation = self.reader.chapter.generation;
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .pages
+            .pin_mut()
+            .reset(generation, 0);
         self.as_mut().reader_changed();
     }
 
@@ -401,7 +590,7 @@ impl ffi::ContentController {
         self.as_mut().rust_mut().reader.loading.cancel();
         self.as_mut().rust_mut().reader.chapter.cancel();
         let generation = self.reader.chapter.generation;
-        let (sender, position) = watch::channel(page);
+        let (sender, position) = watch::channel(ReaderViewport::page(page));
         {
             let mut state = self.as_mut().rust_mut();
             state.reader.chapter_id = id;
@@ -411,14 +600,21 @@ impl ffi::ContentController {
                 &QString::from(chapter.title.as_deref().unwrap_or_default()),
             );
             state.reader.page_index = page as i32;
-            state.reader.page_count = 0;
             state.reader.scroll_offset = scroll_offset;
-            state.reader.page_shown = false;
+            state.reader.shown_position = None;
             state.reader.resume = None;
-            state.reader.page_url = QUrl::default();
             state.reader.error = QString::default();
             state.reader.busy = true;
             state.reader.position = Some(sender);
+        }
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .pages
+            .pin_mut()
+            .reset(generation, 0);
+        if self.reader.reference.is_none() || self.reader.chapter.generation != generation {
+            return;
         }
         self.as_mut().reader_changed();
         if self.reader.reference.is_none() || self.reader.chapter.generation != generation {
@@ -427,36 +623,54 @@ impl ffi::ContentController {
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let manga = Arc::clone(&services.manga);
+        let load_limit = Arc::clone(&services.reader_load);
+        let byte_limit = Arc::clone(&services.reader_bytes);
         let task = services.runtime.spawn(read_chapter(
             manga,
             chapter.reference,
             position,
             qt_thread,
             generation,
+            load_limit,
+            byte_limit,
         ));
         self.as_mut().rust_mut().reader.chapter.task = Some(task);
     }
 
     pub fn select_reader_page(mut self: Pin<&mut Self>, index: i32) {
-        if self.reader.reference.is_none() || index < 0 || index >= self.reader.page_count {
+        if self.reader.reference.is_none() || index < 0 || index >= self.reader.pages.count() as i32
+        {
             return;
         }
-        if index == self.reader.page_index {
+        if !self.reader.error.is_empty() {
+            let chapter = self.reader.chapter_id.clone();
+            self.load_chapter(chapter, index as usize, 0.0);
+            return;
+        }
+        if index == self.reader.page_index && self.reader.scroll_offset == 0.0 {
             return;
         }
         {
             let mut state = self.as_mut().rust_mut();
             state.reader.page_index = index;
             state.reader.scroll_offset = 0.0;
-            state.reader.page_shown = false;
-            state.reader.page_url = QUrl::default();
             state.reader.error = QString::default();
             state.reader.busy = true;
-            if let Some(position) = &state.reader.position {
-                position.send_replace(index as usize);
-            }
+        }
+        if !self
+            .as_mut()
+            .apply_reader_window(ReaderViewport::page(index as usize))
+        {
+            return;
         }
         self.as_mut().reader_changed();
+        if self.reader.reference.is_some()
+            && self.reader.page_index == index
+            && self.reader.scroll_offset == 0.0
+        {
+            let generation = self.reader.chapter.generation;
+            self.reader_position_requested(generation, index, 0.0);
+        }
     }
 
     pub fn turn_reader_page(self: Pin<&mut Self>, offset: i32) {
@@ -464,31 +678,220 @@ impl ffi::ContentController {
         self.select_reader_page(index);
     }
 
-    /// Only Image.Ready for this exact local URL confirms a rendered page.
-    pub fn reader_page_shown(mut self: Pin<&mut Self>, url: QUrl) {
+    /// Only visible Image.Ready for this exact row and local URL confirms a page.
+    pub fn reader_page_shown(mut self: Pin<&mut Self>, index: i32, url: QUrl) {
         if self.reader.reference.is_none()
-            || self.reader.busy
-            || self.reader.page_url.is_empty()
-            || self.reader.page_url != url
-            || self.reader.page_shown
+            || index < 0
+            || self.reader.pages.chapter_generation() != self.reader.chapter.generation
+            || url.is_empty()
+            || !self.reader.position.as_ref().is_some_and(|position| {
+                let viewport = *position.borrow();
+                (viewport.first..=viewport.last).contains(&(index as usize))
+            })
+            || !self
+                .as_mut()
+                .rust_mut()
+                .reader
+                .pages
+                .pin_mut()
+                .confirm(index as usize, &url)
         {
             return;
         }
-        self.as_mut().rust_mut().reader.page_shown = true;
-        let offset = self.reader.scroll_offset;
-        self.as_mut().save_reader_position();
-        if self.reader.reference.is_some() && self.reader.page_url == url {
-            self.restore_reader_scroll(url, offset);
+        if self.reader.page_index == index {
+            self.save_reader_position();
+        }
+    }
+
+    pub fn reader_page_failed(mut self: Pin<&mut Self>, index: i32, url: QUrl) {
+        if self.reader.reference.is_none()
+            || index < 0
+            || url.is_empty()
+            || self.reader.pages.chapter_generation() != self.reader.chapter.generation
+            || self.reader.pages.url(index as usize) != url
+        {
+            return;
+        }
+        let generation = self.reader.chapter.generation;
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .pages
+            .pin_mut()
+            .fail(generation, index as usize);
+        if self.reader.chapter.generation == generation && self.reader.page_index == index {
+            self.as_mut().rust_mut().reader.busy = false;
+            self.reader_changed();
+        }
+    }
+
+    /// Layout/restore reports only the loading window. User movement additionally
+    /// replaces the desired anchor and saves it after that exact row was decoded.
+    pub fn set_reader_viewport(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        first: i32,
+        last: i32,
+        anchor: i32,
+        offset: f64,
+        user_moved: bool,
+    ) -> bool {
+        if self.reader.reference.is_none()
+            || self.reader.chapter.generation != generation
+            || !self.reader.error.is_empty()
+            || self.reader_mode() != ffi::ReaderMode::Continuous
+            || first < 0
+            || anchor < first
+            || anchor > last
+            || last < first
+            || last >= self.reader.pages.count() as i32
+            || !offset.is_finite()
+            || !(0.0..=1.0).contains(&offset)
+        {
+            return false;
+        }
+        let old = self
+            .reader
+            .position
+            .as_ref()
+            .map(|position| *position.borrow());
+        let Some(old) = old else {
+            return false;
+        };
+        let viewport = ReaderViewport {
+            first: first as usize,
+            last: last as usize,
+            anchor: if user_moved {
+                anchor
+            } else {
+                self.reader.page_index
+            } as usize,
+            retry: old.retry,
+            revision: old.revision,
+        };
+        if user_moved {
+            let mut state = self.as_mut().rust_mut();
+            state.reader.page_index = anchor;
+            state.reader.scroll_offset = offset;
+        }
+        if !self.as_mut().apply_reader_window(viewport) {
+            return true;
+        }
+        if user_moved
+            && self.reader.page_index == anchor
+            && self.reader.scroll_offset == offset
+            && self.reader.pages.shown(anchor as usize)
+        {
+            self.as_mut().save_reader_position();
+        }
+        if self.reader.chapter.generation == generation {
+            self.reader_changed();
+        }
+        true
+    }
+
+    fn apply_reader_window(mut self: Pin<&mut Self>, mut viewport: ReaderViewport) -> bool {
+        if viewport.anchor != self.reader.page_index as usize {
+            return false;
+        }
+        let generation = self.reader.chapter.generation;
+        let Some(position) = &self.reader.position else {
+            return false;
+        };
+        let previous = *position.borrow();
+        viewport.revision = previous.revision;
+        let window_changed = previous != viewport;
+        if window_changed {
+            viewport.revision = previous.revision.wrapping_add(1);
+            position.send_replace(viewport);
+        }
+        if window_changed {
+            let retained = viewport.retained(self.reader.pages.count());
+            self.as_mut().rust_mut().reader.pages.pin_mut().window(
+                generation,
+                viewport.first,
+                viewport.last,
+                *retained.start(),
+                *retained.end(),
+                viewport.anchor,
+            );
+        }
+        if self.reader.chapter.generation != generation
+            || self.reader.reference.is_none()
+            || self.reader.page_index != viewport.anchor as i32
+            || self
+                .reader
+                .position
+                .as_ref()
+                .map(|position| *position.borrow())
+                != Some(viewport)
+        {
+            return false;
+        }
+        {
+            let mut state = self.as_mut().rust_mut();
+            state.reader.busy = state.reader.pages.url(viewport.anchor).is_empty()
+                && !state.reader.pages.failed(viewport.anchor)
+                && state.reader.error.is_empty();
+        }
+        true
+    }
+
+    pub fn retry_reader_page(mut self: Pin<&mut Self>, generation: u64, index: i32) {
+        if self.reader.reference.is_none()
+            || self.reader.chapter.generation != generation
+            || index < 0
+            || !self.reader.pages.failed(index as usize)
+        {
+            return;
+        }
+        let Some(mut viewport) = self
+            .reader
+            .position
+            .as_ref()
+            .map(|position| *position.borrow())
+        else {
+            return;
+        };
+        viewport.revision = viewport.revision.wrapping_add(1);
+        viewport.retry = Some((viewport.revision, index as usize));
+        // Accept the request before model notifications. A reentrant navigation
+        // may replace this window, but this retry cannot replace that navigation.
+        self.reader
+            .position
+            .as_ref()
+            .unwrap()
+            .send_replace(viewport);
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .pages
+            .pin_mut()
+            .loading(generation, index as usize);
+        if self.reader.chapter.generation == generation
+            && self
+                .reader
+                .position
+                .as_ref()
+                .map(|position| *position.borrow())
+                == Some(viewport)
+            && self.as_mut().apply_reader_window(viewport)
+        {
+            self.as_mut().reader_changed();
+            if self.reader.chapter.generation == generation && self.reader.page_index == index {
+                let offset = self.reader.scroll_offset;
+                self.reader_position_requested(generation, index, offset);
+            }
         }
     }
 
     pub fn scroll_reader_page(mut self: Pin<&mut Self>, url: QUrl, offset: f64) {
-        if !self.reader.page_shown
+        if !self.reader.pages.shown(self.reader.page_index as usize)
+            || self.reader_mode() != ffi::ReaderMode::Paged
             || self.reader.reference.is_none()
-            || self.reader.page_url != url
+            || self.reader_page_url() != url
             || !offset.is_finite()
             || !(0.0..=1.0).contains(&offset)
-            || self.reader.scroll_offset == offset
         {
             return;
         }
@@ -522,6 +925,10 @@ impl ffi::ContentController {
     }
 
     fn save_reader_position(mut self: Pin<&mut Self>) {
+        let position = (self.reader.page_index, self.reader.scroll_offset);
+        if self.reader.shown_position == Some(position) {
+            return;
+        }
         let Some(variant) = self.reader.reference.clone() else {
             return;
         };
@@ -549,6 +956,7 @@ impl ffi::ContentController {
             preferences,
             progress,
         });
+        self.as_mut().rust_mut().reader.shown_position = Some(position);
         self.submit_reader_progress();
     }
 
@@ -600,261 +1008,18 @@ impl ffi::ContentController {
         if self.reader.chapter_id.is_empty() {
             self.load_reader_resume();
         } else {
+            if self.reader.pages.count() > 0
+                && self.reader.pages.failed(self.reader.page_index as usize)
+            {
+                let generation = self.reader.chapter.generation;
+                let index = self.reader.page_index;
+                self.retry_reader_page(generation, index);
+                return;
+            }
             let chapter = self.reader.chapter_id.clone();
             let page = self.reader.page_index as usize;
             let offset = self.reader.scroll_offset;
             self.load_chapter(chapter, page, offset);
         }
     }
-}
-
-struct CachedPage {
-    file: TempPath,
-    directory: Arc<ReaderDirectory>,
-    url: String,
-}
-
-impl Drop for CachedPage {
-    fn drop(&mut self) {
-        self.file.disable_cleanup(true);
-        ffi::retire_reader_cache(Box::new(RetiredReaderCache {
-            path: RetiredReaderPath::File {
-                path: self.file.to_path_buf(),
-                _directory: Arc::clone(&self.directory),
-            },
-        }));
-    }
-}
-
-struct ReaderDirectory(TempDir);
-
-impl Drop for ReaderDirectory {
-    fn drop(&mut self) {
-        self.0.disable_cleanup(true);
-        ffi::retire_reader_cache(Box::new(RetiredReaderCache {
-            path: RetiredReaderPath::Directory(self.0.path().to_path_buf()),
-        }));
-    }
-}
-
-pub(crate) struct RetiredReaderCache {
-    path: RetiredReaderPath,
-}
-
-enum RetiredReaderPath {
-    File {
-        path: PathBuf,
-        _directory: Arc<ReaderDirectory>,
-    },
-    Directory(PathBuf),
-}
-
-pub(super) fn clean_retired_reader_cache(cache: &RetiredReaderCache) {
-    // Qt may still be decoding the retired file asynchronously. The global
-    // pool owns cleanup after the controller and its Tokio runtime are gone.
-    // File jobs retain the directory, so its cleanup cannot race their unlink.
-    let path = match &cache.path {
-        RetiredReaderPath::File { path, .. } | RetiredReaderPath::Directory(path) => path,
-    };
-    let deadline = Instant::now() + Duration::from_secs(2);
-    loop {
-        let result = match &cache.path {
-            RetiredReaderPath::File { .. } => std::fs::remove_file(path),
-            RetiredReaderPath::Directory(_) => std::fs::remove_dir_all(path),
-        };
-        let Err(error) = result else {
-            return;
-        };
-        if error.kind() == std::io::ErrorKind::NotFound {
-            return;
-        }
-        let sharing_violation = cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33));
-        if sharing_violation && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(25));
-            continue;
-        }
-        ffi::log_content_error(
-            &QString::from("reader cache cleanup"),
-            &QString::from(format!("{}: {error}", path.display())),
-        );
-        return;
-    }
-}
-
-async fn read_chapter(
-    manga: Arc<MangaDex>,
-    reference: ChapterRef,
-    mut position: watch::Receiver<usize>,
-    qt_thread: CxxQtThread<ffi::ContentController>,
-    generation: u64,
-) {
-    let pages = match manga.chapter_pages(&reference).await {
-        Ok(pages) if !pages.images.is_empty() && pages.reference == reference => pages,
-        Ok(_) => {
-            publish_error(
-                &qt_thread,
-                generation,
-                None,
-                3,
-                "The chapter manifest is empty or mismatched",
-            );
-            return;
-        }
-        Err(error) => {
-            publish_error(&qt_thread, generation, None, 1, &error.to_string());
-            return;
-        }
-    };
-    let count = pages.images.len() as i32;
-    if *position.borrow() >= pages.images.len() {
-        publish_error(
-            &qt_thread,
-            generation,
-            None,
-            4,
-            "The exact page is no longer available",
-        );
-        return;
-    }
-    let _ = qt_thread.queue(move |mut controller| {
-        if controller.reader.chapter.generation == generation
-            && controller.reader.reference.is_some()
-        {
-            controller.as_mut().rust_mut().reader.page_count = count;
-            controller.as_mut().reader_changed();
-        }
-    });
-    let directory = match tokio::task::spawn_blocking(|| {
-        tempfile::Builder::new()
-            .prefix("qbutt-reader-")
-            .tempdir()
-            .map(|directory| Arc::new(ReaderDirectory(directory)))
-    })
-    .await
-    .map_err(|error| error.to_string())
-    .and_then(|result| result.map_err(|error| error.to_string()))
-    {
-        Ok(directory) => directory,
-        Err(error) => {
-            publish_error(
-                &qt_thread,
-                generation,
-                Some(*position.borrow()),
-                2,
-                &format!("Could not create reader cache: {error}"),
-            );
-            return;
-        }
-    };
-    let mut cache = BTreeMap::<usize, CachedPage>::new();
-
-    // The async task owns cached paths. Pruning and cancellation retire them
-    // to Qt's pool, so cleanup survives this task and runtime shutdown.
-    'position: loop {
-        let target = *position.borrow_and_update();
-        cache.retain(|index, _| *index >= target && *index <= target.saturating_add(2));
-        for index in target..(target.saturating_add(3)).min(pages.images.len()) {
-            if let Entry::Vacant(entry) = cache.entry(index) {
-                let load = load_page(&manga, &pages, index, Arc::clone(&directory));
-                let result = tokio::select! {
-                    result = load => result,
-                    changed = position.changed() => {
-                        if changed.is_err() { break 'position; }
-                        continue 'position;
-                    }
-                };
-                match result {
-                    Ok(page) => {
-                        entry.insert(page);
-                    }
-                    Err(error) => {
-                        if index == target {
-                            publish_error(&qt_thread, generation, Some(index), 2, &error);
-                        } else {
-                            ffi::log_content_error(
-                                &QString::from("reader preload"),
-                                &QString::from(error),
-                            );
-                        }
-                        break;
-                    }
-                }
-            }
-            if index == target {
-                let url = cache[&index].url.clone();
-                let _ = qt_thread.queue(move |mut controller| {
-                    if controller.reader.chapter.generation != generation
-                        || controller.reader.reference.is_none()
-                        || controller.reader.page_index != index as i32
-                    {
-                        return;
-                    }
-                    {
-                        let mut state = controller.as_mut().rust_mut();
-                        state.reader.page_url = QUrl::from(&url);
-                        state.reader.busy = false;
-                        state.reader.error = QString::default();
-                    }
-                    controller.as_mut().reader_changed();
-                });
-            }
-        }
-        if position.changed().await.is_err() {
-            break;
-        }
-    }
-}
-
-async fn load_page(
-    manga: &MangaDex,
-    pages: &ChapterPages,
-    index: usize,
-    directory: Arc<ReaderDirectory>,
-) -> Result<CachedPage, String> {
-    let bytes = manga
-        .image_bytes(&pages.images[index])
-        .await
-        .map_err(|error| error.to_string())?;
-    tokio::task::spawn_blocking(move || {
-        let mut file =
-            NamedTempFile::new_in(directory.0.path()).map_err(|error| error.to_string())?;
-        file.write_all(&bytes).map_err(|error| error.to_string())?;
-        file.flush().map_err(|error| error.to_string())?;
-        let path = QString::from(file.path().to_string_lossy().as_ref());
-        let url = ffi::validated_image_url(&path).to_string();
-        if url.is_empty() {
-            return Err("The source returned an invalid or oversized image".into());
-        }
-        Ok(CachedPage {
-            file: file.into_temp_path(),
-            directory,
-            url,
-        })
-    })
-    .await
-    .map_err(|error| error.to_string())?
-}
-
-fn publish_error(
-    qt_thread: &CxxQtThread<ffi::ContentController>,
-    generation: u64,
-    page: Option<usize>,
-    operation: i32,
-    detail: &str,
-) {
-    ffi::log_content_error(&QString::from("reader"), &QString::from(detail));
-    let _ = qt_thread.queue(move |mut controller| {
-        if controller.reader.chapter.generation != generation
-            || controller.reader.reference.is_none()
-            || page.is_some_and(|index| controller.reader.page_index != index as i32)
-        {
-            return;
-        }
-        {
-            let mut state = controller.as_mut().rust_mut();
-            state.reader.error = ffi::reader_error(operation);
-            state.reader.busy = false;
-        }
-        controller.as_mut().reader_changed();
-    });
 }

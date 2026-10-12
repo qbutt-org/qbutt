@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
-use qbutt_content::{LibraryResult, ReaderFit, ReaderSettings};
+use qbutt_content::{LibraryResult, ReaderFit, ReaderMode, ReaderSettings};
 
 use super::ffi;
 use super::library::LibraryAction;
@@ -23,6 +23,13 @@ enum SaveState {
 }
 
 impl ffi::ContentController {
+    pub(super) fn reader_mode(&self) -> ffi::ReaderMode {
+        match self.reader_settings.value.mode {
+            ReaderMode::Paged => ffi::ReaderMode::Paged,
+            ReaderMode::Continuous => ffi::ReaderMode::Continuous,
+        }
+    }
+
     pub(super) fn reader_fit(&self) -> ffi::ReaderFit {
         match self.reader_settings.value.fit {
             ReaderFit::Height => ffi::ReaderFit::Height,
@@ -82,6 +89,26 @@ impl ffi::ContentController {
             return self.retry_library();
         }
         self.submit_reader_settings()
+    }
+
+    pub fn set_reader_mode(mut self: Pin<&mut Self>, mode: ffi::ReaderMode) -> bool {
+        let mode = match mode {
+            ffi::ReaderMode::Paged => ReaderMode::Paged,
+            ffi::ReaderMode::Continuous => ReaderMode::Continuous,
+            _ => return false,
+        };
+        if self.library_state == ffi::LibraryState::Ready
+            && self.reader_settings.value.mode == mode
+            && self.reader_settings.save == SaveState::Idle
+        {
+            return true;
+        }
+        self.as_mut().rust_mut().reader_settings.value.mode = mode;
+        let accepted = self.as_mut().submit_reader_settings();
+        if self.reader_settings.value.mode == mode {
+            self.reader_mode_changed();
+        }
+        accepted
     }
 
     fn submit_reader_settings(mut self: Pin<&mut Self>) -> bool {

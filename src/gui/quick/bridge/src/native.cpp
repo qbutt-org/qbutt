@@ -8,12 +8,12 @@
 #include <QLocale>
 #include <QLoggingCategory>
 #include <QThreadPool>
-#include <QUrl>
 
 #include "qbutt_quick/src/controller.cxxqt.h"
 #include "qbutt_quick/src/models.cxxqt.h"
 #include "qbutt_quick/src/reader_models.cxxqt.h"
 #include "qbutt_quick/src/source_model.cxxqt.h"
+#include "qbutt_quick/src/page_model.cxxqt.h"
 
 Q_LOGGING_CATEGORY(contentLog, "qbutt.content")
 
@@ -71,6 +71,11 @@ QString Qbutt::sourceError(const std::int32_t reason)
     }
 }
 
+std::unique_ptr<Qbutt::PageModel> Qbutt::createPageModel()
+{
+    return std::make_unique<PageModel>();
+}
+
 QString Qbutt::contentLanguage()
 {
     const QLocale locale;
@@ -118,7 +123,7 @@ QString Qbutt::chapterTitle(const QString &number, const QString &volume, const 
     return label.isEmpty() ? QCoreApplication::translate("ContentController", "Chapter") : label;
 }
 
-QString Qbutt::validatedImageUrl(const QString &path)
+QSize Qbutt::validatedImageSize(const QString &path)
 {
     QImageReader reader {path};
     reader.setDecideFormatFromContent(true);
@@ -135,7 +140,7 @@ QString Qbutt::validatedImageUrl(const QString &path)
     const QImage image = reader.read();
     if (image.isNull() || (image.size() != size))
         return {};
-    return QUrl::fromLocalFile(path).toString(QUrl::FullyEncoded);
+    return size;
 }
 
 QString Qbutt::contentError(const std::int32_t operation)

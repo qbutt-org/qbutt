@@ -187,7 +187,7 @@ void exerciseHistory()
     controller->openReader();
     const QUrl firstPage = readyPage(*controller);
     require(history->rowCount(QModelIndex()) == 0, u"Acquisition or decode invented History"_s);
-    controller->readerPageShown(firstPage);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), firstPage);
     controller->scrollReaderPage(firstPage, 0.25);
     saved(*controller);
     require((history->rowCount(QModelIndex()) == 1) && (history->idAt(0) == publication), u"Confirmed reading did not publish History"_s);
@@ -278,7 +278,7 @@ void exerciseHistory()
     controller->openReader();
     const QUrl otherPage = readyPage(*controller);
     execute(database, u"BEGIN IMMEDIATE"_s);
-    controller->readerPageShown(otherPage);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), otherPage);
     require(controller->property("libraryPending").toBool(), u"Confirmed delayed write was not accepted"_s);
     controller->selectVariant(exact);
     require(controller->property("selectedVariantId").toString() == exact, u"Explicit pending choice failed"_s);
@@ -334,7 +334,7 @@ void exerciseHistory()
 
     controller->openReader();
     const QUrl confirmed = readyPage(*controller);
-    controller->readerPageShown(confirmed);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), confirmed);
     saved(*controller);
     const auto beforeAbort = entry(database, key);
     execute(database, u"CREATE TRIGGER reject_history_remove BEFORE UPDATE ON library "

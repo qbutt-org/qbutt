@@ -5,9 +5,9 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use qbutt_content::{
-    Category, Library, LibraryError, LibraryView, PublicationRef, ReaderFit, ReaderSettings,
-    Source, SourceFailure, SourceFailureReason, SourceOperation, SourceSettings, VariantRef,
-    VariantSelector,
+    Category, Library, LibraryError, LibraryView, PublicationRef, ReaderFit, ReaderMode,
+    ReaderSettings, Source, SourceFailure, SourceFailureReason, SourceOperation, SourceSettings,
+    VariantRef, VariantSelector,
 };
 use rusqlite::Connection;
 
@@ -26,6 +26,7 @@ fn main() -> Result<()> {
             manga_inspection()
         );
         assert_eq!(library.reader_settings()?.fit, ReaderFit::Width);
+        assert_eq!(library.reader_settings()?.mode, ReaderMode::Continuous);
         return Ok(());
     }
 
@@ -60,6 +61,7 @@ fn exercise(profile: &Path) -> Result<()> {
     );
     library.save_reader_settings(ReaderSettings {
         fit: ReaderFit::Width,
+        mode: ReaderMode::Continuous,
     })?;
     library.set_source_enabled(Source::RuTor, false)?;
     let failed = library.record_source_failure(failure.clone())?;
@@ -170,6 +172,7 @@ fn exercise(profile: &Path) -> Result<()> {
         Err(LibraryError::Metadata(_))
     ));
     assert_eq!(library.reader_settings()?.fit, ReaderFit::Width);
+    assert_eq!(library.reader_settings()?.mode, ReaderMode::Continuous);
     assert!(library.entries(LibraryView::All)?.is_empty());
     assert_eq!(std::fs::read(payload)?, b"generated unrelated payload");
     drop(library);

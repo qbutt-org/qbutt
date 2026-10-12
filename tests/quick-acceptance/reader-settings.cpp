@@ -316,7 +316,7 @@ namespace
             QImageReader decoder(url.toLocalFile());
             require(url.isLocalFile() && !decoder.read().isNull(), u"Settings scenario did not decode an actual local page"_s);
         }
-        controller.readerPageShown(url);
+        controller.readerPageShown(controller.property("readerPageIndex").toInt(), url);
         settle(controller);
         require(controller.property("readerProgressErrorText").toString().isEmpty()
             && (settingsState(controller) == SettingsState::Failed)
@@ -353,8 +353,10 @@ namespace
         initialize(*controller, profile);
         if (phase == u"reopen"_s)
         {
-            require((appliedFit(*controller) == Fit::Width) && (settingsState(*controller) == SettingsState::Ready),
-                u"Fresh process did not restore committed Width"_s);
+            require((appliedFit(*controller) == Fit::Width)
+                && (controller->property("readerMode").value<Qbutt::Reader::ReaderMode>() == Qbutt::Reader::ReaderMode::Continuous)
+                && (settingsState(*controller) == SettingsState::Ready),
+                u"Fresh process did not restore committed Continuous/Width"_s);
             controller.reset();
         }
         else
@@ -371,7 +373,8 @@ namespace
             database.setDatabaseName(profile + u"/content-library.sqlite"_s);
             require(database.open(), database.lastError().text());
             execute(database, u"BEGIN IMMEDIATE"_s);
-            require(controller->setReaderFit(Fit::Width) && (settingsState(*controller) == SettingsState::Saving),
+            require(controller->setReaderMode(Qbutt::Reader::ReaderMode::Continuous)
+                && controller->setReaderFit(Fit::Width) && (settingsState(*controller) == SettingsState::Saving),
                 u"Graceful Exit did not accept its blocked settings write"_s);
             controller.reset();
             execute(database, u"COMMIT"_s);
@@ -422,6 +425,7 @@ namespace
         database.setDatabaseName(profile.filePath(u"content-library.sqlite"_s));
         require(database.open(), database.lastError().text());
         require((scalar(database, u"SELECT fit FROM reader_settings"_s) == 1)
+            && (scalar(database, u"SELECT mode FROM reader_settings"_s) == 1)
             && (scalar(database, u"SELECT count(*) FROM library"_s) == 0),
             u"Settings process did not persist exact Width or invented history"_s);
         require(unrelated.open(QIODevice::ReadOnly) && (unrelated.readAll() == "generated unrelated payload"),

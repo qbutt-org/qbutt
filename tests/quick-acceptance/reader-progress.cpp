@@ -175,13 +175,14 @@ namespace
             "entry TEXT NOT NULL, updated_at INTEGER NOT NULL CHECK (updated_at >= 0)) STRICT"_s);
         execute(database, u"PRAGMA application_id = 1363299394"_s);
         execute(database, u"CREATE TABLE reader_settings (id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1), "
-            "fit INTEGER NOT NULL CHECK (fit IN (0, 1))) STRICT"_s);
-        execute(database, u"INSERT INTO reader_settings VALUES (1, 0)"_s);
+            "fit INTEGER NOT NULL CHECK (fit IN (0, 1)), mode INTEGER NOT NULL CHECK (mode IN (0, 1))) STRICT"_s);
+        execute(database, u"INSERT INTO reader_settings VALUES (1, 0, 0)"_s);
         execute(database, u"CREATE TABLE source_settings (source TEXT PRIMARY KEY NOT NULL, "
             "enabled INTEGER NOT NULL, revision INTEGER NOT NULL, failure TEXT) STRICT"_s);
         execute(database, u"INSERT INTO source_settings (source, enabled, revision) VALUES "
             "('aniliberty', 1, 0), ('mangadex', 1, 0), ('rutor', 1, 0)"_s);
-        execute(database, u"PRAGMA user_version = 4"_s);
+
+        execute(database, u"PRAGMA user_version = 5"_s);
         metadata.insert(u"last_opened"_s, QJsonValue::Null);
         metadata.insert(u"reader_progress"_s, QJsonValue::Null);
         QSqlQuery insert(database);
@@ -243,7 +244,7 @@ namespace
             == Qbutt::Library::LibraryState::Ready && controller.property("libraryErrorText").toString().isEmpty(),
             u"Retry did not reopen the same profile successfully"_s);
         require(entry(database).value(u"last_opened"_s).isNull(), u"Startup retry invented reading history"_s);
-        controller.readerPageShown(recovered);
+        controller.readerPageShown(controller.property("readerPageIndex").toInt(), recovered);
         controller.scrollReaderPage(recovered, 0.375);
         saved(controller);
         require(entry(database).value(u"reader_progress"_s).toObject().value(u"scroll_offset"_s).toDouble() == 0.375,
@@ -283,31 +284,33 @@ void exerciseReaderProgress()
 
     struct Restore
     {
-        QUrl url;
+        quint64 generation;
+        int page;
         double offset;
     };
     QList<Restore> restores;
     QObject observations;
     const auto observe = [&]
     {
-        QObject::connect(controller.get(), &Qbutt::ContentController::restoreReaderScroll, &observations,
-            [&](const QUrl &url, const double offset) { restores.append({url, offset}); }, Qt::DirectConnection);
+        QObject::connect(controller.get(), &Qbutt::ContentController::readerPositionRequested, &observations,
+            [&](const quint64 generation, const int page, const double offset) { restores.append({generation, page, offset}); }, Qt::DirectConnection);
     };
     observe();
     controller->openReader();
     const QUrl firstPage = readyPage(*controller);
     const QString firstChapter = controller->property("readerChapterId").toString();
     require(controller->property("readerPageCount").toInt() > 1, u"Live fixture needs two pages"_s);
-    require(restores.isEmpty() && entry(database).value(u"last_opened"_s).isNull(),
+    require((restores.size() == 1) && (restores.last().page == 0)
+        && entry(database).value(u"last_opened"_s).isNull(),
         u"Acquisition or decode alone created reading history"_s);
-    controller->readerPageShown(QUrl(u"file:///generated-stale-page"_s));
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), QUrl(u"file:///generated-stale-page"_s));
     controller->scrollReaderPage(firstPage, 0.8);
-    require(restores.isEmpty() && !controller->property("libraryPending").toBool(),
+    require((restores.size() == 1) && !controller->property("libraryPending").toBool(),
         u"Unshown or stale page accepted progress"_s);
-    controller->readerPageShown(firstPage);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), firstPage);
     saved(*controller);
-    require((restores.size() == 1) && (restores.last().url == firstPage) && (restores.last().offset == 0),
-        u"Initial render did not restore once"_s);
+    require((restores.size() == 1) && (restores.last().page == 0) && (restores.last().offset == 0),
+        u"Initial seek did not request the exact first page once"_s);
     const QJsonObject firstShown = entry(database);
     const QJsonObject knownWork = firstShown.value(u"work"_s).toObject();
     const QJsonObject opened = firstShown.value(u"last_opened"_s).toObject();
@@ -317,7 +320,7 @@ void exerciseReaderProgress()
             .value(u"chapter"_s).toObject().value(u"variant"_s))
         && (opened.value(u"at_unix_millis"_s).toDouble() > 0),
         u"Confirmed render did not retain the full work and exact history"_s);
-    controller->readerPageShown(firstPage);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), firstPage);
     require((restores.size() == 1) && !controller->property("libraryPending").toBool()
         && (entry(database) == firstShown), u"Duplicate render rewrote history"_s);
     for (const double offset : {std::numeric_limits<double>::quiet_NaN(),
@@ -330,7 +333,7 @@ void exerciseReaderProgress()
 
     controller->turnReaderPage(1);
     const QUrl secondPage = readyPage(*controller);
-    controller->readerPageShown(secondPage);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), secondPage);
     controller->scrollReaderPage(secondPage, 0.625);
     saved(*controller);
     const QJsonObject secondShown = entry(database);
@@ -339,7 +342,7 @@ void exerciseReaderProgress()
         && (progress.value(u"scroll_offset"_s).toDouble() == 0.625)
         && (progress.value(u"chapter"_s).toObject().value(u"id"_s).toString() == firstChapter),
         u"The confirmed exact second page was not saved"_s);
-    controller->readerPageShown(firstPage);
+    controller->readerPageShown(0, firstPage);
     controller->scrollReaderPage(firstPage, 0.9);
     require(!controller->property("libraryPending").toBool() && (entry(database) == secondShown),
         u"Stale URL overwrote the confirmed page"_s);
@@ -350,10 +353,13 @@ void exerciseReaderProgress()
     const QUrl reopened = readyPage(*controller);
     require((controller->property("readerChapterId").toString() == firstChapter)
         && (controller->property("readerPageIndex").toInt() == 1), u"Reopen resumed an unshown selection"_s);
-    controller->readerPageShown(reopened);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), reopened);
     saved(*controller);
-    require((restores.last().url == reopened) && (restores.last().offset == 0.625),
+    require((restores.last().page == 1) && (restores.last().offset == 0.625),
         u"Reopen discarded the saved scroll fraction"_s);
+    require(controller->setReaderMode(Qbutt::Reader::ReaderMode::Continuous)
+        && controller->setReaderFit(Qbutt::Reader::ReaderFit::Width), u"Continuous restart settings were rejected"_s);
+    saved(*controller);
     controller->closeReader();
     controller.reset();
     controller = std::make_unique<Qbutt::ContentController>();
@@ -364,18 +370,23 @@ void exerciseReaderProgress()
     const QUrl restarted = readyPage(*controller);
     require((controller->property("readerPageIndex").toInt() == 1)
         && (controller->property("readerChapterId").toString() == firstChapter)
-        && (controller->property("readerScrollOffset").toDouble() == 0.625), u"Controller restart lost exact progress"_s);
-    controller->readerPageShown(restarted);
+        && (controller->property("readerScrollOffset").toDouble() == 0.625)
+        && (controller->property("readerMode").value<Qbutt::Reader::ReaderMode>() == Qbutt::Reader::ReaderMode::Continuous)
+        && (controller->property("readerFit").value<Qbutt::Reader::ReaderFit>() == Qbutt::Reader::ReaderFit::Width),
+        u"Controller restart lost the exact mode, fit or page-relative progress"_s);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), restarted);
     saved(*controller);
-    require((restores.last().url == restarted) && (restores.last().offset == 0.625),
+    require((restores.last().page == 1) && (restores.last().offset == 0.625),
         u"Controller restart lost the scroll offset"_s);
+    require(controller->setReaderMode(Qbutt::Reader::ReaderMode::Paged), u"Paged fault fixture restoration failed"_s);
+    saved(*controller);
 
     controller->selectReaderPage(0);
     const QUrl faultPage = readyPage(*controller);
     const QJsonObject beforeFault = entry(database);
     execute(database, u"CREATE TRIGGER reject_reader_update BEFORE UPDATE ON library "
         "BEGIN SELECT RAISE(ABORT, 'generated reader write fault'); END"_s);
-    controller->readerPageShown(faultPage);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), faultPage);
     waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"SQLite abort completion"_s);
     require(!controller->property("libraryErrorText").toString().isEmpty()
         && !controller->property("readerProgressErrorText").toString().isEmpty()
@@ -398,7 +409,7 @@ void exerciseReaderProgress()
     execute(database, u"BEGIN EXCLUSIVE"_s);
     for (int count = 0; count < 70; ++count)
         controller->setSelectedFavorite(true);
-    controller->readerPageShown(queuePage);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), queuePage);
     require(!controller->property("readerProgressPending").toBool()
         && !controller->property("readerProgressErrorText").toString().isEmpty()
         && (entry(database) == beforeQueueFault), u"Rejected queue submission invented confirmed progress"_s);
@@ -422,7 +433,7 @@ void exerciseReaderProgress()
         && !controller->property("readerProgressPending").toBool(),
         u"A late write failure changed the new reader session"_s);
     execute(database, u"DROP TRIGGER reject_stale_progress"_s);
-    controller->readerPageShown(afterStaleWrite);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), afterStaleWrite);
     saved(*controller);
     require(restores.last().offset == 0, u"New session resumed the rejected transient scroll offset"_s);
 
@@ -442,7 +453,7 @@ void exerciseReaderProgress()
     QObject::disconnect(reentrant);
     require(reopenedDuringRead && (controller->property("readerPageIndex").toInt() == 1),
         u"Reentrant close/reopen applied a stale library read"_s);
-    controller->readerPageShown(afterStaleRead);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), afterStaleRead);
     saved(*controller);
 
     controller->closeReader();
@@ -452,7 +463,7 @@ void exerciseReaderProgress()
     execute(database, u"ROLLBACK"_s);
     controller->retryReader();
     const QUrl afterReadFault = readyPage(*controller);
-    controller->readerPageShown(afterReadFault);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), afterReadFault);
     saved(*controller);
 
     execute(database, u"CREATE TRIGGER reject_previous_page BEFORE UPDATE ON library "
@@ -473,7 +484,7 @@ void exerciseReaderProgress()
         && (controller->property("readerPageUrl").toUrl() == unshownPage)
         && (restores.size() == restoresBeforePreviousRetry),
         u"Retry lost the immutable shown page after an unshown selection"_s);
-    controller->readerPageShown(unshownPage);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), unshownPage);
     saved(*controller);
 
     auto *chapterChoices = model(*controller, "readerChapters");
@@ -529,7 +540,7 @@ void exerciseReaderProgress()
     readerFailed(*controller, "This chapter is no longer available.");
     controller->selectChapter(firstChapter);
     const QUrl chosen = readyPage(*controller);
-    controller->readerPageShown(chosen);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), chosen);
     saved(*controller);
 
     controller->closeReader();
@@ -541,7 +552,7 @@ void exerciseReaderProgress()
     readerFailed(*controller, "This page is no longer available.");
     controller->selectChapter(firstChapter);
     const QUrl recovered = readyPage(*controller);
-    controller->readerPageShown(recovered);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), recovered);
     controller->scrollReaderPage(recovered, 0.625);
     saved(*controller);
     controller->closeReader();
@@ -566,9 +577,9 @@ void exerciseReaderProgress()
     require((controller->property("selectedVariantId").toString() == other)
         && (controller->property("readerPageIndex").toInt() == 0)
         && (entry(database) == beforeOther), u"Explicit other branch inherited or rewrote old progress"_s);
-    controller->readerPageShown(otherPage);
+    controller->readerPageShown(controller->property("readerPageIndex").toInt(), otherPage);
     saved(*controller);
-    require((restores.last().url == otherPage) && (restores.last().offset == 0),
+    require((restores.last().page == 0) && (restores.last().offset == 0),
         u"Explicit other branch inherited the old scroll fraction"_s);
     controller->closeReader();
     QString reference;

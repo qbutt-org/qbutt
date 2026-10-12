@@ -10,6 +10,7 @@ fn main() {
                 "src/models.rs",
                 "src/reader_models.rs",
                 "src/source_model.rs",
+                "src/page_model.rs",
             ])
             .cpp_file("src/native.cpp")
             .crate_include_root(Some("include".into()));

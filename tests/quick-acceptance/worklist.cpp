@@ -186,7 +186,7 @@ namespace
         waitFor([&] { return (pageWrites > writesBeforeReopen) && !controller->property("libraryPending").toBool(); },
             u"Resumed visible page History acknowledgement"_s);
         const double range = viewport->property("contentHeight").toDouble() - viewport->height();
-        require((range > 0) && (qAbs(viewport->property("contentY").toDouble() - offset * range) < 1),
+        require((range > 0) && (qAbs(viewport->property("contentY").toDouble() - qMin(offset * page->height(), range)) < 1),
             u"History did not restore the actual visible page position"_s);
         back = reader->findChild<QQuickItem *>(u"readerBack"_s);
         require(back && QMetaObject::invokeMethod(back, "clicked"), u"History resumed Back action is missing"_s);

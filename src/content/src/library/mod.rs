@@ -13,10 +13,10 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use crate::{PublicationRef, VariantRef, Work};
 
 pub use entry::{LastOpened, LibraryEntry, ReaderProgress, VariantFilters, VariantPreferences};
-pub use settings::{ReaderFit, ReaderSettings};
+pub use settings::{ReaderFit, ReaderMode, ReaderSettings};
 
 const APPLICATION_ID: i64 = 0x51424c42;
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const DATABASE_NAME: &str = "content-library.sqlite";
 
 #[derive(Debug, thiserror::Error)]
@@ -85,9 +85,10 @@ impl Library {
                 ) STRICT;
                 CREATE TABLE reader_settings (
                     id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
-                    fit INTEGER NOT NULL CHECK (fit IN (0, 1))
+                    fit INTEGER NOT NULL CHECK (fit IN (0, 1)),
+                    mode INTEGER NOT NULL CHECK (mode IN (0, 1))
                 ) STRICT;
-                INSERT INTO reader_settings (id, fit) VALUES (1, 0);
+                INSERT INTO reader_settings (id, fit, mode) VALUES (1, 0, 0);
                 CREATE TABLE source_settings (
                     source TEXT PRIMARY KEY NOT NULL CHECK (source IN ('aniliberty', 'mangadex', 'rutor')),
                     enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
@@ -96,6 +97,7 @@ impl Library {
                 ) STRICT;
                 INSERT INTO source_settings (source, enabled, revision) VALUES
                     ('aniliberty', 1, 0), ('mangadex', 1, 0), ('rutor', 1, 0);",
+
             )?;
             transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -130,7 +132,7 @@ impl Library {
             "SELECT EXISTS (
                 SELECT 1 FROM pragma_table_list
                 WHERE schema = 'main' AND name = 'reader_settings'
-                    AND type = 'table' AND ncol = 2 AND strict = 1
+                    AND type = 'table' AND ncol = 3 AND strict = 1
             )",
             [],
             |row| row.get(0),
@@ -140,11 +142,12 @@ impl Library {
              WHERE hidden = 0 AND \"notnull\" = 1 AND (
                  (cid = 0 AND name = 'id' AND type = 'INTEGER' AND pk = 1)
                  OR (cid = 1 AND name = 'fit' AND type = 'INTEGER' AND pk = 0)
+                 OR (cid = 2 AND name = 'mode' AND type = 'INTEGER' AND pk = 0)
              )",
             [],
             |row| row.get(0),
         )?;
-        if !settings_table_valid || settings_columns_valid != 2 {
+        if !settings_table_valid || settings_columns_valid != 3 {
             return Err(LibraryError::InvalidSchema);
         }
         let sources_table_valid: bool = transaction.query_row(
@@ -177,7 +180,7 @@ impl Library {
     pub fn reader_settings(&self) -> LibraryResult<ReaderSettings> {
         let mut statement = self
             .connection
-            .prepare("SELECT id, fit FROM reader_settings")?;
+            .prepare("SELECT id, fit, mode FROM reader_settings")?;
         let mut rows = statement.query([])?;
         let row = rows.next()?.ok_or(LibraryError::InvalidSchema)?;
         if row.get::<_, i64>(0)? != 1 {
@@ -188,10 +191,15 @@ impl Library {
             1 => ReaderFit::Width,
             _ => return Err(LibraryError::InvalidSchema),
         };
+        let mode = match row.get::<_, i64>(2)? {
+            0 => ReaderMode::Paged,
+            1 => ReaderMode::Continuous,
+            _ => return Err(LibraryError::InvalidSchema),
+        };
         if rows.next()?.is_some() {
             return Err(LibraryError::InvalidSchema);
         }
-        Ok(ReaderSettings { fit })
+        Ok(ReaderSettings { fit, mode })
     }
 
     pub fn save_reader_settings(&mut self, settings: ReaderSettings) -> LibraryResult<()> {
@@ -202,7 +210,15 @@ impl Library {
             ReaderFit::Height => 0,
             ReaderFit::Width => 1,
         };
-        if transaction.execute("UPDATE reader_settings SET fit = ?1 WHERE id = 1", [fit])? != 1 {
+        let mode = match settings.mode {
+            ReaderMode::Paged => 0,
+            ReaderMode::Continuous => 1,
+        };
+        if transaction.execute(
+            "UPDATE reader_settings SET fit = ?1, mode = ?2 WHERE id = 1",
+            [fit, mode],
+        )? != 1
+        {
             return Err(LibraryError::InvalidSchema);
         }
         transaction.commit()?;
