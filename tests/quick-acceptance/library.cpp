@@ -376,7 +376,6 @@ void exerciseLibrary()
             == Qbutt::Library::LibraryState::Loading;
     }, 10'000, u"SQLite worker entry"_s);
     {
-        controller->selectVariant(selectedVariant);
         controller->selectVariant(previousVariant);
         require(controller->property("libraryPending").toBool(), u"Entered worker did not accept Loading preference"_s);
         QElapsedTimer closeTime;
