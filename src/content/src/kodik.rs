@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use base64::Engine;
 use reqwest::header::{HeaderMap, HeaderValue, REFERER};
@@ -9,9 +9,29 @@ use url::Url;
 use crate::http::{SourceHttp, validate_https_url};
 use crate::{Error, Result, VideoQuality};
 
-use super::response::Video;
-
 const ORIGIN: &str = "https://kodikplayer.com";
+
+/// Identity reported by the catalog that exposed this exact Kodik player.
+/// The Kodik page must independently confirm its episode and translation.
+pub(crate) struct KodikVideo<'a> {
+    pub episode: &'a str,
+    pub dubbing: &'a str,
+    pub subtitled: bool,
+    /// A catalog may expose Kodik's own video identity before resolution.
+    pub video: Option<(&'a str, &'a str)>,
+}
+
+pub(crate) struct KodikCatalog {
+    pub translation: String,
+    pub subtitled: bool,
+    pub episodes: Vec<KodikEpisode>,
+}
+
+pub(crate) struct KodikEpisode {
+    pub number: String,
+    pub id: String,
+    pub hash: String,
+}
 
 #[derive(Deserialize)]
 struct Sources {
@@ -25,7 +45,76 @@ struct Source {
     mime: String,
 }
 
-pub(super) async fn resolve(selected: &Video, player: &Url) -> Result<(Url, VideoQuality)> {
+/// Inspect one translation's public episode list. This does not acquire video.
+pub(crate) async fn inspect(player: &Url) -> Result<KodikCatalog> {
+    let origin = Url::parse(ORIGIN).expect("fixed Kodik origin");
+    let route: Vec<_> = player
+        .path_segments()
+        .ok_or(Error::UnsafeAddress)?
+        .collect();
+    if player.origin() != origin.origin()
+        || route.len() != 4
+        || !matches!(route[0], "season" | "serial")
+        || !decimal(route[1])
+        || !hash(route[2])
+        || route[3] != "720p"
+    {
+        return Err(Error::InvalidResponse("invalid Kodik serial identity"));
+    }
+
+    let http = SourceHttp::new(origin, HeaderMap::new())?;
+    let (final_url, html) = http.html_page(player.clone()).await?;
+    if final_url != *player {
+        return Err(Error::VariantUnavailable);
+    }
+    let document = Html::parse_document(&html);
+    let script = player_script(&document);
+    let translation = player_string(&script, "translationTitle")?;
+    let subtitled = translation.ends_with(".Subtitles");
+    let translation = translation
+        .strip_suffix(".Subtitles")
+        .unwrap_or(&translation)
+        .to_owned();
+    if translation.is_empty() || translation.len() > 512 {
+        return Err(Error::InvalidResponse("invalid Kodik translation"));
+    }
+
+    let options =
+        Selector::parse(".serial-series-box select option").expect("fixed episode selector");
+    let mut episodes = Vec::new();
+    let mut seen = HashSet::new();
+    for option in document.select(&options) {
+        if episodes.len() >= 5000 {
+            return Err(Error::ResponseTooLarge);
+        }
+        let number = option.value().attr("value").unwrap_or_default();
+        let id = option.value().attr("data-id").unwrap_or_default();
+        let video_hash = option.value().attr("data-hash").unwrap_or_default();
+        if option.value().attr("data-other-translation") != Some("false")
+            || !decimal(number)
+            || !decimal(id)
+            || !hash(video_hash)
+            || !seen.insert(number.to_owned())
+        {
+            return Err(Error::InvalidResponse("invalid Kodik episode identity"));
+        }
+        episodes.push(KodikEpisode {
+            number: number.to_owned(),
+            id: id.to_owned(),
+            hash: video_hash.to_owned(),
+        });
+    }
+    if episodes.is_empty() {
+        return Err(Error::VariantUnavailable);
+    }
+    Ok(KodikCatalog {
+        translation,
+        subtitled,
+        episodes,
+    })
+}
+
+pub(crate) async fn resolve(selected: KodikVideo<'_>, player: &Url) -> Result<(Url, VideoQuality)> {
     let origin = Url::parse(ORIGIN).expect("fixed Kodik origin");
     let route: Vec<_> = player
         .path_segments()
@@ -37,7 +126,7 @@ pub(super) async fn resolve(selected: &Video, player: &Url) -> Result<(Url, Vide
         || !decimal(route[1])
         || !hash(route[2])
         || route[3] != "720p"
-        || !decimal(&selected.number)
+        || !decimal(selected.episode)
     {
         return Err(Error::InvalidResponse("invalid Kodik player identity"));
     }
@@ -48,8 +137,9 @@ pub(super) async fn resolve(selected: &Video, player: &Url) -> Result<(Url, Vide
         .map(|(_, value)| value.into_owned())
         .collect();
     if episodes.len() > 1
-        || (playlist || !episodes.is_empty()) && episodes.first() != Some(&selected.number)
-        || route[0] == "video" && selected.number != "1"
+        || (playlist || !episodes.is_empty())
+            && episodes.first().map(String::as_str) != Some(selected.episode)
+        || route[0] == "video" && selected.episode != "1"
     {
         return Err(Error::VariantUnavailable);
     }
@@ -79,7 +169,7 @@ pub(super) async fn resolve(selected: &Video, player: &Url) -> Result<(Url, Vide
     if final_page.path() != player.path() || final_episodes != episodes {
         return Err(Error::VariantUnavailable);
     }
-    let form = player_form(&html, selected, &route)?;
+    let form = player_form(&html, &selected, &route)?;
     let sources: Sources = http
         .form_json(origin.join("ftor").expect("fixed Kodik form path"), &form)
         .await?;
@@ -99,24 +189,13 @@ pub(super) async fn resolve(selected: &Video, player: &Url) -> Result<(Url, Vide
     Ok((url, quality))
 }
 
-fn player_form(html: &str, selected: &Video, route: &[&str]) -> Result<String> {
+fn player_form(html: &str, selected: &KodikVideo<'_>, route: &[&str]) -> Result<String> {
     let document = Html::parse_document(html);
-    let scripts = Selector::parse("script:not([src])").expect("fixed script selector");
-    let script = document
-        .select(&scripts)
-        .flat_map(|element| element.text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let script = player_script(&document);
     let translation = player_string(&script, "translationTitle")?;
     let voice = translation.strip_suffix(".Subtitles");
-    let expected = selected
-        .data
-        .dubbing
-        .strip_prefix("Озвучка ")
-        .or_else(|| selected.data.dubbing.strip_prefix("Субтитры "))
-        .unwrap_or(&selected.data.dubbing);
-    if voice.is_some() != selected.is_subtitled()
-        || normalized_voice(voice.unwrap_or(&translation)) != normalized_voice(expected)
+    if voice.is_some() != selected.subtitled
+        || normalized_voice(voice.unwrap_or(&translation)) != normalized_voice(selected.dubbing)
     {
         return Err(Error::VariantUnavailable);
     }
@@ -132,12 +211,17 @@ fn player_form(html: &str, selected: &Video, route: &[&str]) -> Result<String> {
     if kind != expected_kind || !decimal(id) || !hash(video_hash) {
         return Err(Error::InvalidResponse("invalid Kodik video identity"));
     }
+    if selected.video.is_some_and(|(expected_id, expected_hash)| {
+        id != expected_id || video_hash != expected_hash
+    }) {
+        return Err(Error::VariantUnavailable);
+    }
     if matches!(route[0], "season" | "serial") {
         let options =
             Selector::parse(".serial-series-box select option").expect("fixed episode selector");
         let mut matching = document
             .select(&options)
-            .filter(|option| option.value().attr("value") == Some(selected.number.as_str()));
+            .filter(|option| option.value().attr("value") == Some(selected.episode));
         let option = matching.next().ok_or(Error::VariantUnavailable)?;
         if matching.next().is_some()
             || option.value().attr("selected").is_none()
@@ -162,6 +246,15 @@ fn player_form(html: &str, selected: &Video, route: &[&str]) -> Result<String> {
         .append_pair("info", "{}")
         .append_pair("cdn_is_working", "false");
     Ok(form.finish())
+}
+
+fn player_script(document: &Html) -> String {
+    let scripts = Selector::parse("script:not([src])").expect("fixed script selector");
+    document
+        .select(&scripts)
+        .flat_map(|element| element.text())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn script_value<'a>(script: &'a str, name: &str) -> Result<&'a str> {

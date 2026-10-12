@@ -240,15 +240,24 @@ impl Fixture {
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let fixture = Fixture::start().await?;
-    let source = freetp::fixture(
+    let source = Arc::new(freetp::fixture(
         http::fixture(fixture.client.clone(), fixture.origin.clone()),
         fixture.origin.clone(),
-    );
-    let found = source.search("generated", Category::Games).await?;
+    ));
+    let found = tokio::spawn({
+        let source = Arc::clone(&source);
+        async move { source.search("generated", Category::Games).await }
+    })
+    .await??;
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].reference.id, "42");
     assert!(found[0].needs_inspection && found[0].variants.is_empty());
-    let work = source.inspect(&found[0].reference).await?;
+    let publication = found[0].reference.clone();
+    let work = tokio::spawn({
+        let source = Arc::clone(&source);
+        async move { source.inspect(&publication).await }
+    })
+    .await??;
     assert_eq!(work.variants.len(), 2);
     assert!(
         work.variants[0]
@@ -265,10 +274,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .starts_with("Патч:")
     );
     for variant in &work.variants {
+        let selected = variant.reference.clone();
         let ResolvedContent::TorrentFile {
             reference,
             metadata,
-        } = source.resolve(&variant.reference).await?
+        } = tokio::spawn({
+            let source = Arc::clone(&source);
+            async move { source.resolve(&selected).await }
+        })
+        .await??
         else {
             panic!("expected torrent metadata");
         };

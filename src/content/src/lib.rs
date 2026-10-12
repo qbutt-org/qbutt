@@ -7,6 +7,8 @@
 //! Library storage is synchronous and must be scheduled outside the GUI thread.
 
 mod aniliberty;
+mod animespirit;
+mod anitokyo;
 mod association;
 #[cfg(windows)]
 pub mod browser;
@@ -20,6 +22,7 @@ mod fitgirl;
 mod freetp;
 mod http;
 mod kakuyomu;
+mod kodik;
 mod lib_api;
 mod library;
 mod local_books;
@@ -43,6 +46,8 @@ mod torrent;
 mod yummyanime;
 
 pub use aniliberty::AniLiberty;
+pub use animespirit::AnimeSpirit;
+pub use anitokyo::AniTokyo;
 pub use association::{WorkAssociation, WorkGroup, rank_variants};
 #[cfg(windows)]
 pub use byrut::ByRut;

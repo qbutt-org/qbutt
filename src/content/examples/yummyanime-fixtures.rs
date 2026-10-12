@@ -91,6 +91,10 @@ mod yummyanime {
     }
 }
 
+#[allow(dead_code)]
+#[path = "../src/kodik.rs"]
+mod kodik;
+
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

@@ -187,6 +187,36 @@ pub fn variant_id(reference: &VariantRef) -> String {
             }
             key
         }
+        VariantSelector::AniTokyoVideo {
+            id,
+            group_id,
+            episode,
+            dubbing,
+        } => {
+            format!(
+                "{publication}:anitokyo:{id}:{group_id}:{episode}:{}:{dubbing}",
+                dubbing.len()
+            )
+        }
+        VariantSelector::AnimeSpiritKodik {
+            player_kind,
+            player_id,
+            episode,
+            episode_id,
+            episode_hash,
+            voice,
+            kodik_translation,
+            subtitled,
+        } => {
+            let mut key = format!(
+                "{publication}:animespirit:{player_kind}:{player_id}:{episode}:{episode_id}:{episode_hash}:{}",
+                u8::from(*subtitled)
+            );
+            for value in [voice, kodik_translation] {
+                write!(&mut key, ":{}:{value}", value.len()).expect("string formatting");
+            }
+            key
+        }
         VariantSelector::MangaTranslation { language, groups } => {
             format!("{publication}:translation:{language}:{}", groups.join("+"))
         }

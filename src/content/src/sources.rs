@@ -6,9 +6,11 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 18] = [
         Self::AniLiberty,
+        Self::AniTokyo,
         Self::YummyAnime,
+        Self::AnimeSpirit,
         Self::MangaDex,
         Self::MangaLib,
         Self::RanobeLib,
@@ -29,7 +31,9 @@ impl Source {
         match self {
             Self::LocalBook => "local_book",
             Self::AniLiberty => "aniliberty",
+            Self::AniTokyo => "anitokyo",
             Self::YummyAnime => "yani",
+            Self::AnimeSpirit => "animespirit",
             Self::MangaDex => "mangadex",
             Self::MangaLib => "mangalib",
             Self::RanobeLib => "ranobelib",
@@ -55,7 +59,9 @@ impl Source {
         match self {
             Self::LocalBook => "Local book",
             Self::AniLiberty => "AniLiberty",
+            Self::AniTokyo => "AniTokyo",
             Self::YummyAnime => "YummyAnime",
+            Self::AnimeSpirit => "AnimeSpirit",
             Self::MangaDex => "MangaDex",
             Self::MangaLib => "MangaLib",
             Self::RanobeLib => "RanobeLib",
@@ -76,7 +82,9 @@ impl Source {
     pub fn categories(self) -> &'static [Category] {
         match self {
             Self::LocalBook => &[Category::Books],
-            Self::AniLiberty | Self::YummyAnime => &[Category::Anime],
+            Self::AniLiberty | Self::AniTokyo | Self::YummyAnime | Self::AnimeSpirit => {
+                &[Category::Anime]
+            }
             Self::MangaDex | Self::MangaLib => &[Category::Manga],
             Self::RanobeLib => &[Category::Books],
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
