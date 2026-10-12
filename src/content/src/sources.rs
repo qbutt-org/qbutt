@@ -6,11 +6,12 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::AniLiberty,
         Self::YummyAnime,
         Self::MangaDex,
         Self::MangaLib,
+        Self::RanobeLib,
         Self::RuTor,
         Self::RuTracker,
         Self::Nyaa,
@@ -24,6 +25,7 @@ impl Source {
             Self::YummyAnime => "yani",
             Self::MangaDex => "mangadex",
             Self::MangaLib => "mangalib",
+            Self::RanobeLib => "ranobelib",
             Self::RuTor => "rutor",
             Self::RuTracker => "rutracker",
             Self::Nyaa => "nyaa",
@@ -42,6 +44,7 @@ impl Source {
             Self::YummyAnime => "YummyAnime",
             Self::MangaDex => "MangaDex",
             Self::MangaLib => "MangaLib",
+            Self::RanobeLib => "RanobeLib",
             Self::RuTor => "RuTor",
             Self::RuTracker => "RuTracker",
             Self::Nyaa => "Nyaa.si",
@@ -54,6 +57,7 @@ impl Source {
         match self {
             Self::AniLiberty | Self::YummyAnime => &[Category::Anime],
             Self::MangaDex | Self::MangaLib => &[Category::Manga],
+            Self::RanobeLib => &[Category::Books],
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
             Self::FitGirl => &[Category::Games],
             Self::Nyaa => &[
@@ -161,7 +165,10 @@ impl SourceOperation {
 }
 
 fn validate_reader(source: Source) -> crate::Result<()> {
-    if matches!(source, Source::MangaDex | Source::MangaLib) {
+    if matches!(
+        source,
+        Source::MangaDex | Source::MangaLib | Source::RanobeLib
+    ) {
         Ok(())
     } else {
         Err(Error::InvalidReference)

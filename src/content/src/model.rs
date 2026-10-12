@@ -10,6 +10,7 @@ pub enum Source {
     YummyAnime,
     MangaDex,
     MangaLib,
+    RanobeLib,
     RuTor,
     RuTracker,
     Nyaa,
@@ -36,6 +37,7 @@ impl PublicationRef {
             Source::Rutube => self.rutube_id().map(|_| ()),
             Source::FitGirl => self.fitgirl_slug().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
+            Source::RanobeLib => self.ranobelib_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
             Source::MangaDex => Err(crate::Error::InvalidReference),
         }
@@ -90,11 +92,19 @@ impl PublicationRef {
     }
 
     pub(crate) fn mangalib_id(&self) -> crate::Result<u64> {
+        self.lib_id(Source::MangaLib)
+    }
+
+    pub(crate) fn ranobelib_id(&self) -> crate::Result<u64> {
+        self.lib_id(Source::RanobeLib)
+    }
+
+    fn lib_id(&self, source: Source) -> crate::Result<u64> {
         let (id, slug) = self
             .id
             .split_once("--")
             .ok_or(crate::Error::InvalidReference)?;
-        if self.source != Source::MangaLib
+        if self.source != source
             || slug.is_empty()
             || slug.len() > 200
             || !slug
@@ -253,6 +263,7 @@ impl VariantRef {
                 | (Source::YummyAnime, VariantSelector::YummyAnimeVideo { .. })
                 | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
                 | (Source::MangaLib, VariantSelector::LibTranslation { .. })
+                | (Source::RanobeLib, VariantSelector::LibTranslation { .. })
                 | (Source::RuTor, VariantSelector::TorrentHash { .. })
                 | (Source::RuTracker, VariantSelector::TorrentHash { .. })
                 | (Source::Nyaa, VariantSelector::TorrentHash { .. })
@@ -300,7 +311,7 @@ impl ChapterRef {
         self.variant.validate()?;
         if match self.variant.publication.source {
             Source::MangaDex => canonical_uuid(&self.id),
-            Source::MangaLib => canonical_decimal(&self.id),
+            Source::MangaLib | Source::RanobeLib => canonical_decimal(&self.id),
             _ => false,
         } {
             Ok(())
