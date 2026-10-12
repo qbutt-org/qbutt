@@ -20,6 +20,7 @@ mod http {
 }
 
 #[path = "../src/torrent.rs"]
+#[allow(dead_code)]
 mod torrent;
 
 #[allow(dead_code)]

@@ -66,14 +66,6 @@ impl Release {
         let VariantSelector::TorrentHash { info_hash } = &selected.selector else {
             return Err(Error::InvalidReference);
         };
-        if self
-            .work
-            .variants
-            .iter()
-            .all(|variant| variant.reference != *selected)
-        {
-            return Err(Error::VariantUnavailable);
-        }
         let metadata = self
             .torrents
             .remove(info_hash)
@@ -116,10 +108,7 @@ pub(super) fn site_document(response: SourceDocument, expected: &Url) -> Result<
     Ok(body.into_owned())
 }
 
-pub(super) fn search(body: &str, origin: &Url, url: &Url, query: &str) -> Result<Vec<Work>> {
-    if url.origin() != origin.origin() || url.path() != "/index.php" {
-        return Err(Error::InvalidResponse("invalid Online-Fix search URL"));
-    }
+pub(super) fn search(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>> {
     let document = Html::parse_document(body);
     let root = document.root_element();
     let echoed = unique(root, "#dle-content #searchinput[name='story']")?;
@@ -333,7 +322,8 @@ fn selector(value: &str) -> Selector {
 }
 
 fn unique<'a>(root: ElementRef<'a>, query: &str) -> Result<ElementRef<'a>> {
-    let mut elements = root.select(&selector(query));
+    let selected = selector(query);
+    let mut elements = root.select(&selected);
     let first = elements
         .next()
         .ok_or(Error::InvalidResponse("missing Online-Fix metadata"))?;

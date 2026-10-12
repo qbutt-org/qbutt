@@ -14,8 +14,7 @@ const UPLOADS_ORIGIN: &str = "https://uploads.online-fix.me:2053";
 const BROWSER_USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36";
 
-/// Public game articles and their advertised torrent directory. Archives in
-/// Fix Repair and Updates are separate releases, not full-game torrents.
+/// Public game articles and their advertised torrent directory.
 pub struct OnlineFix {
     site: SourceHttp,
     uploads: SourceHttp,
@@ -52,8 +51,8 @@ impl OnlineFix {
             ("subaction", "search"),
             ("story", query),
         ]);
-        let body = self.site_document(url.clone()).await?;
-        response::search(&body, &self.origin, &url, query)
+        let body = self.site_document(url).await?;
+        response::search(&body, &self.origin, query)
     }
 
     pub async fn inspect(&self, publication: &PublicationRef) -> Result<Work> {
