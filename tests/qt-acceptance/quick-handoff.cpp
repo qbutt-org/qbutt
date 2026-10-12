@@ -329,11 +329,24 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     auto *list = root->findChild<QQuickItem *>(u"contentVariants"_s);
     auto *download = root->findChild<QQuickItem *>(u"contentDownload"_s);
     require(list && download, u"Variant controls are missing"_s);
+    auto *visibleVariants = qobject_cast<QAbstractItemModel *>(list->property("model").value<QObject *>());
+    require(visibleVariants, u"Visible variant model is missing"_s);
+    int visibleRow = -1;
+    for (int row = 0; row < visibleVariants->rowCount(); ++row)
+    {
+        if (value(visibleVariants, row, "variantId") == variantId)
+            visibleRow = row;
+    }
+    require(visibleRow >= 0, u"Exact torrent is absent from the visible variants"_s);
     list->forceActiveFocus();
-    QKeyEvent lastVariant(QEvent::KeyPress, Qt::Key_End, Qt::NoModifier);
-    QCoreApplication::sendEvent(&view, &lastVariant);
-    QKeyEvent lastVariantRelease(QEvent::KeyRelease, Qt::Key_End, Qt::NoModifier);
-    QCoreApplication::sendEvent(&view, &lastVariantRelease);
+    for (int step = 0; step <= visibleRow; ++step)
+    {
+        const Qt::Key key = step == 0 ? Qt::Key_Home : Qt::Key_Down;
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(&view, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(&view, &release);
+    }
     waitFor([&]
     {
         auto *item = list->property("currentItem").value<QObject *>();
