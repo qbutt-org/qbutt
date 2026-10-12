@@ -379,6 +379,44 @@ void exerciseReader(Content::ContentView *view, const QString &profileDir)
         u"Reopening substituted the selected translation"_s);
     require(controller->property("chapterQuery").toString().isEmpty() && (chapters->rowCount() == chapterCount),
         u"New reading session inherited a stale chapter query"_s);
+    {
+        QObject resetObservation;
+        int resetDepth = 0;
+        int maximumResetDepth = 0;
+        int resetCount = 0;
+        int discardedRowCount = -1;
+        bool reopenedDuringReset = false;
+        QObject::connect(chapters, &QAbstractItemModel::modelAboutToBeReset, &resetObservation, [&]
+        {
+            ++resetDepth;
+            maximumResetDepth = qMax(maximumResetDepth, resetDepth);
+            // Opening first clears the model; the next reset publishes fetched chapters.
+            if (++resetCount == 2)
+            {
+                reopenedDuringReset = true;
+                controller->closeReader();
+                controller->openReader();
+                controller->setChapterQuery(secondNumber);
+            }
+        }, Qt::DirectConnection);
+        QObject::connect(chapters, &QAbstractItemModel::modelReset, &resetObservation, [&]
+        {
+            if (reopenedDuringReset && (resetDepth == 1) && (discardedRowCount < 0))
+                discardedRowCount = chapters->rowCount();
+            --resetDepth;
+        }, Qt::DirectConnection);
+        controller->closeReader();
+        controller->openReader();
+        readyPage(controller);
+        require(reopenedDuringReset && (maximumResetDepth == 1) && (resetDepth == 0)
+            && (discardedRowCount == 0)
+            && controller->property("readerOpen").toBool()
+            && (controller->property("chapterQuery").toString() == secondNumber)
+            && (chapters->rowCount() > 0) && (value(chapters, 0, "number") == secondNumber),
+            u"Chapter load reset nested, published discarded rows, or lost the new session query"_s);
+    }
+    require(controller->property("selectedVariantId").toString() == exact,
+        u"Reentrant chapter reset substituted the selected translation"_s);
     controller->closeReader();
     const QString reopenedDirectory = QFileInfo(reopened).absolutePath();
     waitFor([&] { return !QFileInfo::exists(reopenedDirectory); }, u"Reopened chapter cache cleanup"_s);
@@ -425,5 +463,5 @@ void exerciseReader(Content::ContentView *view, const QString &profileDir)
     const QString retriedDirectory = QFileInfo(retried).absolutePath();
     waitFor([&] { return !QFileInfo::exists(retriedDirectory); }, u"Retried chapter cache cleanup"_s);
     require(!bindingLoopDetected.load(), u"Reader lifecycle caused a binding loop"_s);
-    qInfo().noquote() << u"PASS reader mixed_search=ok exact_translation=ok qml_action=ok decoded_pages=2 chapter_filter=ok reentrant_filter=ok fit=ok settings_ui_retry=ok stale_chapter=ok bounds=ok cancel_reopen=ok cache_failure_retry=ok cache_cleanup=ok chapters=%1"_s.arg(chapterCount);
+    qInfo().noquote() << u"PASS reader mixed_search=ok exact_translation=ok qml_action=ok decoded_pages=2 chapter_filter=ok reentrant_filter=ok reentrant_chapter_reset=ok fit=ok settings_ui_retry=ok stale_chapter=ok bounds=ok cancel_reopen=ok cache_failure_retry=ok cache_cleanup=ok chapters=%1"_s.arg(chapterCount);
 }

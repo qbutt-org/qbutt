@@ -63,6 +63,7 @@ pub struct ChapterModelRust {
     rows: Vec<Chapter>,
     visible: Vec<usize>,
     query: String,
+    pending: Option<Vec<Chapter>>,
     resetting: bool,
 }
 
@@ -152,10 +153,12 @@ impl ffi::ChapterModel {
     }
 
     pub fn replace(mut self: Pin<&mut Self>, chapters: Vec<Chapter>) {
+        self.as_mut().rust_mut().pending = Some(chapters);
+        if self.resetting {
+            return;
+        }
         self.as_mut().rust_mut().resetting = true;
-        self.as_mut().begin_reset_model();
-        self.as_mut().rust_mut().rows = chapters;
-        self.as_mut().publish_filter();
+        self.as_mut().publish();
     }
 
     pub fn filter(mut self: Pin<&mut Self>, query: &str) {
@@ -168,22 +171,22 @@ impl ffi::ChapterModel {
             return;
         }
         self.as_mut().rust_mut().resetting = true;
-        self.as_mut().begin_reset_model();
-        self.as_mut().publish_filter();
+        self.as_mut().publish();
     }
 
-    fn publish_filter(mut self: Pin<&mut Self>) {
+    fn publish(mut self: Pin<&mut Self>) {
         loop {
-            let applied = self.query.clone();
+            self.as_mut().begin_reset_model();
+            let applied_query = self.query.clone();
+            if let Some(chapters) = self.as_mut().rust_mut().pending.take() {
+                self.as_mut().rust_mut().rows = chapters;
+            }
             self.as_mut().refilter();
             self.as_mut().end_reset_model();
-            if self.query == applied {
+            if self.pending.is_none() && self.query == applied_query {
                 self.as_mut().rust_mut().resetting = false;
                 return;
             }
-            // A reset observer may change the query. Publish its latest intent
-            // after all observers return, keeping Qt begin/end pairs balanced.
-            self.as_mut().begin_reset_model();
         }
     }
 
