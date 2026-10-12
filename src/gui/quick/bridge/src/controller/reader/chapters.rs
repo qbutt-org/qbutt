@@ -188,6 +188,7 @@ impl ffi::ContentController {
         self.as_mut().rust_mut().reader.loading.cancel();
         self.as_mut().rust_mut().reader.chapter.cancel();
         self.as_mut().rust_mut().reader.text.prefetch.cancel();
+        self.as_mut().rust_mut().reader.translation.reset_chapter();
         let generation = self.reader.chapter.generation;
         let (page, scroll_offset) = match &resume {
             ReaderPosition::Page {

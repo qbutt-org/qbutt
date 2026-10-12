@@ -198,7 +198,11 @@ impl ffi::ContentController {
         if self.reader_source_current(generation, &request) {
             let anchor = self.reader.text.anchor.clone();
             let offset = self.reader.text.offset;
-            self.reader_text_position_requested(generation, anchor, offset);
+            self.as_mut()
+                .reader_text_position_requested(generation, anchor, offset);
+        }
+        if self.reader_source_current(generation, &request) {
+            self.as_mut().on_original_text_chapter_ready();
         }
     }
 

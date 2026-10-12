@@ -15,6 +15,7 @@ use crate::reader_models;
 mod chapters;
 mod progress;
 mod text;
+mod translation;
 mod viewport;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -46,6 +47,7 @@ pub(super) struct ReaderState {
     chapters: UniquePtr<reader_models::ffi::ChapterModel>,
     pages: UniquePtr<page_model::ffi::PageModel>,
     text: text::TextReaderState,
+    translation: translation::TextTranslationState,
     is_text: bool,
     reference: Option<VariantRef>,
     busy: bool,
@@ -72,6 +74,7 @@ impl Default for ReaderState {
             chapters: reader_models::ffi::create_chapter_model(),
             pages: page_model::ffi::create_page_model(),
             text: text::TextReaderState::default(),
+            translation: translation::TextTranslationState::default(),
             is_text: false,
             reference: None,
             busy: false,
@@ -100,6 +103,7 @@ impl ReaderState {
         self.chapter.cancel();
         self.position.take();
         self.text.prefetch.cancel();
+        self.translation.reset_reader();
         self.progress_generation = self.progress_generation.wrapping_add(1);
         self.progress_pending = false;
         self.progress_error = QString::default();

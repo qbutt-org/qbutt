@@ -84,6 +84,11 @@ Page {
                 }
                 onChaptersRequested: chapters.open()
                 onAppearanceRequested: appearance.open()
+                onTranslationRequested: translated => {
+                    canvas.saveScroll();
+                    root.backend.setReaderTextTranslation(translated);
+                    canvas.forceActiveFocus();
+                }
             }
 
             Rectangle {
@@ -97,6 +102,28 @@ Page {
                     width: parent.width * canvas.readingProgress
                     height: parent.height
                     color: root.theme.accent
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: root.backend.readerIsText && root.backend.readerTranslationError
+                spacing: 16
+
+                Label {
+                    objectName: "readerTranslationError"
+                    Layout.fillWidth: true
+                    text: root.backend.readerTranslationNeedsCodex
+                        ? qsTr("Install or sign in to Codex to translate.")
+                        : qsTr("Translation failed.")
+                    textFormat: Text.PlainText
+                }
+
+                ActionButton {
+                    objectName: "readerTranslationRetry"
+                    theme: root.theme
+                    text: qsTr("Try again")
+                    onClicked: root.backend.setReaderTextTranslation(true)
                 }
             }
 

@@ -15,6 +15,7 @@ Pane {
     signal backRequested
     signal chaptersRequested
     signal appearanceRequested
+    signal translationRequested(bool translated)
 
     padding: 0
     background: Item {}
@@ -92,6 +93,33 @@ Pane {
                     text: root.backend.readerChapterTitle
                 }
             }
+        }
+
+        SelectField {
+            objectName: "readerTranslation"
+            Layout.preferredWidth: 148
+            visible: root.backend.readerIsText
+            enabled: !root.backend.readerBusy
+                && (root.backend.readerTranslationRequested || root.backend.libraryState === Library.Ready)
+            theme: root.theme
+            Accessible.name: qsTr("Translation")
+            textRole: "title"
+            valueRole: "translated"
+            model: [
+                { title: qsTr("Original"), translated: false },
+                { title: qsTr("Translated"), translated: true }
+            ]
+            currentIndex: root.backend.readerTranslationRequested ? 1 : 0
+            onActivated: root.translationRequested(currentValue)
+        }
+
+        BusyIndicator {
+            objectName: "readerTranslationBusy"
+            Layout.preferredWidth: 20
+            Layout.preferredHeight: 20
+            visible: root.backend.readerIsText && root.backend.readerTranslationBusy
+            running: visible
+            Accessible.name: qsTr("Translating")
         }
 
         ReaderChromeButton {

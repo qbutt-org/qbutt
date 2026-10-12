@@ -307,6 +307,10 @@ pub mod ffi {
         #[qproperty(u64, reader_text_generation, cxx_name = "readerTextGeneration", READ = reader_text_generation, NOTIFY = reader_changed)]
         #[qproperty(QString, reader_text_anchor, cxx_name = "readerTextAnchor", READ = reader_text_anchor, NOTIFY = reader_changed)]
         #[qproperty(f64, reader_text_offset, cxx_name = "readerTextOffset", READ = reader_text_offset, NOTIFY = reader_changed)]
+        #[qproperty(bool, reader_translation_requested, cxx_name = "readerTranslationRequested", READ = reader_translation_requested, NOTIFY = reader_changed)]
+        #[qproperty(bool, reader_translation_busy, cxx_name = "readerTranslationBusy", READ = reader_translation_busy, NOTIFY = reader_changed)]
+        #[qproperty(bool, reader_translation_error, cxx_name = "readerTranslationError", READ = reader_translation_error, NOTIFY = reader_changed)]
+        #[qproperty(bool, reader_translation_needs_codex, cxx_name = "readerTranslationNeedsCodex", READ = reader_translation_needs_codex, NOTIFY = reader_changed)]
         #[qproperty(i32, reader_chapter_index, cxx_name = "readerChapterIndex", READ = reader_chapter_index, NOTIFY = reader_changed)]
         #[qproperty(i32, reader_chapter_count, cxx_name = "readerChapterCount", READ = reader_chapter_count, NOTIFY = reader_changed)]
         #[qproperty(ReaderMode, reader_mode, cxx_name = "readerMode", READ = reader_mode, NOTIFY = reader_changed)]
@@ -667,6 +671,10 @@ pub mod ffi {
         fn reader_text_generation(&self) -> u64;
         fn reader_text_anchor(&self) -> &QString;
         fn reader_text_offset(&self) -> f64;
+        fn reader_translation_requested(&self) -> bool;
+        fn reader_translation_busy(&self) -> bool;
+        fn reader_translation_error(&self) -> bool;
+        fn reader_translation_needs_codex(&self) -> bool;
         fn reader_chapter_index(&self) -> i32;
         fn reader_chapter_count(&self) -> i32;
         fn reader_mode(&self) -> ReaderMode;
@@ -788,6 +796,9 @@ pub mod ffi {
             offset: f64,
             user_moved: bool,
         ) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderTextTranslation"]
+        fn set_reader_text_translation(self: Pin<&mut Self>, translated: bool) -> bool;
         #[qsignal]
         #[cxx_name = "readerTextPositionRequested"]
         fn reader_text_position_requested(

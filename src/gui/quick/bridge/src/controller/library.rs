@@ -4,10 +4,12 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
+use qbutt_content::translation::context::{ContextAdditions, EvidenceSegment, TranslationContext};
+use qbutt_content::translation::text::{cache_key, restore_cached};
 use qbutt_content::{
     DownloadJob, DownloadStorage, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView,
-    LocalBook, PublicationRef, ReaderProgress, ReaderSettings, SourceSettings, VariantPreferences,
-    Work, WorkGroup,
+    LocalBook, PublicationRef, ReaderProgress, ReaderSettings, SourceSettings, TextChapter,
+    TranslationCacheKey, VariantPreferences, Work, WorkGroup,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};
@@ -128,6 +130,20 @@ enum LibraryCommand {
     Request(Box<LibraryRequest>),
     DownloadJobs(oneshot::Sender<LibraryResult<Vec<DownloadJob>>>),
     SaveDownload(DownloadJob, oneshot::Sender<LibraryResult<()>>),
+    TranslationLookup {
+        original: Arc<TextChapter>,
+        language: String,
+        model: String,
+        effort: String,
+        reply: oneshot::Sender<LibraryResult<TranslationLookup>>,
+    },
+    TranslationSave {
+        key: TranslationCacheKey,
+        chapter: TextChapter,
+        additions: ContextAdditions,
+        evidence: Vec<EvidenceSegment>,
+        reply: oneshot::Sender<LibraryResult<TranslationContext>>,
+    },
     Retry {
         error_generation: u64,
         reader_generation: Option<u64>,
@@ -135,8 +151,15 @@ enum LibraryCommand {
     },
 }
 
+#[derive(Clone)]
 pub struct LibraryWorker {
     sender: Sender<LibraryCommand>,
+}
+
+pub(super) struct TranslationLookup {
+    pub key: TranslationCacheKey,
+    pub context: TranslationContext,
+    pub cached: Option<TextChapter>,
 }
 
 #[derive(Clone)]
@@ -169,6 +192,52 @@ impl DownloadStorage for DownloadStore {
 }
 
 impl LibraryWorker {
+    pub(super) async fn translation_lookup(
+        &self,
+        original: Arc<TextChapter>,
+        language: String,
+        model: String,
+        effort: String,
+    ) -> LibraryResult<TranslationLookup> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::TranslationLookup {
+                original,
+                language,
+                model,
+                effort,
+                reply,
+            })
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
+    }
+
+    pub(super) async fn save_translation(
+        &self,
+        key: TranslationCacheKey,
+        chapter: TextChapter,
+        additions: ContextAdditions,
+        evidence: Vec<EvidenceSegment>,
+    ) -> LibraryResult<TranslationContext> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::TranslationSave {
+                key,
+                chapter,
+                additions,
+                evidence,
+                reply,
+            })
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
+    }
+
     pub(super) fn download_store(&self) -> DownloadStore {
         DownloadStore {
             sender: self.sender.clone(),
@@ -232,6 +301,65 @@ impl LibraryWorker {
                                 .as_mut()
                                 .ok_or(LibraryError::InvalidEntry("download storage unavailable"))
                                 .and_then(|library| library.save_download_job(&job));
+                            let _ = reply.send(result);
+                        }
+                        LibraryCommand::TranslationLookup {
+                            original,
+                            language,
+                            model,
+                            effort,
+                            reply,
+                        } => {
+                            let result = library
+                                .as_ref()
+                                .ok_or(LibraryError::InvalidEntry(
+                                    "translation library is unavailable",
+                                ))
+                                .and_then(|library| {
+                                    let context = library.translation_context(
+                                        &original.reference.variant.publication,
+                                        &language,
+                                    )?;
+                                    let key = cache_key(
+                                        &original,
+                                        &language,
+                                        &model,
+                                        &effort,
+                                        context.revision,
+                                    )?;
+                                    let cached = library
+                                        .cached_translation::<TextChapter>(&key)?
+                                        .map(|chapter| {
+                                            restore_cached(&original, chapter).map_err(|_| {
+                                                LibraryError::CorruptEntry(
+                                                    "cached text translation is invalid",
+                                                )
+                                            })
+                                        })
+                                        .transpose()?;
+                                    Ok(TranslationLookup {
+                                        key,
+                                        context,
+                                        cached,
+                                    })
+                                });
+                            let _ = reply.send(result);
+                        }
+                        LibraryCommand::TranslationSave {
+                            key,
+                            chapter,
+                            additions,
+                            evidence,
+                            reply,
+                        } => {
+                            let result = library
+                                .as_mut()
+                                .ok_or(LibraryError::InvalidEntry(
+                                    "translation library is unavailable",
+                                ))
+                                .and_then(|library| {
+                                    library.save_translation(key, &chapter, additions, &evidence)
+                                });
                             let _ = reply.send(result);
                         }
                         LibraryCommand::Retry {

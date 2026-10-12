@@ -19317,6 +19317,14 @@ Please choose a different name and try again.</source>
 <context>
     <name>ReaderPage</name>
     <message>
+        <source>Install or sign in to Codex to translate.</source>
+        <translation>Для перевода установите Codex или войдите в аккаунт.</translation>
+    </message>
+    <message>
+        <source>Translation failed.</source>
+        <translation>Не удалось перевести.</translation>
+    </message>
+    <message>
         <source>Try again</source>
         <translation>Повторить</translation>
     </message>
@@ -19339,6 +19347,22 @@ Please choose a different name and try again.</source>
 </context>
 <context>
     <name>ReaderToolbar</name>
+    <message>
+        <source>Translation</source>
+        <translation>Перевод</translation>
+    </message>
+    <message>
+        <source>Original</source>
+        <translation>Оригинал</translation>
+    </message>
+    <message>
+        <source>Translated</source>
+        <translation>Перевод</translation>
+    </message>
+    <message>
+        <source>Translating</source>
+        <translation>Переводим</translation>
+    </message>
     <message>
         <source>Back</source>
         <translation>Назад</translation>
