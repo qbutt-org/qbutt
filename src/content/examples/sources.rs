@@ -21,6 +21,10 @@ fn main() -> Result<()> {
         let settings = row(&library, Source::RuTor)?;
         assert!(!settings.enabled);
         assert_eq!(settings.failure.as_ref().unwrap().operation, operation());
+        assert_eq!(
+            row(&library, Source::MangaDex)?.failure.unwrap().operation,
+            manga_inspection()
+        );
         assert_eq!(library.reader_settings()?.fit, ReaderFit::Width);
         return Ok(());
     }
@@ -59,6 +63,10 @@ fn exercise(profile: &Path) -> Result<()> {
     })?;
     library.set_source_enabled(Source::RuTor, false)?;
     let failed = library.record_source_failure(failure.clone())?;
+    library.record_source_failure(SourceFailure {
+        operation: manga_inspection(),
+        reason: SourceFailureReason::Timeout,
+    })?;
     drop(library);
     let status = Command::new(std::env::current_exe()?)
         .arg("--reopen")
@@ -70,10 +78,13 @@ fn exercise(profile: &Path) -> Result<()> {
     );
 
     let mut library = Library::open(profile)?;
-    let unrelated = SourceOperation::Inspect(PublicationRef {
-        source: Source::RuTor,
-        id: "769531".into(),
-    });
+    let unrelated = SourceOperation::Inspect {
+        reference: PublicationRef {
+            source: Source::RuTor,
+            id: "769531".into(),
+        },
+        language: None,
+    };
     assert_eq!(
         library.clear_source_failure(&unrelated, failed.revision)?,
         failed
@@ -184,4 +195,14 @@ fn operation() -> SourceOperation {
             info_hash: "be8e5c194fc5e64c2bbea1d66ef174153d2c5ced".into(),
         },
     })
+}
+
+fn manga_inspection() -> SourceOperation {
+    SourceOperation::Inspect {
+        reference: PublicationRef {
+            source: Source::MangaDex,
+            id: "d8f1d7da-8bb1-4fef-8396-b6123be02157".into(),
+        },
+        language: Some("ru".into()),
+    }
 }

@@ -53,7 +53,10 @@ pub enum SourceOperation {
         category: Category,
         language: Option<String>,
     },
-    Inspect(PublicationRef),
+    Inspect {
+        reference: PublicationRef,
+        language: Option<String>,
+    },
     Resolve(VariantRef),
 }
 
@@ -61,7 +64,7 @@ impl SourceOperation {
     pub fn source(&self) -> Source {
         match self {
             Self::Search { source, .. } => *source,
-            Self::Inspect(reference) => reference.source,
+            Self::Inspect { reference, .. } => reference.source,
             Self::Resolve(reference) => reference.publication.source,
         }
     }
@@ -82,19 +85,25 @@ impl SourceOperation {
                 {
                     return Err(Error::InvalidQuery);
                 }
-                match (source, language) {
-                    (Source::MangaDex, Some(language))
-                        if crate::model::canonical_language(language) =>
-                    {
-                        Ok(())
-                    }
-                    (Source::MangaDex, _) | (_, Some(_)) => Err(Error::InvalidQuery),
-                    (_, None) => Ok(()),
-                }
+                validate_language(*source, language)
             }
-            Self::Inspect(reference) => reference.validate(),
+            Self::Inspect {
+                reference,
+                language,
+            } => {
+                reference.validate()?;
+                validate_language(reference.source, language)
+            }
             Self::Resolve(reference) => reference.validate(),
         }
+    }
+}
+
+fn validate_language(source: Source, language: &Option<String>) -> crate::Result<()> {
+    match (source, language) {
+        (Source::MangaDex, Some(language)) if crate::model::canonical_language(language) => Ok(()),
+        (Source::MangaDex, _) | (_, Some(_)) => Err(Error::InvalidQuery),
+        (_, None) => Ok(()),
     }
 }
 
