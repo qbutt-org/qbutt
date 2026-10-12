@@ -59,6 +59,7 @@ ModalPicker {
                         id: sourceToggle
                         objectName: "contentSourceEnabled_" + sourceRow.model.sourceId
                         Layout.fillWidth: true
+                        Layout.minimumHeight: root.theme.controlHeight
                         padding: 0
                         spacing: 16
                         text: sourceRow.model.name
