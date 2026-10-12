@@ -78,6 +78,7 @@ impl Drop for Services {
     fn drop(&mut self) {
         // Services is retired onto Qt's global pool before destruction. Drain
         // gateway connections there, alongside accepted SQLite work.
+        self.catalog.close();
         self.runtime.block_on(async {
             self.browser.shutdown().await;
             for task in self.retired_gateways.drain(..) {

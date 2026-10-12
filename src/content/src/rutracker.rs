@@ -1,7 +1,12 @@
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
 use url::Url;
 
 use crate::browser::{BrowserChoice, BrowserError, BrowserHandle};
 use crate::http::{SourceDocument, SourceHttp, SourceSession};
+use crate::webview::{WebViewCheck, WebViewError, WebViewSessions};
 use crate::{Category, Error, PublicationRef, ResolvedContent, Result, VariantRef, Work};
 
 #[path = "rutracker/document.rs"]
@@ -12,12 +17,32 @@ pub(crate) mod response;
 pub(crate) mod taxonomy;
 
 const ORIGIN: &str = "https://rutracker.org";
+const SESSION_LIFETIME: Duration = Duration::from_secs(30 * 60);
 
-/// One canonical RuTracker catalog. Browser sessions are borrowed only when a
-/// public request needs login or verification; this service never opens a tab.
+struct Clearance {
+    received: Instant,
+    session: SourceSession,
+}
+
+struct OperationSession {
+    http: SourceSession,
+    browser: BrowserBorrow,
+}
+
+#[derive(Clone, Copy)]
+enum BrowserBorrow {
+    None,
+    Borrowed,
+    Failed(BrowserError),
+}
+
+/// One RuTracker catalog. An approved connected browser can supply the initial
+/// session; source checks use this provider's separate WebView profile.
 pub struct RuTracker {
     http: SourceHttp,
     origin: Url,
+    webview: OnceLock<WebViewSessions>,
+    clearance: Mutex<Option<Clearance>>,
 }
 
 impl RuTracker {
@@ -26,7 +51,23 @@ impl RuTracker {
         Ok(Self {
             http: SourceHttp::new(origin.clone(), reqwest::header::HeaderMap::new())?,
             origin,
+            webview: OnceLock::new(),
+            clearance: Mutex::new(None),
         })
+    }
+
+    pub fn initialize_webview(&self, profile_dir: PathBuf, app_dir: PathBuf) {
+        let _ = self.webview.set(WebViewSessions::new(profile_dir, app_dir));
+    }
+
+    pub fn close(&self) {
+        self.clearance
+            .lock()
+            .expect("RuTracker clearance lock")
+            .take();
+        if let Some(webview) = self.webview.get() {
+            webview.close();
+        }
     }
 
     pub async fn search(
@@ -38,7 +79,7 @@ impl RuTracker {
     ) -> Result<Vec<Work>> {
         let query = query.trim();
         let encoded = document::query(query)?;
-        let mut session = SourceSession::anonymous(self.origin.clone())?;
+        let mut session = self.source_session(browser, choice).await?;
         let map = self.categories(&mut session, browser, choice).await?;
         let mut url = self.origin.join("/forum/tracker.php").unwrap();
         url.set_query(Some(&format!("nm={encoded}&o=10&s=2&df=1")));
@@ -76,7 +117,7 @@ impl RuTracker {
         choice: BrowserChoice,
     ) -> Result<response::Release> {
         publication.rutracker_id()?;
-        let mut session = SourceSession::anonymous(self.origin.clone())?;
+        let mut session = self.source_session(browser, choice).await?;
         let map = self.categories(&mut session, browser, choice).await?;
         let url = response::topic_url(&self.origin, publication);
         let body = match self.document(url, &mut session, browser, choice).await {
@@ -88,7 +129,7 @@ impl RuTracker {
 
     async fn categories(
         &self,
-        session: &mut SourceSession,
+        session: &mut OperationSession,
         browser: Option<&BrowserHandle>,
         choice: BrowserChoice,
     ) -> Result<taxonomy::Categories> {
@@ -97,37 +138,122 @@ impl RuTracker {
         taxonomy::categories(&body)
     }
 
+    async fn source_session(
+        &self,
+        browser: Option<&BrowserHandle>,
+        choice: BrowserChoice,
+    ) -> Result<OperationSession> {
+        let mut browser_state = BrowserBorrow::None;
+        if let Some(browser) = browser {
+            let scope = self.origin.join("/forum/tracker.php").unwrap();
+            match browser.session_connected(choice, scope).await {
+                Ok(borrowed) => {
+                    return Ok(OperationSession {
+                        http: SourceSession::from_browser(self.origin.clone(), borrowed)?,
+                        browser: BrowserBorrow::Borrowed,
+                    });
+                }
+                Err(BrowserError::BrowserRequired | BrowserError::Disconnected) => {}
+                Err(error) => browser_state = BrowserBorrow::Failed(error),
+            }
+        }
+        let cached = {
+            let clearance = self.clearance.lock().expect("RuTracker clearance lock");
+            clearance
+                .as_ref()
+                .filter(|clearance| {
+                    clearance.received.elapsed() < SESSION_LIFETIME
+                        && !clearance.session.has_expired_cookie()
+                })
+                .map(|clearance| clearance.session.clone())
+        };
+        if let Some(cached) = cached {
+            return Ok(OperationSession {
+                http: cached,
+                browser: browser_state,
+            });
+        }
+        Ok(OperationSession {
+            http: SourceSession::anonymous(self.origin.clone())?,
+            browser: browser_state,
+        })
+    }
+
     async fn document(
         &self,
         url: Url,
-        session: &mut SourceSession,
+        session: &mut OperationSession,
         browser: Option<&BrowserHandle>,
         choice: BrowserChoice,
     ) -> Result<String> {
-        let first = self.http.session_document(url.clone(), session).await?;
+        let first = self
+            .http
+            .session_document(url.clone(), &mut session.http)
+            .await?;
         let blocked = match document(first, &url) {
             Err(error @ (Error::LoginRequired | Error::Challenge)) => error,
             result => return result,
         };
-        let Some(browser) = browser else {
-            return Err(blocked);
-        };
-        let scope = self.origin.join("/forum/tracker.php").unwrap();
-        let borrowed = match browser.session_connected(choice, scope).await {
-            Ok(session) => session,
-            Err(
-                BrowserError::BrowserRequired | BrowserError::Disconnected | BrowserError::Stopped,
-            ) => {
-                return Err(blocked);
+        if matches!(blocked, Error::LoginRequired)
+            && !matches!(session.browser, BrowserBorrow::Borrowed)
+            && let Some(browser) = browser
+        {
+            let scope = self.origin.join("/forum/tracker.php").unwrap();
+            let borrowed = if let BrowserBorrow::Failed(error) = session.browser {
+                Err(error)
+            } else {
+                browser.session_connected(choice, scope).await
+            };
+            match borrowed {
+                Ok(borrowed) => {
+                    session.http = SourceSession::from_browser(self.origin.clone(), borrowed)?;
+                    session.browser = BrowserBorrow::Borrowed;
+                    let response = self
+                        .http
+                        .session_document(url.clone(), &mut session.http)
+                        .await?;
+                    return document(response, &url);
+                }
+                Err(error) => {
+                    return Err(match error {
+                        BrowserError::BrowserRequired
+                        | BrowserError::Disconnected
+                        | BrowserError::Stopped => blocked,
+                        BrowserError::ChoiceRequired => Error::BrowserChoiceRequired,
+                        error => Error::BrowserSession(error),
+                    });
+                }
             }
-            Err(BrowserError::ChoiceRequired) => return Err(Error::BrowserChoiceRequired),
-            Err(error) => return Err(Error::BrowserSession(error)),
+        }
+
+        if matches!(blocked, Error::LoginRequired) {
+            return Err(blocked);
+        }
+        let webview = self
+            .webview
+            .get()
+            .ok_or(Error::SourceCheck(WebViewError::Unavailable))?;
+        let verified = match webview.check(url.clone(), WebViewCheck::default()).await {
+            Ok(session) => session,
+            Err(WebViewError::CheckRequired) => return Err(Error::SourceCheckRequired),
+            Err(error) => return Err(Error::SourceCheck(error)),
         };
-        *session = SourceSession::from_browser(self.origin.clone(), borrowed)?;
-        document(
-            self.http.session_document(url.clone(), session).await?,
-            &url,
-        )
+        session.http = SourceSession::from_webview(self.origin.clone(), verified)?;
+        session.browser = BrowserBorrow::None;
+        let response = self
+            .http
+            .session_document(url.clone(), &mut session.http)
+            .await?;
+        match document(response, &url) {
+            Ok(body) => {
+                *self.clearance.lock().expect("RuTracker clearance lock") = Some(Clearance {
+                    received: Instant::now(),
+                    session: session.http.clone(),
+                });
+                Ok(body)
+            }
+            result => result,
+        }
     }
 }
 

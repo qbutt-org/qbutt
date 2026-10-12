@@ -18,11 +18,17 @@ pub enum Error {
     LoginRequired,
     #[error("Complete the source check in the browser and retry this action")]
     Challenge,
+    #[cfg(windows)]
+    #[error("The source requires a manual check")]
+    SourceCheckRequired,
     #[error("Choose a connected browser and retry this action")]
     BrowserChoiceRequired,
     #[cfg(windows)]
     #[error("The connected browser session could not be used: {0}")]
     BrowserSession(#[source] crate::browser::BrowserError),
+    #[cfg(windows)]
+    #[error("The source check could not be completed: {0}")]
+    SourceCheck(#[source] crate::webview::WebViewError),
     #[error("Torrent file downloads from RuTracker are not supported yet")]
     UnsupportedTorrent,
     #[error("The source returned invalid metadata: {0}")]

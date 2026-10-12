@@ -7,6 +7,7 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
+pub use qbutt_content::webview;
 #[path = "../src/browser/mod.rs"]
 pub mod browser;
 
@@ -27,7 +28,12 @@ mod rutracker {
     include!("../src/rutracker.rs");
 
     pub(super) fn fixture(http: SourceHttp, origin: Url) -> RuTracker {
-        RuTracker { http, origin }
+        RuTracker {
+            http,
+            origin,
+            webview: std::sync::OnceLock::new(),
+            clearance: std::sync::Mutex::new(None),
+        }
     }
 }
 
@@ -42,6 +48,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use browser::{BrowserBroker, BrowserChoice, BrowserError};
 use serde_json::json;
+use url::Url;
 
 use fixture::{Fixture, HASH};
 
@@ -49,6 +56,9 @@ type CheckResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[tokio::main]
 async fn main() -> CheckResult {
+    if std::env::args().nth(1).as_deref() == Some("--stdio") {
+        return webview_fixture();
+    }
     if let Some(path) = std::env::args().nth(1) {
         let bytes = std::fs::read(path)?;
         let body = rutracker::document::decode(&bytes, Some("text/html; charset=Windows-1251"))?;
@@ -201,7 +211,8 @@ async fn main() -> CheckResult {
             .unwrap_err();
         assert!(matches!(
             (case, error),
-            ("login", Error::LoginRequired) | (_, Error::Challenge)
+            ("login", Error::LoginRequired)
+                | (_, Error::SourceCheck(webview::WebViewError::Unavailable))
         ));
     }
     for case in [
@@ -224,6 +235,7 @@ async fn main() -> CheckResult {
         }
     }
     browser_sessions(&fixture, &source).await?;
+    webview_sessions(&fixture).await?;
     library(&work)?;
     fixture.stop().await?;
     println!(
@@ -232,6 +244,113 @@ async fn main() -> CheckResult {
     println!(
         "PASS malformed_metadata=rejected challenge_login=typed connected_session_retry=ok unavailable_session=original browser_choice=typed cancellation=closed sqlite=redacted"
     );
+    Ok(())
+}
+
+fn webview_fixture() -> CheckResult {
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    let request: serde_json::Value = serde_json::from_str(&line)?;
+    assert_eq!(request["mode"], "silent");
+    let profile = Path::new(
+        request["profileDirectory"]
+            .as_str()
+            .expect("fixture profile"),
+    );
+    assert_eq!(
+        profile.parent().unwrap().file_name().unwrap().to_str(),
+        Some("web-session")
+    );
+    let url = request["url"].as_str().expect("fixture URL");
+    let address = Url::parse(url)?;
+    let query = address.query_pairs().find(|(name, _)| name == "nm");
+    let mode = query.as_ref().map(|(_, value)| value.as_ref());
+    let response = match mode {
+        Some("manual") => json!({
+            "id":request["id"], "error":{"code":"browser_check_required"}
+        }),
+        Some("fault") => json!({
+            "id":request["id"], "error":{"code":"webview_failed"}
+        }),
+        _ => json!({
+            "id":request["id"],
+            "session":{
+                "url":url,
+                "userAgent":"fixture-webview",
+                "cookies":[{
+                    "name":"clearance", "value":"fixture-pass", "domain":"fixture.example",
+                    "path":"/", "secure":true, "httpOnly":true, "hostOnly":true
+                }]
+            }
+        }),
+    };
+    println!("{}", serde_json::to_string(&response)?);
+    Ok(())
+}
+
+async fn webview_sessions(fixture: &Fixture) -> CheckResult {
+    let directory = std::env::temp_dir().join(format!(
+        "qbutt-rutracker-webview-{}-{}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    ));
+    let app_dir = directory.join("app");
+    std::fs::create_dir_all(&app_dir)?;
+    std::fs::hard_link(std::env::current_exe()?, app_dir.join("qbutt-webview.exe"))?;
+    fixture.case("auto-challenge");
+
+    for query in ["generated", "persistent", "manual", "fault"] {
+        let source = rutracker::fixture(
+            http::fixture(fixture.client.clone(), fixture.origin.clone()),
+            fixture.origin.clone(),
+        );
+        source.initialize_webview(directory.clone(), app_dir.clone());
+        let before = fixture.requests.lock().unwrap().len();
+        let result = source
+            .search(query, Category::Anime, None, BrowserChoice::Auto)
+            .await;
+        match query {
+            "generated" => {
+                let works = result?;
+                assert_eq!(works.len(), 1);
+                assert_eq!(works[0].title, "Синтел [версия 2] & legal");
+            }
+            "persistent" => assert!(matches!(result, Err(Error::Challenge))),
+            "manual" => assert!(matches!(result, Err(Error::SourceCheckRequired))),
+            "fault" => assert!(matches!(
+                result,
+                Err(Error::SourceCheck(webview::WebViewError::Failed))
+            )),
+            _ => unreachable!(),
+        }
+        let requests = fixture.requests.lock().unwrap();
+        let recent = &requests[before..];
+        assert_eq!(
+            recent.len(),
+            if matches!(query, "generated" | "persistent") {
+                3
+            } else {
+                2
+            }
+        );
+        if matches!(query, "generated" | "persistent") {
+            assert_eq!(recent[1], recent[2]);
+        }
+        drop(requests);
+        if query == "generated" {
+            let before = fixture.requests.lock().unwrap().len();
+            let works = source
+                .search("cached", Category::Anime, None, BrowserChoice::Auto)
+                .await?;
+            assert_eq!(works[0].title, "Синтел [версия 2] & legal");
+            assert_eq!(fixture.requests.lock().unwrap().len() - before, 2);
+        }
+        source.close();
+    }
+
+    std::fs::remove_file(app_dir.join("qbutt-webview.exe"))?;
+    std::fs::remove_dir(app_dir)?;
+    std::fs::remove_dir(directory)?;
     Ok(())
 }
 
@@ -267,7 +386,7 @@ async fn browser_sessions(fixture: &Fixture, source: &rutracker::RuTracker) -> C
                 BrowserChoice::Auto
             )
             .await,
-        Err(Error::Challenge)
+        Err(Error::SourceCheck(webview::WebViewError::Unavailable))
     ));
 
     let mut edge = browser_fixture::extension(&discovery, "edge", "fixture-browser", false).await?;
@@ -376,7 +495,10 @@ async fn browser_sessions(fixture: &Fixture, source: &rutracker::RuTracker) -> C
     };
     let (result, disconnected) = tokio::join!(operation, disconnect);
     disconnected?;
-    assert!(matches!(result, Err(Error::Challenge)));
+    assert!(matches!(
+        result,
+        Err(Error::SourceCheck(webview::WebViewError::Unavailable))
+    ));
     drop(chrome);
     broker.shutdown().await?;
     assert!(!discovery.exists());
@@ -461,6 +583,14 @@ fn library_profile(directory: &Path, work: &Work) -> CheckResult {
             SourceFailureReason::LoginRequired,
         ),
         (StoredError::Challenge, SourceFailureReason::Challenge),
+        (
+            StoredError::SourceCheckRequired,
+            SourceFailureReason::SourceCheckRequired,
+        ),
+        (
+            StoredError::SourceCheck(webview::WebViewError::Unavailable),
+            SourceFailureReason::SourceCheck,
+        ),
         (
             StoredError::BrowserChoiceRequired,
             SourceFailureReason::BrowserChoiceRequired,

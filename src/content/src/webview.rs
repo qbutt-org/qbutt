@@ -44,7 +44,7 @@ pub enum WebViewError {
     Stopped,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebViewCookie {
     pub name: String,
@@ -58,7 +58,7 @@ pub struct WebViewCookie {
     pub host_only: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebViewCookieIdentity {
     pub name: String,
@@ -67,7 +67,7 @@ pub struct WebViewCookieIdentity {
     pub host_only: bool,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Default)]
 pub struct WebViewCheck {
     /// The configured authorization identity. Never replace this with a hash
     /// of refreshed clearance cookies or a profile reset would erase them.
@@ -79,7 +79,7 @@ pub struct WebViewCheck {
     pub interactive: bool,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebViewSession {
     pub url: Url,
@@ -189,7 +189,7 @@ impl WebViewSessions {
                 if existing.state == state && result.borrow().is_none() {
                     existing.users.fetch_add(1, Ordering::AcqRel);
                     let subscription = Subscription(existing);
-                    let answer = wait_result(&mut result).await;
+                    let answer = wait_result(&mut result, options.interactive).await;
                     drop(subscription);
                     return answer.map(|session| (*session).clone());
                 }
@@ -217,6 +217,7 @@ impl WebViewSessions {
             let owner = self.0.clone();
             let current = pending.clone();
             let origin_key = origin.clone();
+            let interactive = options.interactive;
             let task = tokio::spawn(async move {
                 let answer = run(&owner, url, &origin_key, &fingerprint, options).await;
                 current.result.send_replace(Some(answer.map(Arc::new)));
@@ -230,7 +231,7 @@ impl WebViewSessions {
             });
             *pending.task.lock().expect("WebView task lock") = Some(task.abort_handle());
             let subscription = Subscription(pending);
-            let answer = wait_result(&mut receiver).await;
+            let answer = wait_result(&mut receiver, interactive).await;
             drop(subscription);
             return answer.map(|session| (*session).clone());
         }
@@ -256,16 +257,29 @@ impl Drop for WebViewSessions {
 
 async fn wait_result(
     receiver: &mut watch::Receiver<Option<Result<Arc<WebViewSession>, WebViewError>>>,
+    interactive: bool,
 ) -> Result<Arc<WebViewSession>, WebViewError> {
-    loop {
-        if let Some(result) = receiver.borrow_and_update().clone() {
-            return result;
-        }
-        receiver
-            .changed()
-            .await
-            .map_err(|_| WebViewError::Stopped)?;
-    }
+    let timeout_ms = if interactive {
+        INTERACTIVE_TIMEOUT_MS
+    } else {
+        SILENT_TIMEOUT_MS
+    };
+    tokio::time::timeout(
+        Duration::from_millis(u64::from(timeout_ms) + 5_000),
+        async {
+            loop {
+                if let Some(result) = receiver.borrow_and_update().clone() {
+                    return result;
+                }
+                receiver
+                    .changed()
+                    .await
+                    .map_err(|_| WebViewError::Stopped)?;
+            }
+        },
+    )
+    .await
+    .map_err(|_| WebViewError::Timeout)?
 }
 
 #[derive(Serialize)]

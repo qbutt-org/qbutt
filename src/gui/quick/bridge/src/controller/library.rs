@@ -680,6 +680,15 @@ impl ffi::ContentController {
                 .set_library_error(ffi::LibraryErrorKind::Opening);
             return;
         }
+        if let Ok(executable) = std::env::current_exe()
+            && let Some(app_dir) = executable.parent()
+        {
+            self.services
+                .as_ref()
+                .unwrap()
+                .catalog
+                .initialize_webview(profile.clone(), app_dir.to_path_buf());
+        }
         let worker = LibraryWorker::start(
             &self.services.as_ref().unwrap().runtime,
             profile,

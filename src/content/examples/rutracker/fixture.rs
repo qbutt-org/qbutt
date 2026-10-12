@@ -146,6 +146,28 @@ fn response(
     head: &str,
     case: &str,
 ) -> (&'static str, &'static str, &'static str, Vec<u8>) {
+    if case == "auto-challenge" && url.path() == "/forum/tracker.php" {
+        let query = url
+            .query_pairs()
+            .find(|(name, _)| name == "nm")
+            .map(|(_, value)| value);
+        let expected_cookie = if query.as_deref() == Some("cached") {
+            "clearance=replaced"
+        } else {
+            "clearance=fixture-pass"
+        };
+        if query.as_deref() == Some("persistent")
+            || !head.contains(expected_cookie)
+            || !head
+                .to_ascii_lowercase()
+                .contains("user-agent: fixture-webview\r\n")
+        {
+            return cp1251(
+                "403 Forbidden",
+                "<script src='/cdn-cgi/challenge-platform/check.js'></script>".into(),
+            );
+        }
+    }
     if url.path() == "/forum/index.php" {
         return cp1251("200 OK", map());
     }
@@ -193,6 +215,15 @@ fn response(
     } else {
         panic!("unexpected fixture request")
     };
+    if case == "auto-challenge" && url.path() == "/forum/tracker.php" {
+        let (status, mime, _, bytes) = cp1251("200 OK", body);
+        return (
+            status,
+            mime,
+            "Set-Cookie: clearance=replaced; Path=/; Secure; HttpOnly\r\n",
+            bytes,
+        );
+    }
     match case {
         "mime" => ("200 OK", "application/json", "", body.into_bytes()),
         "encoding" => ("200 OK", "text/html; charset=UTF-8", "", vec![0xff]),

@@ -1,5 +1,6 @@
 //! Typed provider dispatch shared by search, inspection, playback and retries.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use qbutt_content::browser::BrowserChoice;
@@ -43,6 +44,14 @@ pub(super) struct Catalog {
 }
 
 impl Catalog {
+    pub(super) fn initialize_webview(&self, profile_dir: PathBuf, app_dir: PathBuf) {
+        self.rutracker.initialize_webview(profile_dir, app_dir);
+    }
+
+    pub(super) fn close(&self) {
+        self.rutracker.close();
+    }
+
     pub(super) fn new(browser: BrowserClient) -> qbutt_content::Result<Self> {
         Ok(Self {
             browser,

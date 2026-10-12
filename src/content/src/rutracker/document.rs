@@ -76,6 +76,18 @@ pub(crate) fn access(body: &str, final_url: &Url) -> Result<()> {
         || body.contains("/cdn-cgi/challenge-platform/")
         || body.contains("_cf_chl_opt")
         || body.contains("challenges.cloudflare.com")
+        || (document
+            .select(&selector("script#anubis_challenge[type='application/json']"))
+            .next()
+            .is_some()
+            && document
+                .select(&selector("script#anubis-main[src*='/.within.website/x/cmd/anubis/']"))
+                .next()
+                .is_some())
+        || document
+            .select(&selector("script[src*='check.ddos-guard.net/check.js']"))
+            .next()
+            .is_some()
     {
         return Err(Error::Challenge);
     }
