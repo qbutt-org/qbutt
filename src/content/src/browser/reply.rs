@@ -120,6 +120,10 @@ pub struct ResolvedMedia {
     pub kind: ResolveKind,
     pub resolver: BrowserResolver,
     pub url: Url,
+    /// Public source identity attested by an exact browser extractor. Never an
+    /// acquisition address or a page containing access keys.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<Url>,
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -157,6 +161,9 @@ impl ResolvedMedia {
             return Err(BrowserError::InvalidResponse);
         }
         public_url(&self.url)?;
+        if let Some(url) = &self.source_url {
+            public_url(url)?;
+        }
         validate_headers(&self.headers)?;
         if let Some(url) = &self.audio_url {
             public_url(url)?;
