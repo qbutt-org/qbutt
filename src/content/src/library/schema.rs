@@ -5,12 +5,19 @@ use rusqlite::{Connection, TransactionBehavior};
 use super::{Library, LibraryError, LibraryResult};
 
 const APPLICATION_ID: i64 = 0x51424c42;
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 const DATABASE_NAME: &str = "content-library.sqlite";
+const TRANSLATION_SELECTION_SCHEMA: &str = "CREATE TABLE translation_selection (
+    target_language TEXT PRIMARY KEY NOT NULL,
+    model TEXT NOT NULL,
+    effort TEXT NOT NULL,
+    explicit INTEGER NOT NULL CHECK (explicit IN (0, 1))
+) STRICT;";
 
 impl Library {
     /// Open `content-library.sqlite` inside this profile directory. A new schema
-    /// is created only in an empty database; unsupported or corrupt data fails.
+    /// is created only in an empty database; v8 gains a selection table without
+    /// changing saved content. Unsupported or corrupt data fails.
     pub fn open(profile_dir: impl AsRef<Path>) -> LibraryResult<Self> {
         std::fs::create_dir_all(&profile_dir)?;
         let mut connection = Connection::open(profile_dir.as_ref().join(DATABASE_NAME))?;
@@ -74,10 +81,14 @@ impl Library {
                     content TEXT NOT NULL
                 ) STRICT;",
             )?;
+            transaction.execute_batch(TRANSLATION_SELECTION_SCHEMA)?;
             transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if application_id != APPLICATION_ID {
             return Err(LibraryError::ForeignDatabase);
+        } else if version == 8 {
+            transaction.execute_batch(TRANSLATION_SELECTION_SCHEMA)?;
+            transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if version != SCHEMA_VERSION {
             return Err(LibraryError::UnsupportedSchema(version));
         }
@@ -239,6 +250,29 @@ impl Library {
             |row| row.get(0),
         )?;
         if !translated_table_valid || translated_columns_valid != 2 {
+            return Err(LibraryError::InvalidSchema);
+        }
+        let selection_table_valid: bool = transaction.query_row(
+            "SELECT EXISTS (
+                SELECT 1 FROM pragma_table_list
+                WHERE schema = 'main' AND name = 'translation_selection'
+                    AND type = 'table' AND ncol = 4 AND strict = 1
+            )",
+            [],
+            |row| row.get(0),
+        )?;
+        let selection_columns_valid: i64 = transaction.query_row(
+            "SELECT count(*) FROM pragma_table_xinfo('translation_selection')
+             WHERE hidden = 0 AND \"notnull\" = 1 AND (
+                 (cid = 0 AND name = 'target_language' AND type = 'TEXT' AND pk = 1)
+                 OR (cid = 1 AND name = 'model' AND type = 'TEXT' AND pk = 0)
+                 OR (cid = 2 AND name = 'effort' AND type = 'TEXT' AND pk = 0)
+                 OR (cid = 3 AND name = 'explicit' AND type = 'INTEGER' AND pk = 0)
+             )",
+            [],
+            |row| row.get(0),
+        )?;
+        if !selection_table_valid || selection_columns_valid != 4 {
             return Err(LibraryError::InvalidSchema);
         }
         // The registered catalog owns the current set. Preserve saved rows and

@@ -25,12 +25,34 @@ pub struct TranslationCacheKey {
     pub pipeline: u32,
 }
 
+/// The chosen Codex identity for one target language in this profile.
+/// `explicit` keeps a future user-selected model from being replaced by the
+/// discovered default when a chapter has no cached translation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TranslationSelection {
+    pub target_language: String,
+    pub model: String,
+    pub effort: String,
+    pub explicit: bool,
+}
+
+impl TranslationSelection {
+    pub fn validate(&self) -> LibraryResult<()> {
+        if !valid_selection_fields(&self.target_language, &self.model, &self.effort) {
+            return Err(LibraryError::InvalidEntry(
+                "translation selection is invalid",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl TranslationCacheKey {
     pub fn validate(&self) -> LibraryResult<()> {
         self.chapter
             .validate()
             .map_err(|_| LibraryError::InvalidEntry("translation chapter is invalid"))?;
-        if !crate::model::canonical_language(&self.target_language)
+        if !valid_selection_fields(&self.target_language, &self.model, &self.effort)
             || self.original_digest.len() != 64
             || !self
                 .original_digest
@@ -39,12 +61,6 @@ impl TranslationCacheKey {
             || self.provider.is_empty()
             || self.provider.len() > 32
             || self.provider.chars().any(char::is_control)
-            || self.model.is_empty()
-            || self.model.len() > 128
-            || self.model.chars().any(char::is_control)
-            || self.effort.is_empty()
-            || self.effort.len() > 32
-            || self.effort.chars().any(char::is_control)
             || self.pipeline == 0
         {
             return Err(LibraryError::InvalidEntry(
@@ -56,6 +72,30 @@ impl TranslationCacheKey {
 }
 
 impl Library {
+    pub fn translation_selection(
+        &self,
+        target_language: &str,
+    ) -> LibraryResult<Option<TranslationSelection>> {
+        validate_language(target_language)?;
+        read_selection(&self.connection, target_language)
+    }
+
+    /// Record a discovered default after an exact cache hit, or save an
+    /// explicit user choice. Accepted new translations record their selection
+    /// in `save_translation`'s transaction.
+    pub fn save_translation_selection(
+        &mut self,
+        selection: &TranslationSelection,
+    ) -> LibraryResult<()> {
+        selection.validate()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        write_selection(&transaction, selection)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn translation_context(
         &self,
         publication: &PublicationRef,
@@ -142,9 +182,85 @@ impl Library {
              ON CONFLICT (key) DO UPDATE SET content = excluded.content",
             params![serde_json::to_string(&key)?, encoded_content],
         )?;
+        write_selection(
+            &transaction,
+            &TranslationSelection {
+                target_language: key.target_language,
+                model: key.model,
+                effort: key.effort,
+                explicit: false,
+            },
+        )?;
         transaction.commit()?;
         Ok(context)
     }
+}
+
+fn read_selection(
+    connection: &rusqlite::Connection,
+    target_language: &str,
+) -> LibraryResult<Option<TranslationSelection>> {
+    let stored: Option<(String, String, i64)> = connection
+        .query_row(
+            "SELECT model, effort, explicit FROM translation_selection WHERE target_language = ?1",
+            [target_language],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((model, effort, explicit)) = stored else {
+        return Ok(None);
+    };
+    let explicit = match explicit {
+        0 => false,
+        1 => true,
+        _ => {
+            return Err(LibraryError::CorruptEntry(
+                "translation selection is invalid",
+            ));
+        }
+    };
+    let selection = TranslationSelection {
+        target_language: target_language.to_owned(),
+        model,
+        effort,
+        explicit,
+    };
+    selection
+        .validate()
+        .map_err(|_| LibraryError::CorruptEntry("translation selection is invalid"))?;
+    Ok(Some(selection))
+}
+
+fn write_selection(
+    connection: &rusqlite::Connection,
+    selection: &TranslationSelection,
+) -> LibraryResult<()> {
+    selection.validate()?;
+    if let Some(saved) = read_selection(connection, &selection.target_language)? {
+        if saved.explicit && !selection.explicit {
+            if saved.model != selection.model || saved.effort != selection.effort {
+                return Err(LibraryError::InvalidEntry(
+                    "explicit translation selection changed during the job",
+                ));
+            }
+            return Ok(());
+        }
+    }
+    connection.execute(
+        "INSERT INTO translation_selection (target_language, model, effort, explicit)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (target_language) DO UPDATE SET
+             model = excluded.model,
+             effort = excluded.effort,
+             explicit = excluded.explicit",
+        params![
+            selection.target_language,
+            selection.model,
+            selection.effort,
+            if selection.explicit { 1 } else { 0 },
+        ],
+    )?;
+    Ok(())
 }
 
 fn read_context(
@@ -178,4 +294,14 @@ fn validate_language(language: &str) -> LibraryResult<()> {
         ));
     }
     Ok(())
+}
+
+fn valid_selection_fields(language: &str, model: &str, effort: &str) -> bool {
+    crate::model::canonical_language(language)
+        && !model.is_empty()
+        && model.len() <= 128
+        && !model.chars().any(char::is_control)
+        && !effort.is_empty()
+        && effort.len() <= 32
+        && !effort.chars().any(char::is_control)
 }

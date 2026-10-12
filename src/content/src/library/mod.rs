@@ -19,7 +19,7 @@ pub use entry::{
     LastOpened, LibraryEntry, ReaderPosition, ReaderProgress, VariantFilters, VariantPreferences,
 };
 pub use settings::{ReaderFit, ReaderMode, ReaderSettings};
-pub use translation::TranslationCacheKey;
+pub use translation::{TranslationCacheKey, TranslationSelection};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LibraryError {

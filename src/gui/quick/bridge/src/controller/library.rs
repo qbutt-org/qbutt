@@ -10,7 +10,7 @@ use qbutt_content::translation::text::{cache_key, restore_cached};
 use qbutt_content::{
     DownloadJob, DownloadStorage, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView,
     LocalBook, PublicationRef, ReaderProgress, ReaderSettings, SourceSettings, TextChapter,
-    TranslationCacheKey, VariantPreferences, Work, WorkGroup,
+    TranslationCacheKey, TranslationSelection, VariantPreferences, Work, WorkGroup,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};
@@ -131,6 +131,14 @@ enum LibraryCommand {
     Request(Box<LibraryRequest>),
     DownloadJobs(oneshot::Sender<LibraryResult<Vec<DownloadJob>>>),
     SaveDownload(DownloadJob, oneshot::Sender<LibraryResult<()>>),
+    ReadTranslationSelection {
+        language: String,
+        reply: oneshot::Sender<LibraryResult<Option<TranslationSelection>>>,
+    },
+    SaveTranslationSelection {
+        selection: TranslationSelection,
+        reply: oneshot::Sender<LibraryResult<()>>,
+    },
     TranslationLookup {
         original: Arc<TextChapter>,
         language: String,
@@ -208,6 +216,34 @@ impl DownloadStorage for DownloadStore {
 }
 
 impl LibraryWorker {
+    pub(super) async fn translation_selection(
+        &self,
+        language: String,
+    ) -> LibraryResult<Option<TranslationSelection>> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::ReadTranslationSelection { language, reply })
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
+    }
+
+    pub(super) async fn remember_translation_selection(
+        &self,
+        selection: TranslationSelection,
+    ) -> LibraryResult<()> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::SaveTranslationSelection { selection, reply })
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
+    }
+
     pub(super) async fn translation_lookup(
         &self,
         original: Arc<TextChapter>,
@@ -350,6 +386,24 @@ impl LibraryWorker {
                                 .as_mut()
                                 .ok_or(LibraryError::InvalidEntry("download storage unavailable"))
                                 .and_then(|library| library.save_download_job(&job));
+                            let _ = reply.send(result);
+                        }
+                        LibraryCommand::ReadTranslationSelection { language, reply } => {
+                            let result = library
+                                .as_ref()
+                                .ok_or(LibraryError::InvalidEntry(
+                                    "translation library is unavailable",
+                                ))
+                                .and_then(|library| library.translation_selection(&language));
+                            let _ = reply.send(result);
+                        }
+                        LibraryCommand::SaveTranslationSelection { selection, reply } => {
+                            let result = library
+                                .as_mut()
+                                .ok_or(LibraryError::InvalidEntry(
+                                    "translation library is unavailable",
+                                ))
+                                .and_then(|library| library.save_translation_selection(&selection));
                             let _ = reply.send(result);
                         }
                         LibraryCommand::TranslationLookup {

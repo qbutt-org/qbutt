@@ -5,7 +5,9 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::translation::codex::{self, CodexError};
 use qbutt_content::translation::text::{TextTranslationOptions, translate_chapter};
-use qbutt_content::{Chapter, ChapterRef, Error, LibraryError, LocalBook, TextChapter};
+use qbutt_content::{
+    Chapter, ChapterRef, Error, LibraryError, LocalBook, TextChapter, TranslationSelection,
+};
 use tokio::sync::watch;
 
 use super::super::library::LibraryWorker;
@@ -74,9 +76,33 @@ async fn translate(
     language: String,
     cancelled: watch::Receiver<bool>,
 ) -> Result<Arc<TextChapter>, TranslationFailure> {
-    let (model, effort) = codex::resolve_selection(None, None, false)
+    let saved = library
+        .translation_selection(language.clone())
         .await
-        .map_err(TranslationFailure::Codex)?;
+        .map_err(TranslationFailure::Library)?;
+    if let Some(selection) = &saved {
+        let lookup = library
+            .translation_lookup(
+                Arc::clone(&original),
+                language.clone(),
+                selection.model.clone(),
+                selection.effort.clone(),
+            )
+            .await
+            .map_err(TranslationFailure::Library)?;
+        if let Some(cached) = lookup.cached {
+            return Ok(Arc::new(cached));
+        }
+    }
+
+    let explicit = saved.as_ref().filter(|selection| selection.explicit);
+    let (model, effort) = codex::resolve_selection(
+        explicit.map(|selection| selection.model.as_str()),
+        explicit.map(|selection| selection.effort.as_str()),
+        false,
+    )
+    .await
+    .map_err(TranslationFailure::Codex)?;
     let lookup = library
         .translation_lookup(
             Arc::clone(&original),
@@ -87,6 +113,15 @@ async fn translate(
         .await
         .map_err(TranslationFailure::Library)?;
     if let Some(cached) = lookup.cached {
+        library
+            .remember_translation_selection(TranslationSelection {
+                target_language: language,
+                model,
+                effort,
+                explicit: explicit.is_some(),
+            })
+            .await
+            .map_err(TranslationFailure::Library)?;
         return Ok(Arc::new(cached));
     }
 

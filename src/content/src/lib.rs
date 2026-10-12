@@ -70,7 +70,7 @@ pub use lib_api::LibSession;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
     ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, TranslationCacheKey,
-    VariantFilters, VariantPreferences,
+    TranslationSelection, VariantFilters, VariantPreferences,
 };
 pub use local_books::{LocalBook, LocalBookChapter, LocalBookFormat};
 pub use mangadex::MangaDex;
