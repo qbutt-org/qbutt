@@ -133,7 +133,7 @@ pub(super) fn search(
             continue;
         }
         let title = text(title);
-        works.push(work(reference, origin, category, title, None, true)?);
+        works.push(work(reference, origin, category, title, None)?);
     }
     Ok(works)
 }
@@ -172,7 +172,7 @@ pub(super) fn release(
     }
     let (magnet, hash) = magnet(required(magnet_link, "href")?)?;
     let title = text(title);
-    let mut work = work(expected.clone(), origin, category, title, Some(hash), false)?;
+    let mut work = work(expected.clone(), origin, category, title, Some(hash))?;
     if let Some(post) = root
         .select(&selector("table[id^='post_'] .postbody"))
         .next()
@@ -197,12 +197,11 @@ fn work(
     category: Category,
     title: String,
     hash: Option<String>,
-    needs_inspection: bool,
 ) -> Result<Work> {
     if title.is_empty() || title.len() > 4096 {
         return Err(Error::InvalidResponse("invalid NNM-Club topic title"));
     }
-    let variants = hash
+    let variants: Vec<_> = hash
         .into_iter()
         .map(|hash| Variant {
             reference: VariantRef {
@@ -234,8 +233,8 @@ fn work(
         year: None,
         aliases: Vec::new(),
         identifiers: BTreeMap::new(),
+        needs_inspection: variants.is_empty(),
         variants,
-        needs_inspection,
     })
 }
 

@@ -7,8 +7,12 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
+pub use qbutt_content::webview;
 #[path = "../src/browser/mod.rs"]
 pub mod browser;
+#[path = "browser/fixture.rs"]
+#[allow(dead_code)]
+mod browser_fixture;
 #[path = "../src/torrent.rs"]
 mod torrent;
 
@@ -31,10 +35,11 @@ mod nnmclub {
 }
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use browser::BrowserChoice;
+use browser::{BrowserBroker, BrowserChoice};
 use encoding_rs::WINDOWS_1251;
+use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Notify, oneshot};
 use tokio::task::JoinSet;
@@ -49,6 +54,25 @@ const CHANGED: &str = "abcdef0123456789abcdef0123456789abcdef01";
 
 #[tokio::main]
 async fn main() -> CheckResult {
+    if std::env::args().nth(1).as_deref() == Some("--live") {
+        let source = qbutt_content::NnmClub::new()?;
+        let result = source
+            .search(
+                "Sintel",
+                qbutt_content::Category::Movies,
+                None,
+                qbutt_content::browser::BrowserChoice::Auto,
+            )
+            .await;
+        match result {
+            Ok(works) => println!("PASS live_nnmclub_search={} results", works.len()),
+            Err(qbutt_content::Error::Challenge) => {
+                println!("BLOCKED live_nnmclub_search=source_challenge")
+            }
+            Err(error) => return Err(error.into()),
+        }
+        return Ok(());
+    }
     let fixture = Fixture::start().await?;
     let source = Arc::new(nnmclub::fixture(
         http::fixture(fixture.client.clone(), fixture.origin.clone()),
@@ -108,6 +132,7 @@ async fn main() -> CheckResult {
         }
         _ => panic!("expected torrent"),
     }
+    library(&work)?;
 
     let software = source
         .search("GoldWave", Category::Software, None, BrowserChoice::Auto)
@@ -210,11 +235,140 @@ async fn main() -> CheckResult {
     let _ = pending.await;
     tokio::time::timeout(Duration::from_secs(2), fixture.closed.notified()).await?;
 
+    browser_session(&fixture, &source).await?;
+
     fixture.stop().await?;
     println!(
-        "PASS nnmclub_cp1251_post=ok search_inspect_resolve_spawn=Send exact_hash=ok changed_hash=rejected challenge=typed malformed=rejected cancellation=closed"
+        "PASS nnmclub_cp1251_post=ok search_inspect_resolve_spawn=Send exact_hash=ok library=roundtrip changed_hash=rejected challenge=typed malformed=rejected cancellation=closed"
     );
     Ok(())
+}
+
+fn library(work: &Work) -> CheckResult {
+    use qbutt_content::{Library, LibraryView, WorkGroup};
+
+    let directory = std::env::temp_dir().join(format!(
+        "qbutt-nnmclub-library-{}-{}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    ));
+    std::fs::create_dir(&directory)?;
+    let result = (|| -> CheckResult {
+        let mut work: qbutt_content::Work = serde_json::from_value(serde_json::to_value(work)?)?;
+        work.url = "https://nnmclub.to/forum/viewtopic.php?t=42".parse()?;
+
+        let mut library = Library::open(&directory)?;
+        library.set_favorite(&WorkGroup::single(work.clone()), true)?;
+        for url in [
+            "https://nnmclub.to/forum/viewtopic.php?t=43",
+            "https://nnmclub.to/forum/viewtopic.php?t=42&token=private",
+            "https://nnmclub.to/forum/download.php?id=42",
+            "https://nnmclub.example/forum/viewtopic.php?t=42",
+        ] {
+            let mut invalid = work.clone();
+            invalid.url = url.parse()?;
+            assert!(
+                library
+                    .set_favorite(&WorkGroup::single(invalid), true)
+                    .is_err()
+            );
+        }
+
+        drop(library);
+        let library = Library::open(&directory)?;
+        assert_eq!(
+            library.entries(LibraryView::Favorites)?[0]
+                .group
+                .anchor_work()
+                .unwrap(),
+            &work
+        );
+        Ok(())
+    })();
+    std::fs::remove_dir_all(directory)?;
+    result
+}
+
+async fn browser_session(fixture: &Fixture, source: &nnmclub::NnmClub) -> CheckResult {
+    let directory = std::env::temp_dir().join(format!(
+        "qbutt-nnmclub-browser-{}-{}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    ));
+    std::fs::create_dir(&directory)?;
+    let discovery = directory.join("browser-bridge.json");
+    let broker = BrowserBroker::start(discovery.clone()).await?;
+    let handle = broker.handle();
+    fixture.case("session");
+    let mut edge = browser_fixture::extension(&discovery, "edge", "fixture-browser", false).await?;
+    let mut status = handle.subscribe();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while status.borrow().connections.len() != 1 {
+            status.changed().await?;
+        }
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })
+    .await??;
+
+    let operation = source.search(
+        "legal",
+        Category::Movies,
+        Some(&handle),
+        BrowserChoice::Edge,
+    );
+    let (result, reply) = tokio::join!(operation, answer_session(&mut edge, fixture, false));
+    reply?;
+    let found = result?.remove(0);
+    let operation = source.inspect(&found.reference, Some(&handle), BrowserChoice::Edge);
+    let (result, reply) = tokio::join!(operation, answer_session(&mut edge, fixture, false));
+    reply?;
+    let inspected = result?;
+    let operation = source.resolve(
+        &inspected.variants[0].reference,
+        Some(&handle),
+        BrowserChoice::Edge,
+    );
+    let (result, reply) = tokio::join!(operation, answer_session(&mut edge, fixture, false));
+    reply?;
+    assert!(matches!(result?, ResolvedContent::Torrent { .. }));
+
+    let operation = source.search(
+        "legal",
+        Category::Movies,
+        Some(&handle),
+        BrowserChoice::Edge,
+    );
+    let (result, reply) = tokio::join!(operation, answer_session(&mut edge, fixture, true));
+    reply?;
+    assert!(matches!(result, Err(Error::Challenge)));
+
+    drop(edge);
+    broker.shutdown().await?;
+    assert!(!discovery.exists());
+    std::fs::remove_dir(directory)?;
+    fixture.case("normal");
+    Ok(())
+}
+
+async fn answer_session(
+    edge: &mut tokio::net::windows::named_pipe::NamedPipeClient,
+    fixture: &Fixture,
+    expired: bool,
+) -> CheckResult {
+    let wire = browser_fixture::read(edge).await?;
+    assert_eq!(wire["method"], "cookies");
+    assert_eq!(
+        wire["url"],
+        fixture.origin.join("/forum/tracker.php")?.as_str()
+    );
+    let mut cookie = json!({
+        "name":"bbsession", "value":"fixture-session", "domain":"fixture.example",
+        "path":"/forum/", "secure":true, "hostOnly":true
+    });
+    if expired {
+        cookie["expirationDate"] = json!(1.0);
+    }
+    browser_fixture::write(edge, &json!({"id":wire["id"], "result":[cookie]})).await
 }
 
 struct Fixture {
@@ -302,7 +456,9 @@ impl Fixture {
                                     closed.notify_one();
                                     return;
                                 }
-                                let (status, html) = page(path, method, &form, mode);
+                                let authenticated = head.to_ascii_lowercase().contains("user-agent: fixture-browser\r\n")
+                                    && head.contains("bbsession=fixture-session");
+                                let (status, html) = page(path, method, &form, mode, authenticated);
                                 let (bytes, _, invalid) = WINDOWS_1251.encode(&html);
                                 assert!(!invalid);
                                 let reply = format!("HTTP/1.1 {status}\r\nContent-Type: text/html; charset=windows-1251\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len());
@@ -339,8 +495,14 @@ impl Fixture {
     }
 }
 
-fn page(path: &str, method: &str, form: &str, mode: &str) -> (&'static str, String) {
-    if mode == "challenge" && method == "POST" {
+fn page(
+    path: &str,
+    method: &str,
+    form: &str,
+    mode: &str,
+    authenticated: bool,
+) -> (&'static str, String) {
+    if (mode == "challenge" && method == "POST") || (mode == "session" && !authenticated) {
         return (
             "403 Forbidden",
             "<script src='/cdn-cgi/challenge-platform/check.js'></script>".into(),

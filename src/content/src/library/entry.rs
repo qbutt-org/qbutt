@@ -241,9 +241,14 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
             && work.url.path() == ""
             && work.url.query().is_none()
             && work.url.fragment().is_none()
-    } else if work.reference.source == Source::RuTracker {
+    } else if matches!(work.reference.source, Source::RuTracker | Source::NnmClub) {
+        let host = if work.reference.source == Source::RuTracker {
+            "rutracker.org"
+        } else {
+            "nnmclub.to"
+        };
         work.url.scheme() == "https"
-            && work.url.host_str() == Some("rutracker.org")
+            && work.url.host_str() == Some(host)
             && work.url.port().is_none()
             && work.url.username().is_empty()
             && work.url.password().is_none()
@@ -309,6 +314,7 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
             (
                 Source::RuTor
                 | Source::RuTracker
+                | Source::NnmClub
                 | Source::Nyaa
                 | Source::FitGirl
                 | Source::OnlineFix
@@ -329,8 +335,8 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
     Ok(())
 }
 
-// Other catalog and poster URLs contain no query or fragment. RuTracker's
-// public topic identity is checked separately above; credentials are rejected.
+// Other catalog and poster URLs contain no query or fragment. Forum topic
+// identities are checked separately above; credentials are rejected.
 fn public_url(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
         && url.host_str().is_some()

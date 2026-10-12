@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use qbutt_content::{
     AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, FitGirl, FreeTP, Kakuyomu,
-    LibSession, LimeTorrents, MangaDex, MangaLib, Nyaa, OnlineFix, RanobeHub, RanobeLib,
+    LibSession, LimeTorrents, MangaDex, MangaLib, NnmClub, Nyaa, OnlineFix, RanobeHub, RanobeLib,
     ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation, Syosetu,
     TextChapter, Work, YummyAnime,
 };
@@ -31,6 +31,7 @@ pub(super) struct Catalog {
     pub(super) mangalib: Arc<MangaLib>,
     rutor: RuTor,
     rutracker: RuTracker,
+    nnmclub: NnmClub,
     nyaa: Nyaa,
     rutube: Rutube,
     fitgirl: FitGirl,
@@ -72,6 +73,7 @@ impl Catalog {
             mangalib: Arc::new(MangaLib::new()?),
             rutor: RuTor::new()?,
             rutracker: RuTracker::new()?,
+            nnmclub: NnmClub::new()?,
             nyaa: Nyaa::new()?,
             rutube: Rutube::new()?,
             fitgirl: FitGirl::new()?,
@@ -124,6 +126,16 @@ impl Catalog {
                                 *category,
                                 self.browser.existing_handle().await.as_ref(),
                                 choice,
+                            )
+                            .await
+                    }
+                    Source::NnmClub => {
+                        self.nnmclub
+                            .search(
+                                query,
+                                *category,
+                                self.browser.existing_handle().await.as_ref(),
+                                BrowserChoice::Auto,
                             )
                             .await
                     }
@@ -185,6 +197,15 @@ impl Catalog {
                             )
                             .await
                     }
+                    Source::NnmClub => {
+                        self.nnmclub
+                            .inspect(
+                                reference,
+                                self.browser.existing_handle().await.as_ref(),
+                                BrowserChoice::Auto,
+                            )
+                            .await
+                    }
                     Source::Nyaa => self.nyaa.inspect(reference).await,
                     Source::Rutube => self.rutube.inspect(reference).await,
                     Source::FitGirl => self.fitgirl.inspect(reference).await,
@@ -225,6 +246,15 @@ impl Catalog {
                                 reference,
                                 self.browser.existing_handle().await.as_ref(),
                                 choice,
+                            )
+                            .await
+                    }
+                    Source::NnmClub => {
+                        self.nnmclub
+                            .resolve(
+                                reference,
+                                self.browser.existing_handle().await.as_ref(),
+                                BrowserChoice::Auto,
                             )
                             .await
                     }
