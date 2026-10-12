@@ -78,36 +78,6 @@ impl Library {
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if application_id != APPLICATION_ID {
             return Err(LibraryError::ForeignDatabase);
-        } else if version == 7 {
-            transaction.execute_batch(
-                "ALTER TABLE reader_settings ADD COLUMN background_color TEXT NOT NULL DEFAULT '';
-                ALTER TABLE reader_settings ADD COLUMN text_color TEXT NOT NULL DEFAULT '';
-                ALTER TABLE reader_settings ADD COLUMN font_family TEXT NOT NULL DEFAULT '';
-                ALTER TABLE reader_settings ADD COLUMN font_size INTEGER NOT NULL DEFAULT 20 CHECK (font_size BETWEEN 12 AND 36);
-                ALTER TABLE reader_settings ADD COLUMN line_height INTEGER NOT NULL DEFAULT 130 CHECK (line_height BETWEEN 110 AND 200);
-                ALTER TABLE reader_settings ADD COLUMN column_width INTEGER NOT NULL DEFAULT 760 CHECK (column_width BETWEEN 480 AND 1040);
-                CREATE TABLE download_jobs (
-                    id TEXT PRIMARY KEY NOT NULL,
-                    snapshot TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL CHECK (updated_at >= 0)
-                ) STRICT;
-                CREATE TABLE local_books (
-                    publication_id TEXT PRIMARY KEY NOT NULL,
-                    path TEXT NOT NULL
-                ) STRICT;
-                CREATE TABLE translation_context (
-                    publication TEXT NOT NULL,
-                    language TEXT NOT NULL,
-                    revision INTEGER NOT NULL CHECK (revision >= 0),
-                    context TEXT NOT NULL,
-                    PRIMARY KEY (publication, language)
-                ) STRICT;
-                CREATE TABLE translated_content (
-                    key TEXT PRIMARY KEY NOT NULL,
-                    content TEXT NOT NULL
-                ) STRICT;",
-            )?;
-            transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if version != SCHEMA_VERSION {
             return Err(LibraryError::UnsupportedSchema(version));
         }
