@@ -14,8 +14,8 @@ mod model;
 
 pub use aniliberty::AniLiberty;
 pub use library::{
-    LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderProgress,
-    VariantFilters, VariantPreferences,
+    LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
+    ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
 };
 pub use mangadex::MangaDex;
 pub use model::*;

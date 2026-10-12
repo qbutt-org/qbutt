@@ -13,10 +13,12 @@ use tokio::task::JoinHandle;
 
 mod library;
 mod reader;
+mod reader_settings;
 
 use crate::models::{self, variant_id, work_id};
 use library::{LibraryUpdate, LibraryWorker};
 use reader::{ReaderState, RetiredReaderCache, clean_retired_reader_cache};
+use reader_settings::ReaderSettingsState;
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
@@ -32,6 +34,16 @@ pub mod ffi {
     enum ReaderFit {
         Height,
         Width,
+    }
+
+    #[qenum]
+    #[namespace = "Qbutt::Reader"]
+    enum ReaderSettingsState {
+        Uninitialized,
+        Loading,
+        Ready,
+        Saving,
+        Failed,
     }
 
     #[qenum]
@@ -232,6 +244,20 @@ pub mod ffi {
             NOTIFY = reader_changed
         )]
         #[qproperty(
+            ReaderSettingsState,
+            reader_settings_state,
+            cxx_name = "readerSettingsState",
+            READ = reader_settings_state,
+            NOTIFY = reader_settings_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_settings_error_text,
+            cxx_name = "readerSettingsErrorText",
+            READ = reader_settings_error_text,
+            NOTIFY = reader_settings_changed
+        )]
+        #[qproperty(
             QString,
             chapter_query,
             cxx_name = "chapterQuery",
@@ -335,7 +361,9 @@ pub mod ffi {
         fn reader_page_index(&self) -> &i32;
         fn reader_page_count(&self) -> &i32;
         fn reader_scroll_offset(&self) -> &f64;
-        fn reader_fit(&self) -> &ReaderFit;
+        fn reader_fit(&self) -> ReaderFit;
+        fn reader_settings_state(&self) -> ReaderSettingsState;
+        fn reader_settings_error_text(&self) -> QString;
         fn chapter_query(&self) -> &QString;
 
         #[qinvokable]
@@ -355,7 +383,13 @@ pub mod ffi {
         fn turn_reader_page(self: Pin<&mut Self>, offset: i32);
         #[qinvokable]
         #[cxx_name = "setReaderFit"]
-        fn set_reader_fit(self: Pin<&mut Self>, fit: ReaderFit);
+        fn set_reader_fit(self: Pin<&mut Self>, fit: ReaderFit) -> bool;
+        #[qinvokable]
+        #[cxx_name = "retryReaderSettings"]
+        fn retry_reader_settings(self: Pin<&mut Self>) -> bool;
+        #[qsignal]
+        #[cxx_name = "readerSettingsChanged"]
+        fn reader_settings_changed(self: Pin<&mut Self>);
         #[qinvokable]
         #[cxx_name = "setChapterQuery"]
         fn set_chapter_query(self: Pin<&mut Self>, query: QString);
@@ -475,6 +509,7 @@ pub struct ContentControllerRust {
     inspection: Pending,
     resolution: Pending,
     reader: ReaderState,
+    reader_settings: ReaderSettingsState,
 }
 
 impl Default for ContentControllerRust {
@@ -540,6 +575,7 @@ impl Default for ContentControllerRust {
             inspection: Pending::default(),
             resolution: Pending::default(),
             reader: ReaderState::default(),
+            reader_settings: ReaderSettingsState::default(),
         }
     }
 }

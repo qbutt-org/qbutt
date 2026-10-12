@@ -32,6 +32,7 @@
 #include "history.h"
 #include "library.h"
 #include "reader-progress.h"
+#include "reader-settings.h"
 #include "reader.h"
 #include "worklist.h"
 
@@ -484,6 +485,8 @@ int main(int argc, char *argv[])
     parser.addOption({u"history"_s, u"Run confirmed reading history and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
     parser.addOption({u"reader-progress"_s, u"Run exact reader progress and SQLite fault scenarios, then exit."_s});
+    parser.addOption({u"reader-settings"_s, u"Run reader settings persistence and SQLite faults, then exit."_s});
+    parser.addOption({u"reader-settings-phase"_s, u"Run a reader settings restart fixture phase."_s, u"phase"_s});
     parser.addOption({u"worklist"_s, u"Run work list delegate and favorites acceptance, then exit."_s});
     parser.addOption({u"profile"_s, u"Use an explicit isolated profile for restart acceptance."_s, u"directory"_s});
     parser.addOption({u"dark"_s, u"Use the dark system color scheme for visual inspection."_s});
@@ -501,11 +504,14 @@ int main(int argc, char *argv[])
     application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s)
         && !parser.isSet(u"reader"_s) && !parser.isSet(u"worklist"_s));
 
-    if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s))
+    if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
+        || parser.isSet(u"reader-settings"_s))
     {
         try
         {
-            if (parser.isSet(u"history"_s))
+            if (parser.isSet(u"reader-settings"_s))
+                exerciseReaderSettings(parser.value(u"profile"_s), parser.value(u"reader-settings-phase"_s));
+            else if (parser.isSet(u"history"_s))
                 exerciseHistory();
             else if (parser.isSet(u"reader-progress"_s))
                 exerciseReaderProgress();

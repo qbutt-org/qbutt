@@ -35,7 +35,6 @@ pub(super) struct ReaderState {
     progress_pending: bool,
     progress_error: QString,
     progress_save: Option<ReaderSave>,
-    fit: ffi::ReaderFit,
     query: QString,
     loading: Pending,
     chapter: Pending,
@@ -61,7 +60,6 @@ impl Default for ReaderState {
             progress_pending: false,
             progress_error: QString::default(),
             progress_save: None,
-            fit: ffi::ReaderFit::Height,
             query: QString::default(),
             loading: Pending::default(),
             chapter: Pending::default(),
@@ -173,10 +171,6 @@ impl ffi::ContentController {
 
     pub(super) fn reader_scroll_offset(&self) -> &f64 {
         &self.reader.scroll_offset
-    }
-
-    pub(super) fn reader_fit(&self) -> &ffi::ReaderFit {
-        &self.reader.fit
     }
 
     pub(super) fn chapter_query(&self) -> &QString {
@@ -576,16 +570,6 @@ impl ffi::ContentController {
             self.as_mut().rust_mut().reader.progress_error = ffi::reader_error(5);
         }
         self.reader_changed();
-    }
-
-    pub fn set_reader_fit(mut self: Pin<&mut Self>, fit: ffi::ReaderFit) {
-        if fit != ffi::ReaderFit::Height && fit != ffi::ReaderFit::Width {
-            return;
-        }
-        if self.reader.fit != fit {
-            self.as_mut().rust_mut().reader.fit = fit;
-            self.as_mut().reader_changed();
-        }
     }
 
     pub fn set_chapter_query(mut self: Pin<&mut Self>, query: QString) {

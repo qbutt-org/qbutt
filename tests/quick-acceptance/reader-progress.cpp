@@ -174,7 +174,10 @@ namespace
         execute(database, u"CREATE TABLE library (reference TEXT PRIMARY KEY NOT NULL, "
             "entry TEXT NOT NULL, updated_at INTEGER NOT NULL CHECK (updated_at >= 0)) STRICT"_s);
         execute(database, u"PRAGMA application_id = 1363299394"_s);
-        execute(database, u"PRAGMA user_version = 2"_s);
+        execute(database, u"CREATE TABLE reader_settings (id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1), "
+            "fit INTEGER NOT NULL CHECK (fit IN (0, 1))) STRICT"_s);
+        execute(database, u"INSERT INTO reader_settings VALUES (1, 0)"_s);
+        execute(database, u"PRAGMA user_version = 3"_s);
         metadata.insert(u"last_opened"_s, QJsonValue::Null);
         metadata.insert(u"reader_progress"_s, QJsonValue::Null);
         QSqlQuery insert(database);

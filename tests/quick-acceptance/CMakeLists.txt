@@ -24,6 +24,8 @@ qt_add_executable(qbutt-quick-acceptance
     reader.h
     reader-progress.cpp
     reader-progress.h
+    reader-settings.cpp
+    reader-settings.h
     worklist.cpp
     worklist.h
 )

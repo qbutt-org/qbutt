@@ -5,7 +5,7 @@ use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
     Library, LibraryEntry, LibraryResult, LibraryView, PublicationRef, ReaderProgress,
-    VariantPreferences, Work,
+    ReaderSettings, VariantPreferences, Work,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};
@@ -25,6 +25,10 @@ pub enum LibraryAction {
     },
     ReaderProgress {
         save: ReaderSave,
+        generation: u64,
+    },
+    ReaderSettings {
+        settings: ReaderSettings,
         generation: u64,
     },
     ReaderResume {
@@ -48,9 +52,10 @@ pub struct ReaderSave {
 
 pub enum LibraryUpdate {
     Loaded {
-        result: LibraryResult<(Vec<LibraryEntry>, Vec<Work>)>,
+        result: LibraryResult<(Vec<LibraryEntry>, Vec<Work>, ReaderSettings)>,
         error_generation: u64,
         reader_generation: Option<u64>,
+        settings_retry_generation: Option<u64>,
     },
     Changed {
         result: LibraryResult<Option<Box<LibraryEntry>>>,
@@ -60,6 +65,10 @@ pub enum LibraryUpdate {
     },
     ReaderResume {
         result: LibraryResult<Option<ReaderProgress>>,
+        generation: u64,
+    },
+    ReaderSettings {
+        result: LibraryResult<()>,
         generation: u64,
     },
     History {
@@ -78,6 +87,7 @@ enum LibraryCommand {
     Retry {
         error_generation: u64,
         reader_generation: Option<u64>,
+        settings_retry_generation: Option<u64>,
     },
 }
 
@@ -98,14 +108,17 @@ impl LibraryWorker {
             let _ = qt_thread.queue(move |mut controller| {
                 controller.as_mut().rust_mut().library_state = ffi::LibraryState::Loading;
                 controller.as_mut().library_state_changed();
+                controller.as_mut().reader_settings_changed();
             });
             let mut error_generation = 0;
             let mut reader_generation = None;
+            let mut settings_retry_generation = None;
             loop {
                 let (mut library, result) = match Library::open(&profile).and_then(|library| {
                     let entries = library.entries(LibraryView::All)?;
                     let history = read_history(&library)?;
-                    Ok((library, (entries, history)))
+                    let settings = library.reader_settings()?;
+                    Ok((library, (entries, history, settings)))
                 }) {
                     Ok((library, entries)) => (Some(library), Ok(entries)),
                     Err(error) => (None, Err(error)),
@@ -115,6 +128,7 @@ impl LibraryWorker {
                         result,
                         error_generation,
                         reader_generation,
+                        settings_retry_generation,
                     });
                 });
 
@@ -128,9 +142,11 @@ impl LibraryWorker {
                         LibraryCommand::Retry {
                             error_generation: retry_error_generation,
                             reader_generation: retry_reader_generation,
+                            settings_retry_generation: retry_settings_generation,
                         } => {
                             error_generation = retry_error_generation;
                             reader_generation = retry_reader_generation;
+                            settings_retry_generation = retry_settings_generation;
                             break;
                         }
                         LibraryCommand::Request(request) => {
@@ -164,11 +180,13 @@ impl LibraryWorker {
         &self,
         error_generation: u64,
         reader_generation: Option<u64>,
+        settings_retry_generation: Option<u64>,
     ) -> Result<(), &'static str> {
         self.sender
             .try_send(LibraryCommand::Retry {
                 error_generation,
                 reader_generation,
+                settings_retry_generation,
             })
             .map_err(|_| "The content library retry queue is full or closed")
     }
@@ -196,6 +214,15 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
                 result: library
                     .get(&reference)
                     .map(|entry| entry.and_then(|entry| entry.reader_progress)),
+                generation,
+            };
+        }
+        LibraryAction::ReaderSettings {
+            settings,
+            generation,
+        } => {
+            return LibraryUpdate::ReaderSettings {
+                result: library.save_reader_settings(settings),
                 generation,
             };
         }
@@ -264,6 +291,7 @@ impl ffi::ContentController {
         if !profile.is_absolute() || self.services.is_none() {
             self.as_mut().rust_mut().library_state = ffi::LibraryState::Failed;
             self.as_mut().library_state_changed();
+            self.as_mut().reader_settings_library_failed();
             self.as_mut()
                 .set_library_error(ffi::LibraryErrorKind::Opening);
             return;
@@ -284,7 +312,12 @@ impl ffi::ContentController {
             return false;
         };
         let reader_generation = self.reader_retry_generation();
-        match worker.retry(self.library_error_generation, reader_generation) {
+        let settings_retry_generation = self.reader_settings_retry_generation();
+        match worker.retry(
+            self.library_error_generation,
+            reader_generation,
+            settings_retry_generation,
+        ) {
             Ok(()) => {
                 // The blocking owner has already entered and remains alive;
                 // FIFO requests can be accepted behind this reopen command.
@@ -293,6 +326,7 @@ impl ffi::ContentController {
                     self.as_mut().prepare_reader_library_retry(generation);
                 }
                 self.as_mut().library_state_changed();
+                self.as_mut().reader_settings_changed();
                 true
             }
             Err(error) => {
@@ -344,6 +378,7 @@ impl ffi::ContentController {
     }
 
     fn publish_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
+        let mut settings_retry_generation = None;
         let history_read = matches!(&update, LibraryUpdate::History { .. })
             || matches!(
                 &update,
@@ -356,6 +391,10 @@ impl ffi::ContentController {
         let (initial, error_generation, reader_generation, result) = match update {
             LibraryUpdate::ReaderResume { result, generation } => {
                 self.complete_reader_resume(result, generation);
+                return;
+            }
+            LibraryUpdate::ReaderSettings { result, generation } => {
+                self.complete_reader_settings(result, generation);
                 return;
             }
             LibraryUpdate::History {
@@ -371,8 +410,11 @@ impl ffi::ContentController {
                 result,
                 error_generation,
                 reader_generation,
+                settings_retry_generation: retry_generation,
             } => {
-                let result = result.map(|(entries, history)| {
+                settings_retry_generation = retry_generation;
+                let result = result.map(|(entries, history, settings)| {
+                    self.as_mut().load_reader_settings(settings);
                     for entry in &entries {
                         self.as_mut()
                             .rust_mut()
@@ -448,8 +490,13 @@ impl ffi::ContentController {
                         }
                     }
                     self.as_mut().library_state_changed();
+                    self.as_mut().reader_settings_changed();
                     if let Some(generation) = reader_generation {
                         self.as_mut().resume_reader_after_library_retry(generation);
+                    }
+                    if let Some(generation) = settings_retry_generation {
+                        self.as_mut()
+                            .resume_reader_settings_after_library_retry(generation);
                     }
                 }
             }
@@ -458,6 +505,7 @@ impl ffi::ContentController {
                     let mut state = self.as_mut().rust_mut();
                     state.library_state = ffi::LibraryState::Failed;
                     state.library_pending = 0;
+                    self.as_mut().reader_settings_library_failed();
                     self.as_mut().reader_library_failed()
                 } else {
                     false
@@ -497,6 +545,7 @@ impl ffi::ContentController {
         } else {
             ffi::LibraryErrorKind::Writing
         };
+        let settings = matches!(&action, LibraryAction::ReaderSettings { .. });
         match self
             .library_worker
             .as_ref()
@@ -513,7 +562,9 @@ impl ffi::ContentController {
             }
             Err(error) => {
                 ffi::log_content_error(&QString::from("library"), &QString::from(error));
-                self.as_mut().set_library_error(error_kind);
+                if !settings {
+                    self.as_mut().set_library_error(error_kind);
+                }
                 false
             }
         }

@@ -18883,6 +18883,10 @@ Please choose a different name and try again.</source>
         <translation>Не удалось сохранить библиотеку.</translation>
     </message>
     <message>
+        <source>Could not save reading settings.</source>
+        <translation>Не удалось сохранить настройки чтения.</translation>
+    </message>
+    <message>
         <source>Could not load history.</source>
         <translation>Не удалось загрузить историю.</translation>
     </message>
