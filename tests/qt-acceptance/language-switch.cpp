@@ -145,12 +145,17 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
         {
             return (controller->getSearchState() == Qbutt::Search::SearchState::Succeeded) && (works->rowCount() > 0);
         }, 60000);
-        controller->selectWork(role(works, 0, "workId"));
+        const QString publication = u"aniliberty:9542"_s;
+        bool found = false;
+        for (int row = 0; row < works->rowCount(); ++row)
+            found |= role(works, row, "workId") == publication;
+        require(found, u"Search did not return the exact AniLiberty publication"_s);
+        controller->selectWork(publication);
         waitFor(u"Anime variants"_s, [&] { return !controller->getInspecting() && (variants->rowCount() > 0); }, 60000);
         int selectedRow = -1;
         for (int row = 0; row < variants->rowCount(); ++row)
         {
-            if ((role(variants, row, "kind") == u"video") && role(variants, row, "label").contains(u"1"))
+            if (role(variants, row, "kind") == u"video")
             {
                 selectedRow = row;
                 break;
