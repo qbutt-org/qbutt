@@ -1,21 +1,26 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+
 #include "browser-relay.h"
-#include "browser-registration.h"
 
 #include <cstdio>
 
+#ifdef _WIN32
+#include <io.h>
+#include <winsock2.h>
+#include <windows.h>
+#endif
+
 #include <QApplication>
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QThreadPool>
 #include <QTimer>
 
-#ifdef Q_OS_WIN
-#include <io.h>
-#include <windows.h>
-#endif
-
+#include "browser-registration.h"
+#include "gui/content/browsercapture.h"
 #include "gui/quick/contentview.h"
 
 namespace
@@ -40,6 +45,17 @@ int runBrowserRelayHost()
     QTemporaryDir profile;
     if (discovery.isEmpty() || !profile.isValid())
         return 2;
+    // The registry fixture hides HKLM, including Winsock's provider catalog.
+    // Load the TCP provider before installing its registry override.
+    WSADATA winsock {};
+    if (WSAStartup(MAKEWORD(2, 2), &winsock) != 0)
+        return 2;
+    const auto cleanupWinsock = qScopeGuard([] { WSACleanup(); });
+    const SOCKET initialized = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (initialized == INVALID_SOCKET)
+        return 2;
+    closesocket(initialized);
+
     BrowserRegistrationFixture registration(profile.path());
     if (!registration.isReady())
         return 2;
@@ -47,6 +63,56 @@ int runBrowserRelayHost()
     int result = 0;
     {
         Content::ContentView view(profile.path());
+        view.initDownloads(QDir(profile.path()).filePath(QStringLiteral("downloads")));
+        Content::BrowserCapture capture;
+        QObject::connect(&capture, &Content::BrowserCapture::watchRequested, &view,
+            [&view, &capture](const QUrl &page, const QString &title, const QString &captureId)
+        {
+            if (!view.watchCapture(page, title, captureId))
+                capture.finishWatch(captureId, QStringLiteral("failed"));
+        });
+        QObject::connect(&capture, &Content::BrowserCapture::downloadRequested, &view,
+            [&view, &capture](const QUrl &page, const QString &title, const QString &captureId)
+        {
+            if (!view.downloadCapture(page, title, captureId))
+                capture.finishDownload(captureId, QStringLiteral("failed"));
+        });
+        QObject::connect(&capture, &Content::BrowserCapture::watchCancelled,
+            &view, &Content::ContentView::cancelCaptureWatch);
+        QObject::connect(&capture, &Content::BrowserCapture::downloadCancelled,
+            &view, &Content::ContentView::cancelCaptureDownload);
+        QObject::connect(&view, &Content::ContentView::capturedWatchFinished,
+            &capture, &Content::BrowserCapture::finishWatch);
+        QObject::connect(&view, &Content::ContentView::capturedDownloadFinished,
+            &capture, &Content::BrowserCapture::finishDownload);
+        QObject::connect(&view, &Content::ContentView::capturedWatchFinished, &view,
+            [](const QString &captureId, const QString &reason)
+        {
+            const QJsonObject outcome {{QStringLiteral("captureId"), captureId},
+                {QStringLiteral("reason"), reason}};
+            send({{QStringLiteral("watchFinished"), outcome}});
+        });
+        QObject::connect(&view, &Content::ContentView::capturedDownloadFinished, &view,
+            [](const QString &captureId, const QString &reason)
+        {
+            const QJsonObject outcome {{QStringLiteral("captureId"), captureId},
+                {QStringLiteral("reason"), reason}};
+            send({{QStringLiteral("downloadFinished"), outcome}});
+        });
+        QObject::connect(&view, &Content::ContentView::videoReady, &view,
+            [](const quint64 launchToken, const QString &identity, const QUrl &url,
+                const QUrl &, const QString &, const QString &, const QUrl &, const QString &,
+                const QString &, const QString &, const QString &, const int, const QVector<QUrl> &)
+        {
+            const QJsonObject media {{QStringLiteral("launchToken"), static_cast<qint64>(launchToken)},
+                {QStringLiteral("identity"), identity},
+                {QStringLiteral("url"), url.toString(QUrl::FullyEncoded)}};
+            send({{QStringLiteral("watchMedia"), media}});
+        });
+        QObject::connect(&capture, &Content::BrowserCapture::completed, &capture,
+            [] { send({{QStringLiteral("captureCompleted"), true}}); });
+        QObject::connect(&capture, &Content::BrowserCapture::error, &capture,
+            [](const QString &message) { send({{QStringLiteral("captureError"), message}}); });
         QObject::connect(&view, &Content::ContentView::browserReply, &view,
             [](const quint64 generation, const quint64 id, const QByteArray &reply)
         {
@@ -104,6 +170,15 @@ int runBrowserRelayHost()
                     view.closeBrowserSession(generation);
                 else if (event == QStringLiteral("browserInitialize"))
                     view.initializeBrowser();
+                else if (event == QStringLiteral("captureOpen"))
+                    capture.open(QUrl(data.value(QStringLiteral("url")).toString(), QUrl::StrictMode));
+                else if (event == QStringLiteral("captureCancel"))
+                {
+                    capture.cancel();
+                    send({{QStringLiteral("captureCancelled"), true}});
+                }
+                else if (event == QStringLiteral("captureReleaseWatch"))
+                    view.finishPlayback(data.value(QStringLiteral("launchToken")).toInteger());
                 else if (event == QStringLiteral("browserRegistration"))
                 {
                     if (!registration.setRegistered(data.value(QStringLiteral("browser")).toString(),
@@ -120,7 +195,7 @@ int runBrowserRelayHost()
         });
         reader.start(10);
         QTimer::singleShot(180'000, &view, [] { qApp->exit(1); });
-        send({{QStringLiteral("ready"), true}});
+        send({{QStringLiteral("ready"), true}, {QStringLiteral("captureProfile"), profile.path()}});
         result = qApp->exec();
     }
     if (!QThreadPool::globalInstance()->waitForDone(10'000))

@@ -16,6 +16,8 @@ endif()
 
 qt_add_executable(qbutt-quick-acceptance
     main.cpp
+    ../../src/gui/content/browsercapture.cpp
+    ../../src/gui/content/browsercapture.h
     browser-relay.cpp
     browser-relay.h
     browser-registration.cpp

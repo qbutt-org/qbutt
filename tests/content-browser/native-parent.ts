@@ -10,6 +10,7 @@ export class NativeBrowserFixture extends BrowserBridge {
     private readonly ready: Promise<void>;
     private generation = 1;
     onSessionReply?: (generation: number, response: BrowserResponse) => void;
+    onMessage?: (message: Record<string, unknown>) => void;
 
     constructor(options: { browser?: BrowserChoice; discoveryPath?: string }) {
         const executable = process.env.QBUTT_QUICK_ACCEPTANCE_EXE;
@@ -39,6 +40,7 @@ export class NativeBrowserFixture extends BrowserBridge {
                 while ((end = input.indexOf("\n")) >= 0) {
                     const message = JSON.parse(input.slice(0, end));
                     input = input.slice(end + 1);
+                    this.onMessage?.(message);
                     if (message.ready)
                         resolve();
                     else if (message.generation === this.generation && message.browserReply)
