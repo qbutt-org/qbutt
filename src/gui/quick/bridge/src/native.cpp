@@ -7,6 +7,7 @@
 #include <QImageReader>
 #include <QLocale>
 #include <QLoggingCategory>
+#include <QStringList>
 #include <QThreadPool>
 
 #include "qbutt_quick/src/controller.cxxqt.h"
@@ -82,19 +83,27 @@ QString Qbutt::contentLanguage()
     return locale.language() == QLocale::C ? QStringLiteral("en") : locale.name().section(u'_', 0, 0).toLower();
 }
 
-QString Qbutt::formatVideoLabel(const QString &episode, const QString &quality, const QString &player, const QString &title)
+QString Qbutt::formatVideoLabel(const QString &episode, const QString &quality, const QString &translation,
+    const QString &player, const QString &source, const QString &title)
 {
     const QString label = !episode.isEmpty()
         ? QCoreApplication::translate("ContentController", "Episode %1").arg(episode)
         : !title.isEmpty() ? title : QCoreApplication::translate("ContentController", "Video");
-    QString details = quality;
-    if (!player.isEmpty())
+    QString voice = translation;
+    const QString subtitlePrefix = QStringLiteral("Субтитры");
+    if ((voice == subtitlePrefix) || voice.startsWith(subtitlePrefix + u' '))
+        voice.replace(0, subtitlePrefix.size(), QCoreApplication::translate("ContentController", "Subtitles"));
+
+    QStringList details;
+    for (const QString &detail : {voice, quality, player})
     {
-        if (!details.isEmpty())
-            details += QStringLiteral(", ");
-        details += player;
+        if (!detail.isEmpty() && (detail.compare(source, Qt::CaseInsensitive) != 0)
+            && !details.contains(detail, Qt::CaseInsensitive))
+        {
+            details.append(detail);
+        }
     }
-    return details.isEmpty() ? label : QStringLiteral("%1 [%2]").arg(label, details);
+    return details.isEmpty() ? label : QStringLiteral("%1 [%2]").arg(label, details.join(QStringLiteral(", ")));
 }
 
 QString Qbutt::formatTranslationLabel(const QString &language, const QString &translation)

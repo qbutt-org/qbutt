@@ -18931,6 +18931,10 @@ Please choose a different name and try again.</source>
 <context>
     <name>ContentController</name>
     <message>
+        <source>Subtitles</source>
+        <translation>Субтитры</translation>
+    </message>
+    <message>
         <source>Translation</source>
         <translation>Перевод</translation>
     </message>

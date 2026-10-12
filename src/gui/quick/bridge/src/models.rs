@@ -149,7 +149,9 @@ pub mod ffi {
         fn formatVideoLabel(
             episode: &QString,
             quality: &QString,
+            translation: &QString,
             player: &QString,
+            source: &QString,
             title: &QString,
         ) -> QString;
     }
@@ -394,7 +396,9 @@ impl ffi::VariantModel {
             return QVariant::from(&ffi::format_video_label(
                 &QString::from(variant.episode.as_deref().unwrap_or_default()),
                 &QString::from(variant.quality.as_deref().unwrap_or_default()),
+                &QString::from(variant.translation.as_deref().unwrap_or_default()),
                 &QString::from(variant.player.as_deref().unwrap_or_default()),
+                &QString::from(variant.reference.publication.source.name()),
                 &QString::from(variant.title.as_deref().unwrap_or_default()),
             ));
         }
