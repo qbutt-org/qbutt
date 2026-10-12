@@ -149,6 +149,7 @@ Pane {
 
         VariantFilters {
             Layout.fillWidth: true
+            Layout.fillHeight: false
             backend: root.backend
             variants: filteredVariants
             theme: root.theme
