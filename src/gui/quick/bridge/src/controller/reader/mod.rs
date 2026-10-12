@@ -13,6 +13,7 @@ use crate::page_model;
 use crate::reader_models;
 
 mod chapters;
+mod manga;
 mod progress;
 mod text;
 mod translation;
@@ -48,6 +49,7 @@ pub(super) struct ReaderState {
     pages: UniquePtr<page_model::ffi::PageModel>,
     text: text::TextReaderState,
     translation: translation::TextTranslationState,
+    manga_translation: manga::MangaTranslationState,
     is_text: bool,
     reference: Option<VariantRef>,
     busy: bool,
@@ -75,6 +77,7 @@ impl Default for ReaderState {
             pages: page_model::ffi::create_page_model(),
             text: text::TextReaderState::default(),
             translation: translation::TextTranslationState::default(),
+            manga_translation: manga::MangaTranslationState::default(),
             is_text: false,
             reference: None,
             busy: false,
@@ -104,6 +107,7 @@ impl ReaderState {
         self.position.take();
         self.text.prefetch.cancel();
         self.translation.reset_reader();
+        self.manga_translation.reset_reader();
         self.progress_generation = self.progress_generation.wrapping_add(1);
         self.progress_pending = false;
         self.progress_error = QString::default();
@@ -253,6 +257,12 @@ impl ffi::ContentController {
             .reader
             .pages
             .pin_mut()
+            .translation_mode(false);
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .pages
+            .pin_mut()
             .reset(chapter_generation, 0);
         if self.reader.reference.is_none() || self.reader.loading.generation != generation {
             return;
@@ -297,6 +307,12 @@ impl ffi::ContentController {
         }
         let generation = self.reader.chapter.generation;
         self.as_mut().reader_assets_cleared(generation);
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .pages
+            .pin_mut()
+            .translation_mode(false);
         self.as_mut()
             .rust_mut()
             .reader

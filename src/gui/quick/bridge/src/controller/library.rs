@@ -5,6 +5,7 @@ use std::sync::Arc;
 use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::translation::context::{ContextAdditions, EvidenceSegment, TranslationContext};
+use qbutt_content::translation::manga::PageRegion;
 use qbutt_content::translation::text::{cache_key, restore_cached};
 use qbutt_content::{
     DownloadJob, DownloadStorage, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView,
@@ -144,6 +145,15 @@ enum LibraryCommand {
         evidence: Vec<EvidenceSegment>,
         reply: oneshot::Sender<LibraryResult<TranslationContext>>,
     },
+    MangaLookup {
+        key: TranslationCacheKey,
+        reply: oneshot::Sender<LibraryResult<MangaTranslationLookup>>,
+    },
+    MangaSave {
+        key: TranslationCacheKey,
+        regions: Vec<PageRegion>,
+        reply: oneshot::Sender<LibraryResult<TranslationContext>>,
+    },
     Retry {
         error_generation: u64,
         reader_generation: Option<u64>,
@@ -160,6 +170,12 @@ pub(super) struct TranslationLookup {
     pub key: TranslationCacheKey,
     pub context: TranslationContext,
     pub cached: Option<TextChapter>,
+}
+
+pub(super) struct MangaTranslationLookup {
+    pub key: TranslationCacheKey,
+    pub context: TranslationContext,
+    pub cached: Option<Vec<PageRegion>>,
 }
 
 #[derive(Clone)]
@@ -229,6 +245,39 @@ impl LibraryWorker {
                 chapter,
                 additions,
                 evidence,
+                reply,
+            })
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
+    }
+
+    pub(super) async fn manga_lookup(
+        &self,
+        key: TranslationCacheKey,
+    ) -> LibraryResult<MangaTranslationLookup> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::MangaLookup { key, reply })
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
+    }
+
+    pub(super) async fn save_manga_translation(
+        &self,
+        key: TranslationCacheKey,
+        regions: Vec<PageRegion>,
+    ) -> LibraryResult<TranslationContext> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::MangaSave {
+                key,
+                regions,
                 reply,
             })
             .await
@@ -359,6 +408,48 @@ impl LibraryWorker {
                                 ))
                                 .and_then(|library| {
                                     library.save_translation(key, &chapter, additions, &evidence)
+                                });
+                            let _ = reply.send(result);
+                        }
+                        LibraryCommand::MangaLookup { mut key, reply } => {
+                            let result = library
+                                .as_ref()
+                                .ok_or(LibraryError::InvalidEntry(
+                                    "translation library is unavailable",
+                                ))
+                                .and_then(|library| {
+                                    let context = library.translation_context(
+                                        &key.chapter.variant.publication,
+                                        &key.target_language,
+                                    )?;
+                                    key.context_revision = context.revision;
+                                    let cached =
+                                        library.cached_translation::<Vec<PageRegion>>(&key)?;
+                                    Ok(MangaTranslationLookup {
+                                        key,
+                                        context,
+                                        cached,
+                                    })
+                                });
+                            let _ = reply.send(result);
+                        }
+                        LibraryCommand::MangaSave {
+                            key,
+                            regions,
+                            reply,
+                        } => {
+                            let result = library
+                                .as_mut()
+                                .ok_or(LibraryError::InvalidEntry(
+                                    "translation library is unavailable",
+                                ))
+                                .and_then(|library| {
+                                    library.save_translation(
+                                        key,
+                                        &regions,
+                                        ContextAdditions::default(),
+                                        &[],
+                                    )
                                 });
                             let _ = reply.send(result);
                         }

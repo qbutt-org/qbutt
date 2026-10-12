@@ -104,7 +104,8 @@ impl ffi::ContentController {
                 && state.reader.pages.url(index).is_empty()
                 && !state.reader.pages.failed(index);
         }
-        self.reader_changed();
+        self.as_mut().reader_changed();
+        self.as_mut().start_manga_translation();
     }
 
     pub(in crate::controller) fn complete_reader_error(
@@ -175,6 +176,7 @@ impl ffi::ContentController {
             return;
         }
         self.as_mut().reader_changed();
+        self.as_mut().start_manga_translation();
         if self.reader.reference.is_some()
             && self.reader.page_index == index
             && self.reader.scroll_offset == 0.0
@@ -296,7 +298,8 @@ impl ffi::ContentController {
             self.as_mut().save_reader_position();
         }
         if self.reader.chapter.generation == generation {
-            self.reader_changed();
+            self.as_mut().reader_changed();
+            self.as_mut().start_manga_translation();
         }
         true
     }

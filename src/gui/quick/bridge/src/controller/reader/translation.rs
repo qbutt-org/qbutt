@@ -131,19 +131,35 @@ async fn translate(
 
 impl ffi::ContentController {
     pub(in crate::controller) fn reader_translation_requested(&self) -> bool {
-        self.reader.translation.requested
+        if self.reader.is_text {
+            self.reader.translation.requested
+        } else {
+            self.reader.manga_translation.requested
+        }
     }
 
     pub(in crate::controller) fn reader_translation_busy(&self) -> bool {
-        self.reader.translation.busy
+        if self.reader.is_text {
+            self.reader.translation.busy
+        } else {
+            self.reader.manga_translation.busy
+        }
     }
 
     pub(in crate::controller) fn reader_translation_error(&self) -> bool {
-        self.reader.translation.error
+        if self.reader.is_text {
+            self.reader.translation.error
+        } else {
+            self.reader.manga_translation.error
+        }
     }
 
     pub(in crate::controller) fn reader_translation_needs_codex(&self) -> bool {
-        self.reader.translation.needs_codex
+        if self.reader.is_text {
+            self.reader.translation.needs_codex
+        } else {
+            self.reader.manga_translation.needs_codex
+        }
     }
 
     pub(super) fn on_original_text_chapter_ready(mut self: Pin<&mut Self>) {

@@ -88,6 +88,7 @@ enum PageLoad {
     Loading,
     Ready {
         page: Arc<CachedPage>,
+        translated: Option<Arc<CachedPage>>,
         shown: bool,
     },
     Failed,
@@ -99,12 +100,15 @@ enum Update {
     Loading(u64, usize),
     Ready(u64, usize, Arc<CachedPage>),
     Failed(u64, usize),
+    TranslationMode(bool),
+    Translated(u64, usize, Arc<CachedPage>),
 }
 
 #[derive(Default)]
 pub struct PageModelRust {
     rows: Vec<PageRow>,
     generation: u64,
+    translation_mode: bool,
     publishing: bool,
     pending: VecDeque<Update>,
 }
@@ -183,9 +187,34 @@ impl ffi::PageModel {
 
     pub(crate) fn url(&self, index: usize) -> QUrl {
         match self.rows.get(index).map(|row| &row.load) {
-            Some(PageLoad::Ready { page, .. }) => QUrl::from(&page.url),
+            Some(PageLoad::Ready {
+                page, translated, ..
+            }) => QUrl::from(
+                &translated
+                    .as_ref()
+                    .filter(|_| self.translation_mode)
+                    .unwrap_or(page)
+                    .url,
+            ),
             _ => QUrl::default(),
         }
+    }
+
+    pub(crate) fn original(&self, index: usize) -> Option<Arc<CachedPage>> {
+        match self.rows.get(index).map(|row| &row.load) {
+            Some(PageLoad::Ready { page, .. }) => Some(Arc::clone(page)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn translated_ready(&self, index: usize) -> bool {
+        matches!(
+            self.rows.get(index).map(|row| &row.load),
+            Some(PageLoad::Ready {
+                translated: Some(_),
+                ..
+            })
+        )
     }
 
     pub(crate) fn shown(&self, index: usize) -> bool {
@@ -203,17 +232,17 @@ impl ffi::PageModel {
     }
 
     pub(crate) fn confirm(mut self: Pin<&mut Self>, index: usize, url: &QUrl) -> bool {
+        if self.url(index) != *url {
+            return false;
+        }
         let mut state = self.as_mut().rust_mut();
         let Some(PageRow {
-            load: PageLoad::Ready { page, shown },
+            load: PageLoad::Ready { shown, .. },
             ..
         }) = state.rows.get_mut(index)
         else {
             return false;
         };
-        if QUrl::from(&page.url) != *url {
-            return false;
-        }
         *shown = true;
         true
     }
@@ -253,6 +282,19 @@ impl ffi::PageModel {
         self.publish(Update::Failed(generation, index));
     }
 
+    pub(crate) fn translation_mode(self: Pin<&mut Self>, enabled: bool) {
+        self.publish(Update::TranslationMode(enabled));
+    }
+
+    pub(crate) fn translated(
+        self: Pin<&mut Self>,
+        generation: u64,
+        index: usize,
+        page: Arc<CachedPage>,
+    ) {
+        self.publish(Update::Translated(generation, index, page));
+    }
+
     fn publish(mut self: Pin<&mut Self>, update: Update) {
         self.as_mut().rust_mut().pending.push_back(update);
         if self.publishing {
@@ -271,14 +313,29 @@ impl ffi::PageModel {
                 self.as_mut().generation_changed();
                 continue;
             }
+            if let Update::TranslationMode(enabled) = update {
+                if self.translation_mode != enabled {
+                    self.as_mut().rust_mut().translation_mode = enabled;
+                    if !self.rows.is_empty() {
+                        let first = self.index(0, 0, &QModelIndex::default());
+                        let last =
+                            self.index(self.rows.len() as i32 - 1, 0, &QModelIndex::default());
+                        self.as_mut()
+                            .data_changed(&first, &last, &QVector::default());
+                    }
+                }
+                continue;
+            }
             let (generation, first, last) = match update {
                 Update::Window(generation, _, _, _, _, _) => {
                     (generation, 0, self.rows.len().saturating_sub(1))
                 }
                 Update::Loading(generation, index)
                 | Update::Ready(generation, index, _)
-                | Update::Failed(generation, index) => (generation, index, index),
+                | Update::Failed(generation, index)
+                | Update::Translated(generation, index, _) => (generation, index, index),
                 Update::Reset(_, _) => unreachable!(),
+                Update::TranslationMode(_) => unreachable!(),
             };
             if self.generation != generation || last >= self.rows.len() {
                 continue;
@@ -306,12 +363,24 @@ impl ffi::PageModel {
                     }
                     row.width = page.width;
                     row.height = page.height;
-                    row.load = PageLoad::Ready { page, shown: false };
+                    row.load = PageLoad::Ready {
+                        page,
+                        translated: None,
+                        shown: false,
+                    };
+                }
+                Update::Translated(_, index, page) => {
+                    if let PageLoad::Ready { translated, .. } =
+                        &mut self.as_mut().rust_mut().rows[index].load
+                    {
+                        *translated = Some(page);
+                    }
                 }
                 Update::Failed(_, index) => {
                     self.as_mut().rust_mut().rows[index].load = PageLoad::Failed
                 }
                 Update::Reset(_, _) => unreachable!(),
+                Update::TranslationMode(_) => unreachable!(),
             }
             let first = self.index(first as i32, 0, &QModelIndex::default());
             let last = self.index(last as i32, 0, &QModelIndex::default());

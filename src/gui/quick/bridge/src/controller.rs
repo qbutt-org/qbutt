@@ -799,6 +799,9 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "setReaderTextTranslation"]
         fn set_reader_text_translation(self: Pin<&mut Self>, translated: bool) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderMangaTranslation"]
+        fn set_reader_manga_translation(self: Pin<&mut Self>, translated: bool) -> bool;
         #[qsignal]
         #[cxx_name = "readerTextPositionRequested"]
         fn reader_text_position_requested(

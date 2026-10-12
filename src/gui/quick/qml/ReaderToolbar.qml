@@ -98,7 +98,7 @@ Pane {
         SelectField {
             objectName: "readerTranslation"
             Layout.preferredWidth: 148
-            visible: root.backend.readerIsText
+            visible: true
             enabled: !root.backend.readerBusy
                 && (root.backend.readerTranslationRequested || root.backend.libraryState === Library.Ready)
             theme: root.theme
@@ -117,7 +117,7 @@ Pane {
             objectName: "readerTranslationBusy"
             Layout.preferredWidth: 20
             Layout.preferredHeight: 20
-            visible: root.backend.readerIsText && root.backend.readerTranslationBusy
+            visible: root.backend.readerTranslationBusy
             running: visible
             Accessible.name: qsTr("Translating")
         }

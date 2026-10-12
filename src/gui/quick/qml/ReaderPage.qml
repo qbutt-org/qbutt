@@ -86,7 +86,10 @@ Page {
                 onAppearanceRequested: appearance.open()
                 onTranslationRequested: translated => {
                     canvas.saveScroll();
-                    root.backend.setReaderTextTranslation(translated);
+                    if (root.backend.readerIsText)
+                        root.backend.setReaderTextTranslation(translated);
+                    else
+                        root.backend.setReaderMangaTranslation(translated);
                     canvas.forceActiveFocus();
                 }
             }
@@ -107,7 +110,7 @@ Page {
 
             RowLayout {
                 Layout.fillWidth: true
-                visible: root.backend.readerIsText && root.backend.readerTranslationError
+                visible: root.backend.readerTranslationError
                 spacing: 16
 
                 Label {
@@ -123,7 +126,12 @@ Page {
                     objectName: "readerTranslationRetry"
                     theme: root.theme
                     text: qsTr("Try again")
-                    onClicked: root.backend.setReaderTextTranslation(true)
+                    onClicked: {
+                        if (root.backend.readerIsText)
+                            root.backend.setReaderTextTranslation(true);
+                        else
+                            root.backend.setReaderMangaTranslation(true);
+                    }
                 }
             }
 

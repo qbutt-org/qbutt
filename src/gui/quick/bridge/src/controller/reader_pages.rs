@@ -66,6 +66,52 @@ pub(crate) struct CachedPage {
     bytes: Option<OwnedSemaphorePermit>,
 }
 
+impl CachedPage {
+    pub(crate) async fn original_bytes(page: Arc<Self>) -> Result<Vec<u8>, String> {
+        tokio::task::spawn_blocking(move || {
+            std::fs::read(&page.file).map_err(|error| error.to_string())
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+
+    pub(crate) async fn translated(
+        original: Arc<Self>,
+        bytes: Vec<u8>,
+        byte_limit: Arc<Semaphore>,
+    ) -> Result<Self, String> {
+        let size = u32::try_from(bytes.len()).map_err(|error| error.to_string())?;
+        if size > 96 * 1024 * 1024 {
+            return Err("Translated manga page exceeds cache capacity".into());
+        }
+        let permit = byte_limit
+            .acquire_many_owned(size)
+            .await
+            .map_err(|error| error.to_string())?;
+        tokio::task::spawn_blocking(move || {
+            let mut file = NamedTempFile::new_in(original.directory.0.path())
+                .map_err(|error| error.to_string())?;
+            file.write_all(&bytes).map_err(|error| error.to_string())?;
+            file.flush().map_err(|error| error.to_string())?;
+            let path = QString::from(file.path().to_string_lossy().as_ref());
+            let size = ffi::validated_image_size(&path);
+            if size.width() != original.width || size.height() != original.height {
+                return Err("Translated manga page dimensions changed".into());
+            }
+            Ok(Self {
+                file: file.into_temp_path(),
+                directory: Arc::clone(&original.directory),
+                url: QUrl::from_local_file(&path).to_string(),
+                width: size.width(),
+                height: size.height(),
+                bytes: Some(permit),
+            })
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+}
+
 impl Drop for CachedPage {
     fn drop(&mut self) {
         self.file.disable_cleanup(true);
