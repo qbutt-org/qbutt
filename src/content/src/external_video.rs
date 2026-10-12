@@ -33,10 +33,18 @@ pub async fn resolve_external_video(
     else {
         return Err(Error::InvalidReference.into());
     };
-    if player != "VK" {
+    if player != "Плеер VK" {
         return Err(Error::UnsupportedAcquisition("This external player is not supported").into());
     }
     let identity = vk_identity(&url)?;
+    // YummyAnime's VK wrapper embeds exactly the `id` from its query as
+    // https://vkvideo.ru/video{id}. Keep direct VK URLs intact so list/access
+    // parameters still reach the browser resolver.
+    let browser_url = if url.host_str() == Some("ru.yummyani.me") {
+        identity.clone()
+    } else {
+        url
+    };
     let selection = Selection {
         episode: Some(episode.clone()),
         translation_id: Some(dubbing.clone()),
@@ -47,10 +55,10 @@ pub async fn resolve_external_video(
         .request(
             choice,
             BrowserCommand::Resolve {
-                url,
+                url: browser_url,
                 selection,
                 kind: ResolveKind::Video,
-                referrer: Some(Url::parse("https://yani.tv/").expect("fixed source origin")),
+                referrer: None,
             },
         )
         .await?;
@@ -94,15 +102,36 @@ fn vk_identity(url: &Url) -> Result<Url, Error> {
         .or_else(|| host.strip_prefix("new."))
         .or_else(|| host.strip_prefix("vksport."))
         .unwrap_or(host);
+    let wrapper = host == "ru.yummyani.me" && url.path() == "/iframeVK.html";
     if url.port().is_some()
-        || !matches!(
-            host,
-            "vk.com" | "vk.ru" | "vkvideo.com" | "vkvideo.ru" | "vkontakte.com" | "vkontakte.ru"
-        )
+        || (!wrapper
+            && !matches!(
+                host,
+                "vk.com"
+                    | "vk.ru"
+                    | "vkvideo.com"
+                    | "vkvideo.ru"
+                    | "vkontakte.com"
+                    | "vkontakte.ru"
+            ))
     {
         return Err(Error::InvalidResponse("invalid VK player address"));
     }
-    let (owner, video) = if url.path() == "/video_ext.php" {
+    let (owner, video) = if wrapper {
+        let mut id = None;
+        for (key, value) in url.query_pairs() {
+            if key == "id" && id.replace(value.into_owned()).is_some() {
+                return Err(Error::InvalidResponse("ambiguous VK video identity"));
+            }
+        }
+        let id = id.ok_or(Error::InvalidResponse("missing VK video identity"))?;
+        let id = id.trim();
+        let id = id.strip_prefix("video").unwrap_or(id);
+        let (owner, video) = id
+            .split_once('_')
+            .ok_or(Error::InvalidResponse("missing VK video identity"))?;
+        (owner.to_owned(), video.to_owned())
+    } else if url.path() == "/video_ext.php" {
         let mut owner = None;
         let mut video = None;
         for (key, value) in url.query_pairs() {

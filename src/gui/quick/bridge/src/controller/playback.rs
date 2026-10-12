@@ -407,7 +407,7 @@ impl ffi::ContentController {
                 ..
             })) = &result
             {
-                if matches!(&reference.selector, VariantSelector::YummyAnimeVideo { player, .. } if player == "VK") {
+                if matches!(&reference.selector, VariantSelector::YummyAnimeVideo { player, .. } if player == "Плеер VK") {
                     Some(async {
                         let handle = browser.handle().await.map_err(|_| ())?;
                         let media = resolve_external_video(
