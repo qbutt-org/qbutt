@@ -16,10 +16,9 @@ use super::codex::{
     self, CodexCompletion, CodexError, CodexRequest, FunctionTool, InputImage, ToolCall,
     ToolFuture, ToolHandler, ToolOutput,
 };
-use super::context::{
-    ConfirmedFact, ContextAdditions, ContextEvidence, EvidenceSegment, ImageObservation,
-    TranslationContext, TranslationForm, TranslationTerm,
-};
+use super::context::{ContextAdditions, EvidenceSegment, TranslationContext};
+
+mod output;
 
 const MAX_REGIONS: usize = 60;
 const MAX_INK_BOXES: usize = 4096;
@@ -107,47 +106,6 @@ pub struct PageResult {
     pub layers: RenderLayers,
     pub additions: ContextAdditions,
     pub evidence: Vec<EvidenceSegment>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PageOutput {
-    revision: usize,
-    terms: Vec<OutputTerm>,
-    facts: Vec<OutputFact>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OutputEvidence {
-    region_id: String,
-    quote: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OutputTerm {
-    source: String,
-    target: String,
-    forms: Vec<OutputForm>,
-    evidence: OutputEvidence,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OutputForm {
-    source: String,
-    target: String,
-    evidence: OutputEvidence,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OutputFact {
-    subject: String,
-    attribute: String,
-    value: String,
-    evidence: OutputEvidence,
 }
 
 struct Revision {
@@ -315,7 +273,7 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
         })
         .to_string(),
         image: Some(job.original.clone()),
-        output_schema: page_output_schema(),
+        output_schema: output::page_output_schema(),
         model: job.model.clone(),
         effort: job.effort.clone(),
         tools: definitions,
@@ -340,38 +298,17 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     {
         return Err(CodexError::ModelUnavailable);
     }
-    let output: PageOutput = serde_json::from_value(value).map_err(|_| CodexError::Protocol)?;
-    if output.revision == 0
-        || output.revision > tools.revisions.len()
-        || output.terms.len() > 20
-        || output.facts.len() > 20
-    {
-        return Err(CodexError::Tool(
-            "Codex selected an invalid page revision or too much context".into(),
-        ));
-    }
+    let output: output::PageOutput =
+        serde_json::from_value(value).map_err(|_| CodexError::Protocol)?;
+    output.validate_selection(tools.revisions.len())?;
     let accepted = tools.revisions.swap_remove(output.revision - 1);
     if !all_regions_rendered(&accepted.regions, &accepted.layers.diagnostics) {
         return Err(CodexError::Tool(
             "The selected render still contains untranslated or overflowing regions".into(),
         ));
     }
-    let digest = format!("{:x}", Sha256::digest(&job.original.bytes));
-    let evidence: Vec<_> = accepted
-        .regions
-        .iter()
-        .map(|region| EvidenceSegment {
-            chapter: job.chapter.clone(),
-            id: region.id.clone(),
-            text: region.source_text.clone(),
-            image_observation: Some(ImageObservation {
-                page: job.page,
-                original_digest: digest.clone(),
-                bounds: observation_bounds(&region.bounds),
-            }),
-        })
-        .collect();
-    let additions = decode_additions(output.terms, output.facts, &evidence)?;
+    let (additions, evidence) =
+        output.decode_context(&job.chapter, job.page, &job.original, &accepted.regions)?;
     let mut context = job.work_context;
     context
         .apply(
@@ -385,100 +322,6 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
         layers: accepted.layers,
         additions,
         evidence,
-    })
-}
-
-fn observation_bounds(bounds: &Rect) -> [u32; 4] {
-    let left = ((bounds.x * 1_000_000.0).round() as u32).min(999_999);
-    let top = ((bounds.y * 1_000_000.0).round() as u32).min(999_999);
-    let right = (((bounds.x + bounds.width) * 1_000_000.0).round() as u32)
-        .max(left + 1)
-        .min(1_000_000);
-    let bottom = (((bounds.y + bounds.height) * 1_000_000.0).round() as u32)
-        .max(top + 1)
-        .min(1_000_000);
-    [left, top, right, bottom]
-}
-
-fn decode_additions(
-    terms: Vec<OutputTerm>,
-    facts: Vec<OutputFact>,
-    segments: &[EvidenceSegment],
-) -> codex::Result<ContextAdditions> {
-    let evidence = |raw: OutputEvidence| -> codex::Result<ContextEvidence> {
-        let segment = segments
-            .iter()
-            .find(|segment| segment.id == raw.region_id)
-            .ok_or(CodexError::Protocol)?;
-        Ok(ContextEvidence {
-            chapter: segment.chapter.clone(),
-            segment_id: segment.id.clone(),
-            quote: raw.quote,
-            image_observation: segment.image_observation.clone(),
-        })
-    };
-    let terms = terms
-        .into_iter()
-        .map(|term| -> codex::Result<TranslationTerm> {
-            let forms = term
-                .forms
-                .into_iter()
-                .map(|form| {
-                    Ok(TranslationForm {
-                        source: form.source,
-                        target: form.target,
-                        evidence: evidence(form.evidence)?,
-                    })
-                })
-                .collect::<codex::Result<_>>()?;
-            Ok(TranslationTerm {
-                source: term.source,
-                target: term.target,
-                forms,
-                evidence: evidence(term.evidence)?,
-            })
-        })
-        .collect::<codex::Result<_>>()?;
-    let facts = facts
-        .into_iter()
-        .map(|fact| {
-            Ok(ConfirmedFact {
-                subject: fact.subject,
-                attribute: fact.attribute,
-                value: fact.value,
-                evidence: evidence(fact.evidence)?,
-            })
-        })
-        .collect::<codex::Result<_>>()?;
-    Ok(ContextAdditions { terms, facts })
-}
-
-fn page_output_schema() -> Value {
-    let text = |limit| json!({"type":"string","minLength":1,"maxLength":limit});
-    let evidence = json!({
-        "type":"object","properties":{
-            "region_id":text(64),"quote":text(500)
-        },"required":["region_id","quote"],"additionalProperties":false
-    });
-    json!({
-        "type":"object","properties":{
-            "revision":{"type":"integer","minimum":1,"maximum":3},
-            "terms":{"type":"array","maxItems":20,"items":{
-                "type":"object","properties":{
-                    "source":text(200),"target":text(300),
-                    "forms":{"type":"array","maxItems":16,"items":{
-                        "type":"object","properties":{
-                            "source":text(200),"target":text(300),"evidence":evidence.clone()
-                        },"required":["source","target","evidence"],"additionalProperties":false
-                    }},"evidence":evidence.clone()
-                },"required":["source","target","forms","evidence"],"additionalProperties":false
-            }},
-            "facts":{"type":"array","maxItems":20,"items":{
-                "type":"object","properties":{
-                    "subject":text(200),"attribute":text(80),"value":text(300),"evidence":evidence
-                },"required":["subject","attribute","value","evidence"],"additionalProperties":false
-            }}
-        },"required":["revision","terms","facts"],"additionalProperties":false
     })
 }
 
@@ -610,36 +453,64 @@ fn validate_regions(regions: &[PageRegion]) -> codex::Result<()> {
 
 fn page_tools() -> Vec<FunctionTool> {
     let rect = json!({
-        "type": "object", "properties": {
-            "x": {"type": "number", "minimum": 0, "maximum": 1},
-            "y": {"type": "number", "minimum": 0, "maximum": 1},
-            "width": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
-            "height": {"type": "number", "exclusiveMinimum": 0, "maximum": 1}
-        }, "required": ["x", "y", "width", "height"], "additionalProperties": false
+        "type": "object",
+        "properties": {
+            "x": { "type": "number", "minimum": 0, "maximum": 1 },
+            "y": { "type": "number", "minimum": 0, "maximum": 1 },
+            "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        },
+        "required": ["x", "y", "width", "height"],
+        "additionalProperties": false,
     });
+    let region = json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "sourceText": { "type": "string" },
+            "translation": { "type": "string" },
+            "bounds": rect,
+            "layout": rect,
+            "ink": { "type": "string", "enum": ["dark", "light"] },
+            "inkBoxes": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 512,
+                "items": rect,
+            },
+        },
+        "required": ["id", "sourceText", "translation", "bounds", "layout", "ink", "inkBoxes"],
+        "additionalProperties": false,
+    });
+
     vec![
         FunctionTool {
             name: "inspect_page",
             description: "Inspect the original page or the most recent native mask, cleaned page or typeset result. Returns the actual pixels. Use after render only when another layer helps diagnose a visible problem.",
-            input_schema: json!({"type": "object", "properties": {
-                "layer": {"type": "string", "enum": ["original", "mask", "cleaned", "result"]}
-            }, "required": ["layer"], "additionalProperties": false}),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "layer": { "type": "string", "enum": ["original", "mask", "cleaned", "result"] },
+                },
+                "required": ["layer"],
+                "additionalProperties": false,
+            }),
         },
         FunctionTool {
             name: "render_page",
             description: "Render all visible page text through qbutt's native cleaner and typesetter. Provide every region in reading order. Bounds enclose both source glyphs and the safe target layout inside a balloon or panel; inkBoxes tightly enclose only source glyph ink; layout is for horizontal target-language lettering. Returns the real result image and layout diagnostics. At most three renders including corrections.",
-            input_schema: json!({"type": "object", "properties": {"regions": {
-                "type": "array", "maxItems": 60, "items": {"type": "object", "properties": {
-                    "id": {"type": "string", "minLength": 1, "maxLength": 64},
-                    "sourceText": {"type": "string"},
-                    "translation": {"type": "string"},
-                    "bounds": rect,
-                    "layout": rect,
-                    "ink": {"type": "string", "enum": ["dark", "light"]},
-                    "inkBoxes": {"type": "array", "minItems": 1, "maxItems": 512, "items": rect}
-                }, "required": ["id", "sourceText", "translation", "bounds", "layout", "ink", "inkBoxes"],
-                    "additionalProperties": false}
-            }}, "required": ["regions"], "additionalProperties": false}),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "regions": {
+                        "type": "array",
+                        "maxItems": 60,
+                        "items": region,
+                    },
+                },
+                "required": ["regions"],
+                "additionalProperties": false,
+            }),
         },
     ]
 }
