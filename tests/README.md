@@ -63,8 +63,7 @@ The protected playback transport has a generated HTTP/HTTPS integration scenario
 cargo run --locked --offline -p qbutt-content --example media-gateway -- 'C:/Tools/qbutt/native-media-gateway-fixtures' 'C:/Program Files/mpv/mpv.com'
 ```
 
-Pass the existing generated fixture directory and the actual mpv executable as
-quoted paths in PowerShell. The scenario requires its local HLS/TLS fixture files;
+The scenario requires its local HLS/TLS fixture files;
 it does not use a live application profile. Require exit zero and all checks to
 pass. It exercises real mpv decoding, TLS trust, proxy authentication and framing,
 socket/header limits, retirement, a 67-second single HTTPS GET and closure after
@@ -256,6 +255,22 @@ Exit, the Downloads and AI-settings routes, and actual QML Light/Dark palette
 roles with white primary-action text. The Qt acceptance executable and its
 dependencies must be deployed together. This still synthesizes Qt input; native
 pointer and System appearance acceptance are separate.
+
+The MainWindow direct-video path has a real playback scenario:
+
+```powershell
+$env:QBUTT_QT_ACCEPTANCE_EXE = 'C:/Tools/qbutt/main-combined-qa/runtime/qbutt-qt-acceptance.exe'
+$env:QBUTT_QT_ACCEPTANCE_BUNDLE = 'C:/Tools/qbutt/main-combined-qa/runtime'
+$env:QBUTT_LAB_QPLAY = 'C:/Tools/qbutt/main-combined-qa/runtime/qplay/qplay.exe'
+bun tests/qt-acceptance/native-watch.ts
+```
+
+The bundle must include the matching `qbutt-content.exe` and verified qplay
+distribution for the current mediaRuntime owner. The runner uses a fresh profile
+and headless video/audio output. Require exit zero and passing evidence: exact
+AniLiberty episode/quality, real mpv file-loaded and advancing time, History only
+after ACK with the full Work/preferences, and retired gateway after stop.
+It does not establish native pointer or GPU playback.
 
 The metadata cancellation scenario uses a generated private torrent and an
 isolated loopback session. It cancels before the first native add callback,
