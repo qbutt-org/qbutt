@@ -14,8 +14,20 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_subdirectory("../../src/gui/quick" "quick")
 endif()
 
+get_filename_component(qbutt_product_lock_path "../../upstream-lock.json" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${qbutt_product_lock_path}")
+file(READ "${qbutt_product_lock_path}" qbutt_product_lock)
+string(JSON qbutt_qplay_minimum_version GET "${qbutt_product_lock}" products qplay version)
+string(JSON qbutt_qplay_protocol_version GET "${qbutt_product_lock}" products qplay protocolVersion)
+set_property(SOURCE ../../src/base/media/runtime.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+    "QBUTT_QPLAY_MINIMUM_VERSION=\"${qbutt_qplay_minimum_version}\""
+    "QBUTT_QPLAY_PROTOCOL_VERSION=${qbutt_qplay_protocol_version}"
+)
+
 qt_add_executable(qbutt-quick-acceptance
     main.cpp
+    ../../src/base/media/runtime.cpp
+    ../../src/base/media/runtime.h
     ../../src/gui/content/browsercapture.cpp
     ../../src/gui/content/browsercapture.h
     browser-relay.cpp
