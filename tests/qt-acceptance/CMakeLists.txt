@@ -10,6 +10,8 @@ qt_add_executable(qbutt-qt-acceptance
     quick-handoff.h
     native-watch.cpp
     native-watch.h
+    language-switch.cpp
+    language-switch.h
     reader-flow.cpp
     reader-flow.h
     update-registry.cpp
