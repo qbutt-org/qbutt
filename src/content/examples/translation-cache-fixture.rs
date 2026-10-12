@@ -42,12 +42,20 @@ fn main() -> Result<()> {
 
         // A v8 profile already has translated content but no selected model.
         let connection = rusqlite::Connection::open(profile.join("content-library.sqlite"))?;
-        connection.execute_batch("DROP TABLE translation_selection; PRAGMA user_version = 8;")?;
+        connection.execute_batch(
+            "ALTER TABLE reader_settings DROP COLUMN translation_language;
+             DROP TABLE translation_selection;
+             PRAGMA user_version = 8;",
+        )?;
         drop(connection);
 
         let mut library = Library::open(&profile)?;
         assert!(library.translation_selection("ru")?.is_none());
         assert!(library.cached_translation::<TextChapter>(&key)?.is_some());
+        let mut settings = library.reader_settings()?;
+        assert_eq!(settings.translation_language, "ru");
+        settings.translation_language = "en".into();
+        library.save_reader_settings(settings)?;
 
         // The first online exact hit records its resolved identity. Reopening
         // then uses that identity directly, without asking Codex for a catalog.
@@ -61,6 +69,7 @@ fn main() -> Result<()> {
         drop(library);
 
         let mut library = Library::open(&profile)?;
+        assert_eq!(library.reader_settings()?.translation_language, "en");
         let saved = library
             .translation_selection("ru")?
             .ok_or("selection missing")?;
@@ -96,6 +105,14 @@ fn main() -> Result<()> {
                 .is_err()
         );
         assert_eq!(library.translation_selection("ru")?, Some(explicit));
+
+        library.reset_translation_selection("ru")?;
+        let automatic = library
+            .translation_selection("ru")?
+            .ok_or("automatic selection missing")?;
+        assert!(!automatic.explicit);
+        let offline_key = cache_key(&original, "ru", &automatic.model, &automatic.effort, 0)?;
+        assert!(library.cached_translation::<TextChapter>(&offline_key)?.is_some());
 
         let manga = ChapterRef {
             variant: VariantRef {
@@ -208,7 +225,7 @@ fn main() -> Result<()> {
     std::fs::remove_dir_all(&profile)?;
     result?;
     println!(
-        "PASS translation_cache exact_hit model_miss effort_miss language_miss v8_migration manga_image_context"
+        "PASS translation_cache exact_hit model_miss effort_miss language_miss v8_migration target_persistence automatic_offline manga_image_context"
     );
     Ok(())
 }

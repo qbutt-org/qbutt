@@ -1,7 +1,7 @@
 use std::pin::Pin;
 
 use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::{QString, QStringList};
+use cxx_qt_lib::QString;
 use qbutt_content::TranslationSelection;
 use qbutt_content::translation::codex::{self, CodexModel};
 
@@ -18,21 +18,40 @@ pub(super) struct TranslationOptionsState {
 }
 
 impl ffi::ContentController {
-    pub(super) fn reader_translation_models(&self) -> QStringList {
-        self.translation_options
-            .models
-            .iter()
-            .map(|model| QString::from(&model.id))
-            .collect()
+    pub(super) fn reader_translation_model_count(&self) -> i32 {
+        self.translation_options.models.len() as i32
     }
 
-    pub(super) fn reader_translation_efforts(&self) -> QStringList {
+    pub fn reader_translation_model_at(&self, index: i32) -> QString {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.translation_options.models.get(index))
+            .map(|model| QString::from(&model.id))
+            .unwrap_or_default()
+    }
+
+    pub(super) fn reader_translation_effort_count(&self) -> i32 {
         let selected = self.reader_translation_model().to_string();
         self.translation_options
             .models
             .iter()
             .find(|model| model.id == selected)
-            .map(|model| model.efforts.iter().map(QString::from).collect())
+            .map_or(0, |model| model.efforts.len() as i32)
+    }
+
+    pub fn reader_translation_effort_at(&self, index: i32) -> QString {
+        let selected = self.reader_translation_model().to_string();
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| {
+                self.translation_options
+                    .models
+                    .iter()
+                    .find(|model| model.id == selected)?
+                    .efforts
+                    .get(index)
+            })
+            .map(QString::from)
             .unwrap_or_default()
     }
 
@@ -129,7 +148,13 @@ impl ffi::ContentController {
         }
         let model = model.to_string();
         let choice = if model.is_empty() {
-            None
+            self.translation_options
+                .selection
+                .clone()
+                .map(|mut selection| {
+                    selection.explicit = false;
+                    selection
+                })
         } else {
             let Some(available) = self
                 .translation_options
@@ -194,7 +219,7 @@ impl ffi::ContentController {
             .selection
             .as_ref()
             .filter(|saved| saved.explicit)
-            == choice.as_ref()
+            == choice.as_ref().filter(|selected| selected.explicit)
         {
             return true;
         }
@@ -212,13 +237,14 @@ impl ffi::ContentController {
         }
         self.as_mut().reader_translation_options_changed();
         runtime.spawn(async move {
-            let result = if let Some(selection) = &choice {
-                library
-                    .remember_translation_selection(selection.clone())
-                    .await
-            } else {
-                library.clear_translation_selection(language.clone()).await
-            };
+            let result =
+                if let Some(selection) = choice.as_ref().filter(|selection| selection.explicit) {
+                    library
+                        .remember_translation_selection(selection.clone())
+                        .await
+                } else {
+                    library.reset_translation_selection(language.clone()).await
+                };
             let _ = qt_thread.queue(move |mut controller| {
                 if controller.translation_options.generation != generation
                     || controller.translation_options.language != language

@@ -96,10 +96,10 @@ impl Library {
         Ok(())
     }
 
-    pub fn clear_translation_selection(&mut self, target_language: &str) -> LibraryResult<()> {
+    pub fn reset_translation_selection(&mut self, target_language: &str) -> LibraryResult<()> {
         validate_language(target_language)?;
         self.connection.execute(
-            "DELETE FROM translation_selection WHERE target_language = ?1",
+            "UPDATE translation_selection SET explicit = 0 WHERE target_language = ?1",
             [target_language],
         )?;
         Ok(())

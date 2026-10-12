@@ -86,12 +86,14 @@ impl Library {
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if application_id != APPLICATION_ID {
             return Err(LibraryError::ForeignDatabase);
-        } else if version == 8 {
-            transaction.execute_batch(TRANSLATION_SELECTION_SCHEMA)?;
-            transaction.execute_batch("ALTER TABLE reader_settings ADD COLUMN translation_language TEXT NOT NULL DEFAULT 'ru';")?;
-            transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-        } else if version == 9 {
-            transaction.execute_batch("ALTER TABLE reader_settings ADD COLUMN translation_language TEXT NOT NULL DEFAULT 'ru';")?;
+        } else if version == 8 || version == 9 {
+            if version == 8 {
+                transaction.execute_batch(TRANSLATION_SELECTION_SCHEMA)?;
+            }
+            transaction.execute_batch(
+                "ALTER TABLE reader_settings
+                 ADD COLUMN translation_language TEXT NOT NULL DEFAULT 'ru';",
+            )?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if version != SCHEMA_VERSION {
             return Err(LibraryError::UnsupportedSchema(version));

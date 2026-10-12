@@ -14,8 +14,13 @@ impl Client {
     pub(super) async fn available_models(&mut self) -> Result<Vec<CodexModel>> {
         let mut cursor: Option<String> = None;
         let mut models = Vec::new();
+        let mut pages = 0;
 
         loop {
+            pages += 1;
+            if pages > 10 {
+                return Err(CodexError::Protocol);
+            }
             let result = self
                 .request(
                     "model/list",
@@ -74,9 +79,6 @@ impl Client {
                 .map(str::to_owned);
             if cursor.is_none() {
                 break;
-            }
-            if models.len() >= 1000 {
-                return Err(CodexError::Protocol);
             }
         }
 

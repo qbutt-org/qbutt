@@ -186,8 +186,6 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
-        include!("cxx-qt-lib/qstringlist.h");
-        type QStringList = cxx_qt_lib::QStringList;
         include!("cxx-qt-lib/qurl.h");
         type QUrl = cxx_qt_lib::QUrl;
         include!("cxx-qt-lib/qvector.h");
@@ -490,17 +488,17 @@ pub mod ffi {
             NOTIFY = reader_changed
         )]
         #[qproperty(
-            QStringList,
-            reader_translation_models,
-            cxx_name = "readerTranslationModels",
-            READ = reader_translation_models,
+            i32,
+            reader_translation_model_count,
+            cxx_name = "readerTranslationModelCount",
+            READ = reader_translation_model_count,
             NOTIFY = reader_translation_options_changed
         )]
         #[qproperty(
-            QStringList,
-            reader_translation_efforts,
-            cxx_name = "readerTranslationEfforts",
-            READ = reader_translation_efforts,
+            i32,
+            reader_translation_effort_count,
+            cxx_name = "readerTranslationEffortCount",
+            READ = reader_translation_effort_count,
             NOTIFY = reader_translation_options_changed
         )]
         #[qproperty(
@@ -769,12 +767,18 @@ pub mod ffi {
         fn reader_settings_state(&self) -> ReaderSettingsState;
         fn reader_settings_error_text(&self) -> QString;
         fn reader_translation_language(&self) -> QString;
-        fn reader_translation_models(&self) -> QStringList;
-        fn reader_translation_efforts(&self) -> QStringList;
+        fn reader_translation_model_count(&self) -> i32;
+        fn reader_translation_effort_count(&self) -> i32;
         fn reader_translation_model(&self) -> QString;
         fn reader_translation_effort(&self) -> QString;
         fn reader_translation_options_loading(&self) -> bool;
         fn reader_translation_options_error(&self) -> bool;
+        #[qinvokable]
+        #[cxx_name = "readerTranslationModelAt"]
+        fn reader_translation_model_at(&self, index: i32) -> QString;
+        #[qinvokable]
+        #[cxx_name = "readerTranslationEffortAt"]
+        fn reader_translation_effort_at(&self, index: i32) -> QString;
         fn chapter_query(&self) -> &QString;
 
         #[qinvokable]

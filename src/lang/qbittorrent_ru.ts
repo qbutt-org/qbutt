@@ -19305,6 +19305,14 @@ Please choose a different name and try again.</source>
 <context>
     <name>ReaderToolbar</name>
     <message>
+        <source>Options</source>
+        <translation>Настройки</translation>
+    </message>
+    <message>
+        <source>Translation settings</source>
+        <translation>Настройки перевода</translation>
+    </message>
+    <message>
         <source>Translation</source>
         <translation>Перевод</translation>
     </message>
@@ -19343,6 +19351,81 @@ Please choose a different name and try again.</source>
     <message>
         <source>Appearance</source>
         <translation>Оформление</translation>
+    </message>
+</context>
+<context>
+    <name>ReaderTranslationPicker</name>
+    <message>
+        <source>Automatic</source>
+        <translation>Автоматически</translation>
+    </message>
+    <message>
+        <source>Low</source>
+        <translation>Низкий</translation>
+    </message>
+    <message>
+        <source>Medium</source>
+        <translation>Средний</translation>
+    </message>
+    <message>
+        <source>High</source>
+        <translation>Высокий</translation>
+    </message>
+    <message>
+        <source>Very high</source>
+        <translation>Очень высокий</translation>
+    </message>
+    <message>
+        <source>Maximum</source>
+        <translation>Максимальный</translation>
+    </message>
+    <message>
+        <source>Ultra</source>
+        <translation>Ультра</translation>
+    </message>
+    <message>
+        <source>Translation settings</source>
+        <translation>Настройки перевода</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Translate into</source>
+        <translation>Язык перевода</translation>
+    </message>
+    <message>
+        <source>Translation language</source>
+        <translation>Язык перевода</translation>
+    </message>
+    <message>
+        <source>Russian</source>
+        <translation>Русский</translation>
+    </message>
+    <message>
+        <source>English</source>
+        <translation>Английский</translation>
+    </message>
+    <message>
+        <source>Codex model</source>
+        <translation>Модель Codex</translation>
+    </message>
+    <message>
+        <source>Reasoning</source>
+        <translation>Рассуждение</translation>
+    </message>
+    <message>
+        <source>Reasoning effort</source>
+        <translation>Уровень рассуждения</translation>
+    </message>
+    <message>
+        <source>Translation options could not be loaded.</source>
+        <translation>Не удалось загрузить настройки перевода.</translation>
+    </message>
+    <message>
+        <source>Try again</source>
+        <translation>Повторить</translation>
     </message>
 </context>
 <context>

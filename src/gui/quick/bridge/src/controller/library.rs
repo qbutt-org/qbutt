@@ -139,7 +139,7 @@ enum LibraryCommand {
         selection: TranslationSelection,
         reply: oneshot::Sender<LibraryResult<()>>,
     },
-    ClearTranslationSelection {
+    ResetTranslationSelection {
         language: String,
         reply: oneshot::Sender<LibraryResult<()>>,
     },
@@ -250,10 +250,10 @@ impl LibraryWorker {
             .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
     }
 
-    pub(super) async fn clear_translation_selection(&self, language: String) -> LibraryResult<()> {
+    pub(super) async fn reset_translation_selection(&self, language: String) -> LibraryResult<()> {
         let (reply, received) = oneshot::channel();
         self.sender
-            .send(LibraryCommand::ClearTranslationSelection { language, reply })
+            .send(LibraryCommand::ResetTranslationSelection { language, reply })
             .await
             .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
         received
@@ -427,13 +427,13 @@ impl LibraryWorker {
                                 .and_then(|library| library.save_translation_selection(&selection));
                             let _ = reply.send(result);
                         }
-                        LibraryCommand::ClearTranslationSelection { language, reply } => {
+                        LibraryCommand::ResetTranslationSelection { language, reply } => {
                             let result = library
                                 .as_mut()
                                 .ok_or(LibraryError::InvalidEntry(
                                     "translation library is unavailable",
                                 ))
-                                .and_then(|library| library.clear_translation_selection(&language));
+                                .and_then(|library| library.reset_translation_selection(&language));
                             let _ = reply.send(result);
                         }
                         LibraryCommand::TranslationLookup {

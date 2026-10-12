@@ -12,28 +12,38 @@ ModalPicker {
     required property ContentController backend
     readonly property var modelChoices: {
         const choices = [{ title: qsTr("Automatic"), id: "" }];
-        const models = backend.readerTranslationModels;
         const selected = backend.readerTranslationModel;
-        if (selected !== "" && models.indexOf(selected) < 0)
-            choices.push({ title: qsTr("%1 (unavailable)").arg(selected), id: selected });
-        for (let index = 0; index < models.length; ++index)
-            choices.push({ title: models[index], id: models[index] });
+        for (let index = 0; index < backend.readerTranslationModelCount; ++index) {
+            const model = backend.readerTranslationModelAt(index);
+            choices.push({ title: model, id: model });
+        }
+        if (selected !== "" && !choices.some(choice => choice.id === selected))
+            choices.push({ title: selected, id: selected });
         return choices;
     }
     readonly property var effortChoices: {
         const choices = [];
-        const efforts = backend.readerTranslationEfforts;
         const selected = backend.readerTranslationEffort;
-        if (selected !== "" && efforts.indexOf(selected) < 0)
-            choices.push({ title: qsTr("%1 (unavailable)").arg(selected), id: selected });
-        for (let index = 0; index < efforts.length; ++index)
-            choices.push({ title: efforts[index], id: efforts[index] });
+        const labels = {
+            low: qsTr("Low"),
+            medium: qsTr("Medium"),
+            high: qsTr("High"),
+            xhigh: qsTr("Very high"),
+            max: qsTr("Maximum"),
+            ultra: qsTr("Ultra")
+        };
+        for (let index = 0; index < backend.readerTranslationEffortCount; ++index) {
+            const effort = backend.readerTranslationEffortAt(index);
+            choices.push({ title: labels[effort] ?? effort, id: effort });
+        }
+        if (selected !== "" && !choices.some(choice => choice.id === selected))
+            choices.push({ title: selected, id: selected });
         return choices;
     }
 
     anchors.centerIn: undefined
     width: Math.min(420, parent.width - 48)
-    height: 280
+    height: Math.min(backend.readerTranslationModel !== "" ? 360 : 310, parent.height - 48)
     x: parent.width - width - 24
     y: (parent.height - height) / 2
 
@@ -106,7 +116,7 @@ ModalPicker {
                 theme: root.theme
                 enabled: !root.backend.readerTranslationOptionsLoading
                     && !root.backend.readerTranslationOptionsError
-                    && root.backend.readerTranslationModels.length > 0
+                    && root.backend.readerTranslationModelCount > 0
                 Accessible.name: qsTr("Codex model")
                 textRole: "title"
                 valueRole: "id"
@@ -132,7 +142,7 @@ ModalPicker {
                 theme: root.theme
                 enabled: !root.backend.readerTranslationOptionsLoading
                     && !root.backend.readerTranslationOptionsError
-                    && root.backend.readerTranslationEfforts.length > 0
+                    && root.backend.readerTranslationEffortCount > 0
                 Accessible.name: qsTr("Reasoning effort")
                 textRole: "title"
                 valueRole: "id"
@@ -143,14 +153,23 @@ ModalPicker {
             }
         }
 
-        Label {
+        RowLayout {
             Layout.fillWidth: true
             visible: root.backend.readerTranslationOptionsError
-            text: qsTr("Codex models are unavailable. Your saved choice still applies.")
-            color: root.theme.muted
-            wrapMode: Text.Wrap
-        }
 
-        Item { Layout.fillHeight: true }
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Translation options could not be loaded.")
+                color: root.theme.muted
+                wrapMode: Text.Wrap
+            }
+
+            ActionButton {
+                objectName: "readerTranslationOptionsRetry"
+                theme: root.theme
+                text: qsTr("Try again")
+                onClicked: root.backend.loadReaderTranslationOptions()
+            }
+        }
     }
 }
