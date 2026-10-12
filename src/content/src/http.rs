@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
-use reqwest::header::{ACCEPT, ACCEPT_ENCODING, CONTENT_TYPE, HeaderMap, LOCATION};
+use reqwest::header::{ACCEPT, ACCEPT_ENCODING, CONTENT_TYPE, HeaderMap, LOCATION, REFERER};
 use serde::de::DeserializeOwned;
 use url::{Host, Url};
 
@@ -76,7 +76,7 @@ impl SourceHttp {
     pub(crate) async fn json<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
         let document = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Json, &[], None, None),
+            self.fetch(url, ResponseKind::Json, &[], None, None, None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
@@ -86,7 +86,7 @@ impl SourceHttp {
     pub(crate) async fn form_json<T: DeserializeOwned>(&self, url: Url, form: &str) -> Result<T> {
         let document = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Json, &[], Some(form), None),
+            self.fetch(url, ResponseKind::Json, &[], Some(form), None, None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
@@ -100,7 +100,7 @@ impl SourceHttp {
     ) -> Result<T> {
         let document = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Json, &[], None, Some(session)),
+            self.fetch(url, ResponseKind::Json, &[], None, Some(session), None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
@@ -115,7 +115,14 @@ impl SourceHttp {
     ) -> Result<Vec<u8>> {
         tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Image, allowed_hosts, None, Some(session)),
+            self.fetch(
+                url,
+                ResponseKind::Image,
+                allowed_hosts,
+                None,
+                Some(session),
+                None,
+            ),
         )
         .await
         .map_err(|_| Error::Timeout)?
@@ -125,7 +132,7 @@ impl SourceHttp {
     pub(crate) async fn image(&self, url: Url, allowed_hosts: &[&str]) -> Result<Vec<u8>> {
         tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Image, allowed_hosts, None, None),
+            self.fetch(url, ResponseKind::Image, allowed_hosts, None, None, None),
         )
         .await
         .map_err(|_| Error::Timeout)?
@@ -139,7 +146,7 @@ impl SourceHttp {
     pub(crate) async fn html_page(&self, url: Url) -> Result<(Url, String)> {
         let document = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Html, &[], None, None),
+            self.fetch(url, ResponseKind::Html, &[], None, None, None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
@@ -151,7 +158,7 @@ impl SourceHttp {
     pub(crate) async fn playlist(&self, url: Url) -> Result<(Url, String)> {
         let document = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Playlist, &[], None, None),
+            self.fetch(url, ResponseKind::Playlist, &[], None, None, None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
@@ -167,7 +174,7 @@ impl SourceHttp {
     ) -> Result<SourceDocument> {
         tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Document, &[], None, Some(session)),
+            self.fetch(url, ResponseKind::Document, &[], None, Some(session), None),
         )
         .await
         .map_err(|_| Error::Timeout)?
@@ -183,7 +190,28 @@ impl SourceHttp {
     ) -> Result<SourceDocument> {
         tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Metadata, &[], form, Some(session)),
+            self.fetch(url, ResponseKind::Metadata, &[], form, Some(session), None),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
+    }
+
+    pub(crate) async fn session_referred_metadata(
+        &self,
+        url: Url,
+        session: &mut SourceSession,
+        referer: &Url,
+    ) -> Result<SourceDocument> {
+        tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(
+                url,
+                ResponseKind::Metadata,
+                &[],
+                None,
+                Some(session),
+                Some(referer),
+            ),
         )
         .await
         .map_err(|_| Error::Timeout)?
@@ -196,6 +224,7 @@ impl SourceHttp {
         allowed_hosts: &[&str],
         mut form: Option<&str>,
         mut session: Option<&mut SourceSession>,
+        referer: Option<&Url>,
     ) -> Result<SourceDocument> {
         if form.is_some_and(|form| form.len() > MAX_FORM_BYTES) {
             return Err(Error::ResponseTooLarge);
@@ -205,6 +234,12 @@ impl SourceHttp {
             .is_some_and(|session| session.origin != url.origin())
         {
             return Err(Error::UnsafeAddress);
+        }
+        if let Some(referer) = referer {
+            validate_https_url(referer)?;
+            if referer.origin() != self.origin.origin() {
+                return Err(Error::UnsafeAddress);
+            }
         }
         let raw = matches!(kind, ResponseKind::Document | ResponseKind::Metadata);
         let same_origin = !matches!(kind, ResponseKind::Image | ResponseKind::Playlist);
@@ -245,6 +280,11 @@ impl SourceHttp {
             };
             let request = if let Some(session) = session.as_ref() {
                 session.apply(request, &url)?
+            } else {
+                request
+            };
+            let request = if let Some(referer) = referer {
+                request.header(REFERER, referer.as_str())
             } else {
                 request
             };
