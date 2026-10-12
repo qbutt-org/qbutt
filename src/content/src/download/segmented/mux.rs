@@ -4,6 +4,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
+use tokio::sync::watch;
 
 use super::{DownloadError, Inputs, MediaTools};
 use crate::PlaybackAudioTrack;
@@ -50,13 +51,14 @@ pub(super) async fn select_audio(
     input: &Path,
     wanted: &PlaybackAudioTrack,
     exact_input: bool,
+    cancel: &mut watch::Receiver<bool>,
 ) -> Result<usize, DownloadError> {
     let mut args = vec!["-v".into(), "error".into()];
     input_options(&mut args, input);
     args.extend(["-show_streams".into(), "-of".into(), "json".into()]);
     args.push(input.to_string_lossy().into_owned());
     let borrowed = args.iter().map(String::as_str).collect::<Vec<_>>();
-    let output = run_tool(&tools.ffprobe, &borrowed, Duration::from_secs(30)).await?;
+    let output = run_tool(&tools.ffprobe, &borrowed, Duration::from_secs(30), cancel).await?;
     let probe: Probe = serde_json::from_slice(&output).map_err(|_| DownloadError::Stream)?;
     let audio = probe
         .streams
@@ -101,6 +103,7 @@ pub(super) async fn mux(
     inputs: &Inputs,
     audio_stream: Option<usize>,
     output: &Path,
+    cancel: &mut watch::Receiver<bool>,
 ) -> Result<(), DownloadError> {
     let mut args = vec![
         "-nostdin".to_owned(),
@@ -157,7 +160,7 @@ pub(super) async fn mux(
         output.to_string_lossy().into_owned(),
     ]);
     let borrowed = args.iter().map(String::as_str).collect::<Vec<_>>();
-    run_tool(&tools.ffmpeg, &borrowed, Duration::from_secs(7200)).await?;
+    run_tool(&tools.ffmpeg, &borrowed, Duration::from_secs(7200), cancel).await?;
     Ok(())
 }
 
@@ -182,6 +185,7 @@ pub(super) async fn verify_output(
     tools: &MediaTools,
     output: &Path,
     inputs: &Inputs,
+    cancel: &mut watch::Receiver<bool>,
 ) -> Result<(), DownloadError> {
     let result = run_tool(
         &tools.ffprobe,
@@ -196,6 +200,7 @@ pub(super) async fn verify_output(
             output.to_str().ok_or(DownloadError::Format)?,
         ],
         Duration::from_secs(7200),
+        cancel,
     )
     .await?;
     let verified: VerifiedOutput =
@@ -232,7 +237,15 @@ pub(super) async fn verify_output(
     Ok(())
 }
 
-async fn run_tool(path: &Path, args: &[&str], limit: Duration) -> Result<Vec<u8>, DownloadError> {
+async fn run_tool(
+    path: &Path,
+    args: &[&str],
+    limit: Duration,
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<Vec<u8>, DownloadError> {
+    if *cancel.borrow() {
+        return Err(DownloadError::Cancelled);
+    }
     let mut command = Command::new(path);
     command
         .args(args)
@@ -245,15 +258,29 @@ async fn run_tool(path: &Path, args: &[&str], limit: Duration) -> Result<Vec<u8>
     let mut child = command.spawn().map_err(|_| DownloadError::MediaTools)?;
     let stdout = child.stdout.take().ok_or(DownloadError::Stream)?;
     let stderr = child.stderr.take().ok_or(DownloadError::Stream)?;
-    let result = tokio::time::timeout(limit, async {
-        tokio::try_join!(
-            read_tool_output(stdout, 2 * 1024 * 1024),
-            read_tool_output(stderr, 4 * 1024),
-            child.wait(),
-        )
-    })
-    .await
-    .map_err(|_| DownloadError::Timeout)??;
+    let result = tokio::select! {
+        result = tokio::time::timeout(limit, async {
+            tokio::try_join!(
+                read_tool_output(stdout, 2 * 1024 * 1024),
+                read_tool_output(stderr, 4 * 1024),
+                child.wait(),
+            )
+        }) => match result {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
+                child.kill().await?;
+                return Err(error.into());
+            }
+            Err(_) => {
+                child.kill().await?;
+                return Err(DownloadError::Timeout);
+            }
+        },
+        _ = cancel.changed() => {
+            child.kill().await?;
+            return Err(DownloadError::Cancelled);
+        }
+    };
     let (stdout, _stderr, status) = result;
     if !status.success() || stdout.1 {
         #[cfg(feature = "download-fixture")]

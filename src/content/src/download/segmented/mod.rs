@@ -8,6 +8,7 @@ use reqwest::Client;
 use reqwest::Response;
 use tokio::fs::{self, OpenOptions};
 use tokio::io::AsyncWriteExt;
+use tokio::sync::watch;
 use url::Url;
 
 use super::transfer::{StagedDownload, staged_local_file};
@@ -100,7 +101,11 @@ pub(super) async fn stage(
     directory: &Path,
     partial: &Path,
     progress: &mut (dyn FnMut(u64, Option<u64>) + Send),
+    mut cancel: watch::Receiver<bool>,
 ) -> Result<StagedDownload, DownloadError> {
+    if *cancel.borrow() {
+        return Err(DownloadError::Cancelled);
+    }
     fs::create_dir(directory).await?;
     let mut materializer = Materializer {
         source: MediaResources::with_client(media, client.clone())
@@ -110,25 +115,40 @@ pub(super) async fn stage(
         received: 0,
         progress,
     };
-    let mut inputs = materializer.video(media).await?;
-    for subtitle in &media.subtitles {
-        inputs.subtitles.push(SubtitleInput {
-            path: materializer
-                .resource(subtitle.url.clone(), AuxiliaryKind::Subtitle)
-                .await?,
-            title: subtitle.title.clone(),
-            language: subtitle.language.clone(),
-        });
-    }
+    let inputs = tokio::select! {
+        result = async {
+            let mut inputs = materializer.video(media).await?;
+            for subtitle in &media.subtitles {
+                inputs.subtitles.push(SubtitleInput {
+                    path: materializer
+                        .resource(subtitle.url.clone(), AuxiliaryKind::Subtitle)
+                        .await?,
+                    title: subtitle.title.clone(),
+                    language: subtitle.language.clone(),
+                });
+            }
+            Ok::<_, DownloadError>(inputs)
+        } => result?,
+        _ = cancel.changed() => return Err(DownloadError::Cancelled),
+    };
 
     let audio_input = inputs.audio.as_ref().unwrap_or(&inputs.video);
     let audio_stream = if let Some(track) = &media.audio_track {
-        Some(select_audio(tools, audio_input, track, inputs.audio.is_some()).await?)
+        Some(
+            select_audio(
+                tools,
+                audio_input,
+                track,
+                inputs.audio.is_some(),
+                &mut cancel,
+            )
+            .await?,
+        )
     } else {
         None
     };
-    mux(tools, &inputs, audio_stream, partial).await?;
-    verify_output(tools, partial, &inputs).await?;
+    mux(tools, &inputs, audio_stream, partial, &mut cancel).await?;
+    verify_output(tools, partial, &inputs, &mut cancel).await?;
     let staged = staged_local_file(partial).await?;
     (materializer.progress)(staged.size(), Some(staged.size()));
     Ok(staged)

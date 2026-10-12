@@ -538,13 +538,7 @@ impl<S: DownloadStorage> QueueInner<S> {
             Ok(()) => outcome,
             Err(error) => Err(error),
         };
-        let state = self.state.lock().await;
-        let cancelled = state
-            .cancellation
-            .get(id)
-            .is_some_and(|sender| *sender.borrow());
-        let closing = state.closed;
-        drop(state);
+        let closing = self.state.lock().await.closed;
         let result = self
             .update(id, |job| {
                 if job.status != DownloadStatus::Complete {
@@ -555,7 +549,7 @@ impl<S: DownloadStorage> QueueInner<S> {
                             job.error = None;
                         }
                         Err(error) => {
-                            if cancelled && !closing {
+                            if !closing && matches!(&error, DownloadError::Cancelled) {
                                 job.status = DownloadStatus::Cancelled;
                                 job.error = None;
                             } else {
@@ -635,6 +629,7 @@ impl<S: DownloadStorage> QueueInner<S> {
                 last_report = Instant::now();
             }
         };
+        let segmented_cancel = cancel.clone();
         let transfer = async {
             if let Some(segmented) = &request.segmented {
                 segmented::stage(
@@ -644,6 +639,7 @@ impl<S: DownloadStorage> QueueInner<S> {
                     &staging.join(id),
                     &partial,
                     &mut progress,
+                    segmented_cancel,
                 )
                 .await
             } else {
@@ -654,7 +650,7 @@ impl<S: DownloadStorage> QueueInner<S> {
         let staged = loop {
             tokio::select! {
                 result = &mut transfer => break result?,
-                _ = cancel.changed() => {
+                _ = cancel.changed(), if request.segmented.is_none() => {
                     if *cancel.borrow() { return Err(DownloadError::Cancelled); }
                 }
                 Ok(()) = progress_receiver.changed() => {
@@ -757,6 +753,20 @@ async fn remove_partial(destination: &Path, id: &str) -> Result<(), DownloadErro
     if !safe_staging_exists(destination).await? {
         return Ok(());
     }
+    // Windows may hold a media tool's file handle briefly after process exit.
+    #[cfg(windows)]
+    for _ in 0..9 {
+        match remove_partial_once(destination, id).await {
+            Err(DownloadError::Io(error)) if matches!(error.raw_os_error(), Some(32 | 33)) => {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            result => return result,
+        }
+    }
+    remove_partial_once(destination, id).await
+}
+
+async fn remove_partial_once(destination: &Path, id: &str) -> Result<(), DownloadError> {
     if let Err(error) = fs::remove_file(partial_path(destination, id)).await {
         if error.kind() != io::ErrorKind::NotFound {
             return Err(error.into());
