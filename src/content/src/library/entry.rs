@@ -228,6 +228,9 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
             (Source::RanobeLib, VariantSelector::LibTranslation { .. }) => {
                 variant.transport == Transport::Text
             }
+            (Source::RanobeHub, VariantSelector::RanobeHubTranslation { .. }) => {
+                variant.transport == Transport::Text
+            }
             (
                 Source::RuTor | Source::RuTracker | Source::Nyaa | Source::FitGirl,
                 VariantSelector::TorrentHash { info_hash },

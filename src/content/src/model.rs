@@ -19,6 +19,7 @@ pub enum Source {
     FitGirl,
     RoyalRoad,
     Kakuyomu,
+    RanobeHub,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -39,6 +40,7 @@ impl PublicationRef {
             Source::Rutube => self.rutube_id().map(|_| ()),
             Source::FitGirl => self.fitgirl_slug().map(|_| ()),
             Source::RoyalRoad => self.royalroad_id().map(|_| ()),
+            Source::RanobeHub => self.ranobehub_id().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
             Source::RanobeLib => self.ranobelib_id().map(|_| ()),
             Source::Kakuyomu => self.kakuyomu_id().map(|_| ()),
@@ -91,6 +93,10 @@ impl PublicationRef {
 
     pub(crate) fn royalroad_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::RoyalRoad)
+    }
+
+    pub(crate) fn ranobehub_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::RanobeHub)
     }
 
     pub(crate) fn rutube_id(&self) -> crate::Result<&str> {
@@ -211,11 +217,21 @@ pub enum VariantSelector {
     },
     /// The original text published by the containing source publication.
     OriginalText,
+    RanobeHubTranslation {
+        branch: String,
+    },
 }
 
 impl VariantSelector {
     pub(crate) fn validate(&self) -> crate::Result<()> {
         let valid = match self {
+            Self::RanobeHubTranslation { branch } => {
+                !branch.is_empty()
+                    && branch.len() <= 100
+                    && branch.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                    })
+            }
             Self::RutubeVideo | Self::OriginalText => true,
             Self::Torrent { id } => *id != 0,
             Self::TorrentHash { info_hash } => {
@@ -287,6 +303,10 @@ impl VariantRef {
                 | (Source::Rutube, VariantSelector::RutubeVideo)
                 | (Source::RoyalRoad, VariantSelector::OriginalText)
                 | (Source::Kakuyomu, VariantSelector::OriginalText)
+                | (
+                    Source::RanobeHub,
+                    VariantSelector::RanobeHubTranslation { .. }
+                )
         );
         if matches_source {
             Ok(())
@@ -329,7 +349,7 @@ impl ChapterRef {
         self.variant.validate()?;
         if match self.variant.publication.source {
             Source::MangaDex => canonical_uuid(&self.id),
-            Source::MangaLib | Source::RanobeLib => canonical_decimal(&self.id),
+            Source::MangaLib | Source::RanobeLib | Source::RanobeHub => canonical_decimal(&self.id),
             Source::RoyalRoad => self.id.split_once('/').is_some_and(|(fiction, chapter)| {
                 fiction == self.variant.publication.id && canonical_decimal(chapter)
             }),
