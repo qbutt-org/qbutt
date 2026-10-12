@@ -283,6 +283,7 @@ pub enum Transport {
     Torrent,
     Video,
     Manga,
+    Text,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
