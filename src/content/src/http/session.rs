@@ -128,7 +128,7 @@ impl SourceSession {
         }
         self.cookies.retain(|old| {
             let same_key = old.domain.as_cow() == cookie.domain.as_cow()
-                && old.path == cookie.path
+                && old.path.as_ref() == cookie.path.as_ref()
                 && old.name() == cookie.name();
             !old.is_expired() && !same_key
         });

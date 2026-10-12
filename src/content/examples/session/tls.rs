@@ -168,7 +168,7 @@ async fn connection(
                     && cookies.contains(&"gone=remove")
             );
             assert!(!cookies.contains(&"expired=never"));
-            response(&mut stream, 302, "Location: /forum/final\r\nSet-Cookie: sid=new; Domain=fixture.example; Path=/forum; Secure\r\nSet-Cookie: gone=; Max-Age=0; Path=/\r\nSet-Cookie: off=hidden; Path=/other\r\nSet-Cookie: evil=never; Domain=other.example; Path=/\r\nSet-Cookie: temp=brief; Max-Age=1; Path=/forum\r\n", b"").await?;
+            response(&mut stream, 302, "Location: /forum/final\r\nSet-Cookie: sid=new; Domain=fixture.example; Secure\r\nSet-Cookie: gone=; Max-Age=0; Path=/\r\nSet-Cookie: off=hidden; Path=/other\r\nSet-Cookie: evil=never; Domain=other.example; Path=/\r\nSet-Cookie: temp=brief; Max-Age=1; Path=/forum\r\n", b"").await?;
         }
         "/forum/final" => {
             assert_eq!(
@@ -193,10 +193,14 @@ async fn connection(
             response(
                 &mut stream,
                 200,
-                "Set-Cookie: sid=; Domain=fixture.example; Path=/forum; Max-Age=0\r\n",
+                "Set-Cookie: sid=; Domain=fixture.example; Max-Age=0\r\n",
                 b"after",
             )
             .await?;
+        }
+        "/forum/deleted" => {
+            assert!(!cookies.iter().any(|value| value.starts_with("sid=")));
+            response(&mut stream, 200, "", b"deleted").await?;
         }
         "/outside" => {
             assert_eq!(cookies, vec!["wide=root"]);

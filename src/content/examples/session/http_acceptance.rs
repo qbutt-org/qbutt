@@ -25,6 +25,8 @@ pub(super) async fn run(fixture: &Fixture, source: &mut SourceSession) -> Fixtur
     sleep(Duration::from_millis(1100)).await;
     http.session_document(fixture.origin.join("/forum/after")?, source)
         .await?;
+    http.session_document(fixture.origin.join("/forum/deleted")?, source)
+        .await?;
     http.session_document(fixture.origin.join("/outside")?, source)
         .await?;
     println!("PASS scoped cookies, replacement, deletion, expiry and per-hop updates");
