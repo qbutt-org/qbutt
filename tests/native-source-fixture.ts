@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
-// Only this acceptance run trusts its generated local TLS endpoint. The
-// provider, parser, URL checks and shipping SourceHttp are compiled unchanged.
+// Only the acceptance build redirects and trusts the generated local TLS endpoint.
+// The provider, parser and URL checks still run through their production paths.
 const [buildDirectory, executable, certificate, key, hostList, fixture] = process.argv.slice(2);
 assert([buildDirectory, executable, certificate, key, fixture].every(value => value && isAbsolute(value)),
     "Expected absolute build, executable, certificate, key and fixture paths");
@@ -15,7 +14,6 @@ assert(hosts.length > 0 && hosts.every(host => /^[a-z0-9.-]+$/.test(host)), "Inv
 const repository = resolve(import.meta.dir, "..");
 const source = join(repository, "src", "content", "src", "http.rs");
 const original = await readFile(source);
-const originalHash = createHash("sha256").update(original).digest("hex");
 const status = Bun.spawnSync(["git", "status", "--porcelain", "--", source], {
     cwd: repository,
     stdout: "pipe",
@@ -65,16 +63,23 @@ try {
     await run(["cmake", "--build", buildDirectory, "--config", "RelWithDebInfo",
         "--target", "qbutt-quick-acceptance", "--parallel", "6"]);
     await run([process.execPath, fixture, executable, certificate, key]);
+} catch (error) {
+    if (!patchedSource) {
+        await copyFile(backup, source);
+        restored = (await readFile(source)).equals(original);
+        assert(restored, `SourceHttp restoration failed; original saved at ${backup}`);
+    }
+    throw error;
 } finally {
     if (patchedSource) {
         const current = await readFile(source);
         assert(current.equals(patched), `SourceHttp changed during the fixture; original saved at ${backup}`);
         await copyFile(backup, source);
-        restored = createHash("sha256").update(await readFile(source)).digest("hex") === originalHash;
+        restored = (await readFile(source)).equals(original);
         assert(restored, `SourceHttp restoration failed; original saved at ${backup}`);
         await run(["cmake", "--build", buildDirectory, "--config", "RelWithDebInfo",
             "--target", "qbutt-quick-acceptance", "--parallel", "6"]);
     }
-    if (restored || !patchedSource)
+    if (restored)
         await rm(backupDirectory, { recursive: true, force: true });
 }
