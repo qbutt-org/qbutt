@@ -17,8 +17,13 @@ use super::{
 pub(crate) struct Request {
     pub choice: BrowserChoice,
     pub command: BrowserCommand,
-    pub reply: oneshot::Sender<Result<BrowserReply, BrowserError>>,
+    pub reply: oneshot::Sender<Result<Outcome, BrowserError>>,
     pub deadline: Instant,
+}
+
+pub(super) struct Outcome {
+    pub connection: BrowserConnection,
+    pub reply: BrowserReply,
 }
 
 struct Client {
@@ -29,8 +34,9 @@ struct Client {
 
 struct Pending {
     connection: u64,
+    metadata: BrowserConnection,
     command: BrowserCommand,
-    reply: oneshot::Sender<Result<BrowserReply, BrowserError>>,
+    reply: oneshot::Sender<Result<Outcome, BrowserError>>,
     deadline: Instant,
 }
 
@@ -122,6 +128,7 @@ pub(crate) async fn run(
                             Err(error.error())
                         } else {
                             request.command.reply(response.result.expect("validated response"))
+                                .map(|reply| Outcome { connection: request.metadata, reply })
                         };
                         let _ = request.reply.send(result);
                     }
@@ -179,6 +186,7 @@ pub(crate) async fn run(
                 }
                 pending.insert(id, Pending {
                     connection,
+                    metadata: metadata.clone(),
                     deadline: request.deadline,
                     command: request.command,
                     reply: request.reply,

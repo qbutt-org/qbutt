@@ -22,6 +22,7 @@ use std::sync::Arc;
 use tokio::sync::{Notify, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, timeout_at};
+use url::Url;
 
 pub use command::*;
 pub use protocol::*;
@@ -114,6 +115,14 @@ pub struct BrowserHandle {
     slots: Arc<Semaphore>,
 }
 
+/// Ephemeral native source credentials from one selected browser connection.
+/// This value never crosses the foreign wire, Qt models or diagnostics.
+pub struct BrowserSession {
+    pub(crate) url: Url,
+    pub(crate) connection: BrowserConnection,
+    pub(crate) cookies: Vec<BrowserCookie>,
+}
+
 impl BrowserBroker {
     pub async fn start(discovery_path: PathBuf) -> Result<Self, BrowserError> {
         let mut discovery =
@@ -177,7 +186,9 @@ impl BrowserHandle {
         choice: BrowserChoice,
         command: BrowserCommand,
     ) -> Result<BrowserReply, BrowserError> {
-        self.request_inner(choice, command, true).await
+        self.request_inner(choice, command, true)
+            .await
+            .map(|outcome| outcome.reply)
     }
 
     /// Submit only to an already connected browser. Optional cookie import
@@ -188,7 +199,33 @@ impl BrowserHandle {
         choice: BrowserChoice,
         command: BrowserCommand,
     ) -> Result<BrowserReply, BrowserError> {
-        self.request_inner(choice, command, false).await
+        self.request_inner(choice, command, false)
+            .await
+            .map(|outcome| outcome.reply)
+    }
+
+    /// Import cookies for this exact HTTPS URL without waiting for a browser.
+    /// Connection metadata is captured at dispatch, together with the reply's
+    /// connection identity, so a concurrent reconnect cannot replace its UA.
+    pub async fn session_connected(
+        &self,
+        choice: BrowserChoice,
+        url: Url,
+    ) -> Result<BrowserSession, BrowserError> {
+        if url.scheme() != "https" {
+            return Err(BrowserError::InvalidRequest);
+        }
+        let outcome = self
+            .request_inner(choice, BrowserCommand::Cookies { url: url.clone() }, false)
+            .await?;
+        let BrowserReply::Cookies(cookies) = outcome.reply else {
+            return Err(BrowserError::InvalidResponse);
+        };
+        Ok(BrowserSession {
+            url,
+            connection: outcome.connection,
+            cookies,
+        })
     }
 
     async fn request_inner(
@@ -196,7 +233,7 @@ impl BrowserHandle {
         choice: BrowserChoice,
         command: BrowserCommand,
         wait_for_connection: bool,
-    ) -> Result<BrowserReply, BrowserError> {
+    ) -> Result<actor::Outcome, BrowserError> {
         command.validate()?;
         if *self.stopping.borrow() {
             return Err(BrowserError::Stopped);

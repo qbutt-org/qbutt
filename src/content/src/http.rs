@@ -10,6 +10,10 @@ use url::{Host, Url};
 
 use crate::{Error, Result};
 
+#[path = "http/session.rs"]
+mod session;
+pub(crate) use session::SourceSession;
+
 const MAX_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
 const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
 const MAX_FORM_BYTES: usize = 16 * 1024;
@@ -21,6 +25,16 @@ enum ResponseKind {
     Html,
     Image,
     Playlist,
+    Document,
+}
+
+/// Raw, bounded source content. Providers classify login/challenge responses and
+/// decode the source's advertised charset without losing HTTP failure bodies.
+pub(crate) struct SourceDocument {
+    pub status: u16,
+    pub content_type: Option<String>,
+    pub final_url: Url,
+    pub body: Vec<u8>,
 }
 
 pub(crate) struct SourceHttp {
@@ -46,36 +60,36 @@ impl SourceHttp {
     }
 
     pub(crate) async fn json<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
-        let (_, bytes) = tokio::time::timeout(
+        let document = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Json, &[], None),
+            self.fetch(url, ResponseKind::Json, &[], None, None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
-        serde_json::from_slice(&bytes).map_err(Error::Json)
+        serde_json::from_slice(&document.body).map_err(Error::Json)
     }
 
     pub(crate) async fn form_json<T: DeserializeOwned>(&self, url: Url, form: &str) -> Result<T> {
         if form.len() > MAX_FORM_BYTES {
             return Err(Error::ResponseTooLarge);
         }
-        let (_, bytes) = tokio::time::timeout(
+        let document = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Json, &[], Some(form)),
+            self.fetch(url, ResponseKind::Json, &[], Some(form), None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
-        serde_json::from_slice(&bytes).map_err(Error::Json)
+        serde_json::from_slice(&document.body).map_err(Error::Json)
     }
 
     pub(crate) async fn image(&self, url: Url, allowed_hosts: &[&str]) -> Result<Vec<u8>> {
         tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Image, allowed_hosts, None),
+            self.fetch(url, ResponseKind::Image, allowed_hosts, None, None),
         )
         .await
         .map_err(|_| Error::Timeout)?
-        .map(|(_, bytes)| bytes)
+        .map(|document| document.body)
     }
 
     pub(crate) async fn html(&self, url: Url) -> Result<String> {
@@ -83,27 +97,43 @@ impl SourceHttp {
     }
 
     pub(crate) async fn html_page(&self, url: Url) -> Result<(Url, String)> {
-        let (url, bytes) = tokio::time::timeout(
+        let document = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Html, &[], None),
+            self.fetch(url, ResponseKind::Html, &[], None, None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
-        let html =
-            String::from_utf8(bytes).map_err(|_| Error::InvalidResponse("HTML is not UTF-8"))?;
-        Ok((url, html))
+        let html = String::from_utf8(document.body)
+            .map_err(|_| Error::InvalidResponse("HTML is not UTF-8"))?;
+        Ok((document.final_url, html))
     }
 
     pub(crate) async fn playlist(&self, url: Url) -> Result<(Url, String)> {
-        let (url, bytes) = tokio::time::timeout(
+        let document = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Playlist, &[], None),
+            self.fetch(url, ResponseKind::Playlist, &[], None, None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
-        let text = String::from_utf8(bytes)
+        let text = String::from_utf8(document.body)
             .map_err(|_| Error::InvalidResponse("playlist is not UTF-8"))?;
-        Ok((url, text))
+        Ok((document.final_url, text))
+    }
+
+    pub(crate) async fn session_document(
+        &self,
+        url: Url,
+        session: &mut SourceSession,
+    ) -> Result<SourceDocument> {
+        if session.origin != self.origin.origin() {
+            return Err(Error::UnsafeAddress);
+        }
+        tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(url, ResponseKind::Document, &[], None, Some(session)),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
     }
 
     async fn fetch(
@@ -112,9 +142,16 @@ impl SourceHttp {
         kind: ResponseKind,
         allowed_hosts: &[&str],
         form: Option<&str>,
-    ) -> Result<(Url, Vec<u8>)> {
-        let same_origin = matches!(kind, ResponseKind::Json | ResponseKind::Html);
-        let max_bytes = if matches!(kind, ResponseKind::Html | ResponseKind::Playlist) {
+        mut session: Option<&mut SourceSession>,
+    ) -> Result<SourceDocument> {
+        let same_origin = matches!(
+            kind,
+            ResponseKind::Json | ResponseKind::Html | ResponseKind::Document
+        );
+        let max_bytes = if matches!(
+            kind,
+            ResponseKind::Html | ResponseKind::Playlist | ResponseKind::Document
+        ) {
             MAX_HTML_BYTES
         } else {
             MAX_RESPONSE_BYTES
@@ -144,12 +181,17 @@ impl SourceHttp {
             } else {
                 self.client.get(url.clone())
             };
+            let request = if let Some(session) = session.as_ref() {
+                session.apply(request, &url)?
+            } else {
+                request
+            };
             let mut response = request
                 .header(
                     ACCEPT,
                     match kind {
                         ResponseKind::Json => "application/json",
-                        ResponseKind::Html => "text/html",
+                        ResponseKind::Html | ResponseKind::Document => "text/html",
                         ResponseKind::Image => "image/*",
                         ResponseKind::Playlist => {
                             "application/vnd.apple.mpegurl, application/x-mpegURL, text/plain"
@@ -160,6 +202,10 @@ impl SourceHttp {
                 .send()
                 .await
                 .map_err(network_error)?;
+
+            if let Some(session) = session.as_mut() {
+                session.receive(response.headers(), &url)?;
+            }
 
             if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
                 // Do not turn a signed form submission into a different method
@@ -179,13 +225,17 @@ impl SourceHttp {
                 continue;
             }
 
-            if !response.status().is_success() {
+            if !matches!(kind, ResponseKind::Document) && !response.status().is_success() {
                 return Err(Error::HttpStatus(response.status().as_u16()));
             }
-            let mime = response
+            let content_type = response
                 .headers()
                 .get(CONTENT_TYPE)
                 .and_then(|value| value.to_str().ok())
+                .filter(|value| value.len() <= 1024)
+                .map(str::to_owned);
+            let mime = content_type
+                .as_deref()
                 .and_then(|value| value.split(';').next())
                 .map(str::trim);
             match kind {
@@ -214,10 +264,15 @@ impl SourceHttp {
                 bytes.extend_from_slice(&chunk);
             }
 
-            if bytes.is_empty() {
+            if bytes.is_empty() && !matches!(kind, ResponseKind::Document) {
                 return Err(Error::InvalidResponse("empty source response"));
             }
-            return Ok((url, bytes));
+            return Ok(SourceDocument {
+                status: response.status().as_u16(),
+                content_type,
+                final_url: url,
+                body: bytes,
+            });
         }
 
         Err(Error::InvalidRedirect)
