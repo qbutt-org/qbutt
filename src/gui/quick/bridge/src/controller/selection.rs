@@ -74,6 +74,10 @@ impl ffi::ContentController {
             references,
             publications,
         };
+        let same_anchor = self
+            .selected_group
+            .as_ref()
+            .is_some_and(|current| current.anchor == anchor);
         let continuing = self.selected_group.as_ref().is_some_and(|current| {
             current.anchor == anchor && current.references == group.references
         });
@@ -107,13 +111,12 @@ impl ffi::ContentController {
             self.as_mut().rust_mut().list_mode = ffi::ListMode::Search;
             self.as_mut().list_mode_changed();
         }
-        if !continuing {
-            self.as_mut()
-                .rust_mut()
-                .work_preferences
-                .entry(anchor)
-                .or_default()
-                .selected = preferred;
+        if let Some(preferred) = preferred {
+            let state = self.as_mut().rust_mut();
+            let preferences = state.work_preferences.entry(anchor).or_default();
+            if !same_anchor || preferences.selected.is_none() {
+                preferences.selected = Some(preferred);
+            }
         }
         self.as_mut().show_group(&group, generation)
     }
