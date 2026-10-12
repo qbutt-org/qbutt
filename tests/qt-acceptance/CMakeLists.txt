@@ -8,6 +8,8 @@ qt_add_executable(qbutt-qt-acceptance
     modal-overlay.h
     quick-handoff.cpp
     quick-handoff.h
+    native-watch.cpp
+    native-watch.h
     reader-flow.cpp
     reader-flow.h
     update-registry.cpp

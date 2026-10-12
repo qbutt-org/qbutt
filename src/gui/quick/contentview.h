@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QQuickWidget>
+#include <QUrl>
 
 namespace Qbutt
 {
@@ -18,9 +19,13 @@ namespace Content
         explicit ContentView(const QString &profileDir, QWidget *parent = nullptr);
         void giveFocusToSearchInput();
         bool isReading() const;
+        bool confirmPlayback(quint64 launchToken);
+        bool finishPlayback(quint64 launchToken);
 
     signals:
         void torrentReady(const QString &magnet);
+        void videoReady(quint64 launchToken, const QString &identity, const QUrl &url,
+            const QUrl &proxyUrl, const QString &title, const QString &contentKind);
         void readerActiveChanged();
         void searchFinished(bool failed);
 

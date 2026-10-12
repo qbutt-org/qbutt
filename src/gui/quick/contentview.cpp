@@ -16,6 +16,7 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     m_controller->initLibrary(profileDir);
     m_controller->setObjectName(QStringLiteral("contentController"));
     connect(m_controller, &Qbutt::ContentController::torrentReady, this, &ContentView::torrentReady);
+    connect(m_controller, &Qbutt::ContentController::videoReady, this, &ContentView::videoReady);
     connect(m_controller, &Qbutt::ContentController::readerChanged, this, &ContentView::readerActiveChanged);
     connect(m_controller, &Qbutt::ContentController::searchStateChanged, this, [this]
     {
@@ -44,6 +45,16 @@ void Content::ContentView::giveFocusToSearchInput()
 bool Content::ContentView::isReading() const
 {
     return m_controller->reader_open();
+}
+
+bool Content::ContentView::confirmPlayback(const quint64 launchToken)
+{
+    return m_controller->confirmPlayback(launchToken);
+}
+
+bool Content::ContentView::finishPlayback(const quint64 launchToken)
+{
+    return m_controller->finishPlayback(launchToken);
 }
 
 void Content::ContentView::changeEvent(QEvent *event)

@@ -267,14 +267,21 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(ruTor ? variants->rowCount() == 1 : variants->rowCount() >= 2,
         u"Source did not return the required exact torrent variants"_s);
 
-    const int selectedRow = variants->rowCount() - 1;
+    QList<int> torrentRows;
+    for (int row = 0; row < variants->rowCount(); ++row)
+    {
+        if (value(variants, row, "kind") == u"torrent")
+            torrentRows.append(row);
+    }
+    require(ruTor ? torrentRows.size() == 1 : torrentRows.size() >= 2, u"Exact torrent variants are missing"_s);
+    const int selectedRow = torrentRows.constLast();
     const QString variantId = value(variants, selectedRow, "variantId");
     const QString infoHash = value(variants, selectedRow, "infoHash").toLower();
     require(value(variants, selectedRow, "kind") == u"torrent", u"Selected variant is not a torrent"_s);
     require(value(variants, selectedRow, "source") == sourceLabel, u"Selected variant belongs to another source"_s);
     require(QRegularExpression(u"^[0-9a-f]{40}$"_s).match(infoHash).hasMatch(),
         u"Selected torrent has no verifiable SHA-1 metadata"_s);
-    const QString defaultInfoHash = value(variants, 0, "infoHash").toLower();
+    const QString defaultInfoHash = value(variants, torrentRows.constFirst(), "infoHash").toLower();
     if (ruTor)
         require(variantId == workId + u":torrent:"_s + infoHash, u"RuTor lost its full-hash exact selector"_s);
     else

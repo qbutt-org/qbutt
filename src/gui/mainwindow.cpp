@@ -867,6 +867,25 @@ void MainWindow::displaySearchTab(bool enable)
             {
                 app()->addTorrentManager()->addTorrent(magnet, {}, AddTorrentOption::ShowDialog);
             });
+            connect(m_searchWidget, &Content::ContentView::videoReady, this,
+                [this](const quint64 launchToken, const QString &identity, const QUrl &url,
+                    const QUrl &proxyUrl, const QString &title, const QString &contentKind)
+            {
+                Media::PlaybackOptions options;
+                options.launchToken = launchToken;
+                options.identity = identity;
+                options.proxyUrl = proxyUrl;
+                options.contentKind = contentKind;
+                if (!Media::Player::instance()->playUrl(url, title, options))
+                    m_searchWidget->finishPlayback(launchToken);
+            });
+            connect(Media::Player::instance(), &Media::Player::playbackStarted, m_searchWidget,
+                [view = m_searchWidget](const QString &, const quint64 launchToken)
+            {
+                view->confirmPlayback(launchToken);
+            });
+            connect(Media::Player::instance(), &Media::Player::playbackFinished,
+                m_searchWidget, &Content::ContentView::finishPlayback);
             connect(m_searchWidget, &Content::ContentView::readerActiveChanged, this, &MainWindow::updateContextControls);
             connect(m_searchWidget, &Content::ContentView::searchFinished, this, [this](const bool failed)
             {
