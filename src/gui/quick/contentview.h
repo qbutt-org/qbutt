@@ -3,6 +3,7 @@
 
 #include <QQuickWidget>
 #include <QUrl>
+#include <QVector>
 
 namespace Qbutt
 {
@@ -33,7 +34,10 @@ namespace Content
         void torrentReady(const QString &magnet);
         void torrentMetadataReady(const QString &identity, const QByteArray &data);
         void videoReady(quint64 launchToken, const QString &identity, const QUrl &url,
-            const QUrl &proxyUrl, const QString &title, const QString &contentKind);
+            const QUrl &proxyUrl, const QString &title, const QString &contentKind,
+            const QUrl &audioUrl, const QString &audioTitle, const QString &audioType,
+            const QString &audioLanguage, const QString &audioCodec, int audioChannels,
+            const QVector<QUrl> &subtitles);
         void readerActiveChanged();
         void searchFinished(bool failed);
         void browserReply(quint64 generation, quint64 id, const QByteArray &reply);

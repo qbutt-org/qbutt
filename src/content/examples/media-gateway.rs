@@ -19,11 +19,41 @@ mod browser;
 mod policy;
 
 mod http {
-    pub(crate) use super::policy::media_client;
     pub(crate) use super::policy::validate_media_url;
+    use reqwest::dns::{Addrs, Name, Resolve, Resolving};
     use std::io;
     use std::net::SocketAddr;
+    use std::sync::Arc;
+    use std::time::Duration;
     use url::Url;
+
+    struct FixtureResolver;
+
+    impl Resolve for FixtureResolver {
+        fn resolve(&self, name: Name) -> Resolving {
+            Box::pin(async move {
+                let addresses = if matches!(name.as_str(), "fixture.example" | "child.example") {
+                    vec![SocketAddr::from(([127, 0, 0, 1], 0))]
+                } else {
+                    super::policy::public_addresses(
+                        tokio::net::lookup_host((name.as_str(), 0)).await?.collect(),
+                    )?
+                };
+                Ok(Box::new(addresses.into_iter()) as Addrs)
+            })
+        }
+    }
+
+    pub(crate) fn media_client() -> super::Result<reqwest::Client> {
+        reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .dns_resolver(Arc::new(FixtureResolver))
+            .connect_timeout(Duration::from_secs(10))
+            .read_timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|_| super::Error::InvalidResponse("fixture media client"))
+    }
 
     pub(crate) async fn resolve_public_url(url: &Url) -> io::Result<Vec<SocketAddr>> {
         validate_media_url(url).map_err(|_| io::ErrorKind::PermissionDenied)?;
@@ -286,12 +316,122 @@ async fn main() -> AcceptanceResult<()> {
     assert_eq!(plain.leaked_headers.load(Ordering::SeqCst), 0);
     assert_eq!(tls.leaked_headers.load(Ordering::SeqCst), 0);
     tokio::try_join!(exercise_bounds(&plain.origin), exercise_long_stream(&tls))?;
+    exercise_prepared_mp4(&plain.origin).await?;
+    assert_eq!(plain.leaked_headers.load(Ordering::SeqCst), 0);
     plain.stop().await;
     tls.stop().await;
     println!(
         "PASS media-gateway auth=required credentials=not_forwarded methods=bounded framing=checked public_ip_dns_mixed=guarded redirects=guarded tls=validated http_connect=ok headers=bounded sockets=32_pairs timeout=checked retirement=all_sockets_closed drop=closed"
     );
     Ok(())
+}
+
+async fn exercise_prepared_mp4(origin: &Url) -> AcceptanceResult<()> {
+    let media = PlaybackMedia {
+        url: origin.join("protected.mp4")?,
+        headers: [("Cookie".to_owned(), "fixture=session".to_owned())].into(),
+        audio_url: None,
+        audio_track: None,
+        subtitles: Vec::new(),
+    };
+    let (gateway, prepared) = MediaGateway::prepare(media).await?;
+    assert!(prepared.muxed_mp4_url().is_some());
+    let client = reqwest::Client::builder().no_proxy().build()?;
+    let range = local_get(&client, &prepared.url, Some("bytes=1024-")).await?;
+    assert_eq!(range.status(), 206);
+    assert_eq!(
+        range.headers()["content-range"].to_str()?,
+        "bytes 1024-2047/2048"
+    );
+    assert_eq!(
+        range
+            .bytes()
+            .await
+            .map_err(|_| io::Error::other("protected MP4 body failed"))?
+            .len(),
+        1024
+    );
+    let full = local_get(&client, &prepared.url, None).await?;
+    assert_eq!(full.status(), 200);
+    assert_eq!(full.headers()["content-type"].to_str()?, "video/mp4");
+    assert_eq!(
+        full.bytes()
+            .await
+            .map_err(|_| io::Error::other("protected MP4 body failed"))?
+            .len(),
+        2048
+    );
+    let rejected = local_get(&client, &prepared.url, Some("bytes=2048-")).await?;
+    assert_eq!(rejected.status(), 416);
+    gateway.close().await;
+    assert!(client.get(prepared.url).send().await.is_err());
+
+    let redirected = PlaybackMedia {
+        url: origin.join("redirect-protected.mp4")?,
+        headers: [("Cookie".to_owned(), "fixture=session".to_owned())].into(),
+        audio_url: None,
+        audio_track: None,
+        subtitles: Vec::new(),
+    };
+    let (gateway, prepared) = MediaGateway::prepare(redirected).await?;
+    let full = local_get(&client, &prepared.url, None).await?;
+    assert_eq!(
+        full.bytes()
+            .await
+            .map_err(|_| io::Error::other("protected MP4 body failed"))?
+            .len(),
+        2048
+    );
+    gateway.close().await;
+
+    for (path, expected) in [
+        (
+            "manifest.bin",
+            media::MediaGatewayError::UnsupportedManifest,
+        ),
+        (
+            "unseekable.mp4",
+            media::MediaGatewayError::InvalidDescriptor,
+        ),
+    ] {
+        let media = PlaybackMedia {
+            url: origin.join(path)?,
+            headers: Default::default(),
+            audio_url: None,
+            audio_track: None,
+            subtitles: Vec::new(),
+        };
+        let result = MediaGateway::prepare(media).await;
+        assert!(matches!(
+            (result, expected),
+            (
+                Err(media::MediaGatewayError::UnsupportedManifest),
+                media::MediaGatewayError::UnsupportedManifest
+            ) | (
+                Err(media::MediaGatewayError::InvalidDescriptor),
+                media::MediaGatewayError::InvalidDescriptor
+            )
+        ));
+    }
+    println!(
+        "PASS media-gateway-prepared-mp4 range=verified full_download=verified cross_origin=isolated manifest=rejected unseekable=rejected retirement=closed"
+    );
+    Ok(())
+}
+
+async fn local_get(
+    client: &reqwest::Client,
+    url: &Url,
+    range: Option<&str>,
+) -> AcceptanceResult<reqwest::Response> {
+    let mut request = client.get(url.clone());
+    if let Some(range) = range {
+        request = request.header("Range", range);
+    }
+    request
+        .send()
+        .await
+        .map_err(|_| io::Error::other("protected MP4 request failed").into())
 }
 
 fn authorization(proxy: &Url) -> String {
@@ -633,6 +773,83 @@ async fn respond<S: AsyncRead + AsyncWrite + Unpin>(
             origin.join("legal").unwrap().to_string()
         };
         socket.write_all(format!("HTTP/1.1 302 Found\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await?;
+        return socket.shutdown().await;
+    }
+    if path == "/redirect-protected.mp4" {
+        let mut target = origin.join("child.mp4").unwrap();
+        target.set_host(Some("child.example")).unwrap();
+        socket.write_all(format!("HTTP/1.1 302 Found\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await?;
+        return socket.shutdown().await;
+    }
+    if path == "/child.mp4"
+        && head
+            .lines()
+            .any(|line| line.to_ascii_lowercase().starts_with("cookie:"))
+    {
+        leaks.fetch_add(1, Ordering::SeqCst);
+    }
+    if matches!(
+        path,
+        "/protected.mp4" | "/unseekable.mp4" | "/manifest.bin" | "/child.mp4"
+    ) {
+        if path == "/protected.mp4"
+            && !head.lines().any(|line| {
+                line.split_once(':').is_some_and(|(name, value)| {
+                    name.eq_ignore_ascii_case("cookie") && value.trim() == "fixture=session"
+                })
+            })
+        {
+            socket
+                .write_all(
+                    b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await?;
+            return socket.shutdown().await;
+        }
+        let mut body = vec![b'x'; 2048];
+        if path == "/manifest.bin" {
+            body[..7].copy_from_slice(b"#EXTM3U");
+        } else {
+            body[..12].copy_from_slice(b"\0\0\0\x18ftypisom");
+        }
+        let requested = head
+            .lines()
+            .find_map(|line| {
+                line.split_once(':').and_then(|(name, value)| {
+                    name.eq_ignore_ascii_case("range").then(|| value.trim())
+                })
+            })
+            .and_then(|value| value.strip_prefix("bytes="));
+        let range = if path == "/unseekable.mp4" {
+            None
+        } else {
+            requested
+        };
+        let (status, range_header, bytes) = match range {
+            Some("0-1023") => (
+                "206 Partial Content",
+                "Content-Range: bytes 0-1023/2048\r\n",
+                &body[..1024],
+            ),
+            Some("1024-") => (
+                "206 Partial Content",
+                "Content-Range: bytes 1024-2047/2048\r\n",
+                &body[1024..],
+            ),
+            Some("2048-") => (
+                "416 Range Not Satisfiable",
+                "Content-Range: bytes */2048\r\n",
+                &body[..0],
+            ),
+            _ => ("200 OK", "", body.as_slice()),
+        };
+        socket.write_all(format!(
+            "HTTP/1.1 {status}\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\n{range_header}Connection: close\r\n\r\n",
+            bytes.len()
+        ).as_bytes()).await?;
+        if !head.starts_with("HEAD ") {
+            socket.write_all(bytes).await?;
+        }
         return socket.shutdown().await;
     }
     let body = if path == "/master.m3u8" {

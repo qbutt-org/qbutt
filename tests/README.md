@@ -86,7 +86,9 @@ The scenario requires its local HLS/TLS fixture files;
 it does not use a live application profile. Require exit zero and all checks to
 pass. It exercises real mpv decoding, TLS trust, proxy authentication and framing,
 socket/header limits, retirement, a 67-second single HTTPS GET and closure after
-60 seconds of silence. This does not establish controller, qplay or History UI.
+60 seconds of silence. It also checks the prepared MP4 capability, Range and
+full GET, private headers, manifest rejection and retirement. This does not
+establish controller, qplay or History UI.
 
 RuTor has generated HTTPS/fault and two-process library scenarios:
 

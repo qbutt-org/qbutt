@@ -11,13 +11,6 @@ pub struct PlaybackMedia {
     pub(crate) audio_url: Option<Url>,
     pub(crate) audio_track: Option<PlaybackAudioTrack>,
     pub(crate) subtitles: Vec<PlaybackSubtitle>,
-    pub(crate) quality: Option<String>,
-}
-
-impl PlaybackMedia {
-    pub fn quality(&self) -> Option<&str> {
-        self.quality.as_deref()
-    }
 }
 
 #[derive(Clone, PartialEq, Eq)]

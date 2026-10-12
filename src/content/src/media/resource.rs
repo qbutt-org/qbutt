@@ -41,8 +41,12 @@ pub(super) struct Resources {
     client: Client,
     origin: Origin,
     headers: HeaderMap,
-    targets: Vec<Url>,
-    paths: Vec<String>,
+    entries: Vec<Resource>,
+}
+
+struct Resource {
+    target: Url,
+    path: String,
 }
 
 impl Resources {
@@ -55,8 +59,7 @@ impl Resources {
             client,
             origin: media.url.origin(),
             headers: playback_headers(media.headers)?,
-            targets: Vec::new(),
-            paths: Vec::new(),
+            entries: Vec::new(),
         };
         let url = resources.add(media.url, proxy)?;
         let audio_url = media
@@ -76,7 +79,7 @@ impl Resources {
         let mut response = tokio::time::timeout(
             Duration::from_secs(45),
             resources.fetch(
-                resources.targets[0].clone(),
+                resources.entries[0].target.clone(),
                 Method::GET,
                 Some("bytes=0-1023"),
             ),
@@ -115,7 +118,7 @@ impl Resources {
         ) {
             return Err(MediaGatewayError::UnsupportedManifest);
         }
-        let suffix = if self.targets.is_empty() {
+        let suffix = if self.entries.is_empty() {
             "mp4"
         } else {
             target
@@ -130,14 +133,13 @@ impl Resources {
         let path = format!(
             "/media/{}/{}/resource.{suffix}",
             proxy.password().expect("gateway password"),
-            self.targets.len()
+            self.entries.len()
         );
         let mut local = proxy.clone();
         local.set_username("").expect("local HTTP URL");
         local.set_password(None).expect("local HTTP URL");
         local.set_path(&path);
-        self.paths.push(path);
-        self.targets.push(target);
+        self.entries.push(Resource { target, path });
         Ok(local)
     }
 
@@ -213,10 +215,10 @@ impl Resources {
             Some("HEAD") => Method::HEAD,
             _ => return reject(&mut client, 405).await,
         };
-        let Some(index) = self.paths.iter().position(|path| {
+        let Some(index) = self.entries.iter().position(|resource| {
             request
                 .path
-                .is_some_and(|supplied| path.as_bytes().ct_eq(supplied.as_bytes()).into())
+                .is_some_and(|supplied| resource.path.as_bytes().ct_eq(supplied.as_bytes()).into())
         }) else {
             return reject(&mut client, 403).await;
         };
@@ -235,7 +237,7 @@ impl Resources {
         };
         let mut response = match tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(self.targets[index].clone(), method.clone(), range),
+            self.fetch(self.entries[index].target.clone(), method.clone(), range),
         )
         .await
         {
@@ -370,7 +372,7 @@ fn byte_range(value: &str) -> bool {
     else {
         return false;
     };
-    (!start.is_empty() || !end.is_empty())
+    (!start.is_empty() || end.parse::<u64>().is_ok_and(|count| count > 0))
         && [start, end]
             .into_iter()
             .all(|number| number.is_empty() || number.len() <= 20 && number.parse::<u64>().is_ok())
@@ -443,7 +445,7 @@ fn mp4_content_type(response: &Response) -> bool {
                 .trim()
                 .to_ascii_lowercase()
         })
-        .is_none_or(|mime| {
+        .is_some_and(|mime| {
             matches!(
                 mime.as_str(),
                 "video/mp4"

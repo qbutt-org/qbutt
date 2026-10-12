@@ -4,10 +4,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::{QByteArray, QString, QUrl};
+use cxx_qt_lib::{QByteArray, QString, QUrl, QVector};
+use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
-    Category, MediaGateway, ResolvedContent, SourceOperation, Transport, VariantPreferences,
-    VariantRef, WorkGroup,
+    Category, MediaGateway, PreparedPlayback, ResolvedContent, SourceOperation, Transport,
+    VariantPreferences, VariantRef, VariantSelector, Work, WorkGroup, resolve_external_video,
 };
 
 use super::catalog::SourceResponse;
@@ -86,6 +87,7 @@ impl ffi::ContentController {
         save: PlaybackSave,
         url: QUrl,
         title: QString,
+        prepared: Option<PreparedPlayback>,
     ) {
         if !self.playback_capacity() {
             self.as_mut()
@@ -105,7 +107,68 @@ impl ffi::ContentController {
                 category => models::category_key(category),
             },
         );
-        let proxy = QUrl::from(&QString::from(gateway.proxy_url().as_str()));
+        let proxy = if prepared.is_some() {
+            QUrl::default()
+        } else {
+            QUrl::from(&QString::from(gateway.proxy_url().as_str()))
+        };
+        let (
+            audio_url,
+            audio_title,
+            audio_type,
+            audio_language,
+            audio_codec,
+            audio_channels,
+            subtitles,
+        ) = if let Some(prepared) = prepared {
+            let track = prepared.audio_track;
+            let subtitles: QVector<QUrl> = prepared
+                .subtitles
+                .into_iter()
+                .map(|subtitle| QUrl::from(&QString::from(subtitle.url.as_str())))
+                .collect();
+            (
+                prepared.audio_url.map_or_else(QUrl::default, |url| {
+                    QUrl::from(&QString::from(url.as_str()))
+                }),
+                QString::from(track.as_ref().map_or("", |track| track.title.as_str())),
+                QString::from(
+                    track
+                        .as_ref()
+                        .and_then(|track| track.kind.as_deref())
+                        .unwrap_or_default(),
+                ),
+                QString::from(
+                    track
+                        .as_ref()
+                        .and_then(|track| track.language.as_deref())
+                        .unwrap_or_default(),
+                ),
+                QString::from(
+                    track
+                        .as_ref()
+                        .and_then(|track| track.codec.as_deref())
+                        .unwrap_or_default(),
+                ),
+                i32::from(
+                    track
+                        .as_ref()
+                        .and_then(|track| track.channels)
+                        .unwrap_or_default(),
+                ),
+                subtitles,
+            )
+        } else {
+            (
+                QUrl::default(),
+                QString::default(),
+                QString::default(),
+                QString::default(),
+                QString::default(),
+                0,
+                QVector::default(),
+            )
+        };
         self.as_mut().rust_mut().playback.launches.insert(
             token,
             PlaybackLaunch {
@@ -113,7 +176,21 @@ impl ffi::ContentController {
                 save: Some(save),
             },
         );
-        self.video_ready(token, identity, url, proxy, title, content_kind);
+        self.video_ready(
+            token,
+            identity,
+            url,
+            proxy,
+            title,
+            content_kind,
+            audio_url,
+            audio_title,
+            audio_type,
+            audio_language,
+            audio_codec,
+            audio_channels,
+            subtitles,
+        );
     }
 
     pub(super) fn playback_capacity(&self) -> bool {
@@ -310,6 +387,7 @@ impl ffi::ContentController {
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let catalog = Arc::clone(&services.catalog);
+        let browser = services.browser.client();
         let task = services.runtime.spawn(async move {
             let result = catalog.execute(&request.operation).await;
             let gateway = if matches!(
@@ -317,6 +395,32 @@ impl ffi::ContentController {
                 Ok(SourceResponse::Resolve(ResolvedContent::DirectVideo { .. }))
             ) {
                 Some(MediaGateway::start().await)
+            } else {
+                None
+            };
+            let external = if let Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
+                reference,
+                url,
+                ..
+            })) = &result
+            {
+                if matches!(&reference.selector, VariantSelector::YummyAnimeVideo { player, .. } if player == "VK") {
+                    Some(async {
+                        let handle = browser.handle().await.map_err(|_| ())?;
+                        let media = resolve_external_video(
+                            &handle,
+                            BrowserChoice::Auto,
+                            reference,
+                            url.clone(),
+                        )
+                        .await
+                        .map_err(|_| ())?;
+                        MediaGateway::prepare(media).await.map_err(|_| ())
+                    }
+                    .await)
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -365,16 +469,30 @@ impl ffi::ContentController {
                             save,
                             QUrl::from(&QString::from(url.as_str())),
                             QString::from(title),
+                            None,
                         ),
                         Err(_) => controller
                             .as_mut()
                             .set_error(Some(ffi::ContentError::Playback)),
                     },
-                    Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo { .. })) => {
-                        controller
+                    Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
+                        reference: resolved,
+                        title,
+                        ..
+                    })) if resolved == reference => match external {
+                        Some(Ok((gateway, prepared))) => {
+                            let url = QUrl::from(&QString::from(prepared.url.as_str()));
+                            controller.as_mut().accept_video(
+                                gateway, save, url, QString::from(title), Some(prepared),
+                            );
+                        }
+                        Some(Err(())) => controller
                             .as_mut()
-                            .set_error(Some(ffi::ContentError::ExternalPlayback));
-                    }
+                            .set_error(Some(ffi::ContentError::BrowserPlayback)),
+                        None => controller
+                            .as_mut()
+                            .set_error(Some(ffi::ContentError::ExternalPlayback)),
+                    },
                     Err(_) => {}
                     Ok(_) => {
                         ffi::log_content_error(

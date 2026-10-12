@@ -880,13 +880,19 @@ Content::ContentView *MainWindow::ensureContentView()
         });
         connect(m_searchWidget, &Content::ContentView::videoReady, this,
             [this](const quint64 launchToken, const QString &identity, const QUrl &url,
-                const QUrl &proxyUrl, const QString &title, const QString &contentKind)
+                const QUrl &proxyUrl, const QString &title, const QString &contentKind,
+                const QUrl &audioUrl, const QString &audioTitle, const QString &audioType,
+                const QString &audioLanguage, const QString &audioCodec, const int audioChannels,
+                const QVector<QUrl> &subtitles)
         {
             Media::PlaybackOptions options;
             options.launchToken = launchToken;
             options.identity = identity;
             options.proxyUrl = proxyUrl;
             options.contentKind = contentKind;
+            options.audioUrl = audioUrl;
+            options.audioTrack = {audioTitle, audioType, audioLanguage, audioCodec, audioChannels};
+            options.subtitles = subtitles;
             if (!Media::Player::instance()->playUrl(url, title, options))
                 m_searchWidget->finishPlayback(launchToken);
         });

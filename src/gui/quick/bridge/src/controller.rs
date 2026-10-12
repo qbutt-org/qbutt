@@ -61,6 +61,7 @@ pub mod ffi {
         PlaybackHistoryWrite,
         PlaybackPending,
         ExternalPlayback,
+        BrowserPlayback,
     }
 
     #[derive(PartialEq)]
@@ -178,6 +179,8 @@ pub mod ffi {
         type QString = cxx_qt_lib::QString;
         include!("cxx-qt-lib/qurl.h");
         type QUrl = cxx_qt_lib::QUrl;
+        include!("cxx-qt-lib/qvector.h");
+        type QVector_QUrl = cxx_qt_lib::QVector<cxx_qt_lib::QUrl>;
         include!("cxx-qt-lib/qsize.h");
         type QSize = cxx_qt_lib::QSize;
         include!("cxx-qt-lib/qbytearray.h");
@@ -826,6 +829,13 @@ pub mod ffi {
             proxy_url: QUrl,
             title: QString,
             content_kind: QString,
+            audio_url: QUrl,
+            audio_title: QString,
+            audio_type: QString,
+            audio_language: QString,
+            audio_codec: QString,
+            audio_channels: i32,
+            subtitles: QVector_QUrl,
         );
 
         #[qsignal]

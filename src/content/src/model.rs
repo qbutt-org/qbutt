@@ -526,11 +526,6 @@ pub enum ResolvedContent {
         url: Url,
         quality: VideoQuality,
     },
-    BrowserVideo {
-        reference: VariantRef,
-        title: String,
-        media: PlaybackMedia,
-    },
     /// This is the exact external publication, requiring the media resolver.
     ExternalVideo {
         reference: VariantRef,

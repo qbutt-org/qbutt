@@ -236,7 +236,25 @@ bool Player::playUrl(const QUrl &url, const QString &title, const PlaybackOption
         }
         network = network || (sourceScheme == u"http") || (sourceScheme == u"https");
     }
-    if (network && ((options.proxyUrl.scheme() != u"http") || (options.proxyUrl.host() != u"127.0.0.1")
+    if (network && options.proxyUrl.isEmpty())
+    {
+        const auto localResource = [&url](const QUrl &source)
+        {
+            return (source.scheme() == u"http") && (source.host() == u"127.0.0.1")
+                && (source.port() > 0) && (source.port() == url.port())
+                && source.userInfo().isEmpty() && !source.hasQuery() && !source.hasFragment()
+                && source.path().startsWith(u"/media/");
+        };
+        if (!localResource(url)
+            || (!options.audioUrl.isEmpty() && !localResource(options.audioUrl))
+            || std::any_of(options.subtitles.cbegin(), options.subtitles.cend(),
+                [&localResource](const QUrl &subtitle) { return !localResource(subtitle); }))
+        {
+            emit error(tr("The video source did not provide a protected connection. Try opening it again."));
+            return false;
+        }
+    }
+    else if (network && ((options.proxyUrl.scheme() != u"http") || (options.proxyUrl.host() != u"127.0.0.1")
         || (options.proxyUrl.port() <= 0) || (options.proxyUrl.userName() != u"qbutt") || options.proxyUrl.password().isEmpty()
         || options.proxyUrl.hasQuery() || options.proxyUrl.hasFragment()
         || (!options.proxyUrl.path().isEmpty() && (options.proxyUrl.path() != u"/"))))

@@ -82,7 +82,6 @@ pub async fn resolve_external_video(
                 language: subtitle.language,
             })
             .collect(),
-        quality: media.quality,
     })
 }
 
