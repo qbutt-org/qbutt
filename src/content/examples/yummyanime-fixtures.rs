@@ -7,11 +7,51 @@ pub use model::*;
 pub use qbutt_content::{Error, Result};
 
 #[allow(dead_code)]
-mod http {
+mod guarded_http {
     include!("../src/http.rs");
 
     pub(super) fn fixture(client: reqwest::Client, origin: Url) -> SourceHttp {
         SourceHttp { client, origin }
+    }
+}
+
+// Only this executable replaces the fixed player connection with local TLS.
+// Parsing, response limits and fixed-origin redirect checks stay in production.
+mod http {
+    use std::sync::OnceLock;
+
+    use reqwest::header::HeaderMap;
+    use serde::de::DeserializeOwned;
+    use url::Url;
+
+    pub(crate) use super::guarded_http::{public_media_url, validate_https_url};
+    use super::{Result, guarded_http};
+
+    static PLAYER_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+    pub(crate) struct SourceHttp(guarded_http::SourceHttp);
+
+    impl SourceHttp {
+        pub(crate) fn new(origin: Url, headers: HeaderMap) -> Result<Self> {
+            assert_eq!(origin.as_str(), "https://plapi.cdnvideohub.com/");
+            assert!(headers.is_empty());
+            Ok(Self(guarded_http::fixture(
+                PLAYER_CLIENT
+                    .get()
+                    .expect("fixture client installed")
+                    .clone(),
+                origin,
+            )))
+        }
+
+        pub(crate) async fn json<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
+            self.0.json(url).await
+        }
+    }
+
+    pub(super) fn fixture(client: reqwest::Client, origin: Url) -> SourceHttp {
+        PLAYER_CLIENT.set(client.clone()).unwrap();
+        SourceHttp(guarded_http::fixture(client, origin))
     }
 }
 
@@ -62,7 +102,7 @@ async fn main() -> CheckResult<()> {
     fixture.server.await?;
     result?;
     println!(
-        "PASS yummyanime-fixtures search_inspect=ok invalid_changed_duplicate_missing=rejected challenge=failed empty=success redirects_size=guarded cancellation=connection_closed sqlite_reopen=exact"
+        "PASS yummyanime-fixtures search_inspect=ok cvh_code_display=exact cvh_divergent_multiple_episode_type=rejected invalid_changed_duplicate_missing=rejected challenge=failed empty=success redirects_size=guarded cancellation=connection_closed sqlite_reopen=exact"
     );
     Ok(())
 }
@@ -141,6 +181,35 @@ async fn exercise(catalog: &yummyanime::YummyAnime, fixture: &Fixture) -> CheckR
         catalog.resolve(&work.variants[0].reference).await,
         Err(Error::UnsafeAddress)
     ));
+
+    for id in 46..=53 {
+        let publication = PublicationRef {
+            source: Source::YummyAnime,
+            id: id.to_string(),
+        };
+        let cvh = catalog.inspect(&publication).await?;
+        let selected = &cvh.variants[0].reference;
+        let resolved = catalog.resolve(selected).await;
+        if matches!(id, 46 | 47 | 53) {
+            let ResolvedContent::DirectVideo {
+                reference,
+                url,
+                quality,
+                ..
+            } = resolved?
+            else {
+                panic!("CVH fixture {id} changed transport");
+            };
+            assert_eq!(&reference, selected);
+            assert_eq!(url.as_str(), "https://8.8.8.8/generated-legal-video.mp4");
+            assert_eq!(quality, VideoQuality::P1080);
+        } else {
+            assert!(
+                matches!(resolved, Err(Error::VariantUnavailable)),
+                "CVH fixture {id} accepted an ambiguous or changed selection"
+            );
+        }
+    }
 
     let mut pending = Box::pin(catalog.search("cancel"));
     tokio::select! {
@@ -236,6 +305,32 @@ fn reopen(profile: &Path) -> CheckResult<()> {
 }
 
 fn anime(id: u64) -> Value {
+    if (46..=53).contains(&id) {
+        let dubbing = if id == 53 {
+            "Субтитры Fixture studio"
+        } else {
+            "Озвучка Fixture studio"
+        };
+        let mut player = Url::parse("https://ru.yummyani.me/iframeCVH.html").unwrap();
+        player
+            .query_pairs_mut()
+            .append_pair("anime_id", &id.to_string())
+            .append_pair("episode", "1")
+            .append_pair("dubbing_code", "fixture-code")
+            .append_pair("dubbing", dubbing);
+        return json!({
+            "anime_id": id,
+            "anime_url": "generated-cvh-animation",
+            "title": "Generated CVH animation",
+            "remote_ids": {"myanimelist_id": id},
+            "videos": [{
+                "video_id": 101,
+                "number": "1",
+                "data": {"player": "Плеер CVH", "dubbing": dubbing, "player_id": 3},
+                "iframe_url": player.as_str()
+            }]
+        });
+    }
     let mut anime = json!({
         "anime_id": id,
         "anime_url": "generated-legal-animation",
@@ -276,6 +371,34 @@ fn anime(id: u64) -> Value {
     anime
 }
 
+fn cvh_playlist(id: u64) -> Value {
+    let mut item = json!({
+        "vkId": (id + 1000).to_string(),
+        "episode": 1,
+        "voiceStudio": "  fIxTuRe StUdIo  ",
+        "voiceType": "Многоголосый"
+    });
+    match id {
+        47 => item["voiceStudio"] = json!("FIXTURE-CODE"),
+        49 => item["voiceStudio"] = json!("Other studio"),
+        51 => item["episode"] = json!(2),
+        52 | 53 => item["voiceType"] = json!("Субтитры"),
+        _ => {}
+    }
+    let mut items = vec![item.clone()];
+    if id == 48 {
+        // Code and display identify different videos: neither has priority.
+        item["vkId"] = json!("2048");
+        item["voiceStudio"] = json!("fixture-code");
+        items.push(item);
+    } else if id == 50 {
+        // Even two exact display matches cannot choose a video implicitly.
+        item["vkId"] = json!("2050");
+        items.push(item);
+    }
+    json!({"isSerial": true, "items": items})
+}
+
 struct Fixture {
     origin: Url,
     client: reqwest::Client,
@@ -287,7 +410,10 @@ struct Fixture {
 
 impl Fixture {
     async fn start() -> CheckResult<Self> {
-        let certified = rcgen::generate_simple_self_signed(vec!["fixture.example".into()])?;
+        let certified = rcgen::generate_simple_self_signed(vec![
+            "fixture.example".into(),
+            "plapi.cdnvideohub.com".into(),
+        ])?;
         let config = ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(
@@ -304,6 +430,7 @@ impl Fixture {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(5))
             .resolve("fixture.example", address)
+            .resolve("plapi.cdnvideohub.com", address)
             .add_root_certificate(reqwest::Certificate::from_der(certified.cert.der())?)
             .build()?;
         let (stop, mut shutdown) = oneshot::channel();
@@ -374,6 +501,31 @@ async fn serve(
     let body = if let Some(id) = url.path().strip_prefix("/anime/") {
         assert_eq!(url.query(), Some("need_videos=true"));
         json!({"response": anime(id.parse().unwrap())})
+    } else if url.path() == "/api/v1/player/sv/playlist" {
+        let parameters = url
+            .query_pairs()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            parameters.get("pub").map(|value| value.as_ref()),
+            Some("745")
+        );
+        assert_eq!(
+            parameters.get("aggr").map(|value| value.as_ref()),
+            Some("mali")
+        );
+        assert_eq!(parameters.get("ep").map(|value| value.as_ref()), Some("1"));
+        assert!(!parameters.contains_key("vstu"));
+        cvh_playlist(parameters["id"].parse().unwrap())
+    } else if let Some(id) = url.path().strip_prefix("/api/v1/player/sv/video/") {
+        let id: u64 = id.parse().unwrap();
+        assert!(
+            matches!(id, 1046 | 1047 | 1053),
+            "rejected identity requested a video"
+        );
+        json!({
+            "unitedVideoId": id,
+            "sources": {"mpegFullHdUrl": "https://8.8.8.8/generated-legal-video.mp4"}
+        })
     } else {
         assert!(
             url.query_pairs()

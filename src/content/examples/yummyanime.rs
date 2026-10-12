@@ -95,6 +95,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             id: "1463".into(),
         })
         .await?;
+    let shiza = movie
+        .variants
+        .iter()
+        .find(|variant| {
+            matches!(
+                variant.reference.selector,
+                VariantSelector::YummyAnimeVideo { id: 1310557, .. }
+            )
+        })
+        .ok_or("the selected SHIZA movie is no longer available")?;
+    assert_eq!(shiza.translation.as_deref(), Some("SHIZA Project"));
+    assert_eq!(shiza.episode.as_deref(), Some("1"));
+    let resolved = catalog.resolve(&shiza.reference).await?;
+    assert!(
+        matches!(resolved, ResolvedContent::DirectVideo { reference, .. } if reference == shiza.reference)
+    );
+
     let subtitles = movie
         .variants
         .iter()
@@ -138,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ));
     }
     println!(
-        "search={} inspected={} variants={} subtitle_movie=ok browser_required=ok changed_id_episode_voice_player=rejected",
+        "search={} inspected={} variants={} cvh_display_alias=ok subtitle_movie=ok browser_required=ok changed_id_episode_voice_player=rejected",
         works.len(),
         work.reference.id,
         work.variants.len()

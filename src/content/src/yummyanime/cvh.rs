@@ -97,6 +97,12 @@ pub(super) async fn resolve(
         return Err(Error::InvalidResponse("too many CVH playlist items"));
     }
     let voice = voice.trim().to_lowercase();
+    let display = dubbing
+        .strip_prefix("Озвучка ")
+        .or_else(|| dubbing.strip_prefix("Субтитры "))
+        .unwrap_or(&dubbing)
+        .trim()
+        .to_lowercase();
     let mut matching = playlist.items.iter().filter(|item| {
         let matches_episode = if playlist.is_serial {
             item.episode
@@ -108,9 +114,11 @@ pub(super) async fn resolve(
             .voice_studio
             .as_deref()
             .filter(|studio| !studio.trim().is_empty())
-            .unwrap_or(&item.voice_type);
+            .unwrap_or(&item.voice_type)
+            .trim()
+            .to_lowercase();
         matches_episode
-            && studio.trim().to_lowercase() == voice
+            && (studio == voice || studio == display)
             && (item.voice_type == "Субтитры") == selected.is_subtitled()
     });
     let chosen = matching.next().ok_or(Error::VariantUnavailable)?;
