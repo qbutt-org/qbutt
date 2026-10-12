@@ -57,7 +57,7 @@ try {
     for (const phase of phases) {
         const evidencePath = join(root, `${phase}.json`);
         const spec = join(root, `${phase}-spec.json`);
-        await writeFile(spec, JSON.stringify({ schema: 1, mode: "language-switch", phase, evidencePath, profile, payload }));
+        await writeFile(spec, JSON.stringify({ schema: 1, mode: "language-switch", phase, evidencePath, profile, payload, bundle }));
         const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") ?? "PATH";
         application = Bun.spawn([executable, `--profile=${profile}`], {
             cwd: bundle,
@@ -89,6 +89,7 @@ try {
         assert.deepEqual(check.labels.map((label: { locale: string }) => label.locale), expected);
         assert.equal(check.savedLocale, expected.at(-1));
         assert.equal(check.torrentCount, 0);
+        assert.equal(await realpath(check.translations), await realpath(join(bundle, "translations")));
         assert.match(await readFile(configuration, "utf8"), new RegExp(`^General\\\\Locale=${check.savedLocale}$`, "m"));
         assert.deepEqual(await readdir(payload), [], "Language fixture left downloaded payload");
         results.push(check);

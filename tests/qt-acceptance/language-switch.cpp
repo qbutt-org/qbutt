@@ -9,11 +9,13 @@
 #include <QAction>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLibraryInfo>
 #include <QLocale>
 #include <QPushButton>
 #include <QQuickItem>
@@ -73,6 +75,9 @@ namespace
 
 void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &spec, QJsonObject &evidence)
 {
+    const QString translations = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+    require(QDir(translations).canonicalPath() == QDir(spec.value(u"bundle"_s).toString() + u"/translations").canonicalPath(),
+        u"Qt translations do not come from the deployed bundle"_s);
     auto *session = BitTorrent::Session::instance();
     require(session && session->torrents().isEmpty() && (session->networkInterfaceAddress() == u"127.0.0.1")
         && !session->isDHTEnabled() && !session->isLSDEnabled() && !session->isPeXEnabled()
@@ -113,7 +118,8 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
                 && (child<QQuickItem>(root, u"contentSearchMode"_s)->property("text").toString()
                     == QCoreApplication::translate("SearchPage", "Search"))
                 && (query->property("placeholderText").toString() == QCoreApplication::translate("SearchPage", "Search titles"))
-                && (child<QLabel>(options, u"labelLanguage"_s)->text() == OptionsDialog::tr("Language:"));
+                && (child<QLabel>(options, u"labelLanguage"_s)->text() == OptionsDialog::tr("Language:"))
+                && ((apply->text() == u"Apply") == english);
         });
         require((query->property("placeholderText").toString() == u"Search titles") == english,
             u"Actual QML label did not change language"_s);
@@ -210,6 +216,7 @@ void LanguageSwitchAcceptance::run(Application &application, const QJsonObject &
     }
     QJsonArray checks = evidence.value(u"checks"_s).toArray();
     checks.append(QJsonObject {{u"name"_s, u"language-switch"_s}, {u"phase"_s, phase}, {u"labels"_s, labels},
-        {u"savedLocale"_s, Preferences::instance()->getLocale()}, {u"torrentCount"_s, session->torrents().size()}});
+        {u"savedLocale"_s, Preferences::instance()->getLocale()}, {u"torrentCount"_s, session->torrents().size()},
+        {u"translations"_s, translations}});
     evidence[u"checks"_s] = checks;
 }
