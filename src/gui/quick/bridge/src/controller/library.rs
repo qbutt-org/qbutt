@@ -5,16 +5,22 @@ use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
     Library, LibraryEntry, LibraryResult, LibraryView, PublicationRef, ReaderProgress,
-    ReaderSettings, VariantPreferences, Work,
+    ReaderSettings, SourceSettings, VariantPreferences, Work,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};
 
 use super::ffi;
 use super::ffi::ContentController;
+use super::sources::SourceWrite;
 use crate::models;
 
 pub enum LibraryAction {
+    SourceSettings,
+    SourceWrite {
+        write: SourceWrite,
+        generation: u64,
+    },
     Favorite {
         work: Work,
         favorite: bool,
@@ -53,6 +59,7 @@ pub struct ReaderSave {
 pub enum LibraryUpdate {
     Loaded {
         result: LibraryResult<(Vec<LibraryEntry>, Vec<Work>, ReaderSettings)>,
+        sources: Option<LibraryResult<Vec<SourceSettings>>>,
         error_generation: u64,
         reader_generation: Option<u64>,
         settings_retry_generation: Option<u64>,
@@ -74,6 +81,14 @@ pub enum LibraryUpdate {
     History {
         result: LibraryResult<Vec<Work>>,
         error_generation: u64,
+    },
+    SourceSettings {
+        result: LibraryResult<Vec<SourceSettings>>,
+    },
+    SourceWrite {
+        write: SourceWrite,
+        generation: u64,
+        result: LibraryResult<SourceSettings>,
     },
 }
 
@@ -114,18 +129,20 @@ impl LibraryWorker {
             let mut reader_generation = None;
             let mut settings_retry_generation = None;
             loop {
-                let (mut library, result) = match Library::open(&profile).and_then(|library| {
-                    let entries = library.entries(LibraryView::All)?;
-                    let history = read_history(&library)?;
-                    let settings = library.reader_settings()?;
-                    Ok((library, (entries, history, settings)))
-                }) {
-                    Ok((library, entries)) => (Some(library), Ok(entries)),
-                    Err(error) => (None, Err(error)),
+                let (mut library, result, sources) = match Library::open(&profile) {
+                    Ok(library) => {
+                        let result = library.entries(LibraryView::All).and_then(|entries| {
+                            Ok((entries, read_history(&library)?, library.reader_settings()?))
+                        });
+                        let sources = library.source_settings();
+                        (Some(library), result, Some(sources))
+                    }
+                    Err(error) => (None, Err(error), None),
                 };
                 let _ = qt_thread.queue(move |controller| {
                     controller.complete_library(LibraryUpdate::Loaded {
                         result,
+                        sources,
                         error_generation,
                         reader_generation,
                         settings_retry_generation,
@@ -194,6 +211,28 @@ impl LibraryWorker {
 
 fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
     let (result, reader_generation) = match request.action {
+        LibraryAction::SourceSettings => {
+            return LibraryUpdate::SourceSettings {
+                result: library.source_settings(),
+            };
+        }
+        LibraryAction::SourceWrite { write, generation } => {
+            let result = match &write {
+                SourceWrite::Enabled { source, enabled } => {
+                    library.set_source_enabled(*source, *enabled)
+                }
+                SourceWrite::Failure(failure) => library.record_source_failure(failure.clone()),
+                SourceWrite::Clear {
+                    operation,
+                    observed_revision,
+                } => library.clear_source_failure(operation, *observed_revision),
+            };
+            return LibraryUpdate::SourceWrite {
+                write,
+                generation,
+                result,
+            };
+        }
         LibraryAction::Favorite { work, favorite } => {
             (library.set_favorite(&work, favorite).map(Some), None)
         }
@@ -284,14 +323,19 @@ impl ffi::ContentController {
     }
 
     pub fn init_library(mut self: Pin<&mut Self>, profile_dir: QString) {
-        if self.library_state != ffi::LibraryState::Uninitialized || self.library_worker.is_some() {
+        if self.library_state != ffi::LibraryState::Uninitialized
+            || self.library_worker.is_some()
+            || self.source_settings_state() == ffi::SettingsState::Loading
+        {
             return;
         }
         let profile = PathBuf::from(profile_dir.to_string());
+        self.as_mut().source_settings_loading();
         if !profile.is_absolute() || self.services.is_none() {
             self.as_mut().rust_mut().library_state = ffi::LibraryState::Failed;
             self.as_mut().library_state_changed();
             self.as_mut().reader_settings_library_failed();
+            self.as_mut().load_source_settings(None);
             self.as_mut()
                 .set_library_error(ffi::LibraryErrorKind::Opening);
             return;
@@ -322,6 +366,7 @@ impl ffi::ContentController {
                 // The blocking owner has already entered and remains alive;
                 // FIFO requests can be accepted behind this reopen command.
                 self.as_mut().rust_mut().library_state = ffi::LibraryState::Loading;
+                self.as_mut().source_settings_loading();
                 if let Some(generation) = reader_generation {
                     self.as_mut().prepare_reader_library_retry(generation);
                 }
@@ -379,6 +424,7 @@ impl ffi::ContentController {
 
     fn publish_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
         let mut settings_retry_generation = None;
+        let mut initial_opened = false;
         let history_read = matches!(&update, LibraryUpdate::History { .. })
             || matches!(
                 &update,
@@ -389,6 +435,18 @@ impl ffi::ContentController {
                 }
             );
         let (initial, error_generation, reader_generation, result) = match update {
+            LibraryUpdate::SourceSettings { result } => {
+                self.load_source_settings(Some(result));
+                return;
+            }
+            LibraryUpdate::SourceWrite {
+                write,
+                generation,
+                result,
+            } => {
+                self.complete_source_write(write, generation, result, true);
+                return;
+            }
             LibraryUpdate::ReaderResume { result, generation } => {
                 self.complete_reader_resume(result, generation);
                 return;
@@ -408,10 +466,13 @@ impl ffi::ContentController {
             }
             LibraryUpdate::Loaded {
                 result,
+                sources,
                 error_generation,
                 reader_generation,
                 settings_retry_generation: retry_generation,
             } => {
+                initial_opened = sources.is_some();
+                self.as_mut().load_source_settings(sources);
                 settings_retry_generation = retry_generation;
                 let result = result.map(|(entries, history, settings)| {
                     self.as_mut().load_reader_settings(settings);
@@ -504,7 +565,9 @@ impl ffi::ContentController {
                 let reader_failed = if initial {
                     let mut state = self.as_mut().rust_mut();
                     state.library_state = ffi::LibraryState::Failed;
-                    state.library_pending = 0;
+                    if !initial_opened {
+                        state.library_pending = 0;
+                    }
                     self.as_mut().reader_settings_library_failed();
                     self.as_mut().reader_library_failed()
                 } else {
@@ -545,7 +608,12 @@ impl ffi::ContentController {
         } else {
             ffi::LibraryErrorKind::Writing
         };
-        let settings = matches!(&action, LibraryAction::ReaderSettings { .. });
+        let settings = matches!(
+            &action,
+            LibraryAction::ReaderSettings { .. }
+                | LibraryAction::SourceSettings
+                | LibraryAction::SourceWrite { .. }
+        );
         match self
             .library_worker
             .as_ref()
@@ -605,7 +673,7 @@ impl ffi::ContentController {
         } else if self
             .variants
             .find(&self.selected_variant_id.to_string())
-            .is_some()
+            .is_some_and(|variant| self.source_enabled(variant.reference.publication.source))
         {
             ffi::VariantSelectionState::Available
         } else {

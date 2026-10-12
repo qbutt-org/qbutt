@@ -3,16 +3,21 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{Category, Source};
+use qbutt_content::{Source, SourceOperation};
 use tokio::task::JoinSet;
 
 use super::ffi;
+use super::sources::{SourceResponse, execute_operation};
 
 const MAX_SEARCH_REQUESTS: usize = 4;
 
 impl ffi::ContentController {
     pub fn search(mut self: Pin<&mut Self>, query: QString) {
+        if self.source_settings_state() == ffi::SettingsState::Failed {
+            return;
+        }
         let query = query.to_string().trim().to_owned();
+        self.as_mut().cancel_deferred_search();
         self.as_mut().rust_mut().search.cancel();
         let generation = self.search.generation;
         let previous_selection_generation = self.inspection.generation;
@@ -69,49 +74,53 @@ impl ffi::ContentController {
         if self.search.generation != generation {
             return;
         }
+        if !self.as_mut().begin_source_search(&query) {
+            if self.source_settings_state() == ffi::SettingsState::Failed {
+                self.as_mut().set_search_state(ffi::SearchState::Cancelled);
+            }
+            return;
+        }
 
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let anime = Arc::clone(&services.anime);
         let manga = Arc::clone(&services.manga);
         let rutor = Arc::clone(&services.rutor);
-        let language = services.language.clone();
+        let mut requests = Vec::new();
+        for source in Source::ALL {
+            for category in source.categories() {
+                if let Some(request) = self.source_request(SourceOperation::Search {
+                    source,
+                    query: query.clone(),
+                    category: *category,
+                    language: (source == Source::MangaDex).then(|| services.language.clone()),
+                }) {
+                    requests.push(request);
+                }
+            }
+        }
         let task = services.runtime.spawn(async move {
-            let mut requests = [
-                (Source::AniLiberty, Category::Anime),
-                (Source::MangaDex, Category::Manga),
-                (Source::RuTor, Category::Movies),
-                (Source::RuTor, Category::Tv),
-                (Source::RuTor, Category::Anime),
-                (Source::RuTor, Category::Games),
-                (Source::RuTor, Category::Software),
-                (Source::RuTor, Category::Books),
-            ]
-            .into_iter();
+            let had_requests = !requests.is_empty();
+            let mut requests = requests.into_iter();
             let mut pending = JoinSet::new();
             let mut any_succeeded = false;
             loop {
                 while pending.len() < MAX_SEARCH_REQUESTS
-                    && let Some((source, category)) = requests.next()
+                    && let Some(request) = requests.next()
                 {
                     let anime = Arc::clone(&anime);
                     let manga = Arc::clone(&manga);
                     let rutor = Arc::clone(&rutor);
-                    let query = query.clone();
-                    let language = language.clone();
                     pending.spawn(async move {
-                        let result = match source {
-                            Source::AniLiberty => anime.search(&query).await,
-                            Source::MangaDex => manga.search(&query, &language).await,
-                            Source::RuTor => rutor.search(&query, category).await,
-                        };
-                        (source, category, result)
+                        let result =
+                            execute_operation(&request.operation, anime, manga, rutor).await;
+                        (request, result)
                     });
                 }
                 let Some(completed) = pending.join_next().await else {
                     break;
                 };
-                let (source, category, result) = match completed {
+                let (request, result) = match completed {
                     Ok(completed) => completed,
                     Err(error) => {
                         let _ = qt_thread.queue(move |controller| {
@@ -127,23 +136,26 @@ impl ffi::ContentController {
                 };
                 any_succeeded |= result.is_ok();
                 let _ = qt_thread.queue(move |mut controller| {
-                    if controller.search.generation != generation {
+                    if controller.search.generation != generation
+                        || !controller.source_request_current(&request)
+                    {
                         return;
                     }
-                    match result {
-                        Ok(works) => {
-                            for work in works {
-                                if controller.search.generation != generation {
-                                    return;
-                                }
-                                controller.as_mut().rust_mut().works.pin_mut().update(work);
+                    controller.as_mut().source_outcome(&request, &result);
+                    if controller.search.generation != generation
+                        || !controller.source_request_current(&request)
+                    {
+                        return;
+                    }
+                    if let Ok(SourceResponse::Search(works)) = result {
+                        for work in works {
+                            if controller.search.generation != generation
+                                || !controller.source_request_current(&request)
+                            {
+                                return;
                             }
+                            controller.as_mut().rust_mut().works.pin_mut().update(work);
                         }
-                        Err(qbutt_content::Error::InvalidQuery) => {}
-                        Err(error) => ffi::log_content_error(
-                            &QString::from(format!("search {source:?} {category:?}")),
-                            &QString::from(error.to_string()),
-                        ),
                     }
                 });
             }
@@ -152,15 +164,13 @@ impl ffi::ContentController {
                     return;
                 }
                 controller.as_mut().rust_mut().search.task = None;
-                let state = if any_succeeded {
-                    ffi::SearchState::Succeeded
-                } else {
-                    controller.as_mut().set_error_text(ffi::content_error(1));
-                    ffi::SearchState::Failed
-                };
-                if controller.search.generation == generation {
-                    controller.as_mut().set_search_state(state);
-                }
+                controller
+                    .as_mut()
+                    .set_search_state(if any_succeeded || !had_requests {
+                        ffi::SearchState::Succeeded
+                    } else {
+                        ffi::SearchState::Failed
+                    });
             });
         });
         self.as_mut().rust_mut().search.task = Some(task);
@@ -168,6 +178,7 @@ impl ffi::ContentController {
 
     pub fn cancel_search(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().search.cancel();
+        self.as_mut().cancel_deferred_search();
         if self.is_searching() {
             self.as_mut().set_search_state(ffi::SearchState::Cancelled);
         }

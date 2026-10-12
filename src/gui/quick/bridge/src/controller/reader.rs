@@ -184,7 +184,10 @@ impl ffi::ContentController {
         let Some(variant) = self.variants.find(&self.selected_variant_id.to_string()) else {
             return;
         };
-        if variant.transport != Transport::Manga || self.services.is_none() {
+        if variant.transport != Transport::Manga
+            || self.services.is_none()
+            || !self.source_enabled(variant.reference.publication.source)
+        {
             return;
         }
         let selected = self.selected_variant_id.clone();

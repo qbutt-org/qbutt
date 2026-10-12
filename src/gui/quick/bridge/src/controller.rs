@@ -6,7 +6,8 @@ use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::{
-    AniLiberty, MangaDex, PublicationRef, ResolvedContent, RuTor, Source, VariantPreferences, Work,
+    AniLiberty, MangaDex, PublicationRef, ResolvedContent, RuTor, Source, SourceOperation,
+    VariantPreferences, Work,
 };
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
@@ -15,11 +16,15 @@ mod library;
 mod reader;
 mod reader_settings;
 mod search;
+mod sources;
 
 use crate::models::{self, variant_id, work_id};
+use crate::source_model;
 use library::{LibraryUpdate, LibraryWorker};
 use reader::{ReaderState, RetiredReaderCache, clean_retired_reader_cache};
 use reader_settings::ReaderSettingsState;
+use sources::SourceState;
+use sources::{SourceResponse, execute_operation};
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
@@ -29,6 +34,17 @@ pub mod ffi {
     qnamespace!("Qbutt::Library");
     #[qml_element]
     qnamespace!("Qbutt::Reader");
+    #[qml_element]
+    qnamespace!("Qbutt::Sources");
+
+    #[qenum]
+    #[namespace = "Qbutt::Sources"]
+    enum SettingsState {
+        Loading,
+        Ready,
+        Saving,
+        Failed,
+    }
 
     #[qenum]
     #[namespace = "Qbutt::Reader"]
@@ -104,6 +120,8 @@ pub mod ffi {
         include!("qbutt_quick/src/models.cxxqt.h");
         type WorkModel = crate::models::ffi::WorkModel;
         type VariantModel = crate::models::ffi::VariantModel;
+        include!("qbutt_quick/src/source_model.cxxqt.h");
+        type SourceModel = crate::source_model::ffi::SourceModel;
         include!("qbutt_quick/src/reader_models.cxxqt.h");
         type ChapterModel = crate::reader_models::ffi::ChapterModel;
         include!("qbutt_quick/native.h");
@@ -139,6 +157,9 @@ pub mod ffi {
         #[qproperty(*mut WorkModel, favorites, READ = favorites_model, CONSTANT)]
         #[qproperty(*mut WorkModel, history, READ = history_model, CONSTANT)]
         #[qproperty(*mut VariantModel, variants, READ = variants_model, CONSTANT)]
+        #[qproperty(*mut SourceModel, sources, READ = sources_model, CONSTANT)]
+        #[qproperty(SettingsState, source_settings_state, cxx_name = "sourceSettingsState", READ = source_settings_state, NOTIFY = sources_changed)]
+        #[qproperty(QString, source_settings_error_text, cxx_name = "sourceSettingsErrorText", READ = source_settings_error_text, NOTIFY = sources_changed)]
         #[qproperty(
             *mut ChapterModel,
             reader_chapters,
@@ -341,6 +362,21 @@ pub mod ffi {
 
         fn works_model(&self) -> *mut WorkModel;
         fn variants_model(&self) -> *mut VariantModel;
+        fn sources_model(&self) -> *mut SourceModel;
+        fn source_settings_state(&self) -> SettingsState;
+        fn source_settings_error_text(&self) -> QString;
+        #[qinvokable]
+        #[cxx_name = "setSourceEnabled"]
+        fn set_source_enabled(self: Pin<&mut Self>, id: QString, enabled: bool) -> bool;
+        #[qinvokable]
+        #[cxx_name = "retrySource"]
+        fn retry_source(self: Pin<&mut Self>, id: QString) -> bool;
+        #[qinvokable]
+        #[cxx_name = "retrySourceSettings"]
+        fn retry_source_settings(self: Pin<&mut Self>) -> bool;
+        #[qsignal]
+        #[cxx_name = "sourcesChanged"]
+        fn sources_changed(self: Pin<&mut Self>);
         fn favorites_model(&self) -> *mut WorkModel;
         fn history_model(&self) -> *mut WorkModel;
         fn is_library_pending(&self) -> bool;
@@ -484,6 +520,8 @@ pub struct ContentControllerRust {
     favorites: UniquePtr<models::ffi::WorkModel>,
     history: UniquePtr<models::ffi::WorkModel>,
     variants: UniquePtr<models::ffi::VariantModel>,
+    sources: UniquePtr<source_model::ffi::SourceModel>,
+    source_status: SourceState,
     list_mode: ffi::ListMode,
 
     search_state: ffi::SearchState,
@@ -547,11 +585,16 @@ impl Default for ContentControllerRust {
             ffi::content_error(0)
         };
 
+        let source_status = SourceState::default();
+        let mut sources = source_model::ffi::create_source_model();
+        sources.pin_mut().replace(source_status.rows());
         Self {
             works: models::ffi::create_work_model(),
             favorites: models::ffi::create_work_model(),
             history: models::ffi::create_work_model(),
             variants: models::ffi::create_variant_model(),
+            sources,
+            source_status,
             list_mode: ffi::ListMode::Search,
 
             search_state: ffi::SearchState::Idle,
@@ -589,6 +632,7 @@ impl Drop for ContentControllerRust {
         self.search.cancel();
         self.inspection.cancel();
         self.resolution.cancel();
+        self.source_status.cancel_retries();
         self.reader.cancel();
         // Closing the sender drains accepted writes and closes SQLite on its worker.
         self.library_worker.take();
@@ -807,7 +851,14 @@ impl ffi::ContentController {
                 return;
             }
         }
-        let should_inspect = work.needs_inspection && self.services.is_some();
+        let request = self.services.as_ref().and_then(|services| {
+            self.source_request(SourceOperation::Inspect {
+                reference: work.reference.clone(),
+                language: (work.reference.source == Source::MangaDex)
+                    .then(|| services.language.clone()),
+            })
+        });
+        let should_inspect = work.needs_inspection && request.is_some();
         // Cached variants cannot become actionable during synchronous selection notifications.
         self.as_mut().rust_mut().inspecting = should_inspect;
         if !self.as_mut().show_work(&work, generation) {
@@ -831,39 +882,40 @@ impl ffi::ContentController {
             self.as_mut().set_error_text(ffi::content_error(0));
             return;
         }
+        let Some(request) = request else {
+            return;
+        };
+        if !self.source_request_current(&request) {
+            self.as_mut().set_inspecting(false);
+            return;
+        }
 
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let anime = Arc::clone(&services.anime);
         let manga = Arc::clone(&services.manga);
         let rutor = Arc::clone(&services.rutor);
-        let language = services.language.clone();
         let task = services.runtime.spawn(async move {
-            let result = match work.reference.source {
-                Source::AniLiberty => anime.inspect(&work.reference).await,
-                Source::MangaDex => manga.inspect(&work.reference, &language).await,
-                Source::RuTor => rutor.inspect(&work.reference).await,
-            };
+            let result = execute_operation(&request.operation, anime, manga, rutor).await;
             let _ = qt_thread.queue(move |mut controller| {
-                if controller.inspection.generation != generation {
+                if controller.inspection.generation != generation
+                    || !controller.source_request_current(&request)
+                {
                     return;
                 }
                 controller.as_mut().rust_mut().inspection.task = None;
-                match result {
-                    Ok(work) => {
-                        if !controller.as_mut().show_work(&work, generation) {
-                            return;
-                        }
-                        if controller.works.find(&work_id(&work.reference)).is_some() {
-                            controller.as_mut().rust_mut().works.pin_mut().update(work);
-                        }
+                controller.as_mut().source_outcome(&request, &result);
+                if controller.inspection.generation != generation
+                    || !controller.source_request_current(&request)
+                {
+                    return;
+                }
+                if let Ok(SourceResponse::Inspect(work)) = result {
+                    if !controller.as_mut().show_work(&work, generation) {
+                        return;
                     }
-                    Err(error) => {
-                        ffi::log_content_error(
-                            &QString::from("inspect"),
-                            &QString::from(error.to_string()),
-                        );
-                        controller.as_mut().set_error_text(ffi::content_error(2));
+                    if controller.works.find(&work_id(&work.reference)).is_some() {
+                        controller.as_mut().rust_mut().works.pin_mut().update(work);
                     }
                 }
                 if controller.inspection.generation == generation {
@@ -891,9 +943,15 @@ impl ffi::ContentController {
             return;
         };
         let reference = variant.reference.clone();
+        let Some(request) = self.source_request(SourceOperation::Resolve(reference.clone())) else {
+            return;
+        };
         let selection_generation = self.inspection.generation;
         self.as_mut().select_variant(id.clone());
-        if self.inspection.generation != selection_generation || self.selected_variant_id != id {
+        if self.inspection.generation != selection_generation
+            || self.selected_variant_id != id
+            || !self.source_request_current(&request)
+        {
             return;
         }
         if self.services.is_none() {
@@ -914,32 +972,30 @@ impl ffi::ContentController {
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let anime = Arc::clone(&services.anime);
+        let manga = Arc::clone(&services.manga);
         let rutor = Arc::clone(&services.rutor);
         let task = services.runtime.spawn(async move {
-            let result = match reference.publication.source {
-                Source::AniLiberty => anime.resolve(&reference).await,
-                Source::RuTor => rutor.resolve(&reference).await,
-                Source::MangaDex => Err(qbutt_content::Error::InvalidReference),
-            };
+            let result = execute_operation(&request.operation, anime, manga, rutor).await;
             let _ = qt_thread.queue(move |mut controller| {
-                if controller.resolution.generation != generation {
+                if controller.resolution.generation != generation
+                    || !controller.source_request_current(&request)
+                {
                     return;
                 }
                 controller.as_mut().rust_mut().resolution.task = None;
+                controller.as_mut().source_outcome(&request, &result);
+                if controller.resolution.generation != generation
+                    || !controller.source_request_current(&request)
+                {
+                    return;
+                }
                 let magnet = match result {
-                    Ok(ResolvedContent::Torrent {
+                    Ok(SourceResponse::Resolve(ResolvedContent::Torrent {
                         reference: resolved,
                         magnet,
                         ..
-                    }) if resolved == reference => Some(QString::from(magnet.as_str())),
-                    Err(error) => {
-                        ffi::log_content_error(
-                            &QString::from("resolve"),
-                            &QString::from(error.to_string()),
-                        );
-                        controller.as_mut().set_error_text(ffi::content_error(3));
-                        None
-                    }
+                    })) if resolved == reference => Some(QString::from(magnet.as_str())),
+                    Err(_) => None,
                     Ok(_) => {
                         ffi::log_content_error(
                             &QString::from("resolve"),

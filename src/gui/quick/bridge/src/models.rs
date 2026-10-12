@@ -3,7 +3,7 @@ use std::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QByteArray, QHash, QModelIndex, QString, QVariant, QVector};
 use qbutt_content::{
-    Category, PublicationRef, Source, Transport, Variant, VariantRef, VariantSelector, Work,
+    Category, PublicationRef, Transport, Variant, VariantRef, VariantSelector, Work,
 };
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
@@ -148,11 +148,7 @@ pub mod ffi {
 const USER_ROLE: i32 = 256;
 
 pub fn work_id(reference: &PublicationRef) -> String {
-    match reference.source {
-        Source::AniLiberty => format!("aniliberty:{}", reference.id),
-        Source::MangaDex => format!("mangadex:{}", reference.id),
-        Source::RuTor => format!("rutor:{}", reference.id),
-    }
+    format!("{}:{}", reference.source.id(), reference.id)
 }
 
 pub fn variant_id(reference: &VariantRef) -> String {
@@ -179,14 +175,6 @@ pub fn category_key(category: Category) -> &'static str {
         Category::Games => "games",
         Category::Software => "software",
         Category::Books => "books",
-    }
-}
-
-fn source_label(source: Source) -> &'static str {
-    match source {
-        Source::AniLiberty => "AniLiberty",
-        Source::MangaDex => "MangaDex",
-        Source::RuTor => "RuTor",
     }
 }
 
@@ -238,7 +226,7 @@ impl ffi::WorkModel {
         let text = match role - USER_ROLE {
             0 => work_id(&work.reference),
             1 => work.title.clone(),
-            2 => source_label(work.reference.source).into(),
+            2 => work.reference.source.name().into(),
             3 => category_key(work.category).into(),
             4 => work.year.map(|year| year.to_string()).unwrap_or_default(),
             _ => return QVariant::default(),
@@ -370,7 +358,7 @@ impl ffi::VariantModel {
                 .title
                 .clone()
                 .unwrap_or_else(|| self.work_title.clone()),
-            2 => source_label(variant.reference.publication.source).into(),
+            2 => variant.reference.publication.source.name().into(),
             3 => match variant.transport {
                 Transport::Torrent => "torrent".into(),
                 Transport::Video => "video".into(),

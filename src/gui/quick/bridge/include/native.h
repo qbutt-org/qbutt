@@ -13,12 +13,15 @@ namespace Qbutt
     class WorkModel;
     class VariantModel;
     class ChapterModel;
+    class SourceModel;
     struct RetiredReaderCache;
     struct Services;
 
     std::unique_ptr<WorkModel> createWorkModel();
     std::unique_ptr<VariantModel> createVariantModel();
     std::unique_ptr<ChapterModel> createChapterModel();
+    std::unique_ptr<SourceModel> createSourceModel();
+    QString sourceError(std::int32_t reason);
     QString contentError(std::int32_t operation);
     void logContentError(const QString &operation, const QString &detail);
     QString formatSize(std::uint64_t bytes);

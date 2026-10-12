@@ -18903,6 +18903,30 @@ Please choose a different name and try again.</source>
 <context>
     <name>ContentController</name>
     <message>
+        <source>The source did not respond in time.</source>
+        <translation>Источник не ответил вовремя.</translation>
+    </message>
+    <message>
+        <source>The source denied access.</source>
+        <translation>Источник отказал в доступе.</translation>
+    </message>
+    <message>
+        <source>This item is no longer available.</source>
+        <translation>Этот вариант больше недоступен.</translation>
+    </message>
+    <message>
+        <source>Could not load source settings.</source>
+        <translation>Не удалось загрузить настройки источников.</translation>
+    </message>
+    <message>
+        <source>Could not save source settings.</source>
+        <translation>Не удалось сохранить настройки источников.</translation>
+    </message>
+    <message>
+        <source>Could not get data from this source.</source>
+        <translation>Не удалось получить данные от источника.</translation>
+    </message>
+    <message>
         <source>Could not load chapters.</source>
         <translation>Не удалось загрузить главы.</translation>
     </message>
@@ -18957,14 +18981,6 @@ Please choose a different name and try again.</source>
     <message>
         <source>Could not start content services.</source>
         <translation>Не удалось запустить поиск.</translation>
-    </message>
-    <message>
-        <source>Search could not be completed.</source>
-        <translation>Не удалось завершить поиск.</translation>
-    </message>
-    <message>
-        <source>Could not load variants.</source>
-        <translation>Не удалось загрузить варианты.</translation>
     </message>
     <message>
         <source>Could not start the download.</source>

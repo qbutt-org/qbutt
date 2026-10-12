@@ -13,6 +13,7 @@
 #include "qbutt_quick/src/controller.cxxqt.h"
 #include "qbutt_quick/src/models.cxxqt.h"
 #include "qbutt_quick/src/reader_models.cxxqt.h"
+#include "qbutt_quick/src/source_model.cxxqt.h"
 
 Q_LOGGING_CATEGORY(contentLog, "qbutt.content")
 
@@ -44,6 +45,30 @@ std::unique_ptr<Qbutt::VariantModel> Qbutt::createVariantModel()
 std::unique_ptr<Qbutt::ChapterModel> Qbutt::createChapterModel()
 {
     return std::make_unique<ChapterModel>();
+}
+
+std::unique_ptr<Qbutt::SourceModel> Qbutt::createSourceModel()
+{
+    return std::make_unique<SourceModel>();
+}
+
+QString Qbutt::sourceError(const std::int32_t reason)
+{
+    switch (reason)
+    {
+    case 1:
+        return QCoreApplication::translate("ContentController", "The source did not respond in time.");
+    case 2:
+        return QCoreApplication::translate("ContentController", "The source denied access.");
+    case 3:
+        return QCoreApplication::translate("ContentController", "This item is no longer available.");
+    case 4:
+        return QCoreApplication::translate("ContentController", "Could not load source settings.");
+    case 5:
+        return QCoreApplication::translate("ContentController", "Could not save source settings.");
+    default:
+        return QCoreApplication::translate("ContentController", "Could not get data from this source.");
+    }
 }
 
 QString Qbutt::contentLanguage()
@@ -119,10 +144,6 @@ QString Qbutt::contentError(const std::int32_t operation)
     {
     case 0:
         return QCoreApplication::translate("ContentController", "Could not start content services.");
-    case 1:
-        return QCoreApplication::translate("ContentController", "Search could not be completed.");
-    case 2:
-        return QCoreApplication::translate("ContentController", "Could not load variants.");
     case 3:
         return QCoreApplication::translate("ContentController", "Could not start the download.");
     case 4:

@@ -37,6 +37,7 @@
 #include "reader-settings.h"
 #include "reader.h"
 #include "rutor.h"
+#include "sources.h"
 #include "work-filter.h"
 #include "worklist.h"
 
@@ -489,6 +490,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"exercise"_s, u"Run the bounded live metadata acceptance scenario and exit."_s});
     parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
     parser.addOption({u"rutor"_s, u"Run native RuTor search, exact resolution and library persistence, then exit."_s});
+    parser.addOption({u"sources"_s, u"Run persisted source choices, exact retries and SQLite faults, then exit."_s});
     parser.addOption({u"history"_s, u"Run confirmed reading history and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
     parser.addOption({u"reader-progress"_s, u"Run exact reader progress and SQLite fault scenarios, then exit."_s});
@@ -515,11 +517,13 @@ int main(int argc, char *argv[])
 
     if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
         || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s) || parser.isSet(u"work-filter"_s)
-        || parser.isSet(u"category"_s))
+        || parser.isSet(u"category"_s) || parser.isSet(u"sources"_s))
     {
         try
         {
-            if (parser.isSet(u"category"_s))
+            if (parser.isSet(u"sources"_s))
+                exerciseSources();
+            else if (parser.isSet(u"category"_s))
                 exerciseCategory();
             else if (parser.isSet(u"rutor"_s))
                 exerciseRuTor();

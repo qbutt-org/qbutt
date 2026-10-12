@@ -5,7 +5,12 @@ fn main() {
         CxxQtBuilder::new_qml_module(QmlModule::new("Qbutt.Content").depend("QtQml.Models"))
             .qt_module("Qml")
             .qt_module("Gui")
-            .files(["src/controller.rs", "src/models.rs", "src/reader_models.rs"])
+            .files([
+                "src/controller.rs",
+                "src/models.rs",
+                "src/reader_models.rs",
+                "src/source_model.rs",
+            ])
             .cpp_file("src/native.cpp")
             .crate_include_root(Some("include".into()));
 
