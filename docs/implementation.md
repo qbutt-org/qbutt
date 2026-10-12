@@ -144,7 +144,7 @@ Live RU/EN в MainWindow и Options использует существующи�
 
 Совместная native-приёмка Continuous/MainWindow, ранобэ и перевод остаются открытыми. ReaderMode уже управляет работающим Continuous. Прежние Bun/Go потребители удаляются после их замены и приёмки.
 
-Проход по сопровождаемости native-кода завершён на `050f89dc2`: AniLiberty отделяет запросы от DTO/преобразования ответа, выбор работы и варианта собран в `controller/selection.rs`, ошибки Rust/Qt типизированы. Проверены общая сборка, чтение, Library, категории и live RU/EN: `C:/Tools/qbutt/main-combined-qa/maintainability-final-*.log`. Это проверка исходников и process-сценариев без изменения интерфейса. Устранение дублей каталога источников входит в текущий MangaLib/Nyaa срез; прежний TypeScript удаляется вместе с принятыми заменами.
+Проход по сопровождаемости новых Rust content-сервисов и Qt bridge завершён на `0db08b076`: AniLiberty отделяет запросы от DTO/преобразования ответа, выбор работы и варианта собран в `controller/selection.rs`, ошибки Rust/Qt типизированы. Проверены общая сборка, чтение, Library, категории, live RU/EN и живой AniLiberty search → inspect → exact magnet: `C:/Tools/qbutt/main-combined-qa/maintainability-final-*.log`. Устаревший torrent-only assert заменён проверкой соответствия selector типу video/torrent с сохранением уникальности, принадлежности публикации и точной передачи. Это проверка исходников и process-сценариев без изменения интерфейса. Устранение дублей каталога источников входит в текущий MangaLib/Nyaa срез; прежний TypeScript удаляется вместе с принятыми заменами.
 
 ### Ближайшая исполнимая работа
 
