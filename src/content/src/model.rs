@@ -22,6 +22,8 @@ pub enum Source {
     Rutube,
     #[serde(rename = "fitgirl")]
     FitGirl,
+    #[serde(rename = "onlinefix")]
+    OnlineFix,
     RoyalRoad,
     Kakuyomu,
     RanobeHub,
@@ -54,6 +56,7 @@ impl PublicationRef {
             Source::Nyaa => self.nyaa_id().map(|_| ()),
             Source::Rutube => self.rutube_id().map(|_| ()),
             Source::FitGirl => self.fitgirl_slug().map(|_| ()),
+            Source::OnlineFix => self.online_fix_path().map(|_| ()),
             Source::RoyalRoad => self.royalroad_id().map(|_| ()),
             Source::RanobeHub => self.ranobehub_id().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
@@ -96,6 +99,34 @@ impl PublicationRef {
         } else {
             Err(crate::Error::InvalidReference)
         }
+    }
+
+    pub(crate) fn online_fix_path(&self) -> crate::Result<&str> {
+        if self.source != Source::OnlineFix || self.id.len() > 250 {
+            return Err(crate::Error::InvalidReference);
+        }
+        let (category, filename) = self
+            .id
+            .strip_prefix("games/")
+            .and_then(|path| path.split_once('/'))
+            .ok_or(crate::Error::InvalidReference)?;
+        let (id, slug) = filename
+            .strip_suffix(".html")
+            .and_then(|filename| filename.split_once('-'))
+            .ok_or(crate::Error::InvalidReference)?;
+        if category.is_empty()
+            || !category
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'-')
+            || !canonical_decimal(id)
+            || slug.is_empty()
+            || !slug
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            return Err(crate::Error::InvalidReference);
+        }
+        Ok(&self.id)
     }
 
     pub(crate) fn kakuyomu_id(&self) -> crate::Result<&str> {
@@ -315,6 +346,7 @@ impl VariantRef {
                 | (Source::RuTracker, VariantSelector::TorrentHash { .. })
                 | (Source::Nyaa, VariantSelector::TorrentHash { .. })
                 | (Source::FitGirl, VariantSelector::TorrentHash { .. })
+                | (Source::OnlineFix, VariantSelector::TorrentHash { .. })
                 | (Source::Rutube, VariantSelector::RutubeVideo)
                 | (Source::RoyalRoad, VariantSelector::OriginalText)
                 | (Source::Kakuyomu, VariantSelector::OriginalText)

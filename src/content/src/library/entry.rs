@@ -297,7 +297,11 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
                 variant.transport == Transport::Text
             }
             (
-                Source::RuTor | Source::RuTracker | Source::Nyaa | Source::FitGirl,
+                Source::RuTor
+                | Source::RuTracker
+                | Source::Nyaa
+                | Source::FitGirl
+                | Source::OnlineFix,
                 VariantSelector::TorrentHash { info_hash },
             ) => {
                 variant.transport == Transport::Torrent
