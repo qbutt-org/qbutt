@@ -41,6 +41,7 @@ impl Source {
             Self::RanobeLib => "ranobelib",
             Self::RuTor => "rutor",
             Self::RuTracker => "rutracker",
+            Self::NnmClub => "nnmclub",
             Self::Nyaa => "nyaa",
             Self::Rutube => "rutube",
             Self::FitGirl => "fitgirl",
@@ -71,6 +72,7 @@ impl Source {
             Self::RanobeLib => "RanobeLib",
             Self::RuTor => "RuTor",
             Self::RuTracker => "RuTracker",
+            Self::NnmClub => "NNM-Club",
             Self::Nyaa => "Nyaa.si",
             Self::Rutube => "Rutube",
             Self::FitGirl => "FitGirl",
@@ -137,6 +139,7 @@ impl Source {
                 Category::Books,
                 Category::Manga,
             ],
+            Self::NnmClub => &[Category::Movies, Category::Software],
         }
     }
 }

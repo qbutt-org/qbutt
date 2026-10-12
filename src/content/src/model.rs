@@ -20,6 +20,8 @@ pub enum Source {
     RanobeLib,
     RuTor,
     RuTracker,
+    #[serde(rename = "nnmclub")]
+    NnmClub,
     Nyaa,
     Rutube,
     #[serde(rename = "fitgirl")]
@@ -64,6 +66,7 @@ impl PublicationRef {
             Source::AnimeSpirit => self.animespirit_id().map(|_| ()),
             Source::RuTor => self.rutor_id().map(|_| ()),
             Source::RuTracker => self.rutracker_id().map(|_| ()),
+            Source::NnmClub => self.nnmclub_id().map(|_| ()),
             Source::Nyaa => self.nyaa_id().map(|_| ()),
             Source::Rutube => self.rutube_id().map(|_| ()),
             Source::FitGirl => self.fitgirl_slug().map(|_| ()),
@@ -97,6 +100,10 @@ impl PublicationRef {
 
     pub(crate) fn rutracker_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::RuTracker)
+    }
+
+    pub(crate) fn nnmclub_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::NnmClub)
     }
 
     pub(crate) fn nyaa_id(&self) -> crate::Result<u64> {
@@ -468,6 +475,7 @@ impl VariantRef {
                 | (Source::RanobeLib, VariantSelector::LibTranslation { .. })
                 | (Source::RuTor, VariantSelector::TorrentHash { .. })
                 | (Source::RuTracker, VariantSelector::TorrentHash { .. })
+                | (Source::NnmClub, VariantSelector::TorrentHash { .. })
                 | (Source::Nyaa, VariantSelector::TorrentHash { .. })
                 | (Source::FitGirl, VariantSelector::TorrentHash { .. })
                 | (Source::OnlineFix, VariantSelector::TorrentHash { .. })

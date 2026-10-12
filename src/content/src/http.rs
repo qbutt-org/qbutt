@@ -180,6 +180,27 @@ impl SourceHttp {
         .map_err(|_| Error::Timeout)?
     }
 
+    pub(crate) async fn session_form_document(
+        &self,
+        url: Url,
+        form: &str,
+        session: &mut SourceSession,
+    ) -> Result<SourceDocument> {
+        tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(
+                url,
+                ResponseKind::Document,
+                &[],
+                Some(form),
+                Some(session),
+                None,
+            ),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
+    }
+
     /// Raw acquisition bytes retain HTTP/HTML gates for the provider to classify.
     /// The native torrent handoff remains responsible for parsing the metadata.
     pub(crate) async fn session_metadata(

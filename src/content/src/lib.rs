@@ -32,6 +32,8 @@ mod mangadex;
 mod mangalib;
 mod media;
 mod model;
+#[cfg(windows)]
+mod nnmclub;
 mod nyaa;
 mod online_fix;
 mod ranobehub;
@@ -80,6 +82,8 @@ pub use mangadex::MangaDex;
 pub use mangalib::MangaLib;
 pub use media::{MediaGateway, MediaGatewayError, PreparedPlayback, PreparedSubtitle};
 pub use model::*;
+#[cfg(windows)]
+pub use nnmclub::NnmClub;
 pub use nyaa::Nyaa;
 pub use online_fix::OnlineFix;
 pub use ranobehub::RanobeHub;
