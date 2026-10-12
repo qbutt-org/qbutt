@@ -42,6 +42,7 @@ namespace Media
         QMap<QString, QString> headers;
         QString contentKind;
         QString identity;
+        quint64 launchToken = 0;
         QString legacyIdentity;
         QUrl proxyUrl;
         QUrl audioUrl;
@@ -70,7 +71,8 @@ namespace Media
         void error(const QString &message);
         void preparationChanged(const QString &message);
         void playbackChanged(bool playing);
-        void playbackStarted(const QString &identity);
+        void playbackStarted(const QString &identity, quint64 launchToken);
+        void playbackFinished(quint64 launchToken);
         void positionChanged(double seconds);
         void durationChanged(double seconds);
         void tracksChanged(const QJsonArray &tracks);
@@ -78,12 +80,20 @@ namespace Media
         void downloadRequested(const QUrl &url, const QString &title, const Media::PlaybackOptions &options);
 
     private:
+        enum class PlaybackState
+        {
+            Pending,
+            Started,
+            Finished
+        };
+
         struct Playback
         {
             QUrl url;
             QString title;
             PlaybackOptions options;
             QString positionKey;
+            PlaybackState state = PlaybackState::Finished;
         };
 
         enum class SubtitleCommand
@@ -133,11 +143,13 @@ namespace Media
         ~Player() override;
 
         bool startPlayback(const QUrl &url, const QString &title, const PlaybackOptions &options);
-        bool startPending();
+        void startPending();
         bool startPrepared(const QJsonObject &runtime);
         bool prepareCookies();
         void stopProcess();
         void finishPlayback();
+        void confirmPlayback();
+        void finishLaunch(Playback &playback);
         void connectIpc();
         void loadMedia();
         void readMessages();

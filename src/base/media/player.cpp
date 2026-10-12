@@ -112,16 +112,20 @@ Player::Player(QObject *parent)
             return;
 
         m_preparationRequest = 0;
-        emit preparationChanged({});
         if (event == u"error")
         {
-            StreamServer::instance()->closeStream(m_pending.url);
-            m_pending = {};
+            Playback pending = std::exchange(m_pending, {});
+            StreamServer::instance()->closeStream(pending.url);
+            finishLaunch(pending);
+            if (m_preparationRequest == 0)
+                emit preparationChanged({});
             emit error(data.toObject().value(u"message"_s).toString());
             return;
         }
         if (m_pending.url.isValid())
             startPrepared(data.toObject());
+        if (m_preparationRequest == 0)
+            emit preparationChanged({});
     });
 
     m_process.setStandardOutputFile(QProcess::nullDevice());
@@ -291,12 +295,14 @@ bool Player::startPlayback(const QUrl &url, const QString &title, const Playback
         }
     }
 
-    StreamServer::instance()->closeStream(m_pending.url);
-    m_pending = {url, title, options, key};
+    Playback pending = std::exchange(m_pending, {url, title, options, key, PlaybackState::Pending});
+    StreamServer::instance()->closeStream(pending.url);
+    finishLaunch(pending);
     if (m_process.state() == QProcess::NotRunning)
-        return startPending();
+        startPending();
+    else
+        stopProcess();
 
-    stopProcess();
     return true;
 }
 
@@ -325,24 +331,24 @@ bool Player::playTorrent(BitTorrent::Torrent *torrent, const int fileIndex, cons
 
 void Player::stop()
 {
+    Playback pending = std::exchange(m_pending, {});
     if (m_preparationRequest != 0)
     {
         Content::Client::instance()->cancel(std::exchange(m_preparationRequest, 0));
         emit preparationChanged({});
     }
-    StreamServer::instance()->closeStream(m_pending.url);
-    m_pending = {};
+    StreamServer::instance()->closeStream(pending.url);
+    finishLaunch(pending);
     stopProcess();
 }
 
-bool Player::startPending()
+void Player::startPending()
 {
-    if (m_preparationRequest == 0)
+    if (m_pending.url.isValid() && (m_preparationRequest == 0))
     {
-        emit preparationChanged(tr("Preparing player…"));
         m_preparationRequest = Content::Client::instance()->request(u"mediaRuntime"_s);
+        emit preparationChanged(tr("Preparing player…"));
     }
-    return true;
 }
 
 bool Player::startPrepared(const QJsonObject &runtime)
@@ -350,8 +356,9 @@ bool Player::startPrepared(const QJsonObject &runtime)
     const QString executable = runtime.value(u"player"_s).toString();
     if (!QFileInfo::exists(executable))
     {
-        StreamServer::instance()->closeStream(m_pending.url);
-        m_pending = {};
+        Playback pending = std::exchange(m_pending, {});
+        StreamServer::instance()->closeStream(pending.url);
+        finishLaunch(pending);
         emit error(tr("The player is missing. Try opening the video again."));
         return false;
     }
@@ -363,7 +370,7 @@ bool Player::startPrepared(const QJsonObject &runtime)
     m_subtitles = {};
     if (!prepareCookies())
     {
-        stop();
+        stopProcess();
         return false;
     }
     m_pipeName = u"qbutt-mpv-"_s + QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -374,7 +381,6 @@ bool Player::startPrepared(const QJsonObject &runtime)
     m_pipeName = ipcPath;
 #endif
     QStringList arguments {
-        u"--external-downloads"_s,
         u"--input-ipc-server="_s + ipcPath,
         u"--idle=yes"_s,
         u"--save-position-on-quit=no"_s,
@@ -383,6 +389,8 @@ bool Player::startPrepared(const QJsonObject &runtime)
         u"--http-proxy="_s + QString::fromUtf8(m_current.options.proxyUrl.toEncoded()),
         u"--terminal=no"_s
     };
+    if (m_current.options.launchToken == 0)
+        arguments.prepend(u"--external-downloads"_s);
     if (qEnvironmentVariable("QBUTT_LAB_PATHS") == u"1")
     {
         const QString profile = qEnvironmentVariable("QBUTT_LAB_QPLAY_PROFILE");
@@ -464,6 +472,7 @@ void Player::stopProcess()
     m_connectTimer.stop();
     m_saveTimer.stop();
     m_stopping = true;
+    finishLaunch(m_current);
     setPlaying(false);
     if (m_process.state() != QProcess::NotRunning)
     {
@@ -480,7 +489,7 @@ void Player::stopProcess()
     }
     else
     {
-        m_cookies.reset();
+        finishPlayback();
     }
 }
 
@@ -496,12 +505,36 @@ void Player::finishPlayback()
     m_ipc.abort();
     m_messages.clear();
     m_cookies.reset();
-    m_current = {};
+    Playback current = std::exchange(m_current, {});
     m_initialAudioId = 0;
     m_stopping = false;
     setPlaying(false);
+    finishLaunch(current);
     if (m_pending.url.isValid())
         startPending();
+}
+
+void Player::confirmPlayback()
+{
+    if (m_stopping || (m_current.state != PlaybackState::Pending))
+        return;
+
+    m_current.state = PlaybackState::Started;
+    const QString identity = m_current.options.identity;
+    const quint64 token = m_current.options.launchToken;
+    setPlaying(true);
+    if (!m_stopping && (m_current.state == PlaybackState::Started) && (m_current.options.launchToken == token))
+        emit playbackStarted(identity, token);
+}
+
+void Player::finishLaunch(Playback &playback)
+{
+    if (playback.state == PlaybackState::Finished)
+        return;
+
+    playback.state = PlaybackState::Finished;
+    if (playback.options.launchToken != 0)
+        emit playbackFinished(playback.options.launchToken);
 }
 
 void Player::connectIpc()
@@ -681,8 +714,7 @@ void Player::readMessages()
             }
             m_initialAudioId = 0;
             sendCommand({u"set_property"_s, u"pause"_s, false});
-            setPlaying(true);
-            emit playbackStarted(m_current.options.identity);
+            confirmPlayback();
         }
         else if (event == u"file-loaded")
         {
@@ -694,8 +726,7 @@ void Player::readMessages()
             }
             else
             {
-                setPlaying(true);
-                emit playbackStarted(m_current.options.identity);
+                confirmPlayback();
             }
         }
         else if ((event == u"playback-restart") && (m_initialAudioId == 0))
@@ -719,7 +750,10 @@ void Player::readMessages()
         {
             const QJsonArray arguments = message.value(u"args"_s).toArray();
             if (!arguments.isEmpty() && (arguments.at(0).toString() == u"qplay-download"))
-                emit downloadRequested(m_current.url, m_current.title, m_current.options);
+            {
+                if (m_current.options.launchToken == 0)
+                    emit downloadRequested(m_current.url, m_current.title, m_current.options);
+            }
             else if ((arguments.size() == 2) && (arguments.at(0).toString() == u"qplay-subtitles"))
                 subtitleAction(arguments.at(1).toString());
         }
@@ -734,6 +768,7 @@ void Player::readMessages()
             m_subtitles.loaded = false;
             savePosition();
             setPlaying(false);
+            finishLaunch(m_current);
         }
         else if (event == u"property-change")
         {

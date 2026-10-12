@@ -66,12 +66,14 @@ namespace
 void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spec, QJsonObject &evidence)
 {
     QJsonArray checks = evidence.value(u"checks"_s).toArray();
+    quint64 launchToken = 0;
     for (const QJsonValue &value : spec.value(u"selections"_s).toArray())
     {
         const QJsonObject selection = value.toObject();
         const QJsonObject wanted = selection.value(u"audioTrack"_s).toObject();
         Media::PlaybackOptions options;
         options.identity = selection.value(u"identity"_s).toString();
+        options.launchToken = selection.value(u"legacyLaunch"_s).toBool() ? 0 : ++launchToken;
         options.legacyIdentity = selection.value(u"legacyIdentity"_s).toString();
         options.proxyUrl = QUrl(selection.value(u"proxyUrl"_s).toString());
         options.audioTrack = {wanted.value(u"title"_s).toString(), wanted.value(u"type"_s).toString(), wanted.value(u"language"_s).toString(),
@@ -90,18 +92,39 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
 
         QStringList errors;
         QStringList started;
+        QList<quint64> startedTokens;
+        QList<quint64> finishedTokens;
+        QList<quint64> expectedFinished;
+        int downloads = 0;
         QJsonArray tracks;
         double position = 0;
         double firstPosition = -1;
         QObject observations;
         auto *player = Media::Player::instance();
         const auto stop = qScopeGuard([] { Media::Player::freeInstance(); });
+        const quint64 firstToken = options.launchToken;
         // Capture the service error directly. Native error-dialog behavior has
         // its own GUI fault scenario; a modal dialog would block this runner.
         QObject::disconnect(player, &Media::Player::error, errorReceiver, nullptr);
         QObject::connect(player, &Media::Player::error, &observations, [&](const QString &message) { errors.append(message); });
-        QObject::connect(player, &Media::Player::playbackStarted, &observations, [&](const QString &identity) { started.append(identity); });
+        QObject::connect(player, &Media::Player::playbackStarted, &observations, [&](const QString &identity, const quint64 token)
+        {
+            started.append(identity);
+            startedTokens.append(token);
+        });
+        QObject::connect(player, &Media::Player::playbackFinished, &observations, [&](const quint64 token)
+        {
+            finishedTokens.append(token);
+            if ((token == firstToken) && selection.value(u"reentrantSupersede"_s).toBool())
+            {
+                expectedFinished.append(options.launchToken);
+                options.launchToken = ++launchToken;
+                require(player->playUrl(url, selection.value(u"name"_s).toString(), options),
+                    u"Player rejected reentrant replacement playback"_s);
+            }
+        });
         QObject::connect(player, &Media::Player::tracksChanged, &observations, [&](const QJsonArray &actual) { tracks = actual; });
+        QObject::connect(player, &Media::Player::downloadRequested, &observations, [&] { ++downloads; });
         QObject::connect(player, &Media::Player::positionChanged, &observations, [&](const double actual)
         {
             position = actual;
@@ -110,6 +133,24 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
         });
         require(player->playUrl(url, selection.value(u"name"_s).toString(), options),
             u"Player rejected the legal media fixture"_s);
+        if (selection.value(u"stopBeforeLoaded"_s).toBool())
+        {
+            player->stop();
+            Media::Player::freeInstance();
+            require(startedTokens.isEmpty() && (finishedTokens == QList<quint64> {options.launchToken}),
+                u"Stopping pending playback lost or confirmed its launch token"_s);
+            checks.append(QJsonObject {{u"name"_s, selection.value(u"name"_s)}, {u"pendingStop"_s, true}});
+            evidence[u"checks"_s] = checks;
+            continue;
+        }
+        if (selection.value(u"supersedePending"_s).toBool())
+        {
+            expectedFinished.append(options.launchToken);
+            options.launchToken = ++launchToken;
+            require(player->playUrl(url, selection.value(u"name"_s).toString(), options), u"Player rejected replacement playback"_s);
+            require(startedTokens.isEmpty() && (finishedTokens == expectedFinished),
+                u"Replacing pending playback lost or confirmed its previous token"_s);
+        }
         waitFor(u"Actual mpv voice selection"_s, [&] { return !started.isEmpty() || !errors.isEmpty(); });
 
         QJsonObject check {{u"name"_s, selection.value(u"name"_s)}, {u"identity"_s, options.identity}};
@@ -119,12 +160,30 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
             require(position <= 0, u"Unavailable voice advanced before rejection"_s);
             check[u"rejected"_s] = true;
             check[u"error"_s] = errors.constFirst();
+            Media::Player::freeInstance();
         }
         else
         {
-            require(errors.isEmpty() && (started == QStringList {options.identity}), u"Wrong playback-start identity"_s);
+            require(errors.isEmpty(), u"Playback failed before confirmation: "_s + errors.join(u"; "_s));
+            require(started == QStringList {options.identity}, u"Wrong playback-start identity: "_s + started.join(u", "_s));
+            require(startedTokens == QList<quint64> {options.launchToken}, u"Playback confirmed another launch token"_s);
             waitFor(u"Selected voice decoding"_s, [&] { return !errors.isEmpty() || (position >= selection.value(u"minimumPosition"_s).toDouble(1)); });
             require(errors.isEmpty(), u"Selected voice failed to decode"_s);
+            if (selection.value(u"supersedePlaying"_s).toBool())
+            {
+                expectedFinished.append(options.launchToken);
+                options.launchToken = ++launchToken;
+                started.clear();
+                startedTokens.clear();
+                require(player->playUrl(url, selection.value(u"name"_s).toString(), options),
+                    u"Player rejected a replacement after file-loaded"_s);
+                require(finishedTokens == expectedFinished, u"Replacing current playback lost its token"_s);
+                waitFor(u"Replacement mpv file-loaded"_s, [&] { return !startedTokens.isEmpty() || !errors.isEmpty(); });
+                require(errors.isEmpty() && (startedTokens == QList<quint64> {options.launchToken}),
+                    u"Replacement playback confirmed another token"_s);
+                waitFor(u"Replacement decoding"_s, [&] { return !errors.isEmpty() || (position >= 1); });
+                require(errors.isEmpty(), u"Replacement playback failed to decode"_s);
+            }
             const QJsonObject selected = selectedAudio(tracks);
             require(selected.value(u"id"_s).toInt() == selection.value(u"expectedId"_s).toInt(), u"The wrong actual mpv track was selected"_s);
             if (selection.value(u"resume"_s).toBool())
@@ -136,6 +195,11 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
             check[u"selected"_s] = selected;
             check[u"position"_s] = position;
             check[u"firstPosition"_s] = firstPosition;
+            if (selection.value(u"checkDownload"_s).toBool())
+            {
+                require(downloads == (options.launchToken == 0 ? 1 : 0), u"Download IPC bypassed the playback capability"_s);
+                check[u"downloads"_s] = downloads;
+            }
 
             if (selection.value(u"switchTrack"_s).isDouble())
             {
@@ -179,6 +243,11 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
                 check[u"legacyPosition"_s] = persisted->contains(legacyKey)
                     ? QJsonValue(persisted->value(legacyKey).toDouble()) : QJsonValue(QJsonValue::Null);
         }
+        if (options.launchToken != 0)
+            expectedFinished.append(options.launchToken);
+        require(finishedTokens == expectedFinished, u"An accepted playback launch has no unique terminal outcome"_s);
+        check[u"launchToken"_s] = static_cast<qint64>(options.launchToken);
+        check[u"uniquePlaybackFinish"_s] = true;
         checks.append(check);
         evidence[u"checks"_s] = checks;
     }
