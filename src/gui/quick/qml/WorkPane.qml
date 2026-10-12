@@ -77,7 +77,7 @@ Pane {
                 objectName: "contentFavorite"
                 theme: root.theme
                 Layout.alignment: Qt.AlignTop
-                icon.source: root.backend.selectedFavorite ? "qrc:/icons/bookmark-active.svg" : root.theme.iconSource("bookmark")
+                icon.source: root.theme.iconSource(root.backend.selectedFavorite ? "bookmark-active" : "bookmark")
                 text: root.backend.selectedFavorite ? qsTr("Remove from favorites") : qsTr("Add to favorites")
                 Accessible.checkable: true
                 Accessible.checked: root.backend.selectedFavorite

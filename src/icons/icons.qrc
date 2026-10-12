@@ -14,7 +14,7 @@
         <file>dark/application-rss.svg</file>
         <file>dark/application-url.svg</file>
         <file>dark/bookmark.svg</file>
-        <file alias="dark/bookmark-active.svg">bookmark-active.svg</file>
+        <file>dark/bookmark-active.svg</file>
         <file>dark/browser-cookies.svg</file>
         <file>dark/chart-line.svg</file>
         <file>dark/checked-completed.svg</file>

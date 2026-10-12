@@ -1,1 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><g fill="none" stroke="#465669" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15V5h16v10M4 15l2 4h12l2-4h-5l-1.5 2h-3L9 15z"/></g></svg>
+<!-- Tabler Icons v3.49.0: icons/outline/inbox.svg -->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="#465669"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12" />
+  <path d="M4 13h3l3 3h4l3 -3h3" />
+</svg>
