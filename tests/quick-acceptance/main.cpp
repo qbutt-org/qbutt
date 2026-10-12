@@ -269,7 +269,7 @@ namespace
             u"Inspection failed: %1"_s.arg(controller->property("errorText").toString()));
         require(controller->property("selectedWorkId").toString() == selectedWork, u"Inspection changed publication identity"_s);
         require(!controller->property("selectedWorkTitle").toString().isEmpty(), u"Inspected title is missing"_s);
-        require(variants->rowCount() > 0, u"Inspection did not expose torrent variants"_s);
+        require(variants->rowCount() > 0, u"Inspection did not expose variants"_s);
         const QString inspectedTitle = controller->property("selectedWorkTitle").toString();
         const QString inspectedDescription = controller->property("selectedWorkDescription").toString();
 
@@ -324,11 +324,14 @@ namespace
         for (int row = 0; row < variants->rowCount(); ++row)
         {
             const QString id = value(variants, row, "variantId");
-            require(id.startsWith(selectedWork + u":torrent:"_s) && !identities.contains(id),
-                u"Variant identity is duplicated or belongs to another publication"_s);
-            require(!value(variants, row, "label").isEmpty(), u"Torrent variant has no label"_s);
+            const QString kind = value(variants, row, "kind");
+            require(!identities.contains(id), u"Variant identity is duplicated"_s);
+            require(((kind == u"torrent") && id.startsWith(selectedWork + u":torrent:"_s))
+                || ((kind == u"video") && (id.startsWith(selectedWork + u":episode:"_s)
+                    || id.startsWith(selectedWork + u":rutube:"_s))),
+                u"Variant identity belongs to another publication or does not match its action kind"_s);
+            require(!value(variants, row, "label").isEmpty(), u"Variant has no label"_s);
             require(value(variants, row, "source") == u"AniLiberty", u"Incorrect variant source role"_s);
-            require(value(variants, row, "kind") == u"torrent", u"An unsupported action entered the torrent slice"_s);
             identities.insert(id);
         }
 
@@ -349,6 +352,9 @@ namespace
             && (controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
                 == Qbutt::Search::VariantSelectionState::Available),
             u"Keyboard variant highlight and exact selection differ"_s);
+        require((value(variants, selectedRow, "kind") == u"torrent")
+            && (controller->property("selectedVariantKind").toString() == u"torrent"),
+            u"Keyboard handoff did not select a torrent variant"_s);
         const QString expectedHash = value(variants, selectedRow, "infoHash").toLower();
         require(expectedHash.size() == 40, u"Selected torrent has no verifiable infohash"_s);
         QString receivedMagnet;
