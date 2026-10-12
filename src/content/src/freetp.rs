@@ -106,35 +106,40 @@ impl FreeTP {
             result => result?,
         };
         let mut release = parse_release(&body, &self.origin, &arrived, publication)?;
-        let document = Html::parse_document(&body);
-        let content = unique(document.root_element(), &format!("#news-id-{id}"))?;
-        let mut seen = HashSet::new();
-        let mut candidates = Vec::new();
+        let candidates = {
+            let document = Html::parse_document(&body);
+            let content = unique(document.root_element(), &format!("#news-id-{id}"))?;
+            let mut seen = HashSet::new();
+            let mut candidates = Vec::new();
 
-        for link in content.select(&selector("a[href]")) {
-            let label = text(link);
-            if label.is_empty() {
-                continue;
-            }
-            let Some(href) = link.value().attr("href") else {
-                continue;
-            };
-            let Some(file_id) = file_id(href, &self.origin) else {
-                continue;
-            };
-            if seen.insert(file_id) {
-                if candidates.len() == MAX_FILES {
-                    return Err(Error::InvalidResponse("excessive FreeTP file links"));
+            for link in content.select(&selector("a[href]")) {
+                let label = text(link);
+                if label.is_empty() {
+                    continue;
                 }
-                let heading = link
-                    .parent()
-                    .and_then(ElementRef::wrap)
-                    .and_then(|parent| parent.prev_siblings().filter_map(ElementRef::wrap).next())
-                    .map(text)
-                    .unwrap_or_default();
-                candidates.push((file_id, label, heading));
+                let Some(href) = link.value().attr("href") else {
+                    continue;
+                };
+                let Some(file_id) = file_id(href, &self.origin) else {
+                    continue;
+                };
+                if seen.insert(file_id) {
+                    if candidates.len() == MAX_FILES {
+                        return Err(Error::InvalidResponse("excessive FreeTP file links"));
+                    }
+                    let heading = link
+                        .parent()
+                        .and_then(ElementRef::wrap)
+                        .and_then(|parent| {
+                            parent.prev_siblings().filter_map(ElementRef::wrap).next()
+                        })
+                        .map(text)
+                        .unwrap_or_default();
+                    candidates.push((file_id, label, heading));
+                }
             }
-        }
+            candidates
+        };
 
         for (file_id, label, heading) in candidates {
             let Some(filename) = self.landing(file_id, &mut session).await? else {
