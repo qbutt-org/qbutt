@@ -19,38 +19,74 @@ const MAX_REQUESTS: usize = 16;
 const MAX_MESSAGE_BYTES: usize = 768 * 1024;
 const MAX_BROWSER_ID: u64 = 9_007_199_254_740_991;
 
-#[derive(Default)]
 pub(super) struct BrowserService {
-    owner: Arc<Mutex<Option<BrowserBroker>>>,
+    client: BrowserClient,
     initialization: Option<JoinHandle<Result<(), BrowserError>>>,
 }
 
+#[derive(Clone)]
+pub(super) struct BrowserClient {
+    state: Arc<Mutex<BrowserState>>,
+}
+
+enum BrowserState {
+    Idle(PathBuf),
+    Running(BrowserBroker),
+    Stopped,
+}
+
+impl BrowserClient {
+    pub(super) async fn handle(&self) -> Result<BrowserHandle, BrowserError> {
+        let mut state = self.state.lock().await;
+        match &*state {
+            BrowserState::Idle(discovery) => {
+                let broker = BrowserBroker::start(discovery.clone()).await?;
+                let handle = broker.handle();
+                *state = BrowserState::Running(broker);
+                Ok(handle)
+            }
+            BrowserState::Running(broker) => Ok(broker.handle()),
+            BrowserState::Stopped => Err(BrowserError::Stopped),
+        }
+    }
+
+    pub(super) async fn existing_handle(&self) -> Option<BrowserHandle> {
+        match &*self.state.lock().await {
+            BrowserState::Running(broker) => Some(broker.handle()),
+            BrowserState::Idle(_) | BrowserState::Stopped => None,
+        }
+    }
+}
+
 impl BrowserService {
-    fn initialize(&mut self, runtime: &Runtime, discovery: PathBuf) {
+    pub(super) fn new(discovery: PathBuf) -> Self {
+        Self {
+            client: BrowserClient {
+                state: Arc::new(Mutex::new(BrowserState::Idle(discovery))),
+            },
+            initialization: None,
+        }
+    }
+
+    pub(super) fn client(&self) -> BrowserClient {
+        self.client.clone()
+    }
+
+    fn initialize(&mut self, runtime: &Runtime) {
         if self.initialization.is_some() {
             return;
         }
-        let owner = Arc::clone(&self.owner);
-        self.initialization =
-            Some(runtime.spawn(async move { Self::handle(&owner, discovery).await.map(|_| ()) }));
-    }
-    async fn handle(
-        owner: &Mutex<Option<BrowserBroker>>,
-        discovery: PathBuf,
-    ) -> Result<BrowserHandle, qbutt_content::browser::BrowserError> {
-        let mut owner = owner.lock().await;
-        if owner.is_none() {
-            *owner = Some(BrowserBroker::start(discovery).await?);
-        }
-        Ok(owner.as_ref().unwrap().handle())
+        let client = self.client();
+        self.initialization = Some(runtime.spawn(async move { client.handle().await.map(|_| ()) }));
     }
 
     pub(super) async fn shutdown(&mut self) {
+        let state = std::mem::replace(&mut *self.client.state.lock().await, BrowserState::Stopped);
         if let Some(initialization) = self.initialization.take() {
             let _ = initialization.await;
         }
-        if let Some(owner) = self.owner.lock().await.take() {
-            let _ = owner.shutdown().await;
+        if let BrowserState::Running(broker) = state {
+            let _ = broker.shutdown().await;
         }
     }
 }
@@ -186,9 +222,8 @@ fn status(
 
 impl ffi::ContentController {
     pub fn initialize_browser(mut self: Pin<&mut Self>) {
-        let discovery = PathBuf::from(ffi::browser_discovery_path().to_string());
         if let Some(services) = self.as_mut().rust_mut().services.as_mut() {
-            services.browser.initialize(&services.runtime, discovery);
+            services.browser.initialize(&services.runtime);
         }
     }
 
@@ -225,8 +260,7 @@ impl ffi::ContentController {
             return;
         }
         let services = self.services.as_ref().unwrap();
-        let owner = Arc::clone(&services.browser.owner);
-        let discovery = PathBuf::from(ffi::browser_discovery_path().to_string());
+        let client = services.browser.client();
         let qt_thread = self.qt_thread();
         let task = services.runtime.spawn(async move {
             let installed = ffi::browser_installations();
@@ -234,17 +268,18 @@ impl ffi::ContentController {
                 request.command,
                 RelayCommand::Control(ControlCommand::Status)
             ) {
-                let current = owner.lock().await;
-                let current = current
+                let current = client
+                    .existing_handle()
+                    .await
                     .as_ref()
-                    .map(|owner| owner.handle().status())
+                    .map(BrowserHandle::status)
                     .unwrap_or_default();
                 json!({ "result": status(current, request.browser, installed) })
             } else {
                 let handle = if request.optional {
-                    Ok(owner.lock().await.as_ref().map(BrowserBroker::handle))
+                    Ok(client.existing_handle().await)
                 } else {
-                    BrowserService::handle(&owner, discovery).await.map(Some)
+                    client.handle().await.map(Some)
                 };
                 match handle {
                     Ok(None) => json!({ "result": [] }),

@@ -783,6 +783,9 @@ pub struct ContentControllerRust {
 
 impl Default for ContentControllerRust {
     fn default() -> Self {
+        let browser = browser::BrowserService::new(std::path::PathBuf::from(
+            ffi::browser_discovery_path().to_string(),
+        ));
         let services = catalog::Catalog::new()
             .map_err(|error| error.to_string())
             .and_then(|catalog| {
@@ -798,7 +801,7 @@ impl Default for ContentControllerRust {
                         reader_load: Arc::new(tokio::sync::Semaphore::new(1)),
                         reader_bytes: Arc::new(tokio::sync::Semaphore::new(96 * 1024 * 1024)),
                         retired_gateways: Vec::new(),
-                        browser: browser::BrowserService::default(),
+                        browser,
                     })
             });
         let services = match services {
