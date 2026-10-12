@@ -122,6 +122,22 @@ media playlist for its highest unambiguous HLS rendition. Identical CDN mirror
 attributes keep the first declared URI; differing maximum attributes fail.
 These checks fetch no media segments and do not establish native playback.
 
+RanobeHub has generated HTTPS/fault and two-process SQLite checks, plus a bounded
+public search, work, chapter-list and nonfirst-chapter check:
+
+```powershell
+cargo run --locked --offline -p qbutt-content --example ranobehub-fixtures
+cargo run --locked --offline -p qbutt-content --example ranobehub
+```
+
+The fixtures preserve the declared chapter order, fractional numbers, exact human
+translation branches, paragraphs, emphasis and ruby. They reject substituted
+identities, duplicate or incomplete pagination, paid/draft chapters, AI or unknown
+translator types, active markup, unsafe redirects and oversized responses; they
+also check timeouts, cancellation and saved exact reading position after restart.
+The live command reads only one public chapter and prints counts without chapter
+text. These commands do not establish native reader rendering.
+
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in
 [development setup](../docs/development.md), then run:
