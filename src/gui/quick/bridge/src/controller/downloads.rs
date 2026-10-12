@@ -175,7 +175,7 @@ impl ffi::ContentController {
         let Ok(page) = Url::parse(&page.to_string()) else {
             return false;
         };
-        let Some(source_host) = page.domain().map(str::to_owned) else {
+        let Some(source_host) = page.host_str().map(str::to_owned) else {
             return false;
         };
         let title = title.to_string();

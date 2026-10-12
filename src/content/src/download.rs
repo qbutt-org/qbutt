@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 use tokio::sync::{Mutex, Semaphore, watch};
 use tokio::task::JoinHandle;
-use url::Url;
+use url::{Host, Url};
 
 mod transfer;
 
@@ -158,13 +158,7 @@ impl DownloadOrigin {
                 .map_err(|_| DownloadError::InvalidSelection),
             Self::Browser { source_host } => {
                 if source_host.len() > 253
-                    || source_host.len() < 4
-                    || !source_host.contains('.')
-                    || !source_host.bytes().all(|byte| {
-                        byte.is_ascii_lowercase()
-                            || byte.is_ascii_digit()
-                            || matches!(byte, b'.' | b'-')
-                    })
+                    || !Host::parse(source_host).is_ok_and(|host| host.to_string() == *source_host)
                 {
                     return Err(DownloadError::InvalidSelection);
                 }
