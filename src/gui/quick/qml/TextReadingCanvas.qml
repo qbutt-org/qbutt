@@ -227,6 +227,7 @@ ScrollView {
                     ? width * implicitHeight / implicitWidth : 0
                 source: visible && readingBlock.imageId !== ""
                     ? "image://reader/%1/%2".arg(root.backend.readerTextGeneration).arg(readingBlock.imageId) : ""
+                sourceSize: Qt.size(Math.ceil(width * 2), 4096)
                 asynchronous: true
                 cache: false
                 fillMode: Image.PreserveAspectFit
