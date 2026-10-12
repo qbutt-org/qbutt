@@ -301,7 +301,8 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
                 | Source::RuTracker
                 | Source::Nyaa
                 | Source::FitGirl
-                | Source::OnlineFix,
+                | Source::OnlineFix
+                | Source::FreeTP,
                 VariantSelector::TorrentHash { info_hash },
             ) => {
                 variant.transport == Transport::Torrent

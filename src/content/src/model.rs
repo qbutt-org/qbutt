@@ -24,6 +24,8 @@ pub enum Source {
     FitGirl,
     #[serde(rename = "onlinefix")]
     OnlineFix,
+    #[serde(rename = "freetp")]
+    FreeTP,
     RoyalRoad,
     Kakuyomu,
     RanobeHub,
@@ -57,6 +59,7 @@ impl PublicationRef {
             Source::Rutube => self.rutube_id().map(|_| ()),
             Source::FitGirl => self.fitgirl_slug().map(|_| ()),
             Source::OnlineFix => self.online_fix_path().map(|_| ()),
+            Source::FreeTP => self.freetp_id().map(|_| ()),
             Source::RoyalRoad => self.royalroad_id().map(|_| ()),
             Source::RanobeHub => self.ranobehub_id().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
@@ -127,6 +130,10 @@ impl PublicationRef {
             return Err(crate::Error::InvalidReference);
         }
         Ok(&self.id)
+    }
+
+    pub(crate) fn freetp_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::FreeTP)
     }
 
     pub(crate) fn kakuyomu_id(&self) -> crate::Result<&str> {
@@ -347,6 +354,7 @@ impl VariantRef {
                 | (Source::Nyaa, VariantSelector::TorrentHash { .. })
                 | (Source::FitGirl, VariantSelector::TorrentHash { .. })
                 | (Source::OnlineFix, VariantSelector::TorrentHash { .. })
+                | (Source::FreeTP, VariantSelector::TorrentHash { .. })
                 | (Source::Rutube, VariantSelector::RutubeVideo)
                 | (Source::RoyalRoad, VariantSelector::OriginalText)
                 | (Source::Kakuyomu, VariantSelector::OriginalText)
