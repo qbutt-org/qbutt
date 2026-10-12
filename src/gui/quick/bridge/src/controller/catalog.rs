@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use qbutt_content::{
-    AniLiberty, Chapter, MangaDex, MangaLib, Nyaa, ResolvedContent, RuTor, Rutube, Source,
+    AniLiberty, Chapter, FitGirl, MangaDex, MangaLib, Nyaa, ResolvedContent, RuTor, Rutube, Source,
     SourceOperation, Work, YummyAnime,
 };
 
@@ -24,6 +24,7 @@ pub(super) struct Catalog {
     rutor: RuTor,
     nyaa: Nyaa,
     rutube: Rutube,
+    fitgirl: FitGirl,
 }
 
 impl Catalog {
@@ -36,6 +37,7 @@ impl Catalog {
             rutor: RuTor::new()?,
             nyaa: Nyaa::new()?,
             rutube: Rutube::new()?,
+            fitgirl: FitGirl::new()?,
         })
     }
 
@@ -63,6 +65,7 @@ impl Catalog {
                     Source::RuTor => self.rutor.search(query, *category).await,
                     Source::Nyaa => self.nyaa.search(query, *category).await,
                     Source::Rutube => self.rutube.search(query, *category).await,
+                    Source::FitGirl => self.fitgirl.search(query, *category).await,
                 }?;
                 Ok(SourceResponse::Search(works))
             }
@@ -82,6 +85,7 @@ impl Catalog {
                     Source::RuTor => self.rutor.inspect(reference).await,
                     Source::Nyaa => self.nyaa.inspect(reference).await,
                     Source::Rutube => self.rutube.inspect(reference).await,
+                    Source::FitGirl => self.fitgirl.inspect(reference).await,
                 }?;
                 Ok(SourceResponse::Inspect(work))
             }
@@ -92,6 +96,7 @@ impl Catalog {
                     Source::RuTor => self.rutor.resolve(reference).await,
                     Source::Nyaa => self.nyaa.resolve(reference).await,
                     Source::Rutube => self.rutube.resolve(reference).await,
+                    Source::FitGirl => self.fitgirl.resolve(reference).await,
                     Source::MangaDex | Source::MangaLib => {
                         Err(qbutt_content::Error::InvalidReference)
                     }
