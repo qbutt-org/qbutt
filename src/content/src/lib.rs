@@ -44,6 +44,7 @@ mod sharing;
 mod sources;
 mod text;
 mod torrent;
+pub mod translation;
 mod yummyanime;
 
 pub use aniliberty::AniLiberty;
@@ -66,7 +67,8 @@ pub use kakuyomu::Kakuyomu;
 pub use lib_api::LibSession;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
-    ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
+    ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, TranslationCacheKey,
+    VariantFilters, VariantPreferences,
 };
 pub use local_books::{LocalBook, LocalBookChapter, LocalBookFormat};
 pub use mangadex::MangaDex;

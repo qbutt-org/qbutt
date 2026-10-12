@@ -7,6 +7,7 @@ mod local_books;
 mod schema;
 mod settings;
 mod sources;
+mod translation;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,6 +19,7 @@ pub use entry::{
     LastOpened, LibraryEntry, ReaderPosition, ReaderProgress, VariantFilters, VariantPreferences,
 };
 pub use settings::{ReaderFit, ReaderMode, ReaderSettings};
+pub use translation::TranslationCacheKey;
 
 #[derive(Debug, thiserror::Error)]
 pub enum LibraryError {
