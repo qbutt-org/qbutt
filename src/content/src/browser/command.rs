@@ -54,7 +54,9 @@ impl BrowserCommand {
         Ok(command)
     }
 
-    pub(crate) fn validate(&self) -> Result<(), BrowserError> {
+    /// Validate at foreign boundaries before classifying connection setup.
+    /// Requests also apply this policy before any browser work is submitted.
+    pub fn validate(&self) -> Result<(), BrowserError> {
         public_url(match self {
             Self::Cookies { url }
             | Self::Fetch { url, .. }
@@ -119,12 +121,12 @@ impl BrowserCommand {
         Ok(())
     }
 
-    pub(crate) fn timeout(&self) -> Duration {
-        // Includes qcatch's reconnect alarm and the actual browser action.
-        Duration::from_secs(if matches!(self, Self::Resolve { .. }) {
-            80
-        } else {
-            60
+    pub(crate) fn timeout(&self, wait_for_connection: bool) -> Duration {
+        Duration::from_secs(match (wait_for_connection, self) {
+            (true, Self::Resolve { .. }) => 80,
+            (true, _) => 60,
+            (false, Self::Resolve { .. }) => 45,
+            (false, _) => 20,
         })
     }
 

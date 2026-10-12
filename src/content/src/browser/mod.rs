@@ -177,6 +177,26 @@ impl BrowserHandle {
         choice: BrowserChoice,
         command: BrowserCommand,
     ) -> Result<BrowserReply, BrowserError> {
+        self.request_inner(choice, command, true).await
+    }
+
+    /// Submit only to an already connected browser. Optional cookie import
+    /// must not delay public-source requests while qcatch reconnects.
+    /// Active work is bounded to twenty seconds, or forty-five for resolution.
+    pub async fn request_connected(
+        &self,
+        choice: BrowserChoice,
+        command: BrowserCommand,
+    ) -> Result<BrowserReply, BrowserError> {
+        self.request_inner(choice, command, false).await
+    }
+
+    async fn request_inner(
+        &self,
+        choice: BrowserChoice,
+        command: BrowserCommand,
+        wait_for_connection: bool,
+    ) -> Result<BrowserReply, BrowserError> {
         command.validate()?;
         if *self.stopping.borrow() {
             return Err(BrowserError::Stopped);
@@ -186,34 +206,36 @@ impl BrowserHandle {
             .clone()
             .try_acquire_owned()
             .map_err(|_| BrowserError::Busy)?;
-        let deadline = Instant::now() + command.timeout();
-        let mut status = self.subscribe();
-        let mut stopping = self.stopping.subscribe();
-        let connected = async {
-            loop {
-                let ready = {
-                    let snapshot = status.borrow_and_update();
-                    if snapshot.stopped || *stopping.borrow() {
-                        return Err(BrowserError::Stopped);
+        let deadline = Instant::now() + command.timeout(wait_for_connection);
+        if wait_for_connection {
+            let mut status = self.subscribe();
+            let mut stopping = self.stopping.subscribe();
+            let connected = async {
+                loop {
+                    let ready = {
+                        let snapshot = status.borrow_and_update();
+                        if snapshot.stopped || *stopping.borrow() {
+                            return Err(BrowserError::Stopped);
+                        }
+                        snapshot.connections.iter().any(|connection| match choice {
+                            BrowserChoice::Auto => true,
+                            BrowserChoice::Edge => connection.browser == BrowserId::Edge,
+                            BrowserChoice::Chrome => connection.browser == BrowserId::Chrome,
+                        })
+                    };
+                    if ready {
+                        return Ok(());
                     }
-                    snapshot.connections.iter().any(|connection| match choice {
-                        BrowserChoice::Auto => true,
-                        BrowserChoice::Edge => connection.browser == BrowserId::Edge,
-                        BrowserChoice::Chrome => connection.browser == BrowserId::Chrome,
-                    })
-                };
-                if ready {
-                    return Ok(());
+                    tokio::select! {
+                        result = status.changed() => result.map_err(|_| BrowserError::Stopped)?,
+                        _ = stopping.changed() => return Err(BrowserError::Stopped),
+                    }
                 }
-                tokio::select! {
-                    result = status.changed() => result.map_err(|_| BrowserError::Stopped)?,
-                    _ = stopping.changed() => return Err(BrowserError::Stopped),
-                }
-            }
-        };
-        timeout_at(deadline, connected)
-            .await
-            .map_err(|_| BrowserError::BrowserRequired)??;
+            };
+            timeout_at(deadline, connected)
+                .await
+                .map_err(|_| BrowserError::BrowserRequired)??;
+        }
         let (reply, response) = oneshot::channel();
         self.requests
             .try_send(actor::Request {
