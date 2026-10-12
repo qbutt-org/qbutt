@@ -9,11 +9,12 @@ use windows_sys::Win32::Foundation::{
     ERROR_INVALID_PARAMETER, GENERIC_READ, GENERIC_WRITE, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Security::{
-    DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, SetKernelObjectSecurity,
+    DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+    SetKernelObjectSecurity,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     DELETE, FILE_DISPOSITION_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ, FileDispositionInfo,
-    SetFileInformationByHandle, WRITE_DAC,
+    SetFileInformationByHandle, WRITE_DAC, WRITE_OWNER,
 };
 use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
@@ -44,7 +45,7 @@ impl Discovery {
             .write(true)
             .create(true)
             .truncate(false)
-            .access_mode(GENERIC_READ | GENERIC_WRITE | WRITE_DAC | DELETE)
+            .access_mode(GENERIC_READ | GENERIC_WRITE | WRITE_DAC | WRITE_OWNER | DELETE)
             .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
             .open(path)
             .map_err(|error| {
@@ -72,7 +73,9 @@ impl Discovery {
         if unsafe {
             SetKernelObjectSecurity(
                 file.as_raw_handle(),
-                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                OWNER_SECURITY_INFORMATION
+                    | DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION,
                 security.descriptor(),
             )
         } == 0

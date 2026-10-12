@@ -48,27 +48,7 @@ pub(crate) async fn connection(
         }
         _ = stop.changed() => return,
     }
-    let reading = async {
-        loop {
-            let bytes = read_frame(&mut reader).await?;
-            let response: Response = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-            if response.id == 0
-                || response.id > 9_007_199_254_740_991
-                || response.result.is_some() == response.error.is_some()
-            {
-                return Err(invalid());
-            }
-            events
-                .send(Event::Response {
-                    connection: id,
-                    response,
-                })
-                .await
-                .map_err(|_| invalid())?;
-        }
-        #[allow(unreachable_code)]
-        Ok::<(), io::Error>(())
-    };
+    let reading = read_responses(&mut reader, id, &events);
     let writing = async {
         while let Some(bytes) = outgoing.recv().await {
             timeout(Duration::from_secs(5), write_frame(&mut writer, &bytes))
@@ -84,7 +64,31 @@ pub(crate) async fn connection(
     }
 }
 
-pub(crate) async fn read_frame(reader: &mut (impl AsyncRead + Unpin)) -> io::Result<Vec<u8>> {
+async fn read_responses(
+    reader: &mut (impl AsyncRead + Unpin),
+    connection: u64,
+    events: &mpsc::Sender<Event>,
+) -> io::Result<()> {
+    loop {
+        let bytes = read_frame(reader).await?;
+        let response: Response = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+        if response.id == 0
+            || response.id > 9_007_199_254_740_991
+            || response.result.is_some() == response.error.is_some()
+        {
+            return Err(invalid());
+        }
+        events
+            .send(Event::Response {
+                connection,
+                response,
+            })
+            .await
+            .map_err(|_| invalid())?;
+    }
+}
+
+async fn read_frame(reader: &mut (impl AsyncRead + Unpin)) -> io::Result<Vec<u8>> {
     // Idle connections may remain open, but once a header starts its complete
     // frame has a deadline. The first byte is kept outside that deadline.
     let mut header = [0u8; 4];
@@ -103,10 +107,7 @@ pub(crate) async fn read_frame(reader: &mut (impl AsyncRead + Unpin)) -> io::Res
     .map_err(|_| invalid())?
 }
 
-pub(crate) async fn write_frame(
-    writer: &mut (impl AsyncWrite + Unpin),
-    bytes: &[u8],
-) -> io::Result<()> {
+async fn write_frame(writer: &mut (impl AsyncWrite + Unpin), bytes: &[u8]) -> io::Result<()> {
     if bytes.is_empty() || bytes.len() > MAX_FRAME_BYTES {
         return Err(invalid());
     }

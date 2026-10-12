@@ -7,10 +7,14 @@
 //! validate DNS answers at their actual connection boundary.
 
 mod actor;
+mod command;
 mod discovery;
 mod protocol;
+mod reply;
 mod security;
+mod selection;
 mod transport;
+mod validation;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,7 +22,10 @@ use std::sync::Arc;
 use tokio::sync::{Notify, Semaphore, mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
+pub use command::*;
 pub use protocol::*;
+pub use reply::*;
+pub use selection::Selection;
 
 /// Only bounded, public diagnostics cross this boundary. Remote error text and
 /// URLs are deliberately discarded because browser exceptions may contain keys.

@@ -70,7 +70,9 @@ pub(crate) async fn run(
         tokio::select! {
             _ = stop.changed() => break,
             result = listener.connect(), if tasks.len() < 4 => {
-                if result.is_err() { break; }
+                if result.is_err() {
+                    break;
+                }
                 let next = match security::create_pipe(discovery.pipe_name(), false) {
                     Ok(next) => next,
                     Err(_) => break,
@@ -80,7 +82,11 @@ pub(crate) async fn run(
                 let connection = next_connection;
                 let (outgoing, output) = mpsc::channel(16);
                 let (disconnect, stop_client) = watch::channel(false);
-                clients.insert(connection, Client { metadata: None, outgoing, stop: disconnect });
+                clients.insert(connection, Client {
+                    metadata: None,
+                    outgoing,
+                    stop: disconnect,
+                });
                 let events = events.clone();
                 tasks.spawn(async move {
                     transport::connection(connected, connection, events, output, stop_client).await;
@@ -90,22 +96,31 @@ pub(crate) async fn run(
             Some(event) = received.recv() => {
                 match event {
                     Event::Hello { connection, metadata } => {
-                        if !clients.contains_key(&connection) { continue; }
-                        let replaced: Vec<_> = clients.iter().filter_map(|(id, client)|
-                            (*id != connection && client.metadata.as_ref().is_some_and(|old| old.browser == metadata.browser)).then_some(*id)).collect();
-                        for old in replaced { disconnect(old, &mut clients, &mut pending); }
+                        if !clients.contains_key(&connection) {
+                            continue;
+                        }
+                        let replaced: Vec<_> = clients.iter().filter_map(|(id, client)| {
+                            (*id != connection && client.metadata.as_ref()
+                                .is_some_and(|old| old.browser == metadata.browser))
+                                .then_some(*id)
+                        }).collect();
+                        for old in replaced {
+                            disconnect(old, &mut clients, &mut pending);
+                        }
                         clients.get_mut(&connection).expect("known connection").metadata = Some(metadata);
-                        publish_status(&clients, &status, false);
+                        publish_status(&clients, &status);
                     }
                     Event::Response { connection, response } => {
                         // Replies from another connection cannot complete, fail or
                         // change the selected request, even if they guess its ID.
-                        if pending.get(&response.id).is_none_or(|request| request.connection != connection) { continue; }
+                        if pending.get(&response.id).is_none_or(|request| request.connection != connection) {
+                            continue;
+                        }
                         let request = pending.remove(&response.id).expect("known request");
-                        let result = match (response.result, response.error) {
-                            (Some(value), None) => request.command.reply(value),
-                            (None, Some(error)) => Err(error.error()),
-                            _ => Err(BrowserError::InvalidResponse),
+                        let result = if let Some(error) = response.error {
+                            Err(error.error())
+                        } else {
+                            request.command.reply(response.result.expect("validated response"))
                         };
                         let _ = request.reply.send(result);
                     }
@@ -116,31 +131,45 @@ pub(crate) async fn run(
                     Ok(connection) => disconnect(connection, &mut clients, &mut pending),
                     Err(_) => break,
                 }
-                publish_status(&clients, &status, false);
+                publish_status(&clients, &status);
             }
             Some(request) = incoming.recv() => {
-                if request.reply.is_closed() { continue; }
+                if request.reply.is_closed() {
+                    continue;
+                }
                 let selected = choose(request.choice, &clients);
                 let connection = match selected {
                     Ok(connection) if pending.len() < 16 => connection,
-                    Ok(_) => { let _ = request.reply.send(Err(BrowserError::Busy)); continue; }
-                    Err(error) => { let _ = request.reply.send(Err(error)); continue; }
+                    Ok(_) => {
+                        let _ = request.reply.send(Err(BrowserError::Busy));
+                        continue;
+                    }
+                    Err(error) => {
+                        let _ = request.reply.send(Err(error));
+                        continue;
+                    }
                 };
+                let metadata = clients[&connection].metadata.as_ref().expect("selected client");
                 if matches!(request.command, BrowserCommand::VkSearch { .. })
-                    && !clients[&connection].metadata.as_ref().expect("selected client").capabilities.iter().any(|value| value == "vk-search")
+                    && !metadata.capabilities.iter().any(|value| value == "vk-search")
                 {
                     let _ = request.reply.send(Err(BrowserError::UpdateRequired));
                     continue;
                 }
                 // Native messaging IDs must stay exactly representable in JS.
-                if next_request >= 9_007_199_254_740_991 { break; }
+                if next_request >= 9_007_199_254_740_991 {
+                    break;
+                }
                 next_request += 1;
                 let id = next_request;
-                let bytes = serde_json::to_vec(&WireCommand { id, command: &request.command }).expect("serializable command");
+                let bytes = serde_json::to_vec(&WireCommand {
+                    id,
+                    command: &request.command,
+                }).expect("serializable command");
                 if clients[&connection].outgoing.try_send(bytes).is_err() {
                     let _ = request.reply.send(Err(BrowserError::Disconnected));
                     disconnect(connection, &mut clients, &mut pending);
-                    publish_status(&clients, &status, false);
+                    publish_status(&clients, &status);
                     continue;
                 }
                 pending.insert(id, Pending {
@@ -168,7 +197,7 @@ pub(crate) async fn run(
                 .is_some_and(|client| client.outgoing.try_send(cancel).is_err())
             {
                 disconnect(request.connection, &mut clients, &mut pending);
-                publish_status(&clients, &status, false);
+                publish_status(&clients, &status);
             }
             let _ = request.reply.send(Err(BrowserError::Timeout));
         }
@@ -243,16 +272,12 @@ fn disconnect(
     }
 }
 
-fn publish_status(
-    clients: &BTreeMap<u64, Client>,
-    status: &watch::Sender<BrowserStatus>,
-    stopped: bool,
-) {
+fn publish_status(clients: &BTreeMap<u64, Client>, status: &watch::Sender<BrowserStatus>) {
     status.send_replace(BrowserStatus {
         connections: clients
             .values()
             .filter_map(|client| client.metadata.clone())
             .collect(),
-        stopped,
+        stopped: false,
     });
 }
