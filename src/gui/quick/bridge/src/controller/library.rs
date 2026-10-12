@@ -333,13 +333,14 @@ impl ffi::ContentController {
     }
 
     pub(super) fn library_error_text(&self) -> QString {
-        match self.current_library_error_kind() {
-            ffi::LibraryErrorKind::Opening => ffi::content_error(4),
-            ffi::LibraryErrorKind::Writing => ffi::content_error(5),
-            ffi::LibraryErrorKind::HistoryRead => ffi::content_error(6),
-            ffi::LibraryErrorKind::PlaybackWriting => ffi::content_error(9),
-            _ => QString::default(),
-        }
+        let error = match self.current_library_error_kind() {
+            ffi::LibraryErrorKind::Opening => ffi::ContentError::LibraryOpen,
+            ffi::LibraryErrorKind::Writing => ffi::ContentError::LibraryWrite,
+            ffi::LibraryErrorKind::HistoryRead => ffi::ContentError::HistoryRead,
+            ffi::LibraryErrorKind::PlaybackWriting => ffi::ContentError::PlaybackHistoryWrite,
+            _ => return QString::default(),
+        };
+        ffi::content_error(error)
     }
 
     pub(super) fn current_library_error_kind(&self) -> ffi::LibraryErrorKind {

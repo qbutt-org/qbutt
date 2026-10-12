@@ -114,13 +114,19 @@ pub(super) async fn read_chapter(
                 &qt_thread,
                 generation,
                 None,
-                3,
+                ffi::ReaderError::ChapterUnavailable,
                 "The chapter manifest is empty or mismatched",
             );
             return;
         }
         Err(error) => {
-            publish_error(&qt_thread, generation, None, 1, &error.to_string());
+            publish_error(
+                &qt_thread,
+                generation,
+                None,
+                ffi::ReaderError::Chapter,
+                &error.to_string(),
+            );
             return;
         }
     };
@@ -130,7 +136,7 @@ pub(super) async fn read_chapter(
             &qt_thread,
             generation,
             None,
-            4,
+            ffi::ReaderError::PageUnavailable,
             "The exact page is no longer available",
         );
         return;
@@ -153,7 +159,7 @@ pub(super) async fn read_chapter(
                 &qt_thread,
                 generation,
                 Some(position.borrow().anchor),
-                2,
+                ffi::ReaderError::Page,
                 &format!("Could not create reader cache: {error}"),
             );
             return;
@@ -314,10 +320,10 @@ fn publish_error(
     qt_thread: &CxxQtThread<ffi::ContentController>,
     generation: u64,
     page: Option<usize>,
-    operation: i32,
+    error: ffi::ReaderError,
     detail: &str,
 ) {
     ffi::log_content_error(&QString::from("reader"), &QString::from(detail));
     let _ = qt_thread
-        .queue(move |controller| controller.complete_reader_error(generation, page, operation));
+        .queue(move |controller| controller.complete_reader_error(generation, page, error));
 }

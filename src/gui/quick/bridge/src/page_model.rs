@@ -144,7 +144,7 @@ impl ffi::PageModel {
                 QVariant::from(&state.repr)
             }
             5 => QVariant::from(&if matches!(row.load, PageLoad::Failed) {
-                controller::reader_error(2)
+                controller::reader_error(controller::ReaderError::Page)
             } else {
                 QString::default()
             }),

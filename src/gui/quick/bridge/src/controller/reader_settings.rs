@@ -59,9 +59,9 @@ impl ffi::ContentController {
             return QString::default();
         }
         ffi::content_error(if self.library_state == ffi::LibraryState::Failed {
-            4
+            ffi::ContentError::LibraryOpen
         } else {
-            7
+            ffi::ContentError::ReaderSettingsWrite
         })
     }
 

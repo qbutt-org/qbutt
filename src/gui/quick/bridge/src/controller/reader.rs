@@ -202,7 +202,7 @@ impl ffi::ContentController {
         mut self: Pin<&mut Self>,
         generation: u64,
         page: Option<usize>,
-        operation: i32,
+        error: ffi::ReaderError,
     ) {
         if self.reader.chapter.generation != generation
             || self.reader.reference.is_none()
@@ -210,7 +210,7 @@ impl ffi::ContentController {
         {
             return;
         }
-        self.as_mut().rust_mut().reader.error = ffi::reader_error(operation);
+        self.as_mut().rust_mut().reader.error = ffi::reader_error(error);
         self.as_mut().rust_mut().reader.busy = false;
         self.reader_changed();
     }
@@ -270,7 +270,7 @@ impl ffi::ContentController {
         if self.reader_mode() == ffi::ReaderMode::Paged
             && self.reader.pages.failed(self.reader.page_index as usize)
         {
-            ffi::reader_error(2)
+            ffi::reader_error(ffi::ReaderError::Page)
         } else {
             self.reader.error.clone()
         }
@@ -315,7 +315,7 @@ impl ffi::ContentController {
             let mut state = self.as_mut().rust_mut();
             state.reader.loading.cancel();
             state.reader.busy = false;
-            state.reader.error = ffi::content_error(4);
+            state.reader.error = ffi::content_error(ffi::ContentError::LibraryOpen);
         }
         true
     }
@@ -456,7 +456,8 @@ impl ffi::ContentController {
             && self.reader.reference.is_some()
         {
             self.as_mut().rust_mut().reader.busy = false;
-            self.as_mut().rust_mut().reader.error = ffi::content_error(4);
+            self.as_mut().rust_mut().reader.error =
+                ffi::content_error(ffi::ContentError::LibraryOpen);
             self.as_mut().reader_changed();
         }
     }
@@ -483,7 +484,8 @@ impl ffi::ContentController {
                     &QString::from(error.to_string()),
                 );
                 self.as_mut().rust_mut().reader.busy = false;
-                self.as_mut().rust_mut().reader.error = ffi::content_error(4);
+                self.as_mut().rust_mut().reader.error =
+                    ffi::content_error(ffi::ContentError::LibraryOpen);
                 self.as_mut().reader_changed();
             }
         }
@@ -547,12 +549,14 @@ impl ffi::ContentController {
                                 );
                                 return;
                             }
-                            controller.as_mut().rust_mut().reader.error = ffi::reader_error(3);
+                            controller.as_mut().rust_mut().reader.error =
+                                ffi::reader_error(ffi::ReaderError::ChapterUnavailable);
                         } else if let Some(first) = controller.reader.chapters.first() {
                             controller.select_chapter(QString::from(first.id));
                             return;
                         } else {
-                            controller.as_mut().rust_mut().reader.error = ffi::reader_error(3);
+                            controller.as_mut().rust_mut().reader.error =
+                                ffi::reader_error(ffi::ReaderError::ChapterUnavailable);
                         }
                     }
                     Err(error) => {
@@ -560,7 +564,8 @@ impl ffi::ContentController {
                             &QString::from("chapters"),
                             &QString::from(error.to_string()),
                         );
-                        controller.as_mut().rust_mut().reader.error = ffi::reader_error(0);
+                        controller.as_mut().rust_mut().reader.error =
+                            ffi::reader_error(ffi::ReaderError::Chapters);
                     }
                 }
                 controller.as_mut().rust_mut().reader.busy = false;
@@ -915,7 +920,7 @@ impl ffi::ContentController {
             state.reader.progress_error = if saved {
                 QString::default()
             } else {
-                ffi::reader_error(5)
+                ffi::reader_error(ffi::ReaderError::ProgressWrite)
             };
             if saved {
                 state.reader.progress_save = None;
@@ -978,7 +983,8 @@ impl ffi::ContentController {
         }
         if !accepted {
             self.as_mut().rust_mut().reader.progress_pending = false;
-            self.as_mut().rust_mut().reader.progress_error = ffi::reader_error(5);
+            self.as_mut().rust_mut().reader.progress_error =
+                ffi::reader_error(ffi::ReaderError::ProgressWrite);
         }
         self.reader_changed();
     }

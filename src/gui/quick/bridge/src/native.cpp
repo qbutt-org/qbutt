@@ -106,23 +106,24 @@ QString Qbutt::formatTranslationLabel(const QString &language, const QString &tr
     return label;
 }
 
-QString Qbutt::readerError(const std::int32_t operation)
+QString Qbutt::readerError(const ReaderError error)
 {
-    switch (operation)
+    switch (error)
     {
-    case 0:
+    case ReaderError::Chapters:
         return QCoreApplication::translate("ContentController", "Could not load chapters.");
-    case 1:
+    case ReaderError::Chapter:
         return QCoreApplication::translate("ContentController", "Could not load this chapter.");
-    case 2:
+    case ReaderError::Page:
         return QCoreApplication::translate("ContentController", "Could not load this page.");
-    case 4:
+    case ReaderError::PageUnavailable:
         return QCoreApplication::translate("ContentController", "This page is no longer available.");
-    case 5:
+    case ReaderError::ProgressWrite:
         return QCoreApplication::translate("ContentController", "Could not save reading position.");
-    default:
+    case ReaderError::ChapterUnavailable:
         return QCoreApplication::translate("ContentController", "This chapter is no longer available.");
     }
+    Q_UNREACHABLE();
 }
 
 QString Qbutt::chapterTitle(const QString &number, const QString &volume, const QString &title)
@@ -158,31 +159,32 @@ QSize Qbutt::validatedImageSize(const QString &path)
     return size;
 }
 
-QString Qbutt::contentError(const std::int32_t operation)
+QString Qbutt::contentError(const ContentError error)
 {
-    switch (operation)
+    switch (error)
     {
-    case 0:
+    case ContentError::ServicesUnavailable:
         return QCoreApplication::translate("ContentController", "Could not start content services.");
-    case 3:
+    case ContentError::Download:
         return QCoreApplication::translate("ContentController", "Could not start the download.");
-    case 4:
+    case ContentError::LibraryOpen:
         return QCoreApplication::translate("ContentController", "Could not open the content library.");
-    case 6:
+    case ContentError::HistoryRead:
         return QCoreApplication::translate("ContentController", "Could not load history.");
-    case 7:
+    case ContentError::ReaderSettingsWrite:
         return QCoreApplication::translate("ContentController", "Could not save reading settings.");
-    case 8:
+    case ContentError::Playback:
         return QCoreApplication::translate("ContentController", "Could not start playback.");
-    case 9:
+    case ContentError::PlaybackHistoryWrite:
         return QCoreApplication::translate("ContentController", "Could not save playback history.");
-    case 10:
+    case ContentError::PlaybackPending:
         return QCoreApplication::translate("ContentController", "Finish another playback or save pending history first.");
-    case 11:
+    case ContentError::ExternalPlayback:
         return QCoreApplication::translate("ContentController", "Playback from this external source is not available yet.");
-    default:
+    case ContentError::LibraryWrite:
         return QCoreApplication::translate("ContentController", "Could not save the content library.");
     }
+    Q_UNREACHABLE();
 }
 
 QString Qbutt::formatSize(const std::uint64_t bytes)

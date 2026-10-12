@@ -31,6 +31,32 @@ use sources::{SourceResponse, execute_operation};
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
+    #[derive(PartialEq)]
+    #[repr(u8)]
+    enum ContentError {
+        ServicesUnavailable,
+        Download,
+        LibraryOpen,
+        LibraryWrite,
+        HistoryRead,
+        ReaderSettingsWrite,
+        Playback,
+        PlaybackHistoryWrite,
+        PlaybackPending,
+        ExternalPlayback,
+    }
+
+    #[derive(PartialEq)]
+    #[repr(u8)]
+    enum ReaderError {
+        Chapters,
+        Chapter,
+        Page,
+        ChapterUnavailable,
+        PageUnavailable,
+        ProgressWrite,
+    }
+
     #[qml_element]
     qnamespace!("Qbutt::Search");
     #[qml_element]
@@ -150,13 +176,13 @@ pub mod ffi {
         type PageModel = crate::page_model::ffi::PageModel;
         include!("qbutt_quick/native.h");
         #[rust_name = "content_error"]
-        fn contentError(operation: i32) -> QString;
+        fn contentError(error: ContentError) -> QString;
         #[rust_name = "log_content_error"]
         fn logContentError(operation: &QString, detail: &QString);
         #[rust_name = "content_language"]
         fn contentLanguage() -> QString;
         #[rust_name = "reader_error"]
-        fn readerError(operation: i32) -> QString;
+        fn readerError(error: ReaderError) -> QString;
         #[rust_name = "chapter_title"]
         fn chapterTitle(number: &QString, volume: &QString, title: &QString) -> QString;
         #[rust_name = "validated_image_size"]
@@ -611,7 +637,7 @@ pub struct ContentControllerRust {
     search_state: ffi::SearchState,
     inspecting: bool,
     resolving: bool,
-    error_operation: Option<i32>,
+    error_kind: Option<ffi::ContentError>,
     selected_work_id: QString,
     selected_work_title: QString,
     selected_work_description: QString,
@@ -667,7 +693,9 @@ impl Default for ContentControllerRust {
                 None
             }
         };
-        let error_operation = services.is_none().then_some(0);
+        let error_kind = services
+            .is_none()
+            .then_some(ffi::ContentError::ServicesUnavailable);
 
         let source_status = SourceState::default();
         let mut sources = source_model::ffi::create_source_model();
@@ -684,7 +712,7 @@ impl Default for ContentControllerRust {
             search_state: ffi::SearchState::Idle,
             inspecting: false,
             resolving: false,
-            error_operation,
+            error_kind,
             selected_work_id: QString::default(),
             selected_work_title: QString::default(),
             selected_work_description: QString::default(),
@@ -777,14 +805,12 @@ impl ffi::ContentController {
     }
 
     fn error_text(&self) -> QString {
-        self.error_operation
-            .map(ffi::content_error)
-            .unwrap_or_default()
+        self.error_kind.map(ffi::content_error).unwrap_or_default()
     }
 
-    fn set_error(mut self: Pin<&mut Self>, value: Option<i32>) {
-        if self.error_operation != value {
-            self.as_mut().rust_mut().error_operation = value;
+    fn set_error(mut self: Pin<&mut Self>, value: Option<ffi::ContentError>) {
+        if self.error_kind != value {
+            self.as_mut().rust_mut().error_kind = value;
             self.as_mut().error_text_changed();
         }
     }
@@ -983,7 +1009,8 @@ impl ffi::ContentController {
             return;
         }
         if self.services.is_none() {
-            self.as_mut().set_error(Some(0));
+            self.as_mut()
+                .set_error(Some(ffi::ContentError::ServicesUnavailable));
             return;
         }
         let Some(request) = request else {
@@ -1025,7 +1052,7 @@ impl ffi::ContentController {
                 if controller.inspection.generation == generation {
                     controller.as_mut().set_inspecting(false);
                     if controller.inspection.generation == generation
-                        && controller.error_operation.is_none()
+                        && controller.error_kind.is_none()
                     {
                         if controller.selected_variant_id.is_empty() {
                             controller.as_mut().select_initial_variant();

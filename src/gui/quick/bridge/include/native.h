@@ -18,6 +18,8 @@ namespace Qbutt
     class PageModel;
     struct RetiredReaderCache;
     struct Services;
+    enum class ContentError : std::uint8_t;
+    enum class ReaderError : std::uint8_t;
 
     std::unique_ptr<WorkModel> createWorkModel();
     std::unique_ptr<VariantModel> createVariantModel();
@@ -25,13 +27,13 @@ namespace Qbutt
     std::unique_ptr<SourceModel> createSourceModel();
     QString sourceError(std::int32_t reason);
     std::unique_ptr<PageModel> createPageModel();
-    QString contentError(std::int32_t operation);
+    QString contentError(ContentError error);
     void logContentError(const QString &operation, const QString &detail);
     QString formatSize(std::uint64_t bytes);
     QString contentLanguage();
     QString formatTranslationLabel(const QString &language, const QString &translation);
     QString formatVideoLabel(const QString &episode, const QString &quality, const QString &player, const QString &title);
-    QString readerError(std::int32_t operation);
+    QString readerError(ReaderError error);
     QString chapterTitle(const QString &number, const QString &volume, const QString &title);
     QSize validatedImageSize(const QString &path);
     void retireReaderCache(::rust::Box<RetiredReaderCache> cache);

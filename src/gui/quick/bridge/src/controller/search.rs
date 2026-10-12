@@ -64,7 +64,8 @@ impl ffi::ContentController {
             return;
         }
         if self.services.is_none() {
-            self.as_mut().set_error(Some(0));
+            self.as_mut()
+                .set_error(Some(ffi::ContentError::ServicesUnavailable));
             if self.search.generation == generation {
                 self.as_mut().set_search_state(ffi::SearchState::Failed);
             }

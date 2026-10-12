@@ -93,7 +93,7 @@ impl ffi::ContentController {
                 .as_mut()
                 .unwrap()
                 .retire_gateway(gateway);
-            self.set_error(Some(10));
+            self.set_error(Some(ffi::ContentError::PlaybackPending));
             return;
         }
         let token = NEXT_LAUNCH.fetch_add(1, Ordering::Relaxed);
@@ -264,7 +264,8 @@ impl ffi::ContentController {
             return;
         }
         if self.services.is_none() {
-            self.as_mut().set_error(Some(0));
+            self.as_mut()
+                .set_error(Some(ffi::ContentError::ServicesUnavailable));
             return;
         }
 
@@ -283,11 +284,13 @@ impl ffi::ContentController {
             preferences,
         };
         if transport == Transport::Video && self.library_worker.is_none() {
-            self.as_mut().set_error(Some(4));
+            self.as_mut()
+                .set_error(Some(ffi::ContentError::LibraryOpen));
             return;
         }
         if transport == Transport::Video && !self.playback_capacity() {
-            self.as_mut().set_error(Some(10));
+            self.as_mut()
+                .set_error(Some(ffi::ContentError::PlaybackPending));
             return;
         }
 
@@ -355,10 +358,14 @@ impl ffi::ContentController {
                             QUrl::from(&QString::from(url.as_str())),
                             QString::from(title),
                         ),
-                        Err(_) => controller.as_mut().set_error(Some(8)),
+                        Err(_) => controller
+                            .as_mut()
+                            .set_error(Some(ffi::ContentError::Playback)),
                     },
                     Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo { .. })) => {
-                        controller.as_mut().set_error(Some(11));
+                        controller
+                            .as_mut()
+                            .set_error(Some(ffi::ContentError::ExternalPlayback));
                     }
                     Err(_) => {}
                     Ok(_) => {
@@ -366,9 +373,12 @@ impl ffi::ContentController {
                             &QString::from("resolve"),
                             &QString::from("Resolved variant does not match the selected action"),
                         );
-                        controller
-                            .as_mut()
-                            .set_error(Some(if transport == Transport::Video { 8 } else { 3 }));
+                        let error = if transport == Transport::Video {
+                            ffi::ContentError::Playback
+                        } else {
+                            ffi::ContentError::Download
+                        };
+                        controller.as_mut().set_error(Some(error));
                     }
                 }
             });
