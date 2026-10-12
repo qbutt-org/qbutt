@@ -145,7 +145,19 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
     if !work.reference.source.categories().contains(&work.category) {
         return Err("the work category does not match its source");
     }
-    if !public_url(&work.url) || work.cover.as_ref().is_some_and(|url| !public_url(url)) {
+    let valid_publication_url = if work.reference.source == Source::RuTracker {
+        work.url.scheme() == "https"
+            && work.url.host_str() == Some("rutracker.org")
+            && work.url.port().is_none()
+            && work.url.username().is_empty()
+            && work.url.password().is_none()
+            && work.url.path() == "/forum/viewtopic.php"
+            && work.url.query() == Some(format!("t={}", work.reference.id).as_str())
+            && work.url.fragment().is_none()
+    } else {
+        public_url(&work.url)
+    };
+    if !valid_publication_url || work.cover.as_ref().is_some_and(|url| !public_url(url)) {
         return Err("the work contains a nonpublic URL");
     }
 
@@ -177,7 +189,7 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
                 variant.transport == Transport::Manga
             }
             (
-                Source::RuTor | Source::Nyaa | Source::FitGirl,
+                Source::RuTor | Source::RuTracker | Source::Nyaa | Source::FitGirl,
                 VariantSelector::TorrentHash { info_hash },
             ) => {
                 variant.transport == Transport::Torrent
@@ -192,8 +204,8 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
     Ok(())
 }
 
-// The current catalog's persistent page and poster URLs contain no query or
-// fragment. Reject acquisition credentials instead of trying to strip them.
+// Other catalog and poster URLs contain no query or fragment. RuTracker's
+// public topic identity is checked separately above; credentials are rejected.
 fn public_url(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https")
         && url.host_str().is_some()

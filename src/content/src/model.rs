@@ -11,6 +11,7 @@ pub enum Source {
     MangaDex,
     MangaLib,
     RuTor,
+    RuTracker,
     Nyaa,
     Rutube,
     #[serde(rename = "fitgirl")]
@@ -30,6 +31,7 @@ impl PublicationRef {
             Source::AniLiberty => self.aniliberty_id().map(|_| ()),
             Source::YummyAnime => self.yummyanime_id().map(|_| ()),
             Source::RuTor => self.rutor_id().map(|_| ()),
+            Source::RuTracker => self.rutracker_id().map(|_| ()),
             Source::Nyaa => self.nyaa_id().map(|_| ()),
             Source::Rutube => self.rutube_id().map(|_| ()),
             Source::FitGirl => self.fitgirl_slug().map(|_| ()),
@@ -46,6 +48,10 @@ impl PublicationRef {
 
     pub(crate) fn rutor_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::RuTor)
+    }
+
+    pub(crate) fn rutracker_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::RuTracker)
     }
 
     pub(crate) fn nyaa_id(&self) -> crate::Result<u64> {
@@ -246,6 +252,7 @@ impl VariantRef {
                 | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
                 | (Source::MangaLib, VariantSelector::LibTranslation { .. })
                 | (Source::RuTor, VariantSelector::TorrentHash { .. })
+                | (Source::RuTracker, VariantSelector::TorrentHash { .. })
                 | (Source::Nyaa, VariantSelector::TorrentHash { .. })
                 | (Source::FitGirl, VariantSelector::TorrentHash { .. })
                 | (Source::Rutube, VariantSelector::RutubeVideo)

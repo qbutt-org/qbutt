@@ -6,12 +6,13 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::AniLiberty,
         Self::YummyAnime,
         Self::MangaDex,
         Self::MangaLib,
         Self::RuTor,
+        Self::RuTracker,
         Self::Nyaa,
         Self::Rutube,
         Self::FitGirl,
@@ -24,6 +25,7 @@ impl Source {
             Self::MangaDex => "mangadex",
             Self::MangaLib => "mangalib",
             Self::RuTor => "rutor",
+            Self::RuTracker => "rutracker",
             Self::Nyaa => "nyaa",
             Self::Rutube => "rutube",
             Self::FitGirl => "fitgirl",
@@ -41,6 +43,7 @@ impl Source {
             Self::MangaDex => "MangaDex",
             Self::MangaLib => "MangaLib",
             Self::RuTor => "RuTor",
+            Self::RuTracker => "RuTracker",
             Self::Nyaa => "Nyaa.si",
             Self::Rutube => "Rutube",
             Self::FitGirl => "FitGirl",
@@ -66,6 +69,15 @@ impl Source {
                 Category::Games,
                 Category::Software,
                 Category::Books,
+            ],
+            Self::RuTracker => &[
+                Category::Movies,
+                Category::Tv,
+                Category::Anime,
+                Category::Games,
+                Category::Software,
+                Category::Books,
+                Category::Manga,
             ],
         }
     }
@@ -175,6 +187,11 @@ pub enum SourceFailureReason {
     UnsafeAddress,
     InvalidRedirect,
     VariantUnavailable,
+    LoginRequired,
+    Challenge,
+    BrowserChoiceRequired,
+    BrowserSession,
+    UnsupportedTorrent,
 }
 
 impl SourceFailureReason {
@@ -192,6 +209,12 @@ impl SourceFailureReason {
             Error::UnsafeAddress => Some(Self::UnsafeAddress),
             Error::InvalidRedirect => Some(Self::InvalidRedirect),
             Error::Network(_) => Some(Self::Network),
+            Error::LoginRequired => Some(Self::LoginRequired),
+            Error::Challenge => Some(Self::Challenge),
+            Error::BrowserChoiceRequired => Some(Self::BrowserChoiceRequired),
+            #[cfg(windows)]
+            Error::BrowserSession(_) => Some(Self::BrowserSession),
+            Error::UnsupportedTorrent => Some(Self::UnsupportedTorrent),
         }
     }
 }

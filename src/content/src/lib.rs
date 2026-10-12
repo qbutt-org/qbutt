@@ -9,6 +9,7 @@
 mod aniliberty;
 #[cfg(windows)]
 pub mod browser;
+mod error;
 mod fitgirl;
 mod http;
 mod library;
@@ -18,12 +19,15 @@ mod media;
 mod model;
 mod nyaa;
 mod rutor;
+#[cfg(windows)]
+mod rutracker;
 mod rutube;
 mod sources;
 mod torrent;
 mod yummyanime;
 
 pub use aniliberty::AniLiberty;
+pub use error::{Error, Result};
 pub use fitgirl::FitGirl;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
@@ -35,36 +39,8 @@ pub use media::{MediaGateway, MediaGatewayError};
 pub use model::*;
 pub use nyaa::Nyaa;
 pub use rutor::RuTor;
+#[cfg(windows)]
+pub use rutracker::RuTracker;
 pub use rutube::Rutube;
 pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};
 pub use yummyanime::YummyAnime;
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("Enter a search query of at most 500 characters")]
-    InvalidQuery,
-    #[error("The publication does not belong to this source")]
-    InvalidReference,
-    #[error("The selected variant is no longer available")]
-    VariantUnavailable,
-    #[error("{0}")]
-    UnsupportedAcquisition(&'static str),
-    #[error("The source returned invalid metadata: {0}")]
-    InvalidResponse(&'static str),
-    #[error("The source returned HTTP {0}")]
-    HttpStatus(u16),
-    #[error("The source response exceeds the size limit")]
-    ResponseTooLarge,
-    #[error("The source request timed out")]
-    Timeout,
-    #[error("The source returned an unsafe address")]
-    UnsafeAddress,
-    #[error("The source returned an unsupported redirect")]
-    InvalidRedirect,
-    #[error("The source could not be reached")]
-    Network(#[source] reqwest::Error),
-    #[error("The source returned invalid JSON")]
-    Json(#[source] serde_json::Error),
-}
-
-pub type Result<T> = std::result::Result<T, Error>;
