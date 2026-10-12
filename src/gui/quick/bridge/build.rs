@@ -13,6 +13,7 @@ fn main() {
                 "src/page_model.rs",
             ])
             .cpp_file("src/native.cpp")
+            .cpp_file("src/browser.cpp")
             .crate_include_root(Some("include".into()));
 
     // SAFETY: This only matches CMake's UTF-8 source and execution character sets.

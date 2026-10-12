@@ -71,6 +71,7 @@ impl Drop for Services {
         // Services is retired onto Qt's global pool before destruction. Drain
         // gateway connections there, alongside accepted SQLite work.
         self.runtime.block_on(async {
+            self.browser.shutdown().await;
             for task in self.retired_gateways.drain(..) {
                 let _ = task.await;
             }

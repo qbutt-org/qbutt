@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { BrowserBridge } from "../../components/content/browser/index.ts";
+import { NativeBrowserFixture as BrowserBridge } from "./native-parent";
 import { encodeFrame, FrameDecoder } from "./framing.ts";
 import { MAX_MESSAGE_BYTES, type BrowserCommand } from "../../components/content/browser/protocol.ts";
 
@@ -16,9 +16,9 @@ const directory = await mkdtemp(join(tmpdir(), "qbutt-browser-ipc-"));
 const discovery = join(directory, "bridge.json");
 const bridge = new BrowserBridge({ browser: "edge", discoveryPath: discovery });
 const children: ReturnType<typeof spawn>[] = [];
-const waitFor = async (predicate: () => boolean) => {
+const waitFor = async (predicate: () => boolean | Promise<boolean>) => {
     for (let attempt = 0; attempt < 100; attempt++) {
-        if (predicate()) return;
+        if (await predicate()) return;
         await Bun.sleep(50);
     }
     throw new Error("Integration deadline elapsed");
@@ -36,8 +36,10 @@ function extension(origin = `chrome-extension://${extensionId}/`) {
 }
 
 try {
-    await bridge.start();
-    assert.equal(bridge.status().error, undefined, "Secure broker must start");
+    await bridge.start(false);
+    await assert.rejects(readFile(discovery), { code: "ENOENT" });
+    await bridge.status(undefined, true);
+    assert.equal((await bridge.status()).ready, false, "Broker starts before a browser connects");
     const pipe = JSON.parse(await readFile(discovery, "utf8")).pipe as string;
     const securityScript = `
         $client = [IO.Pipes.NamedPipeClientStream]::new('.', '${pipe.split("\\").at(-1)}', [IO.Pipes.PipeDirection]::InOut)
@@ -58,15 +60,15 @@ try {
     assert.equal(security.protected, true);
     assert.deepEqual(security.identities, [security.current], "Cookies pipe must grant access only to the current user");
     assert.deepEqual(await bridge.cookies("https://fixture.qbutt.test/"), [], "Public sources require no extension");
-    await assert.rejects(bridge.cookies("http://100.64.0.1/source"), /публичный/);
     const first = extension();
     first.send({ type: "hello", browser: "edge", version: 1, userAgent: "qbutt-ipc-fixture/1" });
-    await waitFor(() => bridge.status().ready);
-    assert.equal(bridge.status().userAgent, "qbutt-ipc-fixture/1");
+    await waitFor(async () => (await bridge.status()).ready);
+    assert.equal((await bridge.status()).userAgent, "qbutt-ipc-fixture/1");
+    await assert.rejects(bridge.cookies("http://100.64.0.1/source"), (error: any) => error.code === "browser_invalid_request");
 
     const cookiePromise = bridge.cookies("https://fixture.qbutt.test/source");
     await waitFor(() => first.messages.length === 1);
-    first.send({ id: first.messages.shift()!.id, result: [{ name: "session", value: "fixture-session", domain: "fixture.qbutt.test", path: "/", secure: true }] });
+    first.send({ id: first.messages.shift()!.id, result: [{ name: "session", value: "fixture-session", domain: "fixture.qbutt.test", path: "/", secure: true, hostOnly: true }] });
     assert.equal((await cookiePromise)[0]?.value, "fixture-session");
 
     const fetchPromise = bridge.fetch("https://fixture.qbutt.test/source");
@@ -81,6 +83,22 @@ try {
     await waitFor(() => first.messages.length === 1);
     first.send({ id: first.messages.shift()!.id, result: { kind: "video", resolver: "direct", url: "https://fixture.qbutt.test/episode-2-voice-17.m3u8", selection } });
     assert.match((await resolvePromise).url!, /episode-2-voice-17/);
+
+    for (const code of ["browser_check_required", "browser_timeout", "unsupported_multi_audio", "unsupported_private_tracks"]) {
+        const failed = bridge.resolve("https://fixture.qbutt.test/player?token=private-fixture", selection,
+            { referrer: "https://fixture.qbutt.test/publication?session=private-fixture#private-fixture" });
+        const check = assert.rejects(failed, (error: any) => {
+            assert.equal(error.code, code);
+            assert(!error.message.includes("private-fixture"));
+            if (code === "browser_check_required")
+                assert.equal(error.url, "https://fixture.qbutt.test/publication");
+            return true;
+        });
+        await waitFor(() => first.messages.length === 1);
+        first.send({ id: first.messages.shift()!.id,
+            error: { code, message: "private-fixture", url: "http://127.0.0.1/private-fixture" } });
+        await check;
+    }
 
     const wrongPromise = bridge.resolve("https://fixture.qbutt.test/source", selection);
     const wrongCheck = assert.rejects(wrongPromise, /another media selection/);
@@ -112,24 +130,24 @@ try {
     const invalidHello = extension();
     invalidHello.send(null);
     await waitFor(() => invalidHello.child.exitCode !== null);
-    assert.equal(bridge.status().ready, true, "Malformed peer must not stop the connected browser");
+    assert.equal((await bridge.status()).ready, true, "Malformed peer must not stop the connected browser");
     const unicodeUrl = "https://fixture.qbutt.test/Привет?voice=世界";
     const unicodePromise = bridge.cookies(unicodeUrl);
     await waitFor(() => first.messages.length === 1);
     const unicodeCommand = first.messages.shift()!;
-    assert.equal(unicodeCommand.url, unicodeUrl, "Native request URL must retain Unicode");
+    assert.equal(unicodeCommand.url, new URL(unicodeUrl).href, "Native request URL must retain canonical Unicode identity");
     first.send({ id: unicodeCommand.id, result: [] });
     await unicodePromise;
 
     const pendingPromise = bridge.fetch("https://fixture.qbutt.test/pending");
-    const disconnectCheck = assert.rejects(pendingPromise, /отключился/);
+    const disconnectCheck = assert.rejects(pendingPromise, (error: any) => error.code === "browser_disconnected");
     await waitFor(() => first.messages.length === 1);
     first.child.stdin.end();
     await disconnectCheck;
-    assert.equal(bridge.status().ready, false);
+    assert.equal((await bridge.status()).ready, false);
     await bridge.close();
     await assert.rejects(readFile(discovery), { code: "ENOENT" });
-    console.log(JSON.stringify({ ok: true, scenarios: ["current-user-only-pipe-dacl", "no-extension-public-flow", "official-cookie-payload", "browser-fetch", "unicode-bidirectional", "exact-media-selection", "wrong-selection-rejected", "cancel", "oversized-frame", "unknown-extension", "malformed-peer-isolated", "disconnect", "owned-discovery-cleanup"] }));
+    console.log(JSON.stringify({ ok: true, scenarios: ["lazy-owner-no-discovery-write", "current-user-only-pipe-dacl", "no-extension-public-flow", "official-cookie-payload", "browser-fetch", "unicode-bidirectional", "exact-media-selection", "known-errors-preserved", "recovery-page-from-command", "remote-secrets-discarded", "wrong-selection-rejected", "cancel", "oversized-frame", "unknown-extension", "malformed-peer-isolated", "disconnect", "owned-discovery-cleanup"] }));
 } finally {
     for (const child of children) child.kill();
     await bridge.close();

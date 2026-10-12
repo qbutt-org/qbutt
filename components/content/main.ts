@@ -107,8 +107,10 @@ async function run(): Promise<void> {
     const store = await LibraryStore.open(dataDir);
     const settings = new SourceSettings(store);
     const browserSettings = await settings.values("browser");
-    const browser = new BrowserBridge({ browser: (browserSettings.browser || "auto") as BrowserChoice });
-    await browser.start();
+    const browser = new BrowserBridge({
+        browser: (browserSettings.browser || "auto") as BrowserChoice,
+        emit: (event, data) => { void send(0, event, data); },
+    });
     const catalog = new Catalog(dataDir, appDir, settings, browser);
     const mediaNetwork = await NetworkProxy.start();
     const playback = new PlaybackStreams();
@@ -281,7 +283,7 @@ async function run(): Promise<void> {
             emit("sources", await catalog.sources(signal));
             return;
         case "browserStatus":
-            emit("browser", { ...browser.status(), qcatchInstalled: !!await productExecutable("qcatch", appDir) });
+            emit("browser", { ...await browser.status(signal, true), qcatchInstalled: !!await productExecutable("qcatch", appDir) });
             return;
         case "connectBrowser": {
             const choice = String(params.browser || "auto");
@@ -445,7 +447,12 @@ async function run(): Promise<void> {
     function receive(input: string): void {
         let request: Request;
         try {
-            request = JSON.parse(input);
+            const message = JSON.parse(input);
+            if (message.browserReply) {
+                browser.receive(message.browserReply);
+                return;
+            }
+            request = message;
             if (!Number.isSafeInteger(request.id) || request.id <= 0 || typeof request.method !== "string"
                 || pending.has(request.id))
                 throw new Error("Invalid request.");

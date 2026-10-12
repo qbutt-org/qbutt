@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { BrowserBridge } from "../../components/content/browser";
+import type { BrowserBridge } from "../../components/content/browser";
 import { Catalog } from "../../components/content/catalog";
 import type { Variant, Work, WorkDetails } from "../../components/content/contracts";
 import { assertExactVariant } from "../../components/content/references";
@@ -17,7 +17,11 @@ import { LibraryStore } from "../../components/content/store";
 // are allowed; neither torrents nor commercial game files are downloaded.
 const directory = await mkdtemp(join(tmpdir(), "qbutt-games-live-"));
 const store = await LibraryStore.open(directory);
-const browser = new BrowserBridge({ discoveryPath: join(directory, "browser.json") });
+const browser = {
+    async status() { return { selected: "auto", ready: false, browsers: [] }; },
+    async cookies() { return []; },
+    async close() {},
+} as unknown as BrowserBridge;
 const catalog = new Catalog(directory, directory, new SourceSettings(store), browser);
 const evidence: unknown[] = [];
 const blocked: { query: string; source: string; publication?: string; message: string }[] = [];

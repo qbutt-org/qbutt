@@ -18,6 +18,7 @@ namespace Qbutt
     class PageModel;
     struct RetiredReaderCache;
     struct Services;
+    struct BrowserInstallation;
     enum class ContentError : std::uint8_t;
     enum class ReaderError : std::uint8_t;
 
@@ -39,6 +40,8 @@ namespace Qbutt
     QSize validatedImageSize(const QString &path);
     void retireReaderCache(::rust::Box<RetiredReaderCache> cache);
     void retireContentServices(::rust::Box<Services> services);
+    ::rust::Vec<BrowserInstallation> browserInstallations();
+    QString browserDiscoveryPath();
 }
 
 #endif

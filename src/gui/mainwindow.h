@@ -200,6 +200,7 @@ private:
     bool event(QEvent *e) override;
     void displayRSSTab(bool enable);
     void displaySearchTab(bool enable);
+    Content::ContentView *ensureContentView();
     void createTorrentTriggered(const Path &path);
     void showStatusBar(bool show);
     void updateContextControls();

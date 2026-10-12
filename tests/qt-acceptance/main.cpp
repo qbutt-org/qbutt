@@ -76,6 +76,7 @@
 #include <QSystemTrayIcon>
 #include <QTableWidget>
 #include <QTabWidget>
+#include <QTemporaryDir>
 #include <QThread>
 #include <QTimer>
 #include <QToolBar>
@@ -3448,6 +3449,13 @@ int main(int argc, char **argv)
     if (specPath.isEmpty())
         return 2;
     const QJsonObject spec = readObject(specPath);
+    QTemporaryDir browserDiscovery;
+    if (!qEnvironmentVariableIsSet("QBUTT_BROWSER_BRIDGE_DISCOVERY"))
+    {
+        if (!browserDiscovery.isValid())
+            return 2;
+        qputenv("QBUTT_BROWSER_BRIDGE_DISCOVERY", browserDiscovery.filePath(u"browser-bridge.json"_s).toUtf8());
+    }
     std::unique_ptr<UpdateRegistryFixture> registry;
     if (spec.value(u"registryFixture"_s).toBool())
     {

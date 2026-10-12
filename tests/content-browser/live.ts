@@ -4,6 +4,7 @@ import type { Event, ResolvedContent, Variant, WorkDetails } from "../../compone
 import { verifyLiveDownload } from "../content-online/download.ts";
 import { debuggerSocket, observePlayer } from "./frames.ts";
 import { mediaRuntime as resolveMediaRuntime } from "../../components/content/media-runtime";
+import { HelperBrowserSession } from "./helper-parent";
 
 const [lab, appDir, animeId = "10661", chosenIds = "687385", mode = "browser"] = Bun.argv.slice(2);
 if (!lab || !appDir || !/^\d+$/.test(animeId) || !/^\d+(?:,\d+)*$/.test(chosenIds)
@@ -17,9 +18,14 @@ if (mode === "browser" && (!extensionDirectory || !await Bun.file(join(extension
     throw new Error("Set QBUTT_QCATCH_EXTENSION_DIR to the independently installed qcatch extension.");
 
 const debugUrl = "http://127.0.0.1:43902";
+process.env.QBUTT_BROWSER_BRIDGE_DISCOVERY = join(lab, "browser-bridge.json");
 const helper = Bun.spawn([join(lab, "qbutt-content.exe"), "--data-dir", join(lab, "profile"),
     "--download-dir", join(lab, "downloads"), "--app-dir", appDir], {
     cwd: lab, stdin: "pipe", stdout: "pipe", stderr: "ignore", windowsHide: true,
+});
+const browserParent = new HelperBrowserSession(join(lab, "browser-bridge.json"), message => {
+    helper.stdin.write(message);
+    helper.stdin.flush();
 });
 const requests = new Map<number, { events: Event[]; finish(events: Event[]): void; fail(error: Error): void }>();
 let nextId = 0;
@@ -32,6 +38,7 @@ const read = (async () => {
         while ((end = buffered.indexOf("\n")) !== -1) {
             const event = JSON.parse(buffered.slice(0, end)) as Event;
             buffered = buffered.slice(end + 1);
+            if (browserParent.receive(event)) continue;
             const pending = requests.get(event.id);
             if (!pending) continue;
             pending.events.push(event);
@@ -263,4 +270,5 @@ try {
     await helper.exited;
     clearTimeout(timeout);
     await read;
+    await browserParent.close();
 }

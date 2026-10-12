@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { load } from "../../components/content/node_modules/cheerio";
 import { CookieJar } from "../../components/content/node_modules/tough-cookie";
-import { BrowserBridge } from "../../components/content/browser";
+import type { BrowserBridge } from "../../components/content/browser";
 import { Catalog } from "../../components/content/catalog";
 import type { ProviderContext, Work } from "../../components/content/contracts";
 import { sourceFetch } from "../../components/content/net";
@@ -19,7 +19,11 @@ import { LibraryStore } from "../../components/content/store";
 
 const directory = await mkdtemp(join(tmpdir(), "qbutt-asian-reading-"));
 const store = await LibraryStore.open(directory);
-const browser = new BrowserBridge({ discoveryPath: join(directory, "browser.json") });
+const browser = {
+    async status() { return { selected: "auto", ready: false, browsers: [] }; },
+    async cookies() { return []; },
+    async close() {},
+} as unknown as BrowserBridge;
 const signal = AbortSignal.timeout(180_000);
 const network = sourceFetch(signal, new CookieJar());
 let networkCalls = 0;

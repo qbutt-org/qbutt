@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { BrowserBridge } from "../../components/content/browser/index";
+import { NativeBrowserFixture as BrowserBridge } from "./native-parent";
 import type { BrowserCommand } from "../../components/content/browser/protocol";
 import { Catalog } from "../../components/content/catalog";
 import { DownloadQueue, type DownloadJob } from "../../components/content/downloads";
@@ -80,9 +80,9 @@ const queue = new DownloadQueue({ dataDir, downloadDir, appDir: root, store,
     emit() {},
 });
 let native: ReturnType<typeof spawn> | undefined;
-async function waitFor(predicate: () => boolean, label: string) {
+async function waitFor(predicate: () => boolean | Promise<boolean>, label: string) {
     const deadline = Date.now() + 30000;
-    while (!predicate()) {
+    while (!await predicate()) {
         assert(Date.now() < deadline, `Timed out: ${label}`);
         await Bun.sleep(20);
     }
@@ -112,7 +112,7 @@ try {
             : { id: message.id, result: { kind: "video", resolver: "direct", url: `${origin}/${id}.mp4`, selection: message.selection } }));
     }));
     native.stdin!.write(encodeFrame({ type: "hello", browser: "edge", version: 1, userAgent: "qbutt-capture-fixture/1" }));
-    await waitFor(() => bridge.status().ready, "real native relay hello");
+    await waitFor(async () => (await bridge.status()).ready, "real native relay hello");
 
     const first = capture(firstId);
     const firstJob = queue.enqueue({ work: first.work, variant: first.variant, title: "Capture A" });

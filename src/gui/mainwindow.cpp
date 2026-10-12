@@ -65,6 +65,7 @@
 
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/sessionstatus.h"
+#include "base/content/client.h"
 #include "base/global.h"
 #include "base/media/player.h"
 #include "base/path.h"
@@ -292,6 +293,23 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 
     qDebug("create tabWidget");
     m_tabs = new HidableTabWidget(this);
+    connect(Content::Client::instance(), &Content::Client::browserRequested, this,
+        [this](const quint64 generation, const quint64 id, const QByteArray &request)
+    {
+        ensureContentView()->relayBrowserRequest(generation, id, request);
+    });
+    connect(Content::Client::instance(), &Content::Client::browserCanceled, this,
+        [this](const quint64 generation, const quint64 id)
+    {
+        if (m_searchWidget)
+            m_searchWidget->cancelBrowserRequest(generation, id);
+    });
+    connect(Content::Client::instance(), &Content::Client::browserSessionClosed, this,
+        [this](const quint64 generation)
+    {
+        if (m_searchWidget)
+            m_searchWidget->closeBrowserSession(generation);
+    });
     connect(m_tabs.data(), &QTabWidget::currentChanged, this, &MainWindow::tabChanged);
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
@@ -625,6 +643,9 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 
     connect(pref, &Preferences::changed, this, &MainWindow::optionsSaved);
 
+    // qcatch reconnects to this owner independently of whether Search is shown.
+    ensureContentView()->initializeBrowser();
+
     qDebug("GUI Built");
 }
 
@@ -841,50 +862,58 @@ void MainWindow::showFilterContextMenu()
     menu->popup(QCursor::pos());
 }
 
+Content::ContentView *MainWindow::ensureContentView()
+{
+    if (!m_searchWidget)
+    {
+        m_searchWidget = new Content::ContentView(specialFolderLocation(SpecialFolder::Data).toString(), m_tabs);
+        m_searchWidget->hide();
+        connect(m_searchWidget, &Content::ContentView::browserReply, Content::Client::instance(), &Content::Client::replyBrowser);
+        connect(m_searchWidget, &Content::ContentView::torrentReady, this, [this](const QString &magnet)
+        {
+            app()->addTorrentManager()->addTorrent(magnet, {}, AddTorrentOption::ShowDialog);
+        });
+        connect(m_searchWidget, &Content::ContentView::videoReady, this,
+            [this](const quint64 launchToken, const QString &identity, const QUrl &url,
+                const QUrl &proxyUrl, const QString &title, const QString &contentKind)
+        {
+            Media::PlaybackOptions options;
+            options.launchToken = launchToken;
+            options.identity = identity;
+            options.proxyUrl = proxyUrl;
+            options.contentKind = contentKind;
+            if (!Media::Player::instance()->playUrl(url, title, options))
+                m_searchWidget->finishPlayback(launchToken);
+        });
+        connect(Media::Player::instance(), &Media::Player::playbackStarted, m_searchWidget,
+            [view = m_searchWidget](const QString &, const quint64 launchToken)
+        {
+            view->confirmPlayback(launchToken);
+        });
+        connect(Media::Player::instance(), &Media::Player::playbackFinished,
+            m_searchWidget, &Content::ContentView::finishPlayback);
+        connect(m_searchWidget, &Content::ContentView::readerActiveChanged, this, &MainWindow::updateContextControls);
+        connect(m_searchWidget, &Content::ContentView::searchFinished, this, [this](const bool failed)
+        {
+            if (app()->desktopIntegration()->isNotificationsEnabled() && (currentTabWidget() != m_searchWidget))
+            {
+                if (failed)
+                    app()->desktopIntegration()->showNotification(tr("Search Engine"), tr("Search has failed"));
+                else
+                    app()->desktopIntegration()->showNotification(tr("Search Engine"), tr("Search has finished"));
+            }
+        });
+    }
+    return m_searchWidget;
+}
+
 void MainWindow::displaySearchTab(bool enable)
 {
     m_ui->actionSearchWidget->setChecked(enable);
     Preferences::instance()->setSearchEnabled(enable);
     if (enable)
     {
-        if (!m_searchWidget)
-        {
-            m_searchWidget = new Content::ContentView(specialFolderLocation(SpecialFolder::Data).toString(), m_tabs);
-            connect(m_searchWidget, &Content::ContentView::torrentReady, this, [this](const QString &magnet)
-            {
-                app()->addTorrentManager()->addTorrent(magnet, {}, AddTorrentOption::ShowDialog);
-            });
-            connect(m_searchWidget, &Content::ContentView::videoReady, this,
-                [this](const quint64 launchToken, const QString &identity, const QUrl &url,
-                    const QUrl &proxyUrl, const QString &title, const QString &contentKind)
-            {
-                Media::PlaybackOptions options;
-                options.launchToken = launchToken;
-                options.identity = identity;
-                options.proxyUrl = proxyUrl;
-                options.contentKind = contentKind;
-                if (!Media::Player::instance()->playUrl(url, title, options))
-                    m_searchWidget->finishPlayback(launchToken);
-            });
-            connect(Media::Player::instance(), &Media::Player::playbackStarted, m_searchWidget,
-                [view = m_searchWidget](const QString &, const quint64 launchToken)
-            {
-                view->confirmPlayback(launchToken);
-            });
-            connect(Media::Player::instance(), &Media::Player::playbackFinished,
-                m_searchWidget, &Content::ContentView::finishPlayback);
-            connect(m_searchWidget, &Content::ContentView::readerActiveChanged, this, &MainWindow::updateContextControls);
-            connect(m_searchWidget, &Content::ContentView::searchFinished, this, [this](const bool failed)
-            {
-                if (app()->desktopIntegration()->isNotificationsEnabled() && (currentTabWidget() != m_searchWidget))
-                {
-                    if (failed)
-                        app()->desktopIntegration()->showNotification(tr("Search Engine"), tr("Search has failed"));
-                    else
-                        app()->desktopIntegration()->showNotification(tr("Search Engine"), tr("Search has finished"));
-                }
-            });
-        }
+        ensureContentView();
         if (m_tabs->indexOf(m_searchWidget) < 0)
         {
             m_tabs->insertTab(1, m_searchWidget,
@@ -979,6 +1008,7 @@ void MainWindow::cleanup()
 
     delete m_browserCapture;
     m_browserCapture = nullptr;
+    disconnect(Content::Client::instance(), nullptr, this, nullptr);
     delete m_searchWidget;
     QThreadPool::globalInstance()->waitForDone();
 

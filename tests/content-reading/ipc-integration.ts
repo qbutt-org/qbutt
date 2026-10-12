@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { zipSync } from "../../components/content/node_modules/fflate";
 import type { ReaderDocument, ReaderPage } from "../../components/content/reader/types";
+import { HelperBrowserSession } from "../content-browser/helper-parent";
 
 function require(value: unknown, message: string): asserts value {
     if (!value) throw new Error(message);
@@ -48,15 +49,21 @@ const server = Bun.serve({
     },
 });
 const executable = process.env.QBUTT_CONTENT_BIN;
+const browserParents = new Map<number, HelperBrowserSession>();
 const appDirectory = resolve(process.env.QBUTT_CONTENT_APP_DIR || (executable ? dirname(executable) : resolve(import.meta.dir, "../..")));
 function startService() {
-    return Bun.spawn({
+    const handle = Bun.spawn({
         cmd: [...(executable ? [executable] : [process.execPath, "components/content/main.ts"]),
             "--data-dir", join(directory, "profile"), "--app-dir", appDirectory,
             "--download-dir", join(directory, "downloads")],
         stdin: "pipe", stdout: "pipe", stderr: "ignore", windowsHide: true,
         env: { ...process.env, QBUTT_BROWSER_BRIDGE_DISCOVERY: join(directory, "browser.json") },
     });
+    browserParents.set(handle.pid, new HelperBrowserSession(join(directory, `browser-${handle.pid}.json`), message => {
+        handle.stdin.write(message);
+        handle.stdin.flush();
+    }));
+    return handle;
 }
 const processHandle = startService();
 let nextId = 0;
@@ -68,8 +75,10 @@ async function* events(handle: ReturnType<typeof startService>): AsyncGenerator<
         buffer += decoder.decode(chunk, { stream: true });
         let end: number;
         while ((end = buffer.indexOf("\n")) >= 0) {
-            yield JSON.parse(buffer.slice(0, end));
+            const event = JSON.parse(buffer.slice(0, end));
             buffer = buffer.slice(end + 1);
+            if (!browserParents.get(handle.pid)!.receive(event))
+                yield event;
         }
     }
 }
@@ -217,6 +226,7 @@ finally {
     const timer = setTimeout(() => processHandle.kill(), 5000);
     await processHandle.exited;
     clearTimeout(timer);
+    await Promise.all([...browserParents.values()].map(parent => parent.close()));
     server.stop(true);
     await rm(directory, { recursive: true, force: true });
 }

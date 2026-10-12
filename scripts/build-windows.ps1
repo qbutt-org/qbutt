@@ -351,8 +351,6 @@ Copy-Item -LiteralPath $bunLicense -Destination "$licenses/bun.txt"
 Copy-Item -LiteralPath (Join-Path $webviewSdk 'LICENSE.txt') -Destination "$licenses/WebView2-SDK.txt"
 Copy-Item -LiteralPath (Join-Path $webviewSdk 'NOTICE.txt') -Destination "$licenses/WebView2-NOTICE.txt"
 Copy-Item -LiteralPath (Join-Path $SourceDir 'resources/fonts/Neucha-OFL.txt') -Destination "$licenses/Neucha-OFL.txt"
-New-Item -ItemType Directory -Path "$portable/browser" | Out-Null
-Copy-Item -LiteralPath (Join-Path $content 'browser/private-pipe.ps1') -Destination "$portable/browser"
 Invoke-Native $bun @((Join-Path $SourceDir 'scripts/package-products.ts'), '--destination', $portable,
     '--cache', (Join-Path $DependencyRoot 'products'))
 Invoke-Native $bun @((Join-Path $SourceDir 'scripts/collect-content-notices.ts'), '--bundle', $portable, '--go', $go)

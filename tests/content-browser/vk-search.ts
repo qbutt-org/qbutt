@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { BrowserBridge } from "../../components/content/browser/index.ts";
+import { NativeBrowserFixture as BrowserBridge } from "./native-parent";
 import { Catalog } from "../../components/content/catalog.ts";
 import { LibraryStore } from "../../components/content/store.ts";
 import { SourceSettings } from "../../components/content/settings.ts";
@@ -20,10 +20,9 @@ function argument(name: string): string {
 
 const qcatch = argument("--qcatch");
 const directory = argument("--data-dir");
-const brokerPath = argument("--broker");
 const receiptPath = argument("--receipt");
 const discovery = join(directory, "bridge.json");
-const bridge = new BrowserBridge({ browser: "edge", discoveryPath: discovery, brokerPath });
+const bridge = new BrowserBridge({ browser: "edge", discoveryPath: discovery });
 const children: ReturnType<typeof spawn>[] = [];
 const scenarios: string[] = [];
 const query = "студсовет косяки";
@@ -34,9 +33,9 @@ const videos = [
     { id: "-900003_1004", url: "https://vkvideo.ru/video-900003_1004", title: "Нерелевантная комедия", duration: 1200 },
 ];
 
-async function waitFor(predicate: () => boolean): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>): Promise<void> {
     const deadline = Date.now() + 5_000;
-    while (!predicate()) {
+    while (!await predicate()) {
         if (Date.now() >= deadline) throw new Error("Integration deadline elapsed.");
         await Bun.sleep(25);
     }
@@ -66,16 +65,16 @@ try {
     await assert.rejects(bridge.searchVkVideos(query), (error: any) => error.code === "browser_required");
     scenarios.push("missing-extension-actionable");
     const legacy = extension();
-    await waitFor(() => bridge.status().ready);
+    await waitFor(async () => (await bridge.status()).ready);
     await assert.rejects(bridge.searchVkVideos(query), (error: any) => error.code === "browser_update_required");
     assert.equal(legacy.messages.length, 0);
     scenarios.push("legacy-extension-capability-refused-before-request");
     legacy.child.stdin.end();
-    await waitFor(() => !bridge.status().ready);
+    await waitFor(async () => !(await bridge.status()).ready);
     const peer = extension(["vk-search"]);
-    await waitFor(() => bridge.status().ready);
+    await waitFor(async () => (await bridge.status()).ready);
     store = await LibraryStore.open(join(directory, "library"));
-    catalog = new Catalog(join(directory, "library"), dirname(brokerPath), new SourceSettings(store), bridge);
+    catalog = new Catalog(join(directory, "library"), directory, new SourceSettings(store), bridge);
     const contextPromise = catalog.context("vkvideo", AbortSignal.timeout(15_000));
     await waitFor(() => peer.messages.length > 0);
     const cookies = peer.messages.shift()!;

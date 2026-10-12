@@ -75,7 +75,7 @@ export class Catalog {
                 id: "browser", name: "Browser", url: "https://github.com/qbutt-org/qbutt", categories: [], enabled: true,
                 settings: [{ name: "browser", label: "Browser", type: "select", value: "auto", options: [
                     { value: "auto", label: "Automatic" },
-                    ...this.browser.status().browsers.map(browser => ({ value: browser.id, label: browser.name })),
+                    ...(await this.browser.status(signal)).browsers.map(browser => ({ value: browser.id, label: browser.name })),
                 ] }],
             })];
     }
@@ -94,7 +94,7 @@ export class Catalog {
     }> {
         const cookies: Record<string, string> = {};
         const userAgents: Record<string, string> = {};
-        const status = this.browser.status();
+        const status = await this.browser.status(signal);
         if (!status.ready)
             return { cookies, userAgents };
         const sources = (await this.indexers(signal)).filter(source => selected
@@ -155,7 +155,7 @@ export class Catalog {
                 return this.clearance(session, url.href, configuredCookie) || { jar: session.jar };
             }, source && values.cookie
                 ? { origin: new URL(values.baseUrl || source.url).origin, value: values.cookie } : undefined,
-                this.browser.status().userAgent),
+                (await this.browser.status(signal)).userAgent),
             saveSettings: changes => this.settings.configure(id, undefined, changes),
         };
     }

@@ -351,8 +351,10 @@ and payload directory after the application exits.
 
 ## Content, reading and playback
 
-The Windows build bundles `qbutt-content.exe`, `qbutt-search.exe` and the qbutt
-browser pipe broker. The independent qplay product owns the player, prepared
+The Windows build bundles `qbutt-content.exe` and `qbutt-search.exe` for the
+remaining legacy consumers. qbutt owns the in-process Rust browser pipe broker;
+the helper forwards browser actions over its existing parent stdio connection.
+The independent qplay product owns the player, prepared
 profile, FFmpeg, ffprobe and yt-dlp. Content tests create their own profiles and
 bridge discovery files; they do not use a signed-in application profile. Tool
 paths come from the verified qplay `--runtime-info-json` response; fixtures do
@@ -366,6 +368,7 @@ $env:QBUTT_SEARCH_BIN = "$env:QBUTT_CONTENT_APP_DIR/qbutt-search.exe"
 $env:QBUTT_LAB_QPLAY = "$env:QBUTT_CONTENT_APP_DIR/qplay/qplay.exe"
 $env:QBUTT_QCATCH_EXE = 'C:/path/to/qcatch/qcatch.exe'
 $env:QBUTT_QCATCH_EXTENSION_DIR = 'C:/path/to/qcatch/extension'
+$env:QBUTT_QUICK_ACCEPTANCE_EXE = 'C:/path/to/build/qbutt-quick-acceptance.exe'
 $env:QBUTT_LAB_PATHS = '1'
 bun run smoke:content
 bun run smoke:content-search
@@ -377,6 +380,9 @@ bun run smoke:content-online
 bun run smoke:content-reading
 bun run smoke:content-downloads
 bun run smoke:content-browser
+bun tests/content-browser/helper-relay.ts
+bun tests/content-browser/startup.ts
+bun tests/content-browser/optional-cookies.ts
 bun tests/content-browser/capture-downloads.ts
 bun tests/content-browser/catalog-cookies.ts
 bun tests/content-browser/publication-recovery.ts
@@ -393,6 +399,17 @@ bun tests/content-reading/glossary-integration.ts
 bun tests/content-reading/loading-integration.ts
 bun tests/content-reading/ranobehub-integration.ts
 ```
+
+Browser fixtures run the production Qt/Rust relay in an offscreen acceptance
+process, with explicit temporary discovery and profile paths. The IPC scenario
+checks the real qcatch native host, the pipe's current-user DACL, exact media
+selection, malformed peers, cancellation and owned discovery cleanup. The helper
+scenario also starts the real Bun service, verifies one terminal outcome, then
+restarts and crashes that helper while preserving the single native broker.
+The startup scenario uses disposable per-process registry overrides: a missing
+native host fails immediately, while a registered host reconnecting after 31
+seconds completes the first exact capture without manual retry.
+These generated scenarios do not establish a signed-in browser or live playback.
 
 The reader's Qt lifecycle and chapter picker use the deployed acceptance driver:
 

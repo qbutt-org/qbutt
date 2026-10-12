@@ -16,6 +16,10 @@ endif()
 
 qt_add_executable(qbutt-quick-acceptance
     main.cpp
+    browser-relay.cpp
+    browser-relay.h
+    browser-registration.cpp
+    browser-registration.h
     category.cpp
     category.h
     library.cpp
@@ -63,6 +67,9 @@ target_link_libraries(qbutt-quick-acceptance
         Qt::Sql
         Qt::Network
 )
+if(WIN32)
+    target_link_libraries(qbutt-quick-acceptance PRIVATE advapi32)
+endif()
 target_include_directories(qbutt-quick-acceptance PRIVATE "../../src")
 
 if(MSVC)

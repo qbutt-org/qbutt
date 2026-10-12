@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { zipSync, strToU8 } from "../components/content/node_modules/fflate";
 import type { Event, Work } from "../components/content/contracts";
+import { HelperBrowserSession } from "./content-browser/helper-parent";
 
 function require(value: unknown, message: string): asserts value {
     if (!value)
@@ -19,6 +20,7 @@ class Client {
     private id = 0;
     private closed = false;
     private readonly exited: Promise<number | null>;
+    private readonly browser: HelperBrowserSession;
     private readonly requests = new Map<number, { events: Event[]; resolve(events: Event[]): void; reject(error: Error): void }>();
 
     constructor(profile = "profile") {
@@ -30,6 +32,7 @@ class Client {
             env: { ...process.env, QBUTT_BROWSER_BRIDGE_DISCOVERY: join(root, "browser.json") },
         });
         this.process.stderr.resume();
+        this.browser = new HelperBrowserSession(join(root, `${profile}-browser.json`), message => this.process.stdin.write(message));
         this.exited = new Promise(resolve => this.process.once("exit", resolve));
         this.process.on("error", error => this.fail(error));
         this.process.on("exit", code => this.fail(new Error(`Content helper exited: ${code}`)));
@@ -41,6 +44,7 @@ class Client {
             while ((end = buffer.indexOf("\n")) !== -1) {
                 const event = JSON.parse(buffer.slice(0, end)) as Event;
                 buffer = buffer.slice(end + 1);
+                if (this.browser.receive(event)) continue;
                 const request = this.requests.get(event.id);
                 if (!request)
                     continue;
@@ -74,6 +78,7 @@ class Client {
         const timeout = setTimeout(() => this.process.kill(), 10_000);
         const code = await this.exited;
         clearTimeout(timeout);
+        await this.browser.close();
         require(code === 0, "Helper did not shut down cleanly after EOF");
     }
 

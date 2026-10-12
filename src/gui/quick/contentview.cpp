@@ -17,6 +17,7 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     m_controller->setObjectName(QStringLiteral("contentController"));
     connect(m_controller, &Qbutt::ContentController::torrentReady, this, &ContentView::torrentReady);
     connect(m_controller, &Qbutt::ContentController::videoReady, this, &ContentView::videoReady);
+    connect(m_controller, &Qbutt::ContentController::browserReply, this, &ContentView::browserReply);
     connect(m_controller, &Qbutt::ContentController::readerChanged, this, &ContentView::readerActiveChanged);
     connect(m_controller, &Qbutt::ContentController::searchStateChanged, this, [this]
     {
@@ -28,6 +29,31 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     setResizeMode(QQuickWidget::SizeRootObjectToView);
     setInitialProperties({{QStringLiteral("backend"), QVariant::fromValue(m_controller)}});
     loadFromModule(QStringLiteral("Qbutt.Views"), QStringLiteral("SearchPage"));
+}
+
+Content::ContentView::~ContentView()
+{
+    m_controller->closeBrowserRelay();
+}
+
+void Content::ContentView::initializeBrowser()
+{
+    m_controller->initializeBrowser();
+}
+
+void Content::ContentView::relayBrowserRequest(const quint64 generation, const quint64 id, const QByteArray &request)
+{
+    m_controller->relayBrowserRequest(generation, id, request);
+}
+
+void Content::ContentView::cancelBrowserRequest(const quint64 generation, const quint64 id)
+{
+    m_controller->cancelBrowserRequest(generation, id);
+}
+
+void Content::ContentView::closeBrowserSession(const quint64 generation)
+{
+    m_controller->closeBrowserSession(generation);
 }
 
 void Content::ContentView::giveFocusToSearchInput()

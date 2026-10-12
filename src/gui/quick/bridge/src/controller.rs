@@ -9,6 +9,7 @@ use qbutt_content::{PublicationRef, VariantPreferences, Work};
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
 
+mod browser;
 mod catalog;
 mod library;
 mod playback;
@@ -31,6 +32,21 @@ use sources::SourceState;
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
+    #[derive(PartialEq)]
+    #[repr(u8)]
+    enum NativeHostState {
+        Missing,
+        Registered,
+        Unknown,
+    }
+
+    struct BrowserInstallation {
+        id: QString,
+        name: QString,
+        is_default: bool,
+        installed: bool,
+        native_host: NativeHostState,
+    }
     #[derive(PartialEq)]
     #[repr(u8)]
     enum ContentError {
@@ -163,6 +179,8 @@ pub mod ffi {
         type QUrl = cxx_qt_lib::QUrl;
         include!("cxx-qt-lib/qsize.h");
         type QSize = cxx_qt_lib::QSize;
+        include!("cxx-qt-lib/qbytearray.h");
+        type QByteArray = cxx_qt_lib::QByteArray;
     }
 
     unsafe extern "C++" {
@@ -192,6 +210,10 @@ pub mod ffi {
         fn retireReaderCache(cache: Box<RetiredReaderCache>);
         #[rust_name = "retire_content_services"]
         fn retireContentServices(services: Box<Services>);
+        #[rust_name = "browser_installations"]
+        fn browserInstallations() -> Vec<BrowserInstallation>;
+        #[rust_name = "browser_discovery_path"]
+        fn browserDiscoveryPath() -> QString;
     }
 
     extern "Rust" {
@@ -636,6 +658,24 @@ pub mod ffi {
         #[cxx_name = "selectVariant"]
         fn select_variant(self: Pin<&mut Self>, id: QString);
         fn is_searching(&self) -> bool;
+        #[cxx_name = "initializeBrowser"]
+        fn initialize_browser(self: Pin<&mut Self>);
+        #[cxx_name = "relayBrowserRequest"]
+        fn relay_browser_request(
+            self: Pin<&mut Self>,
+            generation: u64,
+            id: u64,
+            request: QByteArray,
+        );
+        #[cxx_name = "cancelBrowserRequest"]
+        fn cancel_browser_request(self: Pin<&mut Self>, generation: u64, id: u64);
+        #[cxx_name = "closeBrowserSession"]
+        fn close_browser_session(self: Pin<&mut Self>, generation: u64);
+        #[cxx_name = "closeBrowserRelay"]
+        fn close_browser_relay(self: Pin<&mut Self>);
+        #[qsignal]
+        #[cxx_name = "browserReply"]
+        fn browser_reply(self: Pin<&mut Self>, generation: u64, id: u64, reply: QByteArray);
 
         #[qinvokable]
         fn search(self: Pin<&mut Self>, query: QString);
@@ -699,6 +739,7 @@ pub struct Services {
     reader_load: Arc<tokio::sync::Semaphore>,
     reader_bytes: Arc<tokio::sync::Semaphore>,
     retired_gateways: Vec<JoinHandle<()>>,
+    browser: browser::BrowserService,
 }
 
 pub struct ContentControllerRust {
@@ -737,6 +778,7 @@ pub struct ContentControllerRust {
     playback: PlaybackState,
     reader: ReaderState,
     reader_settings: ReaderSettingsState,
+    browser_requests: HashMap<(u64, u64), JoinHandle<()>>,
 }
 
 impl Default for ContentControllerRust {
@@ -756,6 +798,7 @@ impl Default for ContentControllerRust {
                         reader_load: Arc::new(tokio::sync::Semaphore::new(1)),
                         reader_bytes: Arc::new(tokio::sync::Semaphore::new(96 * 1024 * 1024)),
                         retired_gateways: Vec::new(),
+                        browser: browser::BrowserService::default(),
                     })
             });
         let services = match services {
@@ -808,6 +851,7 @@ impl Default for ContentControllerRust {
             playback: PlaybackState::default(),
             reader: ReaderState::default(),
             reader_settings: ReaderSettingsState::default(),
+            browser_requests: HashMap::new(),
         }
     }
 }
@@ -819,6 +863,9 @@ impl Drop for ContentControllerRust {
         self.resolution.cancel();
         self.source_status.cancel_retries();
         self.reader.cancel();
+        for (_, request) in self.browser_requests.drain() {
+            request.abort();
+        }
         if let Some(services) = &mut self.services {
             for (_, launch) in self.playback.launches.drain() {
                 services.retire_gateway(launch.gateway);

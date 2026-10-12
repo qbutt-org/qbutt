@@ -18,6 +18,9 @@ namespace
 {
     constexpr qsizetype MAX_MESSAGE_SIZE = 16 * 1024 * 1024;
     constexpr qsizetype MAX_PENDING_REQUESTS = 128;
+    constexpr qsizetype MAX_BROWSER_MESSAGE_SIZE = 768 * 1024;
+    constexpr qsizetype MAX_BROWSER_REQUESTS = 16;
+    constexpr qint64 MAX_BROWSER_ID = 9'007'199'254'740'991;
 
     QJsonObject localizeFailure(QJsonObject failure)
     {
@@ -132,6 +135,7 @@ Content::Client::Client(QObject *parent)
 
 Content::Client::~Client()
 {
+    emit browserSessionClosed(m_generation);
     disconnect(&m_process, nullptr, this, nullptr);
     if (m_process.state() != QProcess::NotRunning)
     {
@@ -170,6 +174,7 @@ qint64 Content::Client::request(const QString &method, const QJsonObject &params
 
         if (m_process.state() == QProcess::NotRunning)
         {
+            ++m_generation;
             m_output.clear();
             const QString dataDir = QDir(Profile::instance()->location(SpecialFolder::Data).toString()).filePath(u"content"_s);
             m_process.start(QDir(QCoreApplication::applicationDirPath()).filePath(u"qbutt-content.exe"_s),
@@ -208,6 +213,26 @@ void Content::Client::flushRequests()
         m_process.write(message);
 }
 
+void Content::Client::replyBrowser(const quint64 generation, const quint64 id, const QByteArray &reply)
+{
+    if ((generation != m_generation) || !m_browserPending.remove(id)
+        || (m_process.state() != QProcess::Running))
+    {
+        return;
+    }
+
+    const QJsonDocument document = QJsonDocument::fromJson(reply);
+    if (!document.isObject() || (reply.size() > MAX_BROWSER_MESSAGE_SIZE))
+    {
+        m_process.kill();
+        failPending(tr("The browser returned an invalid response."));
+        return;
+    }
+    QJsonObject response = document.object();
+    response.insert(u"id"_s, static_cast<qint64>(id));
+    m_process.write(QJsonDocument(QJsonObject {{u"browserReply"_s, response}}).toJson(QJsonDocument::Compact) + '\n');
+}
+
 void Content::Client::readOutput()
 {
     m_output += m_process.readAllStandardOutput();
@@ -236,6 +261,30 @@ void Content::Client::readOutput()
             return;
         }
         QJsonValue data = object.value(u"data"_s);
+        if ((id == 0) && ((event == u"browserRequest") || (event == u"browserCancel")))
+        {
+            const QJsonObject request = data.toObject();
+            const qint64 browserId = request.value(u"id"_s).toInteger();
+            const QByteArray payload = QJsonDocument(request).toJson(QJsonDocument::Compact);
+            if ((browserId <= 0) || (browserId > MAX_BROWSER_ID) || (payload.size() > MAX_BROWSER_MESSAGE_SIZE)
+                || ((event == u"browserRequest") && (m_browserPending.contains(browserId)
+                    || (m_browserPending.size() >= MAX_BROWSER_REQUESTS))))
+            {
+                m_process.kill();
+                failPending(tr("The content service returned an invalid browser request."));
+                return;
+            }
+            if (event == u"browserRequest")
+            {
+                m_browserPending.insert(browserId);
+                emit browserRequested(m_generation, browserId, payload);
+            }
+            else if (m_browserPending.remove(browserId))
+            {
+                emit browserCanceled(m_generation, browserId);
+            }
+            continue;
+        }
         if ((event == u"error") || ((event == u"complete") && data.isObject())
             || ((event == u"job") && (data.toObject().value(u"status"_s).toString() == u"error")))
             data = localizeFailure(data.toObject());
@@ -274,6 +323,8 @@ void Content::Client::readOutput()
 
 void Content::Client::failPending(const QString &message)
 {
+    m_browserPending.clear();
+    emit browserSessionClosed(m_generation);
     m_queue.clear();
     m_output.clear();
     const QSet<qint64> pending = std::exchange(m_pending, {});

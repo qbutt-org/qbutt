@@ -1163,6 +1163,8 @@ dependencies = [
  "cxx-qt-build",
  "cxx-qt-lib",
  "qbutt-content",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
 ]

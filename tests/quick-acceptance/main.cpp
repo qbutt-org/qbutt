@@ -32,6 +32,7 @@
 #include <QVariant>
 
 #include "category.h"
+#include "browser-relay.h"
 #include "history.h"
 #include "library.h"
 #include "playback.h"
@@ -497,6 +498,7 @@ int main(int argc, char *argv[])
     QCommandLineParser parser;
     parser.setApplicationDescription(u"Runs the production Qt Quick content view with an isolated application identity."_s);
     parser.addHelpOption();
+    parser.addOption({u"browser-relay-host"_s, u"Serve isolated browser relay process scenarios over standard input."_s});
     parser.addOption({u"exercise"_s, u"Run the bounded live metadata acceptance scenario and exit."_s});
     parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
     parser.addOption({u"playback"_s, u"Run direct-video launch tokens, confirmed history and SQLite faults, then exit."_s});
@@ -517,6 +519,8 @@ int main(int argc, char *argv[])
     parser.addOption({u"dark"_s, u"Use the dark system color scheme for visual inspection."_s});
     parser.addOption({u"lang"_s, u"Set the locale for this process."_s, u"locale"_s, u"en"_s});
     parser.process(application);
+    if (parser.isSet(u"browser-relay-host"_s))
+        return runBrowserRelayHost();
 
     QLocale::setDefault(QLocale(parser.value(u"lang"_s)));
     QTranslator translator;

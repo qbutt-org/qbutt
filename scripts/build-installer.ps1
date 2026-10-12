@@ -20,7 +20,7 @@ $fileVersion = $matches[1]
 $lock = Get-Content -LiteralPath (Join-Path $SourceDir 'upstream-lock.json') -Raw | ConvertFrom-Json
 foreach ($required in @('qbutt.exe', 'qbutt-net.exe', 'qbutt-content.exe', 'qbutt-search.exe',
     'Qt6Core.dll', 'platforms/qwindows.dll', 'THIRD-PARTY-NOTICES.txt',
-    'browser/private-pipe.ps1', 'components/qplay-setup.exe', 'qplay/qplay.exe', 'qplay/qplay.portable',
+    'components/qplay-setup.exe', 'qplay/qplay.exe', 'qplay/qplay.portable',
     'qplay/build-manifest.json', 'qplay/upstream-lock.json',
     'licenses/qbutt-content-notices.txt', 'licenses/rust/dependencies.json',
     'licenses/rust/standard-library/COPYRIGHT-library.html')) {

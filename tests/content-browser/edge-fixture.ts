@@ -1,4 +1,4 @@
-import { BrowserBridge } from "../../components/content/browser/index.ts";
+import { NativeBrowserFixture as BrowserBridge } from "./native-parent";
 import { ContentError } from "../../components/content/errors.ts";
 import { dirname, join } from "node:path";
 
@@ -18,10 +18,10 @@ const server = Bun.serve({
     idleTimeout: 60,
     async fetch(request) {
         const url = new URL(request.url);
-        if (url.pathname === "/status") return Response.json(bridge.status());
+        if (url.pathname === "/status") return Response.json(await bridge.status());
         if (["/check", "/check-hls", "/check-files", "/check-empty", "/check-selection", "/check-referrer", "/check-embedded"].includes(url.pathname)) {
             try {
-                if (!bridge.status().userAgent?.includes("Edg/")) throw new Error("Actual Edge user agent missing");
+                if (!(await bridge.status()).userAgent?.includes("Edg/")) throw new Error("Actual Edge user agent missing");
                 if (url.pathname === "/check-embedded") {
                     const source = "http://alloha.qbutt.test:43897/embedded-player";
                     const options = { referrer: `${pageOrigin}/embedded-source` };
@@ -134,7 +134,7 @@ const server = Bun.serve({
                 if (await fetched.text() !== "fixture-response") throw new Error("Browser fetch response differs");
                 const resolved = await bridge.resolve(`${pageOrigin}/player`, selection);
                 if (resolved.url !== `${pageOrigin}/episode-2-voice-17/high.m3u8`) throw new Error("Wrong selected episode, translation, or quality");
-                if (resolved.headers?.["User-Agent"] !== bridge.status().userAgent) throw new Error("Playback user agent differs from browser session");
+                if (resolved.headers?.["User-Agent"] !== (await bridge.status()).userAgent) throw new Error("Playback user agent differs from browser session");
                 const dash = await bridge.resolve(`${pageOrigin}/player?format=dash`, selection);
                 if (dash.url !== `${pageOrigin}/episode-2-voice-17/manifest.mpd`) throw new Error("Wrong DASH episode or translation");
                 const file = await bridge.resolve(`${pageOrigin}/hoster`, {}, { kind: "file" });
