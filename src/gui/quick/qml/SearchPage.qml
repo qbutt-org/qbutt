@@ -24,6 +24,12 @@ Page {
         foreground: root.palette.windowText
     }
 
+    WorkFilterModel {
+        id: filteredWorks
+        sourceModel: root.activeWorks
+        filterRegularExpression: new RegExp(categories.currentIndex > 0 ? "^" + categories.currentValue + "$" : "")
+    }
+
     Shortcut {
         sequences: [StandardKey.Find]
         enabled: root.visible && !root.backend.readerOpen
@@ -95,6 +101,26 @@ Page {
                 selectByMouse: true
                 Accessible.name: qsTr("Search titles")
                 onAccepted: root.submitSearch()
+            }
+
+            SelectField {
+                id: categories
+                objectName: "contentCategory"
+                Layout.preferredWidth: 176
+                theme: appearance
+                textRole: "label"
+                valueRole: "value"
+                Accessible.name: qsTr("Category")
+                model: [
+                    { label: qsTr("All"), value: "" },
+                    { label: qsTr("Movies"), value: "movies" },
+                    { label: qsTr("TV series"), value: "tv" },
+                    { label: qsTr("Anime"), value: "anime" },
+                    { label: qsTr("Manga"), value: "manga" },
+                    { label: qsTr("Games"), value: "games" },
+                    { label: qsTr("Software"), value: "software" },
+                    { label: qsTr("Books"), value: "books" }
+                ]
             }
 
             ActionButton {
@@ -177,22 +203,33 @@ Page {
                     anchors.fill: parent
                     anchors.rightMargin: 16
                     clip: true
-                    model: root.activeWorks
+                    model: filteredWorks
                     currentIndex: -1
-                    onCountChanged: restoreSelection()
+                    onCountChanged: Qt.callLater(restoreSelection)
+                    Component.onCompleted: restoreSelection()
                     spacing: 4
                     activeFocusOnTab: true
                     keyNavigationEnabled: true
                     ScrollBar.vertical: ScrollBar {}
 
                     function restoreSelection(): void {
-                        currentIndex = root.activeWorks.indexOfId(root.backend.selectedWorkId);
+                        currentIndex = filteredWorks.indexOfId(root.backend.selectedWorkId);
                     }
 
                     Connections {
                         target: root.backend
                         function onSelectedWorkIdChanged(): void {
                             works.restoreSelection();
+                        }
+                    }
+
+                    Connections {
+                        target: filteredWorks
+                        function onModelReset(): void {
+                            Qt.callLater(works.restoreSelection);
+                        }
+                        function onLayoutChanged(): void {
+                            Qt.callLater(works.restoreSelection);
                         }
                     }
 
@@ -208,7 +245,7 @@ Page {
 
                     function selectCurrentWork(): void {
                         if (activeFocus && currentIndex >= 0)
-                            root.backend.selectWork(root.activeWorks.idAt(currentIndex));
+                            root.backend.selectWork(filteredWorks.idAt(currentIndex));
                     }
 
                     Keys.onReturnPressed: selectCurrentWork()
@@ -216,7 +253,7 @@ Page {
                     Keys.onPressed: event => {
                         if (count > 0 && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
                             const index = event.key === Qt.Key_Home ? 0 : count - 1;
-                            root.backend.selectWork(root.activeWorks.idAt(index));
+                            root.backend.selectWork(filteredWorks.idAt(index));
                             positionViewAtIndex(index, event.key === Qt.Key_Home ? ListView.Beginning : ListView.End);
                             event.accepted = true;
                         }
@@ -234,7 +271,8 @@ Page {
                     width: parent.width - 32
                     visible: works.count === 0 && (root.backend.listMode !== Search.Search
                         ? root.backend.libraryState === Library.Ready : root.backend.searchState === Search.Succeeded)
-                    text: root.backend.listMode === Search.History ? qsTr("History is empty")
+                    text: categories.currentIndex > 0 ? qsTr("No titles in this category")
+                        : root.backend.listMode === Search.History ? qsTr("History is empty")
                         : root.backend.listMode === Search.Favorites ? qsTr("No favorites") : qsTr("No titles found")
                     color: appearance.muted
                     horizontalAlignment: Text.AlignHCenter
@@ -255,6 +293,7 @@ Page {
                 backend: root.backend
                 theme: appearance
                 selectedInList: works.currentIndex >= 0
+                    && filteredWorks.idAt(works.currentIndex) === root.backend.selectedWorkId
                 leftPadding: 24
             }
         }

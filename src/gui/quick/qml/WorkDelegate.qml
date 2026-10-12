@@ -14,10 +14,20 @@ ItemDelegate {
     required property Theme theme
 
     readonly property string categoryText: {
+        if (category === "movies")
+            return qsTr("Movies");
+        if (category === "tv")
+            return qsTr("TV series");
         if (category === "anime")
             return qsTr("Anime");
         if (category === "manga")
             return qsTr("Manga");
+        if (category === "games")
+            return qsTr("Games");
+        if (category === "software")
+            return qsTr("Software");
+        if (category === "books")
+            return qsTr("Books");
 
         return category;
     }

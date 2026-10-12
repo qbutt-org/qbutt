@@ -18742,6 +18742,46 @@ Please choose a different name and try again.</source>
 <context>
     <name>SearchPage</name>
     <message>
+        <source>Category</source>
+        <translation>Категория</translation>
+    </message>
+    <message>
+        <source>All</source>
+        <translation>Все</translation>
+    </message>
+    <message>
+        <source>Movies</source>
+        <translation>Фильмы</translation>
+    </message>
+    <message>
+        <source>TV series</source>
+        <translation>Сериалы</translation>
+    </message>
+    <message>
+        <source>Anime</source>
+        <translation>Аниме</translation>
+    </message>
+    <message>
+        <source>Manga</source>
+        <translation>Манга</translation>
+    </message>
+    <message>
+        <source>Games</source>
+        <translation>Игры</translation>
+    </message>
+    <message>
+        <source>Software</source>
+        <translation>Программы</translation>
+    </message>
+    <message>
+        <source>Books</source>
+        <translation>Книги</translation>
+    </message>
+    <message>
+        <source>No titles in this category</source>
+        <translation>В этой категории ничего не найдено</translation>
+    </message>
+    <message>
         <source>History</source>
         <translation>История</translation>
     </message>
@@ -18780,6 +18820,26 @@ Please choose a different name and try again.</source>
 </context>
 <context>
     <name>WorkDelegate</name>
+    <message>
+        <source>Movies</source>
+        <translation>Фильмы</translation>
+    </message>
+    <message>
+        <source>TV series</source>
+        <translation>Сериалы</translation>
+    </message>
+    <message>
+        <source>Games</source>
+        <translation>Игры</translation>
+    </message>
+    <message>
+        <source>Software</source>
+        <translation>Программы</translation>
+    </message>
+    <message>
+        <source>Books</source>
+        <translation>Книги</translation>
+    </message>
     <message>
         <source>Anime</source>
         <translation>Аниме</translation>

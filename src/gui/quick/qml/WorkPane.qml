@@ -32,7 +32,7 @@ Pane {
     background: Item {}
 
     contentItem: ColumnLayout {
-        visible: root.backend.selectedWorkId !== ""
+        visible: root.selectedInList
         spacing: 16
 
         RowLayout {

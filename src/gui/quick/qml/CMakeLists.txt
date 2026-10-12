@@ -16,6 +16,7 @@ qt_add_qml_module(qbt_quick_ui STATIC
         ReaderPage.qml
         ReaderToolbar.qml
         SearchPage.qml
+        SelectField.qml
         Theme.qml
         VariantDelegate.qml
         WorkDelegate.qml
