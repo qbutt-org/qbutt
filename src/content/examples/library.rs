@@ -188,7 +188,7 @@ fn exercise(root: &Path) -> Result<()> {
     drop(library);
 
     let current_version: i64 = raw.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    for version in [1, 2, 3, current_version + 1] {
+    for version in (1..current_version).chain(std::iter::once(current_version + 1)) {
         raw.pragma_update(None, "user_version", version)?;
         assert!(matches!(
             Library::open(&profile),
@@ -281,7 +281,7 @@ fn exercise(root: &Path) -> Result<()> {
     drop(library);
     drop(raw);
 
-    verify_malformed_schemas(root)?;
+    verify_malformed_schemas(root, current_version)?;
     let foreign_profile = root.join("foreign-profile");
     std::fs::create_dir(&foreign_profile)?;
     let foreign = Connection::open(foreign_profile.join("content-library.sqlite"))?;
@@ -304,7 +304,7 @@ fn exercise(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn verify_malformed_schemas(root: &Path) -> Result<()> {
+fn verify_malformed_schemas(root: &Path, current_version: i64) -> Result<()> {
     let schemas = [
         "CREATE TABLE library (
             reference TEXT NOT NULL,
@@ -333,7 +333,7 @@ fn verify_malformed_schemas(root: &Path) -> Result<()> {
         let malformed = Connection::open(malformed_profile.join("content-library.sqlite"))?;
         malformed.execute_batch(schema)?;
         malformed.pragma_update(None, "application_id", 0x51424c42)?;
-        malformed.pragma_update(None, "user_version", 4)?;
+        malformed.pragma_update(None, "user_version", current_version)?;
         let before_schema: String = malformed.query_row(
             "SELECT sql FROM sqlite_schema WHERE name = 'library'",
             [],
