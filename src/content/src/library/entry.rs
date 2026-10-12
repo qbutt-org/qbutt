@@ -16,6 +16,7 @@ pub struct VariantFilters {
     pub language: Option<String>,
     pub player: Option<String>,
     pub transport: Option<Transport>,
+    pub query: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

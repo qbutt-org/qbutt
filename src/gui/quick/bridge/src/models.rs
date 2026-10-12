@@ -2,7 +2,7 @@ use std::fmt::Write;
 use std::pin::Pin;
 
 use cxx_qt::CxxQtType;
-use cxx_qt_lib::{QByteArray, QHash, QModelIndex, QString, QVariant, QVector};
+use cxx_qt_lib::{QByteArray, QHash, QModelIndex, QString, QStringList, QVariant, QVector};
 use qbutt_content::{
     Category, PublicationRef, Transport, Variant, VariantRef, VariantSelector, Work,
 };
@@ -377,6 +377,10 @@ impl ffi::VariantModel {
         let Some(variant) = self.rows.get(index.row() as usize) else {
             return QVariant::default();
         };
+        if role == USER_ROLE + 12 {
+            let languages: QStringList = variant.languages.iter().map(QString::from).collect();
+            return QVariant::from(&languages);
+        }
         if role == USER_ROLE + 5 {
             let size = variant.size.map(ffi::format_size).unwrap_or_default();
             return QVariant::from(&size);
@@ -420,6 +424,10 @@ impl ffi::VariantModel {
                 .map(|seeders| seeders.to_string())
                 .unwrap_or_default(),
             7 => variant.info_hash.clone().unwrap_or_default(),
+            8 => variant.episode.clone().unwrap_or_default(),
+            9 => variant.translation.clone().unwrap_or_default(),
+            10 => variant.reference.publication.source.id().into(),
+            11 => variant.player.clone().unwrap_or_default(),
             _ => return QVariant::default(),
         };
         QVariant::from(&QString::from(text))
@@ -435,6 +443,11 @@ impl ffi::VariantModel {
             "sizeText",
             "seedersText",
             "infoHash",
+            "episode",
+            "translation",
+            "sourceId",
+            "player",
+            "languages",
         ])
     }
 

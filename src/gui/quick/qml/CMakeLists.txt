@@ -5,9 +5,12 @@ qt_add_qml_module(qbt_quick_ui STATIC
     SOURCES
         workfiltermodel.cpp
         workfiltermodel.h
+        variantfiltermodel.cpp
+        variantfiltermodel.h
     QML_FILES
         ActionButton.qml
         ChapterPicker.qml
+        FacetField.qml
         IconButton.qml
         ModalPicker.qml
         NavigationTab.qml
@@ -22,6 +25,7 @@ qt_add_qml_module(qbt_quick_ui STATIC
         SourcePicker.qml
         Theme.qml
         VariantDelegate.qml
+        VariantFilters.qml
         WorkDelegate.qml
         WorkPane.qml
 )

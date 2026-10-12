@@ -399,6 +399,7 @@ fn preferences(work: &Work, index: usize) -> VariantPreferences {
             language: Some("ru".into()),
             player: Some("Generated player".into()),
             transport: Some(work.variants[index].transport),
+            query: Some("Generated".into()),
         },
     }
 }

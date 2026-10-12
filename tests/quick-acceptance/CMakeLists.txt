@@ -40,6 +40,8 @@ qt_add_executable(qbutt-quick-acceptance
     torrent-source.h
     sources.cpp
     sources.h
+    variant-filters.cpp
+    variant-filters.h
     work-filter.cpp
     work-filter.h
     worklist.cpp

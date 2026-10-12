@@ -18912,8 +18912,12 @@ Please choose a different name and try again.</source>
         <translation>Сиды</translation>
     </message>
     <message>
-        <source>No variants available</source>
-        <translation>Нет доступных вариантов</translation>
+        <source>No variants found</source>
+        <translation>Варианты не найдены</translation>
+    </message>
+    <message>
+        <source>Selected variant is hidden by filters</source>
+        <translation>Выбранный вариант скрыт фильтрами</translation>
     </message>
     <message>
         <source>Add to favorites</source>
@@ -18926,6 +18930,72 @@ Please choose a different name and try again.</source>
     <message>
         <source>Saved variant is unavailable. Choose another.</source>
         <translation>Сохранённый вариант недоступен. Выберите другой.</translation>
+    </message>
+</context>
+<context>
+    <name>FacetField</name>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Find</source>
+        <translation>Найти</translation>
+    </message>
+    <message>
+        <source>No matches</source>
+        <translation>Совпадений нет</translation>
+    </message>
+</context>
+<context>
+    <name>VariantFilters</name>
+    <message>
+        <source>Episode %1</source>
+        <translation>Серия %1</translation>
+    </message>
+    <message>
+        <source>%1 [%2]</source>
+        <translation>%1 [%2]</translation>
+    </message>
+    <message>
+        <source>Episode</source>
+        <translation>Серия</translation>
+    </message>
+    <message>
+        <source>All episodes</source>
+        <translation>Все серии</translation>
+    </message>
+    <message>
+        <source>Translation</source>
+        <translation>Перевод</translation>
+    </message>
+    <message>
+        <source>All translations</source>
+        <translation>Все переводы</translation>
+    </message>
+    <message>
+        <source>Source</source>
+        <translation>Источник</translation>
+    </message>
+    <message>
+        <source>All sources</source>
+        <translation>Все источники</translation>
+    </message>
+    <message>
+        <source>Language</source>
+        <translation>Язык</translation>
+    </message>
+    <message>
+        <source>All languages</source>
+        <translation>Все языки</translation>
+    </message>
+    <message>
+        <source>Find a variant</source>
+        <translation>Найти вариант</translation>
+    </message>
+    <message>
+        <source>Reset filters</source>
+        <translation>Сбросить фильтры</translation>
     </message>
 </context>
 <context>

@@ -15,6 +15,7 @@
 #include <QList>
 #include <QLocale>
 #include <QMainWindow>
+#include <QPalette>
 #include <QPointer>
 #include <QQuickItem>
 #include <QSet>
@@ -40,6 +41,7 @@
 #include "reader.h"
 #include "sources.h"
 #include "torrent-source.h"
+#include "variant-filters.h"
 #include "work-filter.h"
 #include "worklist.h"
 
@@ -510,6 +512,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"worklist"_s, u"Run work list delegate and favorites acceptance, then exit."_s});
     parser.addOption({u"work-filter"_s, u"Run native work category filtering and exact identity scenarios, then exit."_s});
     parser.addOption({u"category"_s, u"Run production category filtering and exact selection scenarios, then exit."_s});
+    parser.addOption({u"variant-filters"_s, u"Run generated variant filters, exact selection and persisted preferences, then exit."_s});
     parser.addOption({u"profile"_s, u"Use an explicit isolated profile for restart acceptance."_s, u"directory"_s});
     parser.addOption({u"dark"_s, u"Use the dark system color scheme for visual inspection."_s});
     parser.addOption({u"lang"_s, u"Set the locale for this process."_s, u"locale"_s, u"en"_s});
@@ -523,17 +526,38 @@ int main(int argc, char *argv[])
         application.installTranslator(&translator);
     }
     QGuiApplication::styleHints()->setColorScheme(parser.isSet(u"dark"_s) ? Qt::ColorScheme::Dark : Qt::ColorScheme::Light);
+    if (parser.isSet(u"dark"_s) && (QGuiApplication::platformName() == u"offscreen"_s))
+    {
+        // The offscreen platform cannot obtain a dark palette from Windows.
+        QPalette palette;
+        palette.setColor(QPalette::Window, QColor(32, 33, 36));
+        palette.setColor(QPalette::Base, QColor(24, 25, 28));
+        palette.setColor(QPalette::AlternateBase, QColor(40, 41, 44));
+        palette.setColor(QPalette::Button, QColor(48, 49, 52));
+        palette.setColor(QPalette::ToolTipBase, QColor(48, 49, 52));
+        for (const auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText, QPalette::ToolTipText})
+            palette.setColor(role, QColor(242, 242, 242));
+        palette.setColor(QPalette::PlaceholderText, QColor(166, 166, 168));
+        palette.setColor(QPalette::Highlight, QColor(0, 157, 247));
+        palette.setColor(QPalette::HighlightedText, Qt::white);
+        for (const auto role : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
+            palette.setColor(QPalette::Disabled, role, QColor(128, 128, 132));
+        application.setPalette(palette);
+    }
     application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s)
-        && !parser.isSet(u"reader"_s) && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s));
+        && !parser.isSet(u"reader"_s) && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s)
+        && !parser.isSet(u"variant-filters"_s));
 
     if (parser.isSet(u"library"_s) || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
         || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s) || parser.isSet(u"work-filter"_s)
         || parser.isSet(u"category"_s) || parser.isSet(u"sources"_s) || parser.isSet(u"playback"_s)
-        || parser.isSet(u"nyaa"_s) || parser.isSet(u"mangalib"_s))
+        || parser.isSet(u"nyaa"_s) || parser.isSet(u"mangalib"_s) || parser.isSet(u"variant-filters"_s))
     {
         try
         {
-            if (parser.isSet(u"mangalib"_s))
+            if (parser.isSet(u"variant-filters"_s))
+                exerciseVariantFilters();
+            else if (parser.isSet(u"mangalib"_s))
                 exerciseMangaLib();
             else if (parser.isSet(u"playback"_s))
                 exercisePlayback();

@@ -332,6 +332,7 @@ Page {
                 SplitView.minimumWidth: 560
                 backend: root.backend
                 theme: appearance
+                backdrop: root
                 selectedInList: works.currentIndex >= 0
                     && filteredWorks.idAt(works.currentIndex) === root.backend.selectedWorkId
                 leftPadding: 24

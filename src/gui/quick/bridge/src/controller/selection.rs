@@ -376,6 +376,10 @@ impl ffi::ContentController {
         if self.inspection.generation != generation {
             return false;
         }
+        self.as_mut().variant_filters_changed();
+        if self.inspection.generation != generation {
+            return false;
+        }
         self.as_mut().refresh_selected_favorite();
         self.inspection.generation == generation
     }

@@ -18,6 +18,7 @@ mod reader_settings;
 mod search;
 mod selection;
 mod sources;
+mod variant_filters;
 
 use crate::models;
 use crate::source_model;
@@ -206,6 +207,55 @@ pub mod ffi {
         #[qproperty(*mut WorkModel, favorites, READ = favorites_model, CONSTANT)]
         #[qproperty(*mut WorkModel, history, READ = history_model, CONSTANT)]
         #[qproperty(*mut VariantModel, variants, READ = variants_model, CONSTANT)]
+        #[qproperty(
+            QString,
+            variant_episode_filter,
+            cxx_name = "variantEpisodeFilter",
+            READ = variant_episode_filter,
+            NOTIFY = variant_filters_changed
+        )]
+        #[qproperty(
+            QString,
+            variant_translation_filter,
+            cxx_name = "variantTranslationFilter",
+            READ = variant_translation_filter,
+            NOTIFY = variant_filters_changed
+        )]
+        #[qproperty(
+            QString,
+            variant_source_filter,
+            cxx_name = "variantSourceFilter",
+            READ = variant_source_filter,
+            NOTIFY = variant_filters_changed
+        )]
+        #[qproperty(
+            QString,
+            variant_player_filter,
+            cxx_name = "variantPlayerFilter",
+            READ = variant_player_filter,
+            NOTIFY = variant_filters_changed
+        )]
+        #[qproperty(
+            QString,
+            variant_language_filter,
+            cxx_name = "variantLanguageFilter",
+            READ = variant_language_filter,
+            NOTIFY = variant_filters_changed
+        )]
+        #[qproperty(
+            QString,
+            variant_transport_filter,
+            cxx_name = "variantTransportFilter",
+            READ = variant_transport_filter,
+            NOTIFY = variant_filters_changed
+        )]
+        #[qproperty(
+            QString,
+            variant_query,
+            cxx_name = "variantQuery",
+            READ = variant_query,
+            NOTIFY = variant_filters_changed
+        )]
         #[qproperty(*mut SourceModel, sources, READ = sources_model, CONSTANT)]
         #[qproperty(SettingsState, source_settings_state, cxx_name = "sourceSettingsState", READ = source_settings_state, NOTIFY = sources_changed)]
         #[qproperty(QString, source_settings_error_text, cxx_name = "sourceSettingsErrorText", READ = source_settings_error_text, NOTIFY = sources_changed)]
@@ -441,6 +491,34 @@ pub mod ffi {
         fn variant_selection_state(&self) -> VariantSelectionState;
         fn selected_work_category(&self) -> QString;
         fn selected_variant_kind(&self) -> QString;
+        fn variant_episode_filter(&self) -> QString;
+        fn variant_translation_filter(&self) -> QString;
+        fn variant_source_filter(&self) -> QString;
+        fn variant_player_filter(&self) -> QString;
+        fn variant_language_filter(&self) -> QString;
+        fn variant_transport_filter(&self) -> QString;
+        fn variant_query(&self) -> QString;
+        #[qsignal]
+        #[cxx_name = "variantFiltersChanged"]
+        fn variant_filters_changed(self: Pin<&mut Self>);
+        #[qinvokable]
+        #[cxx_name = "setVariantEpisodeFilter"]
+        fn set_variant_episode_filter(self: Pin<&mut Self>, value: QString);
+        #[qinvokable]
+        #[cxx_name = "setVariantTranslationFilter"]
+        fn set_variant_translation_filter(self: Pin<&mut Self>, value: QString);
+        #[qinvokable]
+        #[cxx_name = "setVariantProviderFilter"]
+        fn set_variant_provider_filter(self: Pin<&mut Self>, source: QString, player: QString);
+        #[qinvokable]
+        #[cxx_name = "setVariantLanguageFilter"]
+        fn set_variant_language_filter(self: Pin<&mut Self>, value: QString);
+        #[qinvokable]
+        #[cxx_name = "setVariantQuery"]
+        fn set_variant_query(self: Pin<&mut Self>, value: QString);
+        #[qinvokable]
+        #[cxx_name = "clearVariantFilters"]
+        fn clear_variant_filters(self: Pin<&mut Self>);
         fn reader_chapters(&self) -> *mut ChapterModel;
         fn reader_pages(&self) -> *mut PageModel;
         fn reader_mode(&self) -> ReaderMode;

@@ -160,6 +160,30 @@ search starts and no original rows disappear. Fresh inspection changes a cached
 category and must update the visible projection. Require exit zero and every `PASS`
 check. Native popup, pointer, focus and viewport acceptance remains separate.
 
+The `--variant-filters` scenario uses two generated SQLite works with twelve
+episodes, two translations, two player paths and two languages. It exercises the
+production QML controls, the source-only and exact-player projections, combined
+facets, text search, hidden exact selection, empty results and reset. It verifies
+that filtering retains all stored variants and starts no search, inspection or
+resolution. Every visible delegate must have the proxy row's exact identity and
+roles, with no duplicate or stale rows after filtering and reset.
+Opening the stored fixture temporarily disables its source, then
+enables it through the ordinary API without inspecting the public catalog.
+Per-work choices and the exact selected variant survive reopening the isolated
+profile in a new controller and QML view. The searchable picker preserves its
+query and list position on reopen, and accepts Enter. A SQLite abort preserves
+confirmed preferences and the displayed intent; submitting the same filter again
+must persist it and clear the write error. Require exit zero and
+`PASS variant_filters`.
+
+Run this scenario with the same offscreen environment, in EN/Light and RU/Dark.
+With `--dark`, the offscreen host explicitly applies a dark test palette; the
+scenario checks the palette consumed by the production screen.
+Set `QBUTT_VARIANT_FILTER_RENDER_DIR` to a temporary absolute directory to save
+production-window PNGs at 1440×900 and 1280×720. These renders and programmatic
+keyboard actions do not establish native pointer interaction, backdrop blur or
+application switching.
+
 Run `--worklist --lang ru` with the same isolated offscreen environment to check
 the production results delegates. It scrolls the live metadata list, saves an
 exact translation, switches Search/Favorites/History, invokes the row action and

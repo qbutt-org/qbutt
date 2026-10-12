@@ -11,16 +11,33 @@ Pane {
 
     required property ContentController backend
     required property Theme theme
+    required property Item backdrop
     required property bool selectedInList
     padding: 0
 
     readonly property int sourceWidth: 116
     readonly property int sizeWidth: 80
     readonly property int seedersWidth: 48
-    readonly property bool showTorrentColumns: backend.selectedWorkCategory !== "manga"
+    readonly property bool showTorrentColumns: filteredVariants.hasTorrents
+    readonly property int selectedRow: {
+        return filteredVariants.count > 0 ? filteredVariants.indexOfId(backend.selectedVariantId) : -1;
+    }
+
+    VariantFilterModel {
+        id: filteredVariants
+        objectName: "contentFilteredVariants"
+        sourceModel: root.backend.variants
+        episodeFilter: root.backend.variantEpisodeFilter
+        translationFilter: root.backend.variantTranslationFilter
+        sourceFilter: root.backend.variantSourceFilter
+        playerFilter: root.backend.variantPlayerFilter
+        languageFilter: root.backend.variantLanguageFilter
+        transportFilter: root.backend.variantTransportFilter
+        query: root.backend.variantQuery
+    }
 
     function openSelected(): void {
-        if (backend.selectedVariantState !== Search.Available || backend.resolving)
+        if (backend.selectedVariantState !== Search.Available || backend.resolving || selectedRow < 0)
             return;
 
         if (backend.selectedVariantKind === "manga")
@@ -89,7 +106,7 @@ Pane {
                 icon.source: root.theme.iconSource(root.backend.selectedVariantKind === "manga" ? "help-contents"
                     : root.backend.selectedVariantKind === "video" ? "torrent-start" : "download")
                 highlighted: true
-                enabled: root.backend.selectedVariantState === Search.Available && !root.backend.resolving
+                enabled: root.backend.selectedVariantState === Search.Available && !root.backend.resolving && root.selectedRow >= 0
                 onClicked: root.openSelected()
             }
 
@@ -126,6 +143,22 @@ Pane {
             Layout.preferredHeight: 3
             visible: root.backend.inspecting
             indeterminate: true
+        }
+
+        VariantFilters {
+            Layout.fillWidth: true
+            backend: root.backend
+            variants: filteredVariants
+            theme: root.theme
+            backdrop: root.backdrop
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: root.backend.selectedVariantState === Search.Available && root.selectedRow < 0
+            text: qsTr("Selected variant is hidden by filters")
+            color: root.theme.muted
+            wrapMode: Text.Wrap
         }
 
         RowLayout {
@@ -170,9 +203,9 @@ Pane {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            model: root.backend.variants
-            currentIndex: count > 0 && root.backend.selectedVariantState === Search.Available
-                ? root.backend.variants.indexOfId(root.backend.selectedVariantId) : -1
+            model: filteredVariants
+            currentIndex: filteredVariants.count > 0 && root.backend.selectedVariantState === Search.Available
+                ? root.selectedRow : -1
             spacing: 2
             activeFocusOnTab: true
             keyNavigationEnabled: true
@@ -181,7 +214,7 @@ Pane {
 
             function selectCurrentVariant(): void {
                 if (activeFocus && currentIndex >= 0)
-                    root.backend.selectVariant(root.backend.variants.idAt(currentIndex));
+                    root.backend.selectVariant(filteredVariants.idAt(currentIndex));
             }
 
             Keys.onReturnPressed: root.openSelected()
@@ -189,7 +222,7 @@ Pane {
             Keys.onPressed: event => {
                 if (count > 0 && (event.key === Qt.Key_Home || event.key === Qt.Key_End)) {
                     const index = event.key === Qt.Key_Home ? 0 : count - 1;
-                    root.backend.selectVariant(root.backend.variants.idAt(index));
+                    root.backend.selectVariant(filteredVariants.idAt(index));
                     positionViewAtIndex(index, event.key === Qt.Key_Home ? ListView.Beginning : ListView.End);
                     event.accepted = true;
                 }
@@ -217,8 +250,8 @@ Pane {
 
             Label {
                 anchors.centerIn: parent
-                visible: root.backend.selectedVariantState === Search.None && variants.count === 0 && root.backend.errorText === ""
-                text: qsTr("No variants available")
+                visible: !root.backend.inspecting && variants.count === 0 && root.backend.errorText === ""
+                text: qsTr("No variants found")
                 color: root.theme.muted
             }
         }
