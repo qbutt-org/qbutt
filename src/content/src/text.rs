@@ -1,7 +1,8 @@
 //! Original chapter text. Providers select the chapter body; this module keeps
 //! only text, emphasis and ruby, with no executable markup or external assets.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use scraper::{ElementRef, Html, Node};
 use serde::{Deserialize, Serialize};
@@ -86,10 +87,26 @@ impl TextChapter {
         if builder.blocks.is_empty() {
             return Err(Error::InvalidResponse("chapter text is empty"));
         }
-        Ok(Self {
-            reference,
-            blocks: builder.blocks,
-        })
+        Self::from_blocks(reference, builder.blocks)
+    }
+
+    /// Native structured sources share the same content anchors as HTML sources.
+    /// Supplied IDs are replaced; layout and source DOM IDs are not persisted.
+    pub fn from_blocks(reference: ChapterRef, mut blocks: Vec<TextBlock>) -> Result<Self> {
+        let mut occurrences = HashMap::new();
+        for block in &mut blocks {
+            let text = block.plain_text();
+            // FNV-1a is only an anchor, never a trust or integrity boundary.
+            let hash = text.bytes().fold(0xcbf29ce484222325u64, |hash, byte| {
+                (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+            });
+            let occurrence = occurrences.entry(hash).or_insert(0usize);
+            block.id = format!("{hash:016x}-{occurrence}");
+            *occurrence += 1;
+        }
+        let chapter = Self { reference, blocks };
+        chapter.validate()?;
+        Ok(chapter)
     }
 
     pub fn text_bytes(&self) -> usize {
@@ -102,13 +119,77 @@ impl TextChapter {
             })
             .sum()
     }
+
+    pub fn validate(&self) -> Result<()> {
+        self.reference.validate()?;
+        if self.blocks.is_empty() {
+            return Err(Error::InvalidResponse("chapter text is empty"));
+        }
+        if self.blocks.len() > MAX_BLOCKS
+            || self
+                .blocks
+                .iter()
+                .map(|block| block.spans.len())
+                .sum::<usize>()
+                > MAX_SPANS
+            || self.text_bytes() > MAX_TEXT_BYTES
+        {
+            return Err(Error::ResponseTooLarge);
+        }
+        let mut ids = HashSet::new();
+        for block in &self.blocks {
+            if block.id.is_empty()
+                || block.id.len() > 128
+                || block.id.chars().any(char::is_control)
+                || !ids.insert(&block.id)
+            {
+                return Err(Error::InvalidResponse("chapter text anchor is invalid"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A reader-session cache of original content. It has no translation state,
+/// persistence, network tasks or ownership outside the caller's reader session.
+#[derive(Default)]
+pub struct TextChapterCache {
+    chapters: VecDeque<Arc<TextChapter>>,
+}
+
+impl TextChapterCache {
+    pub fn get(&mut self, reference: &ChapterRef) -> Option<Arc<TextChapter>> {
+        let index = self
+            .chapters
+            .iter()
+            .position(|chapter| &chapter.reference == reference)?;
+        let chapter = self.chapters.remove(index)?;
+        self.chapters.push_back(Arc::clone(&chapter));
+        Some(chapter)
+    }
+
+    pub fn insert(&mut self, chapter: TextChapter) -> Result<Arc<TextChapter>> {
+        chapter.validate()?;
+        self.chapters
+            .retain(|cached| cached.reference != chapter.reference);
+        let chapter = Arc::new(chapter);
+        self.chapters.push_back(Arc::clone(&chapter));
+        // Each validated chapter holds at most 2 MiB of original text.
+        while self.chapters.len() > 3 {
+            self.chapters.pop_front();
+        }
+        Ok(chapter)
+    }
+
+    pub fn clear(&mut self) {
+        self.chapters.clear();
+    }
 }
 
 #[derive(Default)]
 struct ChapterBuilder {
     blocks: Vec<TextBlock>,
     spans: Vec<TextSpan>,
-    occurrences: HashMap<u64, usize>,
     text_bytes: usize,
     span_count: usize,
 }
@@ -246,7 +327,7 @@ impl ChapterBuilder {
         if self.spans.is_empty() && kind != TextBlockKind::Separator {
             return Ok(());
         }
-        let mut block = TextBlock {
+        let block = TextBlock {
             id: String::new(),
             kind,
             spans: std::mem::take(&mut self.spans),
@@ -258,13 +339,6 @@ impl ChapterBuilder {
         if self.blocks.len() >= MAX_BLOCKS {
             return Err(Error::ResponseTooLarge);
         }
-        // FNV-1a is only an anchor, never a trust or integrity boundary.
-        let hash = text.bytes().fold(0xcbf29ce484222325u64, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-        });
-        let occurrence = self.occurrences.entry(hash).or_default();
-        block.id = format!("{hash:016x}-{occurrence}");
-        *occurrence += 1;
         self.blocks.push(block);
         Ok(())
     }

@@ -7,9 +7,9 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use qbutt_content::{
-    Category, ChapterRef, Library, LibraryError, LibraryView, PublicationRef, ReaderProgress,
-    Source, Transport, Variant, VariantFilters, VariantPreferences, VariantRef, VariantSelector,
-    Work,
+    Category, ChapterRef, Library, LibraryError, LibraryView, PublicationRef, ReaderPosition,
+    ReaderProgress, Source, Transport, Variant, VariantFilters, VariantPreferences, VariantRef,
+    VariantSelector, Work,
 };
 use rusqlite::Connection;
 use url::Url;
@@ -47,7 +47,10 @@ fn exercise(profile: &Path) -> Result<()> {
     assert!(library.entries(LibraryView::History)?.is_empty());
     for offset in [0.0, 1.0] {
         let mut boundary = progress.clone();
-        boundary.scroll_offset = offset;
+        boundary.position = ReaderPosition::Page {
+            page: 3,
+            scroll_offset: offset,
+        };
         library.save_reader_progress(&work, preferences.clone(), boundary)?;
     }
     let saved = library.save_reader_progress(&work, preferences.clone(), progress.clone())?;
@@ -76,7 +79,10 @@ fn exercise(profile: &Path) -> Result<()> {
     let before = library.get(&work.reference)?.unwrap();
     for offset in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.01, 1.01] {
         let mut invalid = progress.clone();
-        invalid.scroll_offset = offset;
+        invalid.position = ReaderPosition::Page {
+            page: 3,
+            scroll_offset: offset,
+        };
         assert!(matches!(
             library.save_reader_progress(&work, choices(&work, 0), invalid),
             Err(LibraryError::InvalidEntry(_))
@@ -84,7 +90,10 @@ fn exercise(profile: &Path) -> Result<()> {
         assert_eq!(library.get(&work.reference)?.unwrap(), before);
     }
     let mut invalid = progress.clone();
-    invalid.page = u32::MAX;
+    invalid.position = ReaderPosition::Page {
+        page: u32::MAX,
+        scroll_offset: 0.0,
+    };
     assert!(matches!(
         library.save_reader_progress(&work, choices(&work, 0), invalid),
         Err(LibraryError::InvalidEntry(_))
@@ -120,7 +129,10 @@ fn exercise(profile: &Path) -> Result<()> {
          BEGIN SELECT RAISE(ABORT, 'generated reader write fault'); END;",
     )?;
     let mut next = progress.clone();
-    next.page += 1;
+    next.position = ReaderPosition::Page {
+        page: 4,
+        scroll_offset: 0.625,
+    };
     assert!(matches!(
         library.save_reader_progress(&work, choices(&work, 0), next),
         Err(LibraryError::Sqlite(_))
@@ -136,7 +148,10 @@ fn exercise(profile: &Path) -> Result<()> {
     drop(library);
 
     let mut corrupt = retained;
-    corrupt.reader_progress.as_mut().unwrap().scroll_offset = 2.0;
+    corrupt.reader_progress.as_mut().unwrap().position = ReaderPosition::Page {
+        page: 3,
+        scroll_offset: 2.0,
+    };
     let metadata = serde_json::to_string(&corrupt)?;
     raw.execute("UPDATE library SET entry = ?1", [&metadata])?;
     let library = Library::open(profile)?;
@@ -177,8 +192,10 @@ fn position(work: &Work) -> ReaderProgress {
             variant: work.variants[0].reference.clone(),
             id: "22222222-2222-2222-2222-222222222222".into(),
         },
-        page: 3,
-        scroll_offset: 0.625,
+        position: ReaderPosition::Page {
+            page: 3,
+            scroll_offset: 0.625,
+        },
     }
 }
 

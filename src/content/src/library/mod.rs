@@ -12,7 +12,9 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::{PublicationRef, VariantRef, Work};
 
-pub use entry::{LastOpened, LibraryEntry, ReaderProgress, VariantFilters, VariantPreferences};
+pub use entry::{
+    LastOpened, LibraryEntry, ReaderPosition, ReaderProgress, VariantFilters, VariantPreferences,
+};
 pub use settings::{ReaderFit, ReaderMode, ReaderSettings};
 
 #[derive(Debug, thiserror::Error)]

@@ -33,14 +33,20 @@ pub struct LastOpened {
     pub at_unix_millis: i64,
 }
 
-/// A zero-based page within an exact chapter, with a viewport-independent
-/// vertical scroll fraction. Acquisition URLs and cached paths are transient.
+/// A position within original content. Text anchors survive width/font changes;
+/// image page offsets remain relative to the displayed image height.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum ReaderPosition {
+    Page { page: u32, scroll_offset: f64 },
+    Text { block_id: String, offset: f64 },
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReaderProgress {
     pub chapter: ChapterRef,
-    pub page: u32,
-    pub scroll_offset: f64,
+    pub position: ReaderPosition,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -89,11 +95,39 @@ impl LibraryEntry {
                 .chapter
                 .validate()
                 .map_err(|_| "the saved chapter reference is invalid")?;
-            if progress.page > i32::MAX as u32 {
-                return Err("the saved page index exceeds the reader limit");
-            }
-            if !progress.scroll_offset.is_finite() || !(0.0..=1.0).contains(&progress.scroll_offset)
-            {
+            let transport = self
+                .work
+                .variants
+                .iter()
+                .find(|variant| variant.reference == progress.chapter.variant)
+                .map(|variant| variant.transport);
+            let offset = match &progress.position {
+                ReaderPosition::Page {
+                    page,
+                    scroll_offset,
+                } => {
+                    if transport != Some(Transport::Manga) {
+                        return Err("the saved page position does not belong to manga");
+                    }
+                    if *page > i32::MAX as u32 {
+                        return Err("the saved page index exceeds the reader limit");
+                    }
+                    *scroll_offset
+                }
+                ReaderPosition::Text { block_id, offset } => {
+                    if transport != Some(Transport::Text) {
+                        return Err("the saved text position does not belong to text");
+                    }
+                    if block_id.is_empty()
+                        || block_id.len() > 128
+                        || block_id.chars().any(char::is_control)
+                    {
+                        return Err("the saved text anchor is invalid");
+                    }
+                    *offset
+                }
+            };
+            if !offset.is_finite() || !(0.0..=1.0).contains(&offset) {
                 return Err("the saved scroll position is invalid");
             }
         }

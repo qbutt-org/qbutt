@@ -5,7 +5,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use super::{Library, LibraryError, LibraryResult};
 
 const APPLICATION_ID: i64 = 0x51424c42;
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 const DATABASE_NAME: &str = "content-library.sqlite";
 
 impl Library {

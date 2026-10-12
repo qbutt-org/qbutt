@@ -32,7 +32,7 @@ pub use error::{Error, Result};
 pub use fitgirl::FitGirl;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
-    ReaderMode, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
+    ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
 };
 pub use mangadex::MangaDex;
 pub use mangalib::MangaLib;
@@ -44,5 +44,5 @@ pub use rutor::RuTor;
 pub use rutracker::RuTracker;
 pub use rutube::Rutube;
 pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};
-pub use text::{TextBlock, TextBlockKind, TextChapter, TextSpan};
+pub use text::{TextBlock, TextBlockKind, TextChapter, TextChapterCache, TextSpan};
 pub use yummyanime::YummyAnime;
