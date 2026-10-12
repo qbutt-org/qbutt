@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
-    AniLiberty, Chapter, ChapterRef, FitGirl, Kakuyomu, LibSession, MangaDex, MangaLib, Nyaa,
-    RanobeHub, RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source,
-    SourceOperation, TextChapter, Work, YummyAnime,
+    AniLiberty, ByRut, Chapter, ChapterRef, FitGirl, FreeTP, Kakuyomu, LibSession, MangaDex,
+    MangaLib, Nyaa, OnlineFix, RanobeHub, RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker,
+    Rutube, Source, SourceOperation, TextChapter, Work, YummyAnime,
 };
 
 use super::browser::BrowserClient;
@@ -31,6 +31,9 @@ pub(super) struct Catalog {
     nyaa: Nyaa,
     rutube: Rutube,
     fitgirl: FitGirl,
+    online_fix: OnlineFix,
+    freetp: FreeTP,
+    byrut: ByRut,
     ranobelib: RanobeLib,
     ranobehub: RanobeHub,
     royalroad: RoyalRoad,
@@ -50,6 +53,9 @@ impl Catalog {
             nyaa: Nyaa::new()?,
             rutube: Rutube::new()?,
             fitgirl: FitGirl::new()?,
+            online_fix: OnlineFix::new()?,
+            freetp: FreeTP::new()?,
+            byrut: ByRut::new()?,
             ranobelib: RanobeLib::new()?,
             ranobehub: RanobeHub::new()?,
             royalroad: RoyalRoad::new()?,
@@ -97,6 +103,18 @@ impl Catalog {
                     Source::Nyaa => self.nyaa.search(query, *category).await,
                     Source::Rutube => self.rutube.search(query, *category).await,
                     Source::FitGirl => self.fitgirl.search(query, *category).await,
+                    Source::OnlineFix => self.online_fix.search(query, *category).await,
+                    Source::FreeTP => self.freetp.search(query, *category).await,
+                    Source::ByRut => {
+                        self.byrut
+                            .search(
+                                query,
+                                *category,
+                                self.browser.existing_handle().await.as_ref(),
+                                BrowserChoice::Auto,
+                            )
+                            .await
+                    }
                     Source::RanobeLib => {
                         self.ranobelib
                             .search(query, &mut self.lib_session(*source).await?)
@@ -139,6 +157,17 @@ impl Catalog {
                     Source::Nyaa => self.nyaa.inspect(reference).await,
                     Source::Rutube => self.rutube.inspect(reference).await,
                     Source::FitGirl => self.fitgirl.inspect(reference).await,
+                    Source::OnlineFix => self.online_fix.inspect(reference).await,
+                    Source::FreeTP => self.freetp.inspect(reference).await,
+                    Source::ByRut => {
+                        self.byrut
+                            .inspect(
+                                reference,
+                                self.browser.existing_handle().await.as_ref(),
+                                BrowserChoice::Auto,
+                            )
+                            .await
+                    }
                     Source::RanobeLib => {
                         self.ranobelib
                             .inspect(reference, &mut self.lib_session(reference.source).await?)
@@ -167,6 +196,17 @@ impl Catalog {
                     Source::Nyaa => self.nyaa.resolve(reference).await,
                     Source::Rutube => self.rutube.resolve(reference).await,
                     Source::FitGirl => self.fitgirl.resolve(reference).await,
+                    Source::OnlineFix => self.online_fix.resolve(reference).await,
+                    Source::FreeTP => self.freetp.resolve(reference).await,
+                    Source::ByRut => {
+                        self.byrut
+                            .resolve(
+                                reference,
+                                self.browser.existing_handle().await.as_ref(),
+                                BrowserChoice::Auto,
+                            )
+                            .await
+                    }
                     Source::MangaDex
                     | Source::LocalBook
                     | Source::MangaLib

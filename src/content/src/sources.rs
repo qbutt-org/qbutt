@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 16] = [
         Self::AniLiberty,
         Self::YummyAnime,
         Self::MangaDex,
@@ -17,6 +17,9 @@ impl Source {
         Self::Nyaa,
         Self::Rutube,
         Self::FitGirl,
+        Self::OnlineFix,
+        Self::FreeTP,
+        Self::ByRut,
         Self::RoyalRoad,
         Self::Kakuyomu,
         Self::RanobeHub,
@@ -35,6 +38,9 @@ impl Source {
             Self::Nyaa => "nyaa",
             Self::Rutube => "rutube",
             Self::FitGirl => "fitgirl",
+            Self::OnlineFix => "onlinefix",
+            Self::FreeTP => "freetp",
+            Self::ByRut => "byrut",
             Self::RoyalRoad => "royalroad",
             Self::Kakuyomu => "kakuyomu",
             Self::RanobeHub => "ranobehub",
@@ -58,6 +64,9 @@ impl Source {
             Self::Nyaa => "Nyaa.si",
             Self::Rutube => "Rutube",
             Self::FitGirl => "FitGirl",
+            Self::OnlineFix => "Online-Fix",
+            Self::FreeTP => "FreeTP",
+            Self::ByRut => "ByRut",
             Self::RoyalRoad => "Royal Road",
             Self::Kakuyomu => "Kakuyomu",
             Self::RanobeHub => "RanobeHub",
@@ -71,7 +80,7 @@ impl Source {
             Self::MangaDex | Self::MangaLib => &[Category::Manga],
             Self::RanobeLib => &[Category::Books],
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
-            Self::FitGirl => &[Category::Games],
+            Self::FitGirl | Self::OnlineFix | Self::FreeTP | Self::ByRut => &[Category::Games],
             Self::RoyalRoad => &[Category::Books],
             Self::Kakuyomu => &[Category::Books],
             Self::RanobeHub => &[Category::Books],

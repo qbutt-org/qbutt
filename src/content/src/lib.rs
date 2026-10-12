@@ -10,11 +10,14 @@ mod aniliberty;
 mod association;
 #[cfg(windows)]
 pub mod browser;
+#[cfg(windows)]
+mod byrut;
 mod download;
 mod error;
 #[cfg(windows)]
 mod external_video;
 mod fitgirl;
+mod freetp;
 mod http;
 mod kakuyomu;
 mod lib_api;
@@ -25,6 +28,7 @@ mod mangalib;
 mod media;
 mod model;
 mod nyaa;
+mod online_fix;
 mod ranobehub;
 mod ranobelib;
 mod royalroad;
@@ -40,6 +44,8 @@ mod yummyanime;
 
 pub use aniliberty::AniLiberty;
 pub use association::{WorkAssociation, WorkGroup, rank_variants};
+#[cfg(windows)]
+pub use byrut::ByRut;
 pub use download::{
     DirectDownload, DownloadError, DownloadJob, DownloadQueue, DownloadStatus, DownloadStorage,
 };
@@ -47,6 +53,7 @@ pub use error::{Error, Result};
 #[cfg(windows)]
 pub use external_video::{ExternalVideoError, resolve_external_video};
 pub use fitgirl::FitGirl;
+pub use freetp::FreeTP;
 pub use kakuyomu::Kakuyomu;
 pub use lib_api::LibSession;
 pub use library::{
@@ -59,6 +66,7 @@ pub use mangalib::MangaLib;
 pub use media::{MediaGateway, MediaGatewayError, PreparedPlayback, PreparedSubtitle};
 pub use model::*;
 pub use nyaa::Nyaa;
+pub use online_fix::OnlineFix;
 pub use ranobehub::RanobeHub;
 pub use ranobelib::RanobeLib;
 pub use royalroad::RoyalRoad;
