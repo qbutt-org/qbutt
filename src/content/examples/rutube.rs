@@ -31,7 +31,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     assert_eq!(url.scheme(), "https");
     println!(
-        "PASS rutube_live search={} publication={} exact_id=ok free_access=ok manifest_quality={}p media_payload=not_downloaded native_playback=unverified",
+        "PASS rutube_live search={} publication={} exact_id=ok free_access=ok exact_media_playlist={}p media_payload=not_downloaded native_playback=unverified",
         works.len(),
         work.reference.id,
         quality.height()

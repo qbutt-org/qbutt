@@ -284,6 +284,30 @@ fn response(
             }}
         })
         .to_string()
+    } else if url.path() != "/master.m3u8" {
+        match case {
+            "child-master" => "#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=640x360\n360.m3u8\n".into(),
+            "child-challenge" => "<html>Challenge</html>".into(),
+            "truncated-child" => "#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\n".into(),
+            "child-private-redirect" => {
+                return (
+                    "302 Found",
+                    "application/vnd.apple.mpegurl",
+                    "Location: https://127.0.0.1/private.m3u8\r\n".into(),
+                    String::new(),
+                );
+            }
+            "child-redirect" if url.path() == "/1080.m3u8" => {
+                return (
+                    "302 Found",
+                    "application/vnd.apple.mpegurl",
+                    "Location: /final1080.m3u8\r\n".into(),
+                    String::new(),
+                );
+            }
+            _ => "#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\nsegment.ts\n#EXT-X-ENDLIST\n"
+                .into(),
+        }
     } else {
         match case {
             "bad-playlist" => "<html>Challenge</html>".into(),
@@ -292,6 +316,10 @@ fn response(
             "missing-uri" => "#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1920x1080\n".into(),
             "private-child" => "#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1920x1080\nhttps://127.0.0.1/private.m3u8\n".into(),
             "ambiguous-quality" => "#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1920x1080,RESOLUTION=640x360\nstream.m3u8\n".into(),
+            "ambiguous-maximum" => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=200,RESOLUTION=1920x1080\n1080.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=300,RESOLUTION=1920x1080\nother1080.m3u8\n".into(),
+            "mirror" => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=200,RESOLUTION=1920x1080\n1080.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=200,RESOLUTION=1920x1080\nmirror1080.m3u8\n".into(),
+            "ambiguous-lower" => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=100,RESOLUTION=1280x720\n720.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=150,RESOLUTION=1280x720\nother720.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=200,RESOLUTION=1920x1080\n1080.m3u8\n".into(),
+            "external-audio" => "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"external\",URI=\"audio.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=200,RESOLUTION=1920x1080,AUDIO=\"external\"\n1080.m3u8\n".into(),
             _ => "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=100,RESOLUTION=1280x720\n720.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=200,CODECS=\"avc1,mp4a\",RESOLUTION=1920x1080\n1080.m3u8\n".into()
         }
     };

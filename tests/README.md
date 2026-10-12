@@ -117,7 +117,9 @@ responses. They check cancellation, exact public identity after SQLite reopening
 and unknown categories without relabeling them from the requested category.
 The sources scenario also initializes a newly registered source in an existing
 database while preserving other sources' saved enablement and failures.
-The live command verifies the exact free publication and advertised HLS quality.
+The live command verifies the exact free publication and selects the concrete
+media playlist for its highest unambiguous HLS rendition. Identical CDN mirror
+attributes keep the first declared URI; differing maximum attributes fail.
 These checks fetch no media segments and do not establish native playback.
 
 The production `ContentView` and Rust controller have a separate process-level

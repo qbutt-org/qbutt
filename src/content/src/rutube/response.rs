@@ -241,12 +241,12 @@ pub(super) fn matches_query(title: &str, query: &str) -> bool {
         .all(|word| title.contains(word))
 }
 
-pub(super) fn quality(manifest: &str, base: &Url) -> Result<VideoQuality> {
+pub(super) fn select_stream(manifest: &str, base: &Url) -> Result<(Url, VideoQuality)> {
     let mut lines = manifest.lines();
     if lines.next() != Some("#EXTM3U") {
         return Err(Error::InvalidResponse("invalid Rutube master playlist"));
     }
-    let mut maximum = 0;
+    let mut streams = Vec::new();
     while let Some(line) = lines.next() {
         let Some(attributes) = line.strip_prefix("#EXT-X-STREAM-INF:") else {
             continue;
@@ -283,17 +283,84 @@ pub(super) fn quality(manifest: &str, base: &Url) -> Result<VideoQuality> {
         }
         let stream = base.join(address).map_err(|_| Error::UnsafeAddress)?;
         crate::http::validate_https_url(&stream)?;
-        maximum = maximum.max(height);
+        streams.push((height, attributes, stream));
     }
-    match maximum {
-        144 => Ok(VideoQuality::P144),
-        240 => Ok(VideoQuality::P240),
-        360 => Ok(VideoQuality::P360),
-        480 => Ok(VideoQuality::P480),
-        720 => Ok(VideoQuality::P720),
-        1080 => Ok(VideoQuality::P1080),
-        _ => Err(Error::InvalidResponse(
-            "unsupported Rutube maximum resolution",
-        )),
+    let maximum = streams
+        .iter()
+        .map(|(height, _, _)| *height)
+        .max()
+        .ok_or(Error::InvalidResponse("missing Rutube stream variants"))?;
+    let mut candidates = streams
+        .into_iter()
+        .filter(|(height, _, _)| *height == maximum);
+    let (_, attributes, stream) = candidates.next().expect("maximum has a stream");
+    // Rutube advertises the same rendition on several CDN mirrors. Preserve
+    // the first declared URI only when every maximum has identical attributes;
+    // differing dimensions, codecs, audio or bitrate cannot establish one choice.
+    if candidates.any(|(_, other, _)| attributes != other) {
+        return Err(Error::InvalidResponse("ambiguous Rutube maximum rendition"));
     }
+    if attributes.split(',').any(|attribute| {
+        ["AUDIO=", "VIDEO=", "SUBTITLES="]
+            .iter()
+            .any(|name| attribute.starts_with(name))
+    }) {
+        return Err(Error::InvalidResponse(
+            "Rutube rendition requires external tracks",
+        ));
+    }
+    let quality = match maximum {
+        144 => VideoQuality::P144,
+        240 => VideoQuality::P240,
+        360 => VideoQuality::P360,
+        480 => VideoQuality::P480,
+        720 => VideoQuality::P720,
+        1080 => VideoQuality::P1080,
+        _ => {
+            return Err(Error::InvalidResponse(
+                "unsupported Rutube maximum resolution",
+            ));
+        }
+    };
+    Ok((stream, quality))
+}
+
+pub(super) fn validate_media_playlist(manifest: &str) -> Result<()> {
+    let mut lines = manifest.lines();
+    if lines.next() != Some("#EXTM3U") {
+        return Err(Error::InvalidResponse("invalid Rutube media playlist"));
+    }
+    let mut has_segments = false;
+    let mut has_duration = false;
+    while let Some(line) = lines.next() {
+        if line.starts_with("#EXT-X-STREAM-INF:") {
+            return Err(Error::InvalidResponse(
+                "Rutube rendition is another master playlist",
+            ));
+        }
+        if let Some(duration) = line.strip_prefix("#EXTINF:") {
+            if !duration
+                .split(',')
+                .next()
+                .and_then(|duration| duration.parse::<f64>().ok())
+                .is_some_and(|duration| duration.is_finite() && duration > 0.0)
+                || lines.next().is_none_or(|address| {
+                    address.is_empty()
+                        || address.starts_with('#')
+                        || address.chars().any(char::is_whitespace)
+                })
+            {
+                return Err(Error::InvalidResponse("invalid Rutube media segment"));
+            }
+            has_segments = true;
+        }
+        has_duration |= line
+            .strip_prefix("#EXT-X-TARGETDURATION:")
+            .and_then(|duration| duration.parse::<u32>().ok())
+            .is_some_and(|duration| duration != 0);
+    }
+    if !has_segments || !has_duration {
+        return Err(Error::InvalidResponse("missing Rutube media segments"));
+    }
+    Ok(())
 }

@@ -59,11 +59,18 @@ async fn main() -> CheckResult<()> {
     assert_eq!(work.variants[0].reference, found.variants[0].reference);
     assert_eq!(work.variants[0].quality.as_deref(), Some("1080p"));
     assert!(!work.needs_inspection);
-    let resolved = source.resolve(&found.variants[0].reference).await?;
-    assert!(
-        matches!(resolved, ResolvedContent::DirectVideo { ref reference, quality: VideoQuality::P1080, .. }
-        if reference == &found.variants[0].reference)
-    );
+    let ResolvedContent::DirectVideo {
+        reference,
+        quality,
+        url,
+        ..
+    } = source.resolve(&found.variants[0].reference).await?
+    else {
+        panic!("expected a direct video");
+    };
+    assert_eq!(reference, found.variants[0].reference);
+    assert_eq!(quality, VideoQuality::P1080);
+    assert_eq!(url, fixture.origin.join("/1080.m3u8")?);
     let encoded = serde_json::to_string(&work)?;
     assert!(!encoded.contains("transient-signature"));
     assert!(!encoded.contains("m3u8"));
@@ -93,6 +100,12 @@ async fn main() -> CheckResult<()> {
         "private-stream",
         "private-child",
         "ambiguous-quality",
+        "ambiguous-maximum",
+        "child-master",
+        "child-challenge",
+        "child-private-redirect",
+        "external-audio",
+        "truncated-child",
     ] {
         fixture.case(fault);
         assert!(
@@ -103,6 +116,21 @@ async fn main() -> CheckResult<()> {
             source.resolve(&found.variants[0].reference).await.is_err(),
             "resolve accepted {fault}"
         );
+    }
+    for case in ["mirror", "ambiguous-lower", "child-redirect"] {
+        fixture.case(case);
+        let ResolvedContent::DirectVideo { quality, url, .. } =
+            source.resolve(&found.variants[0].reference).await?
+        else {
+            panic!("expected a concrete media playlist");
+        };
+        assert_eq!(quality, VideoQuality::P1080);
+        let path = if case == "child-redirect" {
+            "/final1080.m3u8"
+        } else {
+            "/1080.m3u8"
+        };
+        assert_eq!(url, fixture.origin.join(path)?);
     }
     fixture.case("normal");
     assert_eq!(source.search("multiline", Category::Movies).await?.len(), 1);
@@ -181,7 +209,7 @@ async fn main() -> CheckResult<()> {
     assert_eq!(fixture.payload.load(Ordering::SeqCst), 0);
     fixture.stop().await?;
     println!(
-        "PASS rutube_fixtures generated_https=ok exact_id=ok category=source_reported paid_locked=rejected changed_missing=rejected quality=manifest_reported redirects=guarded challenge=rejected bounds=ok timeout=ok cancel=connection_closed persistent_urls=public media_payload=none"
+        "PASS rutube_fixtures generated_https=ok exact_id=ok category=source_reported paid_locked=rejected changed_missing=rejected quality=exact_child maximum_ambiguity=rejected identical_mirrors=first_uri redirects=guarded challenge=rejected bounds=ok timeout=ok cancel=connection_closed persistent_urls=public media_payload=none"
     );
     Ok(())
 }

@@ -127,7 +127,9 @@ impl Rutube {
         };
         let address = options.stream(id)?;
         let (url, manifest) = self.http.playlist(address).await?;
-        let quality = response::quality(&manifest, &url)?;
+        let (url, quality) = response::select_stream(&manifest, &url)?;
+        let (url, manifest) = self.http.playlist(url).await?;
+        response::validate_media_playlist(&manifest)?;
         Ok((url, quality))
     }
 }
