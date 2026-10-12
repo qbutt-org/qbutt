@@ -164,7 +164,6 @@ async fn translate(
     let (model, effort) = codex::resolve_selection(
         explicit.map(|selection| selection.model.as_str()),
         explicit.map(|selection| selection.effort.as_str()),
-        false,
     )
     .await
     .map_err(TranslationFailure::Codex)?;
@@ -341,7 +340,7 @@ impl ffi::ContentController {
         let chapters = self.reader.chapters.all();
         let catalog = Arc::clone(&services.catalog);
         let byte_limit = Arc::clone(&services.reader_bytes);
-        let language = services.language.clone();
+        let language = self.reader_settings.value.translation_language.clone();
         let qt_thread = self.qt_thread();
         let chapter_generation = self.reader.chapter.generation;
         let (cancel, cancelled) = watch::channel(false);

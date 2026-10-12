@@ -99,7 +99,6 @@ async fn translate(
     let (model, effort) = codex::resolve_selection(
         explicit.map(|selection| selection.model.as_str()),
         explicit.map(|selection| selection.effort.as_str()),
-        false,
     )
     .await
     .map_err(TranslationFailure::Codex)?;
@@ -165,6 +164,29 @@ async fn translate(
 }
 
 impl ffi::ContentController {
+    pub(in crate::controller) fn reset_reader_translation(mut self: Pin<&mut Self>) {
+        if self.reader.is_text {
+            self.as_mut().set_reader_text_translation(false);
+            self.as_mut().rust_mut().reader.translation.reset_chapter();
+        } else {
+            self.as_mut().set_reader_manga_translation(false);
+            self.as_mut()
+                .rust_mut()
+                .reader
+                .pages
+                .pin_mut()
+                .clear_translations();
+        }
+    }
+
+    pub(in crate::controller) fn restore_reader_translation(mut self: Pin<&mut Self>) {
+        if self.reader.is_text {
+            self.as_mut().set_reader_text_translation(true);
+        } else {
+            self.as_mut().set_reader_manga_translation(true);
+        }
+    }
+
     pub(in crate::controller) fn reader_translation_requested(&self) -> bool {
         if self.reader.is_text {
             self.reader.translation.requested
@@ -283,7 +305,7 @@ impl ffi::ContentController {
             .as_ref()
             .cloned()
             .filter(|book| book.reference() == original.reference.variant.publication);
-        let language = services.language.clone();
+        let language = self.reader_settings.value.translation_language.clone();
         let qt_thread = self.qt_thread();
         let chapter_generation = self.reader.chapter.generation;
         let (cancel, cancelled) = watch::channel(false);

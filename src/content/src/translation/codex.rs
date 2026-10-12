@@ -17,6 +17,7 @@ mod process;
 mod rpc;
 mod turn;
 
+pub use model::CodexModel;
 use process::{Scratch, installed_codex};
 
 const MAX_IMAGE_BYTES: usize = 12 * 1024 * 1024;
@@ -144,7 +145,6 @@ pub async fn complete(
             .select_model(
                 request.model.as_deref(),
                 request.effort.as_deref(),
-                request.image.is_some(),
             )
             .await?;
         let thread = client
@@ -173,14 +173,27 @@ pub async fn complete(
 pub async fn resolve_selection(
     model: Option<&str>,
     effort: Option<&str>,
-    image: bool,
 ) -> Result<(String, String)> {
     let workspace = Scratch::new()?;
     let executable = installed_codex().ok_or(CodexError::Unavailable)?;
     let mut client = Client::start(&executable, workspace.path(), &[]).await?;
     let result = async {
         client.prepare(&executable, workspace.path()).await?;
-        client.select_model(model, effort, image).await
+        client.select_model(model, effort).await
+    }
+    .await;
+    client.stop().await;
+    result
+}
+
+/// Read the installed account's current image-capable models for both reader paths.
+pub async fn available_models() -> Result<Vec<CodexModel>> {
+    let workspace = Scratch::new()?;
+    let executable = installed_codex().ok_or(CodexError::Unavailable)?;
+    let mut client = Client::start(&executable, workspace.path(), &[]).await?;
+    let result = async {
+        client.prepare(&executable, workspace.path()).await?;
+        client.available_models().await
     }
     .await;
     client.stop().await;

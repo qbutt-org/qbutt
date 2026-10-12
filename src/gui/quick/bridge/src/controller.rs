@@ -25,6 +25,7 @@ mod search;
 mod selection;
 mod sharing;
 mod sources;
+mod translation_settings;
 mod variant_filters;
 
 use crate::download_model;
@@ -37,6 +38,7 @@ use reader::ReaderState;
 use reader_pages::{RetiredReaderCache, clean_retired_reader_cache};
 use reader_settings::ReaderSettingsState;
 use sources::SourceState;
+use translation_settings::TranslationOptionsState;
 
 #[cxx_qt::bridge(namespace = "Qbutt")]
 pub mod ffi {
@@ -184,6 +186,8 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
+        include!("cxx-qt-lib/qstringlist.h");
+        type QStringList = cxx_qt_lib::QStringList;
         include!("cxx-qt-lib/qurl.h");
         type QUrl = cxx_qt_lib::QUrl;
         include!("cxx-qt-lib/qvector.h");
@@ -480,6 +484,55 @@ pub mod ffi {
         )]
         #[qproperty(
             QString,
+            reader_translation_language,
+            cxx_name = "readerTranslationLanguage",
+            READ = reader_translation_language,
+            NOTIFY = reader_changed
+        )]
+        #[qproperty(
+            QStringList,
+            reader_translation_models,
+            cxx_name = "readerTranslationModels",
+            READ = reader_translation_models,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
+            QStringList,
+            reader_translation_efforts,
+            cxx_name = "readerTranslationEfforts",
+            READ = reader_translation_efforts,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_translation_model,
+            cxx_name = "readerTranslationModel",
+            READ = reader_translation_model,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_translation_effort,
+            cxx_name = "readerTranslationEffort",
+            READ = reader_translation_effort,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
+            bool,
+            reader_translation_options_loading,
+            cxx_name = "readerTranslationOptionsLoading",
+            READ = reader_translation_options_loading,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
+            bool,
+            reader_translation_options_error,
+            cxx_name = "readerTranslationOptionsError",
+            READ = reader_translation_options_error,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
+            QString,
             chapter_query,
             cxx_name = "chapterQuery",
             READ = chapter_query,
@@ -715,6 +768,13 @@ pub mod ffi {
         fn reader_column_width(&self) -> i32;
         fn reader_settings_state(&self) -> ReaderSettingsState;
         fn reader_settings_error_text(&self) -> QString;
+        fn reader_translation_language(&self) -> QString;
+        fn reader_translation_models(&self) -> QStringList;
+        fn reader_translation_efforts(&self) -> QStringList;
+        fn reader_translation_model(&self) -> QString;
+        fn reader_translation_effort(&self) -> QString;
+        fn reader_translation_options_loading(&self) -> bool;
+        fn reader_translation_options_error(&self) -> bool;
         fn chapter_query(&self) -> &QString;
 
         #[qinvokable]
@@ -762,9 +822,24 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "retryReaderSettings"]
         fn retry_reader_settings(self: Pin<&mut Self>) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderTranslationLanguage"]
+        fn set_reader_translation_language(self: Pin<&mut Self>, language: QString) -> bool;
+        #[qinvokable]
+        #[cxx_name = "loadReaderTranslationOptions"]
+        fn load_reader_translation_options(self: Pin<&mut Self>) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderTranslationModel"]
+        fn set_reader_translation_model(self: Pin<&mut Self>, model: QString) -> bool;
+        #[qinvokable]
+        #[cxx_name = "setReaderTranslationEffort"]
+        fn set_reader_translation_effort(self: Pin<&mut Self>, effort: QString) -> bool;
         #[qsignal]
         #[cxx_name = "readerSettingsChanged"]
         fn reader_settings_changed(self: Pin<&mut Self>);
+        #[qsignal]
+        #[cxx_name = "readerTranslationOptionsChanged"]
+        fn reader_translation_options_changed(self: Pin<&mut Self>);
         #[qinvokable]
         #[cxx_name = "setChapterQuery"]
         fn set_chapter_query(self: Pin<&mut Self>, query: QString);
@@ -1025,6 +1100,7 @@ pub struct ContentControllerRust {
     local_book_load: Pending,
     local_book_error: QString,
     reader_settings: ReaderSettingsState,
+    translation_options: TranslationOptionsState,
     browser_requests: HashMap<(u64, u64), JoinHandle<()>>,
 }
 
@@ -1118,6 +1194,7 @@ impl Default for ContentControllerRust {
             local_book_load: Pending::default(),
             local_book_error: QString::default(),
             reader_settings: ReaderSettingsState::default(),
+            translation_options: TranslationOptionsState::default(),
             browser_requests: HashMap::new(),
         }
     }

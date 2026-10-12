@@ -101,6 +101,7 @@ enum Update {
     Ready(u64, usize, Arc<CachedPage>),
     Failed(u64, usize),
     TranslationMode(bool),
+    ClearTranslations,
     Translated(u64, usize, Arc<CachedPage>),
 }
 
@@ -286,6 +287,10 @@ impl ffi::PageModel {
         self.publish(Update::TranslationMode(enabled));
     }
 
+    pub(crate) fn clear_translations(self: Pin<&mut Self>) {
+        self.publish(Update::ClearTranslations);
+    }
+
     pub(crate) fn translated(
         self: Pin<&mut Self>,
         generation: u64,
@@ -326,6 +331,14 @@ impl ffi::PageModel {
                 }
                 continue;
             }
+            if let Update::ClearTranslations = update {
+                for row in &mut self.as_mut().rust_mut().rows {
+                    if let PageLoad::Ready { translated, .. } = &mut row.load {
+                        *translated = None;
+                    }
+                }
+                continue;
+            }
             let (generation, first, last) = match update {
                 Update::Window(generation, _, _, _, _, _) => {
                     (generation, 0, self.rows.len().saturating_sub(1))
@@ -336,6 +349,7 @@ impl ffi::PageModel {
                 | Update::Translated(generation, index, _) => (generation, index, index),
                 Update::Reset(_, _) => unreachable!(),
                 Update::TranslationMode(_) => unreachable!(),
+                Update::ClearTranslations => unreachable!(),
             };
             if self.generation != generation || last >= self.rows.len() {
                 continue;
@@ -381,6 +395,7 @@ impl ffi::PageModel {
                 }
                 Update::Reset(_, _) => unreachable!(),
                 Update::TranslationMode(_) => unreachable!(),
+                Update::ClearTranslations => unreachable!(),
             }
             let first = self.index(first as i32, 0, &QModelIndex::default());
             let last = self.index(last as i32, 0, &QModelIndex::default());

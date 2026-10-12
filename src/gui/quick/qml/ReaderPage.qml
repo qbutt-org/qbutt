@@ -84,6 +84,7 @@ Page {
                 }
                 onChaptersRequested: chapters.open()
                 onAppearanceRequested: appearance.open()
+                onTranslationSettingsRequested: translationSettings.open()
                 onTranslationRequested: translated => {
                     canvas.saveScroll();
                     if (root.backend.readerIsText)
@@ -196,7 +197,7 @@ Page {
             y: readerLayout.y + toolbar.height + progressTrack.height + readerLayout.spacing * 2
             width: root.contentMargin
             height: root.height - y
-            enabled: !chapters.visible && !appearance.visible
+            enabled: !chapters.visible && !appearance.visible && !translationSettings.visible
                 && !root.backend.readerBusy
             onClicked: root.turn(-1)
         }
@@ -206,7 +207,7 @@ Page {
             y: readerLayout.y + toolbar.height + progressTrack.height + readerLayout.spacing * 2
             width: root.contentMargin
             height: root.height - y
-            enabled: !chapters.visible && !appearance.visible
+            enabled: !chapters.visible && !appearance.visible && !translationSettings.visible
                 && !root.backend.readerBusy
             onClicked: root.turn(1)
         }
@@ -315,33 +316,46 @@ Page {
         onClosed: canvas.forceActiveFocus()
     }
 
+    ReaderTranslationPicker {
+        id: translationSettings
+        backend: root.backend
+        theme: root.theme
+        backdrop: root
+        onClosed: canvas.forceActiveFocus()
+    }
+
     Shortcut {
         sequences: root.backend.readerMode === Reader.Paged ? ["Left", "PgUp"] : ["Left"]
-        enabled: root.visible && !root.backend.readerIsText && !chapters.visible && !root.backend.readerBusy
+        enabled: root.visible && !root.backend.readerIsText && !chapters.visible
+            && !translationSettings.visible && !appearance.visible && !root.backend.readerBusy
         onActivated: root.selectPage(root.backend.readerPageIndex - 1)
     }
 
     Shortcut {
         sequences: root.backend.readerMode === Reader.Paged ? ["Right", "PgDown"] : ["Right"]
-        enabled: root.visible && !root.backend.readerIsText && !chapters.visible && !root.backend.readerBusy
+        enabled: root.visible && !root.backend.readerIsText && !chapters.visible
+            && !translationSettings.visible && !appearance.visible && !root.backend.readerBusy
         onActivated: root.selectPage(root.backend.readerPageIndex + 1)
     }
 
     Shortcut {
         sequence: "Home"
-        enabled: root.visible && !root.backend.readerIsText && !chapters.visible && !root.backend.readerBusy
+        enabled: root.visible && !root.backend.readerIsText && !chapters.visible
+            && !translationSettings.visible && !appearance.visible && !root.backend.readerBusy
         onActivated: root.selectPage(0)
     }
 
     Shortcut {
         sequence: "End"
-        enabled: root.visible && !root.backend.readerIsText && !chapters.visible && !root.backend.readerBusy
+        enabled: root.visible && !root.backend.readerIsText && !chapters.visible
+            && !translationSettings.visible && !appearance.visible && !root.backend.readerBusy
         onActivated: root.selectPage(root.backend.readerPageCount - 1)
     }
 
     Shortcut {
         sequences: [StandardKey.Find]
-        enabled: root.visible && root.backend.readerHasChapters && !root.backend.readerBusy
+        enabled: root.visible && root.backend.readerHasChapters && !translationSettings.visible
+            && !appearance.visible && !root.backend.readerBusy
         onActivated: chapters.open()
     }
 }

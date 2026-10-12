@@ -5,7 +5,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use super::{Library, LibraryError, LibraryResult};
 
 const APPLICATION_ID: i64 = 0x51424c42;
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 const DATABASE_NAME: &str = "content-library.sqlite";
 const TRANSLATION_SELECTION_SCHEMA: &str = "CREATE TABLE translation_selection (
     target_language TEXT PRIMARY KEY NOT NULL,
@@ -16,8 +16,7 @@ const TRANSLATION_SELECTION_SCHEMA: &str = "CREATE TABLE translation_selection (
 
 impl Library {
     /// Open `content-library.sqlite` inside this profile directory. A new schema
-    /// is created only in an empty database; v8 gains a selection table without
-    /// changing saved content. Unsupported or corrupt data fails.
+    /// is created only in an empty database. Migrations preserve saved content.
     pub fn open(profile_dir: impl AsRef<Path>) -> LibraryResult<Self> {
         std::fs::create_dir_all(&profile_dir)?;
         let mut connection = Connection::open(profile_dir.as_ref().join(DATABASE_NAME))?;
@@ -51,7 +50,8 @@ impl Library {
                     font_family TEXT NOT NULL DEFAULT '',
                     font_size INTEGER NOT NULL DEFAULT 20 CHECK (font_size BETWEEN 12 AND 36),
                     line_height INTEGER NOT NULL DEFAULT 130 CHECK (line_height BETWEEN 110 AND 200),
-                    column_width INTEGER NOT NULL DEFAULT 760 CHECK (column_width BETWEEN 480 AND 1040)
+                    column_width INTEGER NOT NULL DEFAULT 760 CHECK (column_width BETWEEN 480 AND 1040),
+                    translation_language TEXT NOT NULL DEFAULT 'ru'
                 ) STRICT;
                 INSERT INTO reader_settings (id, fit, mode) VALUES (1, 0, 0);
                 CREATE TABLE source_settings (
@@ -88,6 +88,10 @@ impl Library {
             return Err(LibraryError::ForeignDatabase);
         } else if version == 8 {
             transaction.execute_batch(TRANSLATION_SELECTION_SCHEMA)?;
+            transaction.execute_batch("ALTER TABLE reader_settings ADD COLUMN translation_language TEXT NOT NULL DEFAULT 'ru';")?;
+            transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        } else if version == 9 {
+            transaction.execute_batch("ALTER TABLE reader_settings ADD COLUMN translation_language TEXT NOT NULL DEFAULT 'ru';")?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if version != SCHEMA_VERSION {
             return Err(LibraryError::UnsupportedSchema(version));
@@ -118,7 +122,7 @@ impl Library {
             "SELECT EXISTS (
                 SELECT 1 FROM pragma_table_list
                 WHERE schema = 'main' AND name = 'reader_settings'
-                    AND type = 'table' AND ncol = 9 AND strict = 1
+                    AND type = 'table' AND ncol = 10 AND strict = 1
             )",
             [],
             |row| row.get(0),
@@ -135,11 +139,12 @@ impl Library {
                  OR (cid = 6 AND name = 'font_size' AND type = 'INTEGER' AND pk = 0)
                  OR (cid = 7 AND name = 'line_height' AND type = 'INTEGER' AND pk = 0)
                  OR (cid = 8 AND name = 'column_width' AND type = 'INTEGER' AND pk = 0)
+                 OR (cid = 9 AND name = 'translation_language' AND type = 'TEXT' AND pk = 0)
              )",
             [],
             |row| row.get(0),
         )?;
-        if !settings_table_valid || settings_columns_valid != 9 {
+        if !settings_table_valid || settings_columns_valid != 10 {
             return Err(LibraryError::InvalidSchema);
         }
         let sources_table_valid: bool = transaction.query_row(

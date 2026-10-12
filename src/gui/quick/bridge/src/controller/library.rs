@@ -139,6 +139,10 @@ enum LibraryCommand {
         selection: TranslationSelection,
         reply: oneshot::Sender<LibraryResult<()>>,
     },
+    ClearTranslationSelection {
+        language: String,
+        reply: oneshot::Sender<LibraryResult<()>>,
+    },
     TranslationLookup {
         original: Arc<TextChapter>,
         language: String,
@@ -239,6 +243,17 @@ impl LibraryWorker {
         let (reply, received) = oneshot::channel();
         self.sender
             .send(LibraryCommand::SaveTranslationSelection { selection, reply })
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
+    }
+
+    pub(super) async fn clear_translation_selection(&self, language: String) -> LibraryResult<()> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::ClearTranslationSelection { language, reply })
             .await
             .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
         received
@@ -410,6 +425,15 @@ impl LibraryWorker {
                                     "translation library is unavailable",
                                 ))
                                 .and_then(|library| library.save_translation_selection(&selection));
+                            let _ = reply.send(result);
+                        }
+                        LibraryCommand::ClearTranslationSelection { language, reply } => {
+                            let result = library
+                                .as_mut()
+                                .ok_or(LibraryError::InvalidEntry(
+                                    "translation library is unavailable",
+                                ))
+                                .and_then(|library| library.clear_translation_selection(&language));
                             let _ = reply.send(result);
                         }
                         LibraryCommand::TranslationLookup {

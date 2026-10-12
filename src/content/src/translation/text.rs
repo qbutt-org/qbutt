@@ -149,7 +149,7 @@ pub async fn translate_chapter(
     let (model, effort) = match (&options.model, &options.effort) {
         (Some(model), Some(effort)) => (model.clone(), effort.clone()),
         _ => {
-            codex::resolve_selection(options.model.as_deref(), options.effort.as_deref(), false)
+            codex::resolve_selection(options.model.as_deref(), options.effort.as_deref())
                 .await?
         }
     };

@@ -9,7 +9,7 @@ use super::library::LibraryAction;
 
 #[derive(Default)]
 pub(super) struct ReaderSettingsState {
-    value: ReaderSettings,
+    pub(super) value: ReaderSettings,
     generation: u64,
     save: SaveState,
 }
@@ -59,6 +59,10 @@ impl ffi::ContentController {
 
     pub(super) fn reader_column_width(&self) -> i32 {
         self.reader_settings.value.column_width
+    }
+
+    pub(super) fn reader_translation_language(&self) -> QString {
+        QString::from(&self.reader_settings.value.translation_language)
     }
 
     pub(super) fn reader_settings_state(&self) -> ffi::ReaderSettingsState {
@@ -134,6 +138,28 @@ impl ffi::ContentController {
         let mut settings = self.reader_settings.value.clone();
         settings.column_width = width;
         self.as_mut().update_reader_settings(settings)
+    }
+
+    pub fn set_reader_translation_language(mut self: Pin<&mut Self>, language: QString) -> bool {
+        let language = language.to_string();
+        if !matches!(language.as_str(), "ru" | "en") {
+            return false;
+        }
+        if self.reader_settings.value.translation_language == language {
+            return true;
+        }
+
+        let was_translated = self.reader_translation_requested();
+        if was_translated {
+            self.as_mut().reset_reader_translation();
+        }
+        let mut settings = self.reader_settings.value.clone();
+        settings.translation_language = language;
+        let accepted = self.as_mut().update_reader_settings(settings);
+        if accepted && was_translated {
+            self.as_mut().restore_reader_translation();
+        }
+        accepted
     }
 
     pub fn reset_reader_appearance(mut self: Pin<&mut Self>) -> bool {

@@ -13,6 +13,7 @@ pub struct ReaderSettings {
     pub font_size: i32,
     pub line_height: i32,
     pub column_width: i32,
+    pub translation_language: String,
 }
 
 impl Default for ReaderSettings {
@@ -26,6 +27,7 @@ impl Default for ReaderSettings {
             font_size: 20,
             line_height: 130,
             column_width: 760,
+            translation_language: "ru".into(),
         }
     }
 }
@@ -46,6 +48,7 @@ impl ReaderSettings {
             && (12..=36).contains(&self.font_size)
             && (110..=200).contains(&self.line_height)
             && (480..=1040).contains(&self.column_width)
+            && crate::model::canonical_language(&self.translation_language)
     }
 }
 
@@ -67,7 +70,8 @@ impl Library {
     pub fn reader_settings(&self) -> LibraryResult<ReaderSettings> {
         let mut statement = self.connection.prepare(
             "SELECT id, fit, mode, background_color, text_color, font_family,
-                      font_size, line_height, column_width FROM reader_settings",
+                      font_size, line_height, column_width, translation_language
+               FROM reader_settings",
         )?;
         let mut rows = statement.query([])?;
         let row = rows.next()?.ok_or(LibraryError::InvalidSchema)?;
@@ -93,6 +97,7 @@ impl Library {
             font_size: row.get(6)?,
             line_height: row.get(7)?,
             column_width: row.get(8)?,
+            translation_language: row.get(9)?,
         };
         if rows.next()?.is_some() || !settings.valid() {
             return Err(LibraryError::InvalidSchema);
@@ -118,7 +123,8 @@ impl Library {
         if transaction.execute(
             "UPDATE reader_settings SET fit = ?1, mode = ?2, background_color = ?3,
                 text_color = ?4, font_family = ?5, font_size = ?6,
-                line_height = ?7, column_width = ?8 WHERE id = 1",
+                line_height = ?7, column_width = ?8,
+                translation_language = ?9 WHERE id = 1",
             params![
                 fit,
                 mode,
@@ -127,7 +133,8 @@ impl Library {
                 settings.font_family,
                 settings.font_size,
                 settings.line_height,
-                settings.column_width
+                settings.column_width,
+                settings.translation_language
             ],
         )? != 1
         {

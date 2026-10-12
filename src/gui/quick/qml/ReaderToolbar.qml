@@ -15,6 +15,7 @@ Pane {
     signal backRequested
     signal chaptersRequested
     signal appearanceRequested
+    signal translationSettingsRequested
     signal translationRequested(bool translated)
 
     padding: 0
@@ -111,6 +112,15 @@ Pane {
             ]
             currentIndex: root.backend.readerTranslationRequested ? 1 : 0
             onActivated: root.translationRequested(currentValue)
+        }
+
+        ReaderChromeButton {
+            objectName: "readerTranslationSettings"
+            theme: root.theme
+            foreground: root.foreground
+            text: qsTr("Options")
+            Accessible.name: qsTr("Translation settings")
+            onClicked: root.translationSettingsRequested()
         }
 
         BusyIndicator {

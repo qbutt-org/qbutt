@@ -25,6 +25,7 @@ qt_add_qml_module(qbt_quick_ui STATIC
         ReaderPage.qml
         ReaderStripPage.qml
         ReaderToolbar.qml
+        ReaderTranslationPicker.qml
         SearchPage.qml
         SelectField.qml
         SourceList.qml
