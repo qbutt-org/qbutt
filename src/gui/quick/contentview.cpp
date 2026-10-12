@@ -12,6 +12,7 @@
 #include <QQuickItem>
 #include <QReadWriteLock>
 
+#include "base/media/runtime.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
 
 namespace Content
@@ -94,6 +95,25 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     connect(m_controller, &Qbutt::ContentController::videoReady, this, &ContentView::videoReady);
     connect(m_controller, &Qbutt::ContentController::browserReply, this, &ContentView::browserReply);
     connect(m_controller, &Qbutt::ContentController::downloadQueued, this, &ContentView::downloadQueued);
+    connect(m_controller, &Qbutt::ContentController::mediaToolsRequested, this, [this](const quint64 requestId)
+    {
+        const quint64 runtimeId = Media::Runtime::instance()->request(this,
+            [this, requestId](const Media::Runtime::Result &result)
+        {
+            if (!m_mediaRequests.remove(requestId))
+                return;
+
+            const QString error = Media::Runtime::errorMessage(result.error, Media::Runtime::Purpose::Download);
+            m_controller->mediaToolsReady(requestId, result.info.ffmpeg, result.info.ffprobe, error);
+        });
+        m_mediaRequests.insert(requestId, runtimeId);
+    });
+    connect(m_controller, &Qbutt::ContentController::mediaToolsCancelled, this, [this](const quint64 requestId)
+    {
+        const quint64 runtimeId = m_mediaRequests.take(requestId);
+        if (runtimeId != 0)
+            Media::Runtime::instance()->cancel(runtimeId);
+    });
     connect(m_controller, &Qbutt::ContentController::capturedDownloadFinished,
         this, &ContentView::capturedDownloadFinished);
     connect(m_controller, &Qbutt::ContentController::capturedWatchFinished,
@@ -119,6 +139,8 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
 
 Content::ContentView::~ContentView()
 {
+    for (const quint64 runtimeId : m_mediaRequests)
+        Media::Runtime::instance()->cancel(runtimeId);
     m_controller->closeBrowserRelay();
 }
 

@@ -12,6 +12,10 @@ download-fixture = []
 name = "downloads"
 required-features = ["download-fixture"]
 
+[[example]]
+name = "segmented_downloads"
+required-features = ["download-fixture"]
+
 [dependencies]
 base64 = "=0.22.1"
 cookie_store = { version = "=0.22.1", default-features = false }

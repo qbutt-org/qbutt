@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 
+#include <QHash>
 #include <QQuickWidget>
 #include <QUrl>
 #include <QVector>
@@ -65,5 +66,6 @@ namespace Content
 
         Qbutt::ContentController *m_controller = nullptr;
         ReaderImageProvider *m_readerImages = nullptr; // QQmlEngine owns the provider.
+        QHash<quint64, quint64> m_mediaRequests;
     };
 }

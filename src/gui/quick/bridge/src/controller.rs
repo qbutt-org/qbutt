@@ -6,7 +6,8 @@ use cxx::UniquePtr;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
 use qbutt_content::{
-    LocalBook, PublicationRef, SharedWork, VariantPreferences, Work, WorkAssociation, WorkGroup,
+    LocalBook, MediaTools, PublicationRef, SharedWork, VariantPreferences, Work, WorkAssociation,
+    WorkGroup,
 };
 use tokio::runtime::{Builder, Runtime};
 use tokio::task::JoinHandle;
@@ -668,6 +669,20 @@ pub mod ffi {
         #[qsignal]
         #[cxx_name = "downloadQueued"]
         fn download_queued(self: Pin<&mut Self>);
+        #[qsignal]
+        #[cxx_name = "mediaToolsRequested"]
+        fn media_tools_requested(self: Pin<&mut Self>, request_id: u64);
+        #[qsignal]
+        #[cxx_name = "mediaToolsCancelled"]
+        fn media_tools_cancelled(self: Pin<&mut Self>, request_id: u64);
+        #[cxx_name = "mediaToolsReady"]
+        fn media_tools_ready(
+            self: Pin<&mut Self>,
+            request_id: u64,
+            ffmpeg: QString,
+            ffprobe: QString,
+            error: QString,
+        );
         #[qinvokable]
         #[cxx_name = "cancelDownload"]
         fn cancel_download(self: Pin<&mut Self>, id: QString) -> bool;
@@ -1072,6 +1087,8 @@ pub struct ContentControllerRust {
     downloads_state: QString,
     download_queue: Option<Arc<qbutt_content::DownloadQueue<DownloadStore>>>,
     download_task: Option<JoinHandle<()>>,
+    media_tool_requests: HashMap<u64, tokio::sync::oneshot::Sender<Result<MediaTools, String>>>,
+    captured_media_tool_request: Option<u64>,
     captured_download: Pending,
     captured_watch: Pending,
     account_open: Pending,
@@ -1167,6 +1184,8 @@ impl Default for ContentControllerRust {
             downloads_state: QString::from("uninitialized"),
             download_queue: None,
             download_task: None,
+            media_tool_requests: HashMap::new(),
+            captured_media_tool_request: None,
             captured_download: Pending::default(),
             captured_watch: Pending::default(),
             account_open: Pending::default(),

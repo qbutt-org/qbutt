@@ -37,7 +37,7 @@ pub struct PreparedSubtitle {
     pub language: Option<String>,
 }
 
-pub(super) struct Resources {
+pub(crate) struct Resources {
     client: Client,
     origin: Origin,
     headers: HeaderMap,
@@ -50,17 +50,36 @@ struct Resource {
 }
 
 impl Resources {
+    /// Use the same source-scoped headers and redirect policy as playback.
+    /// Download descriptors and credentials exist only for the active job.
+    pub(crate) fn for_media(media: &PlaybackMedia) -> Result<Self, MediaGatewayError> {
+        Self::with_client(
+            media,
+            media_client().map_err(|_| MediaGatewayError::Source)?,
+        )
+    }
+
+    pub(crate) fn with_client(
+        media: &PlaybackMedia,
+        client: Client,
+    ) -> Result<Self, MediaGatewayError> {
+        Ok(Self {
+            client,
+            origin: media.url.origin(),
+            headers: playback_headers(media.headers.clone())?,
+            entries: Vec::new(),
+        })
+    }
+
+    pub(crate) async fn get(&self, url: Url) -> Result<(Response, Url), MediaGatewayError> {
+        self.fetch(url, Method::GET, None).await
+    }
+
     pub(super) async fn prepare(
         media: PlaybackMedia,
         proxy: &Url,
     ) -> Result<(Self, PreparedPlayback), MediaGatewayError> {
-        let client = media_client().map_err(|_| MediaGatewayError::Source)?;
-        let mut resources = Self {
-            client,
-            origin: media.url.origin(),
-            headers: playback_headers(media.headers)?,
-            entries: Vec::new(),
-        };
+        let mut resources = Self::for_media(&media)?;
         let url = resources.add(media.url, proxy)?;
         let audio_url = media
             .audio_url
@@ -76,7 +95,7 @@ impl Resources {
         }
         // A small range proves the main resource is a seekable MP4 before the
         // caller launches a player or offers a direct download.
-        let mut response = tokio::time::timeout(
+        let (mut response, _) = tokio::time::timeout(
             Duration::from_secs(45),
             resources.fetch(
                 resources.entries[0].target.clone(),
@@ -148,7 +167,7 @@ impl Resources {
         mut target: Url,
         method: Method,
         range: Option<&str>,
-    ) -> Result<Response, MediaGatewayError> {
+    ) -> Result<(Response, Url), MediaGatewayError> {
         for redirects in 0..=5 {
             validate_media_url(&target).map_err(|_| MediaGatewayError::InvalidDescriptor)?;
             let mut request = self.client.request(method.clone(), target.clone());
@@ -188,7 +207,7 @@ impl Resources {
             {
                 return Err(MediaGatewayError::Source);
             }
-            return Ok(response);
+            return Ok((response, target));
         }
         unreachable!("redirect loop has a terminal bound")
     }
@@ -241,7 +260,7 @@ impl Resources {
         )
         .await
         {
-            Ok(Ok(response)) => response,
+            Ok(Ok((response, _))) => response,
             _ => return reject(&mut client, 502).await,
         };
         if response.status() == StatusCode::RANGE_NOT_SATISFIABLE {

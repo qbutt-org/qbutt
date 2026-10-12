@@ -5952,14 +5952,14 @@ Minimum requirement: %2.</source>
     </message>
 </context>
 <context>
-    <name>Media::Player</name>
-    <message>
-        <source>Preparing player…</source>
-        <translation>Подготовка проигрывателя…</translation>
-    </message>
+    <name>Media::Runtime</name>
     <message>
         <source>Install qplay to watch videos.</source>
         <translation>Для просмотра видео установите qplay.</translation>
+    </message>
+    <message>
+        <source>Install qplay to download this video.</source>
+        <translation>Чтобы скачать это видео, установите qplay.</translation>
     </message>
     <message>
         <source>qplay did not respond. Try opening the video again.</source>
@@ -5978,8 +5978,23 @@ Minimum requirement: %2.</source>
         <translation>Для просмотра видео установите qplay %1 или новее.</translation>
     </message>
     <message>
+        <source>Install qplay %1 or newer to download this video.</source>
+        <translation>Чтобы скачать это видео, установите qplay %1 или новее.</translation>
+    </message>
+    <message>
         <source>The qplay installation is incomplete. Reinstall qplay.</source>
         <translation>Установка qplay повреждена. Переустановите его.</translation>
+    </message>
+    <message>
+        <source>qplay did not respond. Try downloading the video again.</source>
+        <translation>qplay не ответил. Попробуйте скачать видео ещё раз.</translation>
+    </message>
+</context>
+<context>
+    <name>Media::Player</name>
+    <message>
+        <source>Preparing player…</source>
+        <translation>Подготовка проигрывателя…</translation>
     </message>
     <message>
         <source>Russian [AI translation]</source>

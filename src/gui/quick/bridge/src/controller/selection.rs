@@ -149,11 +149,8 @@ impl ffi::ContentController {
         self.variants
             .find(&self.selected_variant_id.to_string())
             .is_some_and(|variant| {
-                matches!(
-                    &variant.reference.selector,
-                    qbutt_content::VariantSelector::YummyAnimeVideo { player, .. }
-                        if player == "Плеер VK"
-                )
+                variant.transport == qbutt_content::Transport::Video
+                    && super::downloads::downloadable_video(&variant.reference)
             })
     }
 

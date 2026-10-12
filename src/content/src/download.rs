@@ -15,10 +15,13 @@ use tokio::sync::{Mutex, Semaphore, watch};
 use tokio::task::JoinHandle;
 use url::{Host, Url};
 
+mod segmented;
 mod transfer;
 
 use crate::http::validate_media_url;
-use crate::{LibraryError, LibraryResult, MediaGateway, PreparedPlayback, VariantRef};
+use crate::{
+    LibraryError, LibraryResult, MediaGateway, PlaybackMedia, PreparedPlayback, VariantRef,
+};
 use transfer::{
     AddressPolicy, PublishCandidate, local_client, move_without_replace_async, public_client,
     safe_file_name, stage_direct, verify_candidate,
@@ -36,7 +39,7 @@ pub enum DownloadError {
     Redirect,
     #[error("The source returned an unsupported file format")]
     Format,
-    #[error("This video cannot be saved as one MP4 file")]
+    #[error("This video format cannot be saved")]
     UnsupportedMedia,
     #[error("The source returned an incomplete file")]
     Incomplete,
@@ -58,6 +61,16 @@ pub enum DownloadError {
     Io(#[from] io::Error),
     #[error("The source could not provide the file")]
     Network(#[source] reqwest::Error),
+    #[error("The selected media stream could not be saved")]
+    Stream,
+    #[error("Install qplay to save this video")]
+    MediaTools,
+}
+
+/// Paths supplied by the already verified qplay runtime owner.
+pub struct MediaTools {
+    pub ffmpeg: PathBuf,
+    pub ffprobe: PathBuf,
 }
 
 pub struct DirectDownload {
@@ -65,9 +78,19 @@ pub struct DirectDownload {
     title: String,
     url: Url,
     gateway: Option<MediaGateway>,
+    segmented: Option<SegmentedRequest>,
+}
+
+struct SegmentedRequest {
+    media: PlaybackMedia,
+    tools: MediaTools,
 }
 
 impl DirectDownload {
+    pub async fn requires_mux(media: &PlaybackMedia) -> Result<bool, DownloadError> {
+        segmented::requires_mux(media).await
+    }
+
     pub fn new(reference: VariantRef, title: String, url: Url) -> Result<Self, DownloadError> {
         reference
             .validate()
@@ -81,6 +104,7 @@ impl DirectDownload {
             title,
             url,
             gateway: None,
+            segmented: None,
         })
     }
 
@@ -107,6 +131,7 @@ impl DirectDownload {
             title,
             url,
             gateway: Some(gateway),
+            segmented: None,
         })
     }
 
@@ -132,6 +157,49 @@ impl DirectDownload {
             title,
             url,
             gateway: Some(gateway),
+            segmented: None,
+        })
+    }
+
+    pub fn segmented_catalog(
+        reference: VariantRef,
+        title: String,
+        media: PlaybackMedia,
+        tools: MediaTools,
+    ) -> Result<Self, DownloadError> {
+        reference
+            .validate()
+            .map_err(|_| DownloadError::InvalidSelection)?;
+        Self::segmented(DownloadOrigin::Catalog { reference }, title, media, tools)
+    }
+
+    pub fn segmented_capture(
+        source_host: String,
+        title: String,
+        media: PlaybackMedia,
+        tools: MediaTools,
+    ) -> Result<Self, DownloadError> {
+        let origin = DownloadOrigin::Browser { source_host };
+        origin.validate()?;
+        Self::segmented(origin, title, media, tools)
+    }
+
+    fn segmented(
+        origin: DownloadOrigin,
+        title: String,
+        media: PlaybackMedia,
+        tools: MediaTools,
+    ) -> Result<Self, DownloadError> {
+        if title.trim().is_empty() || !tools.ffmpeg.is_absolute() || !tools.ffprobe.is_absolute() {
+            return Err(DownloadError::InvalidSelection);
+        }
+        validate_media_url(&media.url).map_err(|_| DownloadError::UnsafeAddress)?;
+        Ok(Self {
+            origin,
+            title,
+            url: media.url.clone(),
+            gateway: None,
+            segmented: Some(SegmentedRequest { media, tools }),
         })
     }
 }
@@ -557,7 +625,7 @@ impl<S: DownloadStorage> QueueInner<S> {
             AddressPolicy::Public => &self.client,
             AddressPolicy::Gateway => &self.local_client,
         };
-        let transfer = stage_direct(client, &request.url, policy, &partial, |bytes, total| {
+        let mut progress = |bytes: u64, total: Option<u64>| {
             if last_reported == 0
                 || bytes.saturating_sub(last_reported) >= 4 * 1024 * 1024
                 || last_report.elapsed() >= Duration::from_millis(250)
@@ -566,7 +634,22 @@ impl<S: DownloadStorage> QueueInner<S> {
                 last_reported = bytes;
                 last_report = Instant::now();
             }
-        });
+        };
+        let transfer = async {
+            if let Some(segmented) = &request.segmented {
+                segmented::stage(
+                    &segmented.media,
+                    &segmented.tools,
+                    client,
+                    &staging.join(id),
+                    &partial,
+                    &mut progress,
+                )
+                .await
+            } else {
+                stage_direct(client, &request.url, policy, &partial, &mut progress).await
+            }
+        };
         tokio::pin!(transfer);
         let staged = loop {
             tokio::select! {
@@ -589,8 +672,13 @@ impl<S: DownloadStorage> QueueInner<S> {
             staged.discard().await?;
             return Err(DownloadError::Cancelled);
         }
-        let name = safe_file_name(&request.title);
-        let stem = &name[..name.len() - 4];
+        let extension = if request.segmented.is_some() {
+            ".mkv"
+        } else {
+            ".mp4"
+        };
+        let name = safe_file_name(&request.title, extension);
+        let stem = &name[..name.len() - extension.len()];
         for index in 1..=10_000 {
             if *cancel.borrow() {
                 staged.discard().await?;
@@ -599,7 +687,7 @@ impl<S: DownloadStorage> QueueInner<S> {
             let candidate = self.destination.join(if index == 1 {
                 name.clone()
             } else {
-                format!("{stem} ({index}).mp4")
+                format!("{stem} ({index}){extension}")
             });
             let journal = staged.candidate(candidate.clone());
             let mut state = self.state.lock().await;
@@ -669,8 +757,18 @@ async fn remove_partial(destination: &Path, id: &str) -> Result<(), DownloadErro
     if !safe_staging_exists(destination).await? {
         return Ok(());
     }
-    match fs::remove_file(partial_path(destination, id)).await {
-        Ok(()) => Ok(()),
+    if let Err(error) = fs::remove_file(partial_path(destination, id)).await {
+        if error.kind() != io::ErrorKind::NotFound {
+            return Err(error.into());
+        }
+    }
+    let directory = destination.join(".qbutt-staging").join(id);
+    match fs::symlink_metadata(&directory).await {
+        Ok(metadata) if metadata.is_dir() && !staging_is_reparse_point(&metadata) => {
+            fs::remove_dir_all(directory).await?;
+            Ok(())
+        }
+        Ok(_) => Err(DownloadError::Io(io::ErrorKind::PermissionDenied.into())),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
     }

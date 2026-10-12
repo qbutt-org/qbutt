@@ -13,7 +13,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 file(READ "${qBittorrent_SOURCE_DIR}/upstream-lock.json" qbutt_product_lock)
 string(JSON qbutt_qplay_minimum_version GET "${qbutt_product_lock}" products qplay version)
 string(JSON qbutt_qplay_protocol_version GET "${qbutt_product_lock}" products qplay protocolVersion)
-set_property(SOURCE media/playerruntime.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+set_property(SOURCE media/runtime.cpp APPEND PROPERTY COMPILE_DEFINITIONS
     "QBUTT_QPLAY_MINIMUM_VERSION=\"${qbutt_qplay_minimum_version}\""
     "QBUTT_QPLAY_PROTOCOL_VERSION=${qbutt_qplay_protocol_version}"
 )
@@ -97,6 +97,7 @@ add_library(qbt_base STATIC
     interfaces/iapplication.h
     logger.h
     media/player.h
+    media/runtime.h
     media/streamserver.h
     net/dnsupdater.h
     net/downloadhandlerimpl.h
@@ -213,7 +214,7 @@ add_library(qbt_base STATIC
     http/server.cpp
     logger.cpp
     media/player.cpp
-    media/playerruntime.cpp
+    media/runtime.cpp
     media/streamserver.cpp
     net/dnsupdater.cpp
     net/downloadhandlerimpl.cpp

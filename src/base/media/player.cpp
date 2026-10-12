@@ -28,6 +28,7 @@
 #include "base/path.h"
 #include "base/profile.h"
 #include "base/settingsstorage.h"
+#include "runtime.h"
 #include "streamserver.h"
 
 using namespace Media;
@@ -97,21 +98,6 @@ Player::Player(QObject *parent)
 {
     connect(StreamServer::instance(), &StreamServer::error, this, &Player::error);
     connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, &Player::stop);
-    m_runtimeProbe.setStandardErrorFile(QProcess::nullDevice());
-    m_runtimeTimer.setSingleShot(true);
-    m_runtimeTimer.setInterval(30000);
-    connect(&m_runtimeTimer, &QTimer::timeout, this, [this]
-    {
-        failPreparation(tr("qplay did not respond. Try opening the video again."));
-    });
-    connect(&m_runtimeProbe, &QProcess::readyReadStandardOutput, this, &Player::readRuntimeInfo);
-    connect(&m_runtimeProbe, &QProcess::finished, this, &Player::finishRuntimeProbe);
-    connect(&m_runtimeProbe, &QProcess::errorOccurred, this, [this](const QProcess::ProcessError processError)
-    {
-        if (processError == QProcess::FailedToStart)
-            finishRuntimeProbe(-1, QProcess::CrashExit);
-    });
-
     m_process.setStandardOutputFile(QProcess::nullDevice());
     m_process.setStandardErrorFile(QProcess::nullDevice());
 
@@ -158,12 +144,6 @@ Player::Player(QObject *parent)
 Player::~Player()
 {
     stop();
-    m_runtimeProbe.disconnect(this);
-    if (m_runtimeProbe.state() != QProcess::NotRunning)
-    {
-        m_runtimeProbe.kill();
-        m_runtimeProbe.waitForFinished(1000);
-    }
     if ((m_process.state() != QProcess::NotRunning) && !m_process.waitForFinished(1000))
     {
         m_process.kill();
@@ -186,6 +166,49 @@ Player *Player::instance()
 {
     initInstance();
     return m_instance;
+}
+
+void Player::startPending()
+{
+    if (!m_pending.url.isValid() || (m_process.state() != QProcess::NotRunning) || (m_runtimeRequest != 0))
+        return;
+
+    m_runtimeRequest = Runtime::instance()->request(this, [this](const Runtime::Result &result)
+    {
+        m_runtimeRequest = 0;
+        if (!m_pending.url.isValid())
+            return;
+
+        if (result.error != Runtime::Error::None)
+        {
+            failPreparation(Runtime::errorMessage(result.error, Runtime::Purpose::Playback));
+            return;
+        }
+
+        emit preparationChanged({});
+        if (m_pending.url.isValid() && (m_process.state() == QProcess::NotRunning) && (m_runtimeRequest == 0))
+            startPrepared(result.info.executable);
+    });
+    if (m_runtimeRequest != 0)
+        emit preparationChanged(tr("Preparing player…"));
+}
+
+void Player::cancelPreparation()
+{
+    if (m_runtimeRequest == 0)
+        return;
+
+    Runtime::instance()->cancel(std::exchange(m_runtimeRequest, 0));
+}
+
+void Player::failPreparation(const QString &message)
+{
+    Playback pending = std::exchange(m_pending, {});
+    cancelPreparation();
+    StreamServer::instance()->closeStream(pending.url);
+    emit preparationChanged({});
+    finishLaunch(pending);
+    emit error(message);
 }
 
 bool Player::isMediaFile(const QString &fileName)
@@ -344,15 +367,14 @@ void Player::stop()
     StreamServer::instance()->closeStream(pending.url);
     stopProcess();
     finishLaunch(pending);
-    if (m_runtimeProbeState != RuntimeProbeState::Probing)
+    if (m_runtimeRequest == 0)
         emit preparationChanged({});
 }
 
-void Player::startPrepared()
+void Player::startPrepared(const QString &executable)
 {
-    if (!QFileInfo(m_executable).isFile())
+    if (!QFileInfo(executable).isFile())
     {
-        m_executable.clear();
         failPreparation(tr("The player is missing. Try opening the video again."));
         return;
     }
@@ -394,7 +416,7 @@ void Player::startPrepared()
     if ((m_current.options.contentKind == u"anime") || (m_current.options.contentKind == u"movie"))
         arguments.append(u"--script-opts-append=video_profile-override="_s + m_current.options.contentKind);
 
-    m_process.start(m_executable, arguments);
+    m_process.start(executable, arguments);
 }
 
 bool Player::prepareCookies()

@@ -13,6 +13,7 @@
 #include <QCryptographicHash>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -22,6 +23,7 @@
 
 #include "base/global.h"
 #include "base/media/player.h"
+#include "base/media/runtime.h"
 #include "base/profile.h"
 #include "base/settingsstorage.h"
 
@@ -132,6 +134,16 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
             if ((actual >= 0) && (firstPosition < 0))
                 firstPosition = actual;
         });
+        bool toolsReady = false;
+        Media::Runtime::Result toolsResult;
+        if (selection.value(u"sharedProbe"_s).toBool())
+        {
+            Media::Runtime::instance()->request(&observations, [&](const Media::Runtime::Result &result)
+            {
+                toolsResult = result;
+                toolsReady = true;
+            });
+        }
         require(player->playUrl(url, selection.value(u"name"_s).toString(), options),
             u"Player rejected the legal media fixture"_s);
         if (selection.value(u"stopDuringPreparation"_s).toBool() || selection.value(u"cancelPreparationAndRetry"_s).toBool())
@@ -159,7 +171,17 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
             Media::Player::freeInstance();
             require(startedTokens.isEmpty() && (finishedTokens == QList<quint64> {options.launchToken}),
                 u"Stopping pending playback lost or confirmed its launch token"_s);
-            checks.append(QJsonObject {{u"name"_s, selection.value(u"name"_s)}, {u"pendingStop"_s, true}});
+            QJsonObject check {{u"name"_s, selection.value(u"name"_s)}, {u"pendingStop"_s, true}};
+            if (selection.value(u"sharedProbe"_s).toBool())
+            {
+                waitFor(u"Shared media tools probe after player cancellation"_s, [&] { return toolsReady; });
+                require((toolsResult.error == Media::Runtime::Error::None)
+                    && QFileInfo(toolsResult.info.ffmpeg).isFile()
+                    && QFileInfo(toolsResult.info.ffprobe).isFile(),
+                    u"Player cancellation invalidated a concurrent tools request"_s);
+                check[u"sharedTools"_s] = true;
+            }
+            checks.append(check);
             evidence[u"checks"_s] = checks;
             continue;
         }

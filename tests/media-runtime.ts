@@ -62,6 +62,7 @@ int main()
     }
     const std::string mode = std::getenv("QBUTT_NATIVE_PROBE_MODE");
     if (mode == "timeout") { Sleep(60000); return 0; }
+    if (mode == "delay") Sleep(300);
     if (mode == "exit") return 7;
     if (mode == "oversize")
     {
@@ -100,6 +101,9 @@ const cases = [
     { name: "oversize", mode: "oversize", error: "invalid response" },
     { name: "timeout", mode: "timeout", error: "did not respond", timeoutMs: 35_000 },
     { name: "cancel-running-probe", mode: "timeout", stopDuringPreparation: true },
+    { name: "shared-probe-cancel-player", mode: "delay", selections: [
+        { name: "shared-probe-cancel-player", stopDuringPreparation: true, sharedProbe: true },
+    ] },
     { name: "cancel-and-retry", mode: "timeout", selections: [
         { name: "cancel-and-retry", cancelPreparationAndRetry: true, contentKind: "anime", checkDownload: true },
     ] },
@@ -152,6 +156,8 @@ for (const scenario of cases.filter(scenario => !selectedCase || scenario.name =
     if (scenario.name === "timeout")
         assert(elapsedMs >= 29_000 && elapsedMs < 40_000, `Unexpected timeout duration ${elapsedMs}`);
     const pids = await readFile(probeTracePath, "utf8").then(text => text.trim().split("\n").map(Number)).catch(() => []);
+    if (scenario.name === "shared-probe-cancel-player")
+        assert.equal(pids.length, 1, "Concurrent playback and download tools requests started separate probes");
     results.push({ name: scenario.name, elapsedMs, pids, evidencePath });
 }
 const traces = await readFile(tracePath, "utf8").then(text => text.trim().split("\n").map(line => JSON.parse(line)))

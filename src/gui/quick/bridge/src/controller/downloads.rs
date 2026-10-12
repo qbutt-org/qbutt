@@ -1,14 +1,16 @@
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
-use cxx_qt::{CxxQtType, Threading};
+use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::browser::{BrowserCommand, BrowserError, ResolveKind, Selection};
 use qbutt_content::{
-    CapturedVideoError, DirectDownload, DownloadQueue, MediaGateway, MediaGatewayError,
-    ResolvedContent, SourceOperation, Transport, VariantSelector, resolve_captured_video,
-    resolve_external_video,
+    CapturedVideoError, DirectDownload, DownloadError, DownloadQueue, MediaGateway, MediaTools,
+    PlaybackMedia, PreparedPlayback, ResolvedContent, SourceOperation, Transport, VariantRef,
+    VariantSelector, resolve_captured_video, resolve_external_video,
 };
 use url::Url;
 
@@ -23,7 +25,121 @@ pub(super) struct CapturedIntent {
     capture_id: String,
 }
 
+static NEXT_MEDIA_TOOL_REQUEST: AtomicU64 = AtomicU64::new(1);
+
+struct MediaToolRequest {
+    id: u64,
+    receiver: tokio::sync::oneshot::Receiver<Result<MediaTools, String>>,
+    qt_thread: CxxQtThread<ffi::ContentController>,
+}
+
+impl MediaToolRequest {
+    async fn receive(mut self) -> Result<MediaTools, qbutt_content::DownloadError> {
+        tokio::time::timeout(Duration::from_secs(35), &mut self.receiver)
+            .await
+            .map_err(|_| qbutt_content::DownloadError::MediaTools)?
+            .map_err(|_| qbutt_content::DownloadError::MediaTools)?
+            .map_err(|_| qbutt_content::DownloadError::MediaTools)
+    }
+}
+
+impl Drop for MediaToolRequest {
+    fn drop(&mut self) {
+        let id = self.id;
+        let _ = self.qt_thread.queue(move |controller| {
+            controller.cancel_media_tools(id);
+        });
+    }
+}
+
+pub(super) fn downloadable_video(reference: &VariantRef) -> bool {
+    match &reference.selector {
+        VariantSelector::Episode { .. }
+        | VariantSelector::RutubeVideo
+        | VariantSelector::AniTokyoVideo { .. }
+        | VariantSelector::AnimeSpiritKodik { .. } => true,
+        VariantSelector::YummyAnimeVideo { player, .. } => {
+            matches!(player.as_str(), "Aksor" | "CVH" | "Kodik" | "Плеер VK")
+        }
+        _ => false,
+    }
+}
+
+enum PreparedAcquisition {
+    Direct(MediaGateway, PreparedPlayback),
+    Segmented(PlaybackMedia),
+}
+
+async fn prepare_acquisition(media: PlaybackMedia) -> Result<PreparedAcquisition, DownloadError> {
+    if DirectDownload::requires_mux(&media).await? {
+        return Ok(PreparedAcquisition::Segmented(media));
+    }
+    let (gateway, prepared) = MediaGateway::prepare(media)
+        .await
+        .map_err(|_| DownloadError::Stream)?;
+    Ok(PreparedAcquisition::Direct(gateway, prepared))
+}
+
 impl ffi::ContentController {
+    fn request_media_tools(mut self: Pin<&mut Self>) -> MediaToolRequest {
+        let id = NEXT_MEDIA_TOOL_REQUEST.fetch_add(1, Ordering::Relaxed);
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        self.as_mut()
+            .rust_mut()
+            .media_tool_requests
+            .insert(id, sender);
+        self.as_mut().media_tools_requested(id);
+        MediaToolRequest {
+            id,
+            receiver,
+            qt_thread: self.qt_thread(),
+        }
+    }
+
+    fn cancel_media_tools(mut self: Pin<&mut Self>, request_id: u64) {
+        if self
+            .as_mut()
+            .rust_mut()
+            .media_tool_requests
+            .remove(&request_id)
+            .is_some()
+        {
+            self.as_mut().media_tools_cancelled(request_id);
+        }
+        if self.captured_media_tool_request == Some(request_id) {
+            self.as_mut().rust_mut().captured_media_tool_request = None;
+        }
+    }
+
+    pub fn media_tools_ready(
+        mut self: Pin<&mut Self>,
+        request_id: u64,
+        ffmpeg: QString,
+        ffprobe: QString,
+        error: QString,
+    ) {
+        let Some(sender) = self
+            .as_mut()
+            .rust_mut()
+            .media_tool_requests
+            .remove(&request_id)
+        else {
+            return;
+        };
+        let result = if error.is_empty() {
+            Ok(MediaTools {
+                ffmpeg: PathBuf::from(ffmpeg.to_string()),
+                ffprobe: PathBuf::from(ffprobe.to_string()),
+            })
+        } else {
+            Err(error.to_string())
+        };
+        let _ = sender.send(result);
+        if self.captured_media_tool_request == Some(request_id) {
+            self.as_mut().rust_mut().captured_media_tool_request = None;
+        }
+    }
+
     pub fn downloads_model(&self) -> *mut download_model::ffi::DownloadModel {
         self.downloads.as_ptr().cast_mut()
     }
@@ -153,8 +269,7 @@ impl ffi::ContentController {
         let Some(reference) = self.playback.reference_for(launch_token) else {
             return false;
         };
-        if !matches!(&reference.selector, VariantSelector::YummyAnimeVideo { player, .. } if player == "Плеер VK")
-        {
+        if !downloadable_video(&reference) {
             return false;
         }
         let Some(queue) = self.download_queue.as_ref().map(Arc::clone) else {
@@ -199,6 +314,9 @@ impl ffi::ContentController {
             return false;
         }
         self.as_mut().rust_mut().captured_download.cancel();
+        if let Some(id) = self.as_mut().rust_mut().captured_media_tool_request.take() {
+            self.as_mut().cancel_media_tools(id);
+        }
         let Some(queue) = self.download_queue.as_ref().map(Arc::clone) else {
             if self.downloads_state == QString::from("loading") {
                 self.as_mut().rust_mut().captured_intent = Some(CapturedIntent {
@@ -235,15 +353,7 @@ impl ffi::ContentController {
                         }
                         CapturedVideoError::Browser(_) => "capture",
                     })?;
-                let (gateway, playback) = MediaGateway::prepare(media).await.map_err(|error| {
-                    if matches!(error, MediaGatewayError::UnsupportedManifest) {
-                        "unsupported"
-                    } else {
-                        "capture"
-                    }
-                })?;
-                DirectDownload::captured(source_host, title, playback, gateway)
-                    .map_err(|_| "unsupported")
+                prepare_acquisition(media).await.map_err(|_| "capture")
             }
             .await;
             let _ = qt_thread.queue(move |mut controller| {
@@ -251,8 +361,8 @@ impl ffi::ContentController {
                     return;
                 }
                 controller.as_mut().rust_mut().captured_download.task = None;
-                let download = match prepared {
-                    Ok(download) => download,
+                let prepared = match prepared {
+                    Ok(prepared) => prepared,
                     Err(reason) => {
                         controller.as_mut().captured_download_finished(
                             QString::from(capture_id),
@@ -261,12 +371,54 @@ impl ffi::ContentController {
                         return;
                     }
                 };
+                let (direct, media_for_segmented) = match prepared {
+                    PreparedAcquisition::Direct(gateway, playback) => {
+                        match DirectDownload::captured(
+                            source_host.clone(),
+                            title.clone(),
+                            playback,
+                            gateway,
+                        ) {
+                            Ok(download) => (Some(download), None),
+                            Err(_) => {
+                                controller.as_mut().captured_download_finished(
+                                    QString::from(capture_id),
+                                    QString::from("unsupported"),
+                                );
+                                return;
+                            }
+                        }
+                    }
+                    PreparedAcquisition::Segmented(media) => (None, Some(media)),
+                };
+                let segmented = if direct.is_none() {
+                    let request = controller.as_mut().request_media_tools();
+                    controller.as_mut().rust_mut().captured_media_tool_request = Some(request.id);
+                    Some(request)
+                } else {
+                    None
+                };
                 let Some(services) = &controller.services else {
                     return;
                 };
                 let ack_thread = controller.qt_thread();
                 services.runtime.spawn(async move {
-                    let outcome = queue.enqueue(download).await;
+                    let outcome = if let Some(download) = direct {
+                        queue.enqueue(download).await
+                    } else {
+                        let tools = segmented.unwrap().receive().await;
+                        match tools.and_then(|tools| {
+                            DirectDownload::segmented_capture(
+                                source_host,
+                                title,
+                                media_for_segmented.unwrap(),
+                                tools,
+                            )
+                        }) {
+                            Ok(download) => queue.enqueue(download).await,
+                            Err(error) => Err(error),
+                        }
+                    };
                     let _ = ack_thread.queue(move |mut controller| {
                         if controller.captured_download.generation != generation {
                             if let Ok(job) = outcome {
@@ -296,6 +448,9 @@ impl ffi::ContentController {
 
     pub fn cancel_captured_download(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().captured_download.cancel();
+        if let Some(id) = self.as_mut().rust_mut().captured_media_tool_request.take() {
+            self.as_mut().cancel_media_tools(id);
+        }
         self.as_mut().rust_mut().captured_intent = None;
     }
 
@@ -369,12 +524,22 @@ impl ffi::ContentController {
                         )
                         .await
                         .map_err(|_| ())?;
-                        MediaGateway::prepare(media).await.map_err(|_| ())
+                        prepare_acquisition(media).await.map_err(|_| ())
                     }
                     .await)
                 } else {
                     None
                 }
+            } else {
+                None
+            };
+            let direct_requires_mux = if let Ok(SourceResponse::Resolve(
+                ResolvedContent::DirectVideo { url, quality, .. },
+            )) = &result
+            {
+                let media = PlaybackMedia::direct(url.clone())
+                    .with_video_height(quality.height());
+                Some(DirectDownload::requires_mux(&media).await)
             } else {
                 None
             };
@@ -395,15 +560,30 @@ impl ffi::ContentController {
                         reference: resolved,
                         title,
                         url,
+                        quality,
                         ..
-                    })) if &resolved == reference => DirectDownload::new(resolved, title, url),
+                    })) if &resolved == reference => match direct_requires_mux {
+                        Some(Ok(true)) => {
+                            let media = PlaybackMedia::direct(url)
+                                .with_video_height(quality.height());
+                            Ok((None, Some((resolved, title, media))))
+                        }
+                        Some(Ok(false)) => DirectDownload::new(resolved, title, url)
+                            .map(|download| (Some(download), None)),
+                        Some(Err(error)) => Err(error),
+                        None => Err(qbutt_content::DownloadError::InvalidSelection),
+                    },
                     Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
                         reference: resolved,
                         title,
                         ..
                     })) if &resolved == reference => match external {
-                        Some(Ok((gateway, media))) => {
+                        Some(Ok(PreparedAcquisition::Direct(gateway, media))) => {
                             DirectDownload::prepared(resolved, title, media, gateway)
+                                .map(|download| (Some(download), None))
+                        }
+                        Some(Ok(PreparedAcquisition::Segmented(media))) => {
+                            Ok((None, Some((resolved, title, media))))
                         }
                         Some(Err(())) => {
                             controller
@@ -425,7 +605,7 @@ impl ffi::ContentController {
                         return;
                     }
                 };
-                let download = match download {
+                let (download, segmented) = match download {
                     Ok(download) => download,
                     Err(error) => {
                         ffi::log_content_error(
@@ -438,16 +618,29 @@ impl ffi::ContentController {
                         return;
                     }
                 };
+                let tools = segmented.as_ref().map(|_| controller.as_mut().request_media_tools());
                 let Some(services) = &controller.services else {
                     return;
                 };
                 let error_thread = controller.qt_thread();
                 services.runtime.spawn(async move {
                     let fresh = retry_id.is_none();
-                    let outcome = if let Some(id) = retry_id {
-                        queue.retry(&id, download).await
+                    let download = if let Some(download) = download {
+                        Ok(download)
                     } else {
-                        queue.enqueue(download).await.map(|_| ())
+                        let tools = tools.unwrap().receive().await;
+                        tools.and_then(|tools| {
+                            let (reference, title, media) = segmented.unwrap();
+                            DirectDownload::segmented_catalog(reference, title, media, tools)
+                        })
+                    };
+                    let outcome = match download {
+                        Ok(download) => if let Some(id) = retry_id {
+                            queue.retry(&id, download).await
+                        } else {
+                            queue.enqueue(download).await.map(|_| ())
+                        },
+                        Err(error) => Err(error),
                     };
                     if let Err(error) = outcome {
                         let detail = error.to_string();

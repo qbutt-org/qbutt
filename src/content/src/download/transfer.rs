@@ -118,6 +118,39 @@ impl StagedDownload {
     }
 }
 
+pub(super) async fn staged_local_file(path: &Path) -> Result<StagedDownload, DownloadError> {
+    use tokio::io::AsyncReadExt;
+
+    let mut file = OpenOptions::new().read(true).write(true).open(path).await?;
+    file.sync_all().await?;
+    let mut hash = Context::new(&SHA256);
+    let mut buffer = [0u8; 64 * 1024];
+    let mut size = 0u64;
+    loop {
+        let count = file.read(&mut buffer).await?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+        size = size
+            .checked_add(count as u64)
+            .ok_or(DownloadError::Incomplete)?;
+    }
+    if size == 0 {
+        return Err(DownloadError::Empty);
+    }
+    Ok(StagedDownload {
+        path: path.to_owned(),
+        size,
+        sha256: hash
+            .finish()
+            .as_ref()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    })
+}
+
 pub(super) fn public_client() -> Result<Client, DownloadError> {
     Client::builder()
         .no_proxy()
@@ -260,7 +293,7 @@ pub(super) async fn stage_direct(
     })
 }
 
-pub(super) fn safe_file_name(title: &str) -> String {
+pub(super) fn safe_file_name(title: &str, extension: &str) -> String {
     let mut name = title
         .chars()
         .map(|character| {
@@ -316,8 +349,8 @@ pub(super) fn safe_file_name(title: &str) -> String {
     {
         name = "Download".into();
     }
-    if !name.to_ascii_lowercase().ends_with(".mp4") {
-        name.push_str(".mp4");
+    if !name.to_ascii_lowercase().ends_with(extension) {
+        name.push_str(extension);
     }
     name
 }

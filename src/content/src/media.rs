@@ -18,6 +18,7 @@ use crate::http::{resolve_public_url, validate_media_url};
 
 #[path = "media/resource.rs"]
 mod resource;
+pub(crate) use resource::Resources as MediaResources;
 pub use resource::{PreparedPlayback, PreparedSubtitle};
 
 const MAX_CONNECTIONS: usize = 32;

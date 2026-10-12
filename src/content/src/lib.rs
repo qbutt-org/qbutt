@@ -58,7 +58,7 @@ pub use byrut::ByRut;
 pub use captured_video::{CapturedVideoError, resolve_captured_video};
 pub use download::{
     DirectDownload, DownloadError, DownloadJob, DownloadOrigin, DownloadQueue, DownloadStatus,
-    DownloadStorage,
+    DownloadStorage, MediaTools,
 };
 pub use error::{Error, Result};
 #[cfg(windows)]
