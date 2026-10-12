@@ -30,6 +30,8 @@ qt_add_executable(qbutt-quick-acceptance
     reader-settings-ui.h
     rutor.cpp
     rutor.h
+    work-filter.cpp
+    work-filter.h
     worklist.cpp
     worklist.h
 )
