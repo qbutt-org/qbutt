@@ -12,6 +12,7 @@ mod association;
 pub mod browser;
 #[cfg(windows)]
 mod external_video;
+mod download;
 mod error;
 mod fitgirl;
 mod http;
@@ -41,6 +42,9 @@ pub use aniliberty::AniLiberty;
 pub use association::{WorkAssociation, WorkGroup, rank_variants};
 #[cfg(windows)]
 pub use external_video::{ExternalVideoError, resolve_external_video};
+pub use download::{
+    DirectDownload, DownloadError, DownloadJob, DownloadQueue, DownloadStatus, DownloadStorage,
+};
 pub use error::{Error, Result};
 pub use fitgirl::FitGirl;
 pub use kakuyomu::Kakuyomu;

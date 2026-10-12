@@ -385,7 +385,7 @@ fn network_error(error: reqwest::Error) -> Error {
     }
 }
 
-struct PublicResolver;
+pub(crate) struct PublicResolver;
 
 impl Resolve for PublicResolver {
     fn resolve(&self, name: Name) -> Resolving {

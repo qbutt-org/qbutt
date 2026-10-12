@@ -1,6 +1,7 @@
 //! Synchronous profile storage. Its caller owns scheduling outside the GUI
 //! thread; this module creates no runtime, worker, network request or process.
 
+mod downloads;
 mod entry;
 mod local_books;
 mod schema;
