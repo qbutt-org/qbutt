@@ -12,6 +12,7 @@ pub use playback::{PlaybackAudioTrack, PlaybackMedia};
 pub enum Source {
     LocalBook,
     AniLiberty,
+    AniTokyo,
     YummyAnime,
     MangaDex,
     MangaLib,
@@ -54,6 +55,7 @@ impl PublicationRef {
             }
             Source::LocalBook => Err(crate::Error::InvalidReference),
             Source::AniLiberty => self.aniliberty_id().map(|_| ()),
+            Source::AniTokyo => self.anitokyo_id().map(|_| ()),
             Source::YummyAnime => self.yummyanime_id().map(|_| ()),
             Source::RuTor => self.rutor_id().map(|_| ()),
             Source::RuTracker => self.rutracker_id().map(|_| ()),
@@ -76,6 +78,10 @@ impl PublicationRef {
     /// AniLiberty uses nonzero canonical decimal release IDs.
     pub(crate) fn aniliberty_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::AniLiberty)
+    }
+
+    pub(crate) fn anitokyo_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::AniTokyo)
     }
 
     pub(crate) fn rutor_id(&self) -> crate::Result<u64> {
@@ -282,6 +288,12 @@ pub enum VariantSelector {
         player: String,
         player_id: u64,
     },
+    AniTokyoVideo {
+        id: u64,
+        group_id: u64,
+        episode: String,
+        dubbing: String,
+    },
     MangaTranslation {
         language: String,
         groups: Vec<String>,
@@ -335,6 +347,19 @@ impl VariantSelector {
                                 && !value.chars().any(char::is_control)
                         })
             }
+            Self::AniTokyoVideo {
+                id,
+                group_id,
+                episode,
+                dubbing,
+            } => {
+                *id != 0
+                    && *group_id != 0
+                    && crate::model::canonical_decimal(episode)
+                    && !dubbing.trim().is_empty()
+                    && dubbing.len() <= 512
+                    && !dubbing.chars().any(char::is_control)
+            }
             Self::MangaTranslation { language, groups } => {
                 canonical_language(language)
                     && groups.len() <= 32
@@ -368,6 +393,7 @@ impl VariantRef {
                 | (Source::AniLiberty, VariantSelector::Episode { .. })
                 | (Source::AniLiberty, VariantSelector::Rutube { .. })
                 | (Source::YummyAnime, VariantSelector::YummyAnimeVideo { .. })
+                | (Source::AniTokyo, VariantSelector::AniTokyoVideo { .. })
                 | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
                 | (Source::MangaLib, VariantSelector::LibTranslation { .. })
                 | (Source::RanobeLib, VariantSelector::LibTranslation { .. })
