@@ -129,6 +129,28 @@ impl ffi::ChapterModel {
         self.rows.first().map(|chapter| chapter.reference.clone())
     }
 
+    pub fn relative(&self, id: &str, offset: i32) -> Option<ChapterRef> {
+        let index = self
+            .rows
+            .iter()
+            .position(|chapter| chapter.reference.id == id)?;
+        let target = i64::try_from(index).ok()?.checked_add(i64::from(offset))?;
+        self.rows
+            .get(usize::try_from(target).ok()?)
+            .map(|chapter| chapter.reference.clone())
+    }
+
+    pub fn chapter_index(&self, id: &str) -> i32 {
+        self.rows
+            .iter()
+            .position(|chapter| chapter.reference.id == id)
+            .map_or(-1, |index| index as i32)
+    }
+
+    pub fn chapter_count(&self) -> i32 {
+        self.rows.len() as i32
+    }
+
     pub fn replace(mut self: Pin<&mut Self>, chapters: Vec<Chapter>) {
         self.as_mut().rust_mut().resetting = true;
         self.as_mut().begin_reset_model();

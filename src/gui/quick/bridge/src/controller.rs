@@ -191,6 +191,8 @@ pub mod ffi {
         type SourceModel = crate::source_model::ffi::SourceModel;
         include!("qbutt_quick/src/reader_models.cxxqt.h");
         type ChapterModel = crate::reader_models::ffi::ChapterModel;
+        include!("qbutt_quick/src/text_model.cxxqt.h");
+        type TextBlockModel = crate::text_model::ffi::TextBlockModel;
         include!("qbutt_quick/src/page_model.cxxqt.h");
         type PageModel = crate::page_model::ffi::PageModel;
         include!("qbutt_quick/native.h");
@@ -283,6 +285,13 @@ pub mod ffi {
         #[qproperty(SettingsState, source_settings_state, cxx_name = "sourceSettingsState", READ = source_settings_state, NOTIFY = sources_changed)]
         #[qproperty(QString, source_settings_error_text, cxx_name = "sourceSettingsErrorText", READ = source_settings_error_text, NOTIFY = sources_changed)]
         #[qproperty(*mut PageModel, reader_pages, cxx_name = "readerPages", READ = reader_pages, CONSTANT)]
+        #[qproperty(*mut TextBlockModel, reader_text_blocks, cxx_name = "readerTextBlocks", READ = reader_text_blocks, CONSTANT)]
+        #[qproperty(bool, reader_is_text, cxx_name = "readerIsText", READ = reader_is_text, NOTIFY = reader_changed)]
+        #[qproperty(u64, reader_text_generation, cxx_name = "readerTextGeneration", READ = reader_text_generation, NOTIFY = reader_changed)]
+        #[qproperty(QString, reader_text_anchor, cxx_name = "readerTextAnchor", READ = reader_text_anchor, NOTIFY = reader_changed)]
+        #[qproperty(f64, reader_text_offset, cxx_name = "readerTextOffset", READ = reader_text_offset, NOTIFY = reader_changed)]
+        #[qproperty(i32, reader_chapter_index, cxx_name = "readerChapterIndex", READ = reader_chapter_index, NOTIFY = reader_changed)]
+        #[qproperty(i32, reader_chapter_count, cxx_name = "readerChapterCount", READ = reader_chapter_count, NOTIFY = reader_changed)]
         #[qproperty(ReaderMode, reader_mode, cxx_name = "readerMode", READ = reader_mode, NOTIFY = reader_changed)]
         #[qproperty(i32, reader_image_width, cxx_name = "readerImageWidth", READ = reader_image_width, NOTIFY = reader_changed)]
         #[qproperty(i32, reader_image_height, cxx_name = "readerImageHeight", READ = reader_image_height, NOTIFY = reader_changed)]
@@ -544,6 +553,13 @@ pub mod ffi {
         fn clear_variant_filters(self: Pin<&mut Self>);
         fn reader_chapters(&self) -> *mut ChapterModel;
         fn reader_pages(&self) -> *mut PageModel;
+        fn reader_text_blocks(&self) -> *mut TextBlockModel;
+        fn reader_is_text(&self) -> bool;
+        fn reader_text_generation(&self) -> u64;
+        fn reader_text_anchor(&self) -> &QString;
+        fn reader_text_offset(&self) -> f64;
+        fn reader_chapter_index(&self) -> i32;
+        fn reader_chapter_count(&self) -> i32;
         fn reader_mode(&self) -> ReaderMode;
         fn reader_image_width(&self) -> i32;
         fn reader_image_height(&self) -> i32;
@@ -574,6 +590,9 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "selectChapter"]
         fn select_chapter(self: Pin<&mut Self>, id: QString);
+        #[qinvokable]
+        #[cxx_name = "turnReaderChapter"]
+        fn turn_reader_chapter(self: Pin<&mut Self>, offset: i32);
         #[qinvokable]
         #[cxx_name = "selectReaderPage"]
         fn select_reader_page(self: Pin<&mut Self>, index: i32);
@@ -624,6 +643,23 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "retryReaderProgress"]
         fn retry_reader_progress(self: Pin<&mut Self>);
+        #[qinvokable]
+        #[cxx_name = "setReaderTextViewport"]
+        fn set_reader_text_viewport(
+            self: Pin<&mut Self>,
+            generation: u64,
+            block_id: QString,
+            offset: f64,
+            user_moved: bool,
+        ) -> bool;
+        #[qsignal]
+        #[cxx_name = "readerTextPositionRequested"]
+        fn reader_text_position_requested(
+            self: Pin<&mut Self>,
+            generation: u64,
+            block_id: QString,
+            offset: f64,
+        );
         #[qsignal]
         #[cxx_name = "readerPositionRequested"]
         fn reader_position_requested(

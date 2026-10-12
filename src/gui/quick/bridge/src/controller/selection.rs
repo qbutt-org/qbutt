@@ -29,6 +29,7 @@ impl ffi::ContentController {
             Some(qbutt_content::Transport::Torrent) => "torrent",
             Some(qbutt_content::Transport::Video) => "video",
             Some(qbutt_content::Transport::Manga) => "manga",
+            Some(qbutt_content::Transport::Text) => "text",
             None => "",
         })
     }

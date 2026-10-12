@@ -3,7 +3,7 @@ use std::pin::Pin;
 use cxx::UniquePtr;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QString, QUrl};
-use qbutt_content::{ReaderProgress, Source, Transport, VariantRef};
+use qbutt_content::{ReaderPosition, ReaderProgress, Source, Transport, VariantRef};
 use tokio::sync::watch;
 
 use super::library::ReaderSave;
@@ -14,6 +14,7 @@ use crate::reader_models;
 
 mod chapters;
 mod progress;
+mod text;
 mod viewport;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -44,6 +45,8 @@ impl ReaderViewport {
 pub(super) struct ReaderState {
     chapters: UniquePtr<reader_models::ffi::ChapterModel>,
     pages: UniquePtr<page_model::ffi::PageModel>,
+    text: text::TextReaderState,
+    is_text: bool,
     reference: Option<VariantRef>,
     busy: bool,
     error: QString,
@@ -51,7 +54,7 @@ pub(super) struct ReaderState {
     chapter_id: QString,
     page_index: i32,
     scroll_offset: f64,
-    shown_position: Option<(i32, f64)>,
+    shown_position: Option<ReaderPosition>,
     resume: Option<ReaderProgress>,
     progress_generation: u64,
     progress_pending: bool,
@@ -68,6 +71,8 @@ impl Default for ReaderState {
         Self {
             chapters: reader_models::ffi::create_chapter_model(),
             pages: page_model::ffi::create_page_model(),
+            text: text::TextReaderState::default(),
+            is_text: false,
             reference: None,
             busy: false,
             error: QString::default(),
@@ -94,6 +99,7 @@ impl ReaderState {
         self.loading.cancel();
         self.chapter.cancel();
         self.position.take();
+        self.text.prefetch.cancel();
         self.progress_generation = self.progress_generation.wrapping_add(1);
         self.progress_pending = false;
         self.progress_error = QString::default();
@@ -202,13 +208,14 @@ impl ffi::ContentController {
         let Some(variant) = self.variants.find(&self.selected_variant_id.to_string()) else {
             return;
         };
-        if variant.transport != Transport::Manga
+        if !matches!(variant.transport, Transport::Manga | Transport::Text)
             || self.services.is_none()
             || !self.source_enabled(variant.reference.publication.source)
         {
             return;
         }
         let selected = self.selected_variant_id.clone();
+        let is_text = variant.transport == Transport::Text;
         let reference = variant.reference.clone();
         self.as_mut().set_chapter_query(QString::default());
         if self.reader.reference.is_some()
@@ -221,6 +228,10 @@ impl ffi::ContentController {
             let mut state = self.as_mut().rust_mut();
             state.reader.cancel();
             state.reader.reference = Some(reference);
+            state.reader.is_text = is_text;
+            state.reader.text.cache.clear();
+            state.reader.text.anchor = QString::default();
+            state.reader.text.offset = 0.0;
             state.reader.chapter_id = QString::default();
             state.reader.chapter_title = QString::default();
             state.reader.page_index = 0;
@@ -238,6 +249,13 @@ impl ffi::ContentController {
             .pages
             .pin_mut()
             .reset(chapter_generation, 0);
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .text
+            .blocks
+            .pin_mut()
+            .replace(None);
         if self.reader.reference.is_none() || self.reader.loading.generation != generation {
             return;
         }
@@ -266,6 +284,7 @@ impl ffi::ContentController {
             state.reader.busy = false;
             state.reader.error = QString::default();
             state.reader.reference = None;
+            state.reader.text.cache.clear();
         }
         let generation = self.reader.chapter.generation;
         self.as_mut()
@@ -274,6 +293,13 @@ impl ffi::ContentController {
             .pages
             .pin_mut()
             .reset(generation, 0);
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .text
+            .blocks
+            .pin_mut()
+            .replace(None);
         self.as_mut().reader_changed();
     }
 
@@ -298,8 +324,7 @@ impl ffi::ContentController {
             return;
         }
         let chapter = self.reader.chapter_id.clone();
-        let page = self.reader.page_index as usize;
-        let offset = self.reader.scroll_offset;
-        self.load_chapter(chapter, page, offset);
+        let position = self.reader_current_position();
+        self.load_chapter(chapter, position);
     }
 }

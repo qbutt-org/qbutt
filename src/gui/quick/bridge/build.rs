@@ -9,6 +9,7 @@ fn main() {
                 "src/controller.rs",
                 "src/models.rs",
                 "src/reader_models.rs",
+                "src/text_model.rs",
                 "src/source_model.rs",
                 "src/page_model.rs",
             ])

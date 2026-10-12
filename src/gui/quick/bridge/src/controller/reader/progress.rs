@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QString, QUrl};
-use qbutt_content::{ChapterRef, LibraryResult, ReaderProgress};
+use qbutt_content::{ChapterRef, LibraryResult, ReaderPosition, ReaderProgress};
 
 use super::super::ffi;
 use super::super::library::{LibraryAction, ReaderSave};
@@ -161,8 +161,8 @@ impl ffi::ContentController {
     }
 
     pub(super) fn save_reader_position(mut self: Pin<&mut Self>) {
-        let position = (self.reader.page_index, self.reader.scroll_offset);
-        if self.reader.shown_position == Some(position) {
+        let position = self.reader_current_position();
+        if self.reader.shown_position.as_ref() == Some(&position) {
             return;
         }
         let Some(variant) = self.reader.reference.clone() else {
@@ -184,8 +184,7 @@ impl ffi::ContentController {
                 variant,
                 id: self.reader.chapter_id.to_string(),
             },
-            page: self.reader.page_index as u32,
-            scroll_offset: self.reader.scroll_offset,
+            position: position.clone(),
         };
         self.as_mut().rust_mut().reader.progress_save = Some(ReaderSave {
             work,
@@ -194,6 +193,20 @@ impl ffi::ContentController {
         });
         self.as_mut().rust_mut().reader.shown_position = Some(position);
         self.submit_reader_progress();
+    }
+
+    pub(super) fn reader_current_position(&self) -> ReaderPosition {
+        if self.reader.is_text {
+            ReaderPosition::Text {
+                block_id: self.reader.text.anchor.to_string(),
+                offset: self.reader.text.offset,
+            }
+        } else {
+            ReaderPosition::Page {
+                page: self.reader.page_index as u32,
+                scroll_offset: self.reader.scroll_offset,
+            }
+        }
     }
 
     fn submit_reader_progress(mut self: Pin<&mut Self>) {

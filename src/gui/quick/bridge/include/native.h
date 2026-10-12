@@ -14,6 +14,7 @@ namespace Qbutt
     class WorkModel;
     class VariantModel;
     class ChapterModel;
+    class TextBlockModel;
     class SourceModel;
     class PageModel;
     struct RetiredReaderCache;
@@ -25,6 +26,7 @@ namespace Qbutt
     std::unique_ptr<WorkModel> createWorkModel();
     std::unique_ptr<VariantModel> createVariantModel();
     std::unique_ptr<ChapterModel> createChapterModel();
+    std::unique_ptr<TextBlockModel> createTextBlockModel();
     std::unique_ptr<SourceModel> createSourceModel();
     QString sourceError(std::int32_t reason);
     std::unique_ptr<PageModel> createPageModel();

@@ -13,6 +13,7 @@
 #include "qbutt_quick/src/controller.cxxqt.h"
 #include "qbutt_quick/src/models.cxxqt.h"
 #include "qbutt_quick/src/reader_models.cxxqt.h"
+#include "qbutt_quick/src/text_model.cxxqt.h"
 #include "qbutt_quick/src/source_model.cxxqt.h"
 #include "qbutt_quick/src/page_model.cxxqt.h"
 
@@ -46,6 +47,11 @@ std::unique_ptr<Qbutt::VariantModel> Qbutt::createVariantModel()
 std::unique_ptr<Qbutt::ChapterModel> Qbutt::createChapterModel()
 {
     return std::make_unique<ChapterModel>();
+}
+
+std::unique_ptr<Qbutt::TextBlockModel> Qbutt::createTextBlockModel()
+{
+    return std::make_unique<TextBlockModel>();
 }
 
 std::unique_ptr<Qbutt::SourceModel> Qbutt::createSourceModel()

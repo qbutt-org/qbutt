@@ -65,6 +65,7 @@ impl ffi::ContentController {
                 Some(Transport::Torrent) => "torrent",
                 Some(Transport::Video) => "video",
                 Some(Transport::Manga) => "manga",
+                Some(Transport::Text) => "text",
                 None => "",
             },
         )

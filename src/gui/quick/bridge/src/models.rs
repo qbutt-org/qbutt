@@ -173,6 +173,7 @@ pub fn variant_id(reference: &VariantRef) -> String {
         }
         VariantSelector::Rutube { episode_id } => format!("{publication}:rutube:{episode_id}"),
         VariantSelector::RutubeVideo => format!("{publication}:video"),
+        VariantSelector::OriginalText => format!("{publication}:original"),
         VariantSelector::YummyAnimeVideo {
             id,
             episode,
@@ -418,6 +419,7 @@ impl ffi::VariantModel {
                 Transport::Torrent => "torrent".into(),
                 Transport::Video => "video".into(),
                 Transport::Manga => "manga".into(),
+                Transport::Text => "text".into(),
             },
             4 => variant.quality.clone().unwrap_or_default(),
             6 => variant

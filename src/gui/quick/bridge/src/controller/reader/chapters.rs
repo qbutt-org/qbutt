@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::SourceOperation;
+use qbutt_content::{ReaderPosition, SourceOperation};
 use tokio::sync::watch;
 
 use super::super::catalog::SourceResponse;
@@ -12,6 +12,27 @@ use super::super::reader_pages::read_chapter;
 use super::ReaderViewport;
 
 impl ffi::ContentController {
+    pub(in crate::controller) fn reader_chapter_index(&self) -> i32 {
+        self.reader
+            .chapters
+            .chapter_index(&self.reader.chapter_id.to_string())
+    }
+
+    pub(in crate::controller) fn reader_chapter_count(&self) -> i32 {
+        self.reader.chapters.chapter_count()
+    }
+
+    pub fn turn_reader_chapter(self: Pin<&mut Self>, offset: i32) {
+        let Some(chapter) = self
+            .reader
+            .chapters
+            .relative(&self.reader.chapter_id.to_string(), offset)
+        else {
+            return;
+        };
+        self.select_chapter(QString::from(chapter.id));
+    }
+
     pub(super) fn load_chapters(mut self: Pin<&mut Self>) {
         let Some(reference) = self.reader.reference.clone() else {
             return;
@@ -76,8 +97,7 @@ impl ffi::ContentController {
                             {
                                 controller.load_chapter(
                                     QString::from(&progress.chapter.id),
-                                    progress.page as usize,
-                                    progress.scroll_offset,
+                                    progress.position,
                                 );
                                 return;
                             }
@@ -112,15 +132,21 @@ impl ffi::ContentController {
         if self.reader.chapter_id == id && self.reader.error.is_empty() {
             return;
         }
-        self.load_chapter(id, 0, 0.0);
+        let position = if self.reader.is_text {
+            ReaderPosition::Text {
+                block_id: String::new(),
+                offset: 0.0,
+            }
+        } else {
+            ReaderPosition::Page {
+                page: 0,
+                scroll_offset: 0.0,
+            }
+        };
+        self.load_chapter(id, position);
     }
 
-    pub(super) fn load_chapter(
-        mut self: Pin<&mut Self>,
-        id: QString,
-        page: usize,
-        scroll_offset: f64,
-    ) {
+    pub(super) fn load_chapter(mut self: Pin<&mut Self>, id: QString, resume: ReaderPosition) {
         if self.reader.reference.is_none() {
             return;
         }
@@ -137,8 +163,15 @@ impl ffi::ContentController {
         };
         self.as_mut().rust_mut().reader.loading.cancel();
         self.as_mut().rust_mut().reader.chapter.cancel();
+        self.as_mut().rust_mut().reader.text.prefetch.cancel();
         let generation = self.reader.chapter.generation;
-        let (sender, position) = watch::channel(ReaderViewport::page(page));
+        let (page, scroll_offset) = match &resume {
+            ReaderPosition::Page {
+                page,
+                scroll_offset,
+            } => (*page as usize, *scroll_offset),
+            ReaderPosition::Text { .. } => (0, 0.0),
+        };
         {
             let mut state = self.as_mut().rust_mut();
             state.reader.chapter_id = id;
@@ -153,7 +186,11 @@ impl ffi::ContentController {
             state.reader.resume = None;
             state.reader.error = QString::default();
             state.reader.busy = true;
-            state.reader.position = Some(sender);
+            state.reader.position = None;
+            if let ReaderPosition::Text { block_id, offset } = &resume {
+                state.reader.text.anchor = QString::from(block_id);
+                state.reader.text.offset = *offset;
+            }
         }
         self.as_mut()
             .rust_mut()
@@ -161,6 +198,13 @@ impl ffi::ContentController {
             .pages
             .pin_mut()
             .reset(generation, 0);
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .text
+            .blocks
+            .pin_mut()
+            .replace(None);
         if self.reader.reference.is_none() || self.reader.chapter.generation != generation {
             return;
         }
@@ -168,6 +212,12 @@ impl ffi::ContentController {
         if self.reader.reference.is_none() || self.reader.chapter.generation != generation {
             return;
         }
+        if self.reader.is_text {
+            self.load_text_chapter(request, resume, generation);
+            return;
+        }
+        let (sender, position) = watch::channel(ReaderViewport::page(page));
+        self.as_mut().rust_mut().reader.position = Some(sender);
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let Some(source) = services.reader_source(chapter.reference.variant.publication.source)

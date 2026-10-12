@@ -149,7 +149,13 @@ impl ffi::ContentController {
         }
         if !self.reader.error.is_empty() {
             let chapter = self.reader.chapter_id.clone();
-            self.load_chapter(chapter, index as usize, 0.0);
+            self.load_chapter(
+                chapter,
+                qbutt_content::ReaderPosition::Page {
+                    page: index as u32,
+                    scroll_offset: 0.0,
+                },
+            );
             return;
         }
         if index == self.reader.page_index && self.reader.scroll_offset == 0.0 {
