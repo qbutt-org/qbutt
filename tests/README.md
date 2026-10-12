@@ -257,6 +257,14 @@ write failures. Separate process phases verify restart and an accepted fit write
 at graceful Exit. This fixture does not establish QML selection or native pointer
 interaction; those checks belong to the production reader and deployed VM path.
 
+Run `cargo run --locked --offline -p qbutt-content --example text-reader` for
+generated original-text parsing, escaping, stable anchors and cache bounds.
+Run `cargo run --locked --offline -p qbutt-content --example text-reader-progress`
+for separate-process SQLite restoration of an exact text chapter, block and
+within-block offset, finite bounds, atomic failure and immutable retry.
+Require exit zero and the respective `PASS` output. These fixtures do not
+establish QML viewport confirmation or native pointer interaction.
+
 Run `--reader-progress --lang ru` with the same offscreen environment to check
 the native progress bridge without QML acknowledgement. The consumer confirms
 each local page only after `QImageReader` has decoded it. Require exit zero and

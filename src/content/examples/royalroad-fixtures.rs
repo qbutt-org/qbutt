@@ -6,6 +6,11 @@ mod model;
 pub use model::*;
 pub use qbutt_content::{Error, Result};
 
+#[cfg(windows)]
+#[allow(dead_code)]
+#[path = "../src/browser/mod.rs"]
+mod browser;
+
 #[path = "../src/text.rs"]
 mod text;
 pub use text::*;
@@ -125,8 +130,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
     let progress = qbutt_content::ReaderProgress {
         chapter: stored_chapter,
-        page: 0,
-        scroll_offset: 0.25,
+        position: qbutt_content::ReaderPosition::Text {
+            block_id: chapter.blocks[0].id.clone(),
+            offset: 0.25,
+        },
     };
     library.save_reader_progress(&stored_work, preferences, progress)?;
     let mut invalid_work = stored_work.clone();

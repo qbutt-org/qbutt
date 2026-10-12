@@ -1,6 +1,11 @@
 //! Generated legal metadata and text exercise the production parser and guards.
 //! No copyrighted chapter, live profile or test-only provider endpoint is used.
 
+#[cfg(windows)]
+#[allow(dead_code)]
+#[path = "../src/browser/mod.rs"]
+mod browser;
+
 #[allow(dead_code)]
 #[path = "../src/http.rs"]
 mod http;

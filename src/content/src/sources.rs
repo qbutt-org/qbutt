@@ -175,7 +175,11 @@ impl SourceOperation {
 fn validate_reader(source: Source) -> crate::Result<()> {
     if matches!(
         source,
-        Source::MangaDex | Source::MangaLib | Source::RanobeLib | Source::RoyalRoad
+        Source::MangaDex
+            | Source::MangaLib
+            | Source::RanobeLib
+            | Source::RoyalRoad
+            | Source::Kakuyomu
     ) {
         Ok(())
     } else {

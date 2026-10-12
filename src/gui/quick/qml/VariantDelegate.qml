@@ -35,7 +35,7 @@ ItemDelegate {
             Image {
                 Layout.preferredWidth: 18
                 Layout.preferredHeight: 18
-                source: root.theme.iconSource(root.kind === "manga" ? "help-contents"
+                source: root.theme.iconSource(root.kind === "manga" || root.kind === "text" ? "help-contents"
                     : root.kind === "video" ? "torrent-start" : "torrent-magnet")
                 sourceSize: Qt.size(18, 18)
             }

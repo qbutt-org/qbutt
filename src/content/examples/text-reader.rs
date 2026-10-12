@@ -122,14 +122,11 @@ fn reference(id: u64) -> ChapterRef {
     ChapterRef {
         variant: VariantRef {
             publication: PublicationRef {
-                source: Source::MangaDex,
-                id: "11111111-1111-1111-1111-111111111111".into(),
+                source: Source::Kakuyomu,
+                id: "1001".into(),
             },
-            selector: VariantSelector::MangaTranslation {
-                language: "ja".into(),
-                groups: Vec::new(),
-            },
+            selector: VariantSelector::OriginalText,
         },
-        id: format!("22222222-2222-2222-2222-{id:012x}"),
+        id: format!("1001/{id}"),
     }
 }

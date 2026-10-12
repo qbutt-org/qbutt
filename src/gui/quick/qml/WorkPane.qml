@@ -19,6 +19,8 @@ Pane {
     readonly property int sizeWidth: 80
     readonly property int seedersWidth: 48
     readonly property bool showTorrentColumns: filteredVariants.hasTorrents
+    readonly property bool selectedForReading: backend.selectedVariantKind === "manga"
+        || backend.selectedVariantKind === "text"
     readonly property int selectedRow: {
         return filteredVariants.count > 0 ? filteredVariants.indexOfId(backend.selectedVariantId) : -1;
     }
@@ -40,7 +42,7 @@ Pane {
         if (backend.selectedVariantState !== Search.Available || backend.resolving || selectedRow < 0)
             return;
 
-        if (backend.selectedVariantKind === "manga")
+        if (selectedForReading)
             backend.openReader();
         else
             backend.resolveVariant(backend.selectedVariantId);
@@ -101,9 +103,9 @@ Pane {
             ActionButton {
                 objectName: "contentDownload"
                 theme: root.theme
-                text: root.backend.selectedVariantKind === "manga" ? qsTr("Read")
+                text: root.selectedForReading ? qsTr("Read")
                     : root.backend.selectedVariantKind === "video" ? qsTr("Watch") : qsTr("Download")
-                icon.source: root.theme.iconSource(root.backend.selectedVariantKind === "manga" ? "help-contents"
+                icon.source: root.theme.iconSource(root.selectedForReading ? "help-contents"
                     : root.backend.selectedVariantKind === "video" ? "torrent-start" : "download")
                 highlighted: true
                 enabled: root.backend.selectedVariantState === Search.Available && !root.backend.resolving && root.selectedRow >= 0

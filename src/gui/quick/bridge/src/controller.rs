@@ -826,7 +826,7 @@ impl Default for ContentControllerRust {
         let browser = browser::BrowserService::new(std::path::PathBuf::from(
             ffi::browser_discovery_path().to_string(),
         ));
-        let services = catalog::Catalog::new()
+        let services = catalog::Catalog::new(browser.client())
             .map_err(|error| error.to_string())
             .and_then(|catalog| {
                 Builder::new_multi_thread()

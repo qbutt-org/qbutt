@@ -84,9 +84,6 @@ impl TextChapter {
         let mut builder = ChapterBuilder::default();
         builder.visit(fragment.root_element(), false, false, 0)?;
         builder.finish(TextBlockKind::Paragraph)?;
-        if builder.blocks.is_empty() {
-            return Err(Error::InvalidResponse("chapter text is empty"));
-        }
         Self::from_blocks(reference, builder.blocks)
     }
 

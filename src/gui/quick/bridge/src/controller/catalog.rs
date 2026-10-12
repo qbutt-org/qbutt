@@ -2,10 +2,14 @@
 
 use std::sync::Arc;
 
+use qbutt_content::browser::BrowserChoice;
 use qbutt_content::{
-    AniLiberty, Chapter, FitGirl, MangaDex, MangaLib, Nyaa, ResolvedContent, RuTor, Rutube, Source,
-    SourceOperation, Work, YummyAnime,
+    AniLiberty, Chapter, ChapterRef, FitGirl, Kakuyomu, MangaDex, MangaLib, Nyaa, RanobeLib,
+    ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation, TextChapter,
+    Work, YummyAnime,
 };
+
+use super::browser::BrowserClient;
 
 pub enum SourceResponse {
     Search(Vec<Work>),
@@ -17,27 +21,37 @@ pub enum SourceResponse {
 }
 
 pub(super) struct Catalog {
+    browser: BrowserClient,
     aniliberty: AniLiberty,
     yummyanime: YummyAnime,
     pub(super) mangadex: Arc<MangaDex>,
     pub(super) mangalib: Arc<MangaLib>,
     rutor: RuTor,
+    rutracker: RuTracker,
     nyaa: Nyaa,
     rutube: Rutube,
     fitgirl: FitGirl,
+    ranobelib: RanobeLib,
+    royalroad: RoyalRoad,
+    kakuyomu: Kakuyomu,
 }
 
 impl Catalog {
-    pub(super) fn new() -> qbutt_content::Result<Self> {
+    pub(super) fn new(browser: BrowserClient) -> qbutt_content::Result<Self> {
         Ok(Self {
+            browser,
             aniliberty: AniLiberty::new()?,
             yummyanime: YummyAnime::new()?,
             mangadex: Arc::new(MangaDex::new()?),
             mangalib: Arc::new(MangaLib::new()?),
             rutor: RuTor::new()?,
+            rutracker: RuTracker::new()?,
             nyaa: Nyaa::new()?,
             rutube: Rutube::new()?,
             fitgirl: FitGirl::new()?,
+            ranobelib: RanobeLib::new()?,
+            royalroad: RoyalRoad::new()?,
+            kakuyomu: Kakuyomu::new()?,
         })
     }
 
@@ -63,9 +77,22 @@ impl Catalog {
                     }
                     Source::MangaLib => self.mangalib.search(query).await,
                     Source::RuTor => self.rutor.search(query, *category).await,
+                    Source::RuTracker => {
+                        self.rutracker
+                            .search(
+                                query,
+                                *category,
+                                self.browser.existing_handle().await.as_ref(),
+                                BrowserChoice::Auto,
+                            )
+                            .await
+                    }
                     Source::Nyaa => self.nyaa.search(query, *category).await,
                     Source::Rutube => self.rutube.search(query, *category).await,
                     Source::FitGirl => self.fitgirl.search(query, *category).await,
+                    Source::RanobeLib => self.ranobelib.search(query).await,
+                    Source::RoyalRoad => self.royalroad.search(query).await,
+                    Source::Kakuyomu => self.kakuyomu.search(query).await,
                 }?;
                 Ok(SourceResponse::Search(works))
             }
@@ -83,9 +110,21 @@ impl Catalog {
                     }
                     Source::MangaLib => self.mangalib.inspect(reference).await,
                     Source::RuTor => self.rutor.inspect(reference).await,
+                    Source::RuTracker => {
+                        self.rutracker
+                            .inspect(
+                                reference,
+                                self.browser.existing_handle().await.as_ref(),
+                                BrowserChoice::Auto,
+                            )
+                            .await
+                    }
                     Source::Nyaa => self.nyaa.inspect(reference).await,
                     Source::Rutube => self.rutube.inspect(reference).await,
                     Source::FitGirl => self.fitgirl.inspect(reference).await,
+                    Source::RanobeLib => self.ranobelib.inspect(reference).await,
+                    Source::RoyalRoad => self.royalroad.inspect(reference).await,
+                    Source::Kakuyomu => self.kakuyomu.inspect(reference).await,
                 }?;
                 Ok(SourceResponse::Inspect(work))
             }
@@ -94,12 +133,23 @@ impl Catalog {
                     Source::AniLiberty => self.aniliberty.resolve(reference).await,
                     Source::YummyAnime => self.yummyanime.resolve(reference).await,
                     Source::RuTor => self.rutor.resolve(reference).await,
+                    Source::RuTracker => {
+                        self.rutracker
+                            .resolve(
+                                reference,
+                                self.browser.existing_handle().await.as_ref(),
+                                BrowserChoice::Auto,
+                            )
+                            .await
+                    }
                     Source::Nyaa => self.nyaa.resolve(reference).await,
                     Source::Rutube => self.rutube.resolve(reference).await,
                     Source::FitGirl => self.fitgirl.resolve(reference).await,
-                    Source::MangaDex | Source::MangaLib => {
-                        Err(qbutt_content::Error::InvalidReference)
-                    }
+                    Source::MangaDex
+                    | Source::MangaLib
+                    | Source::RanobeLib
+                    | Source::RoyalRoad
+                    | Source::Kakuyomu => Err(qbutt_content::Error::InvalidReference),
                 }?;
                 Ok(SourceResponse::Resolve(resolved))
             }
@@ -107,9 +157,21 @@ impl Catalog {
                 let chapters = match reference.publication.source {
                     Source::MangaDex => self.mangadex.chapters(reference).await,
                     Source::MangaLib => self.mangalib.chapters(reference).await,
+                    Source::RanobeLib => self.ranobelib.chapters(reference).await,
+                    Source::RoyalRoad => self.royalroad.chapters(reference).await,
+                    Source::Kakuyomu => self.kakuyomu.chapters(reference).await,
                     _ => Err(qbutt_content::Error::InvalidReference),
                 }?;
                 Ok(SourceResponse::Chapters(chapters))
+            }
+            SourceOperation::Chapter(reference)
+                if matches!(
+                    reference.variant.publication.source,
+                    Source::RanobeLib | Source::RoyalRoad | Source::Kakuyomu
+                ) =>
+            {
+                self.text_chapter(reference).await?;
+                Ok(SourceResponse::Chapter)
             }
             SourceOperation::Chapter(reference) | SourceOperation::ReaderPage { reference, .. } => {
                 let pages = match reference.variant.publication.source {
@@ -132,6 +194,18 @@ impl Catalog {
                     Ok(SourceResponse::Chapter)
                 }
             }
+        }
+    }
+
+    pub(super) async fn text_chapter(
+        &self,
+        reference: &ChapterRef,
+    ) -> qbutt_content::Result<TextChapter> {
+        match reference.variant.publication.source {
+            Source::RanobeLib => self.ranobelib.chapter_text(reference).await,
+            Source::RoyalRoad => self.royalroad.chapter_text(reference).await,
+            Source::Kakuyomu => self.kakuyomu.chapter_text(reference).await,
+            _ => Err(qbutt_content::Error::InvalidReference),
         }
     }
 }

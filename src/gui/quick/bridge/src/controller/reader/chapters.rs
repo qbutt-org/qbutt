@@ -198,6 +198,9 @@ impl ffi::ContentController {
             .pages
             .pin_mut()
             .reset(generation, 0);
+        if self.reader.reference.is_none() || self.reader.chapter.generation != generation {
+            return;
+        }
         self.as_mut()
             .rust_mut()
             .reader
