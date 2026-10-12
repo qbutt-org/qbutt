@@ -165,6 +165,9 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
                 variant.transport == Transport::Torrent
             }
             (Source::AniLiberty, _) => variant.transport == Transport::Video,
+            (Source::YummyAnime, VariantSelector::YummyAnimeVideo { .. }) => {
+                variant.transport == Transport::Video
+            }
             (Source::MangaDex, VariantSelector::MangaTranslation { .. }) => {
                 variant.transport == Transport::Manga
             }
