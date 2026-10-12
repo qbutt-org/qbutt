@@ -67,8 +67,7 @@ impl AnimeSpirit {
     }
 
     pub async fn inspect(&self, publication: &PublicationRef) -> Result<Work> {
-        let (document, mut work) = self.publication(publication).await?;
-        let players = players(&document)?;
+        let (mut work, players) = self.publication(publication).await?;
         let mut variants = Vec::new();
         let mut seen = HashSet::new();
         for player in players {
@@ -130,8 +129,8 @@ impl AnimeSpirit {
         else {
             return Err(Error::InvalidReference);
         };
-        let (document, work) = self.publication(&selected.publication).await?;
-        let mut matching = players(&document)?.into_iter().filter(|player| {
+        let (work, players) = self.publication(&selected.publication).await?;
+        let mut matching = players.into_iter().filter(|player| {
             player.kind == *player_kind && player.id == *player_id && player.voice == *voice
         });
         let mut player = matching.next().ok_or(Error::VariantUnavailable)?;
@@ -157,7 +156,7 @@ impl AnimeSpirit {
         })
     }
 
-    async fn publication(&self, publication: &PublicationRef) -> Result<(Html, Work)> {
+    async fn publication(&self, publication: &PublicationRef) -> Result<(Work, Vec<Player>)> {
         let id = publication.animespirit_id()?;
         let url = self
             .origin
@@ -172,7 +171,8 @@ impl AnimeSpirit {
         if work.reference != *publication {
             return Err(Error::VariantUnavailable);
         }
-        Ok((document, work))
+        let players = players(&document)?;
+        Ok((work, players))
     }
 
     async fn document(&self, url: Url) -> Result<Html> {

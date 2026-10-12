@@ -1,11 +1,15 @@
 //! Live catalog and exact Kodik descriptor acceptance; no video payload is read.
 
+use std::sync::Arc;
+
 use qbutt_content::{AnimeSpirit, Error, ResolvedContent, Source, VariantSelector};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let source = AnimeSpirit::new()?;
-    let found = source.search("Magical Explorer").await?;
+    let source = Arc::new(AnimeSpirit::new()?);
+    let search_source = Arc::clone(&source);
+    let found =
+        tokio::spawn(async move { search_source.search("Magical Explorer").await }).await??;
     let publication = found
         .iter()
         .find(|work| work.reference.source == Source::AnimeSpirit && work.reference.id == "16461")
@@ -19,7 +23,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .any(|work| work.reference == publication.reference)
     );
 
-    let inspected = source.inspect(&publication.reference).await?;
+    let inspect_source = Arc::clone(&source);
+    let inspect_reference = publication.reference.clone();
+    let inspected =
+        tokio::spawn(async move { inspect_source.inspect(&inspect_reference).await }).await??;
     assert_eq!(inspected.reference, publication.reference);
     assert!(!inspected.needs_inspection);
     let selected = inspected
@@ -40,7 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(!encoded.contains("kodikplayer.com"));
     assert!(!encoded.contains("only_translations="));
 
-    match source.resolve(&selected.reference).await? {
+    let resolve_source = Arc::clone(&source);
+    let resolve_reference = selected.reference.clone();
+    let resolved =
+        tokio::spawn(async move { resolve_source.resolve(&resolve_reference).await }).await??;
+    match resolved {
         ResolvedContent::DirectVideo {
             reference,
             url,
