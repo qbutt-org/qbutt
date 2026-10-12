@@ -96,6 +96,7 @@ ModalPicker {
                         theme: root.theme
                         visible: sourceRow.model.failed
                         text: qsTr("Try again")
+                        Accessible.name: qsTr("Retry %1").arg(sourceRow.model.name)
                         enabled: sourceRow.model.enabled && !sourceRow.model.pending && !sourceRow.model.retrying
                         onClicked: root.backend.retrySource(sourceRow.model.sourceId)
                     }

@@ -18974,6 +18974,10 @@ Please choose a different name and try again.</source>
 <context>
     <name>SourcePicker</name>
     <message>
+        <source>Retry %1</source>
+        <translation>Повторить %1</translation>
+    </message>
+    <message>
         <source>Sources</source>
         <translation>Источники</translation>
     </message>
