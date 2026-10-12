@@ -22,8 +22,6 @@ mod torrent;
 mod yummyanime;
 
 pub use aniliberty::AniLiberty;
-#[cfg(windows)]
-pub use browser::*;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
     ReaderMode, ReaderProgress, ReaderSettings, VariantFilters, VariantPreferences,
