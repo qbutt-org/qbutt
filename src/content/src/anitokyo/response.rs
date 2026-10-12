@@ -239,7 +239,11 @@ fn work(article: ElementRef<'_>, origin: &Url, canonical: Option<&Url>) -> Resul
     };
     let reference = publication_ref(&url)?;
 
-    let cover = optional(article, "img.poster[src]")?
+    let poster = optional(
+        article,
+        ".story-poster img.poster[src], .story-poster-list img.poster[src]",
+    )?;
+    let cover = poster
         .map(|image| {
             let cover = origin
                 .join(image.value().attr("src").expect("selected poster src"))

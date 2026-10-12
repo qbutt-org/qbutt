@@ -141,6 +141,20 @@ and 720p on Kodik, and rejects changed episode, voice and player selectors. It
 requests catalog/player metadata and HLS manifests; it does not establish media
 playback, browser capture or the native Qt interface.
 
+AniTokyo has a generated parser/identity scenario and a bounded live resolver check:
+
+```powershell
+cargo run --locked --offline -p qbutt-content --example anitokyo-fixtures
+cargo run --locked -p qbutt-content --example anitokyo
+```
+
+The generated scenario checks search, the primary poster amid related titles,
+exact dubbing/episode identity, unreleased works with no variants and unsafe
+player addresses. The live check searches and inspects Psyren, then resolves its
+selected dubbed and subtitled episodes through AniTokyo and Kodik to 720p HLS
+manifests. It does not download video segments or establish playback in qplay or
+Qt.
+
 Rutube has generated HTTPS/fault and two-process library checks, plus a bounded
 live metadata/manifest check using Big Buck Bunny:
 

@@ -26,14 +26,27 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         source: Source::AniTokyo,
         id: "42".into(),
     };
+    let cover = Url::parse("https://atw.picmap.top/generated-primary.jpg")?;
     let search = format!(
-        "<form id='fullsearch'><input name='do' value='search'><input id='searchinput' name='story' value='commons'></form><main class='main'><article class='story shortstory'><h2 class='story-title'><a href='{canonical}'>Generated Commons / Open Demo (2 из 4)</a></h2></article></main>"
+        r#"<form id='fullsearch'>
+                <input name='do' value='search'>
+                <input id='searchinput' name='story' value='commons'>
+            </form>
+            <main class='main'>
+                <article class='story shortstory'>
+                    <h2 class='story-title'>
+                        <a href='{canonical}'>Generated Commons / Open Demo (2 из 4)</a>
+                    </h2>
+                    <div class='story-poster'><a><img class='poster' src='{cover}'></a></div>
+                </article>
+            </main>"#
     );
     let results = response::search(&search, &origin, "commons")?;
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "Generated Commons");
     assert_eq!(results[0].aliases, ["Open Demo"]);
     assert_eq!(results[0].reference, reference);
+    assert_eq!(results[0].cover.as_ref(), Some(&cover));
     assert!(results[0].needs_inspection && results[0].variants.is_empty());
     assert!(response::search(&search, &origin, "changed").is_err());
     assert!(response::search(
@@ -71,10 +84,27 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     });
     let page = |groups: &serde_json::Value| {
         format!(
-            "<link rel='canonical' href='{canonical}'><main class='main'><article class='story fullstory'><h1 class='story-title'>Generated Commons / Open Demo (2 из 4)</h1><section class='story-player'><script>RalodePlayer.init({groups},{{}},[]);</script></section></article></main>"
+            r#"<link rel='canonical' href='{canonical}'>
+                <main class='main'>
+                    <article class='story fullstory'>
+                        <h1 class='story-title'>Generated Commons / Open Demo (2 из 4)</h1>
+                        <div class='story-poster-list'>
+                            <a><img class='poster' src='{cover}'></a>
+                        </div>
+                        <section class='story-player'>
+                            <script>RalodePlayer.init({groups},{{}},[]);</script>
+                        </section>
+                        <article class='related-item'>
+                            <div class='related-poster'>
+                                <a><img class='poster' src='https://atw.picmap.top/other-work.jpg'></a>
+                            </div>
+                        </article>
+                    </article>
+                </main>"#
         )
     };
     let publication = response::publication(&page(&groups), &origin, &canonical, &reference)?;
+    assert_eq!(publication.work.cover.as_ref(), Some(&cover));
     assert_eq!(publication.work.variants.len(), 2);
     assert_eq!(publication.videos.len(), 2);
     assert_eq!(publication.videos[0].url.path(), "/video.php");
