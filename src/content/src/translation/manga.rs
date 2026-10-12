@@ -9,6 +9,9 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 
+use crate::ChapterRef;
+use crate::library::TranslationCacheKey;
+
 use super::codex::{
     self, CodexCompletion, CodexError, CodexRequest, FunctionTool, InputImage, ToolCall,
     ToolFuture, ToolHandler, ToolOutput,
@@ -17,7 +20,7 @@ use super::codex::{
 const MAX_REGIONS: usize = 60;
 const MAX_INK_BOXES: usize = 4096;
 const MAX_RENDERS: usize = 3;
-const PIPELINE_VERSION: &str = "manga-codex-render-v1";
+const PIPELINE_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Rect {
@@ -50,13 +53,6 @@ impl Rect {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Orientation {
-    Horizontal,
-    Vertical,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
 pub enum Ink {
     Dark,
     Light,
@@ -70,7 +66,6 @@ pub struct PageRegion {
     pub translation: String,
     pub bounds: Rect,
     pub layout: Rect,
-    pub orientation: Orientation,
     pub ink: Ink,
     pub ink_boxes: Vec<Rect>,
 }
@@ -100,17 +95,11 @@ pub struct PageJob {
     pub work_context: Value,
     pub model: Option<String>,
     pub effort: Option<String>,
-    pub renderer_version: String,
 }
 
 pub struct PageResult {
     pub regions: Vec<PageRegion>,
     pub layers: RenderLayers,
-    pub revision: usize,
-    pub model: String,
-    pub effort: String,
-    pub usage: Option<codex::TokenUsage>,
-    pub cache_key: String,
 }
 
 struct Revision {
@@ -238,7 +227,6 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
         || job.target_language.len() > 32
         || job.source_language.trim().is_empty()
         || job.source_language.len() > 32
-        || job.renderer_version.trim().is_empty()
         || job.work_context.to_string().len() > 32 * 1024
     {
         return Err(CodexError::Protocol);
@@ -292,12 +280,7 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     let result = codex::complete(request, &mut tools, cancelled.clone()).await;
     tools.cancelled.store(true, Ordering::Release);
     watcher.abort();
-    let CodexCompletion {
-        value,
-        model,
-        effort,
-        usage,
-    } = result?;
+    let CodexCompletion { value, .. } = result?;
     let revision = value
         .get("revision")
         .and_then(Value::as_u64)
@@ -314,16 +297,81 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
             "The selected render still contains untranslated or overflowing regions".into(),
         ));
     }
-    let cache_key = cache_key(&job, &model, &effort);
     Ok(PageResult {
         regions: accepted.regions,
         layers: accepted.layers,
-        revision,
-        model,
-        effort,
-        usage,
-        cache_key,
     })
+}
+
+pub fn input_image(bytes: Vec<u8>) -> codex::Result<InputImage> {
+    let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        "image/jpeg"
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        "image/webp"
+    } else {
+        return Err(CodexError::Image);
+    };
+    Ok(InputImage { mime, bytes })
+}
+
+pub fn cache_key(
+    chapter: ChapterRef,
+    page: u32,
+    original: &InputImage,
+    target_language: &str,
+    model: &str,
+    effort: &str,
+    context_revision: u64,
+) -> TranslationCacheKey {
+    let digest = Sha256::digest(&original.bytes);
+    TranslationCacheKey {
+        chapter,
+        page: Some(page),
+        target_language: target_language.to_owned(),
+        original_digest: format!("{digest:x}"),
+        provider: "codex".into(),
+        model: model.to_owned(),
+        effort: effort.to_owned(),
+        context_revision,
+        pipeline: PIPELINE_VERSION,
+    }
+}
+
+pub async fn render_cached<R: PageRenderer>(
+    original: InputImage,
+    regions: Vec<PageRegion>,
+    renderer: Arc<R>,
+    cancelled: watch::Receiver<bool>,
+) -> codex::Result<RenderLayers> {
+    validate_regions(&regions)?;
+    let flag = Arc::new(AtomicBool::new(*cancelled.borrow()));
+    let render_flag = Arc::clone(&flag);
+    let mut cancellation = cancelled;
+    let watcher = tokio::spawn(async move {
+        while cancellation.changed().await.is_ok() {
+            if *cancellation.borrow() {
+                render_flag.store(true, Ordering::Release);
+                break;
+            }
+        }
+    });
+    let native_flag = Arc::clone(&flag);
+    let rendered = tokio::task::spawn_blocking(move || {
+        let layers = renderer.render(&original, &regions, native_flag)?;
+        if !all_regions_rendered(&regions, &layers.diagnostics) {
+            return Err(CodexError::Tool(
+                "Cached manga translation cannot be rendered".into(),
+            ));
+        }
+        Ok(layers)
+    })
+    .await
+    .map_err(|_| CodexError::Provider)?;
+    flag.store(true, Ordering::Release);
+    watcher.abort();
+    rendered
 }
 
 fn all_regions_rendered(regions: &[PageRegion], diagnostics: &Value) -> bool {
@@ -335,25 +383,6 @@ fn all_regions_rendered(regions: &[PageRegion], diagnostics: &Value) -> bool {
             result.get("id").and_then(Value::as_str) == Some(region.id.as_str())
                 && result.get("status").and_then(Value::as_str) == Some("Rendered")
         })
-}
-
-fn cache_key(job: &PageJob, model: &str, effort: &str) -> String {
-    let mut hash = Sha256::new();
-    hash.update(
-        json!({
-            "pipeline": PIPELINE_VERSION,
-            "renderer": job.renderer_version,
-            "mime": job.original.mime,
-            "sourceLanguage": job.source_language,
-            "targetLanguage": job.target_language,
-            "workContext": job.work_context,
-            "model": model,
-            "effort": effort
-        })
-        .to_string(),
-    );
-    hash.update(&job.original.bytes);
-    format!("{:x}", hash.finalize())
 }
 
 fn validate_regions(regions: &[PageRegion]) -> codex::Result<()> {
@@ -427,10 +456,9 @@ fn page_tools() -> Vec<FunctionTool> {
                     "translation": {"type": "string"},
                     "bounds": rect,
                     "layout": rect,
-                    "orientation": {"type": "string", "enum": ["horizontal", "vertical"]},
                     "ink": {"type": "string", "enum": ["dark", "light"]},
                     "inkBoxes": {"type": "array", "minItems": 1, "maxItems": 512, "items": rect}
-                }, "required": ["id", "sourceText", "translation", "bounds", "layout", "orientation", "ink", "inkBoxes"],
+                }, "required": ["id", "sourceText", "translation", "bounds", "layout", "ink", "inkBoxes"],
                     "additionalProperties": false}
             }}, "required": ["regions"], "additionalProperties": false}),
         },
