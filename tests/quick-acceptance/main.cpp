@@ -219,11 +219,9 @@ namespace
             require(!title.isEmpty(), u"Search returned an unnamed work"_s);
             const QString source = value(works, row, "source");
             const QString category = value(works, row, "category");
-            require(((source == u"AniLiberty") && (category == u"anime"))
-                || ((source == u"MangaDex") && (category == u"manga"))
-                || ((source == u"RuTor") && QStringList {u"movies"_s, u"tv"_s, u"anime"_s,
-                    u"games"_s, u"software"_s, u"books"_s}.contains(category)),
-                u"Incorrect work source or category role"_s);
+            require(!source.isEmpty() && QStringList {u"movies"_s, u"tv"_s, u"anime"_s,
+                u"manga"_s, u"games"_s, u"software"_s, u"books"_s}.contains(category),
+                u"Incorrect work source or category role: %1 / %2"_s.arg(source, category));
             if (source == u"AniLiberty")
             {
                 require(title.contains(u"Frieren"_s, Qt::CaseInsensitive) || title.contains(u"Фрирен"_s, Qt::CaseInsensitive),
@@ -323,21 +321,33 @@ namespace
         cancelledOperationAge.start();
 
         identities.clear();
+        QSet<QString> variantSources;
+        int torrentRow = -1;
         for (const QByteArray &name : {QByteArray("quality"), QByteArray("sizeText"), QByteArray("seedersText"), QByteArray("infoHash")})
             role(variants, name);
         for (int row = 0; row < variants->rowCount(); ++row)
         {
             const QString id = value(variants, row, "variantId");
             const QString kind = value(variants, row, "kind");
+            const QString sourceId = value(variants, row, "sourceId");
             require(!identities.contains(id), u"Variant identity is duplicated"_s);
-            require(((kind == u"torrent") && id.startsWith(selectedWork + u":torrent:"_s))
-                || ((kind == u"video") && (id.startsWith(selectedWork + u":episode:"_s)
-                    || id.startsWith(selectedWork + u":rutube:"_s))),
+            require(id.startsWith(sourceId + u":"_s)
+                && (((kind == u"torrent") && id.contains(u":torrent:"_s))
+                    || ((kind == u"video") && (id.contains(u":episode:"_s)
+                        || id.contains(u":rutube:"_s) || id.contains(u":video:"_s)))),
                 u"Variant identity belongs to another publication or does not match its action kind"_s);
             require(!value(variants, row, "label").isEmpty(), u"Variant has no label"_s);
-            require(value(variants, row, "source") == u"AniLiberty", u"Incorrect variant source role"_s);
+            require(!value(variants, row, "source").isEmpty(), u"Variant source role is missing"_s);
+            variantSources.insert(sourceId);
+            if (kind == u"torrent")
+                torrentRow = row;
             identities.insert(id);
         }
+        QStringList variantSourceList;
+        for (const auto &sourceId : variantSources)
+            variantSourceList.append(sourceId);
+        qInfo().noquote() << "GROUP variant_sources=" << variantSourceList.join(u","_s);
+        require(torrentRow >= 0, u"Confirmed work has no torrent variant for native handoff"_s);
 
         QPointer<QQuickItem> variantView = view->rootObject()->findChild<QQuickItem *>(u"contentVariants"_s);
         require(variantView, u"The production variants view is missing"_s);
@@ -349,17 +359,21 @@ namespace
         QCoreApplication::sendEvent(view, &selectLastPress);
         QKeyEvent selectLastRelease(QEvent::KeyRelease, Qt::Key_End, Qt::NoModifier);
         QCoreApplication::sendEvent(view, &selectLastRelease);
-        const int selectedRow = variants->rowCount() - 1;
-        const QString selectedVariant = value(variants, selectedRow, "variantId");
-        require((variantView->property("currentIndex").toInt() == selectedRow)
-            && (controller->property("selectedVariantId").toString() == selectedVariant)
+        const int lastRow = variants->rowCount() - 1;
+        waitFor([&] { return variantView->property("currentIndex").toInt() == lastRow; }, 2'000,
+            u"Grouped variant projection after keyboard selection"_s);
+        require((variantView->property("currentIndex").toInt() == lastRow)
+            && (controller->property("selectedVariantId").toString() == value(variants, lastRow, "variantId"))
             && (controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
                 == Qbutt::Search::VariantSelectionState::Available),
             u"Keyboard variant highlight and exact selection differ"_s);
-        require((value(variants, selectedRow, "kind") == u"torrent")
+        const QString selectedVariant = value(variants, torrentRow, "variantId");
+        controller->selectVariant(selectedVariant);
+        require((controller->property("selectedVariantId").toString() == selectedVariant)
+            && (value(variants, torrentRow, "kind") == u"torrent")
             && (controller->property("selectedVariantKind").toString() == u"torrent"),
-            u"Keyboard handoff did not select a torrent variant"_s);
-        const QString expectedHash = value(variants, selectedRow, "infoHash").toLower();
+            u"Exact selection did not choose a torrent variant"_s);
+        const QString expectedHash = value(variants, torrentRow, "infoHash").toLower();
         require(expectedHash.size() == 40, u"Selected torrent has no verifiable infohash"_s);
         QString receivedMagnet;
         int torrentSignals = 0;

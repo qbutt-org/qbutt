@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "reader-progress.h"
+#include "group-entry.h"
 
 #include <functional>
 #include <limits>
@@ -327,7 +328,7 @@ void exerciseReaderProgress()
     require((restores.size() == 1) && (restores.last().page == 0) && (restores.last().offset == 0),
         u"Initial seek did not request the exact first page once"_s);
     const QJsonObject firstShown = entry(database);
-    const QJsonObject knownWork = firstShown.value(u"work"_s).toObject();
+    const QJsonObject knownWork = GroupEntry::anchorWork(firstShown);
     const QJsonObject opened = firstShown.value(u"last_opened"_s).toObject();
     require(!knownWork.value(u"title"_s).toString().isEmpty()
         && (knownWork.value(u"variants"_s).toArray().size() == model(*controller, "variants")->rowCount())
@@ -518,7 +519,7 @@ void exerciseReaderProgress()
         && (controller->property("readerPageUrl").toUrl() == unshownPage)
         && (restores.size() == restoresBeforePreviousRetry),
         u"Retry lost the immutable shown page after an unshown selection"_s);
-    require((retriedPage.value(u"work"_s) == beforePreviousPageFault.value(u"work"_s))
+    require((retriedPage.value(u"group"_s) == beforePreviousPageFault.value(u"group"_s))
         && (retriedPage.value(u"preferences"_s).toObject() == expectedPreferences),
         u"Rendered page retry changed the captured work or selection, or restored older filters"_s);
     controller->readerPageShown(controller->property("readerPageIndex").toInt(), unshownPage);

@@ -143,19 +143,14 @@ impl ffi::ContentController {
     }
 
     pub(super) fn variant_selection_state(&self) -> ffi::VariantSelectionState {
+        if self.inspecting {
+            return ffi::VariantSelectionState::Inspecting;
+        }
         if self.selected_variant_id.is_empty() {
-            return if self.inspecting {
-                ffi::VariantSelectionState::Inspecting
-            } else {
-                ffi::VariantSelectionState::None
-            };
+            return ffi::VariantSelectionState::None;
         }
         let Some(variant) = self.variants.find(&self.selected_variant_id.to_string()) else {
-            return if self.inspecting {
-                ffi::VariantSelectionState::Inspecting
-            } else {
-                ffi::VariantSelectionState::Unavailable
-            };
+            return ffi::VariantSelectionState::Unavailable;
         };
         if self.source_enabled(variant.reference.publication.source) {
             ffi::VariantSelectionState::Available
@@ -263,6 +258,7 @@ impl ffi::ContentController {
         }
         if should_inspect {
             self.as_mut().inspecting_changed();
+            self.as_mut().selected_variant_state_changed();
         }
         if self.inspection.generation != generation {
             return;

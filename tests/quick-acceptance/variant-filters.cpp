@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "variant-filters.h"
+#include "group-entry.h"
 
 #include <functional>
 #include <stdexcept>
@@ -104,14 +105,15 @@ namespace
         {
             filters.insert(name, QJsonValue());
         }
-        return {
-            {u"work"_s, QJsonObject {
+        const QJsonObject work {
                 {u"reference"_s, publication}, {u"title"_s, u"Generated series %1"_s.arg(number)},
                 {u"category"_s, u"anime"_s}, {u"url"_s, u"https://example.com/series/%1"_s.arg(number)},
                 {u"cover"_s, QJsonValue()}, {u"description"_s, QJsonValue()}, {u"year"_s, 2026},
                 {u"aliases"_s, QJsonArray()}, {u"identifiers"_s, QJsonObject()},
                 {u"needs_inspection"_s, false}, {u"variants"_s, variants}
-            }},
+        };
+        return {
+            {u"group"_s, GroupEntry::single(work)},
             {u"preferences"_s, QJsonObject {
                 {u"selected"_s, variants.first().toObject().value(u"reference"_s)}, {u"filters"_s, filters}
             }},
@@ -444,7 +446,7 @@ void exerciseVariantFilters()
         preferences = savedEntry(database, 1).value(u"preferences"_s);
         require(preferences.toObject().value(u"filters"_s).toObject().value(u"query"_s).toString() == u"1080"_s,
             u"Text query was not persisted"_s);
-        require(savedEntry(database, 1).value(u"work"_s).toObject().value(u"variants"_s).toArray().size() == 48,
+        require(GroupEntry::anchorWork(savedEntry(database, 1)).value(u"variants"_s).toArray().size() == 48,
             u"Persisting filtered preferences truncated the stored work"_s);
         screen.render(u"filtered-1440"_s);
         screen.select(2);

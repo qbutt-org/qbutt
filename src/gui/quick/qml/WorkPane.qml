@@ -24,6 +24,7 @@ Pane {
     readonly property int selectedRow: {
         return filteredVariants.count > 0 ? filteredVariants.indexOfId(backend.selectedVariantId) : -1;
     }
+    onSelectedRowChanged: variants.currentIndex = selectedRow
 
     VariantFilterModel {
         id: filteredVariants
@@ -209,8 +210,7 @@ Pane {
             Layout.fillHeight: true
             clip: true
             model: filteredVariants
-            currentIndex: filteredVariants.count > 0 && root.backend.selectedVariantState === Search.Available
-                ? root.selectedRow : -1
+            currentIndex: -1
             spacing: 2
             activeFocusOnTab: true
             keyNavigationEnabled: true

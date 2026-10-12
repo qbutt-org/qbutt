@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "category.h"
+#include "group-entry.h"
 
 #include <functional>
 #include <memory>
@@ -91,17 +92,21 @@ namespace
     {
         const QString category = QStringList {u"books"_s, u"games"_s, u"software"_s}.at((number - 1) % 3);
         const QString text = uR"({
-            "work": {
-                "reference": {"source": "ru_tor", "id": "%1"},
-                "title": "Generated category publication %1", "category": "%2",
-                "url": "https://example.com/generated/%1", "cover": null, "description": null,
-                "year": 2026, "aliases": [], "identifiers": {}, "needs_inspection": true,
-                "variants": [{
-                    "reference": {"publication": {"source": "ru_tor", "id": "%1"},
-                        "selector": {"torrent_hash": {"info_hash": "%3"}}},
-                    "title": null, "transport": "torrent", "episode": null, "quality": null,
-                    "translation": null, "languages": [], "player": null, "size": null,
-                    "seeders": null, "info_hash": "%3", "reported_video_ads": false
+            "group": {
+                "anchor": {"source": "ru_tor", "id": "%1"},
+                "references": [{"source": "ru_tor", "id": "%1"}],
+                "publications": [{
+                    "reference": {"source": "ru_tor", "id": "%1"},
+                    "title": "Generated category publication %1", "category": "%2",
+                    "url": "https://example.com/generated/%1", "cover": null, "description": null,
+                    "year": 2026, "aliases": [], "identifiers": {}, "needs_inspection": true,
+                    "variants": [{
+                        "reference": {"publication": {"source": "ru_tor", "id": "%1"},
+                            "selector": {"torrent_hash": {"info_hash": "%3"}}},
+                        "title": null, "transport": "torrent", "episode": null, "quality": null,
+                        "translation": null, "languages": [], "player": null, "size": null,
+                        "seeders": null, "info_hash": "%3", "reported_video_ads": false
+                    }]
                 }]
             },
             "preferences": {
@@ -122,7 +127,7 @@ namespace
 
     QString entryKey(const QJsonObject &metadata)
     {
-        const auto reference = metadata.value(u"work"_s).toObject().value(u"reference"_s).toObject();
+        const auto reference = metadata.value(u"group"_s).toObject().value(u"anchor"_s).toObject();
         return u"{\"source\":\"%1\",\"id\":\"%2\"}"_s.arg(reference.value(u"source"_s).toString(),
             reference.value(u"id"_s).toString());
     }
@@ -145,7 +150,7 @@ namespace
         while (query.next())
         {
             const auto metadata = QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object();
-            const auto reference = metadata.value(u"work"_s).toObject().value(u"reference"_s).toObject();
+            const auto reference = metadata.value(u"group"_s).toObject().value(u"anchor"_s).toObject();
             if (u"rutor:"_s + reference.value(u"id"_s).toString() == publication)
                 return metadata;
         }
@@ -304,9 +309,9 @@ namespace
             screen.visibleRows(u"books"_s);
         }
         auto changed = generatedEntry(1);
-        auto work = changed.value(u"work"_s).toObject();
+        auto work = GroupEntry::anchorWork(changed);
         work.insert(u"category"_s, u"software"_s);
-        changed.insert(u"work"_s, work);
+        GroupEntry::replaceAnchorWork(changed, work);
         writeEntry(database, changed, 6);
         require(screen.controller->refreshHistory(), u"Category snapshot refresh rejected"_s);
         settled(screen.controller);
@@ -442,9 +447,9 @@ void exerciseCategory()
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Category search owner did not drain"_s);
     auto cached = savedEntry(database, publication);
     const auto preferences = cached.value(u"preferences"_s);
-    auto work = cached.value(u"work"_s).toObject();
+    auto work = GroupEntry::anchorWork(cached);
     work.insert(u"category"_s, u"books"_s);
-    cached.insert(u"work"_s, work);
+    GroupEntry::replaceAnchorWork(cached, work);
     writeEntry(database, cached, 20);
     {
         Content::ContentView view(profile.path());

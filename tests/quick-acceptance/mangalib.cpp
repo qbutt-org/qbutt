@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "mangalib.h"
+#include "group-entry.h"
 
 #include <functional>
 #include <memory>
@@ -188,13 +189,13 @@ void exerciseMangaLib()
     controller->scrollReaderPage(second, 0.625);
     saved(controller);
     const auto captured = entry(database);
-    const auto storedVariant = captured.value(u"work"_s).toObject().value(u"variants"_s).toArray().first().toObject();
+    const auto storedVariant = GroupEntry::anchorWork(captured).value(u"variants"_s).toArray().first().toObject();
     require(storedVariant.value(u"languages"_s).toArray().isEmpty()
         && (storedVariant.value(u"translation"_s).toString() == translationLabel),
         u"MangaLib invented a translation language: "_s + translationLabel);
     const auto progress = captured.value(u"reader_progress"_s).toObject();
     const auto chapter = progress.value(u"chapter"_s).toObject();
-    require((captured.value(u"work"_s).toObject().value(u"variants"_s).toArray().size() > 0)
+    require((GroupEntry::anchorWork(captured).value(u"variants"_s).toArray().size() > 0)
         && (captured.value(u"preferences"_s).toObject().value(u"selected"_s) == chapter.value(u"variant"_s)), u"MangaLib lost full work or exact preference"_s);
     controller->selectReaderPage(40);
     require(controller->setSourceEnabled(u"mangalib"_s, false), u"MangaLib disable rejected"_s);

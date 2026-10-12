@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "history.h"
+#include "group-entry.h"
 
 #include <exception>
 #include <functional>
@@ -137,7 +138,7 @@ namespace
 
     QJsonObject variantReference(const QJsonObject &metadata, const QString &id)
     {
-        const auto variants = metadata.value(u"work"_s).toObject().value(u"variants"_s).toArray();
+        const auto variants = GroupEntry::anchorWork(metadata).value(u"variants"_s).toArray();
         for (const auto &value : variants)
         {
             const auto reference = value.toObject().value(u"reference"_s).toObject();
@@ -219,7 +220,7 @@ void exerciseHistory()
     identity.finish();
     auto metadata = entry(database, key);
     require(metadata.value(u"favorite"_s).toBool()
-        && (metadata.value(u"work"_s).toObject().value(u"variants"_s).toArray().size() > 1)
+        && (GroupEntry::anchorWork(metadata).value(u"variants"_s).toArray().size() > 1)
         && (metadata.value(u"last_opened"_s).toObject().value(u"variant"_s).toObject() == variantReference(metadata, exact)),
         u"History lost full Work, bookmark or exact opened branch"_s);
     const QJsonObject filters {
@@ -239,13 +240,13 @@ void exerciseHistory()
 
     // A second generated historical entry makes updated_at and last_opened
     // disagree. No generated publication is resolved or acquired.
-    const QString originalId = metadata.value(u"work"_s).toObject().value(u"reference"_s).toObject().value(u"id"_s).toString();
+    const QString originalId = GroupEntry::anchorWork(metadata).value(u"reference"_s).toObject().value(u"id"_s).toString();
     const QString generatedKey = QString(key).replace(originalId, generatedId);
     auto historical = QJsonDocument::fromJson(QJsonDocument(metadata).toJson(QJsonDocument::Compact)
         .replace(originalId.toUtf8(), generatedId.toUtf8())).object();
-    auto historicalWork = historical.value(u"work"_s).toObject();
+    auto historicalWork = GroupEntry::anchorWork(historical);
     historicalWork.insert(u"title"_s, u"Generated historical publication"_s);
-    historical.insert(u"work"_s, historicalWork);
+    GroupEntry::replaceAnchorWork(historical, historicalWork);
     historical.insert(u"favorite"_s, false);
     historical.insert(u"reader_progress"_s, QJsonValue::Null);
     auto opened = historical.value(u"last_opened"_s).toObject();
@@ -490,7 +491,7 @@ void exerciseHistory()
     controller.reset();
 
     auto stale = entry(database, key);
-    auto staleWork = stale.value(u"work"_s).toObject();
+    auto staleWork = GroupEntry::anchorWork(stale);
     auto staleVariants = staleWork.value(u"variants"_s).toArray();
     auto missing = staleVariants.first().toObject();
     auto missingReference = missing.value(u"reference"_s).toObject();
@@ -499,7 +500,7 @@ void exerciseHistory()
     missing.insert(u"reference"_s, missingReference);
     staleVariants.append(missing);
     staleWork.insert(u"variants"_s, staleVariants);
-    stale.insert(u"work"_s, staleWork);
+    GroupEntry::replaceAnchorWork(stale, staleWork);
     auto stalePreferences = stale.value(u"preferences"_s).toObject();
     stalePreferences.insert(u"selected"_s, missingReference);
     stale.insert(u"preferences"_s, stalePreferences);

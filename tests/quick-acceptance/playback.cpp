@@ -266,7 +266,7 @@ void exercisePlayback()
     {
         require(audit.next(), u"Immutable playback save was lost"_s);
         const auto recorded = QJsonDocument::fromJson(audit.value(0).toString().toUtf8()).object();
-        require((recorded.value(u"work"_s) == expected.value(u"work"_s))
+        require((recorded.value(u"group"_s) == expected.value(u"group"_s))
             && (recorded.value(u"preferences"_s) == expected.value(u"preferences"_s))
             && (recorded.value(u"last_opened"_s).toObject().value(u"variant"_s)
                 == expected.value(u"preferences"_s).toObject().value(u"selected"_s))
@@ -310,7 +310,7 @@ void exercisePlayback()
     const auto thirdRecorded = entry(database);
     const auto recordedPreferences = thirdRecorded.value(u"preferences"_s).toObject();
     const auto expectedSelection = thirdExpected.value(u"preferences"_s).toObject().value(u"selected"_s);
-    require((thirdRecorded.value(u"work"_s) == thirdExpected.value(u"work"_s))
+    require((thirdRecorded.value(u"group"_s) == thirdExpected.value(u"group"_s))
         && (recordedPreferences.value(u"selected"_s) == expectedSelection)
         && (thirdRecorded.value(u"last_opened"_s).toObject().value(u"variant"_s) == expectedSelection)
         && (recordedPreferences.value(u"filters"_s).toObject() == latestFilters)

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "library.h"
+#include "group-entry.h"
 
 #include <atomic>
 #include <exception>
@@ -111,7 +112,7 @@ namespace
         while (query.next())
         {
             const auto result = QJsonDocument::fromJson(query.value(1).toString().toUtf8()).object();
-            if (result.value(u"work"_s).toObject().value(u"reference"_s).toObject().value(u"id"_s).toString() == id)
+            if (result.value(u"group"_s).toObject().value(u"anchor"_s).toObject().value(u"id"_s).toString() == id)
             {
                 if (key)
                     *key = query.value(0).toString();
@@ -327,8 +328,11 @@ void exerciseLibrary()
     database.setDatabaseName(QDir(profile.path()).filePath(u"content-library.sqlite"_s));
     require(database.open(), database.lastError().text());
     auto stored = entry(database, u"9542"_s);
+    int knownVariants = 0;
+    for (const QJsonValue &publication : stored.value(u"group"_s).toObject().value(u"publications"_s).toArray())
+        knownVariants += publication.toObject().value(u"variants"_s).toArray().size();
     require(stored.value(u"last_opened"_s).isNull()
-        && (stored.value(u"work"_s).toObject().value(u"variants"_s).toArray().size() >= variantCount),
+        && (knownVariants >= variantCount),
         u"Selection wrote history or lost the whole known work"_s);
     int handoffs = 0;
     bool exactHandoff = false;
@@ -372,6 +376,7 @@ void exerciseLibrary()
             == Qbutt::Library::LibraryState::Loading;
     }, 10'000, u"SQLite worker entry"_s);
     {
+        controller->selectVariant(selectedVariant);
         controller->selectVariant(previousVariant);
         require(controller->property("libraryPending").toBool(), u"Entered worker did not accept Loading preference"_s);
         QElapsedTimer closeTime;
@@ -546,7 +551,7 @@ void exerciseLibrary()
     waitFor([&] { return entry(database, u"9542"_s).value(u"favorite"_s).toBool(); }, 10'000, u"Accepted write after close"_s);
     QString rowKey;
     stored = entry(database, u"9542"_s, &rowKey);
-    auto staleWork = stored.value(u"work"_s).toObject();
+    auto staleWork = GroupEntry::anchorWork(stored);
     auto staleVariants = staleWork.value(u"variants"_s).toArray();
     auto staleVariant = staleVariants.last().toObject();
     auto staleReference = staleVariant.value(u"reference"_s).toObject();
@@ -554,7 +559,7 @@ void exerciseLibrary()
     staleVariant.insert(u"reference"_s, staleReference);
     staleVariants.replace(staleVariants.size() - 1, staleVariant);
     staleWork.insert(u"variants"_s, staleVariants);
-    stored.insert(u"work"_s, staleWork);
+    GroupEntry::replaceAnchorWork(stored, staleWork);
     auto stalePreferences = stored.value(u"preferences"_s).toObject();
     stalePreferences.insert(u"selected"_s, staleReference);
     stored.insert(u"preferences"_s, stalePreferences);

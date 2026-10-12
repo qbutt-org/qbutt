@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "work-filter.h"
+#include "group-entry.h"
 
 #include <functional>
 #include <memory>
@@ -100,7 +101,7 @@ namespace
         for (const auto *key : {"episode", "translation", "source", "language", "player", "transport"})
             filters.insert(QString::fromLatin1(key), QJsonValue::Null);
         return {
-            {u"work"_s, work}, {u"preferences"_s, QJsonObject {{u"selected"_s, variantReference}, {u"filters"_s, filters}}},
+            {u"group"_s, GroupEntry::single(work)}, {u"preferences"_s, QJsonObject {{u"selected"_s, variantReference}, {u"filters"_s, filters}}},
             {u"favorite"_s, favorite}, {u"last_opened"_s, QJsonObject {{u"variant"_s, variantReference}, {u"at_unix_millis"_s, number * 1000}}},
             {u"reader_progress"_s, QJsonValue::Null}
         };
@@ -111,7 +112,7 @@ namespace
         const auto metadata = generatedEntry(number, favorite);
         QSqlQuery query(database);
         require(query.prepare(u"INSERT INTO library VALUES (?, ?, ?)"_s), query.lastError().text());
-        const auto reference = metadata.value(u"work"_s).toObject().value(u"reference"_s).toObject();
+        const auto reference = metadata.value(u"group"_s).toObject().value(u"anchor"_s).toObject();
         query.addBindValue(u"{\"source\":\"%1\",\"id\":\"%2\"}"_s.arg(reference.value(u"source"_s).toString(),
             reference.value(u"id"_s).toString()));
         query.addBindValue(QString::fromUtf8(QJsonDocument(metadata).toJson(QJsonDocument::Compact)));
