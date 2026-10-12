@@ -276,7 +276,7 @@ fn players(document: &Html) -> Result<Vec<Player>> {
     for heading in document.select(&selector("#dle-content h3[id^='top_div_']")) {
         let Some(index) = heading
             .value()
-            .id()
+            .attr("id")
             .and_then(|id| id.strip_prefix("top_div_"))
         else {
             continue;
@@ -314,8 +314,10 @@ fn players(document: &Html) -> Result<Vec<Player>> {
             .path_segments()
             .ok_or(Error::UnsafeAddress)?
             .collect::<Vec<_>>();
+        if !matches!(parts.first().copied(), Some("serial" | "season")) {
+            continue;
+        }
         if parts.len() != 4
-            || !matches!(parts[0], "serial" | "season")
             || parts[3] != "720p"
             || parts[2].len() != 32
             || !parts[2]
