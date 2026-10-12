@@ -25,6 +25,7 @@ mod nyaa;
 mod ranobehub;
 mod ranobelib;
 mod royalroad;
+mod playback;
 mod rutor;
 #[cfg(windows)]
 mod rutracker;
@@ -53,6 +54,7 @@ pub use nyaa::Nyaa;
 pub use ranobehub::RanobeHub;
 pub use ranobelib::RanobeLib;
 pub use royalroad::RoyalRoad;
+pub use playback::{PlaybackAudioTrack, PlaybackMedia};
 pub use rutor::RuTor;
 #[cfg(windows)]
 pub use rutracker::RuTracker;

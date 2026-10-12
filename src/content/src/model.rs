@@ -522,6 +522,11 @@ pub enum ResolvedContent {
         url: Url,
         quality: VideoQuality,
     },
+    BrowserVideo {
+        reference: VariantRef,
+        title: String,
+        media: crate::PlaybackMedia,
+    },
     /// This is the exact external publication, requiring the media resolver.
     ExternalVideo {
         reference: VariantRef,
