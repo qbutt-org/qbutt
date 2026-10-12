@@ -76,7 +76,6 @@ ComboBox {
             implicitHeight: contentHeight
             model: control.delegateModel
             currentIndex: control.highlightedIndex
-            highlightMoveDuration: 0
         }
 
         background: Rectangle {

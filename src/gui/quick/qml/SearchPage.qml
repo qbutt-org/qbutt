@@ -205,7 +205,6 @@ Page {
                     clip: true
                     model: filteredWorks
                     currentIndex: -1
-                    onCountChanged: Qt.callLater(restoreSelection)
                     Component.onCompleted: restoreSelection()
                     spacing: 4
                     activeFocusOnTab: true
@@ -225,6 +224,12 @@ Page {
 
                     Connections {
                         target: filteredWorks
+                        function onRowsInserted(): void {
+                            Qt.callLater(works.restoreSelection);
+                        }
+                        function onRowsRemoved(): void {
+                            Qt.callLater(works.restoreSelection);
+                        }
                         function onModelReset(): void {
                             Qt.callLater(works.restoreSelection);
                         }
