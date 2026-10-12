@@ -30,7 +30,10 @@ impl ffi::ContentController {
     }
 
     pub fn share_selected(self: Pin<&mut Self>) -> bool {
-        let Ok(url) = self.selected_share_document().and_then(|document| document.to_url()) else {
+        let Ok(url) = self
+            .selected_share_document()
+            .and_then(|document| document.to_url())
+        else {
             return false;
         };
         ffi::copy_share_url(&QString::from(url));
@@ -39,6 +42,7 @@ impl ffi::ContentController {
 
     pub fn open_shared_link(mut self: Pin<&mut Self>, url: QString) {
         self.as_mut().cancel_shared_import();
+        let import_generation = self.shared_import.generation;
         let document = match SharedWork::from_url(&url.to_string()) {
             Ok(document) => document,
             Err(_) => {
@@ -47,15 +51,70 @@ impl ffi::ContentController {
             }
         };
         self.as_mut().cancel_search();
+        if self.shared_import.generation != import_generation {
+            return;
+        }
         self.as_mut().rust_mut().shared_document = Some(document);
+        self.as_mut().set_shared_importing(true);
+        if self.shared_document.is_none() || self.shared_import.generation != import_generation {
+            return;
+        }
+
+        let (generation, _) = self.as_mut().cancel_detail();
+        if !self.shared_open_current(import_generation, generation) {
+            return;
+        }
+        if self.list_mode != ffi::ListMode::Search {
+            self.as_mut().rust_mut().list_mode = ffi::ListMode::Search;
+            self.as_mut().list_mode_changed();
+        }
+        if !self.shared_open_current(import_generation, generation) {
+            return;
+        }
+        self.as_mut().set_search_state(ffi::SearchState::Idle);
+        if !self.shared_open_current(import_generation, generation) {
+            return;
+        }
+        self.as_mut().set_error(None);
+        if !self.shared_open_current(import_generation, generation) {
+            return;
+        }
+        self.as_mut().rust_mut().search_association.clear();
+        self.as_mut().rust_mut().works.pin_mut().clear();
+        if !self.shared_open_current(import_generation, generation) {
+            return;
+        }
+        self.as_mut().rust_mut().variants.pin_mut().clear();
+        if !self.shared_open_current(import_generation, generation)
+            || !self.as_mut().set_selection(None, generation)
+            || !self.shared_open_current(import_generation, generation)
+        {
+            return;
+        }
         self.as_mut().begin_shared_import();
     }
 
+    fn shared_open_current(&self, import_generation: u64, selection_generation: u64) -> bool {
+        self.shared_document.is_some()
+            && self.shared_import.generation == import_generation
+            && self.inspection.generation == selection_generation
+    }
+
     pub(super) fn cancel_shared_import(mut self: Pin<&mut Self>) {
-        let state = self.as_mut().rust_mut();
-        state.shared_import.cancel();
-        state.shared_document = None;
-        state.shared_works.clear();
+        {
+            let state = self.as_mut().rust_mut();
+            state.shared_import.cancel();
+            state.shared_document = None;
+            state.shared_works.clear();
+        }
+        self.as_mut().set_shared_importing(false);
+    }
+
+    pub(super) fn set_shared_importing(mut self: Pin<&mut Self>, importing: bool) {
+        if self.shared_importing != importing {
+            self.as_mut().rust_mut().shared_importing = importing;
+            self.as_mut().shared_importing_changed();
+        }
     }
 
     pub(super) fn begin_shared_import(mut self: Pin<&mut Self>) {
@@ -67,8 +126,16 @@ impl ffi::ContentController {
         if self.source_settings_state() == ffi::SettingsState::Loading {
             return;
         }
+        let generation = self.shared_import.generation;
+        self.as_mut().set_shared_importing(true);
+        if self.shared_import.generation != generation || self.shared_document.is_none() {
+            return;
+        }
         let Some(services) = self.services.as_ref() else {
-            self.as_mut().shared_link_failed(false);
+            self.as_mut().set_shared_importing(false);
+            if self.shared_import.generation == generation {
+                self.as_mut().shared_link_failed(false);
+            }
             return;
         };
         let mut requests = Vec::new();
@@ -82,11 +149,13 @@ impl ffi::ContentController {
             }
         }
         if requests.is_empty() {
-            self.as_mut().shared_link_failed(false);
+            self.as_mut().set_shared_importing(false);
+            if self.shared_import.generation == generation {
+                self.as_mut().shared_link_failed(false);
+            }
             return;
         }
 
-        let generation = self.shared_import.generation;
         let qt_thread = self.qt_thread();
         let catalog = Arc::clone(&services.catalog);
         let task = services.runtime.spawn(async move {
@@ -149,6 +218,10 @@ impl ffi::ContentController {
                     return;
                 }
                 controller.as_mut().rust_mut().shared_import.task = None;
+                controller.as_mut().set_shared_importing(false);
+                if controller.shared_import.generation != generation {
+                    return;
+                }
                 if controller.shared_works.is_empty() {
                     controller.as_mut().shared_link_failed(false);
                     return;

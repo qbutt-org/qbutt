@@ -14,6 +14,7 @@ const MAX_SEARCH_REQUESTS: usize = 4;
 
 impl ffi::ContentController {
     pub fn search(mut self: Pin<&mut Self>, query: QString) {
+        self.as_mut().cancel_shared_import();
         if self.source_settings_state() == ffi::SettingsState::Failed {
             return;
         }

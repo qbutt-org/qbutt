@@ -338,7 +338,11 @@ impl ffi::ContentController {
                 self.as_mut().rust_mut().source_status.deferred_query = None;
                 self.as_mut().sources_changed();
                 if self.shared_document.is_some() {
-                    self.as_mut().shared_link_failed(false);
+                    let generation = self.shared_import.generation;
+                    self.as_mut().set_shared_importing(false);
+                    if self.shared_import.generation == generation {
+                        self.as_mut().shared_link_failed(false);
+                    }
                 }
                 if self.is_searching() {
                     self.as_mut().cancel_search();

@@ -164,6 +164,7 @@ impl ffi::ContentController {
 
     pub fn set_list_mode(mut self: Pin<&mut Self>, mode: ffi::ListMode) {
         if self.list_mode != mode {
+            self.as_mut().cancel_shared_import();
             self.as_mut().rust_mut().list_mode = mode;
             self.as_mut().list_mode_changed();
         }
@@ -231,6 +232,7 @@ impl ffi::ContentController {
             return;
         }
 
+        self.as_mut().cancel_shared_import();
         let (generation, resolution_generation) = self.as_mut().cancel_detail();
         if self.inspection.generation != generation
             || self.resolution.generation != resolution_generation
@@ -577,6 +579,10 @@ impl ffi::ContentController {
         if id_changed {
             self.as_mut().selected_work_id_changed();
         }
+        if self.inspection.generation != generation {
+            return false;
+        }
+        self.as_mut().share_availability_changed();
         if self.inspection.generation != generation {
             return false;
         }

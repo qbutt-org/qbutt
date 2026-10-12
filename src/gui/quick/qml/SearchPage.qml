@@ -192,7 +192,7 @@ Page {
         ProgressBar {
             Layout.fillWidth: true
             Layout.preferredHeight: 3
-            visible: root.backend.busy
+            visible: root.backend.busy || root.backend.sharedImporting
             indeterminate: true
         }
 
@@ -359,8 +359,9 @@ Page {
 
                 BusyIndicator {
                     anchors.centerIn: parent
-                    visible: root.backend.listMode !== Search.Search
-                        && (root.backend.libraryState === Library.Uninitialized || root.backend.libraryState === Library.Loading)
+                    visible: (root.backend.sharedImporting && works.count === 0)
+                        || (root.backend.listMode !== Search.Search
+                            && (root.backend.libraryState === Library.Uninitialized || root.backend.libraryState === Library.Loading))
                     running: visible
                 }
             }

@@ -517,6 +517,7 @@ pub mod ffi {
             NOTIFY
         )]
         #[qproperty(bool, busy, READ = is_searching, NOTIFY)]
+        #[qproperty(bool, shared_importing, cxx_name = "sharedImporting", READ, NOTIFY)]
         #[qproperty(SearchState, search_state, cxx_name = "searchState", READ, NOTIFY)]
         #[qproperty(bool, inspecting, READ, NOTIFY)]
         #[qproperty(bool, resolving, READ, NOTIFY)]
@@ -959,6 +960,7 @@ pub struct ContentControllerRust {
     shared_import: Pending,
     shared_document: Option<SharedWork>,
     shared_works: Vec<Work>,
+    shared_importing: bool,
     playback: PlaybackState,
     reader: ReaderState,
     local_book: Option<Arc<LocalBook>>,
@@ -1047,6 +1049,7 @@ impl Default for ContentControllerRust {
             shared_import: Pending::default(),
             shared_document: None,
             shared_works: Vec::new(),
+            shared_importing: false,
             playback: PlaybackState::default(),
             reader: ReaderState::default(),
             local_book: None,
