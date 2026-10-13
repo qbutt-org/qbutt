@@ -689,6 +689,7 @@ fn library(work: &Work) -> CheckResult {
 }
 
 fn library_profile(directory: &Path, work: &Work) -> CheckResult {
+    use qbutt_content::browser::BrowserError;
     use qbutt_content::{
         Error as StoredError, Library, LibraryView, SourceFailure, SourceFailureReason,
         SourceOperation,
@@ -733,8 +734,28 @@ fn library_profile(directory: &Path, work: &Work) -> CheckResult {
             SourceFailureReason::BrowserChoiceRequired,
         ),
         (
-            StoredError::BrowserSession(qbutt_content::browser::BrowserError::InvalidResponse),
+            StoredError::BrowserSession(BrowserError::Disconnected),
             SourceFailureReason::BrowserSession,
+        ),
+        (
+            StoredError::BrowserSession(BrowserError::VerificationRequired),
+            SourceFailureReason::Challenge,
+        ),
+        (
+            StoredError::BrowserSession(BrowserError::Timeout),
+            SourceFailureReason::Timeout,
+        ),
+        (
+            StoredError::BrowserSession(BrowserError::UpdateRequired),
+            SourceFailureReason::BrowserUpdateRequired,
+        ),
+        (
+            StoredError::BrowserSession(BrowserError::SourceUnavailable),
+            SourceFailureReason::Network,
+        ),
+        (
+            StoredError::BrowserSession(BrowserError::InvalidResponse),
+            SourceFailureReason::Metadata,
         ),
         (
             StoredError::UnsupportedTorrent,
@@ -742,10 +763,19 @@ fn library_profile(directory: &Path, work: &Work) -> CheckResult {
         ),
     ] {
         assert_eq!(SourceFailureReason::from_error(&error), Some(reason));
-        library.record_source_failure(SourceFailure {
+        let failure = SourceFailure {
             operation: operation.clone(),
             reason,
-        })?;
+        };
+        library.record_source_failure(failure.clone())?;
+        assert_eq!(
+            library
+                .source_settings()?
+                .into_iter()
+                .find(|row| row.source == qbutt_content::Source::RuTracker)
+                .and_then(|row| row.failure),
+            Some(failure),
+        );
     }
     for url in [
         "https://rutracker.ru/forum/viewtopic.php?t=42",

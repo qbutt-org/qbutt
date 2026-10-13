@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(windows)]
+use crate::browser::BrowserError;
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
@@ -321,6 +323,7 @@ pub enum SourceFailureReason {
     SourceCheckRequired,
     BrowserChoiceRequired,
     BrowserSession,
+    BrowserUpdateRequired,
     SourceCheck,
     UnsupportedTorrent,
 }
@@ -349,7 +352,30 @@ impl SourceFailureReason {
             Error::SourceCheckRequired => Some(Self::SourceCheckRequired),
             Error::BrowserChoiceRequired => Some(Self::BrowserChoiceRequired),
             #[cfg(windows)]
-            Error::BrowserSession(_) => Some(Self::BrowserSession),
+            Error::BrowserSession(error) => Some(match error {
+                BrowserError::BrowserRequired
+                | BrowserError::Disconnected
+                | BrowserError::Stopped => Self::BrowserSession,
+                BrowserError::ChoiceRequired => Self::BrowserChoiceRequired,
+                BrowserError::VerificationRequired | BrowserError::BrowserCheckRequired => {
+                    Self::Challenge
+                }
+                BrowserError::LoginRequired => Self::LoginRequired,
+                BrowserError::Timeout => Self::Timeout,
+                BrowserError::ResponseTooLarge => Self::ResponseTooLarge,
+                BrowserError::UpdateRequired => Self::BrowserUpdateRequired,
+                BrowserError::SourceUnavailable
+                | BrowserError::Busy
+                | BrowserError::OwnerExists
+                | BrowserError::StartFailed => Self::Network,
+                BrowserError::InvalidRequest
+                | BrowserError::InvalidResponse
+                | BrowserError::SelectionChanged
+                | BrowserError::SelectionUnavailable
+                | BrowserError::UnsupportedMultiAudio
+                | BrowserError::UnsupportedPrivateTracks
+                | BrowserError::CaptureExpired => Self::Metadata,
+            }),
             #[cfg(windows)]
             Error::SourceCheck(_) => Some(Self::SourceCheck),
             Error::UnsupportedTorrent => Some(Self::UnsupportedTorrent),
