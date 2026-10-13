@@ -9,6 +9,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QCryptographicHash>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDirIterator>
@@ -497,6 +498,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
 
     int handoffs = 0;
     int metadataBytes = 0;
+    QString metadataSha256;
     int added = 0;
     int failures = 0;
     int cancellations = 0;
@@ -504,6 +506,12 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     bool managerAccepted = false;
     BitTorrent::InfoHash cancelledHash;
     QObject observation;
+    BitTorrent::AddTorrentParams params;
+    params.savePath = Path(payload.absolutePath());
+    params.useAutoTMM = false;
+    params.useDownloadPath = false;
+    params.addStopped = true;
+
     QObject::connect(manager, &AddTorrentManager::torrentAdded, &observation, [&] { ++added; });
     QObject::connect(manager, &AddTorrentManager::addTorrentFailed, &observation, [&] { ++failures; });
     QObject::connect(manager, &GUIAddTorrentManager::addTorrentCancelled, &observation,
@@ -521,11 +529,6 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
             managerAccepted = true;
             return;
         }
-        BitTorrent::AddTorrentParams params;
-        params.savePath = Path(payload.absolutePath());
-        params.useAutoTMM = false;
-        params.useDownloadPath = false;
-        params.addStopped = true;
         managerAccepted = manager->addTorrent(magnet, params, AddTorrentOption::ShowDialog);
     });
     QObject::connect(&view, &Content::ContentView::torrentMetadataReady, &observation,
@@ -537,6 +540,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
             u"Source acquired different or malformed torrent bytes"_s);
         ++handoffs;
         metadataBytes = data.size();
+        metadataSha256 = QString::fromLatin1(QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex());
         guiThread = guiThread && (QThread::currentThread() == qApp->thread());
         managerAccepted = mainContent || manager->addTorrentData(identity, data);
     });
@@ -603,6 +607,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         {u"defaultInfoHash"_s, defaultInfoHash},
         {u"handoffs"_s, handoffs},
         {u"metadataBytes"_s, metadataBytes},
+        {u"metadataSha256"_s, metadataSha256},
         {u"cancellations"_s, cancellations},
         {u"exactDialogHash"_s, true},
         {u"torrentCount"_s, session->torrents().size()},
