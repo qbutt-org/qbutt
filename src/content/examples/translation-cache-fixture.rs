@@ -140,6 +140,7 @@ fn main() -> Result<()> {
             text: "Звёздный ключ открывает дверь.".into(),
             bold: false,
             italic: false,
+            underline: false,
         }];
         let evidence = EvidenceSegment {
             chapter: second.reference.clone(),
@@ -289,6 +290,8 @@ fn main() -> Result<()> {
             ],
             family: FontFamily::Comic,
             angle: -12.0,
+            text_color: Some("#314455".into()),
+            outline_color: Some("#ffffff".into()),
             bounds: Rect {
                 x: 0.1,
                 y: 0.2,

@@ -7,6 +7,7 @@
 
 #include <functional>
 
+#include <QColor>
 #include <QFont>
 #include <QImage>
 #include <QList>
@@ -52,6 +53,8 @@ namespace Content::MangaRender
         QList<TextRun> translation;
         FontFamily family = FontFamily::Comic;
         qreal angle = 0;
+        QColor textColor;
+        QColor outlineColor;
         QRectF bounds;
         QRectF layout;
         QList<QRectF> inkBoxes;

@@ -8,6 +8,7 @@
 #include <utility>
 
 #include <QBuffer>
+#include <QColor>
 #include <QImageReader>
 #include <QRectF>
 
@@ -43,6 +44,13 @@ namespace
     QRectF rectangle(const Qbutt::MangaRect &rect)
     {
         return {rect.x, rect.y, rect.width, rect.height};
+    }
+
+    bool readLetteringColor(const ::rust::String &value, QColor &color)
+    {
+        const QString text = fromRust(value);
+        color = QColor::fromString(text);
+        return text.isEmpty() || ((text.size() == 7) && text.startsWith(u'#') && color.isValid());
     }
 
     QImage readMangaPage(const ::rust::Slice<const std::uint8_t> bytes, QString &error)
@@ -142,6 +150,12 @@ Qbutt::MangaRenderOutput Qbutt::render_manga_page(
         region.bounds = rectangle(value.bounds);
         region.layout = rectangle(value.layout);
         region.angle = value.angle;
+        if (!readLetteringColor(value.text_color, region.textColor)
+            || !readLetteringColor(value.outline_color, region.outlineColor))
+        {
+            output.error = "Invalid manga lettering color";
+            return output;
+        }
         region.ink = value.ink == 1 ? Content::MangaRender::Ink::Light : Content::MangaRender::Ink::Dark;
         for (const MangaRect &box : value.ink_boxes)
             region.inkBoxes.append(rectangle(box));

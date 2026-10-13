@@ -93,6 +93,8 @@ pub struct PageRegion {
     pub translation: Vec<TextRun>,
     pub family: FontFamily,
     pub angle: f64,
+    pub text_color: Option<String>,
+    pub outline_color: Option<String>,
     pub bounds: Rect,
     pub layout: Rect,
     pub ink: Ink,
@@ -594,6 +596,17 @@ fn validate_regions(regions: &[PageRegion]) -> codex::Result<()> {
             "translation must contain one to 32 styled text runs, at most 3000 bytes in total"
         } else if !region.angle.is_finite() || !(-45.0..=45.0).contains(&region.angle) {
             "angle must be between -45 and 45 clockwise degrees"
+        } else if region
+            .text_color
+            .iter()
+            .chain(&region.outline_color)
+            .any(|color| {
+                color.len() != 7
+                    || !color.starts_with('#')
+                    || !color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+            })
+        {
+            "textColor and outlineColor must be #RRGGBB or null"
         } else if !region.bounds.valid() {
             "bounds must be a positive rectangle inside the normalized page"
         } else if !region.layout.valid() || !region.bounds.contains(&region.layout) {
@@ -648,6 +661,8 @@ fn page_tools() -> Vec<FunctionTool> {
             },
             "family": { "type": "string", "enum": ["comic", "serif", "condensed"] },
             "angle": { "type": "number", "minimum": -45, "maximum": 45 },
+            "textColor": { "type": ["string", "null"], "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "outlineColor": { "type": ["string", "null"], "pattern": "^#[0-9A-Fa-f]{6}$" },
             "bounds": rect,
             "layout": rect,
             "ink": { "type": "string", "enum": ["dark", "light"] },
@@ -658,7 +673,7 @@ fn page_tools() -> Vec<FunctionTool> {
                 "items": rect,
             },
         },
-        "required": ["id", "sourceText", "translation", "family", "angle", "bounds", "layout", "ink", "inkBoxes"],
+        "required": ["id", "sourceText", "translation", "family", "angle", "textColor", "outlineColor", "bounds", "layout", "ink", "inkBoxes"],
         "additionalProperties": false,
     });
 
@@ -699,10 +714,13 @@ const PAGE_INSTRUCTIONS: &str = concat!(
     "If a name, pronoun or reading order is ambiguous, use available same-work context tools ",
     "to inspect relevant chapters. ",
     "For each region provide source text, natural target-language translation and normalized rectangles. ",
-    "Match the source lettering: comic for handwritten dialogue, serif for formal printed narration, ",
+    "Match the source letterforms: comic for handwritten dialogue, serif for formal printed narration, ",
     "and condensed for narrow emphatic lettering. Choose by visible letterforms, not text meaning. ",
     "Translation is contiguous text runs whose bold and italic flags match source weight, ",
     "overall letter slant and individual-word emphasis. Use one run when the whole region has one style. ",
+    "Preserve visible text and outline colors with textColor and outlineColor as #RRGGBB. ",
+    "Null keeps the ink-selected black/white text and opposite outline; use it when those match the source. ",
+    "Ink describes original glyph lightness for cleanup, independently of these lettering colors. ",
     "Preserve intentional letter case; do not force all text to uppercase. ",
     "Match visibly rotated lettering with angle in clockwise degrees between -45 and 45; ",
     "use 0 for ordinary level text. The rotated lettering must stay inside layout. ",

@@ -492,6 +492,8 @@ isolated output-directory argument and `QT_QPA_PLATFORM=offscreen`.
 Require exit zero and `PASS manga_lettering`. Inspect `original.png` and
 `result.png`: the authored page exercises all 12 bundled physical font faces,
 Russian letters including Ё/ё, mixed emphasis, rotated text and light captions.
+`colored.png` checks explicit text/outline colors while retaining identical
+mask/cleaned layers; explicit black/white colors must match the defaults.
 The fixture also checks unchanged pixels outside regions, deterministic
 rerendering, missing-glyph retention and cancellation. It does not establish
 AI style recognition or cleanup quality on scanned artwork.

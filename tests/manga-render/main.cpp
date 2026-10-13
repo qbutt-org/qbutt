@@ -144,6 +144,40 @@ namespace
         verifyUnchangedOutside(original, result, regions);
         require(render(original, regions).rendered == result.rendered, u"Repeated native render changed pixels"_s);
 
+        QList<Region> explicitMonochrome = regions;
+        for (Region &region : explicitMonochrome)
+        {
+            const bool light = region.ink == Ink::Light;
+            region.textColor = light ? Qt::white : Qt::black;
+            region.outlineColor = light ? Qt::black : Qt::white;
+        }
+        require(render(original, explicitMonochrome).rendered == result.rendered,
+            u"Default black/white lettering colors changed"_s);
+
+        QList<Region> coloredRegions = regions;
+        coloredRegions[0].textColor = QColor(49, 68, 85);
+        coloredRegions[0].outlineColor = QColor(230, 186, 67);
+        const Result colored = render(original, coloredRegions);
+        require(colored.error.isEmpty() && colored.diagnostics.constFirst().status == Status::Rendered
+            && colored.mask == result.mask && colored.cleaned == result.cleaned,
+            u"Lettering colors changed cleanup or prevented rendering"_s);
+        int fillPixels = 0;
+        int outlinePixels = 0;
+        for (int y = 0; y < colored.rendered.height(); ++y)
+        {
+            for (int x = 0; x < colored.rendered.width(); ++x)
+            {
+                const QRgb pixel = colored.rendered.pixel(x, y);
+                fillPixels += pixel == coloredRegions[0].textColor.rgb();
+                outlinePixels += (qRed(pixel) > qGreen(pixel)) && (qGreen(pixel) > qBlue(pixel));
+            }
+        }
+        require(fillPixels > 100 && outlinePixels > 10,
+            u"Rendered pixels lost the explicit text or outline color"_s);
+        qInfo() << "COLOR fill_pixels=" << fillPixels << "antialiased_outline_pixels=" << outlinePixels;
+        verifyUnchangedOutside(original, colored, coloredRegions);
+        require(colored.rendered.save(outputDir + u"/colored.png"_s), u"Colored lettering render could not be saved"_s);
+
         const QRectF inspectionBounds = normalized(QRectF(123.25, 250.25, 99.25, 100.25), original.size());
         const QRect expectedPixels(123, 250, 100, 101);
         for (const QImage &layer : {original, result.mask, result.cleaned, result.rendered})
@@ -215,7 +249,7 @@ namespace
             && result.rendered.save(outputDir + u"/result.png"_s)
             && result.cleaned.save(outputDir + u"/cleaned.png"_s)
             && result.mask.save(outputDir + u"/mask.png"_s), u"Native render artifacts could not be saved"_s);
-        qInfo() << "PASS manga_lettering families=3 physical_faces=12 regions=15 mixed=ok rotation=ok soft_hyphens=ok outside=unchanged crops=4";
+        qInfo() << "PASS manga_lettering families=3 physical_faces=12 regions=15 mixed=ok rotation=ok soft_hyphens=ok colors=ok bw_defaults=ok outside=unchanged crops=4";
     }
 }
 

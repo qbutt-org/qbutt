@@ -43,6 +43,8 @@ mod ffi {
         translation: Vec<MangaTextRun>,
         family: MangaFontFamily,
         angle: f64,
+        text_color: String,
+        outline_color: String,
         bounds: MangaRect,
         layout: MangaRect,
         ink: u8,
@@ -150,6 +152,8 @@ impl manga::PageRenderer for QtMangaRenderer {
                     FontFamily::Condensed => ffi::MangaFontFamily::Condensed,
                 },
                 angle: region.angle,
+                text_color: region.text_color.clone().unwrap_or_default(),
+                outline_color: region.outline_color.clone().unwrap_or_default(),
                 bounds: native_rect(&region.bounds),
                 layout: native_rect(&region.layout),
                 ink: match region.ink {

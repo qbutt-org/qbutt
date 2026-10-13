@@ -35,7 +35,8 @@ namespace
     struct PendingText
     {
         Content::MangaRender::TextShape shape;
-        Content::MangaRender::Ink ink;
+        QColor textColor;
+        QColor outlineColor;
     };
 
     bool validRect(const QRectF &rect)
@@ -555,7 +556,12 @@ Content::MangaRender::Result Content::MangaRender::render(const QImage &original
         boxCount += regionBoxes.size();
         boxPixels += regionBoxPixels;
         boxes.append(regionBoxes);
-        pending.append({shape, region.ink});
+        const bool light = region.ink == Ink::Light;
+        const QColor textColor = region.textColor.isValid() ? region.textColor
+            : QColor(light ? Qt::white : Qt::black);
+        const QColor outlineColor = region.outlineColor.isValid() ? region.outlineColor
+            : QColor(light ? Qt::black : Qt::white);
+        pending.append({shape, textColor, outlineColor});
         result.diagnostics.append(diagnostic);
     }
 
@@ -573,10 +579,9 @@ Content::MangaRender::Result Content::MangaRender::render(const QImage &original
     painter.setRenderHint(QPainter::Antialiasing);
     for (const PendingText &text : pending)
     {
-        const bool light = text.ink == Ink::Light;
-        painter.strokePath(text.shape.path, QPen(light ? Qt::black : Qt::white,
+        painter.strokePath(text.shape.path, QPen(text.outlineColor,
             1.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        painter.fillPath(text.shape.path, light ? Qt::white : Qt::black);
+        painter.fillPath(text.shape.path, text.textColor);
     }
     painter.end();
     return result;
