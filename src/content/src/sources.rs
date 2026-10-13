@@ -117,6 +117,8 @@ impl Source {
             Self::Nyaa => "https://nyaa.si",
             Self::Rutube => "https://rutube.ru",
             Self::FitGirl => "https://fitgirl-repacks.site",
+            Self::Dodi => "https://dodi-repacks.site",
+            Self::TheLastGame => "https://thelastgame.ru",
             Self::OnlineFix => "https://online-fix.me",
             Self::FreeTP => "https://freetp.org",
             Self::ByRut => "https://byrutgame.org",
