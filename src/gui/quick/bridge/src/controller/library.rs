@@ -13,7 +13,7 @@ use qbutt_content::{
 };
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 
 use super::ffi;
 use super::ffi::ContentController;
@@ -155,6 +155,7 @@ enum LibraryCommand {
         chapter: TextChapter,
         additions: ContextAdditions,
         evidence: Vec<EvidenceSegment>,
+        cancelled: watch::Receiver<bool>,
         reply: oneshot::Sender<LibraryResult<TranslationContext>>,
     },
     MangaLookup {
@@ -292,6 +293,7 @@ impl LibraryWorker {
         chapter: TextChapter,
         additions: ContextAdditions,
         evidence: Vec<EvidenceSegment>,
+        cancelled: watch::Receiver<bool>,
     ) -> LibraryResult<TranslationContext> {
         let (reply, received) = oneshot::channel();
         self.sender
@@ -301,6 +303,7 @@ impl LibraryWorker {
                 chapter,
                 additions,
                 evidence,
+                cancelled,
                 reply,
             })
             .await
@@ -483,6 +486,7 @@ impl LibraryWorker {
                             chapter,
                             additions,
                             evidence,
+                            cancelled,
                             reply,
                         } => {
                             let result = library
@@ -497,6 +501,7 @@ impl LibraryWorker {
                                         &chapter,
                                         additions,
                                         &evidence,
+                                        || !*cancelled.borrow(),
                                     )
                                 });
                             let _ = reply.send(result);

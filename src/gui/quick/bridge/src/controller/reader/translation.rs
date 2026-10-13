@@ -6,12 +6,13 @@ use cxx_qt_lib::QString;
 use qbutt_codex::{self as codex, CodexError, ModelModality};
 use qbutt_content::translation::text::{TextTranslationOptions, translate_chapter};
 use qbutt_content::{
-    Chapter, ChapterRef, Error, LibraryError, LocalBook, TextChapter, TranslationSelection,
+    Chapter, ChapterRef, LibraryError, LocalBook, TextChapter, TranslationSelection,
 };
-use tokio::sync::watch;
+use tokio::sync::{Semaphore, watch};
 
 use super::super::library::LibraryWorker;
 use super::super::{Pending, ffi};
+use super::text::load_local_text_chapter;
 
 #[derive(Default)]
 pub(super) struct TextTranslationState {
@@ -22,6 +23,8 @@ pub(super) struct TextTranslationState {
     pub(super) needs_codex: bool,
     pub(super) pending: Pending,
     cancellation: Option<watch::Sender<bool>>,
+    job_chapter: Option<ChapterRef>,
+    attempted_next: Option<ChapterRef>,
 }
 
 impl TextTranslationState {
@@ -30,6 +33,7 @@ impl TextTranslationState {
             let _ = cancel.send(true);
         }
         self.pending.cancel();
+        self.job_chapter = None;
         self.busy = false;
     }
 
@@ -38,6 +42,18 @@ impl TextTranslationState {
         self.translated = None;
         self.error = false;
         self.needs_codex = false;
+        self.attempted_next = None;
+    }
+
+    pub(super) fn select_chapter(&mut self, chapter: &ChapterRef) {
+        if self.job_chapter.as_ref() != Some(chapter) {
+            self.cancel_job();
+        }
+        self.translated = None;
+        self.error = false;
+        self.needs_codex = false;
+        self.attempted_next = None;
+        self.busy = self.job_chapter.is_some();
     }
 
     pub(super) fn reset_reader(&mut self) {
@@ -72,6 +88,7 @@ async fn translate(
     chapters: Vec<Chapter>,
     catalog: Arc<super::super::catalog::Catalog>,
     local_book: Option<Arc<LocalBook>>,
+    load_limit: Arc<Semaphore>,
     library: LibraryWorker,
     language: String,
     cancelled: watch::Receiver<bool>,
@@ -128,11 +145,10 @@ async fn translate(
     let source = move |reference: ChapterRef| {
         let catalog = Arc::clone(&catalog);
         let local_book = local_book.clone();
+        let load_limit = Arc::clone(&load_limit);
         async move {
             if let Some(book) = local_book {
-                tokio::task::spawn_blocking(move || book.read_chapter(&reference))
-                    .await
-                    .map_err(|_| Error::InvalidLocalBook("The book could not be read"))?
+                load_local_text_chapter(book, reference, load_limit).await
             } else {
                 catalog.text_chapter(&reference).await
             }
@@ -148,7 +164,7 @@ async fn translate(
             model: Some(model),
             effort: Some(effort),
         },
-        cancelled,
+        cancelled.clone(),
     )
     .await
     .map_err(TranslationFailure::Codex)?;
@@ -159,6 +175,7 @@ async fn translate(
             result.chapter.clone(),
             result.additions,
             result.evidence,
+            cancelled,
         )
         .await
         .map_err(TranslationFailure::Library)?;
@@ -241,9 +258,7 @@ impl ffi::ContentController {
         if !self.reader.is_text || self.reader.reference.is_none() {
             return false;
         }
-        let Some(original) = self.reader.text.original.as_ref().cloned() else {
-            return false;
-        };
+        let original = self.reader.text.original.as_ref().cloned();
         if !translated {
             let was_translated =
                 self.reader.translation.requested && self.reader.translation.translated.is_some();
@@ -255,7 +270,8 @@ impl ffi::ContentController {
             state.requested = false;
             state.error = false;
             state.needs_codex = false;
-            if was_translated {
+            state.attempted_next = None;
+            if was_translated && let Some(original) = original {
                 self.as_mut()
                     .rust_mut()
                     .reader
@@ -279,6 +295,13 @@ impl ffi::ContentController {
             }
             return true;
         }
+        let Some(original) = original else {
+            if !self.reader.translation.requested {
+                self.as_mut().rust_mut().reader.translation.requested = true;
+                self.as_mut().reader_changed();
+            }
+            return true;
+        };
         if self.reader.translation.busy {
             return true;
         }
@@ -302,8 +325,47 @@ impl ffi::ContentController {
                 self.as_mut()
                     .reader_text_position_requested(generation, anchor, offset);
             }
+            self.as_mut().start_text_translation_ahead();
             return true;
         }
+        let reference = original.reference.clone();
+        self.start_text_translation(reference, Some(original), false)
+    }
+
+    pub(super) fn start_text_translation_ahead(mut self: Pin<&mut Self>) {
+        if !self.reader.translation.requested
+            || self.reader.translation.translated.is_none()
+            || self.reader.shown_position.is_none()
+            || self.reader.translation.job_chapter.is_some()
+        {
+            return;
+        }
+        let Some(next) = self
+            .reader
+            .chapters
+            .relative(&self.reader.chapter_id.to_string(), 1)
+        else {
+            return;
+        };
+        if self.reader.translation.attempted_next.as_ref() == Some(&next) {
+            return;
+        }
+        let original = self.as_mut().rust_mut().reader.text.cache.get(&next);
+        // Online originals have their own bounded acquisition path. Wait for
+        // that prefetch instead of issuing a duplicate source request.
+        if original.is_none() && next.variant.publication.source != qbutt_content::Source::LocalBook
+        {
+            return;
+        }
+        self.start_text_translation(next, original, true);
+    }
+
+    fn start_text_translation(
+        mut self: Pin<&mut Self>,
+        reference: ChapterRef,
+        original: Option<Arc<TextChapter>>,
+        ahead: bool,
+    ) -> bool {
         let Some(library) = self.library_worker.as_ref().cloned() else {
             return false;
         };
@@ -312,100 +374,114 @@ impl ffi::ContentController {
         };
         let chapters = self.reader.chapters.all();
         let catalog = Arc::clone(&services.catalog);
+        let load_limit = Arc::clone(&services.reader_load);
         let local_book = self
             .local_book
             .as_ref()
             .cloned()
-            .filter(|book| book.reference() == original.reference.variant.publication);
+            .filter(|book| book.reference() == reference.variant.publication);
         let language = self.reader_settings.value.translation_language.clone();
         let qt_thread = self.qt_thread();
         let chapter_generation = self.reader.chapter.generation;
         let (cancel, cancelled) = watch::channel(false);
         {
             let state = &mut self.as_mut().rust_mut().reader.translation;
-            state.reset_chapter();
-            state.requested = true;
-            state.busy = true;
+            if ahead {
+                state.cancel_job();
+                state.attempted_next = Some(reference.clone());
+            } else {
+                state.reset_chapter();
+                state.requested = true;
+                state.busy = true;
+            }
+            state.job_chapter = Some(reference.clone());
             state.cancellation = Some(cancel);
         }
         let generation = self.reader.translation.pending.generation;
-        self.as_mut().reader_changed();
+        if !ahead {
+            self.as_mut().reader_changed();
+        }
         if self.reader.translation.pending.generation != generation
             || self.reader.chapter.generation != chapter_generation
         {
             return true;
         }
         let task = self.services.as_ref().unwrap().runtime.spawn(async move {
-            let result = translate(
-                original, chapters, catalog, local_book, library, language, cancelled,
-            )
+            let result = async {
+                let original = if let Some(original) = original {
+                    original
+                } else {
+                    let book = local_book
+                        .as_ref()
+                        .cloned()
+                        .ok_or(TranslationFailure::Codex(CodexError::Protocol))?;
+                    let original =
+                        load_local_text_chapter(book, reference.clone(), Arc::clone(&load_limit))
+                            .await
+                            .map_err(|_| TranslationFailure::Codex(CodexError::Provider))?;
+                    Arc::new(original)
+                };
+                translate(
+                    original, chapters, catalog, local_book, load_limit, library, language,
+                    cancelled,
+                )
+                .await
+            }
             .await;
-            let _ = qt_thread.queue(move |mut controller| {
-                if controller.reader.chapter.generation != chapter_generation
-                    || controller.reader.translation.pending.generation != generation
-                    || !controller.reader.translation.requested
-                {
-                    return;
-                }
-                controller
-                    .as_mut()
-                    .rust_mut()
-                    .reader
-                    .translation
-                    .pending
-                    .task = None;
-                controller
-                    .as_mut()
-                    .rust_mut()
-                    .reader
-                    .translation
-                    .cancellation = None;
-                controller.as_mut().rust_mut().reader.translation.busy = false;
-                match result {
-                    Ok(chapter) => {
-                        controller.as_mut().rust_mut().reader.translation.translated =
-                            Some(Arc::clone(&chapter));
-                        controller
-                            .as_mut()
-                            .rust_mut()
-                            .reader
-                            .text
-                            .blocks
-                            .pin_mut()
-                            .replace(Some(chapter));
-                        if controller.reader.chapter.generation != chapter_generation
-                            || !controller.reader.translation.requested
-                        {
-                            return;
-                        }
-                        controller.as_mut().reader_changed();
-                        if controller.reader.chapter.generation == chapter_generation
-                            && controller.reader.translation.requested
-                        {
-                            let anchor = controller.reader.text.anchor.clone();
-                            let offset = controller.reader.text.offset;
-                            controller.as_mut().reader_text_position_requested(
-                                chapter_generation,
-                                anchor,
-                                offset,
-                            );
-                        }
-                    }
-                    Err(error) => {
-                        ffi::log_content_error(
-                            &QString::from("text translation"),
-                            &QString::from(error.detail()),
-                        );
-                        let state = &mut controller.as_mut().rust_mut().reader.translation;
-                        state.requested = false;
-                        state.error = true;
-                        state.needs_codex = error.needs_codex();
-                        controller.as_mut().reader_changed();
-                    }
-                }
+            let _ = qt_thread.queue(move |controller| {
+                controller.complete_text_translation(reference, generation, result);
             });
         });
         self.as_mut().rust_mut().reader.translation.pending.task = Some(task);
         true
+    }
+
+    fn complete_text_translation(
+        mut self: Pin<&mut Self>,
+        reference: ChapterRef,
+        generation: u64,
+        result: Result<Arc<TextChapter>, TranslationFailure>,
+    ) {
+        if self.reader.translation.pending.generation != generation
+            || self.reader.translation.job_chapter.as_ref() != Some(&reference)
+            || !self.reader.translation.requested
+        {
+            return;
+        }
+        {
+            let state = &mut self.as_mut().rust_mut().reader.translation;
+            state.pending.task = None;
+            state.cancellation = None;
+            state.job_chapter = None;
+        }
+        let current = self.reader.reference.as_ref() == Some(&reference.variant)
+            && self.reader.chapter_id.to_string() == reference.id;
+        if let Err(error) = &result {
+            ffi::log_content_error(
+                &QString::from("text translation"),
+                &QString::from(error.detail()),
+            );
+        }
+        if !current {
+            return;
+        }
+        self.as_mut().rust_mut().reader.translation.busy = false;
+        match result {
+            Ok(chapter) => {
+                self.as_mut().rust_mut().reader.translation.translated = Some(chapter);
+                // A promoted read-ahead may finish while its original is still
+                // loading. on_original_text_chapter_ready applies it afterwards.
+                if self.reader.text.original.is_some() {
+                    self.as_mut().set_reader_text_translation(true);
+                }
+            }
+            Err(error) => {
+                let state = &mut self.as_mut().rust_mut().reader.translation;
+                state.requested = false;
+                state.error = true;
+                state.needs_codex = error.needs_codex();
+                self.as_mut().reader_changed();
+            }
+        }
     }
 }

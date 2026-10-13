@@ -4,7 +4,11 @@ use std::sync::Arc;
 use cxx::UniquePtr;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{ReaderPosition, Source, SourceOperation, TextChapter, TextChapterCache};
+use qbutt_content::{
+    ChapterRef, Error, LocalBook, ReaderPosition, Source, SourceOperation, TextChapter,
+    TextChapterCache,
+};
+use tokio::sync::Semaphore;
 
 use super::super::sources::SourceRequest;
 use super::super::{Pending, ffi};
@@ -30,6 +34,23 @@ impl Default for TextReaderState {
             prefetch: Pending::default(),
         }
     }
+}
+
+pub(super) async fn load_local_text_chapter(
+    book: Arc<LocalBook>,
+    reference: ChapterRef,
+    load_limit: Arc<Semaphore>,
+) -> qbutt_content::Result<TextChapter> {
+    let permit = load_limit
+        .acquire_owned()
+        .await
+        .map_err(|_| Error::InvalidLocalBook("The book reader is unavailable"))?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        book.read_chapter(&reference)
+    })
+    .await
+    .map_err(|_| Error::InvalidLocalBook("The book could not be read"))?
 }
 
 impl ffi::ContentController {
@@ -74,8 +95,9 @@ impl ffi::ContentController {
             let Some(book) = self.local_book.as_ref().cloned() else {
                 return;
             };
-            let task = services.runtime.spawn_blocking(move || {
-                let result = book.read_chapter(&reference);
+            let load_limit = Arc::clone(&services.reader_load);
+            let task = services.runtime.spawn(async move {
+                let result = load_local_text_chapter(book, reference, load_limit).await;
                 let _ = qt_thread.queue(move |mut controller| {
                     if !controller.reader_source_current(generation, &request) {
                         return;
@@ -239,6 +261,9 @@ impl ffi::ContentController {
         if self.reader.chapter.generation == generation && first_shown {
             self.as_mut().prefetch_text_chapter(generation);
         }
+        if self.reader.chapter.generation == generation {
+            self.as_mut().start_text_translation_ahead();
+        }
         self.reader.chapter.generation == generation && self.reader.reference.is_some()
     }
 
@@ -302,6 +327,7 @@ impl ffi::ContentController {
                         .text
                         .cache
                         .insert(chapter);
+                    controller.as_mut().start_text_translation_ahead();
                 }
             });
         });

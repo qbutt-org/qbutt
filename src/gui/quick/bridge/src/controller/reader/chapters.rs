@@ -193,7 +193,11 @@ impl ffi::ContentController {
             .reader
             .manga_translation
             .reset_chapter();
-        self.as_mut().rust_mut().reader.translation.reset_chapter();
+        self.as_mut()
+            .rust_mut()
+            .reader
+            .translation
+            .select_chapter(&chapter.reference);
         let generation = self.reader.chapter.generation;
         let (page, scroll_offset) = match &resume {
             ReaderPosition::Page {

@@ -39,6 +39,8 @@ pub enum LibraryError {
     CorruptEntry(&'static str),
     #[error("The content library update was rejected: {0}")]
     InvalidEntry(&'static str),
+    #[error("The content library update was cancelled")]
+    Cancelled,
     #[error("The system clock cannot provide a valid library timestamp")]
     Clock,
 }

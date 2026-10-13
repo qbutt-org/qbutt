@@ -43,6 +43,7 @@
 #include "reader-settings.h"
 #include "reader-translation-choice.h"
 #include "reader-text-translation.h"
+#include "reader-text-ahead.h"
 #include "reader-manga-translation.h"
 #include "reader.h"
 #include "reader-text.h"
@@ -542,6 +543,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"reader-source-reopen"_s, u"Reopen a saved public text reader profile through History, then exit."_s});
     parser.addOption({u"reader-translation-choice"_s, u"Run delayed reader translation choice persistence and session acceptance, then exit."_s});
     parser.addOption({u"reader-text-translation"_s, u"Run generated text through the installed Codex and production reader, then exit."_s});
+    parser.addOption({u"reader-text-ahead"_s, u"Run bounded text translation against a controlled Codex peer, then exit."_s});
     parser.addOption({u"reader-manga-translation"_s, u"Run a generated manga page through the installed Codex and production reader, then exit."_s});
     parser.addOption({u"translation-model"_s, u"Select a Codex model for a generated reader translation."_s, u"model"_s});
     parser.addOption({u"translation-effort"_s, u"Select reasoning effort for a generated reader translation."_s, u"effort"_s});
@@ -594,6 +596,7 @@ int main(int argc, char *argv[])
         && !parser.isSet(u"kakuyomu-reader"_s) && !parser.isSet(u"ranobehub-reader"_s)
         && !parser.isSet(u"reader-translation-choice"_s)
         && !parser.isSet(u"reader-text-translation"_s)
+        && !parser.isSet(u"reader-text-ahead"_s)
         && !parser.isSet(u"reader-manga-translation"_s)
         && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s)
         && !parser.isSet(u"variant-filters"_s) && !parser.isSet(u"work-details"_s));
@@ -679,6 +682,7 @@ int main(int argc, char *argv[])
         || parser.isSet(u"kakuyomu-reader"_s) || parser.isSet(u"ranobehub-reader"_s)
         || parser.isSet(u"local-book-import"_s)
         || parser.isSet(u"reader-translation-choice"_s) || parser.isSet(u"reader-text-translation"_s)
+        || parser.isSet(u"reader-text-ahead"_s)
         || parser.isSet(u"reader-manga-translation"_s)
         || parser.isSet(u"worklist"_s))
     {
@@ -701,6 +705,7 @@ int main(int argc, char *argv[])
                 runLocalBookImport = parser.isSet(u"local-book-import"_s),
                 runReaderTranslationChoice = parser.isSet(u"reader-translation-choice"_s),
                 runReaderTextTranslation = parser.isSet(u"reader-text-translation"_s),
+                runReaderTextAhead = parser.isSet(u"reader-text-ahead"_s),
                 runReaderMangaTranslation = parser.isSet(u"reader-manga-translation"_s),
                 requestedTranslationModel = parser.value(u"translation-model"_s),
                 requestedTranslationEffort = parser.value(u"translation-effort"_s),
@@ -719,6 +724,8 @@ int main(int argc, char *argv[])
                 else if (runReaderTextTranslation)
                     exerciseReaderTextTranslation(view, profilePath,
                         requestedTranslationModel, requestedTranslationEffort, translationInput, translationTarget);
+                else if (runReaderTextAhead)
+                    exerciseReaderTextAhead(view, profilePath);
                 else if (runReaderMangaTranslation)
                     exerciseReaderMangaTranslation(view, profilePath,
                         requestedTranslationModel, requestedTranslationEffort, translationInput, translationTarget);

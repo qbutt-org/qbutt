@@ -32,6 +32,16 @@ set_target_properties(qbutt-qcatch-cli-fixture PROPERTIES
 )
 target_link_libraries(qbutt-qcatch-cli-fixture PRIVATE Qt::Core)
 
+qt_add_executable(qbutt-codex-text-peer codex-text-peer.cpp)
+set_target_properties(qbutt-codex-text-peer PROPERTIES
+    OUTPUT_NAME codex
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/codex-text-peer"
+)
+target_link_libraries(qbutt-codex-text-peer PRIVATE Qt::Core)
+if(MSVC)
+    target_compile_options(qbutt-codex-text-peer PRIVATE /utf-8)
+endif()
+
 qt_add_executable(qbutt-quick-acceptance
     main.cpp
     ../../src/base/media/runtime.cpp
@@ -72,6 +82,8 @@ qt_add_executable(qbutt-quick-acceptance
     reader-translation-choice.h
     reader-text-translation.cpp
     reader-text-translation.h
+    reader-text-ahead.cpp
+    reader-text-ahead.h
     reader-manga-translation.cpp
     reader-manga-translation.h
     sharing.cpp

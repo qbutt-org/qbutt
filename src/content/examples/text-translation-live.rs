@@ -125,6 +125,7 @@ async fn main() -> Result<()> {
             &result.chapter,
             result.additions.clone(),
             &result.evidence,
+            || true,
         )?;
         drop(library);
         let library = Library::open(&profile)?;

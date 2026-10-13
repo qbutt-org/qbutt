@@ -47,8 +47,10 @@ fn main() -> Result<()> {
             &translated,
             ContextAdditions::default(),
             &[],
+            || true,
         )?;
         drop(library);
+        exercise_cancelled_save(&profile, &original)?;
 
         // A v8 profile already has translated content but no selected model.
         let connection = rusqlite::Connection::open(profile.join("content-library.sqlite"))?;
@@ -112,7 +114,14 @@ fn main() -> Result<()> {
         let different = cache_key(&original, "ru", "another-model", "low")?;
         assert!(
             library
-                .save_translation(different, 0, &translated, ContextAdditions::default(), &[])
+                .save_translation(
+                    different,
+                    0,
+                    &translated,
+                    ContextAdditions::default(),
+                    &[],
+                    || true
+                )
                 .is_err()
         );
         assert_eq!(library.translation_selection("ru")?, Some(explicit));
@@ -172,6 +181,7 @@ fn main() -> Result<()> {
                 facts: vec![],
             },
             &[evidence],
+            || true,
         )?;
         assert_eq!(expanded.revision, 1);
         let stale = library.save_translation(
@@ -180,6 +190,7 @@ fn main() -> Result<()> {
             &translated,
             ContextAdditions::default(),
             &[],
+            || true,
         );
         assert!(stale.is_err(), "stale context save must still be rejected");
         drop(library);
@@ -325,6 +336,7 @@ fn main() -> Result<()> {
             &regions,
             additions,
             &[evidence.clone()],
+            || true,
         )?;
         assert_eq!(accepted.revision, 1);
         drop(library);
@@ -356,6 +368,7 @@ fn main() -> Result<()> {
                 facts: vec![],
             },
             &[evidence.clone()],
+            || true,
         );
         assert!(rejected.is_err());
         let mut wrong_page = evidence.clone();
@@ -367,7 +380,8 @@ fn main() -> Result<()> {
                     context.revision,
                     &vec!["Подожди"],
                     ContextAdditions::default(),
-                    &[wrong_page]
+                    &[wrong_page],
+                    || true,
                 )
                 .is_err()
         );
@@ -384,6 +398,100 @@ fn main() -> Result<()> {
     println!(
         "PASS translation_cache exact_hit model_miss effort_miss language_miss v8_migration target_persistence automatic_offline context_growth_offline stale_context_save digest_miss pipeline_miss page_miss provider_miss chapter_miss publication_miss manga_image_context"
     );
+    Ok(())
+}
+
+fn exercise_cancelled_save(profile: &Path, original: &TextChapter) -> Result<()> {
+    use std::cell::Cell;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let mut writer = Library::open(profile)?;
+    let publication = &original.reference.variant.publication;
+    let context = writer.translation_context(publication, "ru")?;
+    let selection = writer.translation_selection("ru")?;
+    let key = cache_key(original, "ru", "cancelled-model", "low")?;
+    let evidence = EvidenceSegment {
+        chapter: original.reference.clone(),
+        id: original.blocks[0].id.clone(),
+        text: original.blocks[0].plain_text(),
+        image_observation: None,
+    };
+    let additions = ContextAdditions {
+        terms: vec![TranslationTerm {
+            source: "レン".into(),
+            target: "Рен".into(),
+            forms: vec![],
+            evidence: ContextEvidence {
+                chapter: original.reference.clone(),
+                segment_id: evidence.id.clone(),
+                quote: evidence.text.clone(),
+                image_observation: None,
+            },
+        }],
+        facts: vec![],
+    };
+    let checks = Cell::new(0);
+    let result = writer.save_translation(
+        key.clone(),
+        context.revision,
+        original,
+        additions.clone(),
+        &[evidence.clone()],
+        || {
+            checks.set(checks.get() + 1);
+            checks.get() < 3
+        },
+    );
+    assert!(matches!(result, Err(LibraryError::Cancelled)));
+    assert_eq!(writer.translation_context(publication, "ru")?, context);
+    assert_eq!(writer.translation_selection("ru")?, selection);
+    assert!(writer.cached_translation::<TextChapter>(&key)?.is_none());
+
+    let lock = rusqlite::Connection::open(profile.join("content-library.sqlite"))?;
+    lock.execute_batch("BEGIN IMMEDIATE")?;
+    let current = Arc::new(AtomicBool::new(true));
+    let job_current = Arc::clone(&current);
+    let job_key = key.clone();
+    let job_original = original.clone();
+    let (entered, ready) = mpsc::sync_channel(1);
+    let (finished, outcome) = mpsc::sync_channel(1);
+    let job = std::thread::spawn(move || {
+        let announced = Cell::new(false);
+        let result = writer.save_translation(
+            job_key,
+            context.revision,
+            &job_original,
+            additions,
+            &[evidence],
+            || {
+                if !announced.replace(true) {
+                    let _ = entered.send(());
+                }
+                job_current.load(Ordering::SeqCst)
+            },
+        );
+        let _ = finished.send(result);
+    });
+    ready.recv_timeout(Duration::from_secs(2))?;
+    assert!(matches!(
+        outcome.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    current.store(false, Ordering::SeqCst);
+    lock.execute_batch("ROLLBACK")?;
+    assert!(matches!(
+        outcome.recv_timeout(Duration::from_secs(2))?,
+        Err(LibraryError::Cancelled)
+    ));
+    job.join().map_err(|_| "cancelled writer panicked")?;
+    let library = Library::open(profile)?;
+    assert_eq!(library.translation_context(publication, "ru")?, context);
+    assert_eq!(library.translation_selection("ru")?, selection);
+    assert!(library.cached_translation::<TextChapter>(&key)?.is_none());
+    println!("PASS translation_cancel write_lock before_commit context_selection_payload_rollback");
     Ok(())
 }
 

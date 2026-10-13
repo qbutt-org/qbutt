@@ -163,8 +163,10 @@ impl Library {
         Ok(Some(png.to_vec()))
     }
 
-    /// Atomically accept verified context and the translated overlay. A job
-    /// begun on a stale revision must rerun with the newly confirmed context.
+    /// Atomically accept verified context and the translated overlay. A stale
+    /// revision or cancelled job leaves all previously accepted data intact.
+    /// Cancellation is checked again after acquiring the write lock and before
+    /// commit, so waiting for another writer cannot revive an obsolete job.
     pub fn save_translation<T: Serialize>(
         &mut self,
         key: TranslationCacheKey,
@@ -172,7 +174,11 @@ impl Library {
         content: &T,
         additions: ContextAdditions,
         evidence: &[EvidenceSegment],
+        is_current: impl Fn() -> bool,
     ) -> LibraryResult<TranslationContext> {
+        if !is_current() {
+            return Err(LibraryError::Cancelled);
+        }
         key.validate()?;
         let encoded_content = serde_json::to_string(content)?;
         if encoded_content.len() > MAX_CACHED_BYTES {
@@ -183,6 +189,9 @@ impl Library {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if !is_current() {
+            return Err(LibraryError::Cancelled);
+        }
         let context = accept_translation_context(
             &transaction,
             &key,
@@ -195,6 +204,9 @@ impl Library {
              ON CONFLICT (key) DO UPDATE SET content = excluded.content",
             params![serde_json::to_string(&key)?, encoded_content],
         )?;
+        if !is_current() {
+            return Err(LibraryError::Cancelled);
+        }
         transaction.commit()?;
         Ok(context)
     }
