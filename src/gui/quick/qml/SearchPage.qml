@@ -71,6 +71,12 @@ Page {
             if (root.backend.sharedImporting)
                 categories.currentIndex = 0;
         }
+        function onLocalBookErrorChanged(): void {
+            if (root.backend.localBookError === "")
+                localBookErrorPopup.close();
+            else
+                localBookErrorPopup.open();
+        }
     }
 
     Shortcut {
@@ -220,15 +226,6 @@ Page {
             Layout.fillWidth: true
             visible: root.backend.errorText !== ""
             text: root.backend.errorText
-            wrapMode: Text.Wrap
-            textFormat: Text.PlainText
-        }
-
-        Label {
-            objectName: "contentLocalBookError"
-            Layout.fillWidth: true
-            visible: root.backend.localBookError !== ""
-            text: root.localBookErrorText(root.backend.localBookError)
             wrapMode: Text.Wrap
             textFormat: Text.PlainText
         }
@@ -404,6 +401,35 @@ Page {
         theme: appearance
         backdrop: root
         onClosed: sourceButton.forceActiveFocus()
+    }
+
+    ModalPicker {
+        id: localBookErrorPopup
+        objectName: "contentLocalBookErrorPopup"
+        theme: appearance
+        backdrop: root
+        width: Math.min(480, parent.width - 48)
+        height: Math.min(contentItem.implicitHeight + topPadding + bottomPadding, parent.height - 48)
+
+        contentItem: ColumnLayout {
+            spacing: 20
+
+            Label {
+                objectName: "contentLocalBookError"
+                Layout.fillWidth: true
+                text: root.localBookErrorText(root.backend.localBookError)
+                wrapMode: Text.Wrap
+                textFormat: Text.PlainText
+            }
+
+            ActionButton {
+                objectName: "contentLocalBookErrorClose"
+                Layout.alignment: Qt.AlignRight
+                theme: appearance
+                text: qsTr("Close")
+                onClicked: localBookErrorPopup.close()
+            }
+        }
     }
 
     BrowserSettingsModal {

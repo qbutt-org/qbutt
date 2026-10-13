@@ -36,6 +36,7 @@
 #include "browser-relay.h"
 #include "history.h"
 #include "library.h"
+#include "local-books-ui.h"
 #include "playback.h"
 #include "mangalib.h"
 #include "reader-progress.h"
@@ -519,6 +520,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"browser-relay-host"_s, u"Serve isolated browser relay process scenarios over standard input."_s});
     parser.addOption({u"exercise"_s, u"Run the bounded live metadata acceptance scenario and exit."_s});
     parser.addOption({u"library"_s, u"Run native library persistence and fault scenarios and exit."_s});
+    parser.addOption({u"local-book-import"_s, u"Run local book import error visibility and reader preservation, then exit."_s});
     parser.addOption({u"downloads"_s, u"Inspect generated native download jobs through the Qt model."_s});
     parser.addOption({u"sharing"_s, u"Run native shared-work import and isolation scenarios and exit."_s});
     parser.addOption({u"playback"_s, u"Run direct-video launch tokens, confirmed history and SQLite faults, then exit."_s});
@@ -652,7 +654,7 @@ int main(int argc, char *argv[])
     window->show();
 
     if (parser.isSet(u"exercise"_s) || parser.isSet(u"reader"_s) || parser.isSet(u"syosetu"_s)
-        || parser.isSet(u"syosetu-image"_s)
+        || parser.isSet(u"syosetu-image"_s) || parser.isSet(u"local-book-import"_s)
         || parser.isSet(u"reader-translation-choice"_s) || parser.isSet(u"worklist"_s))
     {
         QTimer::singleShot(360'000, &application, [&application]
@@ -665,6 +667,7 @@ int main(int argc, char *argv[])
                 runReader = parser.isSet(u"reader"_s),
                 runSyosetu = parser.isSet(u"syosetu"_s),
                 runSyosetuImage = parser.isSet(u"syosetu-image"_s),
+                runLocalBookImport = parser.isSet(u"local-book-import"_s),
                 runReaderTranslationChoice = parser.isSet(u"reader-translation-choice"_s),
                 runWorkList = parser.isSet(u"worklist"_s)]
         {
@@ -672,6 +675,8 @@ int main(int argc, char *argv[])
             {
                 if (runWorkList)
                     exerciseWorkList(view);
+                else if (runLocalBookImport)
+                    exerciseLocalBookImportUi(view, profilePath);
                 else if (runReaderTranslationChoice)
                     exerciseReaderTranslationChoiceRace(view, profilePath);
                 else if (runReader)

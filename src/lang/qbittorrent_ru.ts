@@ -18725,6 +18725,10 @@ Please choose a different name and try again.</source>
         <translation>Не удалось открыть книгу</translation>
     </message>
     <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+    <message>
         <source>Category</source>
         <translation>Категория</translation>
     </message>

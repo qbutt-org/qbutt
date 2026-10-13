@@ -332,10 +332,14 @@ establish QML viewport confirmation or native pointer interaction.
 With Pillow installed for the generated image formats, create isolated local-book fixtures with
 `python tests/quick-acceptance/local-book-fixtures.py <fixture-directory>`, then
 run `cargo run --manifest-path src/content/Cargo.toml --example local-books --locked -- <fixture-directory>`.
-The fixture opens EPUB, FB2, TXT, HTML, CBZ/ZIP and individual image files.
-It checks chapter and natural page order, formatting, local image bounds,
+The fixture opens EPUB, FB2, TXT, HTML documents and fragments, CBZ/ZIP and individual image files.
+It checks chapter and natural page order, formatting, exclusion of HTML head text, local image bounds,
 changed-file identity, private path restoration, invalid page bytes, and unsafe,
 duplicate, encrypted and oversized archives.
+Run `--local-book-import --lang en` and `--local-book-import --lang ru` with the
+same offscreen Qt Quick acceptance environment. Require exit zero and
+`PASS local_book_import_ui`: opening an oversized file over a valid chapter must
+show a dismissible error while preserving that chapter.
 Open the same files through the native file dialog in a separate profile to
 confirm rendering and position restoration.
 

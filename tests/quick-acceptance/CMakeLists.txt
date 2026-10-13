@@ -48,6 +48,8 @@ qt_add_executable(qbutt-quick-acceptance
     downloads.h
     library.cpp
     library.h
+    local-books-ui.cpp
+    local-books-ui.h
     playback.cpp
     playback.h
     mangalib.cpp

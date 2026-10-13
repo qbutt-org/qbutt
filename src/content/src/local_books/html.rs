@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Component, PathBuf};
 
+use scraper::{Html, Selector};
 use sha2::{Digest, Sha256};
 
 use super::{
@@ -14,6 +15,12 @@ use crate::{ChapterRef, Error, Result, TextChapter, TextImageAsset};
 impl LocalBook {
     pub(super) fn read_html_chapter(&self, reference: &ChapterRef) -> Result<TextChapter> {
         let html = decode_text(&self.read_verified_bytes()?)?;
+        let document = Html::parse_document(&html);
+        let body = document
+            .select(&Selector::parse("body").expect("static body selector"))
+            .next()
+            .ok_or(Error::InvalidLocalBook("The HTML document has no body"))?
+            .inner_html();
         let folder = self.path.parent().ok_or(Error::InvalidReference)?;
         let mut resolve_image = |source: &str| -> Result<Option<TextImageAsset>> {
             let source = source.split(['?', '#']).next().unwrap_or_default();
@@ -62,6 +69,6 @@ impl LocalBook {
                 bytes: bytes.into(),
             }))
         };
-        TextChapter::from_html_with_images(reference.clone(), &html, &mut resolve_image, None, None)
+        TextChapter::from_html_with_images(reference.clone(), &body, &mut resolve_image, None, None)
     }
 }

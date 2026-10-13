@@ -153,6 +153,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .iter()
             .any(|block| block.plain_text().contains("doNotRender"))
     );
+    assert!(
+        !chapter
+            .blocks
+            .iter()
+            .any(|block| block.plain_text().contains("Private title"))
+    );
+    let fragment = LocalBook::open(directory.join("html/fragment.html"))?;
+    let fragment = fragment.read_chapter(&fragment.chapter_list()[0].reference)?;
+    assert!(
+        fragment
+            .blocks
+            .iter()
+            .any(|block| block.plain_text() == "Fragment heading")
+    );
+    assert!(
+        fragment
+            .blocks
+            .iter()
+            .flat_map(|block| &block.spans)
+            .any(|span| matches!(span, TextSpan::Text { bold: true, .. }))
+    );
 
     for extension in ["cbz", "zip"] {
         let comic = LocalBook::open(directory.join(format!("native.{extension}")))?;

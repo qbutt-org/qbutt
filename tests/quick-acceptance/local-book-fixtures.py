@@ -150,6 +150,8 @@ def main() -> None:
 <img src="../single.png" alt="Escaped image">
 <img src="https://example.invalid/tracker.png" alt="Remote image">
 </body></html>""", encoding="utf-8")
+    (html_folder / "fragment.html").write_text(
+        '<h1>Fragment heading</h1><p>Fragment <strong>text</strong>.</p>', encoding="utf-8")
 
     with zipfile.ZipFile(destination / "native.cbz", "w") as comic:
         for number in (10, 2, 1):
