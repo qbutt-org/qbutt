@@ -211,7 +211,8 @@ namespace
             waitFor([&]
             {
                 return (proxy->rowCount() == expected) && (variants->property("count").toInt() == expected)
-                    && (variants->property("currentIndex").toInt() == proxy->indexOfId(selected));
+                    && (proxy->selectedRow() == proxy->indexOfId(selected))
+                    && (variants->property("currentIndex").toInt() == proxy->selectedRow());
             }, u"Visible variant count and selection %1"_s.arg(expected));
             require((full->rowCount() == 48) && (proxy->episodeOptions().size() == 12)
                 && (controller->property("selectedVariantId").toString() == selected),
@@ -219,6 +220,8 @@ namespace
             require(contentOperations == 0, u"Filtering started content work"_s);
             const int row = proxy->indexOfId(selected);
             require(item(u"contentDownload"_s)->isEnabled() == (row >= 0), u"Hidden exact selection stayed actionable"_s);
+            require(item(u"contentFilteredSelectionNotice"_s)->isVisible() == (row < 0),
+                u"Filtered selection notice does not match the visible exact variant"_s);
             settled(*controller);
             visibleRows();
         }
@@ -404,6 +407,12 @@ void exerciseVariantFilters()
         screen.render(u"all-1440"_s);
         exerciseChoices(screen);
         screen.choose(u"contentProviderFilter"_s, {{u"source"_s, u"aniliberty"_s}, {u"player"_s, QString()}});
+        screen.count(48, selected);
+        screen.choose(u"contentTranslationFilter"_s, {{u"value"_s, u"Studio Beta"_s}});
+        screen.count(24, selected);
+        screen.choose(u"contentTranslationFilter"_s, {{u"value"_s, u"Studio Alpha"_s}});
+        screen.count(24, selected);
+        screen.choose(u"contentTranslationFilter"_s, {{u"value"_s, QString()}});
         screen.count(48, selected);
         screen.choose(u"contentProviderFilter"_s, {{u"source"_s, u"aniliberty"_s}, {u"player"_s, u"Rutube"_s}});
         screen.count(24, selected);

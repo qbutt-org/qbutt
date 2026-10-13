@@ -277,7 +277,8 @@ check. Native popup, pointer, focus and viewport acceptance remains separate.
 The `--variant-filters` scenario uses two generated SQLite works with twelve
 episodes, two translations, two player paths and two languages. It exercises the
 production QML controls, the source-only and exact-player projections, combined
-facets, text search, hidden exact selection, empty results and reset. It verifies
+facets, same-count translation swaps, text search, the hidden-selection notice,
+empty results and reset. It verifies
 that filtering retains all stored variants and starts no search, inspection or
 resolution. Every visible delegate must have the proxy row's exact identity and
 roles, with no duplicate or stale rows after filtering and reset.

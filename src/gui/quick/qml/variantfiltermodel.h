@@ -28,7 +28,8 @@ namespace Content
         Q_PROPERTY(QVariantList providerOptions READ providerOptions NOTIFY optionsChanged)
         Q_PROPERTY(QVariantList languageOptions READ languageOptions NOTIFY optionsChanged)
         Q_PROPERTY(bool hasTorrents READ hasTorrents NOTIFY optionsChanged)
-        Q_PROPERTY(int count READ count NOTIFY countChanged)
+        Q_PROPERTY(QString selectedId MEMBER m_selectedId NOTIFY selectedIdChanged)
+        Q_PROPERTY(int selectedRow READ selectedRow NOTIFY selectedRowChanged)
 
     public:
         explicit VariantFilterModel(QObject *parent = nullptr);
@@ -40,7 +41,7 @@ namespace Content
         QVariantList providerOptions() const;
         QVariantList languageOptions() const;
         bool hasTorrents() const;
-        int count() const;
+        int selectedRow() const;
 
         Q_INVOKABLE QString idAt(int row) const;
         Q_INVOKABLE int indexOfId(const QString &id) const;
@@ -48,7 +49,8 @@ namespace Content
     signals:
         void filtersChanged();
         void optionsChanged();
-        void countChanged();
+        void selectedIdChanged();
+        void selectedRowChanged();
 
     protected:
         bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
@@ -64,6 +66,7 @@ namespace Content
         QString m_languageFilter;
         QString m_transportFilter;
         QString m_query;
+        QString m_selectedId;
         QStringList m_queryTokens;
 
         int m_idRole = -1;

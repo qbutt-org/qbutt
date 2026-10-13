@@ -40,14 +40,15 @@ Content::VariantFilterModel::VariantFilterModel(QObject *parent)
     connect(this, &VariantFilterModel::filtersChanged, this, [this]
     {
         m_queryTokens = m_query.simplified().split(' ', Qt::SkipEmptyParts);
-        invalidateRowsFilter();
+        invalidate();
     });
-    // ListView must consume model changes before a count binding updates its currentIndex.
-    connect(this, &QAbstractItemModel::rowsInserted, this, &VariantFilterModel::countChanged, Qt::QueuedConnection);
-    connect(this, &QAbstractItemModel::rowsRemoved, this, &VariantFilterModel::countChanged, Qt::QueuedConnection);
-    connect(this, &QAbstractItemModel::modelReset, this, &VariantFilterModel::countChanged, Qt::QueuedConnection);
-    connect(this, &QAbstractItemModel::layoutChanged, this, &VariantFilterModel::countChanged, Qt::QueuedConnection);
-
+    connect(this, &VariantFilterModel::selectedIdChanged, this, &VariantFilterModel::selectedRowChanged);
+    connect(this, &QAbstractItemModel::rowsInserted, this, &VariantFilterModel::selectedRowChanged);
+    connect(this, &QAbstractItemModel::rowsRemoved, this, &VariantFilterModel::selectedRowChanged);
+    connect(this, &QAbstractItemModel::rowsMoved, this, &VariantFilterModel::selectedRowChanged);
+    connect(this, &QAbstractItemModel::dataChanged, this, &VariantFilterModel::selectedRowChanged);
+    connect(this, &QAbstractItemModel::modelReset, this, &VariantFilterModel::selectedRowChanged);
+    connect(this, &QAbstractItemModel::layoutChanged, this, &VariantFilterModel::selectedRowChanged);
     m_optionsTimer.setSingleShot(true);
     m_optionsTimer.setInterval(0);
     connect(&m_optionsTimer, &QTimer::timeout, this, &VariantFilterModel::rebuildOptions);
@@ -115,9 +116,9 @@ bool Content::VariantFilterModel::hasTorrents() const
     return m_hasTorrents;
 }
 
-int Content::VariantFilterModel::count() const
+int Content::VariantFilterModel::selectedRow() const
 {
-    return rowCount();
+    return m_selectedId.isEmpty() ? -1 : indexOfId(m_selectedId);
 }
 
 QString Content::VariantFilterModel::idAt(const int row) const

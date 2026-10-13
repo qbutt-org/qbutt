@@ -29,9 +29,7 @@ Pane {
     readonly property bool showTorrentColumns: filteredVariants.hasTorrents
     readonly property bool selectedForReading: backend.selectedVariantKind === "manga"
         || backend.selectedVariantKind === "text"
-    readonly property int selectedRow: {
-        return filteredVariants.count > 0 ? filteredVariants.indexOfId(backend.selectedVariantId) : -1;
-    }
+    readonly property int selectedRow: filteredVariants.selectedRow
     onSelectedRowChanged: variants.currentIndex = selectedRow
 
     VariantFilterModel {
@@ -45,6 +43,7 @@ Pane {
         languageFilter: root.backend.variantLanguageFilter
         transportFilter: root.backend.variantTransportFilter
         query: root.backend.variantQuery
+        selectedId: root.backend.selectedVariantId
     }
 
     function openSelected(): void {
@@ -201,6 +200,7 @@ Pane {
         }
 
         VariantFilters {
+            id: variantFilters
             Layout.fillWidth: true
             Layout.fillHeight: false
             backend: root.backend
@@ -210,8 +210,10 @@ Pane {
         }
 
         Label {
+            objectName: "contentFilteredSelectionNotice"
             Layout.fillWidth: true
-            visible: root.backend.selectedVariantState === Search.Available && root.selectedRow < 0
+            visible: variantFilters.active && root.backend.selectedVariantState === Search.Available
+                && root.selectedRow < 0
             text: qsTr("Selected variant is hidden by filters")
             color: root.theme.muted
             wrapMode: Text.Wrap
@@ -261,6 +263,7 @@ Pane {
             clip: true
             model: filteredVariants
             currentIndex: -1
+            onCountChanged: currentIndex = root.selectedRow
             spacing: 2
             activeFocusOnTab: true
             keyNavigationEnabled: true
