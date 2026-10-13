@@ -642,6 +642,13 @@ pub mod ffi {
         )]
         #[qproperty(
             QString,
+            selected_publication_id,
+            cxx_name = "selectedPublicationId",
+            READ = selected_publication_id,
+            NOTIFY = selected_work_description_changed
+        )]
+        #[qproperty(
+            QString,
             selected_publication_source,
             cxx_name = "selectedPublicationSource",
             READ = selected_publication_source,
@@ -792,6 +799,7 @@ pub mod ffi {
         fn current_library_error_kind(&self) -> LibraryErrorKind;
         fn variant_selection_state(&self) -> VariantSelectionState;
         fn selected_work_category(&self) -> QString;
+        fn selected_publication_id(&self) -> QString;
         fn selected_publication_source(&self) -> QString;
         fn selected_variant_kind(&self) -> QString;
         fn can_share_selected(&self) -> bool;

@@ -12,6 +12,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QKeyEvent>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QScopeGuard>
@@ -21,6 +22,7 @@
 #include <QTemporaryDir>
 #include <QThreadPool>
 #include <QTimer>
+#include <QWheelEvent>
 
 #include "gui/quick/contentview.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
@@ -80,7 +82,7 @@ namespace
         const QString hash(40, u'a');
         const QJsonObject primary {{"source", "thelastgame"}, {"id", slug}};
         const QJsonObject secondary {{"source", "fitgirl"}, {"id", slug}};
-        const auto variant = [&](const QJsonObject &publication)
+        const auto variant = [](const QJsonObject &publication, const QString &hash)
         {
             return QJsonObject {
                 {"reference", QJsonObject {{"publication", publication},
@@ -91,11 +93,14 @@ namespace
         };
         const auto work = [&](const QJsonObject &publication, const QString &description)
         {
+            QJsonArray variants {variant(publication, hash)};
+            if (publication == primary)
+                variants.append(variant(publication, QString(40, u'b')));
             return QJsonObject {
                 {"reference", publication}, {"title", "Generated legal work"}, {"category", "games"},
                 {"url", "https://example.com/generated/"}, {"description", description},
                 {"aliases", QJsonArray()}, {"identifiers", QJsonObject()},
-                {"needs_inspection", false}, {"variants", QJsonArray {variant(publication)}}
+                {"needs_inspection", false}, {"variants", variants}
             };
         };
         QJsonArray publications {work(primary, longDescription())};
@@ -104,7 +109,7 @@ namespace
         return {
             {"group", QJsonObject {{"anchor", primary}, {"references", QJsonArray {primary, secondary}},
                 {"publications", publications}}},
-            {"preferences", QJsonObject {{"selected", variant(missingPublication ? secondary : primary).value("reference")},
+            {"preferences", QJsonObject {{"selected", variant(missingPublication ? secondary : primary, hash).value("reference")},
                 {"filters", QJsonObject()}}},
             {"favorite", true}
         };
@@ -152,12 +157,47 @@ namespace
                 u"Description substituted another publication or expanded the summary"_s);
         }
 
-        QObject *openDetails()
+        QQuickItem *document() const
+        {
+            auto *result = qobject_cast<QQuickItem *>(object(u"contentWorkDetailsDocument"_s));
+            require(result, u"Details flickable document is missing"_s);
+            return result;
+        }
+
+        void wheel(const int delta)
+        {
+            auto *flickable = document();
+            const QPointF position = flickable->mapToScene(flickable->boundingRect().center());
+            QWheelEvent event(position, view.mapToGlobal(position.toPoint()), {}, {0, delta},
+                Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+            QCoreApplication::sendEvent(&view, &event);
+            QElapsedTimer elapsed;
+            elapsed.start();
+            do
+            {
+                const qreal offset = flickable->property("contentY").toReal();
+                const qreal maximum = qMax<qreal>(0, flickable->property("contentHeight").toReal() - flickable->height());
+                auto *text = qobject_cast<QQuickItem *>(object(u"contentWorkDetailsText"_s));
+                require((offset >= -1) && (offset <= maximum + 1)
+                    && text && text->mapRectToItem(flickable, text->boundingRect()).intersects(flickable->boundingRect()),
+                    u"Fast wheel left a blank or overscrolled details viewport"_s);
+                QEventLoop loop;
+                QTimer::singleShot(20, &loop, &QEventLoop::quit);
+                loop.exec();
+            } while (elapsed.elapsed() < 200);
+        }
+
+        void openDetails(const bool fastWheel = false)
         {
             auto *button = object(u"contentWorkDetails"_s);
             require(button->property("text").toString() == QCoreApplication::translate("WorkPane", "Details")
                 && QMetaObject::invokeMethod(button, "clicked"), u"Details action failed"_s);
             QObject *modal = nullptr;
+            if (fastWheel)
+            {
+                waitFor([&] { return document()->height() > 0; }, u"Details wheel viewport"_s);
+                wheel(-720);
+            }
             waitFor([&]
             {
                 modal = view.rootObject()->findChild<QObject *>(u"contentWorkDetailsModal"_s);
@@ -174,22 +214,24 @@ namespace
             auto *content = modal->property("contentItem").value<QQuickItem *>();
             require(content && view.rootObject()->boundingRect().contains(content->mapRectToScene(content->boundingRect())),
                 u"Details content extends outside the product window"_s);
-            auto *scroll = object(u"contentWorkDetailsScroll"_s);
-            auto *flickable = scroll->property("contentItem").value<QQuickItem *>();
-            require(flickable, u"Details scroll has no flickable content"_s);
+            auto *flickable = document();
             waitFor([&] { return flickable->property("contentHeight").toReal() > flickable->height(); },
                 u"Long details layout"_s);
-            const qreal bottom = flickable->property("contentHeight").toReal() - flickable->height();
-            require(flickable->setProperty("contentY", bottom)
-                && (qAbs(flickable->property("contentY").toReal() - bottom) < 1),
-                u"Details could not reach its final instructions"_s);
-            return modal;
         }
 
         void closed()
         {
-            waitFor([&] { return !view.rootObject()->findChild<QObject *>(u"contentWorkDetailsModal"_s); },
-                u"Details modal exit and unload"_s);
+            waitFor([&] { return !object(u"contentWorkDetailsModal"_s)->property("visible").toBool(); },
+                u"Details modal exit"_s);
+        }
+
+        void escape()
+        {
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+            QCoreApplication::sendEvent(&view, &press);
+            QKeyEvent release(QEvent::KeyRelease, Qt::Key_Escape, Qt::NoModifier);
+            QCoreApplication::sendEvent(&view, &release);
+            closed();
         }
     };
 }
@@ -224,7 +266,7 @@ void exerciseWorkDetails()
     });
     database.setDatabaseName(profile.filePath(u"content-library.sqlite"_s));
     require(database.open(), database.lastError().text());
-    for (const QString &slug : {u"generated-details"_s, u"missing-publication"_s})
+    for (const QString &slug : {u"generated-details"_s, u"other-details"_s, u"missing-publication"_s})
     {
         QSqlQuery insert(database);
         require(insert.prepare(u"INSERT INTO library VALUES (?, ?, ?)"_s), insert.lastError().text());
@@ -237,6 +279,7 @@ void exerciseWorkDetails()
     int warnings = 0;
     QString first;
     QString second;
+    QString alternative;
     {
         Content::ContentView view(profile.path());
         view.show();
@@ -245,34 +288,62 @@ void exerciseWorkDetails()
         screen.select(u"generated-details"_s);
         first = screen.controller->property("selectedVariantId").toString();
         auto *variants = qobject_cast<QAbstractItemModel *>(screen.controller->property("variants").value<QObject *>());
-        require(variants && (variants->rowCount() == 2), u"Details fixture lost an associated publication"_s);
+        require(variants && (variants->rowCount() == 3), u"Details fixture lost a publication or alternative"_s);
         const int idRole = variants->roleNames().key("variantId", -1);
-        require(idRole >= 0, u"Details variant identity role missing"_s);
+        const int sourceRole = variants->roleNames().key("source", -1);
+        require((idRole >= 0) && (sourceRole >= 0), u"Details variant identity or source role missing"_s);
         for (int row = 0; row < variants->rowCount(); ++row)
         {
             const QString id = variants->data(variants->index(row, 0), idRole).toString();
-            if (id != first)
+            if (variants->data(variants->index(row, 0), sourceRole).toString() == u"FitGirl"_s)
                 second = id;
+            else if (id != first)
+                alternative = id;
         }
-        require(!first.isEmpty() && !second.isEmpty(), u"Details exact variants are missing"_s);
+        require(!first.isEmpty() && !second.isEmpty() && !alternative.isEmpty(), u"Details exact variants are missing"_s);
         for (const QSize &size : {QSize(1280, 720), QSize(1440, 900)})
         {
             view.resize(size);
             screen.controller->selectVariant(first);
             screen.description(longDescription(), u"TheLastGame"_s, true);
+            screen.openDetails(true);
+            screen.wheel(-720);
+            const qreal bottom = screen.document()->property("contentHeight").toReal() - screen.document()->height();
+            require(screen.document()->setProperty("contentY", bottom) && (bottom > 0),
+                u"Details could not reach its final instructions"_s);
+            screen.escape();
             screen.openDetails();
+            require(qAbs(screen.document()->property("contentY").toReal() - bottom) < 1,
+                u"Escape and reopen reset the same publication scroll position"_s);
+            screen.controller->selectVariant(alternative);
+            require(screen.object(u"contentWorkDetailsModal"_s)->property("opened").toBool()
+                && (qAbs(screen.document()->property("contentY").toReal() - bottom) < 1),
+                u"Another variant of the same publication closed or reset its details"_s);
             require(QMetaObject::invokeMethod(screen.object(u"contentWorkDetailsClose"_s), "clicked"),
                 u"Details close action failed"_s);
             screen.closed();
             screen.openDetails();
+            require(qAbs(screen.document()->property("contentY").toReal() - bottom) < 1,
+                u"Close and reopen reset the same publication scroll position"_s);
             screen.controller->selectVariant(second);
             screen.closed();
+            require(qAbs(screen.document()->property("contentY").toReal()) < 1,
+                u"Another publication retained the previous scroll position"_s);
             screen.description(shortDescription, u"FitGirl"_s, false);
             settled(*screen.controller);
             screen.select(u"generated-details"_s);
             screen.description(shortDescription, u"FitGirl"_s, false);
             screen.controller->selectVariant(first);
             screen.description(longDescription(), u"TheLastGame"_s, true);
+            screen.openDetails();
+            require(qAbs(screen.document()->property("contentY").toReal()) < 1,
+                u"Returning to another publication did not reset its details"_s);
+            screen.select(u"other-details"_s);
+            screen.closed();
+            screen.description(longDescription(), u"TheLastGame"_s, true);
+            require(screen.controller->property("selectedPublicationId").toString() == u"thelastgame:other-details"_s
+                && (qAbs(screen.document()->property("contentY").toReal()) < 1),
+                u"Equal text and source hid another publication identity"_s);
             screen.openDetails();
             screen.select(u"missing-publication"_s);
             screen.closed();
@@ -296,5 +367,5 @@ void exerciseWorkDetails()
             u"Reopening replaced the exact publication preference"_s);
     }
     require(warnings == 0, u"Details production QML emitted warnings"_s);
-    qInfo("PASS work_details selected_publication=exact missing_publication=empty summary=three_lines details=truncated_only plain_text=complete scroll=ok close_on_selection=ok refresh=preserved reopen=exact sizes=1280x720,1440x900");
+    qInfo("PASS work_details selected_publication=exact missing_publication=empty summary=three_lines details=truncated_only plain_text=complete wheel_bounds=ok escape_reopen=position_preserved variant_same_publication=position_preserved publication_change=closed_reset refresh=preserved reopen=exact sizes=1280x720,1440x900");
 }

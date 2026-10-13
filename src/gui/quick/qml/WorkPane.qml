@@ -190,7 +190,7 @@ Pane {
             theme: root.theme
             visible: description.truncated
             text: qsTr("Details")
-            onClicked: details.active = true
+            onClicked: details.open()
         }
 
         ProgressBar {
@@ -312,21 +312,16 @@ Pane {
         }
     }
 
-    Loader {
+    WorkDetailsModal {
         id: details
-        active: false
-        sourceComponent: WorkDetailsModal {
-            backend: root.backend
-            theme: root.theme
-            backdrop: root.backdrop
-            Component.onCompleted: open()
-            onClosed: {
-                details.active = false;
-                if (detailsButton.visible)
-                    detailsButton.forceActiveFocus();
-                else
-                    variants.forceActiveFocus();
-            }
+        backend: root.backend
+        theme: root.theme
+        backdrop: root.backdrop
+        onClosed: {
+            if (detailsButton.visible)
+                detailsButton.forceActiveFocus();
+            else
+                variants.forceActiveFocus();
         }
     }
 }

@@ -10,11 +10,12 @@ ModalPicker {
     objectName: "contentWorkDetailsModal"
 
     required property ContentController backend
+    readonly property string publicationId: backend.selectedPublicationId
 
-    Connections {
-        target: root.backend
-        function onSelectedWorkIdChanged(): void { root.close(); }
-        function onSelectedVariantIdChanged(): void { root.close(); }
+    onPublicationIdChanged: {
+        close();
+        document.cancelFlick();
+        document.contentY = 0;
     }
 
     contentItem: ColumnLayout {
@@ -56,24 +57,30 @@ ModalPicker {
         }
 
         ScrollView {
-            id: scroll
-            objectName: "contentWorkDetailsScroll"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentWidth: availableWidth
-            clip: true
+            contentItem: Flickable {
+                id: document
+                objectName: "contentWorkDetailsDocument"
+                contentWidth: width
+                contentHeight: instructions.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
+                acceptedButtons: Qt.NoButton
+                clip: true
 
-            TextArea {
-                objectName: "contentWorkDetailsText"
-                width: scroll.availableWidth
-                text: root.backend.selectedWorkDescription
-                color: root.theme.foreground
-                wrapMode: TextEdit.Wrap
-                textFormat: TextEdit.PlainText
-                readOnly: true
-                selectByMouse: true
-                padding: 0
-                background: null
+                TextArea {
+                    id: instructions
+                    objectName: "contentWorkDetailsText"
+                    width: document.width
+                    text: root.backend.selectedWorkDescription
+                    color: root.theme.foreground
+                    wrapMode: TextEdit.Wrap
+                    textFormat: TextEdit.PlainText
+                    readOnly: true
+                    selectByMouse: true
+                    padding: 0
+                    background: null
+                }
             }
         }
     }

@@ -131,15 +131,27 @@ impl ffi::ContentController {
         self.as_mut().show_group(&group, generation)
     }
 
-    pub(super) fn selected_publication_source(&self) -> QString {
-        let publication = self.selected_group.as_ref().and_then(|group| {
+    fn current_publication(&self) -> Option<&Work> {
+        self.selected_group.as_ref().and_then(|group| {
             let selected = self
                 .work_preferences
                 .get(&group.anchor)
                 .and_then(|preferences| preferences.selected.as_ref());
             selected_publication(group, selected)
-        });
-        QString::from(publication.map_or("", |work| work.reference.source.name()))
+        })
+    }
+
+    pub(super) fn selected_publication_id(&self) -> QString {
+        self.current_publication()
+            .map(|work| QString::from(work_id(&work.reference)))
+            .unwrap_or_default()
+    }
+
+    pub(super) fn selected_publication_source(&self) -> QString {
+        QString::from(
+            self.current_publication()
+                .map_or("", |work| work.reference.source.name()),
+        )
     }
 
     pub(super) fn selected_work_category(&self) -> QString {
@@ -610,8 +622,8 @@ impl ffi::ContentController {
                 .and_then(|work| work.description.as_deref())
                 .unwrap_or_default(),
         );
-        let source_changed = self.selected_publication_source()
-            != QString::from(publication.map_or("", |work| work.reference.source.name()));
+        let publication_changed = self.current_publication().map(|work| &work.reference)
+            != publication.map(|work| &work.reference);
         let variant_id = selected
             .map(variant_id)
             .map(QString::from)
@@ -627,7 +639,7 @@ impl ffi::ContentController {
                     .map(|work| work.category)
                     != work.map(|work| work.category),
                 state.selected_work_title != title,
-                state.selected_work_description != description || source_changed,
+                state.selected_work_description != description || publication_changed,
                 state.selected_variant_id != variant_id,
             );
             state.selected_work_id = id;

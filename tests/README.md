@@ -284,7 +284,10 @@ RU/Dark. Generated SQLite publications contain different descriptions and an
 exact saved variant. The production view must retain its three-line summary,
 offer Details only for truncated text and show complete selectable plain text
 with the selected source in the existing modal. The scenario checks scrolling,
-closing on work or variant changes, refresh and restart at 1280×720 and 1440×900.
+fast wheel bounds, Escape/Close and reopen with the same scroll position, and
+publication changes that close and reset the modal. Another variant of the same
+publication preserves its position. It also checks refresh and restart at
+1280×720 and 1440×900.
 An unavailable selected publication must leave its description empty. Require
 exit zero and `PASS work_details`. Native pointer, blur and focus acceptance
 remains separate.
