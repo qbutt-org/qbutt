@@ -276,6 +276,16 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         }
         return true;
     }, 10'000, u"Isolated provider selection"_s);
+    if (igruha)
+    {
+        controller->watchBrowser();
+        waitFor([&]
+        {
+            return controller->property("browserConnectionState").value<Qbutt::Browser::ConnectionState>()
+                == Qbutt::Browser::ConnectionState::Connected;
+        }, 30'000, u"Connected Igruha browser session"_s);
+        controller->closeBrowserSettings();
+    }
     if (mainContent)
     {
         auto *background = root->property("background").value<QQuickItem *>();

@@ -182,6 +182,8 @@ try {
         assert.equal(check.workId, "igruha:7861-open-transport-tycoon-deluxe");
         assert.equal(check.infoHash, "1ea103b38144f9bd91cb8e979949de4341010484");
         assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+        assert(check.metadataBytes > 0, "Igruha did not hand off torrent metadata");
+        assert.match(check.metadataSha256, /^[0-9a-f]{64}$/);
     }
     else if (["rutor", "limetorrents", "nnmclub", "rutracker"].includes(selectedSource)) {
         assert.equal(check.variantCount, 1);
