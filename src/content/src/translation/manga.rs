@@ -21,16 +21,17 @@ use qbutt_codex::{
 };
 
 mod diagnostics;
-mod output;
+mod submission;
 
-use diagnostics::{CallPhase, ToolLedger};
+use diagnostics::{CallPhase, RenderValidation, ToolLedger};
+use submission::{PageSelection, RenderCandidate};
 
 const MAX_REGIONS: usize = 60;
 const MAX_INK_BOXES: usize = 4096;
 const MAX_RENDERS: usize = 3;
 const MAX_INSPECTION_CROPS: usize = MAX_TOOL_IMAGES / 3;
 const MAX_INSPECTION_PIXELS: u64 = 16_000_000;
-const PIPELINE_VERSION: u32 = 7;
+const PIPELINE_VERSION: u32 = 8;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Rect {
@@ -147,16 +148,11 @@ pub struct PageResult {
     pub evidence: Vec<EvidenceSegment>,
 }
 
-struct Revision {
-    regions: Vec<PageRegion>,
-    layers: RenderLayers,
-}
-
 struct PageTools<'a, R, C> {
     renderer: Arc<R>,
     context_tools: &'a mut C,
-    original: InputImage,
-    revisions: Vec<Revision>,
+    job: &'a PageJob,
+    revisions: Vec<PageResult>,
     cancelled: Arc<AtomicBool>,
     ledger: ToolLedger,
 }
@@ -192,7 +188,7 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
             ));
         }
         let sources = if layer == "original" {
-            vec![("original", self.original.clone())]
+            vec![("original", self.job.original.clone())]
         } else {
             let layers = &self
                 .revisions
@@ -206,7 +202,7 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
                 "cleaned" => vec![("cleaned", InputImage::png(layers.cleaned_png.clone()))],
                 "mask" => vec![("mask", InputImage::png(layers.mask_png.clone()))],
                 "comparison" => vec![
-                    ("original", self.original.clone()),
+                    ("original", self.job.original.clone()),
                     ("cleaned", InputImage::png(layers.cleaned_png.clone())),
                     ("result", InputImage::png(layers.result_png.clone())),
                 ],
@@ -272,20 +268,41 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
 
     async fn render(&mut self, arguments: Value) -> codex::Result<ToolOutput> {
         if self.revisions.len() >= MAX_RENDERS {
-            return Err(CodexError::Tool("The page already has the maximum three renders. Finish with the best rendered revision.".into()));
+            return self.ledger.validation(
+                RenderValidation::RenderLimit,
+                Err(CodexError::Tool("The page already has the maximum three renders. Finish with the best rendered revision.".into())),
+            );
         }
-        let regions: Vec<PageRegion> = serde_json::from_value(
-            arguments
-                .get("regions")
-                .cloned()
-                .ok_or(CodexError::Protocol)?,
-        )
-        .map_err(|_| CodexError::Tool("Invalid page regions".into()))?;
-        validate_regions(&regions)?;
+        let candidate: RenderCandidate = self.ledger.validation(
+            RenderValidation::Arguments,
+            serde_json::from_value(arguments).map_err(|_| {
+                CodexError::Tool("Invalid render candidate; supply regions, terms and facts".into())
+            }),
+        )?;
+        self.ledger.validation(
+            RenderValidation::Regions,
+            validate_regions(&candidate.regions),
+        )?;
+        let (additions, evidence) = self.ledger.validation(
+            RenderValidation::ContextReference,
+            candidate.decode_context(&self.job.chapter, self.job.page, &self.job.original),
+        )?;
+        let mut context = self.job.work_context.clone();
+        self.ledger.validation(
+            RenderValidation::ContextRules,
+            context
+                .apply(
+                    &self.job.chapter.variant.publication,
+                    additions.clone(),
+                    &evidence,
+                )
+                .map_err(|reason| CodexError::Tool(reason.into())),
+        )?;
+
         self.ledger.phase(CallPhase::Native);
         let renderer = self.renderer.clone();
-        let original = self.original.clone();
-        let rendered_regions = regions.clone();
+        let original = self.job.original.clone();
+        let rendered_regions = candidate.regions.clone();
         let cancelled = self.cancelled.clone();
         let layers = tokio::task::spawn_blocking(move || {
             renderer.render(&original, &rendered_regions, cancelled)
@@ -301,7 +318,12 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
                 "Native page render did not produce all image layers".into(),
             ));
         }
-        self.revisions.push(Revision { regions, layers });
+        self.revisions.push(PageResult {
+            regions: candidate.regions,
+            layers,
+            additions,
+            evidence,
+        });
         let latest = self.revisions.last().ok_or(CodexError::Protocol)?;
         let text = json!({
             "revision": self.revisions.len(),
@@ -356,7 +378,6 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     }) {
         return Err(CodexError::Isolation);
     }
-    let original = job.original.clone();
     let cancel_flag = Arc::new(AtomicBool::new(*cancelled.borrow()));
     let watch_flag = cancel_flag.clone();
     let mut watch_cancelled = cancelled.clone();
@@ -371,7 +392,7 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     let mut tools = PageTools {
         renderer,
         context_tools,
-        original,
+        job: &job,
         revisions: Vec::new(),
         cancelled: cancel_flag,
         ledger: ToolLedger::default(),
@@ -393,7 +414,7 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
         })
         .to_string(),
         image: Some(job.original.clone()),
-        output_schema: output::page_output_schema(),
+        output_schema: submission::page_selection_schema(),
         model: job.model.clone(),
         effort: job.effort.clone(),
         tools: definitions,
@@ -420,27 +441,11 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     {
         return Err(CodexError::ModelUnavailable);
     }
-    let output: output::PageOutput =
-        serde_json::from_value(value).map_err(|_| CodexError::Protocol)?;
+    let output: PageSelection = serde_json::from_value(value).map_err(|_| CodexError::Protocol)?;
     output.validate_selection(tools.revisions.len())?;
     let accepted = tools.revisions.swap_remove(output.revision - 1);
     validate_rendered_regions(&accepted.regions, &accepted.layers.diagnostics)?;
-    let (additions, evidence) =
-        output.decode_context(&job.chapter, job.page, &job.original, &accepted.regions)?;
-    let mut context = job.work_context;
-    context
-        .apply(
-            &job.chapter.variant.publication,
-            additions.clone(),
-            &evidence,
-        )
-        .map_err(|reason| CodexError::Tool(reason.into()))?;
-    Ok(PageResult {
-        regions: accepted.regions,
-        layers: accepted.layers,
-        additions,
-        evidence,
-    })
+    Ok(accepted)
 }
 
 pub fn input_image(bytes: Vec<u8>) -> codex::Result<InputImage> {
@@ -677,19 +682,8 @@ fn page_tools() -> Vec<FunctionTool> {
         },
         FunctionTool {
             name: "render_page",
-            description: "Render all visible page text through qbutt's native cleaner and typesetter. Provide every region in reading order. Bounds enclose both source glyphs and the safe target layout inside a balloon or panel; inkBoxes tightly enclose only source glyph ink. Returns the real result image and layout diagnostics. At most three renders including corrections.",
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "regions": {
-                        "type": "array",
-                        "maxItems": 60,
-                        "items": region,
-                    },
-                },
-                "required": ["regions"],
-                "additionalProperties": false,
-            }),
+            description: "Validate a complete page candidate and its evidence-bearing context, then render through qbutt's native cleaner and typesetter. Provide every region in reading order and all terms/facts for this candidate. Bounds enclose both source glyphs and safe target layout; inkBoxes tightly enclose only source glyph ink. Returns the real result image and layout diagnostics. At most three renders including corrections.",
+            input_schema: submission::render_candidate_schema(region),
         },
     ]
 }
@@ -716,17 +710,20 @@ const PAGE_INSTRUCTIONS: &str = concat!(
     "Tight ink boxes cover every source glyph, including long strokes, dots, punctuation and all vertical characters, excluding borders and artwork. ",
     "Before placing boxes on unreadable details or art-backed text, inspect their original crops in one batch, with enough surrounding artwork to distinguish every source stroke. ",
     "Layout is safe space for target-language text inside bounds. ",
-    "Render the page with render_page and examine the actual returned image. ",
+    "Submit regions, terms and facts together to render_page. Context evidence is validated before rendering. ",
+    "Fix any validation error and resubmit the complete candidate; a rejected candidate does not use a render revision. ",
+    "Every correction replaces the candidate's regions and context additions together; previous candidates' additions are not accumulated. ",
+    "Examine the actual returned image. ",
     "After rendering, inspect one comparison batch for these difficult regions: each crop supplies separate original, cleaned and result images. ",
     "Check that no source strokes remain and that panel borders, contours, lines and screentone survive. ",
     "Layout diagnostics and unchanged pixels outside the mask do not establish cleanup quality. ",
     "Make at most two corrections when needed. ",
-    "Accept only a revision you actually rendered and saw. Return its revision number, ",
-    "plus at most 20 useful names, forms and explicit character facts for later pages. ",
-    "Each added convention must cite an accepted region ID and an exact source-text quote ",
-    "that supports it. These quotes are your readings of the image, not verified OCR. ",
+    "Include at most 20 useful names with forms and 20 explicit character facts for later pages in each render candidate. ",
+    "Each convention must cite a region ID from that candidate and an exact sourceText quote that contains its source name or form. ",
+    "The quote must support the convention. These quotes are your readings of the image, not verified OCR. ",
     "For gender, cite the subject's source name and an explicit textual clue in the same region; ",
     "never infer it from appearance, voice, honorifics or your own translation. ",
-    "Leave uncertain or unsupported conventions out and return empty arrays when there are none. ",
+    "Leave uncertain or unsupported conventions out and submit empty arrays when there are none. ",
+    "Accept only a revision you actually rendered and saw. Return only its revision number. ",
     "Do not request files, shell, browsing or unrelated context."
 );

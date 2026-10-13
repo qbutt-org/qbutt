@@ -1,4 +1,4 @@
-//! The final page decision and its evidence-bearing additions to work context.
+//! A render candidate supplies its context evidence before the final selection.
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -10,73 +10,84 @@ use super::super::context::{
     ConfirmedFact, ContextAdditions, ContextEvidence, EvidenceSegment, ImageObservation,
     TranslationForm, TranslationTerm,
 };
-use super::{PageRegion, Rect};
+use super::{MAX_REGIONS, MAX_RENDERS, PageRegion, Rect};
 use qbutt_codex::{self as codex, CodexError, InputImage};
+
+const MAX_CONTEXT_ITEMS: usize = 20;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct PageOutput {
+pub(super) struct PageSelection {
     pub(super) revision: usize,
-    terms: Vec<OutputTerm>,
-    facts: Vec<OutputFact>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct OutputEvidence {
+pub(super) struct RenderCandidate {
+    pub(super) regions: Vec<PageRegion>,
+    terms: Vec<CandidateTerm>,
+    facts: Vec<CandidateFact>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CandidateEvidence {
     region_id: String,
     quote: String,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct OutputTerm {
+struct CandidateTerm {
     source: String,
     target: String,
-    forms: Vec<OutputForm>,
-    evidence: OutputEvidence,
+    forms: Vec<CandidateForm>,
+    evidence: CandidateEvidence,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct OutputForm {
+struct CandidateForm {
     source: String,
     target: String,
-    evidence: OutputEvidence,
+    evidence: CandidateEvidence,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct OutputFact {
+struct CandidateFact {
     subject: String,
     attribute: String,
     value: String,
-    evidence: OutputEvidence,
+    evidence: CandidateEvidence,
 }
 
-impl PageOutput {
+impl PageSelection {
     pub(super) fn validate_selection(&self, render_count: usize) -> codex::Result<()> {
-        if self.revision == 0
-            || self.revision > render_count
-            || self.terms.len() > 20
-            || self.facts.len() > 20
-        {
+        if self.revision == 0 || self.revision > render_count {
             return Err(CodexError::Tool(
-                "Codex selected an invalid page revision or too much context".into(),
+                "Codex selected an invalid page revision".into(),
             ));
         }
         Ok(())
     }
+}
 
+impl RenderCandidate {
     pub(super) fn decode_context(
-        self,
+        &self,
         chapter: &ChapterRef,
         page: u32,
         original: &InputImage,
-        regions: &[PageRegion],
     ) -> codex::Result<(ContextAdditions, Vec<EvidenceSegment>)> {
+        if self.terms.len() > MAX_CONTEXT_ITEMS || self.facts.len() > MAX_CONTEXT_ITEMS {
+            return Err(CodexError::Tool(
+                "Provide at most 20 context terms and 20 facts".into(),
+            ));
+        }
         let digest = format!("{:x}", Sha256::digest(&original.bytes));
-        let segments: Vec<_> = regions
+        let segments: Vec<_> = self
+            .regions
             .iter()
             .map(|region| EvidenceSegment {
                 chapter: chapter.clone(),
@@ -90,52 +101,56 @@ impl PageOutput {
             })
             .collect();
 
-        let evidence = |raw: OutputEvidence| -> codex::Result<ContextEvidence> {
+        let evidence = |raw: &CandidateEvidence| -> codex::Result<ContextEvidence> {
             let segment = segments
                 .iter()
                 .find(|segment| segment.id == raw.region_id)
-                .ok_or(CodexError::Protocol)?;
+                .ok_or_else(|| {
+                    CodexError::Tool(
+                        "Context evidence must cite a region in this render candidate".into(),
+                    )
+                })?;
             Ok(ContextEvidence {
                 chapter: segment.chapter.clone(),
                 segment_id: segment.id.clone(),
-                quote: raw.quote,
+                quote: raw.quote.clone(),
                 image_observation: segment.image_observation.clone(),
             })
         };
 
         let terms = self
             .terms
-            .into_iter()
+            .iter()
             .map(|term| -> codex::Result<TranslationTerm> {
                 let forms = term
                     .forms
-                    .into_iter()
+                    .iter()
                     .map(|form| {
                         Ok(TranslationForm {
-                            source: form.source,
-                            target: form.target,
-                            evidence: evidence(form.evidence)?,
+                            source: form.source.clone(),
+                            target: form.target.clone(),
+                            evidence: evidence(&form.evidence)?,
                         })
                     })
                     .collect::<codex::Result<_>>()?;
 
                 Ok(TranslationTerm {
-                    source: term.source,
-                    target: term.target,
+                    source: term.source.clone(),
+                    target: term.target.clone(),
                     forms,
-                    evidence: evidence(term.evidence)?,
+                    evidence: evidence(&term.evidence)?,
                 })
             })
             .collect::<codex::Result<_>>()?;
         let facts = self
             .facts
-            .into_iter()
+            .iter()
             .map(|fact| {
                 Ok(ConfirmedFact {
-                    subject: fact.subject,
-                    attribute: fact.attribute,
-                    value: fact.value,
-                    evidence: evidence(fact.evidence)?,
+                    subject: fact.subject.clone(),
+                    attribute: fact.attribute.clone(),
+                    value: fact.value.clone(),
+                    evidence: evidence(&fact.evidence)?,
                 })
             })
             .collect::<codex::Result<_>>()?;
@@ -156,7 +171,7 @@ fn observation_bounds(bounds: &Rect) -> [u32; 4] {
     [left, top, right, bottom]
 }
 
-pub(super) fn page_output_schema() -> Value {
+pub(super) fn render_candidate_schema(region: Value) -> Value {
     let text = |limit| {
         json!({
             "type": "string",
@@ -175,6 +190,7 @@ pub(super) fn page_output_schema() -> Value {
     });
     let form = json!({
         "type": "object",
+        "description": "The form's source must occur with exact spelling and case in its own evidence quote.",
         "properties": {
             "source": text(200),
             "target": text(300),
@@ -185,6 +201,7 @@ pub(super) fn page_output_schema() -> Value {
     });
     let term = json!({
         "type": "object",
+        "description": "The evidence quote must contain the exact source spelling and case from sourceText, or one supplied form. A lemma absent from the quote requires a matching form.",
         "properties": {
             "source": text(200),
             "target": text(300),
@@ -213,23 +230,38 @@ pub(super) fn page_output_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "revision": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 3,
+            "regions": {
+                "type": "array",
+                "maxItems": MAX_REGIONS,
+                "items": region,
             },
             "terms": {
                 "type": "array",
-                "maxItems": 20,
+                "maxItems": MAX_CONTEXT_ITEMS,
                 "items": term,
             },
             "facts": {
                 "type": "array",
-                "maxItems": 20,
+                "maxItems": MAX_CONTEXT_ITEMS,
                 "items": fact,
             },
         },
-        "required": ["revision", "terms", "facts"],
+        "required": ["regions", "terms", "facts"],
+        "additionalProperties": false,
+    })
+}
+
+pub(super) fn page_selection_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": MAX_RENDERS,
+            },
+        },
+        "required": ["revision"],
         "additionalProperties": false,
     })
 }

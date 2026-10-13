@@ -16,6 +16,16 @@ pub(super) enum CallPhase {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum RenderValidation {
+    RenderLimit,
+    Arguments,
+    Regions,
+    ContextReference,
+    ContextRules,
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ToolRecord {
     ordinal: usize,
@@ -25,6 +35,8 @@ struct ToolRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     crop_count: Option<usize>,
     phase: CallPhase,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    validation_code: Option<RenderValidation>,
     outcome: &'static str,
     output_image_count: usize,
     elapsed_ms: u64,
@@ -75,6 +87,7 @@ impl ToolLedger {
             layer,
             crop_count,
             phase: CallPhase::Validation,
+            validation_code: None,
             outcome: "pending",
             output_image_count: 0,
             elapsed_ms: 0,
@@ -88,6 +101,16 @@ impl ToolLedger {
             .last_mut()
             .expect("Tool dispatch has a record")
             .phase = phase;
+    }
+
+    pub(super) fn validation<T>(&mut self, code: RenderValidation, result: Result<T>) -> Result<T> {
+        if result.is_err() {
+            self.calls
+                .last_mut()
+                .expect("Tool dispatch has a record")
+                .validation_code = Some(code);
+        }
+        result
     }
 
     pub(super) fn finish(&mut self, result: &Result<ToolOutput>) {
