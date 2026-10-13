@@ -425,9 +425,10 @@ Use the VM for visual work without opening windows on the host desktop.
 The combined application's `quick-handoff` scenario searches live AniLiberty,
 selects a non-default variant, opens the normal Add Torrent dialog and cancels
 it. `--source rutor` checks a live Software publication and its full-hash selector.
-`--source dodi --main` checks the FileMe bytes handoff; `--source byrut --main`
-checks ByRut's exact Stardew Valley torrent bytes. Both verify the native
-libtorrent dialog's hash. These paths select through the production QML category projection, freshly resolve
+`--source dodi --main`, `--source byrut --main` and `--source freetp --main`
+check exact torrent bytes. `--source fitgirl --main` selects the older of two
+Cyberpunk magnet variants. These paths verify the native dialog's hash, select
+through the production QML category projection, freshly resolve
 the exact variant and check one handoff, the isolated destination and empty
 payload before and after shutdown:
 
@@ -439,6 +440,8 @@ bun tests/qt-acceptance/quick-handoff.ts --source rutor
 bun tests/qt-acceptance/quick-handoff.ts --main
 bun tests/qt-acceptance/quick-handoff.ts --source dodi --main
 bun tests/qt-acceptance/quick-handoff.ts --source byrut --main
+bun tests/qt-acceptance/quick-handoff.ts --source freetp --main
+bun tests/qt-acceptance/quick-handoff.ts --source fitgirl --main
 ```
 
 Deploy the current executable and its Qt Quick runtime together using

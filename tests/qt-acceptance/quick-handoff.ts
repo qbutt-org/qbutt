@@ -15,9 +15,9 @@ const mainContent = input.includes("--main");
 assert(input.filter(arg => arg === "--main").length <= 1, "Repeated --main option");
 const args = input.filter(arg => arg !== "--main");
 assert(args.length === 0 || (args.length === 2 && args[0] === "--source"),
-    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|dodi|byrut] [--main]");
+    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|dodi|byrut|freetp|fitgirl] [--main]");
 const selectedSource = args[1] ?? "aniliberty";
-assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "dodi", "byrut"].includes(selectedSource), "Unsupported handoff source");
+assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "dodi", "byrut", "freetp", "fitgirl"].includes(selectedSource), "Unsupported handoff source");
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
 const executable = resolve(source);
@@ -109,7 +109,7 @@ try {
     assert.equal(check.metadataPayloadEmpty, true);
     assert.equal(check.source, selectedSource);
     const category = selectedSource === "rutor" ? "software"
-        : ["dodi", "byrut"].includes(selectedSource) ? "games"
+        : ["dodi", "byrut", "freetp", "fitgirl"].includes(selectedSource) ? "games"
         : selectedSource === "aniliberty" ? "anime" : "movies";
     assert.equal(check.category, category);
     assert.equal(check.mainContent, mainContent);
@@ -157,6 +157,19 @@ try {
         assert.equal(check.infoHash, "942e9eeace33f7cfefa4fbcc129a1a9f12097638");
         assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
         assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
+    }
+    else if (selectedSource === "freetp") {
+        assert.equal(check.workId, "freetp:6327");
+        assert.equal(check.infoHash, "e54e92ed62a49401fc224642e65f8ca03709c95e");
+        assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+        assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
+    }
+    else if (selectedSource === "fitgirl") {
+        assert.equal(check.workId, "fitgirl:cyberpunk-2077");
+        assert(check.variantCount >= 2 && check.selectedRow > 0);
+        assert.equal(check.infoHash, "f081eec38f08f5d663db807b39c5c33bb1049e2f");
+        assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+        assert.notEqual(check.defaultInfoHash, check.infoHash);
     }
     else if (["rutor", "limetorrents", "nnmclub"].includes(selectedSource)) {
         assert.equal(check.variantCount, 1);

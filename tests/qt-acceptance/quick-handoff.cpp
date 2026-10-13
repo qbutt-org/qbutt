@@ -115,14 +115,17 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
 
     const QString source = spec.value(u"source"_s).toString();
     require((source == u"aniliberty") || (source == u"rutor") || (source == u"limetorrents")
-            || (source == u"nnmclub") || (source == u"dodi") || (source == u"byrut"),
+            || (source == u"nnmclub") || (source == u"dodi") || (source == u"byrut")
+            || (source == u"freetp") || (source == u"fitgirl"),
         u"Unsupported handoff source"_s);
     const bool ruTor = source == u"rutor";
     const bool limeTorrents = source == u"limetorrents";
     const bool nnmClub = source == u"nnmclub";
     const bool dodi = source == u"dodi";
     const bool byRut = source == u"byrut";
-    const bool torrentFile = dodi || byRut;
+    const bool freeTP = source == u"freetp";
+    const bool fitGirl = source == u"fitgirl";
+    const bool torrentFile = dodi || byRut || freeTP;
     const bool singleTorrent = ruTor || limeTorrents || nnmClub || torrentFile;
     QString sourceLabel = u"AniLiberty"_s;
     QString category = u"anime"_s;
@@ -156,6 +159,18 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         sourceLabel = u"ByRut"_s;
         category = u"games"_s;
         queryText = u"Stardew Valley"_s;
+    }
+    else if (freeTP)
+    {
+        sourceLabel = u"FreeTP"_s;
+        category = u"games"_s;
+        queryText = u"КЛЕТЬ"_s;
+    }
+    else if (fitGirl)
+    {
+        sourceLabel = u"FitGirl"_s;
+        category = u"games"_s;
+        queryText = u"Cyberpunk"_s;
     }
 
     const QDir payload(spec.value(u"payload"_s).toString());
@@ -327,6 +342,10 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         expectedWorkId = u"dodi:2643--devil-may-cry-5"_s;
     else if (byRut)
         expectedWorkId = u"byrut:2799-stardew-valley"_s;
+    else if (freeTP)
+        expectedWorkId = u"freetp:6327"_s;
+    else if (fitGirl)
+        expectedWorkId = u"fitgirl:cyberpunk-2077"_s;
     QString workId;
     for (int row = 0; row < works->rowCount(); ++row)
     {
@@ -398,6 +417,10 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         require(infoHash == u"eeddbd381bc734373bccf170a17d3bba23fa33a3", u"Known Sintel torrent hash changed"_s);
     if (byRut)
         require(infoHash == u"942e9eeace33f7cfefa4fbcc129a1a9f12097638", u"Known Stardew Valley torrent hash changed"_s);
+    if (freeTP)
+        require(infoHash == u"e54e92ed62a49401fc224642e65f8ca03709c95e", u"Known KLETKA torrent hash changed"_s);
+    if (fitGirl)
+        require(infoHash == u"f081eec38f08f5d663db807b39c5c33bb1049e2f", u"Known Cyberpunk variant hash changed"_s);
     auto *list = root->findChild<QQuickItem *>(u"contentVariants"_s);
     auto *download = root->findChild<QQuickItem *>(u"contentDownload"_s);
     require(list && download, u"Variant controls are missing"_s);
