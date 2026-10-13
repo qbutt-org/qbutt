@@ -537,6 +537,16 @@ generation disabled. Require exit zero and every `PASS imagegen_protocol` check.
 comparison JSON and output directory. It spends image-generation quota and saves
 the PNG and acceptance receipt, including rejected candidates.
 
+`cargo run --locked --offline --release --target x86_64-pc-windows-msvc -p
+qbutt-content --example manga-imagegen-protocol` checks the public two-phase page
+consumer with authored PNGs and an owned mock CLI. Require exit zero and every
+`PASS manga_imagegen` check. Invalid term/quote evidence must start no imagegen
+request. Valid RU/EN proposals carry exact additions into the result, restore the
+original after a neighboring context image and disable custom tools in the image
+phase. The fixture also checks rejection, cancellation, complete/partial usage
+and child reaping. Its recording validator does not establish Qt PNG geometry or
+translation quality; those require the native reader scenario.
+
 Run `--reader-settings --lang ru` in the same offscreen environment for typed
 profile-wide fit persistence through the existing SQLite worker. Require exit
 zero and `PASS reader_settings`. The fixture checks Height defaults, explicit
