@@ -97,7 +97,7 @@ const cases = [
         { name: "pending-stop", stopBeforeLoaded: true },
         { name: "reentrant-anime", supersedePending: true, reentrantSupersede: true, contentKind: "anime" },
         { name: "movie-replacement", supersedePlaying: true, contentKind: "movie" },
-        { name: "ordinary-playback", contentKind: "movie" },
+        { name: "ordinary-playback", legacyLaunch: true, contentKind: "movie" },
     ] },
 ];
 const results = [];
