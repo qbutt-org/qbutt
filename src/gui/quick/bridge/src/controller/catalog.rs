@@ -304,7 +304,7 @@ impl Catalog {
                         .images
                         .get(*page as usize)
                         .ok_or(qbutt_content::Error::VariantUnavailable)?;
-                    source.image_bytes(image).await?;
+                    source.remote_image_bytes(image).await?;
                     Ok(SourceResponse::ReaderPage)
                 } else {
                     Ok(SourceResponse::Chapter)

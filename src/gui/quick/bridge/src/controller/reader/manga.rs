@@ -98,7 +98,7 @@ impl WorkChapterSource for MangaChapterSource {
                 return Err(CodexError::Protocol);
             }
             let bytes = source
-                .image_bytes(&pages.images[offset])
+                .remote_image_bytes(&pages.images[offset])
                 .await
                 .map_err(|_| CodexError::Provider)?;
             Ok(ChapterExcerpt {

@@ -58,17 +58,14 @@ impl ReaderSource {
         }
     }
 
-    pub(super) async fn image_bytes(&self, image: &ChapterImage) -> qbutt_content::Result<Vec<u8>> {
+    pub(super) async fn remote_image_bytes(
+        &self,
+        image: &ChapterImage,
+    ) -> qbutt_content::Result<Vec<u8>> {
         match self {
             Self::MangaDex(source) => source.image_bytes(image).await,
             Self::MangaLib(source, session) => source.image_bytes(image, session).await,
-            Self::LocalBook(book) => {
-                let book = Arc::clone(book);
-                let image = image.clone();
-                tokio::task::spawn_blocking(move || book.image_bytes(&image))
-                    .await
-                    .map_err(|_| qbutt_content::Error::InvalidReference)?
-            }
+            Self::LocalBook(_) => Err(qbutt_content::Error::InvalidReference),
         }
     }
 }
@@ -408,10 +405,31 @@ async fn load_page(
         reference: pages.reference.clone(),
         page: index as u32,
     };
-    let bytes = match source.image_bytes(&pages.images[index]).await {
-        Ok(bytes) => {
+    let image = &pages.images[index];
+    let result = match source {
+        ReaderSource::LocalBook(book) => {
+            let book = Arc::clone(book);
+            let image = image.clone();
+            // Viewport cancellation drops the waiter. Keep the permit inside
+            // the blocking read so stale archive buffers remain bounded.
+            match tokio::task::spawn_blocking(move || {
+                book.image_bytes(&image).map(|bytes| (bytes, load_permit))
+            })
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => Err(qbutt_content::Error::InvalidReference),
+            }
+        }
+        _ => source
+            .remote_image_bytes(image)
+            .await
+            .map(|bytes| (bytes, load_permit)),
+    };
+    let (bytes, load_permit) = match result {
+        Ok(result) => {
             publish_source_outcome(qt_thread, generation, page_request, Ok(()));
-            bytes
+            result
         }
         Err(error) => {
             let text = error.to_string();
