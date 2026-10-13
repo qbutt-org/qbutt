@@ -4,4 +4,6 @@
 pub mod context;
 pub mod context_tools;
 pub mod manga;
+pub mod manga_imagegen;
+pub mod page;
 pub mod text;

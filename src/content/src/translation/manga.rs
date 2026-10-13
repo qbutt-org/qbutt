@@ -13,7 +13,8 @@ use tokio::sync::watch;
 use crate::ChapterRef;
 use crate::library::TranslationCacheKey;
 
-use super::context::{ContextAdditions, EvidenceSegment, TranslationContext};
+use super::context::{ContextAdditions, EvidenceSegment};
+pub use super::page::{PageJob, Rect};
 use qbutt_codex::{
     self as codex, CodexCompletion, CodexError, CodexRequest, FunctionTool, IMAGE_TOOL_CALL_LIMIT,
     InputImage, MAX_IMAGE_BYTES, MAX_TOOL_IMAGES, ModelModality, ToolCall, ToolFuture, ToolHandler,
@@ -32,35 +33,6 @@ const MAX_RENDERS: usize = 3;
 const MAX_INSPECTION_CROPS: usize = MAX_TOOL_IMAGES / 3;
 const MAX_INSPECTION_PIXELS: u64 = 16_000_000;
 const PIPELINE_VERSION: u32 = 10;
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Rect {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
-
-impl Rect {
-    fn valid(&self) -> bool {
-        [self.x, self.y, self.width, self.height]
-            .iter()
-            .all(|value| value.is_finite())
-            && self.x >= 0.0
-            && self.y >= 0.0
-            && self.width > 0.0
-            && self.height > 0.0
-            && self.x + self.width <= 1.0 + 1e-6
-            && self.y + self.height <= 1.0 + 1e-6
-    }
-
-    fn contains(&self, other: &Self) -> bool {
-        self.x - 1e-6 <= other.x
-            && self.y - 1e-6 <= other.y
-            && self.x + self.width + 1e-6 >= other.x + other.width
-            && self.y + self.height + 1e-6 >= other.y + other.height
-    }
-}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -130,17 +102,6 @@ pub trait PageRenderer: Send + Sync + 'static {
         regions: &[PageRegion],
         cancelled: Arc<AtomicBool>,
     ) -> codex::Result<RenderLayers>;
-}
-
-pub struct PageJob {
-    pub chapter: ChapterRef,
-    pub page: u32,
-    pub original: InputImage,
-    pub target_language: String,
-    /// Accepted same-work conventions with source provenance; this is untrusted input.
-    pub work_context: TranslationContext,
-    pub model: Option<String>,
-    pub effort: Option<String>,
 }
 
 pub struct PageResult {
@@ -287,7 +248,7 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
         )?;
         let (additions, evidence) = self.ledger.validation(
             RenderValidation::ContextReference,
-            candidate.decode_context(&self.job.chapter, self.job.page, &self.job.original),
+            candidate.decode_context(self.job),
         )?;
         let mut context = self.job.work_context.clone();
         self.ledger.validation(
@@ -365,13 +326,7 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     context_definitions: Vec<FunctionTool>,
     cancelled: watch::Receiver<bool>,
 ) -> codex::Result<PageResult> {
-    if job.target_language.trim().is_empty() || job.target_language.len() > 32 {
-        return Err(CodexError::Protocol);
-    }
-    job.chapter.validate().map_err(|_| CodexError::Protocol)?;
-    job.work_context
-        .validate(&job.chapter.variant.publication)
-        .map_err(|_| CodexError::Protocol)?;
+    job.validate()?;
     if context_definitions.iter().any(|tool| {
         !matches!(
             tool.name,
@@ -628,17 +583,7 @@ fn validate_regions(regions: &[PageRegion]) -> codex::Result<()> {
 }
 
 fn page_tools() -> Vec<FunctionTool> {
-    let rect = json!({
-        "type": "object",
-        "properties": {
-            "x": { "type": "number", "minimum": 0, "maximum": 1 },
-            "y": { "type": "number", "minimum": 0, "maximum": 1 },
-            "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
-            "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
-        },
-        "required": ["x", "y", "width", "height"],
-        "additionalProperties": false,
-    });
+    let rect = super::page::rect_schema();
     let region = json!({
         "type": "object",
         "properties": {

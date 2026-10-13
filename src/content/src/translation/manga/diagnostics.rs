@@ -153,6 +153,8 @@ fn outcome<T>(result: &Result<T>) -> &'static str {
         Err(CodexError::Isolation) => "isolation",
         Err(CodexError::Protocol) => "protocol",
         Err(CodexError::Provider) => "provider",
+        Err(CodexError::ImageGenerationUnavailable) => "image_generation_unavailable",
+        Err(CodexError::ArtifactCleanup { .. }) => "artifact_cleanup",
         Err(CodexError::Image) => "image",
         Err(CodexError::Tool(_)) => "tool_error",
     }
