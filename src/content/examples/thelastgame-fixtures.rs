@@ -35,6 +35,12 @@ mod thelastgame {
     pub(super) fn fixture(http: SourceHttp, origin: Url) -> TheLastGame {
         TheLastGame { http, origin }
     }
+
+    pub(super) fn captured_article(body: &str, slug: &str) -> Result<Work> {
+        let origin = Url::parse("https://thelastgame.ru/").unwrap();
+        let url = origin.join(&format!("{slug}/")).unwrap();
+        article(body, &origin, &url, &super::publication(slug))
+    }
 }
 
 use std::path::Path;
@@ -54,10 +60,26 @@ mod pages;
 
 type CheckResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+const DESCRIPTION: &str = "A generated one-byte legal fixture.
+
+Информация о игре
+Версия: v2 GOG Полная
+Язык интерфейса: английский, русский
+
+Важно
+Установка:
+1. Распакуйте архив в выбранную папку.
+2. Откройте legal-fixture.txt.
+Совместная игра
+Подключитесь к локальному серверу:
+- Создайте комнату.
+- Пригласите друга.";
+
 #[tokio::main]
 async fn main() -> CheckResult {
     match std::env::args().nth(1).as_deref() {
         Some("--live") => return live().await,
+        Some("--article-files") => return captured_articles(),
         Some("--reopen") => {
             return reopen(Path::new(
                 &std::env::args().nth(2).ok_or("missing profile")?,
@@ -91,11 +113,11 @@ async fn main() -> CheckResult {
     assert_eq!(work.variants.len(), 2);
     assert_eq!(work.variants[1].transport, Transport::Torrent);
     assert_eq!(work.variants[1].title.as_deref(), Some("Legal Game v2"));
-    assert!(
-        work.description
-            .as_deref()
-            .unwrap()
-            .contains("v2 GOG Полная")
+    assert_eq!(work.description.as_deref(), Some(DESCRIPTION));
+    let without_introduction = source.inspect(&publication("no-introduction")).await?;
+    assert_eq!(
+        without_introduction.description.as_deref(),
+        DESCRIPTION.split_once("\n\n").map(|(_, sections)| sections)
     );
     assert!(
         work.variants
@@ -122,6 +144,7 @@ async fn main() -> CheckResult {
         *fixture.torrent_fault.lock().unwrap() = fault;
         let available = source.inspect(&work.reference).await?;
         assert_eq!(available.variants, vec![work.variants[0].clone()]);
+        assert_eq!(available.description.as_deref(), Some(DESCRIPTION));
         let ResolvedContent::TorrentFile {
             reference,
             metadata: acquired,
@@ -217,6 +240,8 @@ async fn main() -> CheckResult {
         ("no-torrent", "unsupported"),
         ("too-many", "invalid"),
         ("duplicate-canonical", "invalid"),
+        ("long-instructions", "large"),
+        ("deep-instructions", "invalid"),
     ] {
         let error = source.inspect(&publication(slug)).await.unwrap_err();
         assert!(
@@ -226,6 +251,7 @@ async fn main() -> CheckResult {
                     | (Error::Challenge, "challenge")
                     | (Error::UnsupportedAcquisition(_), "unsupported")
                     | (Error::InvalidResponse(_), "invalid")
+                    | (Error::ResponseTooLarge, "large")
             ),
             "article {slug}: {error:?}"
         );
@@ -286,8 +312,40 @@ async fn main() -> CheckResult {
     assert_eq!(fixture.payload.load(Ordering::SeqCst), 0);
     fixture.close().await;
     println!(
-        "PASS thelastgame_fixtures HTTPS=ok exact_second_hash=ok partial_gone=preserved all_gone=unavailable stale=rejected faults=rejected SQLite_reopen=ok share=ok cancel=connection_closed payload=none"
+        "PASS thelastgame_fixtures HTTPS=ok exact_second_hash=ok instructions=exact_bounded_plain_text partial_gone=preserved all_gone=unavailable stale=rejected faults=rejected SQLite_reopen=ok share=ok cancel=connection_closed payload=none"
     );
+    Ok(())
+}
+
+fn captured_articles() -> CheckResult {
+    let directory = std::env::args().nth(2).ok_or("missing article directory")?;
+    for (slug, instructions) in [
+        (
+            "last-epoch",
+            "Важно\nСкачать в несистемное место без кириллицы в пути\nЗапустить Offline Launcher.bat",
+        ),
+        (
+            "escape-first-2",
+            "Важно\nКак играть по сети:\nЗапуск игры:\n1. Запускаем Steam, заходим в свой профиль.\n2. Запускаем игру через ярлык Escape First 2 или EscapeFirst2.exe, который расположен в папке с игрой.\nВ игре:\nПодключение:\nПринимаем приглашение от друга —> Играем!\nСоздание сервера:\nСоздать —> Пригласить —> Приглашаем друзей и ожидаем их подключения —> Играем!",
+        ),
+    ] {
+        let path = Path::new(&directory).join(format!("{slug}.html"));
+        let body = std::fs::read_to_string(path)?;
+        let work = thelastgame::captured_article(&body, slug)?;
+        let description = work.description.as_deref().ok_or("missing description")?;
+        assert!(description.ends_with(instructions), "{slug}: {description}");
+        assert!(!description.contains("uTorria"));
+        assert!(!description.contains("<br"));
+        println!(
+            "{}",
+            serde_json::json!({
+                "result": "PASS thelastgame_captured_article",
+                "publication": work.reference, "url": work.url,
+                "description_bytes": description.len(), "instructions": instructions,
+                "network_requests": 0, "payload_requested": false
+            })
+        );
+    }
     Ok(())
 }
 
@@ -367,12 +425,7 @@ fn reopen(profile: &Path) -> CheckResult {
     assert!(entry.favorite && entry.last_opened.is_none());
     assert_eq!(work.variants.len(), 2);
     assert_eq!(work.variants[1].title.as_deref(), Some("Legal Game v2"));
-    assert!(
-        work.description
-            .as_deref()
-            .unwrap()
-            .contains("v2 GOG Полная")
-    );
+    assert_eq!(work.description.as_deref(), Some(DESCRIPTION));
     assert_eq!(
         entry.preferences.selected.as_ref(),
         Some(&work.variants[1].reference)
@@ -529,7 +582,9 @@ impl Fixture {
                         }
                         if url.path().starts_with("/download/") {
                             let headers = String::from_utf8_lossy(&request).to_lowercase();
-                            assert!(headers.contains(&format!("referer: {origin}generated-game/")));
+                            assert!(["generated-game", "no-introduction"].iter().any(|slug| {
+                                headers.contains(&format!("referer: {origin}{slug}/"))
+                            }));
                         }
                         let fault = *torrent_fault.lock().unwrap();
                         let (status, mime, location, bytes) = pages::response(&url, &origin, fault);

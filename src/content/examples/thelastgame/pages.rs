@@ -224,6 +224,16 @@ pub(super) fn response(
         "
         .to_owned(),
     };
+    let instruction_fault = match slug {
+        "long-instructions" => "x".repeat(16_001),
+        "deep-instructions" => format!("{}deep{}", "<div>".repeat(34), "</div>".repeat(34)),
+        _ => String::new(),
+    };
+    let introduction = if slug == "no-introduction" {
+        ""
+    } else {
+        "<p>A generated one-byte legal fixture.</p>"
+    };
     let body = format!(
         "<html>
             <head>{canonical_links}</head>
@@ -231,12 +241,33 @@ pub(super) fn response(
                 <section class='content'><div class='pad group'><article class='post'>
                     <h1 class='post-title'>Скачать игру Generated Legal Game [Новая Версия] на ПК (на Русском)</h1>
                     <div class='entry-inner'>
-                        <p>A generated one-byte legal fixture.</p>
+                        {introduction}
                         <div>
-                            <strong>Информация о игре</strong>
+                            <center><strong>Информация о игре</strong></center>
                             <strong>Версия:</strong> v2 GOG Полная<br>
                             <strong>Язык интерфейса:</strong> английский, русский<br>
                         </div>
+                        <div>
+                            <strong>Важно</strong><br>
+                            {instruction_fault}
+                            Установка:<br>
+                            <ol>
+                                <li>Распакуйте архив в выбранную папку.</li>
+                                <li>Откройте <strong>legal-fixture.txt</strong>.</li>
+                            </ol>
+                            <h3>Совместная игра</h3>
+                            <p>Подключитесь к локальному серверу:</p>
+                            <ul>
+                                <li>Создайте комнату.</li>
+                                <li>Пригласите друга.</li>
+                            </ul>
+                            <script>UNWANTED_SCRIPT</script>
+                            <style>UNWANTED_STYLE</style>
+                            <nav>UNWANTED_NAVIGATION</nav>
+                            <div class='advertisement'>UNWANTED_AD</div>
+                            <a class='btn_blue' href='/download/blue.torrent'>UNWANTED_TOOL</a>
+                        </div>
+                        <div>UNWANTED_PROMOTION</div>
                         {links}
                     </div>
                 </article></div></section>

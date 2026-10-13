@@ -13,6 +13,9 @@ use crate::{
 const ORIGIN: &str = "https://thelastgame.ru";
 const MAX_TORRENTS: usize = 16;
 
+#[path = "thelastgame/description.rs"]
+mod description;
+
 /// Public game articles and their same-origin torrent attachments. The blue
 /// uTorria button runs a third-party tool and is not an acquisition route.
 pub struct TheLastGame {
@@ -282,23 +285,7 @@ fn article(body: &str, origin: &Url, arrived: &Url, expected: &PublicationRef) -
         .to_owned();
     let mut work = work(reference, url, title, false);
     let entry = unique(article, ".entry-inner")?;
-    let mut description = Vec::new();
-    if let Some(paragraph) = entry.select(&selector("p")).next() {
-        let introduction = text(paragraph);
-        if !introduction.is_empty() && introduction.len() <= 12_000 {
-            description.push(introduction);
-        }
-    }
-    // These are publication-wide reports, not proof that every attachment has
-    // the same edition or languages. Preserve them without relabeling variants.
-    if let Some(details) = entry
-        .select(&selector("div"))
-        .map(text)
-        .find(|value| value.starts_with("Информация о игре") && value.len() <= 4000)
-    {
-        description.push(details);
-    }
-    work.description = (!description.is_empty()).then(|| description.join("\n\n"));
+    work.description = description::extract(entry)?;
     Ok(work)
 }
 
