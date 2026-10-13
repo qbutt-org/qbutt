@@ -115,7 +115,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require((source == u"aniliberty") || (source == u"rutor") || (source == u"limetorrents")
             || (source == u"nnmclub") || (source == u"dodi") || (source == u"byrut")
             || (source == u"freetp") || (source == u"fitgirl") || (source == u"rutracker")
-            || (source == u"onlinefix"),
+            || (source == u"onlinefix") || (source == u"igruha"),
         u"Unsupported handoff source"_s);
     const bool ruTor = source == u"rutor";
     const bool limeTorrents = source == u"limetorrents";
@@ -126,7 +126,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     const bool freeTP = source == u"freetp";
     const bool fitGirl = source == u"fitgirl";
     const bool onlineFix = source == u"onlinefix";
-    const bool torrentFile = dodi || byRut || freeTP || onlineFix;
+    const bool igruha = source == u"igruha";
+    const bool torrentFile = dodi || byRut || freeTP || onlineFix || igruha;
     const bool singleTorrent = ruTor || limeTorrents || nnmClub || ruTracker || torrentFile;
     QString sourceLabel = u"AniLiberty"_s;
     QString category = u"anime"_s;
@@ -184,6 +185,12 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         sourceLabel = u"Online-Fix"_s;
         category = u"games"_s;
         queryText = u"Stardew Valley"_s;
+    }
+    else if (igruha)
+    {
+        sourceLabel = u"Torrent-Igruha"_s;
+        category = u"games"_s;
+        queryText = u"OpenTTD"_s;
     }
 
     const QDir payload(spec.value(u"payload"_s).toString());
@@ -374,6 +381,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         expectedWorkId = u"fitgirl:cyberpunk-2077"_s;
     else if (onlineFix)
         expectedWorkId = u"onlinefix:games/sandbox/16274-stardew-valley-po-seti.html"_s;
+    else if (igruha)
+        expectedWorkId = u"igruha:7861-open-transport-tycoon-deluxe"_s;
     QString workId;
     for (int row = 0; row < works->rowCount(); ++row)
     {
@@ -455,6 +464,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         require(infoHash == u"063043892eac8f94c5eb249669548a3f93b7c3a5"
             && value(variants, selectedRow, "label").startsWith(u"Full game:"_s),
             u"Online-Fix full-game torrent changed"_s);
+    if (igruha)
+        require(infoHash == u"1ea103b38144f9bd91cb8e979949de4341010484", u"Known OpenTTD torrent hash changed"_s);
     auto *list = root->findChild<QQuickItem *>(u"contentVariants"_s);
     auto *download = root->findChild<QQuickItem *>(u"contentDownload"_s);
     require(list && download, u"Variant controls are missing"_s);
