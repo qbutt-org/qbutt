@@ -649,6 +649,31 @@ local media URL. This mode requires the real connected browser; it checks the
 same actual playback ACK, exact History and gateway retirement. Product-window
 renders are saved at 1440×900 and 1280×720.
 
+Native qplay Save uses `tests/media-save.ts` in two phases. Host `prepare` builds
+only the isolated driver, then restores SourceHttp byte-for-byte and rebuilds the
+production targets in `finally`; it never launches qplay. `run` opens native
+Windows windows and must run in the isolated VM through its interactive runner.
+Reuse a verified Qt 6.12 closure and a verified qplay portable on the VM's local
+disk; keep transport and evidence in the shared directory. Do not run packaged
+qplay with `QT_QPA_PLATFORM=offscreen`.
+
+Command templates with a fresh shared directory (the prepare/run phases were
+executed with driver `f8cf9c29e`; the subsequent SourceHttp-only overlay cleanup
+has syntax and matcher validation, pending a fresh preparation build):
+
+```powershell
+# Host, in the prepared MSVC build environment
+bun tests/media-save.ts prepare C:/Users/cawa1/Documents/Projects/qbutt/build/dev C:/VMShared/save-queue
+# VM, after prepare reports restored=true and no cleanup errors
+bun S:/save-queue/media-save.ts run C:/QA/qbutt-native-handoff-current/qbutt C:/QA/qplay-save-current/qplay.exe S:/qplay-native-save-qa/legal.mp4 S:/save-queue
+```
+
+The generated catalog injects one failed exact resolve, while playback and the
+queue fetch the official public Sintel trailer. Require passing native evidence,
+one persisted original episode despite a changed catalog selection, exact payload
+bytes/SHA-256 and empty cleanup errors. Save requests use actual mpv IPC here;
+real pointer acceptance of the qplay action is separate.
+
 The `language-switch` scenario uses the deployed combined executable and Qt
 catalogs beside its `qt.conf`:
 

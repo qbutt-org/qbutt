@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { labAppearanceSettings } from "./appearance.ts";
 
@@ -70,34 +70,29 @@ async function prepare(build: string) {
         "-addext", "keyUsage=critical,digitalSignature,keyEncipherment",
         "-addext", "extendedKeyUsage=serverAuth",
         "-keyout", privateKey, "-out", certificate]);
-    const sourcePaths = [join(repository, "src/content/src/http.rs"), join(repository, "src/content/src/download/transfer.rs")];
-    const sourceStatus = await run(["git", "-C", repository, "-c", `safe.directory=${repository}`, "status", "--porcelain", "--", ...sourcePaths]);
-    assert.equal(sourceStatus, "", "A fixture transport source is already changed; refusing to overwrite it");
-    const transport = sourcePaths.map(path => ({ path, original: new Uint8Array(), patched: new Uint8Array(), applied: false }));
+    const sourcePath = join(repository, "src/content/src/http.rs");
+    const sourceStatus = await run(["git", "-C", repository, "-c", `safe.directory=${repository}`,
+        "status", "--porcelain", "--", sourcePath]);
+    assert.equal(sourceStatus, "", "SourceHttp is already changed; refusing to overwrite it");
+    const original = await readFile(sourcePath);
+    const source = original.toString("utf8");
     const certPath = certificate.replaceAll("\\", "/");
     assert(!certPath.includes('"') && !certPath.includes("\n"), "Unsupported certificate path");
+    const needle = /(impl SourceHttp \{[\s\S]*?\.dns_resolver\(Arc::new\(PublicResolver\)\))/g;
+    assert.equal([...source.matchAll(needle)].length, 1, "SourceHttp builder changed");
     const redirect = [
-        '.dns_resolver(Arc::new(PublicResolver))',
-        '        .resolve("anilibria.top", "127.0.0.1:443".parse().expect("fixture endpoint"))',
-        `        .add_root_certificate(reqwest::Certificate::from_pem(include_bytes!(r#"${certPath}"#)).expect("fixture CA"))`,
+        '',
+        '            .resolve("anilibria.top", "127.0.0.1:443".parse().expect("fixture endpoint"))',
+        `            .add_root_certificate(reqwest::Certificate::from_pem(include_bytes!(r#"${certPath}"#)).expect("fixture CA"))`,
     ].join("\n");
-    for (const item of transport) {
-        item.original = await readFile(item.path);
-        const source = new TextDecoder().decode(item.original);
-        const needle = '.dns_resolver(Arc::new(PublicResolver))';
-        const expected = item.path.endsWith("http.rs") ? 2 : 1;
-        assert.equal(source.split(needle).length - 1, expected, `Transport builder changed: ${item.path}`);
-        item.patched = new TextEncoder().encode(source.replaceAll(needle, redirect));
-    }
-
-    const originalDigests = transport.map(item => sha256(item.original));
+    const patched = Buffer.from(source.replace(needle, match => match + redirect));
+    const originalDigest = sha256(original);
+    let applied = false;
     let completed = false;
     try {
-        for (const item of transport) {
-            assert.equal(sha256(await readFile(item.path)), sha256(item.original), "Transport changed before patch admission");
-            await writeFile(item.path, item.patched);
-            item.applied = true;
-        }
+        assert.equal(sha256(await readFile(sourcePath)), originalDigest, "SourceHttp changed before patch admission");
+        await writeFile(sourcePath, patched);
+        applied = true;
         await run(["cmake", "--build", build, "--target", "qbutt-qt-acceptance", "--parallel", "2"]);
         await copyFile(join(build, "qbutt-qt-acceptance.exe"), stagedDriver);
         await copyFile(import.meta.path, join(output, "media-save.ts"));
@@ -105,19 +100,18 @@ async function prepare(build: string) {
         await writeFile(join(output, "prepare.json"), JSON.stringify({ status: "passed",
             driverSha256: sha256(await readFile(stagedDriver)),
             sourceRevision: await run(["git", "-C", repository, "-c", `safe.directory=${repository}`, "rev-parse", "HEAD"]),
-            certificateSha256: sha256(await readFile(certificate)) }, null, 4));
+            certificateSha256: sha256(await readFile(certificate)),
+            transportOverrides: ["SourceHttp anilibria.top"] }, null, 4));
         completed = true;
     } finally {
         const cleanupErrors: unknown[] = [];
         const restoreErrors: unknown[] = [];
-        for (const item of transport) {
-            if (!item.applied)
-                continue;
+        if (applied) {
             try {
-                assert.equal(sha256(await readFile(item.path)), sha256(item.patched),
-                    `Transport changed while patched; refusing to overwrite unrelated work: ${item.path}`);
-                await writeFile(item.path, item.original);
-                assert.equal(sha256(await readFile(item.path)), sha256(item.original), "Transport restoration failed");
+                assert.equal(sha256(await readFile(sourcePath)), sha256(patched),
+                    "SourceHttp changed while patched; refusing to overwrite unrelated work");
+                await writeFile(sourcePath, original);
+                assert.equal(sha256(await readFile(sourcePath)), originalDigest, "SourceHttp restoration failed");
             } catch (error) {
                 restoreErrors.push(error);
             }
@@ -130,8 +124,8 @@ async function prepare(build: string) {
             }
         }
         await writeFile(join(output, "restoration.json"), JSON.stringify({ restored: restoreErrors.length === 0,
-            completed, cleanupErrors: cleanupErrors.map(String), originalDigests,
-            currentDigests: await Promise.all(transport.map(async item => sha256(await readFile(item.path)))) }, null, 4));
+            completed, cleanupErrors: cleanupErrors.map(String), originalDigest,
+            currentDigest: sha256(await readFile(sourcePath)) }, null, 4));
         const errors = [...restoreErrors, ...cleanupErrors];
         if (errors.length)
             throw new AggregateError(errors, "Native Save preparation restoration needs review");
@@ -153,6 +147,7 @@ async function runPrepared(runtime: string, qplay: string, mediaPath: string) {
     const privateKey = join(output, "fixture-key.pem");
     assert.equal(sha256(await readFile(certificate)), prepared.certificateSha256, "Fixture certificate changed");
     const profile = join(output, "profile");
+    const qplayProfile = join(dirname(qplay), "save-fixture-profile");
     const downloads = join(output, "downloads");
     const evidencePath = join(output, "evidence.json");
     assert(!(await Bun.file(evidencePath).exists()), "The prepared fixture has already run");
@@ -163,14 +158,14 @@ async function runPrepared(runtime: string, qplay: string, mediaPath: string) {
     const mediaHash = sha256(await media.bytes());
     let searchReads = 0;
     let publicationReads = 0;
-    let payloadReads = 0;
     let failNextResolution = false;
     let injectedFailure = false;
+    const mediaUrl = "https://download.blender.org/durian/trailer/sintel_trailer-1080p.mp4";
     const publication = {
         id: 900001, alias: "native-save-legal-fixture", name: { main: "Native Save legal fixture" }, year: 2026,
         episodes: [
-            { id: "save-episode-1", ordinal: 1, hls_720: "https://anilibria.top/legal.mp4" },
-            { id: "save-episode-2", ordinal: 2, hls_720: "https://anilibria.top/other.mp4" },
+            { id: "save-episode-1", ordinal: 1, hls_720: mediaUrl },
+            { id: "save-episode-2", ordinal: 2, hls_720: "https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4" },
         ],
     };
     const server = Bun.serve({
@@ -191,20 +186,7 @@ async function runPrepared(runtime: string, qplay: string, mediaPath: string) {
                 }
                 return Response.json(publication);
             }
-            if (path !== "/legal.mp4")
-                return new Response(null, { status: 404 });
-            ++payloadReads;
-            const range = request.headers.get("range");
-            const match = range && /^bytes=(\d+)-(\d*)$/.exec(range);
-            const start = match ? Number(match[1]) : 0;
-            const end = match?.[2] ? Math.min(Number(match[2]), media.size - 1) : media.size - 1;
-            if ((range && !match) || start < 0 || start > end)
-                return new Response(null, { status: 416 });
-            const headers = new Headers({ "Content-Type": "video/mp4", "Accept-Ranges": "bytes",
-                "Content-Length": String(end - start + 1) });
-            if (match)
-                headers.set("Content-Range", `bytes ${start}-${end}/${media.size}`);
-            return new Response(media.slice(start, end + 1), { status: match ? 206 : 200, headers });
+            return new Response(null, { status: 404 });
         },
     });
     let application: ReturnType<typeof Bun.spawn> | undefined;
@@ -233,7 +215,7 @@ async function runPrepared(runtime: string, qplay: string, mediaPath: string) {
             cwd: runtime, windowsHide: true, stdin: "ignore",
             env: { ...process.env, QT_QPA_PLATFORM: "windows", QBUTT_QT_ACCEPTANCE_NATIVE: "1",
                 QT_FORCE_STDERR_LOGGING: "1", QBUTT_QT_ACCEPTANCE_SPEC: specPath,
-                QBUTT_LAB_PATHS: "1", QBUTT_LAB_QPLAY: qplay, QBUTT_LAB_QPLAY_PROFILE: join(output, "qplay-profile") },
+                QBUTT_LAB_PATHS: "1", QBUTT_LAB_QPLAY: qplay, QBUTT_LAB_QPLAY_PROFILE: qplayProfile },
             stdout: Bun.file(join(output, "application.stdout.log")), stderr: Bun.file(join(output, "application.stderr.log")),
         });
         applicationTimer = setTimeout(() => {
@@ -274,7 +256,7 @@ async function runPrepared(runtime: string, qplay: string, mediaPath: string) {
         assert.equal(evidence.save.requests, 2);
         assert.equal(evidence.save.sha256, mediaHash);
         assert.equal(evidence.save.bytes, media.size);
-        assert(evidence.save.queuedAckReplay && injectedFailure && payloadReads > 0);
+        assert(evidence.save.queuedAckReplay && injectedFailure);
         const libraryPath = resolve(evidence.checks[0].libraryPath, "content-library.sqlite");
         assert(libraryPath.startsWith(profile + "\\"), "Fixture database escaped its isolated profile");
         const database = new Database(libraryPath, { readonly: true });
@@ -284,17 +266,18 @@ async function runPrepared(runtime: string, qplay: string, mediaPath: string) {
             assert.equal(rows.length, 1, "Durable queue contains a duplicate job");
             persisted = JSON.parse(rows[0].snapshot);
             assert.equal(persisted.origin.reference.publication.id, "900001");
-            assert.equal(persisted.origin.reference.selector.id, "save-episode-1", "Save used the replacement catalogue selection");
+            assert.equal(persisted.origin.reference.selector.episode.id, "save-episode-1", "Save used the replacement catalogue selection");
         } finally {
             database.close();
         }
         await writeFile(join(output, "receipt.json"), JSON.stringify({ status: "passed", evidence, searchReads, publicationReads,
-            payloadReads, injectedFailure, persisted, mediaHash, driverSha256: sha256(await readFile(driver)),
+            injectedFailure, persisted, mediaHash, mediaUrl, qplayProfile,
+            runnerSha256: sha256(await readFile(import.meta.path)), driverSha256: sha256(await readFile(driver)),
             qplaySha256: sha256(await readFile(qplay)), prepared }, null, 4) + "\n");
         completed = true;
     } catch (error) {
         await writeFile(join(output, "failure.json"), JSON.stringify({ status: "failed", error: String(error),
-            searchReads, publicationReads, payloadReads, injectedFailure }, null, 4));
+            searchReads, publicationReads, injectedFailure }, null, 4));
         throw error;
     } finally {
         clearTimeout(applicationTimer);
