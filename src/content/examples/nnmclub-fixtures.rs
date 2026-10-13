@@ -26,6 +26,11 @@ mod http {
 }
 
 #[allow(dead_code)]
+mod limetorrents {
+    include!("../src/limetorrents.rs");
+}
+
+#[allow(dead_code)]
 mod nnmclub {
     include!("../src/nnmclub.rs");
 
@@ -65,14 +70,45 @@ async fn main() -> CheckResult {
         let profile_dir = args
             .next()
             .ok_or("live check requires an isolated profile directory")?;
+        let discovery = args.next();
+        if args.next().is_some() {
+            return Err("Unexpected live check argument".into());
+        }
+        let broker = match discovery {
+            Some(discovery) => {
+                Some(qbutt_content::browser::BrowserBroker::start(discovery.into()).await?)
+            }
+            None => None,
+        };
+        let browser = broker.as_ref().map(|broker| broker.handle());
         let source = qbutt_content::NnmClub::new()?;
         source.initialize_webview(profile_dir.into(), app_dir.into());
         let result = async {
+            if let Some(browser) = &browser {
+                println!("WAIT live_nnmclub_browser=connect");
+                let mut status = browser.subscribe();
+                tokio::time::timeout(Duration::from_secs(20), async {
+                    while status.borrow().connections.len() != 1 {
+                        status.changed().await.map_err(|_| {
+                            qbutt_content::Error::BrowserSession(
+                                qbutt_content::browser::BrowserError::Stopped,
+                            )
+                        })?;
+                    }
+                    Ok::<_, qbutt_content::Error>(())
+                })
+                .await
+                .map_err(|_| {
+                    qbutt_content::Error::BrowserSession(
+                        qbutt_content::browser::BrowserError::Timeout,
+                    )
+                })??;
+            }
             let works = source
                 .search(
                     "Sintel",
                     qbutt_content::Category::Movies,
-                    None,
+                    browser.as_ref(),
                     qbutt_content::browser::BrowserChoice::Auto,
                 )
                 .await?;
@@ -83,7 +119,7 @@ async fn main() -> CheckResult {
             let work = source
                 .inspect(
                     &found.reference,
-                    None,
+                    browser.as_ref(),
                     qbutt_content::browser::BrowserChoice::Auto,
                 )
                 .await?;
@@ -92,8 +128,17 @@ async fn main() -> CheckResult {
                 .first()
                 .ok_or(qbutt_content::Error::VariantUnavailable)?
                 .reference;
+            if work.variants[0].info_hash.as_deref()
+                != Some("eeddbd381bc734373bccf170a17d3bba23fa33a3")
+            {
+                return Err(qbutt_content::Error::VariantUnavailable);
+            }
             let resolved = source
-                .resolve(selected, None, qbutt_content::browser::BrowserChoice::Auto)
+                .resolve(
+                    selected,
+                    browser.as_ref(),
+                    qbutt_content::browser::BrowserChoice::Auto,
+                )
                 .await?;
             assert!(matches!(
                 resolved,
@@ -104,11 +149,11 @@ async fn main() -> CheckResult {
         }
         .await;
         source.close();
+        if let Some(broker) = broker {
+            broker.shutdown().await?;
+        }
         match result {
             Ok(count) => println!("PASS live_nnmclub_search={count} inspect=exact magnet=exact"),
-            Err(qbutt_content::Error::Challenge | qbutt_content::Error::SourceCheckRequired) => {
-                println!("BLOCKED live_nnmclub=source_check_required")
-            }
             Err(error) => return Err(error.into()),
         }
         return Ok(());
@@ -279,7 +324,7 @@ async fn main() -> CheckResult {
 
     fixture.stop().await?;
     println!(
-        "PASS nnmclub_cp1251_post=ok search_inspect_resolve_spawn=Send exact_hash=ok library=roundtrip changed_hash=rejected challenge=typed malformed=rejected cancellation=closed"
+        "PASS nnmclub_cp1251_post=ok search_inspect_resolve_spawn=Send exact_hash=ok library=roundtrip changed_hash=rejected challenge=typed malformed=rejected cancellation=closed browser_fetch_unicode=ok browser_fetch_identity=rejected"
     );
     Ok(())
 }
@@ -382,6 +427,35 @@ async fn browser_session(fixture: &Fixture, source: &nnmclub::NnmClub) -> CheckR
     reply?;
     assert!(matches!(result, Err(Error::Challenge)));
 
+    fixture.case("browser-fetch");
+    let operation = source.search(
+        "Синтел & legal",
+        Category::Movies,
+        Some(&handle),
+        BrowserChoice::Edge,
+    );
+    let (result, reply) = tokio::join!(operation, answer_fetch(&mut edge, fixture, false));
+    reply?;
+    let found = result?.remove(0);
+    assert_eq!(found.title, "Синтел & legal");
+    let operation = source.inspect(&found.reference, Some(&handle), BrowserChoice::Edge);
+    let (result, reply) = tokio::join!(operation, answer_fetch(&mut edge, fixture, false));
+    reply?;
+    let inspected = result?;
+    let operation = source.resolve(
+        &inspected.variants[0].reference,
+        Some(&handle),
+        BrowserChoice::Edge,
+    );
+    let (result, reply) = tokio::join!(operation, answer_fetch(&mut edge, fixture, false));
+    reply?;
+    assert!(matches!(result?, ResolvedContent::Torrent { .. }));
+
+    let operation = source.inspect(&found.reference, Some(&handle), BrowserChoice::Edge);
+    let (result, reply) = tokio::join!(operation, answer_fetch(&mut edge, fixture, true));
+    reply?;
+    assert!(matches!(result, Err(Error::InvalidResponse(_))));
+
     drop(edge);
     broker.shutdown().await?;
     assert!(!discovery.exists());
@@ -408,7 +482,67 @@ async fn answer_session(
     if expired {
         cookie["expirationDate"] = json!(1.0);
     }
-    browser_fixture::write(edge, &json!({"id":wire["id"], "result":[cookie]})).await
+    browser_fixture::write(edge, &json!({"id":wire["id"], "result":[cookie]})).await?;
+    if expired {
+        let wire = browser_fixture::read(edge).await?;
+        assert_eq!(wire["method"], "fetch");
+        browser_fixture::write(
+            edge,
+            &json!({"id":wire["id"], "error":{"code":"verification_required","message":"Fixture check required"}}),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn answer_fetch(
+    edge: &mut tokio::net::windows::named_pipe::NamedPipeClient,
+    fixture: &Fixture,
+    changed_url: bool,
+) -> CheckResult {
+    for _ in 0..2 {
+        let wire = browser_fixture::read(edge).await?;
+        assert_eq!(wire["method"], "cookies");
+        browser_fixture::write(edge, &json!({"id":wire["id"], "result":[]})).await?;
+        let wire = browser_fixture::read(edge).await?;
+        assert_eq!(wire["method"], "fetch");
+        let url = Url::parse(wire["url"].as_str().ok_or("Missing fetch URL")?)?;
+        assert_eq!(url.origin(), fixture.origin.origin());
+        let method = wire["init"]["method"].as_str().unwrap_or("GET");
+        let form = wire["init"]["body"].as_str().unwrap_or_default();
+        if method == "POST" {
+            assert_eq!(
+                wire["init"]["headers"]["content-type"],
+                "application/x-www-form-urlencoded"
+            );
+            assert!(form.contains("nm=%D1%E8%ED%F2%E5%EB+%26+legal"));
+        }
+        let path = url.query().map_or_else(
+            || url.path().to_owned(),
+            |query| format!("{}?{query}", url.path()),
+        );
+        let (_, body) = page(&path, method, form, "normal", false);
+        let response_url = if changed_url {
+            fixture.origin.clone()
+        } else {
+            url
+        };
+        browser_fixture::write(
+            edge,
+            &json!({
+                "id":wire["id"],
+                "result":{
+                    "status":200, "url":response_url,
+                    "headers":{"content-type":"text/html; charset=windows-1251"}, "body":body
+                }
+            }),
+        )
+        .await?;
+        if changed_url {
+            break;
+        }
+    }
+    Ok(())
 }
 
 struct Fixture {
@@ -542,7 +676,10 @@ fn page(
     mode: &str,
     authenticated: bool,
 ) -> (&'static str, String) {
-    if (mode == "challenge" && method == "POST") || (mode == "session" && !authenticated) {
+    if (mode == "challenge" && method == "POST")
+        || (mode == "session" && !authenticated)
+        || mode == "browser-fetch"
+    {
         return (
             "403 Forbidden",
             "<script src='/cdn-cgi/challenge-platform/check.js'></script>".into(),

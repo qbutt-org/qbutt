@@ -139,7 +139,7 @@ impl Catalog {
                                 query,
                                 *category,
                                 self.browser.existing_handle().await.as_ref(),
-                                BrowserChoice::Auto,
+                                choice,
                             )
                             .await
                     }
@@ -206,7 +206,7 @@ impl Catalog {
                             .inspect(
                                 reference,
                                 self.browser.existing_handle().await.as_ref(),
-                                BrowserChoice::Auto,
+                                choice,
                             )
                             .await
                     }
@@ -258,7 +258,7 @@ impl Catalog {
                             .resolve(
                                 reference,
                                 self.browser.existing_handle().await.as_ref(),
-                                BrowserChoice::Auto,
+                                choice,
                             )
                             .await
                     }

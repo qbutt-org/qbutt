@@ -3,8 +3,8 @@ use std::sync::{Mutex, OnceLock};
 
 use url::Url;
 
-use crate::browser::{BrowserChoice, BrowserError, BrowserHandle};
-use crate::http::{SourceDocument, SourceHttp, SourceSession};
+use crate::browser::{BrowserChoice, BrowserError, BrowserHandle, FetchInit};
+use crate::http::{SourceDocument, SourceHttp, SourceSession, browser_document};
 use crate::webview::{WebViewCheck, WebViewError, WebViewSessions};
 use crate::{Category, Error, PublicationRef, ResolvedContent, Result, VariantRef, Work};
 
@@ -186,6 +186,31 @@ impl NnmClub {
                 ) => {}
                 Err(BrowserError::ChoiceRequired) => return Err(Error::BrowserChoiceRequired),
                 Err(error) => return Err(Error::BrowserSession(error)),
+            }
+
+            let mut init = FetchInit::default();
+            if let Some(form) = form {
+                init.method = Some("POST".into());
+                init.headers.insert(
+                    "content-type".into(),
+                    "application/x-www-form-urlencoded".into(),
+                );
+                init.body = Some(form.into());
+            }
+            match browser_document(browser, choice, url.clone(), init).await {
+                Ok(response) => match checked_document(response, &url) {
+                    Err(Error::Challenge | Error::LoginRequired) => {}
+                    result => return result,
+                },
+                Err(Error::BrowserSession(
+                    BrowserError::BrowserRequired
+                    | BrowserError::Disconnected
+                    | BrowserError::Stopped
+                    | BrowserError::VerificationRequired
+                    | BrowserError::BrowserCheckRequired
+                    | BrowserError::LoginRequired,
+                )) => {}
+                Err(error) => return Err(error),
             }
         }
 

@@ -458,7 +458,10 @@ impl ffi::ContentController {
                     return;
                 }
                 controller.as_mut().rust_mut().resolution.task = None;
-                let needs_source_check = reference.publication.source == Source::RuTracker
+                let needs_source_check = matches!(
+                    reference.publication.source,
+                    Source::RuTracker | Source::NnmClub
+                )
                     && result
                         .as_ref()
                         .err()

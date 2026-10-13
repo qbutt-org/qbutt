@@ -19047,8 +19047,8 @@ Please choose a different name and try again.</source>
         <translation>Войдите на сайт источника, чтобы продолжить.</translation>
     </message>
     <message>
-        <source>RuTracker needs a manual check.</source>
-        <translation>RuTracker требует проверки вручную.</translation>
+        <source>Complete the source check.</source>
+        <translation>Завершите проверку источника.</translation>
     </message>
     <message>
         <source>Choose a browser under Options &gt; Search &gt; Browser.</source>

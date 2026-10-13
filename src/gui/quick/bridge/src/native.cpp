@@ -89,7 +89,7 @@ QString Qbutt::sourceError(const std::int32_t reason)
     case 6:
         return QCoreApplication::translate("ContentController", "Sign in to this source to continue.");
     case 7:
-        return QCoreApplication::translate("ContentController", "RuTracker needs a manual check.");
+        return QCoreApplication::translate("ContentController", "Complete the source check.");
     case 8:
         return QCoreApplication::translate("ContentController", "Choose a browser under Options > Search > Browser.");
     case 9:

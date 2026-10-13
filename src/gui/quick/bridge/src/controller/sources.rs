@@ -257,6 +257,7 @@ impl ffi::ContentController {
 
         for source in [
             Source::RuTracker,
+            Source::NnmClub,
             Source::MangaLib,
             Source::RanobeLib,
             Source::ByRut,

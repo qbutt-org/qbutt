@@ -134,7 +134,7 @@ impl ffi::SourceModel {
             5 => QVariant::from(&row.pending),
             6 => QVariant::from(&row.retrying),
             7 => QVariant::from(
-                &(row.source == Source::RuTracker
+                &(matches!(row.source, Source::RuTracker | Source::NnmClub)
                     && matches!(
                         row.failure,
                         Some(

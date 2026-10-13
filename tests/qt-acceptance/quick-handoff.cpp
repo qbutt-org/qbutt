@@ -114,11 +114,13 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(!Net::PortForwarder::instance()->isEnabled(), u"Port forwarding is enabled in the fixture"_s);
 
     const QString source = spec.value(u"source"_s).toString();
-    require((source == u"aniliberty") || (source == u"rutor") || (source == u"limetorrents"),
+    require((source == u"aniliberty") || (source == u"rutor") || (source == u"limetorrents")
+            || (source == u"nnmclub"),
         u"Unsupported handoff source"_s);
     const bool ruTor = source == u"rutor";
     const bool limeTorrents = source == u"limetorrents";
-    const bool singleTorrent = ruTor || limeTorrents;
+    const bool nnmClub = source == u"nnmclub";
+    const bool singleTorrent = ruTor || limeTorrents || nnmClub;
     QString sourceLabel = u"AniLiberty"_s;
     QString category = u"anime"_s;
     QString queryText = u"Frieren"_s;
@@ -133,6 +135,12 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         sourceLabel = u"LimeTorrents"_s;
         category = u"movies"_s;
         queryText = u"Big Buck Bunny"_s;
+    }
+    else if (nnmClub)
+    {
+        sourceLabel = u"NNM-Club"_s;
+        category = u"movies"_s;
+        queryText = u"Sintel"_s;
     }
 
     const QDir payload(spec.value(u"payload"_s).toString());
@@ -286,10 +294,20 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(controller->property("busy").toBool(), u"Search did not start"_s);
     waitFor([&] { return !controller->property("busy").toBool(); }, 150'000, u"Catalog search"_s);
     require(controller->property("errorText").toString().isEmpty(), u"Catalog search failed"_s);
+    for (int row = 0; row < sources->rowCount(); ++row)
+    {
+        if (value(sources, row, "sourceId") == source)
+        {
+            require(value(sources, row, "failed") != u"true",
+                u"Catalog source failed: "_s + value(sources, row, "failureText"));
+        }
+    }
 
-    const QString expectedWorkId = limeTorrents
-        ? u"limetorrents:Big-Buck-Bunny-4K-UHD-HFR-60fps-FLAC-WEBDL-2160p-X264-mkv-torrent-9616433.html"_s
-        : u"aniliberty:9542"_s;
+    QString expectedWorkId = u"aniliberty:9542"_s;
+    if (limeTorrents)
+        expectedWorkId = u"limetorrents:Big-Buck-Bunny-4K-UHD-HFR-60fps-FLAC-WEBDL-2160p-X264-mkv-torrent-9616433.html"_s;
+    else if (nnmClub)
+        expectedWorkId = u"nnmclub:906013"_s;
     QString workId;
     for (int row = 0; row < works->rowCount(); ++row)
     {
@@ -352,6 +370,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         require((selectedRow > 0) && (infoHash != defaultInfoHash), u"Variants do not have distinct hashes"_s);
     if (limeTorrents)
         require(infoHash == u"c97f976894b81bb0f0befea584c9a81ad3bd9f5a", u"Known public-domain torrent hash changed"_s);
+    if (nnmClub)
+        require(infoHash == u"eeddbd381bc734373bccf170a17d3bba23fa33a3", u"Known Sintel torrent hash changed"_s);
     auto *list = root->findChild<QQuickItem *>(u"contentVariants"_s);
     auto *download = root->findChild<QQuickItem *>(u"contentDownload"_s);
     require(list && download, u"Variant controls are missing"_s);
