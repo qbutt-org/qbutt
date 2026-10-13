@@ -505,7 +505,8 @@ selects a non-default variant, opens the normal Add Torrent dialog and cancels
 it. `--source rutor` checks a live Software publication and its full-hash selector.
 `--source dodi --main`, `--source byrut --main`, `--source freetp --main`
 and `--source onlinefix --main` check exact torrent bytes. `--source fitgirl --main`
-selects the older of two Cyberpunk magnet variants. These paths verify the
+selects the older of two Cyberpunk magnet variants. `--source igruha --main`
+uses the connected browser session for OpenTTD metadata. These paths verify the
 native dialog's hash, select through the production QML category projection,
 freshly resolve the exact variant and check one handoff, the isolated
 destination and empty payload before and after shutdown:
@@ -521,6 +522,7 @@ bun tests/qt-acceptance/quick-handoff.ts --source byrut --main
 bun tests/qt-acceptance/quick-handoff.ts --source freetp --main
 bun tests/qt-acceptance/quick-handoff.ts --source onlinefix --main
 bun tests/qt-acceptance/quick-handoff.ts --source fitgirl --main
+bun tests/qt-acceptance/quick-handoff.ts --source igruha --main
 ```
 
 Deploy the current executable and its Qt Quick runtime together using
