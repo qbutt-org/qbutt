@@ -150,7 +150,17 @@ fn search_results(body: &str, origin: &Url, query: &str, category: Category) -> 
         if !seen.insert(reference.clone()) {
             return Err(Error::InvalidResponse("duplicate torrent publication"));
         }
-        works.push(work(reference, url, title(link)?, category, true));
+        // Search titles have an extra entity layer compared with detail pages.
+        // Preserve literal angle brackets while decoding that layer as text.
+        let escaped_title = text(link).replace('<', "&lt;");
+        let decoded_title = Html::parse_fragment(&escaped_title);
+        works.push(work(
+            reference,
+            url,
+            title(decoded_title.root_element())?,
+            category,
+            true,
+        ));
     }
     Ok(works)
 }

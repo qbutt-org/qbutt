@@ -50,6 +50,7 @@ use url::Url;
 const HASH: &str = "0123456789abcdef0123456789abcdef01234567";
 const OTHER_HASH: &str = "abcdef0123456789abcdef0123456789abcdef01";
 const ID: &str = "Generated-Legal-torrent-42.html";
+const TITLE: &str = "Generated & Legal <edition> 2026";
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -62,10 +63,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let found = source.search("generated & legal", Category::Movies).await?;
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].reference.id, ID);
+    assert_eq!(found[0].title, TITLE);
     assert!(found[0].needs_inspection && found[0].variants.is_empty());
 
     let work = source.inspect(&found[0].reference).await?;
     assert_eq!(work.reference, found[0].reference);
+    assert_eq!(work.title, TITLE);
     assert_eq!(work.category, Category::Movies);
     assert_eq!(work.variants.len(), 1);
     let variant = &work.variants[0];
@@ -74,12 +77,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(variant.seeders, Some(4));
 
     let ResolvedContent::Torrent {
-        reference, magnet, ..
+        reference,
+        title,
+        magnet,
     } = source.resolve(&variant.reference).await?
     else {
         panic!("unexpected transport");
     };
     assert_eq!(reference, variant.reference);
+    assert_eq!(title, TITLE);
     assert!(
         magnet
             .query_pairs()
@@ -181,7 +187,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 fn search_page(query: &str) -> String {
     let row = format!(
         r##"<tr bgcolor="#ffffff">
-            <td><div class="tt-name"><a href="/{ID}">Generated Legal</a></div></td>
+            <td><div class="tt-name"><a href="/{ID}">Generated &amp;amp; Legal &lt;edition&gt; &amp;#50;026</a></div></td>
             <td>Today - in Movies</td><td>1.25 MB</td>
             <td>4</td><td>0</td><td>healthy</td>
         </tr>"##
@@ -216,7 +222,7 @@ fn detail_page(hash: &str, magnet_hash: Option<&str>) -> String {
     });
     format!(
         r#"<div id="content">
-            <h1>Generated Legal</h1>
+            <h1>Generated &amp; Legal &lt;edition&gt; 2026</h1>
             <span class="greenish">Seeders : 4</span>
             <div class="torrentinfo"><table>
                 <tr><td>Torrent Hash :</td><td>{hash}</td></tr>

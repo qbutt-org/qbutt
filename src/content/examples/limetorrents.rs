@@ -58,8 +58,19 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .is_empty()
     );
 
+    let games = source.search("OpenTTD", Category::Games).await?;
+    let game = games
+        .iter()
+        .find(|work| work.reference.id.ends_with("-torrent-6372993.html"))
+        .ok_or("known OpenTTD release missing from search")?;
+    assert_eq!(
+        game.title,
+        "OpenTTD v1 5 1 (Transport Tycoon Deluxe) win32 & win64"
+    );
+    assert_eq!(game.title, source.inspect(&game.reference).await?.title);
+
     println!(
-        "PASS limetorrents_live search={} publication={} hash={} exact_resolve=ok changed_hash=rejected missing=404 empty=ok payload=none",
+        "PASS limetorrents_live search={} publication={} hash={} exact_resolve=ok changed_hash=rejected missing=404 empty=ok encoded_title=ok payload=none",
         results.len(),
         release.reference.id,
         variant.info_hash.as_deref().unwrap()
