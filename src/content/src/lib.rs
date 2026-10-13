@@ -15,13 +15,13 @@ pub mod browser;
 mod byrut;
 #[cfg(windows)]
 mod captured_video;
+mod dodi;
 mod download;
 mod error;
 #[cfg(windows)]
 mod external_video;
 mod fitgirl;
 mod freetp;
-mod dodi;
 mod http;
 mod kakuyomu;
 mod kodik;
@@ -62,6 +62,7 @@ pub use association::{WorkAssociation, WorkGroup, rank_variants};
 pub use byrut::ByRut;
 #[cfg(windows)]
 pub use captured_video::{CapturedVideoError, resolve_captured_video};
+pub use dodi::Dodi;
 pub use download::{
     DirectDownload, DownloadError, DownloadJob, DownloadOrigin, DownloadQueue, DownloadStatus,
     DownloadStorage, MediaTools,
@@ -73,7 +74,6 @@ pub use fitgirl::FitGirl;
 pub use freetp::FreeTP;
 pub use kakuyomu::Kakuyomu;
 pub use lib_api::LibSession;
-pub use dodi::Dodi;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
     ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, TranslationCacheKey,
