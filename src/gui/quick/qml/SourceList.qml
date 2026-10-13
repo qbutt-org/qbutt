@@ -115,7 +115,10 @@ ColumnLayout {
                                 : qsTranslate("SourcePicker", "Retry %1").arg(sourceRow.model.name)
                             enabled: root.backend.sourceSettingsState !== Sources.Failed
                                 && sourceRow.model.enabled && !sourceRow.model.pending && !sourceRow.model.retrying
-                            onClicked: root.backend.retrySource(sourceRow.model.sourceId)
+                            onClicked: {
+                                root.openFailedSourceId = ""
+                                root.backend.retrySource(sourceRow.model.sourceId)
+                            }
                         }
                     }
 

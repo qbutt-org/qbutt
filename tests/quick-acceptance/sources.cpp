@@ -544,6 +544,18 @@ void exerciseSources()
     picker = view.rootObject()->findChild<QObject *>(u"contentSourcePicker"_s);
     localRetry = visualItem(picker->property("contentItem").value<QQuickItem *>(), u"contentSourceRetry_aniliberty"_s);
     require(localRetry && localRetry->isEnabled(), u"Reopened exact Challenge retry is missing"_s);
+    {
+        BrowserRegistrationFixture browsers(profile.path());
+        require(browsers.isReady(), u"Isolated browser failure fixture failed"_s);
+        uiController->setBrowserChoice(u"edge"_s);
+        siteOpen = visualItem(picker->property("contentItem").value<QQuickItem *>(), u"contentSourceOpen_aniliberty"_s);
+        require(siteOpen && QMetaObject::invokeMethod(siteOpen, "clicked"), u"Reopened website action failed"_s);
+        waitFor([&]
+        {
+            return sourceError->property("text").toString() == QCoreApplication::translate("SourcePicker",
+                "Could not open the browser. Choose another in Options > Search > Browser.");
+        }, u"Reopened browser failure"_s);
+    }
     const auto challengeOperation = persistedFailure(database).value(u"operation"_s);
     require(QMetaObject::invokeMethod(localRetry, "clicked"), u"Production exact Challenge retry failed"_s);
     waitFor([&] { return !value(model(*uiController, "sources"), u"aniliberty"_s, "retrying").toBool(); },
@@ -553,6 +565,9 @@ void exerciseSources()
         && persistedFailure(database).value(u"reason"_s) != QJsonValue(u"challenge"_s)
         && value(model(*uiController, "sources"), u"aniliberty"_s, "challengeSite").toString().isEmpty(),
         u"Challenge retry substituted the saved operation or retained the stale browser action"_s);
+    require(sourceError->property("text").toString()
+        == value(model(*uiController, "sources"), u"aniliberty"_s, "failureText").toString(),
+        u"Old browser-open failure hid the current source failure after Retry"_s);
 
     qInfo("PASS sources=typed persisted_choices=restart loading_search=gated sqlite_write_retry=exact reentrant_choice=latest corrupt_source=isolated late_success=retained actual_inspect_search_retry=cleared actual_missing_publication=recorded source_handoff=none account_actions=exact challenge_site=exact selected_browser=required website_open=not_recovery production_overlay=close_reopen source_switch=keyboard source_SQL_retry=QML");
 }
