@@ -785,17 +785,35 @@ $env:QBUTT_QT_ACCEPTANCE_EXE = "$env:LOCALAPPDATA/qbutt/build/qbutt-qt-acceptanc
 bun run smoke:qt
 ```
 
-For torrent playback integration, run `bun tests/media-streaming.ts` with
-`QBUTT_QT_ACCEPTANCE_EXE` pointing to the deployed driver, `QBUTT_LAB_PYTHON`
-to the pinned fixture environment, and `QBUTT_LAB_QPLAY` to a complete qplay
-distribution. The generated v1/v2/hybrid torrents contain faststart MP4,
-trailing-moov MP4 and MKV. The suite verifies exact Range bytes during incomplete
-downloads, seek/cancellation and priority restoration, then full hashes/sizes
-and playback without peers. Strong ETags must survive capability replacement;
-matching/list/wildcard If-Match requests succeed, while stale or weak tags return
-412 without payload. Numbered immutable command responses avoid replacing a file
-while the Windows runner reads it. Qt runs offscreen and mpv uses null audio/video
-outputs; this does not establish physical player UI or subtitle translation.
+For torrent playback integration, point the runner to the deployed Qt driver,
+the hash-pinned fixture Python environment, a complete qplay portable runtime,
+and the native qplay acceptance and Matroska fixture executables built from the
+accepted qplay source. Supply the expected acceptance executable SHA-256 from
+its build receipt; the runner verifies the actual file before starting:
+
+```powershell
+$env:QBUTT_QT_ACCEPTANCE_EXE = 'C:/path/to/deployed/qbutt-qt-acceptance.exe'
+$env:QBUTT_LAB_PYTHON = 'C:/path/to/pinned-python/Scripts/python.exe'
+$env:QBUTT_LAB_QPLAY = 'C:/path/to/qplay/portable/qplay.exe'
+$env:QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE = 'C:/path/to/qplay-native-acceptance.exe'
+$env:QBUTT_LAB_QPLAY_MATROSKA_FIXTURE = 'C:/path/to/subtitles-matroska-fixture.exe'
+$env:QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE_SHA256 = '<approved build SHA-256>'
+bun tests/media-streaming.ts
+```
+
+The generated v1/v2/hybrid torrents contain faststart MP4, trailing-moov MP4
+and indexed Matroska with an authored ASS track. The suite verifies exact Range
+bytes during incomplete downloads, seek/cancellation and priority restoration,
+then full hashes/sizes and playback without peers. Strong ETags must survive
+capability replacement; matching/list/wildcard If-Match requests succeed, while
+stale or weak tags return 412 without payload. Numbered immutable command
+responses avoid replacing a file while the Windows runner reads it. The native
+qplay check uses the real torrent StreamServer URL and libmpv from the supplied
+portable runtime to render ASS translation pixels in a hidden Qt scene, verify
+authored style and restore Original while the torrent is incomplete. Accepted
+translations are preseeded in the isolated cache; this does not exercise live
+inference or the qbutt product-window handoff. The other mpv checks use null
+audio/video outputs.
 
 For a short appearance-only acceptance on the same executable, use
 `bun run smoke:appearance`. It needs no Python, torrent data or transport child.
