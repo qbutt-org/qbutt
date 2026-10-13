@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -14,16 +15,19 @@ use crate::library::TranslationCacheKey;
 
 use super::context::{ContextAdditions, EvidenceSegment, TranslationContext};
 use qbutt_codex::{
-    self as codex, CodexCompletion, CodexError, CodexRequest, FunctionTool, InputImage,
-    ModelModality, ToolCall, ToolFuture, ToolHandler, ToolOutput,
+    self as codex, CodexCompletion, CodexError, CodexRequest, FunctionTool, IMAGE_TOOL_CALL_LIMIT,
+    InputImage, ModelModality, ToolCall, ToolFuture, ToolHandler, ToolOutput,
 };
 
+mod diagnostics;
 mod output;
+
+use diagnostics::{CallPhase, ToolLedger};
 
 const MAX_REGIONS: usize = 60;
 const MAX_INK_BOXES: usize = 4096;
 const MAX_RENDERS: usize = 3;
-const PIPELINE_VERSION: u32 = 5;
+const PIPELINE_VERSION: u32 = 6;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Rect {
@@ -151,6 +155,7 @@ struct PageTools<'a, R, C> {
     original: InputImage,
     revisions: Vec<Revision>,
     cancelled: Arc<AtomicBool>,
+    ledger: ToolLedger,
 }
 
 impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
@@ -188,6 +193,7 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
                     "A comparison requires an inspection crop".into(),
                 ));
             }
+            self.ledger.phase(CallPhase::Native);
             return Ok(ToolOutput {
                 text: format!("{layer} page image"),
                 image: images.into_iter().next(),
@@ -201,6 +207,7 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
                     .into(),
             ));
         }
+        self.ledger.phase(CallPhase::Native);
         let renderer = self.renderer.clone();
         let cancelled = self.cancelled.clone();
         let crop = tokio::task::spawn_blocking(move || renderer.crop(&images, &bounds, cancelled))
@@ -235,6 +242,7 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
         )
         .map_err(|_| CodexError::Tool("Invalid page regions".into()))?;
         validate_regions(&regions)?;
+        self.ledger.phase(CallPhase::Native);
         let renderer = self.renderer.clone();
         let original = self.original.clone();
         let rendered_regions = regions.clone();
@@ -270,11 +278,17 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
 impl<R: PageRenderer, C: ToolHandler + Send> ToolHandler for PageTools<'_, R, C> {
     fn call(&mut self, call: ToolCall) -> ToolFuture<'_> {
         Box::pin(async move {
-            match call.name.as_str() {
+            self.ledger.begin(&call)?;
+            let result = match call.name.as_str() {
                 "inspect_page" => self.inspect(call.arguments).await,
                 "render_page" => self.render(call.arguments).await,
-                _ => self.context_tools.call(call).await,
-            }
+                _ => {
+                    self.ledger.phase(CallPhase::Context);
+                    self.context_tools.call(call).await
+                }
+            };
+            self.ledger.finish(&result);
+            result
         })
     }
 }
@@ -319,11 +333,17 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
         original,
         revisions: Vec::new(),
         cancelled: cancel_flag,
+        ledger: ToolLedger::default(),
     };
     let mut definitions = page_tools();
     definitions.extend(context_definitions);
     let request = CodexRequest {
-        instructions: PAGE_INSTRUCTIONS.to_owned(),
+        instructions: format!(
+            "{PAGE_INSTRUCTIONS} You have at most {IMAGE_TOOL_CALL_LIMIT} tool calls in total, including failed calls and work-context tools. \
+             Plan grouped crops for nearby difficult regions, reserve {MAX_RENDERS} calls for rendering and the comparison crops needed to review them, \
+             and use at most four work-context calls. The supplied full original already shows readable balloons; \
+             do not inspect every balloon separately or request redundant full-page images. Finish the required artwork review within this budget."
+        ),
         modality: ModelModality::Image,
         prompt: json!({
             "targetLanguage": job.target_language,
@@ -336,7 +356,9 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
         effort: job.effort.clone(),
         tools: definitions,
     };
+    let started = Instant::now();
     let result = codex::complete(request, &mut tools, cancelled.clone()).await;
+    tools.ledger.report(&result, started.elapsed());
     tools.cancelled.store(true, Ordering::Release);
     watcher.abort();
     let CodexCompletion {
@@ -646,10 +668,10 @@ const PAGE_INSTRUCTIONS: &str = concat!(
     "use 0 for ordinary level text. The rotated lettering must stay inside layout. ",
     "Bounds enclose both original text and the safe target layout inside each balloon or panel. ",
     "Tight ink boxes cover every source glyph, including long strokes, dots, punctuation and all vertical characters, excluding borders and artwork. ",
-    "Before placing boxes on small or art-backed text, inspect an original crop with enough surrounding artwork to distinguish every source stroke. ",
+    "Before placing boxes on unreadable details or art-backed text, inspect a grouped original crop with enough surrounding artwork to distinguish every source stroke. ",
     "Layout is safe space for target-language text inside bounds. ",
     "Render the page with render_page and examine the actual returned image. ",
-    "For small or art-backed text, inspect a comparison crop after rendering: original, cleaned and result appear side by side. ",
+    "For these difficult regions, inspect grouped comparison crops after rendering: original, cleaned and result appear side by side. ",
     "Check that no source strokes remain and that panel borders, contours, lines and screentone survive. ",
     "Layout diagnostics and unchanged pixels outside the mask do not establish cleanup quality. ",
     "Make at most two corrections when needed. ",

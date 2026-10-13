@@ -19,6 +19,7 @@ mod turn;
 
 pub use model::CodexModel;
 use process::{Scratch, installed_codex};
+pub use turn::IMAGE_TOOL_CALL_LIMIT;
 
 const MAX_IMAGE_BYTES: usize = 12 * 1024 * 1024;
 

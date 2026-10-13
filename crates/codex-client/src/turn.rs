@@ -6,12 +6,14 @@ use tokio::sync::watch;
 use tokio::time::{Instant, timeout_at};
 
 use super::{
-    Client, CodexCompletion, CodexError, CodexRequest, FunctionTool, Result, ToolCall, ToolHandler,
+    Client, CodexCompletion, CodexError, CodexRequest, FunctionTool, ModelModality, Result,
+    ToolCall, ToolHandler,
 };
 
 const TURN_TIMEOUT: Duration = Duration::from_secs(180);
 const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_TOOL_CALLS: usize = 12;
+const TEXT_TOOL_CALL_LIMIT: usize = 12;
+pub const IMAGE_TOOL_CALL_LIMIT: usize = 24;
 
 impl Client {
     pub(super) async fn start_thread(
@@ -101,6 +103,10 @@ impl Client {
             return self.finish(turn, model, effort);
         }
         let deadline = Instant::now() + TURN_TIMEOUT;
+        let tool_call_limit = match request.modality {
+            ModelModality::Text => TEXT_TOOL_CALL_LIMIT,
+            ModelModality::Image => IMAGE_TOOL_CALL_LIMIT,
+        };
         let mut tool_calls = 0;
         loop {
             let message = if let Some(queued) = self.queued.pop_front() {
@@ -118,7 +124,7 @@ impl Client {
             match message.get("method").and_then(Value::as_str) {
                 Some("item/tool/call") => {
                     tool_calls += 1;
-                    if tool_calls > MAX_TOOL_CALLS {
+                    if tool_calls > tool_call_limit {
                         self.interrupt(&thread, &turn_id).await;
                         return Err(CodexError::Tool("Codex tool limit exceeded".into()));
                     }
