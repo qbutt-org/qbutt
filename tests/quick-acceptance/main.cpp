@@ -537,6 +537,9 @@ int main(int argc, char *argv[])
     parser.addOption({u"syosetu"_s, u"Run native Syosetu text, table of contents, images and history acceptance, then exit."_s});
     parser.addOption({u"syosetu-image"_s, u"Run the native Syosetu illustration and history acceptance, then exit."_s});
     parser.addOption({u"estar"_s, u"Run native Estar original text, table of contents and history acceptance, then exit."_s});
+    parser.addOption({u"kakuyomu-reader"_s, u"Run live Kakuyomu ruby, nonfirst chapter and text history acceptance, then exit."_s});
+    parser.addOption({u"ranobehub-reader"_s, u"Run live RanobeHub human translation and text history acceptance, then exit."_s});
+    parser.addOption({u"reader-source-reopen"_s, u"Reopen a saved public text reader profile through History, then exit."_s});
     parser.addOption({u"reader-translation-choice"_s, u"Run delayed reader translation choice persistence and session acceptance, then exit."_s});
     parser.addOption({u"reader-text-translation"_s, u"Run generated text through the installed Codex and production reader, then exit."_s});
     parser.addOption({u"reader-manga-translation"_s, u"Run a generated manga page through the installed Codex and production reader, then exit."_s});
@@ -586,6 +589,7 @@ int main(int argc, char *argv[])
     application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s)
         && !parser.isSet(u"reader"_s) && !parser.isSet(u"syosetu"_s)
         && !parser.isSet(u"syosetu-image"_s) && !parser.isSet(u"estar"_s)
+        && !parser.isSet(u"kakuyomu-reader"_s) && !parser.isSet(u"ranobehub-reader"_s)
         && !parser.isSet(u"reader-translation-choice"_s)
         && !parser.isSet(u"reader-text-translation"_s)
         && !parser.isSet(u"reader-manga-translation"_s)
@@ -670,6 +674,7 @@ int main(int argc, char *argv[])
 
     if (parser.isSet(u"exercise"_s) || parser.isSet(u"reader"_s) || parser.isSet(u"syosetu"_s)
         || parser.isSet(u"syosetu-image"_s) || parser.isSet(u"estar"_s)
+        || parser.isSet(u"kakuyomu-reader"_s) || parser.isSet(u"ranobehub-reader"_s)
         || parser.isSet(u"local-book-import"_s)
         || parser.isSet(u"reader-translation-choice"_s) || parser.isSet(u"reader-text-translation"_s)
         || parser.isSet(u"reader-manga-translation"_s)
@@ -688,6 +693,9 @@ int main(int argc, char *argv[])
                 runSyosetu = parser.isSet(u"syosetu"_s),
                 runSyosetuImage = parser.isSet(u"syosetu-image"_s),
                 runEstar = parser.isSet(u"estar"_s),
+                runKakuyomuReader = parser.isSet(u"kakuyomu-reader"_s),
+                runRanobeHubReader = parser.isSet(u"ranobehub-reader"_s),
+                reopenPublicReader = parser.isSet(u"reader-source-reopen"_s),
                 runLocalBookImport = parser.isSet(u"local-book-import"_s),
                 runReaderTranslationChoice = parser.isSet(u"reader-translation-choice"_s),
                 runReaderTextTranslation = parser.isSet(u"reader-text-translation"_s),
@@ -716,6 +724,9 @@ int main(int argc, char *argv[])
                     exerciseSyosetuReader(view, runSyosetuImage);
                 else if (runEstar)
                     exerciseEstarReader(view);
+                else if (runKakuyomuReader || runRanobeHubReader)
+                    exercisePublicTextReader(view, profilePath,
+                        runKakuyomuReader ? u"kakuyomu"_s : u"ranobehub"_s, reopenPublicReader);
                 else
                     exercise(window, view);
                 application.exit(0);

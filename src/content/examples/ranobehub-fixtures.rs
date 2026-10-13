@@ -110,6 +110,24 @@ async fn main() -> CheckResult<()> {
             .iter()
             .any(|span| matches!(span, TextSpan::Text { italic: true, .. }))
     );
+    fixture.case("image-only");
+    let illustrated = source.chapter_text(chapter).await?;
+    assert_eq!(illustrated.blocks.len(), 1);
+    assert!(matches!(illustrated.blocks[0].kind, TextBlockKind::Image));
+    assert_eq!(illustrated.assets.len(), 1);
+    assert_eq!(illustrated.assets[0].media_type, "image/gif");
+    assert_eq!(illustrated.assets[0].bytes.as_ref(), b"GIF89a");
+    fixture.case("image-offsite");
+    assert!(matches!(
+        source.chapter_text(chapter).await,
+        Err(Error::InvalidResponse(_))
+    ));
+    fixture.case("image-invalid");
+    assert!(matches!(
+        source.chapter_text(chapter).await,
+        Err(Error::InvalidResponse(_))
+    ));
+    fixture.case("normal");
     persist(
         &serde_json::to_string(&work)?,
         &serde_json::to_string(&text)?,
@@ -228,7 +246,7 @@ async fn main() -> CheckResult<()> {
     assert_eq!(hits, fixture.hits.load(Ordering::SeqCst));
     fixture.stop().await?;
     println!(
-        "PASS ranobehub_fixtures search=ok pagination=ok source_order=ok exact_translation=ok paragraphs_ruby=ok active_markup=removed identity_faults=rejected paid_ai_unknown=excluded transport_bounds=ok cancellation=ok library_reopen=ok"
+        "PASS ranobehub_fixtures search=ok pagination=ok source_order=ok exact_translation=ok paragraphs_ruby=ok images=ok active_markup=removed identity_faults=rejected paid_ai_unknown=excluded transport_bounds=ok cancellation=ok library_reopen=ok"
     );
     Ok(())
 }

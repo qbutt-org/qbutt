@@ -1,21 +1,27 @@
 #[path = "ranobehub/response.rs"]
 mod response;
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use reqwest::header::HeaderMap;
+use scraper::{Html, Selector};
+use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::http::SourceHttp;
+use crate::text::image_media_type;
 use crate::{
-    Chapter, ChapterRef, Error, PublicationRef, Result, TextChapter, Transport, Variant,
-    VariantRef, VariantSelector, Work,
+    Chapter, ChapterRef, Error, PublicationRef, Result, TextChapter, TextImageAsset, Transport,
+    Variant, VariantRef, VariantSelector, Work,
 };
 use response::{ChapterListing, ChapterRecord, ChapterResponse, SearchResponse};
 
 const ORIGIN: &str = "https://ranobehub.org";
 const PAGE_SIZE: usize = 250;
 const MAX_CHAPTERS: usize = 30_000;
+const MAX_CHAPTER_IMAGES: usize = 64;
+const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_CHAPTER_IMAGE_BYTES: usize = 24 * 1024 * 1024;
 
 /// RanobeHub's public human translations. Operations borrow the caller's runtime;
 /// dropping their futures cancels requests without a provider-owned task.
@@ -185,7 +191,67 @@ impl RanobeHub {
         if chapter.paid || chapter.is_draft {
             return Err(Error::VariantUnavailable);
         }
-        TextChapter::from_html(selected.clone(), &chapter.html)
+        let mut images = HashMap::new();
+        let mut image_bytes = 0;
+        let sources = {
+            let document = Html::parse_fragment(&chapter.html);
+            let selector = Selector::parse("img[src]").expect("fixed chapter image selector");
+            document
+                .select(&selector)
+                .filter_map(|image| image.value().attr("src").map(str::to_owned))
+                .collect::<Vec<_>>()
+        };
+        let host = self.origin.host_str().expect("fixed RanobeHub origin host");
+        for source in sources {
+            if images.contains_key(&source) {
+                continue;
+            }
+            if images.len() >= MAX_CHAPTER_IMAGES {
+                return Err(Error::ResponseTooLarge);
+            }
+            let url = self
+                .origin
+                .join(&source)
+                .map_err(|_| Error::InvalidResponse("invalid RanobeHub chapter image URL"))?;
+            if url.origin() != self.origin.origin()
+                || !url.path().strip_prefix("/api/media/").is_some_and(|id| {
+                    !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit())
+                })
+            {
+                return Err(Error::InvalidResponse(
+                    "unsupported RanobeHub chapter image URL",
+                ));
+            }
+            let bytes = self.http.image(url, &[host]).await?;
+            image_bytes += bytes.len();
+            if bytes.len() > MAX_IMAGE_BYTES || image_bytes > MAX_CHAPTER_IMAGE_BYTES {
+                return Err(Error::ResponseTooLarge);
+            }
+            let media_type = image_media_type(&bytes)
+                .ok_or(Error::InvalidResponse("invalid RanobeHub chapter image"))?;
+            images.insert(
+                source,
+                TextImageAsset {
+                    id: format!("{:x}", Sha256::digest(&bytes)),
+                    media_type: media_type.into(),
+                    bytes: bytes.into(),
+                },
+            );
+        }
+        let mut resolve_image = |source: &str| -> Result<Option<TextImageAsset>> {
+            images
+                .get(source)
+                .cloned()
+                .map(Some)
+                .ok_or(Error::InvalidResponse("unlisted RanobeHub chapter image"))
+        };
+        TextChapter::from_html_with_images(
+            selected.clone(),
+            &chapter.html,
+            &mut resolve_image,
+            None,
+            None,
+        )
     }
 
     async fn listing(&self, publication: &PublicationRef) -> Result<Vec<ChapterRecord>> {

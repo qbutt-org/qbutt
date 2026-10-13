@@ -218,10 +218,11 @@ cargo run --locked --offline -p qbutt-content --example ranobehub
 ```
 
 The fixtures preserve the declared chapter order, fractional numbers, exact human
-translation branches, paragraphs, emphasis and ruby. They reject substituted
-identities, duplicate or incomplete pagination, paid/draft chapters, AI or unknown
-translator types, active markup, unsafe redirects and oversized responses; they
-also check timeouts, cancellation and saved exact reading position after restart.
+translation branches, paragraphs, emphasis, ruby and image-only chapters. They
+reject substituted identities, duplicate or incomplete pagination, paid/draft
+chapters, AI or unknown translator types, active markup, offsite or invalid images,
+unsafe redirects and oversized responses; they also check timeouts, cancellation
+and saved exact reading position after restart.
 The live command reads only one public chapter and prints counts without chapter
 text. These commands do not establish native reader rendering.
 
@@ -400,6 +401,18 @@ page-relative anchors, mode/fit persistence, automatic relayout, stale decode
 acknowledgements and settings failure/retry. It does not establish native pointer
 interaction, popup blur, application deactivation or translation.
 Check the reader and chapter picker in the deployed Windows host separately.
+
+Run `--kakuyomu-reader --lang ru --profile <isolated-directory>` and
+`--ranobehub-reader --lang ru --profile <another-isolated-directory>` in the
+same offscreen environment. Each scenario searches a current public work,
+selects its exact text variant and nonfirst chapter, scrolls the production QML
+canvas with synthetic PageDown keys, and confirms the saved block anchor in
+SQLite and History. Kakuyomu also renders a live ruby block from its first
+chapter; RanobeHub selects its human translation branch. Repeat each command
+with `--reader-source-reopen` and the same profile to verify the exact chapter
+and visible anchor after a process restart. Require exit zero and the matching
+`PASS kakuyomu_reader` or `PASS ranobehub_reader` line in both phases, and inspect
+the saved QQuickWidget PNGs. These runs do not establish host pointer input.
 
 Run `--reader-translation-choice --lang ru` in the same offscreen environment
 for delayed translation-choice persistence. This scenario needs the live MangaDex

@@ -6,11 +6,20 @@
 
 #include <QAbstractItemModel>
 #include <QApplication>
+#include <QCoreApplication>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QImage>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QKeyEvent>
 #include <QQuickItem>
+#include <QScopeGuard>
 #include <QSize>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QTimer>
 #include <QUrl>
 
@@ -27,7 +36,8 @@ namespace
             throw std::runtime_error(message.toStdString());
     }
 
-    void waitFor(const std::function<bool()> &condition, const QString &operation)
+    void waitFor(const std::function<bool()> &condition, const QString &operation,
+        const int timeoutMs = 100'000)
     {
         QElapsedTimer elapsed;
         elapsed.start();
@@ -36,7 +46,7 @@ namespace
         timer.setInterval(20);
         QObject::connect(&timer, &QTimer::timeout, &loop, [&]
         {
-            if (condition() || (elapsed.elapsed() >= 100'000))
+            if (condition() || (elapsed.elapsed() >= timeoutMs))
                 loop.quit();
         });
         if (!condition())
@@ -99,6 +109,24 @@ namespace
         return nullptr;
     }
 
+    QQuickItem *visibleReaderItem(QObject *root, const QString &name)
+    {
+        for (auto *item : root->findChildren<QQuickItem *>(name))
+        {
+            if (item->isVisible() && item->height() > 0)
+                return item;
+        }
+        return nullptr;
+    }
+
+    void pressReaderKey(Content::ContentView *view, const Qt::Key key)
+    {
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &release);
+    }
+
     void selectOnlySource(Qbutt::ContentController *controller, const QString &sourceId)
     {
         auto *sources = model(controller, "sources");
@@ -122,8 +150,8 @@ namespace
         }, sourceId + u" source selection"_s);
     }
 
-    void openOriginalWork(Content::ContentView *view, Qbutt::ContentController *controller,
-        const QString &query, const QString &publication)
+    void openTextWork(Content::ContentView *view, Qbutt::ContentController *controller,
+        const QString &query, const QString &publication, const QString &variant)
     {
         controller->setListMode(Qbutt::Search::ListMode::Search);
         controller->search(query);
@@ -137,12 +165,83 @@ namespace
         waitFor([&] { return !controller->property("inspecting").toBool(); }, publication + u" inspection"_s);
         require(controller->property("errorText").toString().isEmpty(),
             controller->property("errorText").toString());
-        controller->selectVariant(publication + u":original"_s);
-        require(controller->property("selectedVariantId").toString() == publication + u":original"_s,
-            u"Exact original variant was substituted"_s);
+        controller->selectVariant(variant);
+        require(controller->property("selectedVariantId").toString() == variant,
+            u"Exact text variant was substituted"_s);
         auto *pane = view->rootObject()->findChild<QObject *>(u"contentWorkPane"_s);
         require(pane && QMetaObject::invokeMethod(pane, "openSelected"), u"QML Read action is missing"_s);
         readyText(controller);
+    }
+
+    struct PublicTextCase
+    {
+        QString source;
+        QString query;
+        QString publication;
+        QString variant;
+        QString firstChapter;
+        QString secondChapter;
+        QString ruby;
+        int minimumSecondBlocks;
+    };
+
+    PublicTextCase publicTextCase(const QString &sourceId)
+    {
+        if (sourceId == u"kakuyomu"_s)
+        {
+            return {sourceId, u"桃太郎"_s, u"kakuyomu:11054822663254506405"_s,
+                u"kakuyomu:11054822663254506405:original"_s,
+                u"11054822663254506405/11054822663254569979"_s,
+                u"11054822663254506405/11054822663260874365"_s,
+                u"高槻(たかつき)"_s, 100};
+        }
+        require(sourceId == u"ranobehub"_s, u"Unknown public text source"_s);
+        return {sourceId, u"Overlord"_s, u"ranobehub:206"_s,
+            u"ranobehub:206:branch:main"_s, u"41634"_s, u"41635"_s, {}, 20};
+    }
+
+    struct SavedTextPosition
+    {
+        QString chapter;
+        QString block;
+        double offset;
+    };
+
+    SavedTextPosition savedTextPosition(const QString &profileDir)
+    {
+        const QString connectionName = u"public-text-reader-history"_s;
+        auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, connectionName);
+        const auto closeDatabase = qScopeGuard([&]
+        {
+            database.close();
+            database = QSqlDatabase();
+            QSqlDatabase::removeDatabase(connectionName);
+        });
+        database.setDatabaseName(profileDir + u"/content-library.sqlite"_s);
+        require(database.open(), database.lastError().text());
+        QSqlQuery query(database);
+        require(query.exec(u"SELECT entry FROM library"_s) && query.next(),
+            u"Confirmed text history is missing from SQLite"_s);
+        const auto entry = QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object();
+        require(!query.next(), u"Reader profile contains unrelated works"_s);
+        const auto progress = entry.value(u"reader_progress"_s).toObject();
+        const auto position = progress.value(u"position"_s).toObject();
+        require(position.value(u"kind"_s).toString() == u"text"_s,
+            u"Reader did not persist a text position"_s);
+        return {progress.value(u"chapter"_s).toObject().value(u"id"_s).toString(),
+            position.value(u"block_id"_s).toString(), position.value(u"offset"_s).toDouble(-1)};
+    }
+
+    void saveRender(Content::ContentView *view, const QString &profileDir,
+        const QString &name, const QSize &size)
+    {
+        view->resize(size);
+        QEventLoop frame;
+        QTimer::singleShot(150, &frame, &QEventLoop::quit);
+        frame.exec();
+        const QImage image = view->grabFramebuffer();
+        require(image.size() == size && image.save(profileDir + u"/"_s + name),
+            u"Native text reader render could not be saved"_s);
     }
 }
 
@@ -162,7 +261,8 @@ void exerciseSyosetuReader(Content::ContentView *view, const bool imageOnly)
     int chapterCount = 0;
     if (!imageOnly)
     {
-        openOriginalWork(view, controller, u"Ｒｅ：ゼロから始める異世界生活"_s, u"syosetu:n2267be"_s);
+        openTextWork(view, controller, u"Ｒｅ：ゼロから始める異世界生活"_s,
+            u"syosetu:n2267be"_s, u"syosetu:n2267be:original"_s);
         auto *chapters = model(controller, "readerChapters");
         chapterCount = chapters->rowCount();
         require(chapterCount > 700 && value(chapters, 1, "chapterId") == u"2",
@@ -182,7 +282,8 @@ void exerciseSyosetuReader(Content::ContentView *view, const bool imageOnly)
         require(chapters->rowCount() == chapterCount, u"Chapter filtering discarded the complete table of contents"_s);
         controller->closeReader();
 
-        openOriginalWork(view, controller, u"本好きの下剋上"_s, u"syosetu:n4830bu"_s);
+        openTextWork(view, controller, u"本好きの下剋上"_s,
+            u"syosetu:n4830bu"_s, u"syosetu:n4830bu:original"_s);
         blocks = model(controller, "readerTextBlocks");
         bool notes = false;
         for (int row = 0; row < blocks->rowCount(); ++row)
@@ -201,7 +302,8 @@ void exerciseSyosetuReader(Content::ContentView *view, const bool imageOnly)
         imageBytes = bytes.size();
     });
     const QString illustrated = u"syosetu:n7653fr"_s;
-    openOriginalWork(view, controller, u"ソーサリースフィア"_s, illustrated);
+    openTextWork(view, controller, u"ソーサリースフィア"_s, illustrated,
+        illustrated + u":original"_s);
     controller->selectChapter(u"39"_s);
     readyText(controller);
     require(controller->property("readerChapterId").toString() == u"39", u"Illustrated chapter was substituted"_s);
@@ -280,7 +382,8 @@ void exerciseEstarReader(Content::ContentView *view)
 
     const QString publication = u"estar:26510966"_s;
     const QString chapter = u"26510966/6"_s;
-    openOriginalWork(view, controller, u"下の階の消防士"_s, publication);
+    openTextWork(view, controller, u"下の階の消防士"_s, publication,
+        publication + u":original"_s);
     auto *chapters = model(controller, "readerChapters");
     require(chapters->rowCount() == 31 && value(chapters, 1, "chapterId") == chapter,
         u"Native Estar table of contents is incomplete or reordered"_s);
@@ -335,4 +438,197 @@ void exerciseEstarReader(Content::ContentView *view)
     controller->closeReader();
     qInfo().noquote() << u"PASS estar_reader toc=31 nonfirst=%1 blocks=%2 text=%3 qml=ok history_reopen=%1"_s
         .arg(chapter).arg(blockCount).arg(plainText.size());
+}
+
+void exercisePublicTextReader(Content::ContentView *view, const QString &profileDir,
+    const QString &sourceId, const bool reopenOnly)
+{
+    require(view && view->status() == QQuickWidget::Ready,
+        u"Production text reader view did not load"_s);
+    auto *controller = view->findChild<Qbutt::ContentController *>();
+    require(controller, u"Production content controller is missing"_s);
+    waitFor([&]
+    {
+        return controller->getLibraryState() == Qbutt::Library::LibraryState::Ready
+            && controller->property("sourceSettingsState").value<Qbutt::Sources::SettingsState>()
+                == Qbutt::Sources::SettingsState::Ready;
+    }, u"Isolated public text reader library"_s);
+
+    const PublicTextCase selected = publicTextCase(sourceId);
+    if (!reopenOnly)
+    {
+        selectOnlySource(controller, selected.source);
+        openTextWork(view, controller, selected.query, selected.publication, selected.variant);
+        auto *chapters = model(controller, "readerChapters");
+        require(chapters->rowCount() >= 2
+            && value(chapters, 0, "chapterId") == selected.firstChapter
+            && value(chapters, 1, "chapterId") == selected.secondChapter,
+            u"Exact public text table of contents is missing or reordered"_s);
+
+        if (sourceId == u"ranobehub"_s)
+        {
+            auto *blocks = model(controller, "readerTextBlocks");
+            require(controller->property("readerChapterId").toString() == selected.firstChapter
+                && blocks->rowCount() == 5,
+                u"Image-only RanobeHub first chapter did not open"_s);
+            for (int row = 0; row < blocks->rowCount(); ++row)
+                require(!value(blocks, row, "imageId").isEmpty(),
+                    u"RanobeHub image was lost from the native text model"_s);
+            const QString firstImage = value(blocks, 0, "imageId");
+            waitFor([&]
+            {
+                auto *image = inlineImage(view->rootObject(), firstImage);
+                return image && image->isVisible() && image->property("status").toInt() == 1
+                    && image->property("paintedWidth").toReal() > 0;
+            }, u"RanobeHub first illustration decoded in QML"_s, 10'000);
+            saveRender(view, profileDir, u"ranobehub-images-1280x720.png"_s, QSize(1280, 720));
+        }
+
+        if (!selected.ruby.isEmpty())
+        {
+            require(controller->property("readerChapterId").toString() == selected.firstChapter,
+                u"First Kakuyomu chapter was substituted"_s);
+            auto *blocks = model(controller, "readerTextBlocks");
+            QString rubyBlock;
+            for (int row = 0; row < blocks->rowCount(); ++row)
+            {
+                if (value(blocks, row, "plainText").contains(selected.ruby))
+                    rubyBlock = value(blocks, row, "blockId");
+            }
+            require(!rubyBlock.isEmpty(), u"Live Kakuyomu ruby did not reach the Qt text model"_s);
+            view->resize(QSize(1280, 720));
+            QEventLoop layout;
+            QTimer::singleShot(150, &layout, &QEventLoop::quit);
+            layout.exec();
+            auto *viewport = view->rootObject()->findChild<QQuickItem *>(u"readerTextViewport"_s);
+            require(viewport, u"Native text viewport is missing"_s);
+            auto *scroll = view->rootObject()->findChild<QQuickItem *>(u"readerTextScroll"_s);
+            require(scroll && scroll->isVisible(), u"Native ruby scroll area is missing"_s);
+            scroll->forceActiveFocus(Qt::TabFocusReason);
+            require(scroll->hasActiveFocus(), u"Ruby chapter did not focus its scroll area"_s);
+            pressReaderKey(view, Qt::Key_End);
+            waitFor([&] { return viewport->property("contentY").toReal() > 0; },
+                u"Kakuyomu keyboard End scroll"_s, 10'000);
+            for (int step = 0; step < 12; ++step)
+            {
+                auto *item = namedItem(viewport, u"readerTextBlock_%1"_s.arg(rubyBlock));
+                if (item && item->isVisible() && item->height() > 0)
+                {
+                    const qreal top = item->mapToItem(viewport, QPointF()).y();
+                    if (top < viewport->height() && top + item->height() > 0)
+                        break;
+                }
+                pressReaderKey(view, Qt::Key_PageUp);
+                QEventLoop frame;
+                QTimer::singleShot(100, &frame, &QEventLoop::quit);
+                frame.exec();
+            }
+            waitFor([&]
+            {
+                auto *item = namedItem(viewport, u"readerTextBlock_%1"_s.arg(rubyBlock));
+                if (!item || !item->isVisible() || item->height() <= 0)
+                    return false;
+                const qreal top = item->mapToItem(viewport, QPointF()).y();
+                return top < viewport->height() && top + item->height() > 0;
+            }, u"Live Kakuyomu ruby block rendered in QML"_s, 10'000);
+            saveRender(view, profileDir, u"kakuyomu-ruby-1280x720.png"_s, QSize(1280, 720));
+        }
+
+        controller->selectChapter(selected.secondChapter);
+        readyText(controller);
+        require(controller->property("readerChapterId").toString() == selected.secondChapter,
+            u"Nonfirst public text chapter was substituted"_s);
+        auto *blocks = model(controller, "readerTextBlocks");
+        require(blocks->rowCount() >= selected.minimumSecondBlocks,
+            u"Nonfirst public text chapter is incomplete"_s);
+
+        saveRender(view, profileDir, sourceId + u"-chapter-1440x900.png"_s, QSize(1440, 900));
+        auto *scroll = view->rootObject()->findChild<QQuickItem *>(u"readerTextScroll"_s);
+        auto *viewport = view->rootObject()->findChild<QQuickItem *>(u"readerTextViewport"_s);
+        require(scroll && viewport && scroll->isVisible() && viewport->isVisible(),
+            u"Native text scroll area is missing"_s);
+        waitFor([&]
+        {
+            return viewport->property("contentHeight").toReal() > viewport->height()
+                && !controller->property("readerTextAnchor").toString().isEmpty();
+        }, u"Scrollable public chapter layout"_s, 10'000);
+        const QString initialBlock = controller->property("readerTextAnchor").toString();
+        const double initialOffset = controller->property("readerTextOffset").toDouble();
+        const qreal initialY = viewport->property("contentY").toReal();
+        scroll->forceActiveFocus(Qt::TabFocusReason);
+        require(scroll->hasActiveFocus(), u"Public text did not focus its scroll area"_s);
+        for (int step = 0; step < 4; ++step)
+        {
+            pressReaderKey(view, Qt::Key_PageDown);
+            QEventLoop frame;
+            QTimer::singleShot(100, &frame, &QEventLoop::quit);
+            frame.exec();
+        }
+        waitFor([&]
+        {
+            return viewport->property("contentY").toReal() > initialY
+                && (controller->property("readerTextAnchor").toString() != initialBlock
+                    || qAbs(controller->property("readerTextOffset").toDouble() - initialOffset) > 0.05)
+                && !controller->property("readerProgressPending").toBool();
+        }, u"Keyboard scroll anchor persistence"_s, 10'000);
+        require(controller->property("readerProgressErrorText").toString().isEmpty(),
+            u"Public text reader progress write failed"_s);
+        saveRender(view, profileDir, sourceId + u"-scrolled-1440x900.png"_s, QSize(1440, 900));
+        controller->closeReader();
+    }
+
+    const SavedTextPosition saved = savedTextPosition(profileDir);
+    require(saved.chapter == selected.secondChapter && !saved.block.isEmpty()
+        && saved.offset >= 0 && saved.offset <= 1,
+        u"SQLite lost the exact nonfirst text chapter or scroll anchor"_s);
+    controller->setListMode(Qbutt::Search::ListMode::History);
+    auto *history = model(controller, "history");
+    waitFor([&]
+    {
+        for (int row = 0; row < history->rowCount(); ++row)
+        {
+            if (value(history, row, "workId") == selected.publication)
+                return true;
+        }
+        return false;
+    }, u"Confirmed public text history"_s);
+    controller->selectWork(selected.publication);
+    waitFor([&] { return !controller->property("inspecting").toBool(); },
+        u"Public text history inspection"_s);
+    require(controller->property("errorText").toString().isEmpty(),
+        controller->property("errorText").toString());
+    controller->selectVariant(selected.variant);
+    require(controller->property("selectedVariantId").toString() == selected.variant,
+        u"History substituted the exact text variant"_s);
+    auto *pane = view->rootObject()->findChild<QObject *>(u"contentWorkPane"_s);
+    require(pane && QMetaObject::invokeMethod(pane, "openSelected"),
+        u"History QML Read action is missing"_s);
+    readyText(controller);
+    require(controller->property("readerChapterId").toString() == saved.chapter
+        && controller->property("readerTextAnchor").toString() == saved.block
+        && qAbs(controller->property("readerTextOffset").toDouble() - saved.offset) < 0.001,
+        u"History reopening lost the chapter or exact text anchor"_s);
+    QQuickItem *viewport = nullptr;
+    waitFor([&]
+    {
+        viewport = visibleReaderItem(view->rootObject(), u"readerTextViewport"_s);
+        return viewport && viewport->property("count").toInt() > 0;
+    }, u"Reopened visible text viewport"_s, 10'000);
+    waitFor([&]
+    {
+        auto *item = namedItem(viewport, u"readerTextBlock_%1"_s.arg(saved.block));
+        if (!item || !item->isVisible() || item->height() <= 0)
+            return false;
+        const qreal top = item->mapToItem(viewport, QPointF()).y();
+        return top < viewport->height() && top + item->height() > 0;
+    }, u"Saved text anchor rendered after History reopen"_s, 10'000);
+    saveRender(view, profileDir,
+        sourceId + (reopenOnly ? u"-restart-1440x900.png"_s : u"-history-1440x900.png"_s),
+        QSize(1440, 900));
+    const int chapterCount = model(controller, "readerChapters")->rowCount();
+    const int blockCount = model(controller, "readerTextBlocks")->rowCount();
+    controller->closeReader();
+    qInfo().noquote() << u"PASS %1_reader phase=%2 chapters=%3 nonfirst=%4 blocks=%5 anchor=ok history=ok qml=ok"_s
+        .arg(sourceId, reopenOnly ? u"restart"_s : u"live"_s)
+        .arg(chapterCount).arg(selected.secondChapter).arg(blockCount);
 }

@@ -190,6 +190,19 @@ fn response(
         );
         return ("200 OK", "text/html", String::new(), body);
     }
+    if url.path() == "/api/media/42" {
+        return (
+            "200 OK",
+            "image/gif",
+            String::new(),
+            if case == "image-invalid" {
+                "invalid"
+            } else {
+                "GIF89a"
+            }
+            .into(),
+        );
+    }
 
     let value = if url.path() == "/api/search" {
         if query == "empty" {
@@ -261,7 +274,15 @@ fn response(
             "id": if case == "body-id" { 100 } else if alternate { 201 } else { 101 },
             "bookId": if case == "body-book" { 8 } else { 7 },
             "translationBranch": { "slug": if case == "body-branch" { "other" } else { branch } },
-            "html": if case == "empty-text" { "<script>generated()</script>" } else { "<p>First generated paragraph.</p><p><ruby>語<rt>ご</rt></ruby> <em>second</em><br>line</p><script>forbidden()</script><iframe src='https://127.0.0.1/private'></iframe>" },
+            "html": if case == "empty-text" {
+                "<script>generated()</script>"
+            } else if case == "image-offsite" {
+                "<p><img src='https://other.example/api/media/42'></p>"
+            } else if matches!(case, "image-only" | "image-invalid") {
+                "<p><img src='/api/media/42'></p>"
+            } else {
+                "<p>First generated paragraph.</p><p><ruby>語<rt>ご</rt></ruby> <em>second</em><br>line</p><script>forbidden()</script><iframe src='https://127.0.0.1/private'></iframe>"
+            },
             "paid": case == "paid-body",
             "isDraft": case == "draft-body"
         } })

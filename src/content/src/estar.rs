@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::http::SourceHttp;
+use crate::text::image_media_type;
 use crate::{
     Chapter, ChapterRef, Error, PublicationRef, Result, TextChapter, TextImageAsset, VariantRef,
     Work,
@@ -188,19 +189,5 @@ impl Estar {
             return Err(Error::VariantUnavailable);
         }
         Ok(document)
-    }
-}
-
-fn image_media_type(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Some("image/png")
-    } else if bytes.starts_with(b"\xff\xd8\xff") {
-        Some("image/jpeg")
-    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        Some("image/gif")
-    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP".as_slice()) {
-        Some("image/webp")
-    } else {
-        None
     }
 }
