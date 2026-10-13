@@ -206,10 +206,15 @@ pub(super) fn book(body: &str, expected: &PublicationRef) -> Result<Book> {
         .next()
         .and_then(|meta| meta.value().attr("content"))
     {
-        let url = Url::parse(cover).map_err(|_| Error::InvalidResponse("invalid Estar cover"))?;
+        let mut url =
+            Url::parse(cover).map_err(|_| Error::InvalidResponse("invalid Estar cover"))?;
         if url.scheme() != "https" || url.host_str() != Some("img.estar.jp") {
             return Err(Error::InvalidResponse("invalid Estar cover host"));
         }
+        if url.fragment().is_some() || url.query_pairs().any(|(key, _)| key != "timestamp") {
+            return Err(Error::InvalidResponse("invalid Estar cover query"));
+        }
+        url.set_query(None);
         work.cover = Some(url);
     }
 

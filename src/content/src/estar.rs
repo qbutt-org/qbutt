@@ -131,7 +131,7 @@ impl Estar {
                     .map(Some)
                     .ok_or(Error::InvalidResponse("unlisted Estar chapter image"))
             };
-            let chapter = TextChapter::from_local_html(
+            let chapter = TextChapter::from_html_with_images(
                 selected.clone(),
                 &body.html,
                 &mut resolve_image,

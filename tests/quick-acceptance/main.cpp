@@ -536,6 +536,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
     parser.addOption({u"syosetu"_s, u"Run native Syosetu text, table of contents, images and history acceptance, then exit."_s});
     parser.addOption({u"syosetu-image"_s, u"Run the native Syosetu illustration and history acceptance, then exit."_s});
+    parser.addOption({u"estar"_s, u"Run native Estar original text, table of contents and history acceptance, then exit."_s});
     parser.addOption({u"reader-translation-choice"_s, u"Run delayed reader translation choice persistence and session acceptance, then exit."_s});
     parser.addOption({u"reader-text-translation"_s, u"Run generated text through the installed Codex and production reader, then exit."_s});
     parser.addOption({u"reader-manga-translation"_s, u"Run a generated manga page through the installed Codex and production reader, then exit."_s});
@@ -584,7 +585,8 @@ int main(int argc, char *argv[])
     }
     application.setQuitOnLastWindowClosed(!parser.isSet(u"exercise"_s)
         && !parser.isSet(u"reader"_s) && !parser.isSet(u"syosetu"_s)
-        && !parser.isSet(u"syosetu-image"_s) && !parser.isSet(u"reader-translation-choice"_s)
+        && !parser.isSet(u"syosetu-image"_s) && !parser.isSet(u"estar"_s)
+        && !parser.isSet(u"reader-translation-choice"_s)
         && !parser.isSet(u"reader-text-translation"_s)
         && !parser.isSet(u"reader-manga-translation"_s)
         && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s)
@@ -667,7 +669,8 @@ int main(int argc, char *argv[])
     window->show();
 
     if (parser.isSet(u"exercise"_s) || parser.isSet(u"reader"_s) || parser.isSet(u"syosetu"_s)
-        || parser.isSet(u"syosetu-image"_s) || parser.isSet(u"local-book-import"_s)
+        || parser.isSet(u"syosetu-image"_s) || parser.isSet(u"estar"_s)
+        || parser.isSet(u"local-book-import"_s)
         || parser.isSet(u"reader-translation-choice"_s) || parser.isSet(u"reader-text-translation"_s)
         || parser.isSet(u"reader-manga-translation"_s)
         || parser.isSet(u"worklist"_s))
@@ -684,6 +687,7 @@ int main(int argc, char *argv[])
                 runReader = parser.isSet(u"reader"_s),
                 runSyosetu = parser.isSet(u"syosetu"_s),
                 runSyosetuImage = parser.isSet(u"syosetu-image"_s),
+                runEstar = parser.isSet(u"estar"_s),
                 runLocalBookImport = parser.isSet(u"local-book-import"_s),
                 runReaderTranslationChoice = parser.isSet(u"reader-translation-choice"_s),
                 runReaderTextTranslation = parser.isSet(u"reader-text-translation"_s),
@@ -710,6 +714,8 @@ int main(int argc, char *argv[])
                     exerciseReader(view, profilePath);
                 else if (runSyosetu || runSyosetuImage)
                     exerciseSyosetuReader(view, runSyosetuImage);
+                else if (runEstar)
+                    exerciseEstarReader(view);
                 else
                     exercise(window, view);
                 application.exit(0);

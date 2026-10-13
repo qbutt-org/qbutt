@@ -7,3 +7,4 @@ namespace Content
 }
 
 void exerciseSyosetuReader(Content::ContentView *view, bool imageOnly);
+void exerciseEstarReader(Content::ContentView *view);

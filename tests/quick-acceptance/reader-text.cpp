@@ -86,6 +86,64 @@ namespace
         }
         return nullptr;
     }
+
+    QQuickItem *namedItem(QQuickItem *item, const QString &name)
+    {
+        if (item->objectName() == name)
+            return item;
+        for (auto *child : item->childItems())
+        {
+            if (auto *match = namedItem(child, name))
+                return match;
+        }
+        return nullptr;
+    }
+
+    void selectOnlySource(Qbutt::ContentController *controller, const QString &sourceId)
+    {
+        auto *sources = model(controller, "sources");
+        for (int row = 0; row < sources->rowCount(); ++row)
+        {
+            const QString id = value(sources, row, "sourceId");
+            require(controller->setSourceEnabled(id, id == sourceId), u"Source choice was rejected"_s);
+        }
+        waitFor([&]
+        {
+            for (int row = 0; row < sources->rowCount(); ++row)
+            {
+                const bool selected = value(sources, row, "sourceId") == sourceId;
+                if ((value(sources, row, "pending") == u"true")
+                    || (value(sources, row, "enabled") != (selected ? u"true" : u"false")))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }, sourceId + u" source selection"_s);
+    }
+
+    void openOriginalWork(Content::ContentView *view, Qbutt::ContentController *controller,
+        const QString &query, const QString &publication)
+    {
+        controller->setListMode(Qbutt::Search::ListMode::Search);
+        controller->search(query);
+        waitFor([&] { return !controller->property("busy").toBool(); }, publication + u" search"_s);
+        auto *works = model(controller, "works");
+        bool found = false;
+        for (int row = 0; row < works->rowCount(); ++row)
+            found |= value(works, row, "workId") == publication;
+        require(found, u"Exact original work is missing: "_s + publication);
+        controller->selectWork(publication);
+        waitFor([&] { return !controller->property("inspecting").toBool(); }, publication + u" inspection"_s);
+        require(controller->property("errorText").toString().isEmpty(),
+            controller->property("errorText").toString());
+        controller->selectVariant(publication + u":original"_s);
+        require(controller->property("selectedVariantId").toString() == publication + u":original"_s,
+            u"Exact original variant was substituted"_s);
+        auto *pane = view->rootObject()->findChild<QObject *>(u"contentWorkPane"_s);
+        require(pane && QMetaObject::invokeMethod(pane, "openSelected"), u"QML Read action is missing"_s);
+        readyText(controller);
+    }
 }
 
 void exerciseSyosetuReader(Content::ContentView *view, const bool imageOnly)
@@ -99,52 +157,12 @@ void exerciseSyosetuReader(Content::ContentView *view, const bool imageOnly)
             && (controller->property("sourceSettingsState").value<Qbutt::Sources::SettingsState>()
                 == Qbutt::Sources::SettingsState::Ready);
     }, u"Isolated reader library"_s);
-    auto *sources = model(controller, "sources");
-    for (int row = 0; row < sources->rowCount(); ++row)
-    {
-        const QString id = value(sources, row, "sourceId");
-        require(controller->setSourceEnabled(id, id == u"syosetu"), u"Source choice was rejected"_s);
-    }
-    waitFor([&]
-    {
-        for (int row = 0; row < sources->rowCount(); ++row)
-        {
-            const bool selected = value(sources, row, "sourceId") == u"syosetu";
-            if ((value(sources, row, "pending") == u"true")
-                || (value(sources, row, "enabled") != (selected ? u"true" : u"false")))
-            {
-                return false;
-            }
-        }
-        return true;
-    }, u"Syosetu source selection"_s);
-
-    const auto openWork = [&](const QString &query, const QString &publication)
-    {
-        controller->setListMode(Qbutt::Search::ListMode::Search);
-        controller->search(query);
-        waitFor([&] { return !controller->property("busy").toBool(); }, u"Syosetu search"_s);
-        auto *works = model(controller, "works");
-        bool found = false;
-        for (int row = 0; row < works->rowCount(); ++row)
-            found |= value(works, row, "workId") == publication;
-        require(found, u"Exact Syosetu work is missing: "_s + publication);
-        controller->selectWork(publication);
-        waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Syosetu inspection"_s);
-        require(controller->property("errorText").toString().isEmpty(),
-            controller->property("errorText").toString());
-        controller->selectVariant(publication + u":original"_s);
-        require(controller->property("selectedVariantId").toString() == publication + u":original"_s,
-            u"Exact original variant was substituted"_s);
-        auto *pane = view->rootObject()->findChild<QObject *>(u"contentWorkPane"_s);
-        require(pane && QMetaObject::invokeMethod(pane, "openSelected"), u"QML Read action is missing"_s);
-        readyText(controller);
-    };
+    selectOnlySource(controller, u"syosetu"_s);
 
     int chapterCount = 0;
     if (!imageOnly)
     {
-        openWork(u"Ｒｅ：ゼロから始める異世界生活"_s, u"syosetu:n2267be"_s);
+        openOriginalWork(view, controller, u"Ｒｅ：ゼロから始める異世界生活"_s, u"syosetu:n2267be"_s);
         auto *chapters = model(controller, "readerChapters");
         chapterCount = chapters->rowCount();
         require(chapterCount > 700 && value(chapters, 1, "chapterId") == u"2",
@@ -164,7 +182,7 @@ void exerciseSyosetuReader(Content::ContentView *view, const bool imageOnly)
         require(chapters->rowCount() == chapterCount, u"Chapter filtering discarded the complete table of contents"_s);
         controller->closeReader();
 
-        openWork(u"本好きの下剋上"_s, u"syosetu:n4830bu"_s);
+        openOriginalWork(view, controller, u"本好きの下剋上"_s, u"syosetu:n4830bu"_s);
         blocks = model(controller, "readerTextBlocks");
         bool notes = false;
         for (int row = 0; row < blocks->rowCount(); ++row)
@@ -183,7 +201,7 @@ void exerciseSyosetuReader(Content::ContentView *view, const bool imageOnly)
         imageBytes = bytes.size();
     });
     const QString illustrated = u"syosetu:n7653fr"_s;
-    openWork(u"ソーサリースフィア"_s, illustrated);
+    openOriginalWork(view, controller, u"ソーサリースフィア"_s, illustrated);
     controller->selectChapter(u"39"_s);
     readyText(controller);
     require(controller->property("readerChapterId").toString() == u"39", u"Illustrated chapter was substituted"_s);
@@ -245,4 +263,76 @@ void exerciseSyosetuReader(Content::ContentView *view, const bool imageOnly)
         qInfo().noquote() << u"PASS syosetu_reader toc=%1 nonfirst=2 ruby=ok notes=ok image_bytes=%2 image_ready=%3x%4 original=ok history_reopen=39"_s
             .arg(chapterCount).arg(imageBytes).arg(paintedSize.width()).arg(paintedSize.height());
     }
+}
+
+void exerciseEstarReader(Content::ContentView *view)
+{
+    require(view && (view->status() == QQuickWidget::Ready), u"Production reader view did not load"_s);
+    auto *controller = view->findChild<Qbutt::ContentController *>();
+    require(controller, u"Production content controller is missing"_s);
+    waitFor([&]
+    {
+        return (controller->getLibraryState() == Qbutt::Library::LibraryState::Ready)
+            && (controller->property("sourceSettingsState").value<Qbutt::Sources::SettingsState>()
+                == Qbutt::Sources::SettingsState::Ready);
+    }, u"Isolated Estar reader library"_s);
+    selectOnlySource(controller, u"estar"_s);
+
+    const QString publication = u"estar:26510966"_s;
+    const QString chapter = u"26510966/6"_s;
+    openOriginalWork(view, controller, u"下の階の消防士"_s, publication);
+    auto *chapters = model(controller, "readerChapters");
+    require(chapters->rowCount() == 31 && value(chapters, 1, "chapterId") == chapter,
+        u"Native Estar table of contents is incomplete or reordered"_s);
+    controller->selectChapter(chapter);
+    readyText(controller);
+    require(controller->property("readerChapterId").toString() == chapter,
+        u"Nonfirst Estar chapter was substituted"_s);
+    auto *blocks = model(controller, "readerTextBlocks");
+    require(blocks->rowCount() >= 3, u"Nonfirst Estar chapter is incomplete"_s);
+    const int blockCount = blocks->rowCount();
+    QString plainText;
+    for (int row = 0; row < blocks->rowCount(); ++row)
+        plainText += value(blocks, row, "plainText");
+    require(plainText.size() > 2'000, u"Nonfirst Estar chapter lost its text"_s);
+
+    const QString firstBlock = value(blocks, 0, "blockId");
+    auto *viewport = view->rootObject()->findChild<QQuickItem *>(u"readerTextViewport"_s);
+    require(viewport && viewport->isVisible(), u"Native text viewport is missing"_s);
+    waitFor([&]
+    {
+        auto *item = namedItem(viewport, u"readerTextBlock_%1"_s.arg(firstBlock));
+        return item && item->isVisible() && item->height() > 0;
+    }, u"Estar text rendered in QML"_s);
+
+    const auto generation = controller->property("readerTextGeneration").toULongLong();
+    require(controller->setReaderTextViewport(generation, firstBlock, 0, true),
+        u"Estar viewport was rejected"_s);
+    controller->readerTextPositionRequested(generation, firstBlock, 0);
+    auto *history = model(controller, "history");
+    waitFor([&]
+    {
+        if (controller->property("readerProgressPending").toBool())
+            return false;
+        for (int row = 0; row < history->rowCount(); ++row)
+        {
+            if (value(history, row, "workId") == publication)
+                return true;
+        }
+        return false;
+    }, u"Confirmed Estar text history"_s);
+    require(controller->property("readerProgressErrorText").toString().isEmpty(),
+        u"Estar reader progress write failed"_s);
+    controller->closeReader();
+    controller->setListMode(Qbutt::Search::ListMode::History);
+    controller->selectWork(publication);
+    waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Estar history refresh"_s);
+    controller->openReader();
+    readyText(controller);
+    require(controller->property("readerChapterId").toString() == chapter
+        && controller->property("selectedVariantId").toString() == publication + u":original"_s,
+        u"Estar history reopening lost the exact original chapter"_s);
+    controller->closeReader();
+    qInfo().noquote() << u"PASS estar_reader toc=31 nonfirst=%1 blocks=%2 text=%3 qml=ok history_reopen=%1"_s
+        .arg(chapter).arg(blockCount).arg(plainText.size());
 }

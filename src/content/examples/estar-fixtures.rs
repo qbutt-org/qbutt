@@ -92,7 +92,10 @@ fn book(canonical_id: &str) -> String {
     ]);
     let novel = state.add(json!(["ModelNovel", record]));
     let page = state.object(&[("novel", novel)]);
-    let body = format!("<link rel=\"canonical\" href=\"https://estar.jp/novels/{canonical_id}\">");
+    let body = format!(
+        "<link rel=\"canonical\" href=\"https://estar.jp/novels/{canonical_id}\">\
+         <meta property=\"og:image\" content=\"https://img.estar.jp/generated.png?timestamp=123\">"
+    );
     document(state.finish("novel_42", page, "/novels/42"), &body)
 }
 
@@ -153,6 +156,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     ));
 
     let book = response::book(&book("42"), &works[0].reference)?;
+    assert_eq!(
+        book.work.cover.as_ref().unwrap().as_str(),
+        "https://img.estar.jp/generated.png"
+    );
     let toc = response::episodes(&episodes(3), &book.work.reference, 1)?;
     let chapters = response::listing(&book, vec![toc])?;
     assert_eq!(chapters.len(), 3);
@@ -191,7 +198,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             bytes: b"\x89PNG\r\n\x1a\n".to_vec().into(),
         }))
     };
-    let text = TextChapter::from_local_html(
+    let text = TextChapter::from_html_with_images(
         chapters[1].chapter.reference.clone(),
         &page.html,
         &mut resolve,

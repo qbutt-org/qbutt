@@ -245,6 +245,9 @@ cargo run --locked -p qbutt-content --example estar
 
 The live command reads three public viewer pages and prints counts without
 chapter text. The provider checks each page for ticket access before reading it.
+The quick acceptance target below accepts `--estar` to open that exact nonfirst
+chapter in the production text reader, confirm its QML blocks, and reopen it
+from History in an isolated profile.
 
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in
