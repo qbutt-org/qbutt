@@ -330,7 +330,14 @@ fn search(url: &Url, case: &str) -> String {
         (49, 9008),
     ] {
         let mut row = format!(
-            "<tr id='trs-tr-{id}'><td><a href='tracker.php?f={forum}&amp;nm=generated'>Форум</a></td><td class='t-title-col'><a class='tLink' data-topic_id='{id}' href='viewtopic.php?t={id}'>Синтел [версия 2] &amp; legal</a></td><td class='tor-size' data-ts_text='734003200'>700 MB</td><td class='seedmed'>12</td></tr>"
+            r#"<tr id='trs-tr-{id}'>
+                <td><a href='tracker.php?f={forum}&amp;nm=generated'>Форум</a></td>
+                <td class='t-title-col'>
+                    <a class='tLink' data-topic_id='{id}' href='viewtopic.php?t={id}'>Синтел [версия 2] &amp; legal</a>
+                </td>
+                <td class='tor-size' data-ts_text='734003200'>700 MB</td>
+                <td data-ts_text='12'><b class='seedmed'>12</b></td>
+            </tr>"#
         );
         if id == 42 {
             row = match case {
@@ -365,6 +372,11 @@ fn topic(case: &str) -> String {
     } else {
         "734003200"
     };
+    let seeders = if case == "bad-seeders" {
+        "invalid"
+    } else {
+        "12"
+    };
     let magnet = if case == "torrent-only" {
         String::new()
     } else {
@@ -373,6 +385,21 @@ fn topic(case: &str) -> String {
         )
     };
     format!(
-        "<div class='nav'><a href='viewforum.php?f=33'>Аниме</a><a href='viewforum.php?f=9001'>Потомок</a></div><a id='topic-title' href='viewtopic.php?t={title_id}'>Синтел [версия 2] &amp; legal</a><div class='post_body'>Созданный fixture для общественного достояния</div><table class='attach'><tr><td><a class='dl-stub' href='dl.php?t={download_id}'>Скачать торрент</a><span id='tor-size-humn' title='{size}'>700 MB</span>{magnet}</td></tr></table>"
+        r#"<div class='nav'>
+            <a href='viewforum.php?f=33'>Аниме</a>
+            <a href='viewforum.php?f=9001'>Потомок</a>
+        </div>
+        <a id='topic-title' href='viewtopic.php?t={title_id}'>Синтел [версия 2] &amp; legal</a>
+        <table id='t-tor-stats'>
+            <tr><td><span class='seed'>Сиды: <b>{seeders}</b></span></td></tr>
+        </table>
+        <div class='post_body'>Созданный fixture для общественного достояния</div>
+        <table class='attach'>
+            <tr><td>
+                <a class='dl-stub' href='dl.php?t={download_id}'>Скачать торрент</a>
+                <span id='tor-size-humn' title='{size}'>700 MB</span>
+                {magnet}
+            </td></tr>
+        </table>"#
     )
 }

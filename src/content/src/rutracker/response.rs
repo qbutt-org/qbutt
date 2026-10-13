@@ -106,6 +106,9 @@ pub(crate) fn release(
     };
     let (magnet, hash) = magnet(required(link, "href")?)?;
     let size = number(required(unique(attachment, "#tor-size-humn")?, "title")?)?;
+    let seeders = optional(document.root_element(), "#t-tor-stats span.seed > b")?
+        .map(|count| number(&text(count)))
+        .transpose()?;
     let mut category = None;
     for link in document.select(&selector(".nav a[href], a.nav[href]")) {
         let href = required(link, "href")?;
@@ -135,7 +138,7 @@ pub(crate) fn release(
         languages: Vec::new(),
         player: None,
         size: Some(size),
-        seeders: None,
+        seeders,
         info_hash: Some(hash),
         reported_video_ads: false,
     };

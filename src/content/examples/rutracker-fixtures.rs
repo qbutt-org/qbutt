@@ -109,6 +109,7 @@ async fn main() -> CheckResult {
     assert_eq!(work.reference, found.reference);
     assert_eq!(work.variants[0].info_hash.as_deref(), Some(HASH));
     assert_eq!(work.variants[0].size, Some(734_003_200));
+    assert_eq!(work.variants[0].seeders, Some(12));
     assert_eq!(
         work.description.as_deref(),
         Some("Созданный fixture для общественного достояния")
@@ -221,6 +222,7 @@ async fn main() -> CheckResult {
         "changed-download",
         "bad-magnet",
         "bad-size",
+        "bad-seeders",
         "torrent-only",
         "gone",
     ] {
@@ -232,7 +234,9 @@ async fn main() -> CheckResult {
             .unwrap();
         match case {
             "torrent-only" => assert!(matches!(error, Error::UnsupportedTorrent)),
-            "bad-magnet" | "bad-size" => assert!(matches!(error, Error::InvalidResponse(_))),
+            "bad-magnet" | "bad-size" | "bad-seeders" => {
+                assert!(matches!(error, Error::InvalidResponse(_)))
+            }
             _ => assert!(matches!(error, Error::VariantUnavailable)),
         }
     }
