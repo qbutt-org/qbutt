@@ -578,8 +578,8 @@ provider acquisition or native pointer interaction.
 ## Content, reading and playback
 
 The Windows product build contains no Bun content worker. The old
-`components/content/` process remains as an explicit integration fixture for
-scenarios that have not moved to the Rust controller.
+`components/content/` process remains as an explicit search and reader
+integration fixture for scenarios that have not moved to the Rust controller.
 The helper fixture forwards browser actions over its parent stdio connection.
 The independent qplay product owns the player, prepared
 profile, FFmpeg, ffprobe and yt-dlp. Content tests create their own profiles and
@@ -614,13 +614,11 @@ $env:QBUTT_QCATCH_SETUP_FIXTURE_EXE = 'C:/path/to/build/qcatch-fixture/qcatch.ex
 $env:QBUTT_LAB_PATHS = '1'
 bun tests/content-search/catalog.ts
 bun tests/content-search/progressive-integration.ts
-bun tests/content-search/history-integration.ts
 bun tests/content-search/authorization.ts
 bun run smoke:content-online
 bun run smoke:content-reading
 bun run smoke:content-downloads
 bun run smoke:content-browser
-bun tests/content-browser/helper-relay.ts
 bun tests/content-browser/settings-native.ts
 bun tests/content-browser/startup.ts
 bun tests/content-browser/optional-cookies.ts
@@ -629,9 +627,7 @@ bun tests/content-browser/catalog-cookies.ts
 bun tests/content-browser/publication-recovery.ts
 bun tests/content-browser/resolve-health.ts
 bun tests/content-browser/game-recovery.ts
-bun tests/content-browser/work-sharing.ts
 bun tests/content-downloads/networkproxy.ts
-bun tests/content-downloads/streams.ts
 bun tests/content-reading/ipc-integration.ts
 bun tests/content-reading/scheduler-integration.ts
 bun tests/content-reading/originals-integration.ts
@@ -644,9 +640,7 @@ bun tests/content-reading/ranobehub-integration.ts
 Browser fixtures run the production Qt/Rust relay in an offscreen acceptance
 process, with explicit temporary discovery and profile paths. The IPC scenario
 checks the real qcatch native host, the pipe's current-user DACL, exact media
-selection, malformed peers, cancellation and owned discovery cleanup. The helper
-scenario also starts the real Bun service, verifies one terminal outcome, then
-restarts and crashes that helper while preserving the single native broker.
+selection, malformed peers, cancellation and owned discovery cleanup.
 The settings scenario uses a generated qcatch CLI fixture and direct legal
 pipe peers to check the native controller's browser choice, Auto ambiguity,
 setup callback and failure state. It never opens the extension setup page.

@@ -54,8 +54,7 @@ const appDirectory = resolve(process.env.QBUTT_CONTENT_APP_DIR || (executable ? 
 function startService() {
     const handle = Bun.spawn({
         cmd: [...(executable ? [executable] : [process.execPath, "components/content/main.ts"]),
-            "--data-dir", join(directory, "profile"), "--app-dir", appDirectory,
-            "--download-dir", join(directory, "downloads")],
+            "--data-dir", join(directory, "profile"), "--app-dir", appDirectory],
         stdin: "pipe", stdout: "pipe", stderr: "ignore", windowsHide: true,
         env: { ...process.env, QBUTT_BROWSER_BRIDGE_DISCOVERY: join(directory, "browser.json") },
     });

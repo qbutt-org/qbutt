@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Cookie, CookieJar } from "tough-cookie";
 
-import type { Provider, ProviderContext, SearchRequest, Source, Variant, Work } from "./contracts";
+import type { Provider, ProviderContext, SearchRequest, Variant, Work } from "./contracts";
 import type { BrowserBridge } from "./browser";
 import { ContentError } from "./errors";
 import { sourceFetch, safeError } from "./net";
@@ -27,25 +27,6 @@ function inspectionKey(variant: Variant): string {
         variant.episode, variant.season, variant.translation, variant.player]);
 }
 
-export const translationSource: Source = {
-    id: "ai",
-    name: "Translation",
-    url: "https://openrouter.ai",
-    categories: [],
-    enabled: true,
-    settings: [
-        { name: "provider", label: "Provider", type: "select", value: "auto", options: [
-            { value: "auto", label: "Automatic" },
-            { value: "codex", label: "Codex" },
-            { value: "openrouter", label: "OpenRouter" },
-            { value: "openai-compatible", label: "OpenAI compatible" },
-        ] },
-        { name: "apiKey", label: "API key", type: "password" },
-        { name: "model", label: "Model", type: "text" },
-        { name: "baseUrl", label: "API address", type: "text" },
-    ],
-};
-
 export class Catalog {
     readonly providers: Provider[] = [...videoProviders, ...gamingProviders, ...readingProviders];
     private readonly sessions = new Map<string, SourceSession>();
@@ -54,11 +35,6 @@ export class Catalog {
 
     constructor(readonly dataDir: string, readonly appDir: string, readonly settings: SourceSettings,
         private readonly browser: BrowserBridge, private readonly webview = new WebViewSessions(dataDir, appDir)) {}
-
-    async sources(): Promise<Source[]> {
-        const native = await Promise.all(this.providers.map(provider => this.settings.describe(provider.source)));
-        return [...native, await this.settings.describe(translationSource)];
-    }
 
     async context(id: string, signal: AbortSignal, publicationUrl?: string): Promise<ProviderContext> {
         const source = this.providers.find(provider => provider.source.id === id)?.source;

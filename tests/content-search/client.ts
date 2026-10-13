@@ -20,7 +20,7 @@ export class ContentClient {
         const command = process.env.QBUTT_CONTENT_BIN
             ? [process.env.QBUTT_CONTENT_BIN] : [process.execPath, "components/content/main.ts"];
         this.process = spawn(command[0], [...command.slice(1), "--app-dir", appDir,
-            "--data-dir", join(directory, "profile"), "--download-dir", join(directory, "downloads")], {
+            "--data-dir", join(directory, "profile")], {
             windowsHide: true,
             stdio: ["pipe", "pipe", "pipe"],
             env: { ...process.env, QBUTT_BROWSER_BRIDGE_DISCOVERY: join(directory, "browser.json") },
