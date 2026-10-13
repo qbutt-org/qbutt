@@ -64,8 +64,7 @@ async fn main() -> CheckResult {
     if let Some(path) = std::env::args().nth(1) {
         let bytes = std::fs::read(path)?;
         let body = rutracker::document::decode(&bytes, Some("text/html; charset=Windows-1251"))?;
-        let origin = Url::parse("https://rutracker.org")?;
-        let map = rutracker::taxonomy::categories(&body, &origin)?;
+        let map = rutracker::taxonomy::categories(&body)?;
         assert!(map.len() > 1000);
         for (forum, category) in [
             (7, Category::Movies),

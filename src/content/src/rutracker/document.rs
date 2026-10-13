@@ -68,12 +68,12 @@ pub(crate) fn decode(bytes: &[u8], content_type: Option<&str>) -> Result<String>
     Ok(body.into_owned())
 }
 
-pub(crate) fn access(body: &str, final_url: &Url) -> Result<()> {
+pub(crate) fn access(body: &str, final_url: &Url, status: u16) -> Result<()> {
     let document = Html::parse_document(body);
     if document.select(&selector(
         "input[name='cap_sid'], input[name='g-recaptcha-response'], textarea[name='g-recaptcha-response'], input[name='h-captcha-response'], .g-recaptcha, .h-captcha, .cf-turnstile",
     )).next().is_some()
-        || body.contains("/cdn-cgi/challenge-platform/")
+        || (matches!(status, 403 | 503) && body.contains("/cdn-cgi/challenge-platform/"))
         || body.contains("_cf_chl_opt")
         || body.contains("challenges.cloudflare.com")
         || (document

@@ -1,27 +1,27 @@
 use std::collections::HashMap;
 
 use scraper::{ElementRef, Html};
-use url::Url;
 
 use crate::{Category, Error, Result};
 
-use super::response::{forum_id, required, selector, unique};
+use super::response::{decimal, required, selector, unique};
 
 pub(crate) type Categories = HashMap<u64, Option<Category>>;
 
 /// Classify each forum by its ancestors in the site's nested forum map.
-pub(crate) fn categories(body: &str, origin: &Url) -> Result<Categories> {
+pub(crate) fn categories(body: &str) -> Result<Categories> {
     let document = Html::parse_document(body);
     let map = unique(document.root_element(), "#f-map")?;
     let mut categories = HashMap::new();
-    for (index, link) in map
-        .select(&selector("a[href^='viewforum.php?f=']"))
-        .enumerate()
-    {
-        if index >= 10_000 {
+    for link in map.select(&selector("a[href]")) {
+        let href = required(link, "href")?;
+        if !href.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+            continue;
+        }
+        if categories.len() >= 10_000 {
             return Err(Error::InvalidResponse("excessive RuTracker forums"));
         }
-        let id = forum_id(required(link, "href")?, origin, "viewforum.php")?;
+        let id = decimal(href)?;
         let mut category = root_category(id);
         for ancestor in link.ancestors().filter_map(ElementRef::wrap) {
             if category.is_some() {
@@ -36,15 +36,14 @@ pub(crate) fn categories(body: &str, origin: &Url) -> Result<Categories> {
             else {
                 continue;
             };
-            if let Some(parent) = label
-                .select(&selector("a[href^='viewforum.php?f=']"))
-                .next()
+            if let Some(parent) = label.select(&selector("a[href]")).find(|candidate| {
+                candidate
+                    .value()
+                    .attr("href")
+                    .is_some_and(|href| href.as_bytes().first().is_some_and(u8::is_ascii_digit))
+            })
             {
-                category = root_category(forum_id(
-                    required(parent, "href")?,
-                    origin,
-                    "viewforum.php",
-                )?);
+                category = root_category(decimal(required(parent, "href")?)?);
             } else if let Some(section) = label.select(&selector(".c-title")).next() {
                 category = match section.attr("title") {
                     Some("Книги и журналы" | "Аудиокниги") => {

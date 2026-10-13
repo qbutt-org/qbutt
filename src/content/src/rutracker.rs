@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use url::Url;
 
-use crate::browser::{BrowserChoice, BrowserError, BrowserHandle};
-use crate::http::{SourceDocument, SourceHttp, SourceSession};
+use crate::browser::{BrowserChoice, BrowserError, BrowserHandle, FetchInit};
+use crate::http::{SourceDocument, SourceHttp, SourceSession, browser_document};
 use crate::webview::{WebViewCheck, WebViewError, WebViewSessions};
 use crate::{Category, Error, PublicationRef, ResolvedContent, Result, VariantRef, Work};
 
@@ -166,7 +166,7 @@ impl RuTracker {
     ) -> Result<taxonomy::Categories> {
         let url = self.origin.join("/forum/index.php?map").unwrap();
         let body = self.document(url, session, browser, choice).await?;
-        taxonomy::categories(&body, &self.origin)
+        taxonomy::categories(&body)
     }
 
     async fn source_session(
@@ -261,6 +261,26 @@ impl RuTracker {
             }
         }
 
+        if matches!(session.browser, BrowserBorrow::Borrowed)
+            && let Some(browser) = browser
+        {
+            match browser_document(browser, choice, url.clone(), FetchInit::default()).await {
+                Ok(response) => match document(response, &url) {
+                    Err(Error::Challenge | Error::LoginRequired) => {}
+                    result => return result,
+                },
+                Err(Error::BrowserSession(
+                    BrowserError::BrowserRequired
+                    | BrowserError::Disconnected
+                    | BrowserError::Stopped
+                    | BrowserError::VerificationRequired
+                    | BrowserError::BrowserCheckRequired
+                    | BrowserError::LoginRequired,
+                )) => {}
+                Err(error) => return Err(error),
+            }
+        }
+
         let Some(webview) = self.webview.get() else {
             return Err(if matches!(&blocked, Error::LoginRequired) {
                 blocked
@@ -302,7 +322,7 @@ impl RuTracker {
 
 fn document(response: SourceDocument, expected: &Url) -> Result<String> {
     let body = document::decode(&response.body, response.content_type.as_deref())?;
-    document::access(&body, &response.final_url)?;
+    document::access(&body, &response.final_url, response.status)?;
     if !(200..300).contains(&response.status) {
         return Err(Error::HttpStatus(response.status));
     }

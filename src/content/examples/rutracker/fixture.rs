@@ -265,9 +265,9 @@ fn map() -> String {
         (862, 9007),
         (99, 9008),
     ] {
-        body.push_str(&format!("<li><span><a href='https://feed.fixture.example/atom/f/{parent}.atom'>Feed</a><a href='viewforum.php?f={parent}'>Родитель</a></span><ul><li><span><a href='viewforum.php?f={child}'>Потомок</a></span></li></ul></li>"));
+        body.push_str(&format!("<li><span><a href='https://feed.fixture.example/atom/f/{parent}.atom'>Feed</a><a href='{parent}'>Родитель</a></span><ul><li><span><a href='{child}'>Потомок</a></span></li></ul></li>"));
     }
-    body.push_str("<li><span><span class='c-title' title='Книги и журналы'></span></span><ul><li><span><a href='viewforum.php?f=9006'>Книги</a></span></li></ul></li></ul></div>");
+    body.push_str("<li><span><span class='c-title' title='Книги и журналы'></span></span><ul><li><span><a href='9006'>Книги</a></span></li></ul></li></ul></div>");
     body
 }
 
