@@ -525,14 +525,18 @@ seconds completes the first exact capture without manual retry.
 These generated scenarios do not establish a signed-in browser or live playback.
 
 `bun tests/content-browser/capture-native-receiver.ts` runs the native qcatch
-host against the production Qt/Rust capture receiver with a generated MP4. Set
-`QBUTT_QCATCH_EXE`, `QBUTT_QUICK_ACCEPTANCE_EXE` and `QBUTT_LAB_FFMPEG` first.
-The isolated fixture build must temporarily allow loopback in
+host against the production Qt/Rust capture receiver. Set `QBUTT_QCATCH_EXE`,
+`QBUTT_QUICK_ACCEPTANCE_EXE`, `QBUTT_LAB_QPLAY` and `QBUTT_LAB_PATHS=1` as above.
+Set `QBUTT_LAB_FFMPEG` and `QBUTT_LAB_FFPROBE` from that qplay bundle's verified
+`--runtime-info-json` response, with its Qt runtime available on `PATH`.
+The isolated fixture build temporarily allows loopback in
 `src/content/src/http.rs`'s `public_address`; restore that source byte-for-byte
-and rebuild before using the executable outside the lab. The scenario checks
-the exact capture ID, guarded Watch bytes, a durable Download acknowledgement,
-one completed file with the same bytes, and expired and cancelled selections
-without a fallback job. It is an offscreen process check, not native pointer QA.
+after building, and rebuild before using the executable outside the lab.
+The scenario uses generated MP4, clear HLS, static DASH, external AAC and ASS.
+It checks exact capture and session data, guarded Watch bytes, durable Download
+acknowledgements, completed decoded media and subtitle style, Qt Downloads
+state, and expired and cancelled selections without fallback jobs. Native
+pointer QA remains a separate check.
 
 The reader's Qt lifecycle and chapter picker use the deployed acceptance driver:
 

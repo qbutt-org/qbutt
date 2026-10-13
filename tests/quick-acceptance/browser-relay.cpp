@@ -3,6 +3,7 @@
 #include "browser-relay.h"
 
 #include <cstdio>
+#include <memory>
 
 #ifdef _WIN32
 #include <io.h>
@@ -10,10 +11,15 @@
 #include <windows.h>
 #endif
 
+#include <QAbstractItemModel>
 #include <QApplication>
 #include <QDir>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPointer>
+#include <QQuickItem>
+#include <QQuickWidget>
 #include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QThreadPool>
@@ -82,6 +88,52 @@ int runBrowserRelayHost()
             };
             send({{QStringLiteral("browserUi"), state}});
         });
+        auto *model = qobject_cast<QAbstractItemModel *>(
+            controller->property("downloads").value<QObject *>());
+        if (!model)
+            return 2;
+        std::unique_ptr<QQuickWidget> downloadsPage {view.createDownloadsView(nullptr)};
+        if (downloadsPage->status() != QQuickWidget::Ready || !downloadsPage->rootObject())
+            return 2;
+        QPointer<QQuickItem> downloadsList = downloadsPage->rootObject()->findChild<QQuickItem *>(
+            QStringLiteral("contentDownloads"));
+        if (!downloadsList)
+            return 2;
+        const auto downloadSnapshot = [controller, model, downloadsList]
+        {
+            if (!downloadsList)
+                return;
+            const auto roles = model->roleNames();
+            const int idRole = roles.key("jobId", -1);
+            const int statusRole = roles.key("status", -1);
+            const int bytesRole = roles.key("bytes", -1);
+            const int pathRole = roles.key("path", -1);
+            QJsonArray jobs;
+            for (int row = 0; row < model->rowCount(); ++row)
+            {
+                const QModelIndex index = model->index(row, 0);
+                jobs.append(QJsonObject {
+                    {QStringLiteral("id"), model->data(index, idRole).toString()},
+                    {QStringLiteral("status"), model->data(index, statusRole).toString()},
+                    {QStringLiteral("bytes"), model->data(index, bytesRole).toDouble()},
+                    {QStringLiteral("path"), model->data(index, pathRole).toString()}
+                });
+            }
+            send({{QStringLiteral("downloadSnapshot"), QJsonObject {
+                {QStringLiteral("state"), controller->property("downloadsState").toString()},
+                {QStringLiteral("pageCount"), downloadsList->property("count").toInt()},
+                {QStringLiteral("jobs"), jobs}
+            }}});
+        };
+        const auto changed = [&view, downloadSnapshot]
+        {
+            QTimer::singleShot(0, &view, downloadSnapshot);
+        };
+        QObject::connect(model, &QAbstractItemModel::rowsInserted, &view, changed);
+        QObject::connect(model, &QAbstractItemModel::dataChanged, &view, changed);
+        QObject::connect(model, &QAbstractItemModel::modelReset, &view, changed);
+        QObject::connect(controller, &Qbutt::ContentController::downloadsStateChanged, &view, changed);
+        changed();
         Content::BrowserCapture capture;
         QObject::connect(&capture, &Content::BrowserCapture::watchRequested, &view,
             [&view, &capture](const QUrl &page, const QString &title, const QString &captureId)

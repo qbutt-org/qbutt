@@ -430,7 +430,15 @@ impl ffi::ContentController {
                             }
                             return;
                         }
-                        let reason = if outcome.is_ok() { "" } else { "failed" };
+                        let reason = if let Err(error) = &outcome {
+                            ffi::log_content_error(
+                                &QString::from("capture download"),
+                                &QString::from(error.to_string()),
+                            );
+                            "failed"
+                        } else {
+                            ""
+                        };
                         if outcome.is_ok() {
                             controller.as_mut().download_queued();
                         }

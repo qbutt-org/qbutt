@@ -12,6 +12,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     qt_standard_project_setup(REQUIRES 6.12)
 
     add_subdirectory("../../src/gui/quick" "quick")
+    target_include_directories(qbt_quick PRIVATE "../../src")
 endif()
 
 get_filename_component(qbutt_product_lock_path "../../upstream-lock.json" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
