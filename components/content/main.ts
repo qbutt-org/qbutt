@@ -11,8 +11,7 @@ import { SourceSettings } from "./settings";
 import { assertLibraryEntrySize, LibraryStore, type VariantFilters } from "./store";
 
 const persistenceMethods = new Set([
-    "configureSource", "remember", "progress",
-    "reader.position", "reader.glossary", "reader.correct",
+    "remember", "progress", "reader.position",
 ]);
 
 function argument(name: string): string | undefined {
@@ -144,14 +143,6 @@ async function run(): Promise<void> {
         if (method.startsWith("reader.")) {
             const context = await catalog.context(typeof params.sourceId === "string" ? params.sourceId
                 : (params.variant as Variant | undefined)?.sourceId || "reader", signal);
-            if (method === "reader.translate" || method === "reader.ahead" || method === "reader.correct") {
-                const ai = await settings.values("ai");
-                context.settings = {
-                    ...context.settings,
-                    aiProvider: ai.provider || "auto", aiModel: ai.model || "",
-                    aiApiKey: ai.apiKey || "", aiBaseUrl: ai.baseUrl || "",
-                };
-            }
             if (method === "reader.open" && params.work) {
                 const current = work(params.work);
                 params = { ...params, work: store.find(current)?.work || current };
@@ -171,14 +162,6 @@ async function run(): Promise<void> {
             if (/^(?:qbutt:|magnet:)/i.test(query))
                 throw new Error("This link is not supported.");
             await catalog.search({ ...params, query, category: params.category || "all" } as SearchRequest, signal, emit);
-            return;
-        }
-        case "configureSource": {
-            const id = String(params.id || "");
-            if (id !== "ai") throw new Error("Select an available source.");
-            const changes = Object.fromEntries(Object.entries(object(params.settings))
-                .map(([key, value]) => [key, String(value)]));
-            await settings.configure(id, undefined, changes);
             return;
         }
         case "inspect": {

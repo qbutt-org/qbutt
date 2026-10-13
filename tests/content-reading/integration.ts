@@ -45,17 +45,6 @@ try {
     await handleReaderRequest("reader.position", { documentId: document.id, chapterId: page.id, offset: 0.42 }, context);
     const reopened = await handleReaderRequest("reader.local", { path: epubPath }, context) as ReaderDocument;
     require(reopened.position?.offset === 0.42, "Reading position did not survive reopening");
-    await handleReaderRequest("reader.glossary", { documentId: document.id, entries: { "凛": "Рин" } }, context);
-    const glossary = await handleReaderRequest("reader.glossary", { documentId: document.id }, context) as Record<string, string>;
-    require(glossary["凛"] === "Рин", "Glossary did not persist");
-    let invalidGlossaryRejected = false;
-    try {
-        await handleReaderRequest("reader.glossary", { documentId: document.id, entries: 42 }, context);
-    }
-    catch {
-        invalidGlossaryRejected = true;
-    }
-    require(invalidGlossaryRejected, "Invalid glossary accepted");
     const offline = { ...context, fetch: async () => { throw new Error("offline"); } };
     const cached = await handleReaderRequest("reader.chapter", { documentId: document.id, chapterId: page.id }, offline) as ReaderPage;
     require(cached.cached && cached.html === page.html, "Offline chapter differs from saved original");
@@ -101,7 +90,7 @@ try {
     }
     require(rejected, "Unsafe ZIP entry accepted");
     require(networkCalls === 0, "Local reading unexpectedly used the network");
-    console.info("PASS local EPUB/CBZ, ruby, image paths, sanitization, traversal rejection, offline cache, position, glossary");
+    console.info("PASS local EPUB/CBZ, ruby, image paths, sanitization, traversal rejection, offline cache, position");
 
     if (process.argv.includes("--live")) {
         for (const provider of readingProviders) {

@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { productExecutable, validateProductVersion } from "./products";
 import { ContentError } from "./errors";
 
-export type MediaTool = "mpv" | "ffmpeg" | "ffprobe" | "yt-dlp";
+type MediaTool = "mpv" | "ffmpeg" | "ffprobe" | "yt-dlp";
 
 interface MediaRuntime {
     player: string;
@@ -57,8 +57,4 @@ export async function mediaRuntime(appDir: string, signal: AbortSignal): Promise
     const runtime = await pending;
     signal.throwIfAborted();
     return runtime;
-}
-
-export async function mediaTool(appDir: string, name: MediaTool, signal: AbortSignal): Promise<string> {
-    return (await mediaRuntime(appDir, signal)).tools[name];
 }

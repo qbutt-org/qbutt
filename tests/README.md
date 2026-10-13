@@ -724,6 +724,11 @@ The Windows product build contains no Bun content worker. The old
 `components/content/` process remains as an explicit search and reader
 integration fixture for scenarios that have not moved to the Rust controller.
 The helper fixture forwards browser actions over its parent stdio connection.
+The retained reader path owns original acquisition, cached originals and positions.
+Reader translation acceptance uses the Rust/Qt scenarios above.
+`tests/content-reading/ipc-integration.ts`
+checks local text/CBZ, confirmed position writes, clean EOF, exact page/scroll restoration
+in a new worker and cached originals through the real native browser parent.
 The independent qplay product owns the player, prepared
 profile, FFmpeg, ffprobe and yt-dlp. Content tests create their own profiles and
 bridge discovery files; they do not use a signed-in application profile. Tool
@@ -770,10 +775,8 @@ bun tests/content-browser/resolve-health.ts
 bun tests/content-browser/game-recovery.ts
 bun tests/content-browser/networkproxy.ts
 bun tests/content-reading/ipc-integration.ts
-bun tests/content-reading/scheduler-integration.ts
 bun tests/content-reading/originals-integration.ts
 bun tests/content-reading/branches-integration.ts
-bun tests/content-reading/glossary-integration.ts
 bun tests/content-reading/loading-integration.ts
 bun tests/content-reading/ranobehub-integration.ts
 ```

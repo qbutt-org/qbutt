@@ -1,6 +1,6 @@
 import type { Chapter } from "../contracts";
 
-export interface ReaderPosition {
+interface ReaderPosition {
     chapterId: string;
     offset?: number;
     imageIndex?: number;
@@ -16,26 +16,11 @@ export interface ReaderDocument {
     local?: boolean;
 }
 
-export interface ReaderImage {
+interface ReaderImage {
     id: string;
     url: string;
-    cleanedUrl?: string;
     width?: number;
     height?: number;
-}
-
-export interface ReaderRegion {
-    id: string;
-    imageIndex: number;
-    text: string;
-    translation: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    layout: { x: number; y: number; width: number; height: number };
-    orientation: "horizontal" | "vertical";
-    ink: "dark" | "light";
 }
 
 export interface ReaderPage {
@@ -46,13 +31,7 @@ export interface ReaderPage {
     html?: string;
     images?: ReaderImage[];
     direction?: "ltr" | "rtl" | "vertical";
-    original?: { html?: string; images?: ReaderImage[] };
-    regions?: ReaderRegion[];
-    translatedImages?: number[];
-    translated?: boolean;
     cached?: boolean;
-    provider?: string;
-    model?: string;
 }
 
 export type ReaderEvent = (event: string, data: unknown) => void;

@@ -5,12 +5,7 @@ import { load } from "cheerio";
 import type { ProviderContext, Variant } from "../contracts";
 import { readingProviders, loadReadingChapter } from "../providers/reading";
 import { openLocalDocument, readLocalChapter, type LocalDocument } from "./archive";
-import { contentId, type ReaderDocument, type ReaderPage, type ReaderEvent, type ReaderPosition } from "./types";
-import { translationText } from "./html";
-import { translateBlocks, recognizePage } from "./translation";
-import type { TextBlock, TranslationOptions } from "./translation";
-import { observeReading, readAhead } from "./scheduler";
-import { cleanImageText } from "./image-processing";
+import { contentId, type ReaderDocument, type ReaderPage, type ReaderEvent } from "./types";
 
 function safeId(value: unknown): string {
     if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
@@ -41,7 +36,7 @@ async function saveJson(path: string, value: unknown): Promise<void> {
 const documentMutations = new Map<string, Promise<void>>();
 let pendingMutations = 0;
 
-export async function mutateDocument<T>(context: ProviderContext, documentId: string, operation: () => Promise<T>): Promise<T> {
+async function mutateDocument<T>(context: ProviderContext, documentId: string, operation: () => Promise<T>): Promise<T> {
     if (pendingMutations >= 128) {
         throw new Error("Слишком много изменений книги одновременно. Повторите действие.");
     }
@@ -189,88 +184,6 @@ async function cachePageImages(page: ReaderPage, sourceId: string, context: Prov
     }
 }
 
-interface GlossaryState {
-    entries: Record<string, string>;
-    manual: Record<string, string | null>;
-}
-
-interface TranslationSnapshot {
-    source: string;
-    manual: string;
-}
-
-async function readGlossary(context: ProviderContext, documentId: string): Promise<GlossaryState> {
-    const saved = await readJson<GlossaryState | Record<string, string>>(
-        join(context.dataDir, "reader", "glossaries", documentId + ".json"));
-    if (saved && typeof saved.entries === "object" && typeof saved.manual === "object") {
-        return {
-            entries: Object.assign(Object.create(null), saved.entries),
-            manual: Object.assign(Object.create(null), saved.manual),
-        };
-    }
-    const entries = Object.assign(Object.create(null), saved ?? {});
-    return { entries, manual: Object.assign(Object.create(null), entries) };
-}
-
-function manualSnapshot(manual: GlossaryState["manual"], source?: string): string {
-    return JSON.stringify(Object.fromEntries(Object.entries(manual)
-        .filter(([term]) => source === undefined || source.includes(term))
-        .sort(([left], [right]) => left.localeCompare(right))));
-}
-
-function translationPath(context: ProviderContext, original: ReaderPage, targetLanguage: string, manual: GlossaryState["manual"]): string {
-    const id = contentId(JSON.stringify({ original, targetLanguage, manual: manualSnapshot(manual),
-        provider: context.settings.aiProvider ?? "auto", model: context.settings.aiModel ?? "",
-        baseUrl: context.settings.aiBaseUrl ?? "", pipeline: original.kind === "images" ? 6 : 3 }));
-    return join(context.dataDir, "reader", "translations", id + ".json");
-}
-
-export async function translateCachedBlocks(documentId: string, blocks: TextBlock[], options: Omit<TranslationOptions, "glossary">,
-    context: ProviderContext, onProgress: (data: unknown) => void): Promise<Awaited<ReturnType<typeof translateBlocks>> & { snapshot: TranslationSnapshot }> {
-    const source = blocks.map(block => block.text).join("\n");
-    const state = await readGlossary(context, documentId);
-    const snapshot = { source, manual: manualSnapshot(state.manual, source) };
-    const glossary: Record<string, string> = Object.create(null);
-    const relevant = Object.entries(state.entries).filter(([term]) => source.includes(term))
-        .sort(([left], [right]) => Number(Object.hasOwn(state.manual, right)) - Number(Object.hasOwn(state.manual, left))
-            || left.localeCompare(right));
-    for (const [term, target] of relevant) {
-        glossary[term] = target;
-        if (!Object.hasOwn(state.manual, term) && JSON.stringify(glossary).length > 16_000) {
-            delete glossary[term];
-        }
-    }
-    const id = contentId(JSON.stringify({ documentId, blocks, options, manual: snapshot.manual,
-        provider: context.settings.aiProvider ?? "auto", model: context.settings.aiModel ?? "",
-        baseUrl: context.settings.aiBaseUrl ?? "", pipeline: 2 }));
-    const path = join(context.dataDir, "reader", "translated-blocks", id + ".json");
-    const cached = await readJson<Awaited<ReturnType<typeof translateBlocks>>>(path);
-    const result = cached ?? await translateBlocks(blocks, { ...options, glossary }, context, onProgress);
-    if (!cached) {
-        await saveJson(path, result);
-    }
-    await mutateDocument(context, documentId, async () => {
-        const latest = await readGlossary(context, documentId);
-        if (manualSnapshot(latest.manual, source) !== snapshot.manual) {
-            throw new Error("Словарь изменился во время перевода. Повторите перевод: готовые фрагменты сохранены.");
-        }
-        let count = Object.keys(latest.entries).length;
-        let changed = false;
-        for (const { source, target } of result.terms) {
-            if (count >= 2000 || Object.hasOwn(latest.entries, source) || Object.hasOwn(latest.manual, source)) {
-                continue;
-            }
-            latest.entries[source] = target;
-            ++count;
-            changed = true;
-        }
-        if (changed) {
-            await saveJson(join(context.dataDir, "reader", "glossaries", documentId + ".json"), latest);
-        }
-    });
-    return { ...result, snapshot };
-}
-
 export async function handleReaderRequest(method: string, params: Record<string, unknown>, context: ProviderContext,
     onEvent: ReaderEvent = () => {}): Promise<unknown> {
     if (method === "reader.open" || method === "reader.local") {
@@ -340,46 +253,8 @@ export async function handleReaderRequest(method: string, params: Record<string,
             document.position = { chapterId,
                 ...(params.offset === undefined ? {} : { offset: Math.min(1, Math.max(0, params.offset as number)) }),
                 ...(params.imageIndex === undefined ? {} : { imageIndex: params.imageIndex as number }) };
-            observeReading(document.id, document.position);
             await saveJson(documentPath(context, document.id), document);
             return document.position;
-        });
-    }
-    if (method === "reader.glossary") {
-        const document = await documentFor(context, params.documentId);
-        if (params.entries !== undefined) {
-            const entries = params.entries as Record<string, unknown>;
-            if (!entries || typeof entries !== "object" || Array.isArray(entries) || Object.entries(entries).some(([name, value]) => !name.trim()
-                || name.length > 200 || typeof value !== "string" || value.length > 500) || Object.keys(entries).length > 2000) {
-                throw new Error("Некорректный словарь произведения.");
-            }
-        }
-        return mutateDocument(context, document.id, async () => {
-            const state = await readGlossary(context, document.id);
-            if (params.entries !== undefined) {
-                const entries = params.entries as Record<string, string>;
-                let changed = false;
-                for (const [source, target] of Object.entries(entries)) {
-                    if (!Object.hasOwn(state.entries, source) || state.entries[source] !== target) {
-                        state.manual[source] = target;
-                        changed = true;
-                    }
-                }
-                for (const source of Object.keys(state.entries)) {
-                    if (!Object.hasOwn(entries, source)) {
-                        state.manual[source] = null;
-                        changed = true;
-                    }
-                }
-                if (Object.keys(state.manual).length > 4000) {
-                    throw new Error("Словарь достиг предела ручных изменений для этого произведения.");
-                }
-                if (changed) {
-                    state.entries = Object.assign(Object.create(null), entries);
-                    await saveJson(join(context.dataDir, "reader", "glossaries", document.id + ".json"), state);
-                }
-            }
-            return state.entries;
         });
     }
     if (method === "reader.chapter") {
@@ -403,138 +278,6 @@ export async function handleReaderRequest(method: string, params: Record<string,
         }
         await saveJson(path, page);
         return page;
-    }
-    if (method === "reader.ahead") {
-        const document = await documentFor(context, params.documentId);
-        const chapterId = typeof params.chapterId === "string" ? params.chapterId : document.position?.chapterId ?? document.chapters[0]?.id;
-        if (!chapterId || !document.chapters.some(chapter => chapter.id === chapterId)) {
-            throw new Error("Глава отсутствует в этой книге.");
-        }
-        const observation: ReaderPosition = { chapterId,
-            offset: typeof params.offset === "number" && Number.isFinite(params.offset) ? Math.min(1, Math.max(0, params.offset)) : 0,
-            imageIndex: typeof params.imageIndex === "number" ? Math.max(0, Math.floor(params.imageIndex)) : undefined };
-        return readAhead(document, observation, context.signal,
-            (id, signal) => handleReaderRequest("reader.chapter", { documentId: document.id, chapterId: id }, { ...context, signal }, onEvent) as Promise<ReaderPage>,
-            (page, imageIndex, signal) => handleReaderRequest("reader.translate", { page, imageIndex, targetLanguage: params.targetLanguage },
-                { ...context, signal }, onEvent) as Promise<ReaderPage>, onEvent);
-    }
-    if (method === "reader.translate" || method === "reader.correct") {
-        const input = params.page as ReaderPage | undefined;
-        const document = await documentFor(context, params.documentId ?? input?.documentId);
-        const pageId = safeId(params.pageId ?? input?.id);
-        const original = await readJson<ReaderPage>(pagePath(context, document.id, pageId));
-        if (!original) {
-            throw new Error("Сначала откройте главу.");
-        }
-        const targetLanguage = typeof params.targetLanguage === "string" ? params.targetLanguage : "ru";
-        const correctionsPath = join(context.dataDir, "reader", "corrections", contentId(JSON.stringify({ original, targetLanguage })) + ".json");
-        const initial = await mutateDocument(context, document.id, async () => {
-            const state = await readGlossary(context, document.id);
-            const path = translationPath(context, original, targetLanguage, state.manual);
-            const cached = await readJson<ReaderPage>(path);
-            const corrections = await readJson<Record<string, string>>(correctionsPath) ?? {};
-            for (const region of cached?.regions ?? []) {
-                region.translation = corrections[region.id] ?? region.translation;
-            }
-            if (method === "reader.correct") {
-                const region = cached?.regions?.find(entry => entry.id === params.regionId);
-                if (!cached || !region || typeof params.text !== "string" || !params.text.trim() || params.text.length > 10_000) {
-                    throw new Error("Фрагмент перевода не найден.");
-                }
-                region.translation = params.text.trim();
-                corrections[region.id] = region.translation;
-                await saveJson(correctionsPath, corrections);
-                await saveJson(path, cached);
-            }
-            return { manual: state.manual, cached };
-        });
-        const { cached } = initial;
-        if (method === "reader.correct") {
-            return cached;
-        }
-        const imageIndex = typeof params.imageIndex === "number" ? Math.floor(params.imageIndex) : 0;
-        if (cached && (original.kind === "text" || cached.translatedImages?.includes(imageIndex))) {
-            return { ...cached, cached: true };
-        }
-        const page: ReaderPage = cached ?? { ...original, original: { html: original.html, images: original.images }, translated: true };
-        const snapshots: TranslationSnapshot[] = [];
-        if (cached?.regions?.length) {
-            const source = cached.regions.map(region => region.text).join("\n");
-            snapshots.push({ source, manual: manualSnapshot(initial.manual, source) });
-        }
-        const progress = (data: unknown) => onEvent("progress", data);
-        if (original.kind === "text") {
-            const text = translationText(original.html ?? "");
-            const translated: { id: string; text: string }[] = [];
-            let start = 0;
-            while (start < text.blocks.length) {
-                let end = start;
-                let characters = 0;
-                while (end < text.blocks.length && end - start < 160 && characters < 24_000) {
-                    characters += text.blocks[end++]!.text.length;
-                }
-                const batch = text.blocks.slice(start, end);
-                const preceding = translated.slice(-2).map(block => ({ original: text.blocks[Number(block.id)]?.text.slice(-2000),
-                    translation: block.text.slice(-2000) }));
-                const result = await translateCachedBlocks(document.id, batch, { targetLanguage, context: JSON.stringify(preceding) }, context, progress);
-                translated.push(...result.blocks);
-                snapshots.push(result.snapshot);
-                page.provider = result.provider;
-                page.model = result.model;
-                start = end;
-                onEvent("progress", { message: "Перевод главы", completed: start, total: text.blocks.length });
-            }
-            page.html = text.apply(translated);
-        }
-        else {
-            const image = original.images?.[imageIndex];
-            if (!image) {
-                throw new Error("Страница не найдена.");
-            }
-            const ocrPath = join(context.dataDir, "reader", "ocr", contentId(await readFile(image.url)) + ".layout-v2.json");
-            const ocr = await readJson<Awaited<ReturnType<typeof recognizePage>>>(ocrPath)
-                ?? await recognizePage(image.url, {}, context, progress);
-            await saveJson(ocrPath, ocr);
-            if (ocr.regions.length) {
-                onEvent("progress", { phase: "cleaning" });
-                const layer = await cleanImageText(image.url, ocr.regions, context);
-                page.images = [...page.images ?? original.images ?? []];
-                page.images[imageIndex] = { ...image, cleanedUrl: layer.cleanedUrl, width: layer.width, height: layer.height };
-                const result = await translateCachedBlocks(document.id, ocr.regions.map(region => ({ id: region.id, text: region.text })),
-                    { targetLanguage }, context, progress);
-                snapshots.push(result.snapshot);
-                const translated = new Map(result.blocks.map(block => [block.id, block.text]));
-                page.regions = [...page.regions ?? [], ...ocr.regions.map(({ inkBoxes: _, ...region }) => ({ ...region, imageIndex,
-                    id: `${imageIndex}:${region.id}`, translation: translated.get(region.id)! }))];
-                page.provider = result.provider;
-                page.model = result.model;
-            }
-            page.translatedImages = [...page.translatedImages ?? [], imageIndex];
-        }
-        return mutateDocument(context, document.id, async () => {
-            const latestGlossary = await readGlossary(context, document.id);
-            if (snapshots.some(snapshot => manualSnapshot(latestGlossary.manual, snapshot.source) !== snapshot.manual)) {
-                throw new Error("Словарь изменился во время перевода. Повторите перевод: готовые фрагменты сохранены.");
-            }
-            const path = translationPath(context, original, targetLanguage, latestGlossary.manual);
-            if (original.kind === "images") {
-                const latest = await readJson<ReaderPage>(path);
-                page.images = (page.images ?? original.images ?? []).map((image, index) =>
-                    page.translatedImages?.includes(index) ? image : latest?.images?.[index] ?? image);
-                const regions = new Map((latest?.regions ?? []).map(region => [region.id, region]));
-                for (const region of page.regions ?? []) {
-                    regions.set(region.id, region);
-                }
-                page.regions = [...regions.values()];
-                page.translatedImages = [...new Set([...latest?.translatedImages ?? [], ...page.translatedImages ?? []])].sort((left, right) => left - right);
-            }
-            const corrections = await readJson<Record<string, string>>(correctionsPath) ?? {};
-            for (const region of page.regions ?? []) {
-                region.translation = corrections[region.id] ?? region.translation;
-            }
-            await saveJson(path, page);
-            return page;
-        });
     }
     throw new Error("Неизвестная команда читалки.");
 }
