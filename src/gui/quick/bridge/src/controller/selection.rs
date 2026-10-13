@@ -88,10 +88,7 @@ impl ffi::ContentController {
             .selected_group
             .as_ref()
             .is_some_and(|current| current.anchor == anchor);
-        let continuing = self.selected_group.as_ref().is_some_and(|current| {
-            current.anchor == anchor && current.references == group.references
-        });
-        let generation = if continuing {
+        let generation = if same_anchor {
             self.inspection.generation
         } else {
             let (generation, _) = self.as_mut().cancel_detail();

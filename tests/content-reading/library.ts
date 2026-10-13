@@ -4,8 +4,9 @@ import { readFile } from "node:fs/promises";
 
 // The acceptance build redirects only this public HTTPS origin to local TLS.
 // Search, inspection, resolution and SQLite still run through native code.
-const [executable, certificate, key] = process.argv.slice(2);
+const [executable, certificate, key, scenario = "all"] = process.argv.slice(2);
 assert(executable && certificate && key, "Expected acceptance executable, certificate and key");
+assert(["all", "library", "sharing"].includes(scenario), "Expected all, library or sharing scenario");
 
 function release(id: number) {
     const torrents = id === 9542 ? [28083, 28084, 28085] : [38083, 38084];
@@ -32,6 +33,9 @@ function release(id: number) {
 }
 
 const releases = [release(9542), release(9543)];
+const sharedReleases = [9550, 9551].map(id => ({ ...release(id), mal: { id: 52991 } }));
+const resolutionStarted = Promise.withResolvers<void>();
+let sharedAnchorRequests = 0;
 let searches = 0;
 let inspections = 0;
 let failure: unknown;
@@ -40,7 +44,7 @@ const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 443,
     tls: { cert: await readFile(certificate), key: await readFile(key) },
-    fetch(request) {
+    async fetch(request) {
         try {
             const url = new URL(request.url);
             assert.equal(url.hostname, "anilibria.top");
@@ -49,11 +53,22 @@ const server = Bun.serve({
                 ++searches;
                 return Response.json(releases);
             }
-            const match = /^\/api\/v1\/anime\/releases\/(9542|9543|9544)$/.exec(url.pathname);
+            const match = /^\/api\/v1\/anime\/releases\/(9542|9543|9544|9550|9551)$/.exec(url.pathname);
             assert(match && !url.search, `Unexpected AniLiberty path: ${url.pathname}`);
             ++inspections;
             if (match[1] === "9544")
                 return Response.json({ message: "Not found" }, { status: 404 });
+            if (match[1] === "9550") {
+                if (++sharedAnchorRequests === 2) {
+                    resolutionStarted.resolve();
+                    await Bun.sleep(600);
+                }
+                return Response.json(sharedReleases[0]);
+            }
+            if (match[1] === "9551") {
+                await resolutionStarted.promise;
+                return Response.json(sharedReleases[1]);
+            }
             return Response.json(releases.find(item => item.id === Number(match[1])));
         } catch (error) {
             failure = error;
@@ -96,11 +111,17 @@ async function runScenario(scenario: string, expected: string) {
 }
 
 try {
-    await runScenario("library", "PASS library favorites=ok");
-    await runScenario("sharing", "PASS share exact=unavailable");
+    if (scenario !== "sharing")
+        await runScenario("library", "PASS library favorites=ok");
+    if (scenario !== "library") {
+        await runScenario("sharing", "PASS share exact=unavailable");
+        assert.equal(sharedAnchorRequests, 2, "Shared action must resolve once without a retry");
+    }
     if (failure) throw failure;
-    assert(searches >= 2 && inspections >= 5, "The native catalog did not repeat exact source operations");
-    console.log(JSON.stringify({ ok: true, searches, inspections }));
+    if (scenario !== "sharing")
+        assert(searches >= 2, "The native catalog did not repeat search operations");
+    assert(inspections >= 5, "The native catalog did not repeat exact inspections");
+    console.log(JSON.stringify({ ok: true, scenario, searches, inspections }));
 } finally {
     server.stop(true);
 }

@@ -186,7 +186,39 @@ void exerciseSharing()
     require((malformedSignals == 2) && (unavailableSignals == 5),
         u"Private local book was accepted as a public reference"_s);
 
+    controller->openSharedLink(link({publication(u"9550"_s), publication(u"9551"_s)},
+        preferredTorrent(u"9550"_s, 38'083)));
+    auto *variants = qobject_cast<QAbstractItemModel *>(controller->property("variants").value<QObject *>());
+    require(variants, u"Shared variants model is missing"_s);
+    waitFor([&] { return variants->rowCount() == 2; }, u"First shared publication"_s);
+    require(controller->property("sharedImporting").toBool(), u"Delayed publication arrived before the action"_s);
+
+    const int idRole = variants->roleNames().key("variantId", -1);
+    require(idRole >= 0, u"Variant identity role is missing"_s);
+    const QString preferred = controller->property("selectedVariantId").toString();
+    QString selected;
+    for (int row = 0; row < variants->rowCount(); ++row)
+    {
+        const QString id = variants->data(variants->index(row, 0), idRole).toString();
+        if (id != preferred)
+            selected = id;
+    }
+    require(!selected.isEmpty(), u"Alternative shared variant is missing"_s);
+    QString receivedMagnet;
+    QObject::connect(controller.get(), &Qbutt::ContentController::torrentReady,
+        controller.get(), [&](const QString &magnet) { receivedMagnet = magnet; });
+    controller->resolveVariant(selected);
+    require(controller->property("resolving").toBool(), u"Shared action did not start"_s);
+    waitFor([&] { return !controller->property("sharedImporting").toBool(); }, u"Additional shared publication"_s);
+    require(controller->property("resolving").toBool() || !receivedMagnet.isEmpty(),
+        u"Late publication cancelled the user's running action"_s);
+    require((controller->property("selectedVariantId").toString() == selected) && (variants->rowCount() == 4),
+        u"Late publication replaced the user's choice or lost alternatives"_s);
+    waitFor([&] { return !receivedMagnet.isEmpty(); }, u"Exact shared torrent"_s);
+    require(receivedMagnet.endsWith(QString::number(38'084, 16).rightJustified(40, QChar(u'0'))),
+        u"Shared action returned a different torrent"_s);
+
     controller.reset();
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Shared receiver owner did not drain"_s);
-    qInfo("PASS share exact=unavailable unrelated=isolated missing=unselected public=accepted private=rejected malformed=rejected");
+    qInfo("PASS share exact=unavailable unrelated=isolated missing=unselected public=accepted private=rejected malformed=rejected late=preserved");
 }

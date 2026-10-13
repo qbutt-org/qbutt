@@ -43,6 +43,19 @@ sessions disable public discovery and use only explicitly added controlled peers
 
 ## Rust and Qt Quick content
 
+`bun tests/content-reading/library.ts <acceptance-exe> <server-cert.pem>
+<server-key.pem> sharing` runs only the hidden native Share scenario. The isolated
+fixture build redirects `anilibria.top` to `127.0.0.1:443` and trusts the local CA
+through a temporary `SourceHttp::new` overlay, as in the Lib session fixture above.
+Use a leaf server certificate signed by that CA; do not install either certificate
+in the OS store. Restore the source and rebuild the product after the fixture.
+This scenario checks missing exact variants/publications, unrelated references,
+private or malformed links, and one action already running when another confirmed
+publication arrives. It must retain the chosen variant, add the alternatives and
+emit that exact torrent without a second resolve. Require exit zero and the
+`sharing` receipt; the accepted run made eight inspections and zero searches.
+It exercises the controller and SQLite, not native pointer interaction.
+
 Native library storage has an isolated process integration scenario with generated
 public metadata. It creates and removes its temporary profile, reopens the database
 in another process, and checks exact selection, full variants and filters,
