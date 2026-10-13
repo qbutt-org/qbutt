@@ -118,9 +118,10 @@ async fn main() -> Result<()> {
     std::fs::create_dir(&profile)?;
     let persisted = (|| -> Result<()> {
         let mut library = Library::open(&profile)?;
-        let key = cache_key(&original, "ru", &result.model, &result.effort, 0)?;
+        let key = cache_key(&original, "ru", &result.model, &result.effort)?;
         let context = library.save_translation(
             key,
+            0,
             &result.chapter,
             result.additions.clone(),
             &result.evidence,
@@ -129,13 +130,7 @@ async fn main() -> Result<()> {
         let library = Library::open(&profile)?;
         let loaded = library.translation_context(&original.reference.variant.publication, "ru")?;
         assert_eq!(loaded, context);
-        let key = cache_key(
-            &original,
-            "ru",
-            &result.model,
-            &result.effort,
-            loaded.revision,
-        )?;
+        let key = cache_key(&original, "ru", &result.model, &result.effort)?;
         let saved: TextChapter = library
             .cached_translation(&key)?
             .ok_or("translation cache is empty")?;

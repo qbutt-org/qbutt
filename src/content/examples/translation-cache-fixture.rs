@@ -36,8 +36,14 @@ fn main() -> Result<()> {
     let profile = std::env::temp_dir().join(format!("qbutt-translation-cache-{nonce}"));
     let result = (|| -> Result<()> {
         let mut library = Library::open(&profile)?;
-        let key = cache_key(&original, "ru", "gpt-6.1-sol", "low", 0)?;
-        library.save_translation(key.clone(), &translated, ContextAdditions::default(), &[])?;
+        let key = cache_key(&original, "ru", "gpt-6.1-sol", "low")?;
+        library.save_translation(
+            key.clone(),
+            0,
+            &translated,
+            ContextAdditions::default(),
+            &[],
+        )?;
         drop(library);
 
         // A v8 profile already has translated content but no selected model.
@@ -74,7 +80,7 @@ fn main() -> Result<()> {
             .translation_selection("ru")?
             .ok_or("selection missing")?;
         assert_eq!(saved, selection);
-        let exact = cache_key(&original, "ru", &saved.model, &saved.effort, 0)?;
+        let exact = cache_key(&original, "ru", &saved.model, &saved.effort)?;
         let chapter: TextChapter = library
             .cached_translation(&exact)?
             .ok_or("exact translation missing")?;
@@ -84,7 +90,7 @@ fn main() -> Result<()> {
             ("ru", "gpt-6.1-sol", "medium"),
             ("en", "gpt-6.1-sol", "low"),
         ] {
-            let different = cache_key(&original, language, model, effort, 0)?;
+            let different = cache_key(&original, language, model, effort)?;
             assert!(
                 library
                     .cached_translation::<TextChapter>(&different)?
@@ -98,10 +104,10 @@ fn main() -> Result<()> {
             ..saved
         };
         library.save_translation_selection(&explicit)?;
-        let different = cache_key(&original, "ru", "another-model", "low", 0)?;
+        let different = cache_key(&original, "ru", "another-model", "low")?;
         assert!(
             library
-                .save_translation(different, &translated, ContextAdditions::default(), &[])
+                .save_translation(different, 0, &translated, ContextAdditions::default(), &[])
                 .is_err()
         );
         assert_eq!(library.translation_selection("ru")?, Some(explicit));
@@ -111,12 +117,112 @@ fn main() -> Result<()> {
             .translation_selection("ru")?
             .ok_or("automatic selection missing")?;
         assert!(!automatic.explicit);
-        let offline_key = cache_key(&original, "ru", &automatic.model, &automatic.effort, 0)?;
+        let offline_key = cache_key(&original, "ru", &automatic.model, &automatic.effort)?;
         assert!(
             library
                 .cached_translation::<TextChapter>(&offline_key)?
                 .is_some()
         );
+
+        // A term learned in another chapter must not discard an accepted
+        // translation. Reopen using the current shared work context, as Qt does.
+        let second = TextChapter::from_html(
+            ChapterRef {
+                id: "1001/2".into(),
+                ..original.reference.clone()
+            },
+            "<p>星の鍵が扉を開く。</p>",
+        )?;
+        let mut second_translated = second.clone();
+        second_translated.blocks[0].spans = vec![TextSpan::Text {
+            text: "Звёздный ключ открывает дверь.".into(),
+            bold: false,
+            italic: false,
+        }];
+        let evidence = EvidenceSegment {
+            chapter: second.reference.clone(),
+            id: second.blocks[0].id.clone(),
+            text: second.blocks[0].plain_text(),
+            image_observation: None,
+        };
+        let term = TranslationTerm {
+            source: "星の鍵".into(),
+            target: "Звёздный ключ".into(),
+            forms: vec![],
+            evidence: ContextEvidence {
+                chapter: second.reference.clone(),
+                segment_id: evidence.id.clone(),
+                quote: evidence.text.clone(),
+                image_observation: None,
+            },
+        };
+        let second_key = cache_key(&second, "ru", "gpt-6.1-sol", "low")?;
+        let expanded = library.save_translation(
+            second_key,
+            0,
+            &second_translated,
+            ContextAdditions {
+                terms: vec![term],
+                facts: vec![],
+            },
+            &[evidence],
+        )?;
+        assert_eq!(expanded.revision, 1);
+        let stale = library.save_translation(
+            key.clone(),
+            0,
+            &translated,
+            ContextAdditions::default(),
+            &[],
+        );
+        assert!(stale.is_err(), "stale context save must still be rejected");
+        drop(library);
+
+        let mut library = Library::open(&profile)?;
+        let current = library.translation_context(&original.reference.variant.publication, "ru")?;
+        let current_key = cache_key(&original, "ru", "gpt-6.1-sol", "low")?;
+        assert_eq!(current.revision, 1);
+        assert_eq!(current_key, key);
+        let previous: Option<TextChapter> = library.cached_translation(&current_key)?;
+        let previous =
+            previous.ok_or("accepted chapter 1 vanished after chapter 2 context growth")?;
+        assert_eq!(restore_cached(&original, previous)?, translated);
+
+        let wrong_digest = TranslationCacheKey {
+            original_digest: "b".repeat(64),
+            ..key.clone()
+        };
+        let wrong_pipeline = TranslationCacheKey {
+            pipeline: key.pipeline + 1,
+            ..key.clone()
+        };
+        let wrong_page = TranslationCacheKey {
+            page: Some(0),
+            ..key.clone()
+        };
+        let wrong_provider = TranslationCacheKey {
+            provider: "another-provider".into(),
+            ..key.clone()
+        };
+        let mut wrong_chapter = key.clone();
+        wrong_chapter.chapter.id = "1001/99".into();
+        let mut wrong_publication = key.clone();
+        wrong_publication.chapter.variant.publication.id = "1002".into();
+        wrong_publication.chapter.id = "1002/1".into();
+        for different in [
+            wrong_digest,
+            wrong_pipeline,
+            wrong_page,
+            wrong_provider,
+            wrong_chapter,
+            wrong_publication,
+        ] {
+            assert!(
+                library
+                    .cached_translation::<TextChapter>(&different)?
+                    .is_none()
+            );
+        }
 
         let manga = ChapterRef {
             variant: VariantRef {
@@ -162,7 +268,6 @@ fn main() -> Result<()> {
             provider: "codex".into(),
             model: "gpt-6.1-sol".into(),
             effort: "low".into(),
-            context_revision: 0,
             pipeline: 2,
         };
         let additions = ContextAdditions {
@@ -171,6 +276,7 @@ fn main() -> Result<()> {
         };
         let accepted = library.save_translation(
             manga_key.clone(),
+            0,
             &vec!["Фрирен"],
             additions,
             &[evidence.clone()],
@@ -181,10 +287,7 @@ fn main() -> Result<()> {
         let mut library = Library::open(&profile)?;
         let context = library.translation_context(&manga.variant.publication, "ru")?;
         assert_eq!(context.terms, vec![term.clone()]);
-        let exact = TranslationCacheKey {
-            context_revision: context.revision,
-            ..manga_key.clone()
-        };
+        let exact = manga_key.clone();
         assert_eq!(
             library.cached_translation::<Vec<String>>(&exact)?,
             Some(vec!["Фрирен".into()])
@@ -200,6 +303,7 @@ fn main() -> Result<()> {
             .original_digest = "b".repeat(64);
         let rejected = library.save_translation(
             exact.clone(),
+            context.revision,
             &vec!["Подожди"],
             ContextAdditions {
                 terms: vec![forged],
@@ -214,6 +318,7 @@ fn main() -> Result<()> {
             library
                 .save_translation(
                     exact,
+                    context.revision,
                     &vec!["Подожди"],
                     ContextAdditions::default(),
                     &[wrong_page]
@@ -229,7 +334,7 @@ fn main() -> Result<()> {
     std::fs::remove_dir_all(&profile)?;
     result?;
     println!(
-        "PASS translation_cache exact_hit model_miss effort_miss language_miss v8_migration target_persistence automatic_offline manga_image_context"
+        "PASS translation_cache exact_hit model_miss effort_miss language_miss v8_migration target_persistence automatic_offline context_growth_offline stale_context_save digest_miss pipeline_miss page_miss provider_miss chapter_miss publication_miss manga_image_context"
     );
     Ok(())
 }

@@ -9,4 +9,5 @@ namespace Content
 class QString;
 
 void exerciseReaderTextTranslation(Content::ContentView *view, const QString &profileDir,
-    const QString &requestedModel, const QString &requestedEffort);
+    const QString &requestedModel, const QString &requestedEffort,
+    const QString &inputPath, const QString &targetLanguage);

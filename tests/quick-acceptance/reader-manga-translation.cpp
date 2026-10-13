@@ -155,8 +155,10 @@ namespace
 }
 
 void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &profileDir,
-    const QString &requestedModel, const QString &requestedEffort)
+    const QString &requestedModel, const QString &requestedEffort,
+    const QString &inputPath, const QString &targetLanguage)
 {
+    require(targetLanguage == u"ru" || targetLanguage == u"en", u"Translation target must be ru or en"_s);
     auto *controller = view->findChild<Qbutt::ContentController *>();
     require(controller, u"Manga translation controller is missing"_s);
     waitFor([&]
@@ -165,7 +167,9 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
             == Qbutt::Library::LibraryState::Ready;
     }, u"Manga translation library"_s);
 
-    const QImage generated = originalPage();
+    const QImage generated = inputPath.isEmpty() ? originalPage()
+        : QImage(inputPath).convertToFormat(QImage::Format_RGB32);
+    require(!generated.isNull(), u"Authored manga page could not be decoded"_s);
     const QString originalPath = profileDir + u"/manga-original.png"_s;
     require(generated.save(originalPath), u"Generated manga page could not be saved"_s);
     controller->importLocalBook(QUrl::fromLocalFile(originalPath));
@@ -201,6 +205,12 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     }, u"Installed Codex manga models"_s, 120'000);
     require(!controller->property("readerTranslationOptionsError").toBool(),
         u"Installed Codex models are unavailable"_s);
+    activate(control(reader, u"readerTranslationLanguage"_s), targetLanguage == u"en" ? 1 : 0);
+    waitFor([&]
+    {
+        return controller->property("readerTranslationLanguage").toString() == targetLanguage
+            && !controller->property("readerTranslationOptionsLoading").toBool();
+    }, u"Manga target language selection"_s, 120'000);
     const QString model = requestedModel.isEmpty() ? u"gpt-6.1-sol"_s : requestedModel;
     const QString effort = requestedEffort.isEmpty() ? u"medium"_s : requestedEffort;
     int modelIndex = -1;
@@ -239,6 +249,8 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     waitFor([&] { return !controller->property("readerTranslationBusy").toBool(); },
         u"Live manga translation"_s, 360'000);
     const qint64 translationMs = translationTimer.elapsed();
+    qInfo().noquote() << u"LIVE reader_manga_translation model=%1 effort=%2 target=%3 translation_ms=%4"_s
+        .arg(model, effort, targetLanguage).arg(translationMs);
     require(controller->property("readerTranslationRequested").toBool()
         && !controller->property("readerTranslationError").toBool()
         && controller->property("readerPageIndex").toInt() == 0,
@@ -272,7 +284,7 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     require(!cache.next() && key.value(u"page"_s).toInt(-1) == 0
         && key.value(u"model"_s).toString() == model
         && key.value(u"effort"_s).toString() == effort
-        && key.value(u"target_language"_s).toString() == u"ru"_s
+        && key.value(u"target_language"_s).toString() == targetLanguage
         && key.value(u"original_digest"_s).toString() == digest
         && chapter.value(u"id"_s).toString() == u"1"_s
         && publication.value(u"source"_s).toString() == u"local_book"_s
@@ -308,6 +320,7 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     require(!controller->property("readerTranslationRequested").toBool()
         && pageImage(controller) == original,
         u"Original choice did not restore exact original pixels"_s);
+    capture(view, profileDir + u"/manga-reader-restored.png"_s, QSize(1280, 720));
     controller->closeReader();
     const QByteArray originalProgramFiles = qgetenv("ProgramFiles");
     const QByteArray originalLocalAppData = qgetenv("LOCALAPPDATA");
@@ -337,6 +350,7 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     require(!controller->property("readerTranslationError").toBool()
         && pageImage(controller) == translated,
         u"Reopened manga did not reuse the exact translation offline"_s);
-    qInfo().noquote() << u"PASS reader_manga_translation model=%1 effort=%2 translation_ms=%3 page=0 regions=%4 changed_pixels=%5 original=ok offline_cache=ok"_s
-        .arg(model, effort).arg(translationMs).arg(regions.size()).arg(changedInside);
+    capture(view, profileDir + u"/manga-reader-cached.png"_s, QSize(1440, 900));
+    qInfo().noquote() << u"PASS reader_manga_translation model=%1 effort=%2 target=%3 translation_ms=%4 page=0 regions=%5 changed_pixels=%6 original=ok offline_cache=ok"_s
+        .arg(model, effort, targetLanguage).arg(translationMs).arg(regions.size()).arg(changedInside);
 }

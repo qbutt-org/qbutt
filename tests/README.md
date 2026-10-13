@@ -488,6 +488,20 @@ Both scenarios accept `--translation-model <model> --translation-effort <effort>
 through the QML controls. Their PASS lines report milliseconds from requesting
 translation until the reader leaves its busy state. Use a fresh profile for
 each configuration so an earlier cache cannot replace the live request.
+Set `QT_FORCE_STDERR_LOGGING=1` on Windows to retain Qt PASS/failure diagnostics.
+`--translation-target ru|en` selects the target through QML. With
+`--translation-input <file>`, the manga scenario uses an authored image; the
+text scenario expects a two-chapter FB2 with Ren's Japanese name (`レン`) and
+the later sister (`姉`) clue. It translates both chapters, preserves the model
+choice and verifies both complete originals and both offline cached chapters.
+Inspect the translated prose and images separately: passing persistence and
+pixel checks does not establish semantic translation quality.
+
+`cargo run --locked --offline --release --target x86_64-pc-windows-msvc -p
+qbutt-content --example translation-cache-fixture` verifies SQLite reopening,
+exact cache identity and offline reuse after another chapter expands the work
+context. Require exit zero and `PASS translation_cache`; a job with an outdated
+context must still be rejected when saving.
 
 Run `--reader-settings --lang ru` in the same offscreen environment for typed
 profile-wide fit persistence through the existing SQLite worker. Require exit

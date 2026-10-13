@@ -152,6 +152,7 @@ enum LibraryCommand {
     },
     TranslationSave {
         key: TranslationCacheKey,
+        expected_context_revision: u64,
         chapter: TextChapter,
         additions: ContextAdditions,
         evidence: Vec<EvidenceSegment>,
@@ -163,6 +164,7 @@ enum LibraryCommand {
     },
     MangaSave {
         key: TranslationCacheKey,
+        expected_context_revision: u64,
         regions: Vec<PageRegion>,
         additions: ContextAdditions,
         evidence: Vec<EvidenceSegment>,
@@ -287,6 +289,7 @@ impl LibraryWorker {
     pub(super) async fn save_translation(
         &self,
         key: TranslationCacheKey,
+        expected_context_revision: u64,
         chapter: TextChapter,
         additions: ContextAdditions,
         evidence: Vec<EvidenceSegment>,
@@ -295,6 +298,7 @@ impl LibraryWorker {
         self.sender
             .send(LibraryCommand::TranslationSave {
                 key,
+                expected_context_revision,
                 chapter,
                 additions,
                 evidence,
@@ -324,6 +328,7 @@ impl LibraryWorker {
     pub(super) async fn save_manga_translation(
         &self,
         key: TranslationCacheKey,
+        expected_context_revision: u64,
         regions: Vec<PageRegion>,
         additions: ContextAdditions,
         evidence: Vec<EvidenceSegment>,
@@ -332,6 +337,7 @@ impl LibraryWorker {
         self.sender
             .send(LibraryCommand::MangaSave {
                 key,
+                expected_context_revision,
                 regions,
                 additions,
                 evidence,
@@ -453,13 +459,7 @@ impl LibraryWorker {
                                         &original.reference.variant.publication,
                                         &language,
                                     )?;
-                                    let key = cache_key(
-                                        &original,
-                                        &language,
-                                        &model,
-                                        &effort,
-                                        context.revision,
-                                    )?;
+                                    let key = cache_key(&original, &language, &model, &effort)?;
                                     let cached = library
                                         .cached_translation::<TextChapter>(&key)?
                                         .map(|chapter| {
@@ -480,6 +480,7 @@ impl LibraryWorker {
                         }
                         LibraryCommand::TranslationSave {
                             key,
+                            expected_context_revision,
                             chapter,
                             additions,
                             evidence,
@@ -491,11 +492,17 @@ impl LibraryWorker {
                                     "translation library is unavailable",
                                 ))
                                 .and_then(|library| {
-                                    library.save_translation(key, &chapter, additions, &evidence)
+                                    library.save_translation(
+                                        key,
+                                        expected_context_revision,
+                                        &chapter,
+                                        additions,
+                                        &evidence,
+                                    )
                                 });
                             let _ = reply.send(result);
                         }
-                        LibraryCommand::MangaLookup { mut key, reply } => {
+                        LibraryCommand::MangaLookup { key, reply } => {
                             let result = library
                                 .as_ref()
                                 .ok_or(LibraryError::InvalidEntry(
@@ -506,7 +513,6 @@ impl LibraryWorker {
                                         &key.chapter.variant.publication,
                                         &key.target_language,
                                     )?;
-                                    key.context_revision = context.revision;
                                     let cached =
                                         library.cached_translation::<Vec<PageRegion>>(&key)?;
                                     Ok(MangaTranslationLookup {
@@ -519,6 +525,7 @@ impl LibraryWorker {
                         }
                         LibraryCommand::MangaSave {
                             key,
+                            expected_context_revision,
                             regions,
                             additions,
                             evidence,
@@ -530,7 +537,13 @@ impl LibraryWorker {
                                     "translation library is unavailable",
                                 ))
                                 .and_then(|library| {
-                                    library.save_translation(key, &regions, additions, &evidence)
+                                    library.save_translation(
+                                        key,
+                                        expected_context_revision,
+                                        &regions,
+                                        additions,
+                                        &evidence,
+                                    )
                                 });
                             let _ = reply.send(result);
                         }

@@ -155,6 +155,7 @@ async fn translate(
     library
         .save_translation(
             lookup.key,
+            lookup.context.revision,
             result.chapter.clone(),
             result.additions,
             result.evidence,

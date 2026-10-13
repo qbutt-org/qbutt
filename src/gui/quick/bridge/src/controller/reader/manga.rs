@@ -139,7 +139,6 @@ async fn translate(
             &language,
             &selection.model,
             &selection.effort,
-            0,
         );
         let lookup = library
             .manga_lookup(key)
@@ -175,7 +174,6 @@ async fn translate(
         &language,
         &model,
         &effort,
-        0,
     );
     let lookup = library
         .manga_lookup(key)
@@ -212,6 +210,7 @@ async fn translate(
             cancelled.clone(),
         )
         .map_err(TranslationFailure::Codex)?;
+        let expected_context_revision = lookup.context.revision;
         let result = manga::translate_page(
             PageJob {
                 chapter,
@@ -238,6 +237,7 @@ async fn translate(
         library
             .save_manga_translation(
                 lookup.key,
+                expected_context_revision,
                 result.regions,
                 result.additions,
                 result.evidence,

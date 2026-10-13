@@ -11,6 +11,7 @@ use crate::{ChapterRef, PublicationRef};
 
 const MAX_CACHED_BYTES: usize = 4 * 1024 * 1024;
 
+/// Exact identity of an accepted overlay, independent of later work context.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TranslationCacheKey {
@@ -21,7 +22,6 @@ pub struct TranslationCacheKey {
     pub provider: String,
     pub model: String,
     pub effort: String,
-    pub context_revision: u64,
     pub pipeline: u32,
 }
 
@@ -140,7 +140,8 @@ impl Library {
     /// begun on a stale revision must rerun with the newly confirmed context.
     pub fn save_translation<T: Serialize>(
         &mut self,
-        mut key: TranslationCacheKey,
+        key: TranslationCacheKey,
+        expected_context_revision: u64,
         content: &T,
         additions: ContextAdditions,
         evidence: &[EvidenceSegment],
@@ -171,7 +172,7 @@ impl Library {
             &key.chapter.variant.publication,
             &key.target_language,
         )?;
-        if context.revision != key.context_revision {
+        if context.revision != expected_context_revision {
             return Err(LibraryError::InvalidEntry(
                 "translation context changed during the job",
             ));
@@ -196,7 +197,6 @@ impl Library {
                 ],
             )?;
         }
-        key.context_revision = context.revision;
         transaction.execute(
             "INSERT INTO translated_content (key, content) VALUES (?1, ?2)
              ON CONFLICT (key) DO UPDATE SET content = excluded.content",
