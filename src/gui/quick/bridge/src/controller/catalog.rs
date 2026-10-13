@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use qbutt_content::{
-    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, Estar, FitGirl, FreeTP, Igruha, Kakuyomu,
-    LibSession, LimeTorrents, MangaDex, MangaLib, NnmClub, Nyaa, OnlineFix, RanobeHub, RanobeLib,
-    ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation, Syosetu,
-    TextChapter, TheLastGame, Work, X1337, YummyAnime,
+    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, Estar, FitGirl, FreeTP, Igruha,
+    Kakuyomu, LibSession, LimeTorrents, MangaDex, MangaLib, NnmClub, Nyaa, OnlineFix, RanobeHub,
+    RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation,
+    Syosetu, TextChapter, TheLastGame, Work, X1337, YummyAnime,
 };
 
 use super::browser::BrowserClient;
