@@ -118,19 +118,47 @@ async fn main() -> CheckResult {
     );
 
     library(&work, &selected)?;
-    for fault in ["changed", "gone", "substituted"] {
+    for fault in ["not-found", "gone"] {
+        *fixture.torrent_fault.lock().unwrap() = fault;
+        let available = source.inspect(&work.reference).await?;
+        assert_eq!(available.variants, vec![work.variants[0].clone()]);
+        let ResolvedContent::TorrentFile {
+            reference,
+            metadata: acquired,
+        } = source.resolve(&available.variants[0].reference).await?
+        else {
+            panic!("surviving attachment did not resolve");
+        };
+        assert_eq!(reference, work.variants[0].reference);
+        assert_eq!(acquired.bytes(), metadata("Legal Game 1"));
+        assert!(matches!(
+            source.resolve(&selected).await,
+            Err(Error::VariantUnavailable)
+        ));
+    }
+    for fault in ["changed", "substituted"] {
         *fixture.torrent_fault.lock().unwrap() = fault;
         assert!(matches!(
             source.resolve(&selected).await,
             Err(Error::VariantUnavailable)
         ));
     }
+    *fixture.torrent_fault.lock().unwrap() = "all-gone";
+    assert!(matches!(
+        source.inspect(&work.reference).await,
+        Err(Error::VariantUnavailable)
+    ));
+    assert!(matches!(
+        source.resolve(&selected).await,
+        Err(Error::VariantUnavailable)
+    ));
     for (fault, expected) in [
         ("foreign", "unsafe"),
         ("wrong-mime", "invalid"),
         ("malformed", "invalid"),
         ("oversized", "large"),
         ("challenge", "challenge"),
+        ("unauthorized", "http401"),
         ("server-error", "http"),
     ] {
         *fixture.torrent_fault.lock().unwrap() = fault;
@@ -142,6 +170,7 @@ async fn main() -> CheckResult {
                     | (Error::InvalidResponse(_), "invalid")
                     | (Error::ResponseTooLarge, "large")
                     | (Error::Challenge, "challenge")
+                    | (Error::HttpStatus(401), "http401")
                     | (Error::HttpStatus(500), "http")
             ),
             "torrent {fault}: {error:?}"
@@ -257,7 +286,7 @@ async fn main() -> CheckResult {
     assert_eq!(fixture.payload.load(Ordering::SeqCst), 0);
     fixture.close().await;
     println!(
-        "PASS thelastgame_fixtures HTTPS=ok exact_second_hash=ok stale=rejected faults=rejected SQLite_reopen=ok share=ok cancel=connection_closed payload=none"
+        "PASS thelastgame_fixtures HTTPS=ok exact_second_hash=ok partial_gone=preserved all_gone=unavailable stale=rejected faults=rejected SQLite_reopen=ok share=ok cancel=connection_closed payload=none"
     );
     Ok(())
 }

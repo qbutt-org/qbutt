@@ -117,6 +117,11 @@ impl TheLastGame {
             }
             urls
         };
+        if urls.is_empty() {
+            return Err(Error::UnsupportedAcquisition(
+                "TheLastGame article has no same-origin torrent",
+            ));
+        }
 
         let mut torrents = BTreeMap::new();
         for download in &urls {
@@ -124,6 +129,9 @@ impl TheLastGame {
                 .http
                 .session_referred_metadata(download.clone(), &mut session, &arrived)
                 .await?;
+            if matches!(response.status, 404 | 410) {
+                continue;
+            }
             let metadata = torrent_response(response, download)?;
             let hash = info_hash(metadata.bytes())?;
             if torrents.contains_key(&hash) {
@@ -166,9 +174,7 @@ impl TheLastGame {
             torrents.insert(hash, metadata);
         }
         if work.variants.is_empty() {
-            return Err(Error::UnsupportedAcquisition(
-                "TheLastGame article has no same-origin torrent",
-            ));
+            return Err(Error::VariantUnavailable);
         }
         Ok(Release { work, torrents })
     }
@@ -200,9 +206,6 @@ fn html(response: SourceDocument) -> Result<(Url, String)> {
 fn torrent_response(response: SourceDocument, expected: &Url) -> Result<TorrentMetadata> {
     if matches!(response.status, 403 | 503) {
         return Err(Error::Challenge);
-    }
-    if matches!(response.status, 404 | 410) {
-        return Err(Error::VariantUnavailable);
     }
     if response.status != 200 {
         return Err(Error::HttpStatus(response.status));

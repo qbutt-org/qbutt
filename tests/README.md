@@ -130,10 +130,11 @@ cargo run --release --target x86_64-pc-windows-msvc --locked --offline -p qbutt-
 ```
 
 The fixture checks WordPress search redirects, exact nonfirst torrent selection,
-changed or missing metadata, source identity, MIME/bencode/size limits, guarded
-redirects and cancellation through a closed connection. Favorites and source
-enablement survive a process restart; Share links retain the exact publication
-and hash. Resolution leaves History empty. The live command requests public
+changed metadata, partially or wholly missing attachments, source identity,
+MIME/bencode/size limits, guarded redirects and cancellation through a closed
+connection. Favorites and source enablement survive a process restart; Share
+links retain the exact publication and hash. Resolution leaves History empty.
+The live command requests public
 search, article and torrent metadata. Neither scenario downloads game payloads
 or establishes the native Add Torrent dialog and pointer path.
 

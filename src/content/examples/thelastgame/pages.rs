@@ -95,6 +95,9 @@ pub(super) fn response(
         return ("200 OK", mime, String::new(), body.into_bytes());
     }
     if url.path().starts_with("/download/") {
+        if fault == "all-gone" {
+            return ("404 Not Found", "text/html", String::new(), Vec::new());
+        }
         if url.path().ends_with("Legal_Game_v1.torrent") {
             return (
                 "200 OK",
@@ -111,6 +114,7 @@ pub(super) fn response(
                 metadata("Changed Game 2"),
             ),
             "gone" => ("410 Gone", "text/html", String::new(), Vec::new()),
+            "not-found" => ("404 Not Found", "text/html", String::new(), Vec::new()),
             "substituted" => (
                 "302 Found",
                 "text/html",
@@ -152,6 +156,12 @@ pub(super) fn response(
                 "text/html",
                 String::new(),
                 b"temporary failure".to_vec(),
+            ),
+            "unauthorized" => (
+                "401 Unauthorized",
+                "text/html",
+                String::new(),
+                b"authorization required".to_vec(),
             ),
             _ => (
                 "200 OK",
