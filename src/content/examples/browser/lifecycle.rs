@@ -37,6 +37,24 @@ pub(super) async fn framing_faults(discovery: &Path) -> FixtureResult {
         client.write_all(&bytes).await?;
         closed(&mut client).await?;
     }
+    let escaped_html = "<a title=\"\u{00e9}\">\"\\</a>".repeat(34_000);
+    assert!(escaped_html.len() <= 680 * 1024);
+    let oversized_envelope = serde_json::to_vec(&json!({
+        "id": 1,
+        "result": {
+            "status": 200,
+            "url": "https://fixture.example/search",
+            "headers": {"content-type": "text/html; charset=utf-8"},
+            "body": escaped_html,
+        },
+    }))?;
+    assert!(oversized_envelope.len() > MAX_FRAME);
+    let mut client = connect(discovery).await?;
+    client
+        .write_all(&(oversized_envelope.len() as u32).to_le_bytes())
+        .await?;
+    closed(&mut client).await?;
+
     // These three independent slow clients exercise the same five-second
     // hello deadline without extending acceptance into a serial sleep loop.
     let mut idle = connect(discovery).await?;

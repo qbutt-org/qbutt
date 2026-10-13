@@ -6,7 +6,7 @@ use url::Url;
 
 use super::protocol::MAX_FRAME_BYTES;
 use super::reply::*;
-use super::validation::{MAX_BODY_BYTES, public_url, validate_headers};
+use super::validation::{MAX_BODY_BYTES, MAX_FETCH_BODY_BYTES, public_url, validate_headers};
 use super::{BrowserError, Selection};
 
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -172,7 +172,7 @@ impl BrowserCommand {
                 let reply: FetchReply = serde_json::from_value(value).map_err(invalid)?;
                 public_url(&reply.url)?;
                 validate_headers(&reply.headers)?;
-                if !(100..=599).contains(&reply.status) || reply.body.len() > MAX_BODY_BYTES {
+                if !(100..=599).contains(&reply.status) || reply.body.len() > MAX_FETCH_BODY_BYTES {
                     return Err(BrowserError::InvalidResponse);
                 }
                 Ok(BrowserReply::Fetch(reply))

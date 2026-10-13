@@ -69,6 +69,7 @@ pub(crate) async fn browser_document(
         .await
         .map_err(|error| match error {
             BrowserError::ChoiceRequired => Error::BrowserChoiceRequired,
+            BrowserError::ResponseTooLarge => Error::ResponseTooLarge,
             error => Error::BrowserSession(error),
         })?;
     let BrowserReply::Fetch(response) = response else {

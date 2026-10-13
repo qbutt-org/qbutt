@@ -118,6 +118,7 @@ impl RemoteError {
             "selection_unavailable" => BrowserError::SelectionUnavailable,
             "browser_busy" => BrowserError::Busy,
             "browser_required" => BrowserError::BrowserRequired,
+            "response_too_large" => BrowserError::ResponseTooLarge,
             _ => BrowserError::SourceUnavailable,
         }
     }

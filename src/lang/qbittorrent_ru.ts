@@ -18795,6 +18795,10 @@ Please choose a different name and try again.</source>
         <translation>Источник требует проверки в браузере.</translation>
     </message>
     <message>
+        <source>The source response exceeds the size limit.</source>
+        <translation>Ответ источника превышает допустимый размер.</translation>
+    </message>
+    <message>
         <source>Could not get data from this source.</source>
         <translation>Не удалось получить данные от источника.</translation>
     </message>

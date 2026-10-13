@@ -49,6 +49,8 @@ pub enum BrowserError {
     InvalidRequest,
     #[error("The browser returned invalid content")]
     InvalidResponse,
+    #[error("The source response is too large")]
+    ResponseTooLarge,
     #[error("The browser returned another media selection")]
     SelectionChanged,
     #[error("The selected media is no longer available")]
@@ -86,6 +88,7 @@ impl BrowserError {
             Self::UpdateRequired => "browser_update_required",
             Self::InvalidRequest => "browser_invalid_request",
             Self::InvalidResponse => "browser_invalid_response",
+            Self::ResponseTooLarge => "response_too_large",
             Self::SelectionChanged => "selected_content_changed",
             Self::SelectionUnavailable => "selection_unavailable",
             Self::Disconnected => "browser_disconnected",

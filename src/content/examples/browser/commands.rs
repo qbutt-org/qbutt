@@ -1,8 +1,10 @@
-use qbutt_content::browser::{BrowserChoice, BrowserCommand, BrowserError, BrowserHandle};
+use qbutt_content::browser::{
+    BrowserChoice, BrowserCommand, BrowserError, BrowserHandle, BrowserReply,
+};
 use serde_json::{Value, json};
 use tokio::net::windows::named_pipe::NamedPipeClient;
 
-use super::fixture::{FixtureResult, cookies, exchange, read, request, write};
+use super::fixture::{FixtureResult, MAX_FRAME, cookies, exchange, read, request, write};
 
 pub(super) async fn command_replies(
     handle: &BrowserHandle,
@@ -72,10 +74,67 @@ pub(super) async fn command_replies(
         "body": "{\"ok\":true}",
     });
     exchange(handle, edge, fetch.clone(), response.clone(), None).await?;
+
+    let row = r#"<article><a href="/torrent/1234567/legal">Синтел "кадр" &amp; film</a></article>"#;
+    let mut listing = String::from("<!doctype html><html><body>");
+    while listing.len() < 650_000 {
+        listing.push_str(row);
+    }
+    listing.push_str("</body></html>");
+    assert!(listing.len() > 512 * 1024 && listing.len() <= 680 * 1024);
+    let large_response = json!({
+        "status": 200,
+        "url": "https://fixture.example/search/Sintel/1/",
+        "headers": {"content-type": "text/html; charset=utf-8"},
+        "body": listing,
+    });
+    let pending = request(
+        handle,
+        BrowserChoice::Edge,
+        serde_json::from_value(fetch.clone())?,
+    );
+    let wire = read(edge).await?;
+    let envelope = json!({"id": wire["id"], "result": large_response});
+    assert!(serde_json::to_vec(&envelope)?.len() <= MAX_FRAME);
+    write(edge, &envelope).await?;
+    let BrowserReply::Fetch(reply) = pending.await?? else {
+        panic!("Expected browser Fetch response");
+    };
+    assert_eq!(reply.body, large_response["body"].as_str().unwrap());
+
+    let pending = request(
+        handle,
+        BrowserChoice::Edge,
+        serde_json::from_value(fetch.clone())?,
+    );
+    let wire = read(edge).await?;
+    write(
+        edge,
+        &json!({
+            "id": wire["id"],
+            "error": {"code": "response_too_large", "message": "bounded fixture"},
+        }),
+    )
+    .await?;
+    assert!(matches!(
+        pending.await?,
+        Err(BrowserError::ResponseTooLarge)
+    ));
+
+    let oversized_request: BrowserCommand = serde_json::from_value(json!({
+        "method": "fetch",
+        "url": "https://fixture.example/api",
+        "init": {"method": "POST", "body": "x".repeat(512 * 1024 + 1)},
+    }))?;
+    assert!(matches!(
+        handle.request(BrowserChoice::Edge, oversized_request).await,
+        Err(BrowserError::InvalidRequest)
+    ));
+
     for (field, value) in [
         ("status", json!(999)),
         ("url", json!("http://192.168.1.1/")),
-        ("body", json!("x".repeat(512 * 1024 + 1))),
+        ("body", json!("x".repeat(680 * 1024 + 1))),
         ("headers", json!({"x-test":"value\r\nInjected: true"})),
     ] {
         let mut invalid = response.clone();
