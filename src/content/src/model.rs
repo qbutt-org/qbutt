@@ -37,6 +37,8 @@ pub enum Source {
     TheLastGame,
     #[serde(rename = "limetorrents")]
     LimeTorrents,
+    #[serde(rename = "1337x")]
+    X1337,
     RoyalRoad,
     Kakuyomu,
     Syosetu,
@@ -79,6 +81,7 @@ impl PublicationRef {
             Source::ByRut => self.byrut_slug().map(|_| ()),
             Source::TheLastGame => self.thelastgame_slug().map(|_| ()),
             Source::LimeTorrents => self.limetorrents_path().map(|_| ()),
+            Source::X1337 => self.x1337_path().map(|_| ()),
             Source::RoyalRoad => self.royalroad_id().map(|_| ()),
             Source::RanobeHub => self.ranobehub_id().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
@@ -113,6 +116,24 @@ impl PublicationRef {
 
     pub(crate) fn nyaa_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::Nyaa)
+    }
+
+    pub(crate) fn x1337_path(&self) -> crate::Result<&str> {
+        let (id, slug) = self
+            .id
+            .split_once('/')
+            .ok_or(crate::Error::InvalidReference)?;
+        if self.source != Source::X1337
+            || !canonical_decimal(id)
+            || slug.is_empty()
+            || slug.len() > 500
+            || !slug
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err(crate::Error::InvalidReference);
+        }
+        Ok(&self.id)
     }
 
     pub(crate) fn fitgirl_slug(&self) -> crate::Result<&str> {
@@ -562,6 +583,7 @@ impl VariantRef {
                 | (Source::ByRut, VariantSelector::TorrentHash { .. })
                 | (Source::TheLastGame, VariantSelector::TorrentHash { .. })
                 | (Source::LimeTorrents, VariantSelector::TorrentHash { .. })
+                | (Source::X1337, VariantSelector::TorrentHash { .. })
                 | (Source::Rutube, VariantSelector::RutubeVideo)
                 | (Source::RoyalRoad, VariantSelector::OriginalText)
                 | (Source::Kakuyomu, VariantSelector::OriginalText)

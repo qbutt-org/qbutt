@@ -80,6 +80,20 @@ generated Challenge checks its exact site URL, missing-browser feedback and
 retained failure until the saved operation is retried.
 This process scenario does not establish native pointer, blur or browser login.
 
+The generated 1337x scenario exercises the production provider through private
+HTTPS and qcatch pipe peers. It checks the `/srch` cookie jar, six categories,
+exact magnets, changed hashes, isolated uploader exclusion, browser failures and
+cancellation, malformed/foreign responses, empty results and SQLite reopen:
+
+```powershell
+cargo run --locked --offline --release --target x86_64-pc-windows-msvc -p qbutt-content --example x1337-fixtures
+```
+
+It never acquires torrent payload. Live qcatch access and native Add dialog
+cancellation require separate acceptance; generated browser replies do not prove
+that a live source's challenge will pass. The `x1337` live example requires an
+explicit isolated discovery path for an already configured qcatch native host.
+
 The protected playback transport has a generated HTTP/HTTPS integration scenario:
 
 ```powershell

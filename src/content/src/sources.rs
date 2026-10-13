@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::AniLiberty,
         Self::AniTokyo,
         Self::YummyAnime,
@@ -26,6 +26,7 @@ impl Source {
         Self::ByRut,
         Self::TheLastGame,
         Self::LimeTorrents,
+        Self::X1337,
         Self::RoyalRoad,
         Self::Kakuyomu,
         Self::Syosetu,
@@ -54,6 +55,7 @@ impl Source {
             Self::ByRut => "byrut",
             Self::TheLastGame => "thelastgame",
             Self::LimeTorrents => "limetorrents",
+            Self::X1337 => "1337x",
             Self::RoyalRoad => "royalroad",
             Self::Kakuyomu => "kakuyomu",
             Self::Syosetu => "syosetu",
@@ -87,6 +89,7 @@ impl Source {
             Self::ByRut => "ByRut",
             Self::TheLastGame => "TheLastGame",
             Self::LimeTorrents => "LimeTorrents",
+            Self::X1337 => "1337x",
             Self::RoyalRoad => "Royal Road",
             Self::Kakuyomu => "Kakuyomu",
             Self::Syosetu => "小説家になろう",
@@ -96,7 +99,7 @@ impl Source {
 
     pub fn account_url(self) -> Option<&'static str> {
         match self {
-            Self::RuTracker | Self::MangaLib | Self::RanobeLib => self.site_url(),
+            Self::RuTracker | Self::X1337 | Self::MangaLib | Self::RanobeLib => self.site_url(),
             _ => None,
         }
     }
@@ -123,6 +126,7 @@ impl Source {
             Self::FreeTP => "https://freetp.org",
             Self::ByRut => "https://byrutgame.org",
             Self::LimeTorrents => "https://www.limetorrents.fun",
+            Self::X1337 => "https://1337x.to/home/",
             Self::RoyalRoad => "https://www.royalroad.com",
             Self::Kakuyomu => "https://kakuyomu.jp",
             Self::Syosetu => "https://yomou.syosetu.com",
@@ -161,7 +165,7 @@ impl Source {
                 Category::Software,
                 Category::Books,
             ],
-            Self::LimeTorrents => &[
+            Self::LimeTorrents | Self::X1337 => &[
                 Category::Movies,
                 Category::Tv,
                 Category::Anime,

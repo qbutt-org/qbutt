@@ -53,6 +53,7 @@ mod torrent;
 pub mod translation;
 #[cfg(windows)]
 pub mod webview;
+mod x1337;
 mod yummyanime;
 
 pub use aniliberty::AniLiberty;
@@ -101,4 +102,5 @@ pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSet
 pub use syosetu::Syosetu;
 pub use text::{TextBlock, TextBlockKind, TextChapter, TextChapterCache, TextImageAsset, TextSpan};
 pub use thelastgame::TheLastGame;
+pub use x1337::X1337;
 pub use yummyanime::YummyAnime;

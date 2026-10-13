@@ -7,7 +7,7 @@ use qbutt_content::{
     AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, FitGirl, FreeTP, Kakuyomu,
     LibSession, LimeTorrents, MangaDex, MangaLib, NnmClub, Nyaa, OnlineFix, RanobeHub, RanobeLib,
     ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation, Syosetu,
-    TextChapter, TheLastGame, Work, YummyAnime,
+    TextChapter, TheLastGame, Work, X1337, YummyAnime,
 };
 
 use super::browser::BrowserClient;
@@ -41,6 +41,7 @@ pub(super) struct Catalog {
     byrut: ByRut,
     thelastgame: TheLastGame,
     limetorrents: LimeTorrents,
+    x1337: X1337,
     ranobelib: RanobeLib,
     ranobehub: RanobeHub,
     royalroad: RoyalRoad,
@@ -89,6 +90,7 @@ impl Catalog {
             byrut: ByRut::new()?,
             thelastgame: TheLastGame::new()?,
             limetorrents: LimeTorrents::new()?,
+            x1337: X1337::new()?,
             ranobelib: RanobeLib::new()?,
             ranobehub: RanobeHub::new()?,
             royalroad: RoyalRoad::new()?,
@@ -165,6 +167,16 @@ impl Catalog {
                     }
                     Source::TheLastGame => self.thelastgame.search(query, *category).await,
                     Source::LimeTorrents => self.limetorrents.search(query, *category).await,
+                    Source::X1337 => {
+                        self.x1337
+                            .search(
+                                query,
+                                *category,
+                                self.browser.existing_handle().await.as_ref(),
+                                choice,
+                            )
+                            .await
+                    }
                     Source::RanobeLib => {
                         self.ranobelib
                             .search(query, &mut self.lib_session(*source).await?)
@@ -233,6 +245,15 @@ impl Catalog {
                     }
                     Source::TheLastGame => self.thelastgame.inspect(reference).await,
                     Source::LimeTorrents => self.limetorrents.inspect(reference).await,
+                    Source::X1337 => {
+                        self.x1337
+                            .inspect(
+                                reference,
+                                self.browser.existing_handle().await.as_ref(),
+                                choice,
+                            )
+                            .await
+                    }
                     Source::RanobeLib => {
                         self.ranobelib
                             .inspect(reference, &mut self.lib_session(reference.source).await?)
@@ -287,6 +308,15 @@ impl Catalog {
                     }
                     Source::TheLastGame => self.thelastgame.resolve(reference).await,
                     Source::LimeTorrents => self.limetorrents.resolve(reference).await,
+                    Source::X1337 => {
+                        self.x1337
+                            .resolve(
+                                reference,
+                                self.browser.existing_handle().await.as_ref(),
+                                choice,
+                            )
+                            .await
+                    }
                     Source::MangaDex
                     | Source::LocalBook
                     | Source::MangaLib
