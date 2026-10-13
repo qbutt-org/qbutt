@@ -16,6 +16,17 @@ let redirectedRequests = 0;
 let visionRequestBytes = 0;
 let apiRequests = 0;
 let started: (() => void) | undefined;
+
+function waitForApiRequest(stage: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const deadline = setTimeout(() => {
+            started = undefined;
+            reject(new Error(`AI request did not reach the fixture during ${stage}`));
+        }, 45_000);
+        started = () => { clearTimeout(deadline); resolve(); };
+    });
+}
+
 const server = Bun.serve({
     hostname: "127.0.0.1", port: 0,
     async fetch(request) {
@@ -50,6 +61,7 @@ const server = Bun.serve({
 });
 const executable = process.env.QBUTT_CONTENT_BIN;
 const browserParents = new Map<number, HelperBrowserSession>();
+let onBrowserReply: (() => void) | undefined;
 const appDirectory = resolve(process.env.QBUTT_CONTENT_APP_DIR || (executable ? dirname(executable) : resolve(import.meta.dir, "../..")));
 function startService() {
     const handle = Bun.spawn({
@@ -61,6 +73,7 @@ function startService() {
     browserParents.set(handle.pid, new HelperBrowserSession(join(directory, `browser-${handle.pid}.json`), message => {
         handle.stdin.write(message);
         handle.stdin.flush();
+        onBrowserReply?.();
     }));
     return handle;
 }
@@ -87,11 +100,14 @@ function send(method: string, params: Record<string, unknown> = {}): number {
     processHandle.stdin.write(JSON.stringify({ id, method, params }) + "\n");
     return id;
 }
-async function receive(id: number, expectError = false): Promise<any> {
-    const deadline = setTimeout(() => processHandle.kill(), 45_000);
+async function receive(id: number, expectError = false, label = `request ${id}`): Promise<any> {
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), 45_000);
+    });
     try {
         while (true) {
-            const { value, done } = await stream.next();
+            const { value, done } = await Promise.race([stream.next(), deadline]);
             require(!done, "Content service ended before a terminal response");
             if (value.id !== id) continue;
             if (value.event === "error") {
@@ -105,10 +121,11 @@ async function receive(id: number, expectError = false): Promise<any> {
         }
     }
     finally {
-        clearTimeout(deadline);
+        clearTimeout(timer!);
     }
 }
-const request = (method: string, params: Record<string, unknown> = {}, expectError = false) => receive(send(method, params), expectError);
+const request = (method: string, params: Record<string, unknown> = {}, expectError = false, label = method) =>
+    receive(send(method, params), expectError, label);
 const configure = (model: string) => request("configureSource", { id: "ai", settings: {
     provider: "openai-compatible", baseUrl: `http://127.0.0.1:${server.port}/v1`,
     apiKey: "generated-reader-ipc-fixture", model,
@@ -160,31 +177,59 @@ try {
 
     await configure("fixture-redirect");
     redirects = true;
-    await request("reader.translate", { page }, true);
+    const beforeRedirect = apiRequests;
+    const redirectError = await request("reader.translate", { page }, true, "redirect refusal");
+    require(apiRequests === beforeRedirect + 1,
+        `AI redirect refusal did not reach the fixture: ${redirectError?.message}`);
     require(redirectedRequests === 0, "An AI redirect forwarded credentials to another endpoint");
     redirects = false;
 
     await configure("fixture-cancel");
     delay = 30_000;
-    const connecting = new Promise<void>(resolve => { started = resolve; });
+    const connecting = waitForApiRequest("cancellation");
     const id = send("reader.translate", { page });
-    await connecting;
+    const cancellation = receive(id, true, "cancelled translation");
+    await Promise.race([connecting, cancellation.then(outcome => {
+        throw new Error(`AI request ended before cancellation: ${outcome?.message}`);
+    })]);
     const cancelledAt = performance.now();
     send("cancel", { id });
-    await receive(id, true);
+    await cancellation;
     require(performance.now() - cancelledAt < 1500, "Main IPC cancellation left an AI request waiting");
     await request("search", { query: `http://127.0.0.1:${server.port}/private`, category: "all" }, true);
 
     await configure("fixture-eof");
-    const active = new Promise<void>(resolve => { started = resolve; });
-    send("reader.translate", { page });
-    await active;
+    const active = waitForApiRequest("EOF shutdown");
+    const activeId = send("reader.translate", { page });
+    const finishedBeforeEof = receive(activeId, true, "EOF translation").then(outcome => {
+        throw new Error(`AI request ended before EOF: ${outcome?.message}`);
+    });
+    await Promise.race([active, finishedBeforeEof]);
+    // Both positions need broker context replies over stdin before the fixture closes it.
+    let replies = 0;
+    const positionsReady = new Promise<void>(resolve => {
+        onBrowserReply = () => {
+            if (++replies === 2) resolve();
+        };
+    });
     send("reader.position", { documentId: document.id, chapterId: document.chapters[0]!.id, offset: 0.83 });
     send("reader.position", { documentId: pagedComic.id, chapterId: pagedComic.chapters[0]!.id, imageIndex: 2, offset: 0.37 });
+    await processHandle.stdin.flush();
+    let replyTimer: ReturnType<typeof setTimeout>;
+    try {
+        await Promise.race([positionsReady, new Promise<never>((_, reject) => {
+            replyTimer = setTimeout(() => reject(new Error("Reader position browser context did not finish")), 10_000);
+        })]);
+    }
+    finally {
+        clearTimeout(replyTimer!);
+        onBrowserReply = undefined;
+    }
     processHandle.stdin.end();
     const shutdownDeadline = setTimeout(() => processHandle.kill(), 5000);
     try {
-        require(await processHandle.exited === 0, "EOF failed to abort active AI and drain accepted reader persistence");
+        const exitCode = await processHandle.exited;
+        require(exitCode === 0, `EOF failed to abort active AI and drain accepted reader persistence (exit ${exitCode})`);
     }
     finally {
         clearTimeout(shutdownDeadline);
