@@ -108,23 +108,48 @@ socket/header limits, retirement, a 67-second single HTTPS GET and closure after
 full GET, private headers, manifest rejection and retirement. This does not
 establish controller, qplay or History UI.
 
-The native MP4 queue has a generated-file scenario. Use a fresh temporary
-directory so the fixture cannot touch an existing download or profile:
+Native downloads have generated MP4, HLS and DASH scenarios. Set
+`QBUTT_LAB_QPLAY` to the verified bundle's absolute `qplay.exe` path. Generate
+media below a fresh temporary directory; FFmpeg's DASH segments are relative to
+its working directory:
 
 ```powershell
+$runtime = & $env:QBUTT_LAB_QPLAY --runtime-info-json | ConvertFrom-Json
+$ffmpeg = $runtime.tools.ffmpeg
+$ffprobe = $runtime.tools.ffprobe
 $root = Join-Path $env:TEMP ('qbutt-downloads-' + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path $root | Out-Null
-$media = Join-Path $root 'generated.mp4'
-ffmpeg -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=12' -t 3 -c:v libx264 -pix_fmt yuv420p $media
-cargo run --locked --offline -p qbutt-content --features download-fixture --example downloads -- (Join-Path $root 'run') $media
+$media = Join-Path $root 'media'
+New-Item -ItemType Directory -Path $media | Out-Null
+Push-Location $media
+try {
+    & $ffmpeg -y -hide_banner -loglevel error -f lavfi -i 'testsrc2=size=160x90:rate=24:duration=3' -an -c:v libx264 -g 24 -pix_fmt yuv420p video.mp4
+    & $ffmpeg -y -hide_banner -loglevel error -f lavfi -i 'sine=frequency=880:duration=3' -c:a aac audio.m4a
+    & $ffmpeg -y -hide_banner -loglevel error -i video.mp4 -map 0:v -c copy -hls_time 1 -hls_list_size 0 -hls_segment_filename 'video-%03d.ts' video.m3u8
+    & $ffmpeg -y -hide_banner -loglevel error -i audio.m4a -map 0:a -c copy -hls_time 1 -hls_list_size 0 -hls_segment_filename 'audio-%03d.ts' audio.m3u8
+    & $ffmpeg -y -hide_banner -loglevel error -i video.mp4 -i audio.m4a -map 0:v -map 1:a -c copy -seg_duration 1 -use_template 1 -use_timeline 1 -adaptation_sets 'id=0,streams=v id=1,streams=a' manifest.mpd
+}
+finally {
+    Pop-Location
+}
+cargo run --locked --offline --release --target x86_64-pc-windows-msvc -p qbutt-content --features download-fixture --example downloads -- (Join-Path $root 'mp4') (Join-Path $media 'video.mp4')
+cargo run --locked --offline --release --target x86_64-pc-windows-msvc -p qbutt-content --features download-fixture --example segmented_downloads -- (Join-Path $root 'vod') $media $ffmpeg $ffprobe
 ```
 
-Require exit zero and `PASS native_downloads`. The fixture compares exact
-bytes, confirms progress, cancel, retry and restart, rejects an incomplete
-response, removes partial files and preserves an existing same-name payload.
+Require exit zero and `PASS native_downloads`, `PASS native_download_audio`
+and `PASS native_segmented`. The MP4 fixture checks exact bytes, progress,
+cancel/retry, restart, incomplete responses and same-name payload preservation.
+Its `PASS native_download_publication_shutdown` line reports the actual shutdown
+outcome during filename publication, unchanged collision files, removed staging
+and confirmed SQLite reopen. Publishing remains outside ordinary cancellation.
+The VOD fixture checks HLS/DASH, external audio, ASS styles, decoding,
+cancel/restart/retry, unsupported live/DRM manifests and secret-free persistence.
+Its generated multi-voice media verifies the exact selected audio packet hash,
+default disposition, rejection of ambiguous/missing/type/codec/channel choices
+and absence of requests for unselected HLS voices.
+
 With the Qt acceptance executable built, run it offscreen with `--downloads
---profile <run/profile>` and require `PASS native Qt downloads model`. The
-fixture does not exercise a visible Downloads page or live source media.
+--profile <run/profile>` and require `PASS native Qt downloads model`.
+These fixtures do not establish a visible Downloads page or live source media.
 
 RuTor has generated HTTPS/fault and two-process library scenarios:
 
@@ -682,17 +707,15 @@ bun tests/content-search/progressive-integration.ts
 bun tests/content-search/authorization.ts
 bun run smoke:content-online
 bun run smoke:content-reading
-bun run smoke:content-downloads
 bun run smoke:content-browser
 bun tests/content-browser/settings-native.ts
 bun tests/content-browser/startup.ts
 bun tests/content-browser/optional-cookies.ts
-bun tests/content-browser/capture-downloads.ts
 bun tests/content-browser/catalog-cookies.ts
 bun tests/content-browser/publication-recovery.ts
 bun tests/content-browser/resolve-health.ts
 bun tests/content-browser/game-recovery.ts
-bun tests/content-downloads/networkproxy.ts
+bun tests/content-browser/networkproxy.ts
 bun tests/content-reading/ipc-integration.ts
 bun tests/content-reading/scheduler-integration.ts
 bun tests/content-reading/originals-integration.ts
@@ -734,13 +757,9 @@ working. Browser IPC tests use generated fixtures; the separate Edge fixture
 requires an isolated VM browser profile and native-host registration.
 The VM browser and qcatch native host must inherit the same isolated
 `QBUTT_BROWSER_BRIDGE_DISCOVERY` as the fixture; the fixture does not provide
-its own native host. Capture-download integration uses the real qcatch relay,
-production queue and generated video to verify same-page selection isolation,
-decoded payloads, exact-share refusal and expired captures without fallback.
+its own native host.
 
-The download fixture verifies exact bytes, cancellation, restart and local
-HLS remuxing with video, audio and subtitles. The network proxy fixture also
-runs the pinned extractor: redirects to local addresses must make zero
+The browser network proxy fixture runs the pinned extractor: redirects to local addresses must make zero
 requests, and session cookies must remain scoped to their source host.
 
 For torrent playback, deploy `qbutt-qt-acceptance.exe` beside the bundled Qt,

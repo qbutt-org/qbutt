@@ -218,12 +218,12 @@ try {
         root, AbortSignal.timeout(30000), proxy.url), /browser player/);
     assert.equal(fixtureRequests, beforeAuthorization, "Unsupported extractor authorization must fail before sending credentials");
 
-    // The W3C's public Sintel trailer is used only for extractor metadata. The
+    // Blender's public Sintel trailer is used only for extractor metadata. The
     // byte-integrity and streaming scenarios above use generated local content.
-    const publicExtraction = await extract(guarded.url, "https://media.w3.org/2010/05/sintel/trailer.mp4");
+    const publicExtraction = await extract(guarded.url, "https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4");
     assert.equal(publicExtraction.exit, 0, `A guarded extractor must retain public HTTPS media support: ${publicExtraction.error}`);
     const metadata = JSON.parse(publicExtraction.output);
-    assert.equal(new URL(metadata.url).hostname, "media.w3.org");
+    assert.equal(new URL(metadata.url).hostname, "download.blender.org");
     assert(!publicExtraction.output.includes(new URL(guarded.url).password), "Extractor metadata must not expose proxy credentials");
 
     const closed = new Promise<void>(resolve => connected.socket.once("close", () => resolve()));

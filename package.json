@@ -63,7 +63,6 @@
     "smoke:appearance": "bun tests/qt-acceptance/smoke.ts --appearance-only",
     "smoke:content-online": "bun tests/content-online/live.ts --resolve",
     "smoke:content-reading": "bun tests/content-reading/integration.ts --live --live-images",
-    "smoke:content-downloads": "bun tests/content-downloads/integration.ts",
     "smoke:content-browser": "bun tests/content-browser/ipc.ts",
     "smoke:media": "bun tests/media-streaming.ts"
   }

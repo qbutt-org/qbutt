@@ -21,7 +21,6 @@ export interface LibraryEntry {
     favorite: boolean;
     lastOpened?: string;
     progress?: Record<string, string | number>;
-    download?: { status: string; path?: string };
 }
 
 export function assertLibraryEntrySize(entry: LibraryEntry): void {
