@@ -13,12 +13,14 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::watch;
 
 mod imagegen;
+mod imagegen_artifact;
 mod model;
 mod process;
 mod rpc;
 mod turn;
 
 pub use imagegen::{ImageGenerationCompletion, MAX_GENERATED_IMAGE_BYTES, generate_image};
+use imagegen_artifact::ImageArtifact;
 pub use model::CodexModel;
 use process::{Scratch, installed_codex};
 pub use turn::IMAGE_TOOL_CALL_LIMIT;
@@ -48,10 +50,29 @@ pub enum CodexError {
     Provider,
     #[error("Image generation is unavailable in the installed Codex")]
     ImageGenerationUnavailable,
+    #[error("Codex generated image cleanup failed: {reason}")]
+    ArtifactCleanup {
+        reason: String,
+        #[source]
+        primary: Option<Box<CodexError>>,
+    },
     #[error("The image is too large or has an unsupported format")]
     Image,
     #[error("{0}")]
     Tool(String),
+}
+
+impl CodexError {
+    fn artifact_cleanup(error: std::io::Error, primary: Option<Self>) -> Self {
+        let reason = match &primary {
+            Some(primary) => format!("{error}; original request failed: {primary}"),
+            None => error.to_string(),
+        };
+        Self::ArtifactCleanup {
+            reason,
+            primary: primary.map(Box::new),
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, CodexError>;
@@ -208,6 +229,11 @@ async fn infer(
         let thread = client
             .start_thread(&request, workspace.path(), &model)
             .await?;
+        if let Some(artifact) = &mut client.artifact {
+            artifact
+                .claim_thread(&thread)
+                .map_err(|error| CodexError::artifact_cleanup(error, None))?;
+        }
         Ok::<_, CodexError>((thread, model, effort))
     };
     let result = tokio::select! {
@@ -222,7 +248,9 @@ async fn infer(
         }
         Err(error) => Err(error),
     };
-    client.stop().await;
+    if let Err(error) = client.stop().await {
+        return Err(CodexError::artifact_cleanup(error, result.err()));
+    }
     result
 }
 
@@ -242,7 +270,7 @@ pub async fn resolve_selection(
         client.select_model(modality, model, effort).await
     }
     .await;
-    client.stop().await;
+    let _ = client.stop().await;
     result
 }
 
@@ -257,12 +285,13 @@ pub async fn available_models(modality: ModelModality) -> Result<Vec<CodexModel>
         client.available_models(modality).await
     }
     .await;
-    client.stop().await;
+    let _ = client.stop().await;
     result
 }
 
 struct Client {
     mode: RequestMode,
+    artifact: Option<ImageArtifact>,
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,

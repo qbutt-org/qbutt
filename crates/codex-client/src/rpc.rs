@@ -16,7 +16,9 @@ impl Client {
         self.initialize().await?;
         let inherited = self.check_isolation().await?;
         if !inherited.is_empty() {
-            self.stop().await;
+            self.stop()
+                .await
+                .map_err(|error| CodexError::artifact_cleanup(error, None))?;
             *self = Self::start(executable, workspace, &inherited, self.mode).await?;
             self.initialize().await?;
             if !self.check_isolation().await?.is_empty() {

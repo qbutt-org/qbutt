@@ -132,6 +132,14 @@ impl Client {
             };
             match message.get("method").and_then(Value::as_str) {
                 Some("item/tool/call") => {
+                    if self.mode == RequestMode::ImageGeneration
+                        && !generated.context_tools_allowed()
+                    {
+                        self.interrupt(&thread, &turn_id).await;
+                        return Err(CodexError::Tool(
+                            "Codex context tools must run before image generation starts".into(),
+                        ));
+                    }
                     tool_calls += 1;
                     if tool_calls > tool_call_limit {
                         self.interrupt(&thread, &turn_id).await;
@@ -167,7 +175,12 @@ impl Client {
                         if self.mode != RequestMode::ImageGeneration {
                             return Err(CodexError::Isolation);
                         }
-                        generated.complete(item)?;
+                        let png = generated.complete(item)?;
+                        self.artifact
+                            .as_mut()
+                            .ok_or(CodexError::Isolation)?
+                            .capture(item, png)
+                            .map_err(|error| CodexError::artifact_cleanup(error, None))?;
                     } else if item.get("type") == Some(&json!("agentMessage")) {
                         self.answer = item.get("text").and_then(Value::as_str).map(str::to_owned);
                     } else if !matches!(

@@ -4,6 +4,9 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::path::Path;
+
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
@@ -29,15 +32,17 @@ fn main() -> Result<()> {
     std::fs::copy(std::env::current_exe()?, native.join("codex.exe"))?;
     let original_program_files = std::env::var_os("ProgramFiles");
     let original_local_app_data = std::env::var_os("LOCALAPPDATA");
+    let original_codex_home = std::env::var_os("CODEX_HOME");
     // The fixture owns this single-threaded process before its Tokio runtime.
     unsafe {
         std::env::set_var("ProgramFiles", &profile);
         std::env::set_var("LOCALAPPDATA", &profile);
+        std::env::set_var("CODEX_HOME", &profile);
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    let result = runtime.block_on(exercise(&native));
+    let result = runtime.block_on(exercise(&native, &profile));
     drop(runtime);
     unsafe {
         match original_program_files {
@@ -47,6 +52,10 @@ fn main() -> Result<()> {
         match original_local_app_data {
             Some(value) => std::env::set_var("LOCALAPPDATA", value),
             None => std::env::remove_var("LOCALAPPDATA"),
+        }
+        match original_codex_home {
+            Some(value) => std::env::set_var("CODEX_HOME", value),
+            None => std::env::remove_var("CODEX_HOME"),
         }
     }
     std::fs::remove_dir_all(&profile)?;
@@ -79,7 +88,12 @@ fn request() -> CodexRequest {
     }
 }
 
-async fn exercise(native: &Path) -> Result<()> {
+async fn exercise(native: &Path, profile: &Path) -> Result<()> {
+    let png = base64::engine::general_purpose::STANDARD.decode(PNG)?;
+    let images = profile.join("generated_images");
+    let preserved = images.join("user-existing/image-1.png");
+    std::fs::create_dir_all(preserved.parent().unwrap())?;
+    std::fs::write(&preserved, &png)?;
     let started = Instant::now();
     std::fs::write(native.join("case.txt"), "json-default")?;
     let (_cancel, cancelled) = tokio::sync::watch::channel(false);
@@ -104,18 +118,53 @@ async fn exercise(native: &Path) -> Result<()> {
         "capability-off",
         "setup-timeout",
         "cancel",
+        "metadata-rejected",
+        "cancel-after-image",
+        "locked-swap",
+        "preexisting-thread",
+        "foreign-saved-path",
+        "file-symlink",
+        "directory-symlink",
+        "hardlink",
+        "different-bytes",
+        "locked-file",
+        "cleanup-failure",
+        "late-tool",
+        "late-tool-after-image",
     ] {
         std::fs::write(native.join("case.txt"), case)?;
         std::fs::write(native.join("trace.jsonl"), "")?;
+        let artifact = images.join(format!("fixture-{case}/image-1.png"));
+        if case == "preexisting-thread" {
+            std::fs::create_dir_all(artifact.parent().unwrap())?;
+            std::fs::write(&artifact, &png)?;
+        }
         let (cancel, cancelled) = tokio::sync::watch::channel(false);
         let mut tools = NoTools;
         let work = generate_image(request(), &mut tools, cancelled);
         let control = async {
-            if case == "cancel" {
+            if matches!(case, "cancel" | "cancel-after-image" | "locked-swap") {
                 let deadline = Instant::now() + Duration::from_secs(5);
                 loop {
                     let trace = std::fs::read_to_string(native.join("trace.jsonl"))?;
-                    if trace.contains("turn/start") {
+                    let ready = if case == "cancel" {
+                        trace.contains("turn/start")
+                    } else {
+                        artifact_is_locked(&artifact)
+                    };
+                    if ready {
+                        if case == "locked-swap" {
+                            assert!(
+                                std::fs::rename(&artifact, images.join("replaced.png")).is_err()
+                            );
+                            assert!(
+                                std::fs::rename(
+                                    artifact.parent().unwrap(),
+                                    images.join("moved-thread")
+                                )
+                                .is_err()
+                            );
+                        }
                         cancel.send(true)?;
                         break;
                     }
@@ -130,12 +179,15 @@ async fn exercise(native: &Path) -> Result<()> {
         let (result, controlled) = tokio::join!(work, control);
         controlled?;
         match (case, result) {
-            ("valid", Ok(output)) => {
+            ("valid" | "metadata-rejected", Ok(output)) => {
                 assert_eq!(
                     output.png,
                     base64::engine::general_purpose::STANDARD.decode(PNG)?
                 );
-                assert_eq!(output.value, json!({"accepted": true}));
+                assert_eq!(
+                    output.value,
+                    json!({"accepted": case != "metadata-rejected"})
+                );
                 assert_eq!(output.model, "gpt-6.1-sol");
                 assert_eq!(output.effort, "low");
             }
@@ -150,13 +202,83 @@ async fn exercise(native: &Path) -> Result<()> {
             | ("large-line", Err(CodexError::Protocol))
             | ("missing-image" | "capability-off", Err(CodexError::ImageGenerationUnavailable))
             | ("setup-timeout", Err(CodexError::Timeout))
-            | ("cancel", Err(CodexError::Cancelled)) => {}
+            | ("cancel" | "cancel-after-image" | "locked-swap", Err(CodexError::Cancelled)) => {}
+            (
+                "cleanup-failure",
+                Err(CodexError::ArtifactCleanup {
+                    primary: Some(primary),
+                    reason,
+                }),
+            ) => {
+                assert!(matches!(*primary, CodexError::Protocol));
+                assert!(reason.contains("original request failed"));
+            }
+            (
+                "preexisting-thread" | "foreign-saved-path" | "file-symlink" | "directory-symlink"
+                | "hardlink" | "different-bytes" | "locked-file",
+                Err(CodexError::ArtifactCleanup {
+                    primary: None,
+                    reason,
+                }),
+            ) => assert!(!reason.is_empty()),
+            ("late-tool" | "late-tool-after-image", Err(CodexError::Tool(reason))) => {
+                assert!(reason.contains("before image generation starts"));
+            }
             (_, Err(error)) => return Err(format!("{case}: unexpected {error}").into()),
             (_, Ok(_)) => return Err(format!("{case}: invalid image job was accepted").into()),
         }
         let trace = std::fs::read_to_string(native.join("trace.jsonl"))?;
-        if case == "cancel" {
+        if matches!(
+            case,
+            "cancel" | "cancel-after-image" | "locked-swap" | "late-tool" | "late-tool-after-image"
+        ) {
             assert!(trace.contains("turn/interrupt"));
+        }
+        assert_eq!(std::fs::read(&preserved)?, png);
+        if matches!(
+            case,
+            "valid"
+                | "metadata-rejected"
+                | "malformed-final"
+                | "cancel-after-image"
+                | "locked-swap"
+                | "late-tool-after-image"
+        ) {
+            assert!(!artifact.exists(), "{case}: completed PNG leaked");
+            assert!(
+                artifact.parent().unwrap().is_dir(),
+                "thread directories must be preserved"
+            );
+        }
+        if matches!(
+            case,
+            "preexisting-thread"
+                | "foreign-saved-path"
+                | "file-symlink"
+                | "directory-symlink"
+                | "hardlink"
+                | "different-bytes"
+                | "locked-file"
+                | "cleanup-failure"
+        ) {
+            assert!(artifact.exists(), "{case}: unsafe artifact was removed");
+        }
+        if case == "preexisting-thread" {
+            assert!(!trace.contains("turn/start"));
+            assert_eq!(std::fs::read(&artifact)?, png);
+        }
+        if case == "cleanup-failure" {
+            #[cfg(windows)]
+            {
+                use std::os::windows::ffi::OsStrExt;
+                use windows_sys::Win32::Storage::FileSystem::{
+                    FILE_ATTRIBUTE_NORMAL, SetFileAttributesW,
+                };
+                let path: Vec<_> = artifact.as_os_str().encode_wide().chain(Some(0)).collect();
+                if unsafe { SetFileAttributesW(path.as_ptr(), FILE_ATTRIBUTE_NORMAL) } == 0 {
+                    return Err(std::io::Error::last_os_error().into());
+                }
+            }
         }
         let first: Value =
             serde_json::from_str(trace.lines().next().ok_or("host trace is empty")?)?;
@@ -173,7 +295,7 @@ async fn exercise(native: &Path) -> Result<()> {
         Err(CodexError::Isolation)
     ));
     println!(
-        "PASS imagegen_protocol json_default_disabled saved_path_ignored metadata_atomic elapsed_ms={}",
+        "PASS imagegen_protocol json_default_disabled owned_artifact_cleanup metadata_atomic elapsed_ms={}",
         started.elapsed().as_millis()
     );
     Ok(())
@@ -185,6 +307,10 @@ fn host() -> Result<()> {
         .ok_or("host directory missing")?
         .to_owned();
     let case = std::fs::read_to_string(native.join("case.txt"))?;
+    let thread = format!("fixture-{case}");
+    let codex_home = Path::new(&std::env::var_os("CODEX_HOME").ok_or("mock CODEX_HOME missing")?)
+        .canonicalize()?;
+    let mut artifact_lock = None;
     let mut trace = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -275,7 +401,7 @@ fn host() -> Result<()> {
                         "id": id,
                         "result": {
                             "thread": {
-                                "id": "fixture-thread",
+                                "id": thread,
                                 "ephemeral": true,
                                 "path": null
                             }
@@ -303,14 +429,14 @@ fn host() -> Result<()> {
                 if case == "cancel" {
                     continue;
                 }
-                turn(&mut output, &case)?;
+                turn(&mut output, &case, &thread, &codex_home, &mut artifact_lock)?;
             }
             "turn/interrupt" => send(
                 &mut output,
                 json!({
                     "method": "turn/completed",
                     "params": {
-                        "threadId": "fixture-thread",
+                        "threadId": thread,
                         "turn": {
                             "id": "fixture-turn",
                             "status": "interrupted"
@@ -324,7 +450,13 @@ fn host() -> Result<()> {
     Ok(())
 }
 
-fn turn(output: &mut impl Write, case: &str) -> Result<()> {
+fn turn(
+    output: &mut impl Write,
+    case: &str,
+    thread: &str,
+    codex_home: &Path,
+    artifact_lock: &mut Option<std::fs::File>,
+) -> Result<()> {
     if case == "large-line" {
         writeln!(output, "{}", "x".repeat(33 * 1024 * 1024))?;
         output.flush()?;
@@ -332,7 +464,7 @@ fn turn(output: &mut impl Write, case: &str) -> Result<()> {
     }
     let scope = |item| {
         json!({
-            "threadId": if case == "wrong-thread" { "foreign" } else { "fixture-thread" },
+            "threadId": if case == "wrong-thread" { "foreign" } else { thread },
             "turnId": if case == "wrong-turn" { "foreign" } else { "fixture-turn" },
             "item": item
         })
@@ -352,6 +484,91 @@ fn turn(output: &mut impl Write, case: &str) -> Result<()> {
         if case == "double-start" {
             send(output, start)?;
         }
+        if case == "late-tool" {
+            send(
+                output,
+                json!({
+                    "id": 901,
+                    "method": "item/tool/call",
+                    "params": {
+                        "threadId": thread,
+                        "turnId": "fixture-turn",
+                        "namespace": null,
+                        "tool": "prepare_translation",
+                        "arguments": {}
+                    }
+                }),
+            )?;
+            return Ok(());
+        }
+        let saved = if matches!(
+            case,
+            "valid"
+                | "metadata-rejected"
+                | "malformed-final"
+                | "cancel-after-image"
+                | "locked-swap"
+                | "foreign-saved-path"
+                | "file-symlink"
+                | "directory-symlink"
+                | "hardlink"
+                | "different-bytes"
+                | "locked-file"
+                | "cleanup-failure"
+                | "late-tool-after-image"
+        ) {
+            let path = codex_home
+                .join("generated_images")
+                .join(thread)
+                .join("image-1.png");
+            let preserved = codex_home.join("generated_images/user-existing/image-1.png");
+            let png = base64::engine::general_purpose::STANDARD.decode(PNG)?;
+            if case == "directory-symlink" {
+                #[cfg(windows)]
+                std::os::windows::fs::symlink_dir(
+                    preserved.parent().unwrap(),
+                    path.parent().unwrap(),
+                )?;
+            } else {
+                std::fs::create_dir_all(path.parent().unwrap())?;
+                match case {
+                    "file-symlink" => {
+                        #[cfg(windows)]
+                        std::os::windows::fs::symlink_file(&preserved, &path)?;
+                    }
+                    "hardlink" => std::fs::hard_link(&preserved, &path)?,
+                    "different-bytes" => {
+                        let mut different = png.clone();
+                        *different.last_mut().unwrap() ^= 1;
+                        std::fs::write(&path, different)?;
+                    }
+                    _ => std::fs::write(&path, png)?,
+                }
+            }
+            if case == "locked-file" {
+                #[cfg(windows)]
+                {
+                    *artifact_lock = Some(
+                        std::fs::OpenOptions::new()
+                            .read(true)
+                            .share_mode(1)
+                            .open(&path)?,
+                    );
+                }
+            }
+            if case == "cleanup-failure" {
+                let mut permissions = std::fs::metadata(&path)?.permissions();
+                permissions.set_readonly(true);
+                std::fs::set_permissions(&path, permissions)?;
+            }
+            Some(if case == "foreign-saved-path" {
+                preserved
+            } else {
+                path
+            })
+        } else {
+            None
+        };
         let mut encoded = PNG.to_owned();
         if case == "bad-base64" {
             encoded = "!not-base64!".into();
@@ -372,16 +589,38 @@ fn turn(output: &mut impl Write, case: &str) -> Result<()> {
                 "status": if case == "failed" { "failed" } else { "completed" },
                 "result": encoded,
                 "revisedPrompt": "fixture edit",
-                "savedPath": "C:/never-read-this-path/generated.png"
+                "savedPath": saved
             }))
         });
         send(output, done.clone())?;
         if case == "double-complete" {
             send(output, done)?;
         }
+        if matches!(case, "cancel-after-image" | "locked-swap") {
+            return Ok(());
+        }
+        if case == "late-tool-after-image" {
+            send(
+                output,
+                json!({
+                    "id": 902,
+                    "method": "item/tool/call",
+                    "params": {
+                        "threadId": thread,
+                        "turnId": "fixture-turn",
+                        "namespace": null,
+                        "tool": "prepare_translation",
+                        "arguments": {}
+                    }
+                }),
+            )?;
+            return Ok(());
+        }
     }
-    let text = if case == "malformed-final" {
+    let text = if matches!(case, "malformed-final" | "cleanup-failure") {
         "not JSON"
+    } else if case == "metadata-rejected" {
+        "{\"accepted\":false}"
     } else {
         "{\"accepted\":true}"
     };
@@ -395,7 +634,7 @@ fn turn(output: &mut impl Write, case: &str) -> Result<()> {
         json!({
             "method": "turn/completed",
             "params": {
-                "threadId": "fixture-thread",
+                "threadId": thread,
                 "turn": {
                     "id": "fixture-turn",
                     "status": "completed",
@@ -412,6 +651,21 @@ fn send(output: &mut impl Write, value: Value) -> Result<()> {
     writeln!(output)?;
     output.flush()?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn artifact_is_locked(path: &Path) -> bool {
+    let result = std::fs::OpenOptions::new()
+        .read(true)
+        .access_mode(windows_sys::Win32::Storage::FileSystem::DELETE)
+        .share_mode(7)
+        .open(path);
+    matches!(result, Err(error) if error.raw_os_error() == Some(32))
+}
+
+#[cfg(not(windows))]
+fn artifact_is_locked(_: &Path) -> bool {
+    false
 }
 
 #[cfg(windows)]

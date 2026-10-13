@@ -1,6 +1,5 @@
 //! One built-in image edit plus the consumer's structured acceptance metadata.
-//! Codex owns its generated_images artifact outside our temporary job directory.
-//! We consume only the event bytes and never dereference or remove savedPath.
+//! The transport reclaims only its validated completed-event PNG after app-server reap.
 
 use base64::Engine;
 use serde_json::Value;
@@ -51,6 +50,10 @@ pub(super) struct ImageGenerationState {
 }
 
 impl ImageGenerationState {
+    pub(super) fn context_tools_allowed(&self) -> bool {
+        self.call_id.is_none()
+    }
+
     pub(super) fn start(&mut self, item: &Value) -> Result<()> {
         let id = item
             .get("id")
@@ -67,7 +70,7 @@ impl ImageGenerationState {
         Ok(())
     }
 
-    pub(super) fn complete(&mut self, item: &Value) -> Result<()> {
+    pub(super) fn complete(&mut self, item: &Value) -> Result<&[u8]> {
         if self.call_id.is_none()
             || item.get("id").and_then(Value::as_str) != self.call_id.as_deref()
             || self.output.is_some()
@@ -99,8 +102,8 @@ impl ImageGenerationState {
             }
             _ => return Err(CodexError::Protocol),
         };
-        self.output = Some((bytes, revised_prompt));
-        Ok(())
+        let (png, _) = self.output.insert((bytes, revised_prompt));
+        Ok(png)
     }
 
     pub(super) fn finish(

@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::io::BufReader;
 use tokio::process::Command;
 
-use super::{Client, CodexError, RequestMode, Result};
+use super::{Client, CodexError, ImageArtifact, RequestMode, Result};
 
 pub(super) const DISABLED_FEATURES: &[&str] = &[
     "shell_tool",
@@ -58,6 +58,11 @@ impl Client {
         disabled_servers: &[String],
         mode: RequestMode,
     ) -> Result<Self> {
+        let artifact = if mode == RequestMode::ImageGeneration {
+            Some(ImageArtifact::new().map_err(|error| CodexError::artifact_cleanup(error, None))?)
+        } else {
+            None
+        };
         let mut command = Command::new(executable);
         command.current_dir(cwd).env_clear();
         for name in [
@@ -122,6 +127,7 @@ impl Client {
         let stdout = BufReader::new(child.stdout.take().ok_or(CodexError::Protocol)?);
         Ok(Self {
             mode,
+            artifact,
             child,
             stdin,
             stdout,
@@ -132,9 +138,21 @@ impl Client {
         })
     }
 
-    pub(super) async fn stop(&mut self) {
+    pub(super) async fn stop(&mut self) -> std::io::Result<()> {
         let _ = self.child.start_kill();
-        let _ = tokio::time::timeout(Duration::from_secs(3), self.child.wait()).await;
+        let reaped = tokio::time::timeout(Duration::from_secs(3), self.child.wait()).await;
+        if let Some(artifact) = &mut self.artifact {
+            match reaped {
+                Ok(Ok(_)) => artifact.cleanup()?,
+                Ok(Err(error)) => return Err(error),
+                Err(_) => {
+                    return Err(std::io::Error::other(
+                        "app-server was not reaped; PNG cleanup skipped",
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
