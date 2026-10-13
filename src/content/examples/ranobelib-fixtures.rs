@@ -19,7 +19,12 @@ mod response;
 mod text;
 
 pub use model::*;
-pub use qbutt_content::{Error, Result};
+#[path = "../src/error.rs"]
+mod error;
+pub use error::{Error, Result};
+#[cfg(windows)]
+pub use qbutt_content::webview;
+
 pub use text::{TextBlock, TextBlockKind, TextChapter, TextSpan};
 
 use serde_json::{Value, json};

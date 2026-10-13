@@ -2,7 +2,12 @@
 //! source is compiled unchanged. Only this example maps two fixture DNS names
 //! to local sockets; the product has no policy constructor or override.
 
-pub use qbutt_content::{Error, Result, TorrentMetadata};
+#[path = "../src/error.rs"]
+mod error;
+pub use error::{Error, Result};
+pub use qbutt_content::TorrentMetadata;
+#[cfg(windows)]
+pub use qbutt_content::webview;
 
 #[allow(dead_code)]
 #[path = "../src/model.rs"]
@@ -332,6 +337,7 @@ async fn exercise_prepared_mp4(origin: &Url) -> AcceptanceResult<()> {
         headers: [("Cookie".to_owned(), "fixture=session".to_owned())].into(),
         audio_url: None,
         audio_track: None,
+        video_height: None,
         subtitles: Vec::new(),
     };
     let (gateway, prepared) = MediaGateway::prepare(media).await?;
@@ -371,6 +377,7 @@ async fn exercise_prepared_mp4(origin: &Url) -> AcceptanceResult<()> {
         headers: [("Cookie".to_owned(), "fixture=session".to_owned())].into(),
         audio_url: None,
         audio_track: None,
+        video_height: None,
         subtitles: Vec::new(),
     };
     let (gateway, prepared) = MediaGateway::prepare(redirected).await?;
@@ -399,6 +406,7 @@ async fn exercise_prepared_mp4(origin: &Url) -> AcceptanceResult<()> {
             headers: Default::default(),
             audio_url: None,
             audio_track: None,
+            video_height: None,
             subtitles: Vec::new(),
         };
         let result = MediaGateway::prepare(media).await;

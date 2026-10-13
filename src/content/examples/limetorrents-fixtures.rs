@@ -3,17 +3,16 @@
 #[path = "../src/model.rs"]
 mod model;
 pub use model::*;
-pub use qbutt_content::{Error, Result};
+#[path = "../src/error.rs"]
+mod error;
+pub use error::{Error, Result};
+#[cfg(windows)]
+pub use qbutt_content::webview;
 
 #[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;
-
-#[cfg(windows)]
-mod webview {
-    pub use qbutt_content::webview::WebViewSession;
-}
 
 #[allow(dead_code)]
 #[path = "../src/torrent.rs"]

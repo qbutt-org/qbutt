@@ -7,6 +7,8 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
+#[cfg(windows)]
+pub use qbutt_content::webview;
 
 #[allow(dead_code)]
 #[path = "../src/torrent.rs"]
