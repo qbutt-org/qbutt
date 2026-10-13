@@ -114,17 +114,18 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     const QString source = spec.value(u"source"_s).toString();
     require((source == u"aniliberty") || (source == u"rutor") || (source == u"limetorrents")
             || (source == u"nnmclub") || (source == u"dodi") || (source == u"byrut")
-            || (source == u"freetp") || (source == u"fitgirl"),
+            || (source == u"freetp") || (source == u"fitgirl") || (source == u"rutracker"),
         u"Unsupported handoff source"_s);
     const bool ruTor = source == u"rutor";
     const bool limeTorrents = source == u"limetorrents";
     const bool nnmClub = source == u"nnmclub";
+    const bool ruTracker = source == u"rutracker";
     const bool dodi = source == u"dodi";
     const bool byRut = source == u"byrut";
     const bool freeTP = source == u"freetp";
     const bool fitGirl = source == u"fitgirl";
     const bool torrentFile = dodi || byRut || freeTP;
-    const bool singleTorrent = ruTor || limeTorrents || nnmClub || torrentFile;
+    const bool singleTorrent = ruTor || limeTorrents || nnmClub || ruTracker || torrentFile;
     QString sourceLabel = u"AniLiberty"_s;
     QString category = u"anime"_s;
     QString queryText = u"Frieren"_s;
@@ -143,6 +144,12 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     else if (nnmClub)
     {
         sourceLabel = u"NNM-Club"_s;
+        category = u"movies"_s;
+        queryText = u"Sintel"_s;
+    }
+    else if (ruTracker)
+    {
+        sourceLabel = u"RuTracker"_s;
         category = u"movies"_s;
         queryText = u"Sintel"_s;
     }
@@ -224,6 +231,17 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     }, 10'000, u"Source settings"_s);
     auto *sources = qobject_cast<QAbstractItemModel *>(controller->property("sources").value<QObject *>());
     require(sources && (sources->rowCount() > 0), u"Source model is missing"_s);
+    if (ruTracker)
+    {
+        view.setBrowserChoice(u"edge"_s);
+        controller->watchBrowser();
+        waitFor([&]
+        {
+            return controller->property("browserConnectionState").value<Qbutt::Browser::ConnectionState>()
+                == Qbutt::Browser::ConnectionState::Connected;
+        }, 65'000, u"Existing authenticated Edge connection"_s);
+        controller->closeBrowserSettings();
+    }
     for (int row = 0; row < sources->rowCount(); ++row)
     {
         const QString id = value(sources, row, "sourceId");
@@ -336,6 +354,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         expectedWorkId = u"limetorrents:Big-Buck-Bunny-4K-UHD-HFR-60fps-FLAC-WEBDL-2160p-X264-mkv-torrent-9616433.html"_s;
     else if (nnmClub)
         expectedWorkId = u"nnmclub:906013"_s;
+    else if (ruTracker)
+        expectedWorkId = u"rutracker:5026149"_s;
     else if (dodi)
         expectedWorkId = u"dodi:2643--devil-may-cry-5"_s;
     else if (byRut)
@@ -413,6 +433,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         require(infoHash == u"c97f976894b81bb0f0befea584c9a81ad3bd9f5a", u"Known public-domain torrent hash changed"_s);
     if (nnmClub)
         require(infoHash == u"eeddbd381bc734373bccf170a17d3bba23fa33a3", u"Known Sintel torrent hash changed"_s);
+    if (ruTracker)
+        require(infoHash == u"cfcdab5d3c5efb529590160ea84fc419977fbd67", u"Known RuTracker Sintel torrent hash changed"_s);
     if (byRut)
         require(infoHash == u"942e9eeace33f7cfefa4fbcc129a1a9f12097638", u"Known Stardew Valley torrent hash changed"_s);
     if (freeTP)

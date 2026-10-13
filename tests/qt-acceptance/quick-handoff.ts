@@ -15,9 +15,9 @@ const mainContent = input.includes("--main");
 assert(input.filter(arg => arg === "--main").length <= 1, "Repeated --main option");
 const args = input.filter(arg => arg !== "--main");
 assert(args.length === 0 || (args.length === 2 && args[0] === "--source"),
-    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|dodi|byrut|freetp|fitgirl] [--main]");
+    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|rutracker|dodi|byrut|freetp|fitgirl] [--main]");
 const selectedSource = args[1] ?? "aniliberty";
-assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "dodi", "byrut", "freetp", "fitgirl"].includes(selectedSource), "Unsupported handoff source");
+assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "rutracker", "dodi", "byrut", "freetp", "fitgirl"].includes(selectedSource), "Unsupported handoff source");
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
 const executable = resolve(source);
@@ -171,7 +171,7 @@ try {
         assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
         assert.notEqual(check.defaultInfoHash, check.infoHash);
     }
-    else if (["rutor", "limetorrents", "nnmclub"].includes(selectedSource)) {
+    else if (["rutor", "limetorrents", "nnmclub", "rutracker"].includes(selectedSource)) {
         assert.equal(check.variantCount, 1);
         assert.equal(check.selectedRow, 0);
         if (selectedSource === "rutor")
@@ -179,6 +179,10 @@ try {
         else if (selectedSource === "nnmclub") {
             assert.equal(check.workId, "nnmclub:906013");
             assert.equal(check.infoHash, "eeddbd381bc734373bccf170a17d3bba23fa33a3");
+        }
+        else if (selectedSource === "rutracker") {
+            assert.equal(check.workId, "rutracker:5026149");
+            assert.equal(check.infoHash, "cfcdab5d3c5efb529590160ea84fc419977fbd67");
         }
         else {
             assert.equal(check.workId,
