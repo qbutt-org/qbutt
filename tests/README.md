@@ -496,9 +496,9 @@ The fixture also checks unchanged pixels outside regions, deterministic
 rerendering, missing-glyph retention and cancellation. It does not establish
 AI style recognition or cleanup quality on scanned artwork.
 
-Both scenarios accept `--translation-model <model> --translation-effort <effort>`
-through the QML controls. Their PASS lines report milliseconds from requesting
-translation until the reader leaves its busy state. Use a fresh profile for
+The two QML translation scenarios accept `--translation-model <model>` and
+`--translation-effort <effort>` through the QML controls. Their PASS lines report
+milliseconds from requesting translation until the reader leaves its busy state. Use a fresh profile for
 each configuration so an earlier cache cannot replace the live request.
 Set `QT_FORCE_STDERR_LOGGING=1` on Windows to retain Qt PASS/failure diagnostics.
 `--translation-target ru|en` selects the target through QML. With
