@@ -620,9 +620,11 @@ roles with white primary-action text. The Qt acceptance executable and its
 dependencies must be deployed together. This still synthesizes Qt input; native
 pointer and System appearance acceptance are separate.
 
-The MainWindow direct-video path has a real playback scenario:
+The MainWindow direct-video path has a real playback scenario. Run it in the
+isolated VM; it opens native qbutt and qplay windows:
 
 ```powershell
+$env:QBUTT_QT_ACCEPTANCE_NATIVE = '1'
 $env:QBUTT_QT_ACCEPTANCE_EXE = 'C:/Tools/qbutt/main-combined-qa/runtime/qbutt-qt-acceptance.exe'
 $env:QBUTT_QT_ACCEPTANCE_BUNDLE = 'C:/Tools/qbutt/main-combined-qa/runtime'
 $env:QBUTT_LAB_QPLAY = 'C:/Tools/qbutt/main-combined-qa/runtime/qplay/qplay.exe'
@@ -632,8 +634,8 @@ bun tests/qt-acceptance/native-watch.ts --source=animespirit
 bun tests/qt-acceptance/native-watch.ts --source=vkvideo
 ```
 
-The bundle must include the verified qplay distribution. The runner uses a fresh
-profile and headless video/audio output. Require exit zero and passing evidence: exact
+The bundle must include the verified qplay distribution. The runner uses fresh
+qbutt/qplay profiles and Windows QPA. Require exit zero and passing evidence: exact
 AniLiberty episode/quality, real mpv file-loaded and advancing time, History only
 after ACK with the full Work/preferences, and retired gateway after stop.
 The AniTokyo and AnimeSpirit modes isolate their source, select the exact live

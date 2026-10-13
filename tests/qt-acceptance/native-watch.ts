@@ -6,6 +6,9 @@ import { dirname, join, resolve } from "node:path";
 import { labAppearanceSettings } from "../appearance";
 import { assertQtRuntime } from "../qt-runtime";
 
+assert(process.env.QBUTT_QT_ACCEPTANCE_NATIVE === "1",
+    "Native Watch opens Windows UI. Run it in the isolated VM with QBUTT_QT_ACCEPTANCE_NATIVE=1.");
+
 const source = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 const qplay = process.env.QBUTT_LAB_QPLAY;
 assert(source, "Set QBUTT_QT_ACCEPTANCE_EXE to the combined Qt acceptance build");
@@ -32,8 +35,6 @@ const root = await mkdtemp(join(tmpdir(), "qbutt-main-watch-"));
 const profile = join(root, "profile");
 const qplayProfile = join(root, "qplay");
 await mkdir(join(profile, "qbutt", "config"), { recursive: true });
-await mkdir(join(qplayProfile, "config"), { recursive: true });
-await writeFile(join(qplayProfile, "config", "mpv.conf"), "vo=null\nao=null\nosc=no\nhwdec=no\nkeep-open=yes\n");
 await writeFile(join(profile, "qbutt", "config", "qbutt.ini"), [
     "[LegalNotice]",
     "Accepted=true",
@@ -68,8 +69,8 @@ const application = Bun.spawn([executable, `--profile=${profile}`], {
     timeout: 160_000,
     env: {
         ...process.env,
-        QT_QPA_PLATFORM: "offscreen",
-        QT_QUICK_BACKEND: "software",
+        QT_QPA_PLATFORM: "windows",
+        QT_FORCE_STDERR_LOGGING: "1",
         QBUTT_QT_ACCEPTANCE_SPEC: specPath,
         QBUTT_LAB_PATHS: "1",
         QBUTT_LAB_QPLAY_PROFILE: qplayProfile,
