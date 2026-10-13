@@ -38,6 +38,7 @@ namespace Content
         QQuickWidget *createDownloadsView(QWidget *parent);
         QQuickWidget *createSourcesView(QWidget *parent);
         void initDownloads(const QString &destination);
+        bool canDownloadPlayback(quint64 launchToken) const;
         bool downloadPlayback(quint64 launchToken);
         bool downloadCapture(const QUrl &page, const QString &title, const QString &captureId);
         void cancelCaptureDownload();
@@ -60,6 +61,7 @@ namespace Content
         void browserSetupDismissed();
         void sharedLinkFailed(bool malformed);
         void downloadQueued();
+        void playbackDownloadFinished(quint64 launchToken, bool queued);
         void capturedDownloadFinished(const QString &captureId, const QString &reason);
         void capturedWatchFinished(const QString &captureId, const QString &reason);
 

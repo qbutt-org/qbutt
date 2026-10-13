@@ -97,6 +97,7 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     connect(m_controller, &Qbutt::ContentController::browserChoiceRequested,
         this, &ContentView::browserChoiceRequested);
     connect(m_controller, &Qbutt::ContentController::downloadQueued, this, &ContentView::downloadQueued);
+    connect(m_controller, &Qbutt::ContentController::playbackDownloadFinished, this, &ContentView::playbackDownloadFinished);
     connect(m_controller, &Qbutt::ContentController::mediaToolsRequested, this, [this](const quint64 requestId)
     {
         const quint64 runtimeId = Media::Runtime::instance()->request(this,
@@ -187,6 +188,11 @@ QQuickWidget *Content::ContentView::createSourcesView(QWidget *parent)
 void Content::ContentView::initDownloads(const QString &destination)
 {
     m_controller->initDownloads(destination);
+}
+
+bool Content::ContentView::canDownloadPlayback(const quint64 launchToken) const
+{
+    return m_controller->canDownloadPlayback(launchToken);
 }
 
 bool Content::ContentView::downloadPlayback(const quint64 launchToken)

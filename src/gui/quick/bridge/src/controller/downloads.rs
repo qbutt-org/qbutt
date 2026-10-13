@@ -263,7 +263,15 @@ impl ffi::ContentController {
         let Some(request) = self.source_request(SourceOperation::Resolve(reference)) else {
             return false;
         };
-        self.as_mut().resolve_download(request, queue, None)
+        self.as_mut().resolve_download(request, queue, None, 0)
+    }
+
+    pub fn can_download_playback(&self, launch_token: u64) -> bool {
+        self.download_queue.is_some()
+            && self
+                .playback
+                .reference_for(launch_token)
+                .is_some_and(|reference| downloadable_video(&reference))
     }
 
     pub fn download_playback(mut self: Pin<&mut Self>, launch_token: u64) -> bool {
@@ -279,7 +287,8 @@ impl ffi::ContentController {
         let Some(request) = self.source_request(SourceOperation::Resolve(reference)) else {
             return false;
         };
-        self.as_mut().resolve_download(request, queue, None)
+        self.as_mut()
+            .resolve_download(request, queue, None, launch_token)
     }
 
     pub fn download_captured(
@@ -496,7 +505,7 @@ impl ffi::ContentController {
             return false;
         };
         self.as_mut()
-            .resolve_download(request, queue, Some(id.to_string()))
+            .resolve_download(request, queue, Some(id.to_string()), 0)
     }
 
     fn resolve_download(
@@ -504,6 +513,7 @@ impl ffi::ContentController {
         request: SourceRequest,
         queue: Arc<DownloadQueue<super::library::DownloadStore>>,
         retry_id: Option<String>,
+        launch_token: u64,
     ) -> bool {
         let Some(services) = &self.services else {
             self.as_mut()
@@ -560,14 +570,17 @@ impl ffi::ContentController {
             };
             let _ = qt_thread.queue(move |mut controller| {
                 if !controller.source_request_current(&request) {
+                    controller.as_mut().playback_download_finished(launch_token, false);
                     return;
                 }
                 controller.as_mut().source_outcome(&request, &result);
                 if !controller.source_request_current(&request) {
+                    controller.as_mut().playback_download_finished(launch_token, false);
                     return;
                 }
 
                 let SourceOperation::Resolve(reference) = &request.operation else {
+                    controller.as_mut().playback_download_finished(launch_token, false);
                     return;
                 };
                 let download = match result {
@@ -605,25 +618,9 @@ impl ffi::ContentController {
                         Some(Ok(PreparedAcquisition::Segmented(media))) => {
                             Ok((None, Some((resolved, title, media))))
                         }
-                        Some(Err(())) => {
-                            controller
-                                .as_mut()
-                                .set_error(Some(ffi::ContentError::Download));
-                            return;
-                        }
-                        None => {
-                            controller
-                                .as_mut()
-                                .set_error(Some(ffi::ContentError::Download));
-                            return;
-                        }
+                        Some(Err(())) | None => Err(DownloadError::Stream),
                     },
-                    _ => {
-                        controller
-                            .as_mut()
-                            .set_error(Some(ffi::ContentError::Download));
-                        return;
-                    }
+                    _ => Err(DownloadError::InvalidSelection),
                 };
                 let (download, segmented) = match download {
                     Ok(download) => download,
@@ -635,11 +632,13 @@ impl ffi::ContentController {
                         controller
                             .as_mut()
                             .set_error(Some(ffi::ContentError::Download));
+                        controller.as_mut().playback_download_finished(launch_token, false);
                         return;
                     }
                 };
                 let tools = segmented.as_ref().map(|_| controller.as_mut().request_media_tools());
                 let Some(services) = &controller.services else {
+                    controller.as_mut().playback_download_finished(launch_token, false);
                     return;
                 };
                 let error_thread = controller.qt_thread();
@@ -662,22 +661,22 @@ impl ffi::ContentController {
                         },
                         Err(error) => Err(error),
                     };
+                    let queued = outcome.is_ok();
                     if let Err(error) = outcome {
                         let detail = error.to_string();
                         ffi::log_content_error(
                             &QString::from("download queue"),
                             &QString::from(&detail),
                         );
-                        let _ = error_thread.queue(move |mut controller| {
-                            controller
-                                .as_mut()
-                                .set_error(Some(ffi::ContentError::Download));
-                        });
-                    } else if fresh {
-                        let _ = error_thread.queue(move |mut controller| {
-                            controller.as_mut().download_queued();
-                        });
                     }
+                    let _ = error_thread.queue(move |mut controller| {
+                        if !queued {
+                            controller.as_mut().set_error(Some(ffi::ContentError::Download));
+                        } else if fresh {
+                            controller.as_mut().download_queued();
+                        }
+                        controller.as_mut().playback_download_finished(launch_token, queued);
+                    });
                 });
             });
         });

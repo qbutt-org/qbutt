@@ -351,8 +351,7 @@ void Player::startPrepared(const QString &executable)
         u"--http-proxy="_s + QString::fromUtf8(m_current.options.proxyUrl.toEncoded()),
         u"--terminal=no"_s
     };
-    if (m_current.options.launchToken == 0)
-        arguments.prepend(u"--external-downloads"_s);
+    arguments.prepend(u"--external-downloads"_s);
     if (qEnvironmentVariable("QBUTT_LAB_PATHS") == u"1")
     {
         const QString profile = qEnvironmentVariable("QBUTT_LAB_QPLAY_PROFILE");
@@ -480,6 +479,30 @@ void Player::confirmPlayback()
     setPlaying(true);
     if (!m_stopping && (m_current.state == PlaybackState::Started) && (m_current.options.launchToken == token))
         emit playbackStarted(identity, token);
+}
+
+void Player::enableDownload(const quint64 launchToken)
+{
+    if ((launchToken == 0) || (m_current.options.launchToken != launchToken)
+        || (m_current.download != DownloadState::Unavailable)
+        || (m_current.state != PlaybackState::Started) || m_stopping
+        || ((m_current.url.scheme() != u"http") && (m_current.url.scheme() != u"https")))
+        return;
+
+    m_current.download = DownloadState::Ready;
+    sendCommand({u"script-message"_s, u"qplay-download-target"_s, QString::number(launchToken),
+        QString::fromUtf8(m_current.url.toEncoded())});
+}
+
+void Player::finishDownload(const quint64 launchToken, const bool queued)
+{
+    if ((launchToken == 0) || (m_current.options.launchToken != launchToken)
+        || (m_current.download != DownloadState::Pending))
+        return;
+
+    m_current.download = queued ? DownloadState::Queued : DownloadState::Failed;
+    sendCommand({u"script-message"_s, u"qplay-download-result"_s, QString::number(launchToken),
+        queued ? u"queued"_s : u"failed"_s});
 }
 
 void Player::finishLaunch(Playback &playback)
@@ -677,10 +700,22 @@ void Player::readMessages()
         else if (event == u"client-message")
         {
             const QJsonArray arguments = message.value(u"args"_s).toArray();
-            if (!arguments.isEmpty() && (arguments.at(0).toString() == u"qplay-download"))
+            if ((arguments.size() == 3) && (arguments.at(0).toString() == u"qplay-download")
+                && !m_stopping && (m_current.state == PlaybackState::Started)
+                && (m_current.options.launchToken != 0)
+                && (arguments.at(1).toString() == QString::number(m_current.options.launchToken))
+                && (arguments.at(2).toString() == QString::fromUtf8(m_current.url.toEncoded())))
             {
-                if (m_current.options.launchToken == 0)
-                    emit downloadRequested(m_current.url, m_current.title, m_current.options);
+                if (m_current.download == DownloadState::Queued)
+                {
+                    sendCommand({u"script-message"_s, u"qplay-download-result"_s,
+                        QString::number(m_current.options.launchToken), u"queued"_s});
+                }
+                else if ((m_current.download == DownloadState::Ready) || (m_current.download == DownloadState::Failed))
+                {
+                    m_current.download = DownloadState::Pending;
+                    emit downloadRequested(m_current.options.launchToken);
+                }
             }
         }
         else if ((event == u"end-file") && (message.value(u"reason"_s).toString() == u"error"))

@@ -696,6 +696,8 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "downloadSelected"]
         fn download_selected(self: Pin<&mut Self>, id: QString) -> bool;
+        #[cxx_name = "canDownloadPlayback"]
+        fn can_download_playback(&self, launch_token: u64) -> bool;
         #[cxx_name = "downloadPlayback"]
         fn download_playback(self: Pin<&mut Self>, launch_token: u64) -> bool;
         #[cxx_name = "downloadCaptured"]
@@ -722,6 +724,9 @@ pub mod ffi {
         #[qsignal]
         #[cxx_name = "capturedDownloadFinished"]
         fn captured_download_finished(self: Pin<&mut Self>, capture_id: QString, reason: QString);
+        #[qsignal]
+        #[cxx_name = "playbackDownloadFinished"]
+        fn playback_download_finished(self: Pin<&mut Self>, launch_token: u64, queued: bool);
         #[qsignal]
         #[cxx_name = "downloadQueued"]
         fn download_queued(self: Pin<&mut Self>);

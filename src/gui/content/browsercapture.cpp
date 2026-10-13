@@ -117,21 +117,6 @@ void Content::BrowserCapture::cancel()
     emit preparationChanged({});
 }
 
-bool Content::BrowserCapture::requestPlaybackDownload(const QString &identity)
-{
-    if (m_pending || m_playbackCaptureId.isEmpty()
-        || identity != u"capture:"_s + m_playbackCaptureId)
-    {
-        return false;
-    }
-    m_page = m_playbackPage;
-    m_title = m_playbackTitle;
-    m_captureId = m_playbackCaptureId;
-    m_action = Action::Download;
-    dispatch();
-    return true;
-}
-
 void Content::BrowserCapture::dispatch()
 {
     m_pending = true;
@@ -167,12 +152,6 @@ void Content::BrowserCapture::finish(const QString &captureId, const QString &re
     m_action = Action::None;
     if (reason.isEmpty())
     {
-        if (action == Action::Watch)
-        {
-            m_playbackPage = m_page;
-            m_playbackTitle = m_title;
-            m_playbackCaptureId = m_captureId;
-        }
         emit completed();
     }
     else if (reason == u"unsupported")

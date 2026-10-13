@@ -16,7 +16,6 @@ namespace Content
         void open(const QUrl &url);
         void retry();
         void cancel();
-        bool requestPlaybackDownload(const QString &identity);
         void finishDownload(const QString &captureId, const QString &reason);
         void finishWatch(const QString &captureId, const QString &reason);
 
@@ -42,8 +41,5 @@ namespace Content
         Action m_action = Action::None;
         bool m_pending = false;
 
-        QUrl m_playbackPage;
-        QString m_playbackTitle;
-        QString m_playbackCaptureId;
     };
 }

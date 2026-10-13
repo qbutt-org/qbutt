@@ -188,21 +188,10 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
         m_playerPreparationDialog->setLabelText(message);
         m_playerPreparationDialog->show();
     });
-    connect(Media::Player::instance(), &Media::Player::downloadRequested, this,
-        [this](const QUrl &, const QString &, const Media::PlaybackOptions &options)
+    connect(Media::Player::instance(), &Media::Player::downloadRequested, this, [this](const quint64 launchToken)
     {
-        if (options.identity.startsWith(u"torrent:"))
-        {
-            displayTransferTab();
-            activate();
-            return;
-        }
-
-        if (options.launchToken && m_searchWidget && m_searchWidget->downloadPlayback(options.launchToken))
-            return;
-        if (m_browserCapture && m_browserCapture->requestPlaybackDownload(options.identity))
-            return;
-        QMessageBox::warning(this, tr("Downloads"), tr("This video cannot be saved as one MP4 file."));
+        if (!m_searchWidget || !m_searchWidget->downloadPlayback(launchToken))
+            Media::Player::instance()->finishDownload(launchToken, false);
     });
 
     Preferences *const pref = Preferences::instance();
@@ -847,7 +836,11 @@ Content::ContentView *MainWindow::ensureContentView()
             [view = m_searchWidget](const QString &, const quint64 launchToken)
         {
             view->confirmPlayback(launchToken);
+            if (view->canDownloadPlayback(launchToken))
+                Media::Player::instance()->enableDownload(launchToken);
         });
+        connect(m_searchWidget, &Content::ContentView::playbackDownloadFinished,
+            Media::Player::instance(), &Media::Player::finishDownload);
         connect(Media::Player::instance(), &Media::Player::playbackFinished,
             m_searchWidget, &Content::ContentView::finishPlayback);
         connect(m_searchWidget, &Content::ContentView::readerActiveChanged, this, &MainWindow::updateContextControls);

@@ -64,6 +64,8 @@ namespace Media
         bool playUrl(const QUrl &url, const QString &title = {}, const PlaybackOptions &options = {});
         bool playTorrent(BitTorrent::Torrent *torrent, int fileIndex, const QString &contentKind = {});
         void stop();
+        void enableDownload(quint64 launchToken);
+        void finishDownload(quint64 launchToken, bool queued);
 
     signals:
         void error(const QString &message);
@@ -74,7 +76,7 @@ namespace Media
         void positionChanged(double seconds);
         void durationChanged(double seconds);
         void tracksChanged(const QJsonArray &tracks);
-        void downloadRequested(const QUrl &url, const QString &title, const Media::PlaybackOptions &options);
+        void downloadRequested(quint64 launchToken);
 
     private:
         enum class PlaybackState
@@ -84,6 +86,15 @@ namespace Media
             Finished
         };
 
+        enum class DownloadState
+        {
+            Unavailable,
+            Ready,
+            Pending,
+            Queued,
+            Failed
+        };
+
         struct Playback
         {
             QUrl url;
@@ -91,6 +102,7 @@ namespace Media
             PlaybackOptions options;
             QString positionKey;
             PlaybackState state = PlaybackState::Finished;
+            DownloadState download = DownloadState::Unavailable;
         };
 
         explicit Player(QObject *parent);
