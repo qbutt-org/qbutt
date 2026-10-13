@@ -8,6 +8,10 @@ use reqwest::header::{ACCEPT, ACCEPT_ENCODING, CONTENT_TYPE, HeaderMap, LOCATION
 use serde::de::DeserializeOwned;
 use url::{Host, Url};
 
+#[cfg(windows)]
+use crate::browser::{
+    BrowserChoice, BrowserCommand, BrowserError, BrowserHandle, BrowserReply, FetchInit,
+};
 use crate::{Error, Result};
 
 #[path = "http/session.rs"]
@@ -49,6 +53,41 @@ pub(crate) struct SourceDocument {
     pub content_type: Option<String>,
     pub final_url: Url,
     pub body: Vec<u8>,
+}
+
+/// qcatch owns the authenticated browser request and charset decoding. Keep the
+/// returned bytes and advertised encoding consistent for existing source parsers.
+#[cfg(windows)]
+pub(crate) async fn browser_document(
+    browser: &BrowserHandle,
+    choice: BrowserChoice,
+    url: Url,
+    init: FetchInit,
+) -> Result<SourceDocument> {
+    let response = browser
+        .request_connected(choice, BrowserCommand::Fetch { url, init })
+        .await
+        .map_err(|error| match error {
+            BrowserError::ChoiceRequired => Error::BrowserChoiceRequired,
+            error => Error::BrowserSession(error),
+        })?;
+    let BrowserReply::Fetch(response) = response else {
+        return Err(Error::BrowserSession(BrowserError::InvalidResponse));
+    };
+    if !response.headers.get("content-type").is_some_and(|value| {
+        value
+            .split(';')
+            .next()
+            .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/html"))
+    }) {
+        return Err(Error::InvalidResponse("browser response is not HTML"));
+    }
+    Ok(SourceDocument {
+        status: response.status,
+        content_type: Some("text/html; charset=utf-8".into()),
+        final_url: response.url,
+        body: response.body.into_bytes(),
+    })
 }
 
 pub(crate) struct SourceHttp {
