@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use qbutt_content::{
     AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, FitGirl, FreeTP, Kakuyomu,
-    LibSession, MangaDex, MangaLib, Nyaa, OnlineFix, RanobeHub, RanobeLib, ResolvedContent,
-    RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation, TextChapter, Work, YummyAnime,
+    LibSession, LimeTorrents, MangaDex, MangaLib, Nyaa, OnlineFix, RanobeHub, RanobeLib,
+    ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation, TextChapter,
+    Work, YummyAnime,
 };
 
 use super::browser::BrowserClient;
@@ -36,6 +37,7 @@ pub(super) struct Catalog {
     online_fix: OnlineFix,
     freetp: FreeTP,
     byrut: ByRut,
+    limetorrents: LimeTorrents,
     ranobelib: RanobeLib,
     ranobehub: RanobeHub,
     royalroad: RoyalRoad,
@@ -75,6 +77,7 @@ impl Catalog {
             online_fix: OnlineFix::new()?,
             freetp: FreeTP::new()?,
             byrut: ByRut::new()?,
+            limetorrents: LimeTorrents::new()?,
             ranobelib: RanobeLib::new()?,
             ranobehub: RanobeHub::new()?,
             royalroad: RoyalRoad::new()?,
@@ -137,6 +140,7 @@ impl Catalog {
                             )
                             .await
                     }
+                    Source::LimeTorrents => self.limetorrents.search(query, *category).await,
                     Source::RanobeLib => {
                         self.ranobelib
                             .search(query, &mut self.lib_session(*source).await?)
@@ -192,6 +196,7 @@ impl Catalog {
                             )
                             .await
                     }
+                    Source::LimeTorrents => self.limetorrents.inspect(reference).await,
                     Source::RanobeLib => {
                         self.ranobelib
                             .inspect(reference, &mut self.lib_session(reference.source).await?)
@@ -233,6 +238,7 @@ impl Catalog {
                             )
                             .await
                     }
+                    Source::LimeTorrents => self.limetorrents.resolve(reference).await,
                     Source::MangaDex
                     | Source::LocalBook
                     | Source::MangaLib

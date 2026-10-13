@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::AniLiberty,
         Self::AniTokyo,
         Self::YummyAnime,
@@ -22,6 +22,7 @@ impl Source {
         Self::OnlineFix,
         Self::FreeTP,
         Self::ByRut,
+        Self::LimeTorrents,
         Self::RoyalRoad,
         Self::Kakuyomu,
         Self::RanobeHub,
@@ -45,6 +46,7 @@ impl Source {
             Self::OnlineFix => "onlinefix",
             Self::FreeTP => "freetp",
             Self::ByRut => "byrut",
+            Self::LimeTorrents => "limetorrents",
             Self::RoyalRoad => "royalroad",
             Self::Kakuyomu => "kakuyomu",
             Self::RanobeHub => "ranobehub",
@@ -73,6 +75,7 @@ impl Source {
             Self::OnlineFix => "Online-Fix",
             Self::FreeTP => "FreeTP",
             Self::ByRut => "ByRut",
+            Self::LimeTorrents => "LimeTorrents",
             Self::RoyalRoad => "Royal Road",
             Self::Kakuyomu => "Kakuyomu",
             Self::RanobeHub => "RanobeHub",
@@ -108,6 +111,14 @@ impl Source {
                 Category::Books,
             ],
             Self::RuTor => &[
+                Category::Movies,
+                Category::Tv,
+                Category::Anime,
+                Category::Games,
+                Category::Software,
+                Category::Books,
+            ],
+            Self::LimeTorrents => &[
                 Category::Movies,
                 Category::Tv,
                 Category::Anime,

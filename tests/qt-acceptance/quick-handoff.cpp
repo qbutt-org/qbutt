@@ -23,8 +23,10 @@
 #include <QPalette>
 #include <QPointer>
 #include <QPushButton>
+#include <QQmlError>
 #include <QQuickItem>
 #include <QRegularExpression>
+#include <QStringList>
 #include <QThread>
 #include <QTimer>
 
@@ -112,10 +114,26 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(!Net::PortForwarder::instance()->isEnabled(), u"Port forwarding is enabled in the fixture"_s);
 
     const QString source = spec.value(u"source"_s).toString();
-    require((source == u"aniliberty") || (source == u"rutor"), u"Unsupported handoff source"_s);
+    require((source == u"aniliberty") || (source == u"rutor") || (source == u"limetorrents"),
+        u"Unsupported handoff source"_s);
     const bool ruTor = source == u"rutor";
-    const QString sourceLabel = ruTor ? u"RuTor"_s : u"AniLiberty"_s;
-    const QString category = ruTor ? u"software"_s : u"anime"_s;
+    const bool limeTorrents = source == u"limetorrents";
+    const bool singleTorrent = ruTor || limeTorrents;
+    QString sourceLabel = u"AniLiberty"_s;
+    QString category = u"anime"_s;
+    QString queryText = u"Frieren"_s;
+    if (ruTor)
+    {
+        sourceLabel = u"RuTor"_s;
+        category = u"software"_s;
+        queryText = u"Blender"_s;
+    }
+    else if (limeTorrents)
+    {
+        sourceLabel = u"LimeTorrents"_s;
+        category = u"movies"_s;
+        queryText = u"Big Buck Bunny"_s;
+    }
 
     const QDir payload(spec.value(u"payload"_s).toString());
     require(payload.exists() && payload.entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty(),
@@ -146,7 +164,11 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     }
     Content::ContentView &view = *contentView;
     waitFor([&] { return view.status() != QQuickWidget::Loading; }, 10'000, u"QML load"_s);
-    require(view.status() == QQuickWidget::Ready, u"Production ContentView did not load"_s);
+    QStringList qmlErrors;
+    for (const QQmlError &error : view.errors())
+        qmlErrors.append(error.toString());
+    require(view.status() == QQuickWidget::Ready,
+        u"Production ContentView did not load: "_s + qmlErrors.join(u"; "_s));
 
     auto *controller = view.findChild<Qbutt::ContentController *>();
     require(controller && (controller->thread() == qApp->thread()), u"Missing GUI-thread content controller"_s);
@@ -201,7 +223,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         view.giveFocusToSearchInput();
         auto *input = root->findChild<QQuickItem *>(u"contentQuery"_s);
         require(input && input->hasActiveFocus(), u"MainWindow focus action did not focus QML search"_s);
-        input->setProperty("text", ruTor ? u"Blender"_s : u"Frieren"_s);
+        input->setProperty("text", queryText);
         UIThemeManager::instance()->previewColorScheme(ColorScheme::Dark);
         waitFor([&]
         {
@@ -259,19 +281,22 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         Q_ARG(QVariant, QVariant(category))) && (categoryIndex >= 0)
         && categories->setProperty("currentIndex", categoryIndex)
         && (categories->property("currentValue").toString() == category), u"QML category control is missing"_s);
-    require(query && query->setProperty("text", ruTor ? u"Blender"_s : u"Frieren"_s), u"Search field is missing"_s);
+    require(query && query->setProperty("text", queryText), u"Search field is missing"_s);
     require(QMetaObject::invokeMethod(root, "submitSearch"), u"Search action is missing"_s);
     require(controller->property("busy").toBool(), u"Search did not start"_s);
     waitFor([&] { return !controller->property("busy").toBool(); }, 150'000, u"Catalog search"_s);
     require(controller->property("errorText").toString().isEmpty(), u"Catalog search failed"_s);
 
+    const QString expectedWorkId = limeTorrents
+        ? u"limetorrents:Big-Buck-Bunny-4K-UHD-HFR-60fps-FLAC-WEBDL-2160p-X264-mkv-torrent-9616433.html"_s
+        : u"aniliberty:9542"_s;
     QString workId;
     for (int row = 0; row < works->rowCount(); ++row)
     {
         const QString id = value(works, row, "workId");
         if ((value(works, row, "source") == sourceLabel) && (value(works, row, "category") == category)
             && (!ruTor || value(works, row, "title").contains(u"Blender"_s, Qt::CaseInsensitive))
-            && (ruTor || (id == u"aniliberty:9542")))
+            && (ruTor || (id == expectedWorkId)))
         {
             workId = id;
             break;
@@ -303,7 +328,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(controller->property("selectedWorkCategory").toString() == category, u"Fresh category differs from the source route"_s);
     require(!ruTor || controller->property("selectedWorkTitle").toString().contains(u"Blender"_s, Qt::CaseInsensitive),
         u"RuTor inspection returned an unrelated software title"_s);
-    require(ruTor ? variants->rowCount() == 1 : variants->rowCount() >= 2,
+    require(singleTorrent ? variants->rowCount() == 1 : variants->rowCount() >= 2,
         u"Source did not return the required exact torrent variants"_s);
 
     QList<int> torrentRows;
@@ -312,7 +337,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         if (value(variants, row, "kind") == u"torrent")
             torrentRows.append(row);
     }
-    require(ruTor ? torrentRows.size() == 1 : torrentRows.size() >= 2, u"Exact torrent variants are missing"_s);
+    require(singleTorrent ? torrentRows.size() == 1 : torrentRows.size() >= 2, u"Exact torrent variants are missing"_s);
     const int selectedRow = torrentRows.constLast();
     const QString variantId = value(variants, selectedRow, "variantId");
     const QString infoHash = value(variants, selectedRow, "infoHash").toLower();
@@ -321,10 +346,12 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(QRegularExpression(u"^[0-9a-f]{40}$"_s).match(infoHash).hasMatch(),
         u"Selected torrent has no verifiable SHA-1 metadata"_s);
     const QString defaultInfoHash = value(variants, torrentRows.constFirst(), "infoHash").toLower();
-    if (ruTor)
-        require(variantId == workId + u":torrent:"_s + infoHash, u"RuTor lost its full-hash exact selector"_s);
+    if (singleTorrent)
+        require(variantId == workId + u":torrent:"_s + infoHash, u"Torrent source lost its full-hash exact selector"_s);
     else
         require((selectedRow > 0) && (infoHash != defaultInfoHash), u"Variants do not have distinct hashes"_s);
+    if (limeTorrents)
+        require(infoHash == u"c97f976894b81bb0f0befea584c9a81ad3bd9f5a", u"Known public-domain torrent hash changed"_s);
     auto *list = root->findChild<QQuickItem *>(u"contentVariants"_s);
     auto *download = root->findChild<QQuickItem *>(u"contentDownload"_s);
     require(list && download, u"Variant controls are missing"_s);

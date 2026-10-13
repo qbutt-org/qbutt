@@ -15,9 +15,9 @@ const mainContent = input.includes("--main");
 assert(input.filter(arg => arg === "--main").length <= 1, "Repeated --main option");
 const args = input.filter(arg => arg !== "--main");
 assert(args.length === 0 || (args.length === 2 && args[0] === "--source"),
-    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor] [--main]");
+    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents] [--main]");
 const selectedSource = args[1] ?? "aniliberty";
-assert(selectedSource === "aniliberty" || selectedSource === "rutor", "Unsupported handoff source");
+assert(["aniliberty", "rutor", "limetorrents"].includes(selectedSource), "Unsupported handoff source");
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
 const executable = resolve(source);
@@ -108,7 +108,9 @@ try {
     assert.equal(check.payloadEmpty, true);
     assert.equal(check.metadataPayloadEmpty, true);
     assert.equal(check.source, selectedSource);
-    assert.equal(check.category, selectedSource === "rutor" ? "software" : "anime");
+    const category = selectedSource === "rutor" ? "software"
+        : selectedSource === "limetorrents" ? "movies" : "anime";
+    assert.equal(check.category, category);
     assert.equal(check.mainContent, mainContent);
     if (mainContent) {
         assert.equal(check.favoriteWritePendingAtExit, true);
@@ -140,10 +142,15 @@ try {
         }
     }
     assert(check.projectedRow >= 0, "Scenario did not select a projected category row");
-    if (selectedSource === "rutor") {
+    if (selectedSource === "rutor" || selectedSource === "limetorrents") {
         assert.equal(check.variantCount, 1);
         assert.equal(check.selectedRow, 0);
-        assert.match(check.workId, /^rutor:[1-9][0-9]*$/);
+        if (selectedSource === "rutor")
+            assert.match(check.workId, /^rutor:[1-9][0-9]*$/);
+        else {
+            assert.equal(check.workId,
+                "limetorrents:Big-Buck-Bunny-4K-UHD-HFR-60fps-FLAC-WEBDL-2160p-X264-mkv-torrent-9616433.html");
+        }
         assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
     }
     else {

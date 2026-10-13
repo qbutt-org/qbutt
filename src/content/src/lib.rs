@@ -26,6 +26,7 @@ mod kakuyomu;
 mod kodik;
 mod lib_api;
 mod library;
+mod limetorrents;
 mod local_books;
 mod mangadex;
 mod mangalib;
@@ -72,6 +73,7 @@ pub use library::{
     ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, TranslationCacheKey,
     TranslationSelection, VariantFilters, VariantPreferences,
 };
+pub use limetorrents::LimeTorrents;
 pub use local_books::{LocalBook, LocalBookChapter, LocalBookFormat};
 pub use mangadex::MangaDex;
 pub use mangalib::MangaLib;
