@@ -17,7 +17,6 @@ import { SourceSettings } from "./settings";
 import { openLink, share } from "./sharing";
 import { assertLibraryEntrySize, LibraryStore, type VariantFilters } from "./store";
 import { PlaybackStreams } from "./streams";
-import { handleSubtitleRequest } from "./subtitles/service";
 
 const persistenceMethods = new Set([
     "configureSource", "configureTranslation", "remember", "progress", "remove",
@@ -164,11 +163,10 @@ async function run(): Promise<void> {
 
     async function dispatch(method: string, params: Record<string, unknown>, signal: AbortSignal,
         emit: (event: string, data: unknown) => void | Promise<void>): Promise<unknown> {
-        if (method.startsWith("reader.") || method.startsWith("subtitles.")) {
+        if (method.startsWith("reader.")) {
             const context = await catalog.context(typeof params.sourceId === "string" ? params.sourceId
                 : (params.variant as Variant | undefined)?.sourceId || "reader", signal);
-            if (method === "reader.translate" || method === "reader.ahead" || method === "reader.correct"
-                || method === "subtitles.ahead") {
+            if (method === "reader.translate" || method === "reader.ahead" || method === "reader.correct") {
                 const ai = await settings.values("ai");
                 context.settings = {
                     ...context.settings,
@@ -179,13 +177,6 @@ async function run(): Promise<void> {
             if (method === "reader.open" && params.work) {
                 const current = work(params.work);
                 params = { ...params, work: store.find(current)?.work || current };
-            }
-            if (method.startsWith("subtitles.")) {
-                const track = params.track as Record<string, unknown> | undefined;
-                const original = playback.originalSubtitle(params.url, track?.url);
-                const request = original ? { ...params, url: original.url, headers: original.headers,
-                    track: { ...track, url: original.subtitleUrl } } : params;
-                return handleSubtitleRequest(method, request, context, emit);
             }
             return handleReaderRequest(method, params, context, emit);
         }

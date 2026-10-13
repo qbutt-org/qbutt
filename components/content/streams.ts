@@ -10,7 +10,6 @@ export class PlaybackStreams {
         gateway: NetworkProxy;
         controller: AbortController;
         url: string;
-        subtitles?: ResolvedContent["subtitles"];
         original: ResolvedContent;
     };
 
@@ -29,21 +28,6 @@ export class PlaybackStreams {
         if (resolved.kind !== "video" || !current || resolved.url !== current.url)
             return resolved;
         return { ...current.original, audioTrack: resolved.audioTrack || current.original.audioTrack };
-    }
-
-    originalSubtitle(mediaUrl: unknown, subtitleUrl: unknown): {
-        url: string;
-        headers?: Record<string, string>;
-        subtitleUrl: string;
-    } | undefined {
-        const current = this.current;
-        if (!current || mediaUrl !== current.url)
-            return undefined;
-        const index = current.subtitles?.findIndex(subtitle => subtitle.url === subtitleUrl) ?? -1;
-        if (index === -1)
-            return undefined;
-        return { url: current.original.url!, headers: current.original.headers,
-            subtitleUrl: current.original.subtitles![index].url };
     }
 
     async prepare(resolved: ResolvedContent, context: ProviderContext): Promise<ResolvedContent> {
@@ -132,7 +116,7 @@ export class PlaybackStreams {
             }))) : undefined;
             assertCurrent();
             const previous = this.current;
-            this.current = { gateway, controller, url, subtitles, original: resolved };
+            this.current = { gateway, controller, url, original: resolved };
             previous?.controller.abort();
             await previous?.gateway.close();
             assertCurrent();

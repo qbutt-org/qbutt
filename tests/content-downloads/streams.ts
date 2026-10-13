@@ -236,18 +236,6 @@ try {
     await command(ffmpeg, ["-v", "error", "-http_proxy", playing.proxyUrl!, "-i", playing.audioUrl!,
         "-t", "1", "-map", "0:a", "-f", "null", "-"]);
     assert.match((await get(playing, playing.subtitles![0].url)).body.toString(), /Generated legal playback fixture/);
-    const subtitlePair = { url: original.url, headers: original.headers, subtitleUrl: original.subtitles[0].url };
-    assert.deepEqual(streams.originalSubtitle(playing.url, playing.subtitles![0].url), subtitlePair);
-    for (const [media, track] of [
-        [playing.url, new URL("unknown.vtt", playing.subtitles![0].url).href],
-        [origin + "/other.m3u8", playing.subtitles![0].url],
-        [playing.url, original.subtitles[0].url],
-        [playing.url, 42],
-        [null, playing.subtitles![0].url],
-    ]) {
-        assert.equal(streams.originalSubtitle(media, track), undefined,
-            "An unregistered media/subtitle pair restored source credentials");
-    }
 
     const videoManifest = masterResponse.body.toString().split(/\r?\n/).find(line => line.startsWith("http"))!;
     const video = (await get(playing, videoManifest)).body.toString();
@@ -274,16 +262,6 @@ try {
     playing = await streams.prepare(original, context());
     assert.notEqual(new URL(playing.proxyUrl!).password, new URL(firstOpen.proxyUrl!).password);
     assert.notEqual(playing.subtitles![0].url, firstOpen.subtitles![0].url);
-    assert.deepEqual(streams.originalSubtitle(playing.url, playing.subtitles![0].url), subtitlePair,
-        "Reopening the same source changed its stable subtitle pair");
-    for (const [media, track] of [
-        [firstOpen.url, firstOpen.subtitles![0].url],
-        [playing.url, firstOpen.subtitles![0].url],
-        [firstOpen.url, playing.subtitles![0].url],
-    ]) {
-        assert.equal(streams.originalSubtitle(media, track), undefined,
-            "A stale or mixed playback capability restored source credentials");
-    }
     await assert.rejects(get(firstOpen), "Reopening left the previous capability reachable");
 
     const plain = { kind: "book" as const, url: origin + "/book.epub" };
@@ -332,8 +310,6 @@ try {
     const subtitleManifest = await get(playing, playing.subtitles![0].url);
     const subtitleResource = subtitleManifest.body.toString().split(/\r?\n/).find(line => line.startsWith("http"))!;
     assert.match((await get(playing, subtitleResource)).body.toString(), /Generated legal playback fixture/);
-    assert.deepEqual(streams.originalSubtitle(playing.url, playing.subtitles![0].url),
-        { url: original.url, headers: original.headers, subtitleUrl: origin + "/subtitles.m3u8" });
 
     const earlier = playing;
     const slowPrepare = streams.prepare(source("/hold/earlier.m3u8"), context());
