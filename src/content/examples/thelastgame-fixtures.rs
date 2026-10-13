@@ -1,11 +1,15 @@
 //! Generated HTTPS pages and tiny legal torrents exercise the production source.
 //! `--live` fetches public catalog and torrent metadata, never game payloads.
 
-use qbutt_content::{
-    Category, Error, Library, LibraryView, PublicationRef, ResolvedContent, Result, SharedWork,
-    Source, TheLastGame, TorrentMetadata, Transport, Variant, VariantPreferences, VariantRef,
-    VariantSelector, Work, WorkGroup,
-};
+#[path = "../src/model.rs"]
+mod model;
+pub use model::*;
+
+use qbutt_content::{Library, LibraryView, SharedWork, VariantPreferences, WorkGroup};
+
+#[path = "../src/error.rs"]
+mod error;
+pub use error::{Error, Result};
 
 #[cfg(windows)]
 use qbutt_content::webview;
@@ -366,6 +370,9 @@ fn metadata(name: &str) -> Vec<u8> {
 }
 
 fn library(work: &Work, selected: &VariantRef) -> CheckResult {
+    let work: qbutt_content::Work = serde_json::from_value(serde_json::to_value(work)?)?;
+    let selected: qbutt_content::VariantRef =
+        serde_json::from_value(serde_json::to_value(selected)?)?;
     let profile = std::env::temp_dir().join(format!(
         "qbutt-thelastgame-library-{}-{}",
         std::process::id(),
@@ -401,7 +408,7 @@ fn library(work: &Work, selected: &VariantRef) -> CheckResult {
             serde_json::to_string(&Source::TheLastGame)?,
             "\"thelastgame\""
         );
-        library.set_source_enabled(Source::TheLastGame, false)?;
+        library.set_source_enabled(qbutt_content::Source::TheLastGame, false)?;
         drop(library);
         assert!(
             std::process::Command::new(std::env::current_exe()?)
@@ -418,9 +425,11 @@ fn library(work: &Work, selected: &VariantRef) -> CheckResult {
 
 fn reopen(profile: &Path) -> CheckResult {
     let library = Library::open(profile)?;
-    let entry = library
-        .get(&publication("generated-game"))?
-        .ok_or("missing favorite")?;
+    let reference = qbutt_content::PublicationRef {
+        source: qbutt_content::Source::TheLastGame,
+        id: "generated-game".into(),
+    };
+    let entry = library.get(&reference)?.ok_or("missing favorite")?;
     let work = entry.group.anchor_work().ok_or("missing work")?;
     assert!(entry.favorite && entry.last_opened.is_none());
     assert_eq!(work.variants.len(), 2);
@@ -439,7 +448,9 @@ fn reopen(profile: &Path) -> CheckResult {
         library
             .source_settings()?
             .iter()
-            .any(|setting| setting.source == Source::TheLastGame && !setting.enabled)
+            .any(
+                |setting| setting.source == qbutt_content::Source::TheLastGame && !setting.enabled
+            )
     );
     println!(
         "PASS thelastgame_library_reopen exact_second_variant=ok history=empty source_choice=preserved"
@@ -448,12 +459,15 @@ fn reopen(profile: &Path) -> CheckResult {
 }
 
 async fn live() -> CheckResult {
+    use qbutt_content::{Category, ResolvedContent, Source, TheLastGame};
+
     let source = TheLastGame::new()?;
     let found = source.search("resident", Category::Games).await?;
     assert!(!found.is_empty());
     let single = source.search("stardew", Category::Games).await?;
     assert_eq!(single.len(), 1);
-    assert_eq!(single[0].reference, publication("stardew-valley"));
+    assert_eq!(single[0].reference.source, Source::TheLastGame);
+    assert_eq!(single[0].reference.id, "stardew-valley");
     let work = source.inspect(&single[0].reference).await?;
     let variant = work.variants.first().ok_or("no live torrent")?;
     let ResolvedContent::TorrentFile {

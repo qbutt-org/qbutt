@@ -4,7 +4,9 @@
 #[path = "../src/model.rs"]
 mod model;
 pub use model::*;
-pub use qbutt_content::{Error, Result};
+#[path = "../src/error.rs"]
+mod error;
+pub use error::{Error, Result};
 
 #[cfg(windows)]
 #[allow(dead_code)]
@@ -13,16 +15,12 @@ mod browser;
 
 #[cfg(windows)]
 mod webview {
-    pub use qbutt_content::webview::WebViewSession;
+    pub use qbutt_content::webview::{WebViewError, WebViewSession};
 }
 
 #[allow(dead_code)]
 #[path = "../src/torrent.rs"]
 mod torrent;
-
-#[allow(dead_code)]
-#[path = "../src/limetorrents.rs"]
-mod limetorrents;
 
 #[allow(dead_code)]
 mod http {
