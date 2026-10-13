@@ -177,6 +177,20 @@ namespace
         require(render(original, {mixed}).rendered != render(original, {plain}).rendered,
             u"Mixed emphasis was lost during shaping"_s);
 
+        Region narrow = regions.constFirst();
+        narrow.layout = normalized(QRectF(165, 70, 64, 113), original.size());
+        narrow.translation = {{u"Нельзя доверять сборщикам трупов."_s}};
+        const Result unbroken = render(original, {narrow});
+        narrow.translation = {{u"Нельзя до\u00ADверять сбор\u00ADщикам трупов."_s}};
+        const Result hyphenated = render(original, {narrow});
+        require(unbroken.error.isEmpty() && hyphenated.error.isEmpty()
+            && unbroken.diagnostics.constFirst().status == Status::Rendered
+            && hyphenated.diagnostics.constFirst().status == Status::Rendered
+            && hyphenated.diagnostics.constFirst().fontPixels > unbroken.diagnostics.constFirst().fontPixels
+            && hyphenated.mask == unbroken.mask && hyphenated.cleaned == unbroken.cleaned
+            && hyphenated.rendered != unbroken.rendered,
+            u"Discretionary hyphens did not improve narrow lettering without changing cleanup"_s);
+
         Region level = regions.at(13);
         level.angle = 0;
         require(render(original, {regions.at(13)}).rendered != render(original, {level}).rendered,
@@ -201,7 +215,7 @@ namespace
             && result.rendered.save(outputDir + u"/result.png"_s)
             && result.cleaned.save(outputDir + u"/cleaned.png"_s)
             && result.mask.save(outputDir + u"/mask.png"_s), u"Native render artifacts could not be saved"_s);
-        qInfo() << "PASS manga_lettering families=3 physical_faces=12 regions=15 mixed=ok rotation=ok outside=unchanged crops=4";
+        qInfo() << "PASS manga_lettering families=3 physical_faces=12 regions=15 mixed=ok rotation=ok soft_hyphens=ok outside=unchanged crops=4";
     }
 }
 
