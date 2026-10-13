@@ -53,7 +53,10 @@ namespace
 
 void NativeWatchAcceptance::run(Application &application, const QJsonObject &spec, QJsonObject &evidence)
 {
-    require(QGuiApplication::platformName() == u"offscreen"_s, u"Native Watch fixture requires offscreen Qt"_s);
+    const QString platform = QGuiApplication::platformName();
+    const bool native = qEnvironmentVariableIsSet("QBUTT_QT_ACCEPTANCE_NATIVE");
+    require((platform == u"offscreen"_s) || ((platform == u"windows"_s) && native),
+        u"Native Watch requires offscreen Qt or an explicit native fixture"_s);
     auto *session = BitTorrent::Session::instance();
     require(session->torrents().isEmpty() && (session->networkInterfaceAddress() == u"127.0.0.1")
         && !session->isDHTEnabled() && !session->isLSDEnabled() && !session->isPeXEnabled(),
