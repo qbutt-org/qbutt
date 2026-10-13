@@ -1,5 +1,6 @@
-//! Generated chapter cache and v8 profile migration without a Codex call.
+//! Generated chapter and PNG caches with profile migrations and SQLite faults.
 
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use qbutt_content::translation::context::{
@@ -8,8 +9,9 @@ use qbutt_content::translation::context::{
 use qbutt_content::translation::manga::{FontFamily, Ink, PageRegion, Rect, TextRun};
 use qbutt_content::translation::text::{cache_key, restore_cached};
 use qbutt_content::{
-    ChapterRef, Library, PublicationRef, Source, TextChapter, TextSpan, TranslationCacheKey,
-    TranslationSelection, VariantRef, VariantSelector,
+    Category, ChapterRef, Library, LibraryError, LibraryView, PublicationRef, Source, TextChapter,
+    TextSpan, TranslationCacheKey, TranslationSelection, Transport, Variant, VariantPreferences,
+    VariantRef, VariantSelector, Work, WorkGroup,
 };
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -53,6 +55,7 @@ fn main() -> Result<()> {
         connection.execute_batch(
             "ALTER TABLE reader_settings DROP COLUMN translation_language;
              DROP TABLE translation_selection;
+             DROP TABLE translated_images;
              PRAGMA user_version = 8;",
         )?;
         drop(connection);
@@ -355,7 +358,7 @@ fn main() -> Result<()> {
             &[evidence.clone()],
         );
         assert!(rejected.is_err());
-        let mut wrong_page = evidence;
+        let mut wrong_page = evidence.clone();
         wrong_page.image_observation.as_mut().unwrap().page = 1;
         assert!(
             library
@@ -372,12 +375,299 @@ fn main() -> Result<()> {
             library.translation_context(&manga.variant.publication, "ru")?,
             context
         );
+        drop(library);
+        exercise_image_cache(&profile, manga_key, evidence, &original, &translated)?;
         Ok(())
     })();
     std::fs::remove_dir_all(&profile)?;
     result?;
     println!(
         "PASS translation_cache exact_hit model_miss effort_miss language_miss v8_migration target_persistence automatic_offline context_growth_offline stale_context_save digest_miss pipeline_miss page_miss provider_miss chapter_miss publication_miss manga_image_context"
+    );
+    Ok(())
+}
+
+fn exercise_image_cache(
+    profile: &Path,
+    key: TranslationCacheKey,
+    evidence: EvidenceSegment,
+    original: &TextChapter,
+    translated: &TextChapter,
+) -> Result<()> {
+    // Legal generated 1x1 RGBA PNGs, kept as bytes rather than JSON or base64.
+    let white = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\
+        \x00\x00\x00\x0dIDAT\x78\x9c\x63\xf8\xff\xff\xff\x7f\x00\x09\xfb\x03\xfd\x2a\x86\xe3\x8a\
+        \x00\x00\x00\x00IEND\xae\x42\x60\x82";
+    let black = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\
+        \x00\x00\x00\x0dIDAT\x78\x9c\x63\x60\x60\x60\xf8\x0f\x00\x01\x04\x01\x00\x5f\xe5\xc3\x4b\
+        \x00\x00\x00\x00IEND\xae\x42\x60\x82";
+    let publication = &key.chapter.variant.publication;
+    let mut library = Library::open(profile)?;
+    let group = WorkGroup::single(Work {
+        reference: original.reference.variant.publication.clone(),
+        title: "Generated original chapter".into(),
+        category: Category::Books,
+        url: "https://kakuyomu.jp/works/1001".parse()?,
+        cover: None,
+        description: None,
+        year: None,
+        aliases: vec![],
+        identifiers: Default::default(),
+        variants: vec![Variant {
+            reference: original.reference.variant.clone(),
+            title: None,
+            transport: Transport::Text,
+            episode: None,
+            quality: None,
+            translation: None,
+            languages: vec!["ja".into()],
+            player: None,
+            size: None,
+            seeders: None,
+            info_hash: None,
+            reported_video_ads: false,
+        }],
+        needs_inspection: false,
+    });
+    let history = library.record_opened(
+        &group,
+        original.reference.variant.clone(),
+        VariantPreferences::default(),
+    )?;
+    let json = library.cached_translation::<serde_json::Value>(&key)?;
+    let context = library.translation_context(publication, "ru")?;
+    let selection = library.translation_selection("ru")?;
+    drop(library);
+
+    // Schema 10 keeps its JSON cache, context, selected model and Original history.
+    let connection = rusqlite::Connection::open(profile.join("content-library.sqlite"))?;
+    connection.execute_batch("DROP TABLE translated_images; PRAGMA user_version = 10;")?;
+    let mut library = Library::open(profile)?;
+    assert_eq!(library.translation_context(publication, "ru")?, context);
+    assert_eq!(library.translation_selection("ru")?, selection);
+    assert!(library.cached_translation_image(&key)?.is_none());
+    library.save_image_translation(
+        key.clone(),
+        context.revision,
+        white,
+        ContextAdditions::default(),
+        std::slice::from_ref(&evidence),
+    )?;
+    drop(library);
+
+    let mut library = Library::open(profile)?;
+    assert_eq!(
+        library.cached_translation_image(&key)?.as_deref(),
+        Some(white.as_slice())
+    );
+    let encoded_key = serde_json::to_string(&key)?;
+    let storage: (String, i64) = connection.query_row(
+        "SELECT typeof(png), length(png) FROM translated_images WHERE key = ?1",
+        [&encoded_key],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!(storage, ("blob".into(), white.len() as i64));
+    for different in [
+        TranslationCacheKey {
+            model: "another-model".into(),
+            ..key.clone()
+        },
+        TranslationCacheKey {
+            effort: "medium".into(),
+            ..key.clone()
+        },
+        TranslationCacheKey {
+            target_language: "en".into(),
+            ..key.clone()
+        },
+        TranslationCacheKey {
+            page: Some(1),
+            ..key.clone()
+        },
+        TranslationCacheKey {
+            original_digest: "b".repeat(64),
+            ..key.clone()
+        },
+        TranslationCacheKey {
+            provider: "another-provider".into(),
+            ..key.clone()
+        },
+        TranslationCacheKey {
+            pipeline: key.pipeline + 1,
+            ..key.clone()
+        },
+    ] {
+        assert!(library.cached_translation_image(&different)?.is_none());
+    }
+    let additions = ContextAdditions {
+        terms: vec![TranslationTerm {
+            source: "待って".into(),
+            target: "Подожди".into(),
+            forms: vec![],
+            evidence: ContextEvidence {
+                chapter: evidence.chapter.clone(),
+                segment_id: evidence.id.clone(),
+                quote: "待って".into(),
+                image_observation: evidence.image_observation.clone(),
+            },
+        }],
+        facts: vec![],
+    };
+    let mut oversized = vec![0; 16 * 1024 * 1024 + 1];
+    oversized[..white.len()].copy_from_slice(white);
+    for invalid in [b"".as_slice(), b"not a PNG", oversized.as_slice()] {
+        assert!(matches!(
+            library.save_image_translation(
+                key.clone(),
+                context.revision,
+                invalid,
+                additions.clone(),
+                std::slice::from_ref(&evidence),
+            ),
+            Err(LibraryError::InvalidEntry(_))
+        ));
+    }
+    assert_eq!(library.translation_context(publication, "ru")?, context);
+    assert_eq!(
+        library.cached_translation_image(&key)?.as_deref(),
+        Some(white.as_slice())
+    );
+
+    let previous_selection = TranslationSelection {
+        target_language: "ru".into(),
+        model: "keep-selection-model".into(),
+        effort: "low".into(),
+        explicit: false,
+    };
+    library.save_translation_selection(&previous_selection)?;
+    connection.execute_batch(
+        "CREATE TRIGGER reject_image BEFORE INSERT ON translated_images
+         BEGIN SELECT RAISE(ABORT, 'generated image write fault'); END;",
+    )?;
+    assert!(matches!(
+        library.save_image_translation(
+            key.clone(),
+            context.revision,
+            black,
+            additions.clone(),
+            std::slice::from_ref(&evidence),
+        ),
+        Err(LibraryError::Sqlite(_))
+    ));
+    assert_eq!(library.translation_context(publication, "ru")?, context);
+    assert_eq!(
+        library.translation_selection("ru")?,
+        Some(previous_selection.clone())
+    );
+    assert_eq!(
+        library.cached_translation_image(&key)?.as_deref(),
+        Some(white.as_slice())
+    );
+    connection.execute_batch("DROP TRIGGER reject_image;")?;
+
+    let explicit = TranslationSelection {
+        explicit: true,
+        ..previous_selection
+    };
+    library.save_translation_selection(&explicit)?;
+    assert!(matches!(
+        library.save_image_translation(
+            key.clone(),
+            context.revision,
+            black,
+            additions.clone(),
+            std::slice::from_ref(&evidence),
+        ),
+        Err(LibraryError::InvalidEntry(_))
+    ));
+    assert_eq!(library.translation_context(publication, "ru")?, context);
+    assert_eq!(library.translation_selection("ru")?, Some(explicit));
+    assert_eq!(
+        library.cached_translation_image(&key)?.as_deref(),
+        Some(white.as_slice())
+    );
+    library.reset_translation_selection("ru")?;
+
+    let mut wrong_page = evidence.clone();
+    wrong_page.image_observation.as_mut().unwrap().page = 1;
+    assert!(
+        library
+            .save_image_translation(
+                key.clone(),
+                context.revision,
+                black,
+                additions.clone(),
+                &[wrong_page],
+            )
+            .is_err()
+    );
+    let accepted = library.save_image_translation(
+        key.clone(),
+        context.revision,
+        black,
+        additions,
+        &[evidence],
+    )?;
+    assert_eq!(accepted.revision, context.revision + 1);
+    assert!(
+        library
+            .save_image_translation(
+                key.clone(),
+                context.revision,
+                white,
+                ContextAdditions::default(),
+                &[],
+            )
+            .is_err()
+    );
+    assert_eq!(library.translation_context(publication, "ru")?, accepted);
+    assert_eq!(
+        library.cached_translation_image(&key)?.as_deref(),
+        Some(black.as_slice())
+    );
+
+    for corrupt in [b"not a PNG".as_slice(), oversized.as_slice()] {
+        connection.execute(
+            "UPDATE translated_images SET png = ?1 WHERE key = ?2",
+            rusqlite::params![corrupt, encoded_key],
+        )?;
+        assert!(matches!(
+            library.cached_translation_image(&key),
+            Err(LibraryError::CorruptEntry(_))
+        ));
+    }
+    connection.execute(
+        "UPDATE translated_images SET png = ?1 WHERE key = ?2",
+        rusqlite::params![black.as_slice(), encoded_key],
+    )?;
+    drop(connection);
+    drop(library);
+
+    let library = Library::open(profile)?;
+    assert_eq!(
+        library.cached_translation_image(&key)?.as_deref(),
+        Some(black.as_slice())
+    );
+    assert_eq!(library.cached_translation::<serde_json::Value>(&key)?, json);
+    assert_eq!(library.entries(LibraryView::History)?, vec![history]);
+    assert_eq!(library.translation_context(publication, "ru")?, accepted);
+    assert_eq!(
+        library.translation_selection("ru")?,
+        Some(TranslationSelection {
+            target_language: key.target_language.clone(),
+            model: key.model.clone(),
+            effort: key.effort.clone(),
+            explicit: false,
+        })
+    );
+    let text_key = cache_key(original, "ru", "gpt-6.1-sol", "low")?;
+    let cached = library
+        .cached_translation(&text_key)?
+        .ok_or("text cache vanished")?;
+    assert_eq!(restore_cached(original, cached)?, *translated);
+    assert_eq!(library.reader_settings()?.translation_language, "en");
+    println!(
+        "PASS image_cache v10_migration blob_bytes exact_reopen key_miss invalid_png oversized_png sqlite_rollback selection_rollback stale_context corrupt_read original_history_json_independent"
     );
     Ok(())
 }

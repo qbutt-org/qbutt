@@ -207,7 +207,7 @@ fn exercise(root: &Path) -> Result<()> {
     drop(library);
 
     let current_version: i64 = raw.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    for version in (1..current_version).chain(std::iter::once(current_version + 1)) {
+    for version in (1..8).chain(std::iter::once(current_version + 1)) {
         raw.pragma_update(None, "user_version", version)?;
         assert!(matches!(
             Library::open(&profile),

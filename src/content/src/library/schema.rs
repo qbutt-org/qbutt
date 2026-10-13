@@ -5,13 +5,17 @@ use rusqlite::{Connection, TransactionBehavior};
 use super::{Library, LibraryError, LibraryResult};
 
 const APPLICATION_ID: i64 = 0x51424c42;
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 const DATABASE_NAME: &str = "content-library.sqlite";
 const TRANSLATION_SELECTION_SCHEMA: &str = "CREATE TABLE translation_selection (
     target_language TEXT PRIMARY KEY NOT NULL,
     model TEXT NOT NULL,
     effort TEXT NOT NULL,
     explicit INTEGER NOT NULL CHECK (explicit IN (0, 1))
+) STRICT;";
+const TRANSLATED_IMAGES_SCHEMA: &str = "CREATE TABLE translated_images (
+    key TEXT PRIMARY KEY NOT NULL,
+    png BLOB NOT NULL
 ) STRICT;";
 
 impl Library {
@@ -82,18 +86,22 @@ impl Library {
                 ) STRICT;",
             )?;
             transaction.execute_batch(TRANSLATION_SELECTION_SCHEMA)?;
+            transaction.execute_batch(TRANSLATED_IMAGES_SCHEMA)?;
             transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if application_id != APPLICATION_ID {
             return Err(LibraryError::ForeignDatabase);
-        } else if version == 8 || version == 9 {
+        } else if matches!(version, 8..=10) {
             if version == 8 {
                 transaction.execute_batch(TRANSLATION_SELECTION_SCHEMA)?;
             }
-            transaction.execute_batch(
-                "ALTER TABLE reader_settings
-                 ADD COLUMN translation_language TEXT NOT NULL DEFAULT 'ru';",
-            )?;
+            if version <= 9 {
+                transaction.execute_batch(
+                    "ALTER TABLE reader_settings
+                     ADD COLUMN translation_language TEXT NOT NULL DEFAULT 'ru';",
+                )?;
+            }
+            transaction.execute_batch(TRANSLATED_IMAGES_SCHEMA)?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if version != SCHEMA_VERSION {
             return Err(LibraryError::UnsupportedSchema(version));
@@ -257,6 +265,27 @@ impl Library {
             |row| row.get(0),
         )?;
         if !translated_table_valid || translated_columns_valid != 2 {
+            return Err(LibraryError::InvalidSchema);
+        }
+        let images_table_valid: bool = transaction.query_row(
+            "SELECT EXISTS (
+                SELECT 1 FROM pragma_table_list
+                WHERE schema = 'main' AND name = 'translated_images'
+                    AND type = 'table' AND ncol = 2 AND strict = 1
+            )",
+            [],
+            |row| row.get(0),
+        )?;
+        let images_columns_valid: i64 = transaction.query_row(
+            "SELECT count(*) FROM pragma_table_xinfo('translated_images')
+             WHERE hidden = 0 AND \"notnull\" = 1 AND (
+                 (cid = 0 AND name = 'key' AND type = 'TEXT' AND pk = 1)
+                 OR (cid = 1 AND name = 'png' AND type = 'BLOB' AND pk = 0)
+             )",
+            [],
+            |row| row.get(0),
+        )?;
+        if !images_table_valid || images_columns_valid != 2 {
             return Err(LibraryError::InvalidSchema);
         }
         let selection_table_valid: bool = transaction.query_row(
