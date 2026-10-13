@@ -160,6 +160,24 @@ namespace Media
                 fail(409, "Conflict");
                 return;
             }
+
+            // The verified file is immutable, even when its playback token changes.
+            const BitTorrent::InfoHash infoHash = m_torrent->infoHash();
+            const QString torrentHash = infoHash.v2().isValid() ? infoHash.v2().toString() : infoHash.v1().toString();
+            const QByteArray entityTag = "\"torrent-" + torrentHash.toLatin1()
+                + '-' + QByteArray::number(m_fileIndex) + '-' + QByteArray::number(size) + '"';
+            if (headers.contains("if-match"))
+            {
+                const QByteArray condition = headers.value("if-match");
+                const auto candidates = condition.split(',');
+                if ((condition != "*") && std::none_of(candidates.cbegin(), candidates.cend()
+                    , [&entityTag](const QByteArray &candidate) { return candidate.trimmed() == entityTag; }))
+                {
+                    fail(412, "Precondition Failed");
+                    return;
+                }
+            }
+
             bool partial = false;
             if (headers.contains("range") && (first[0] != "HEAD"))
             {
@@ -197,6 +215,7 @@ namespace Media
             }
             QByteArray extra = "Content-Type: " + QMimeDatabase().mimeTypeForFile(m_torrent->filePath(m_fileIndex).toString()
                 , QMimeDatabase::MatchExtension).name().toLatin1() + "\r\n";
+            extra += "ETag: " + entityTag + "\r\n";
             if (partial)
             {
                 extra += "Content-Range: bytes " + QByteArray::number(m_position) + "-"

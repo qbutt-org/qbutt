@@ -1579,7 +1579,8 @@ namespace
         initial[u"files"_s] = files;
         initial[u"commandId"_s] = 0;
         initial[u"phase"_s] = u"ready"_s;
-        writeObject(statePath, initial);
+        // Each response is immutable: polling readers must not block Windows file replacement.
+        writeObject(statePath + u"-0.json", initial);
         int lastCommand = 0;
         for (;;)
         {
@@ -1697,7 +1698,7 @@ namespace
                 response[it.key()] = it.value();
             response[u"commandId"_s] = lastCommand;
             response[u"phase"_s] = action;
-            writeObject(statePath, response);
+            writeObject(statePath + u'-' + QString::number(lastCommand) + u".json", response);
             if (action == u"finish")
                 return;
         }

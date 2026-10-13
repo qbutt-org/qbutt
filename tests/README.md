@@ -726,6 +726,18 @@ $env:QBUTT_QT_ACCEPTANCE_EXE = "$env:LOCALAPPDATA/qbutt/build/qbutt-qt-acceptanc
 bun run smoke:qt
 ```
 
+For torrent playback integration, run `bun tests/media-streaming.ts` with
+`QBUTT_QT_ACCEPTANCE_EXE` pointing to the deployed driver, `QBUTT_LAB_PYTHON`
+to the pinned fixture environment, and `QBUTT_LAB_QPLAY` to a complete qplay
+distribution. The generated v1/v2/hybrid torrents contain faststart MP4,
+trailing-moov MP4 and MKV. The suite verifies exact Range bytes during incomplete
+downloads, seek/cancellation and priority restoration, then full hashes/sizes
+and playback without peers. Strong ETags must survive capability replacement;
+matching/list/wildcard If-Match requests succeed, while stale or weak tags return
+412 without payload. Numbered immutable command responses avoid replacing a file
+while the Windows runner reads it. Qt runs offscreen and mpv uses null audio/video
+outputs; this does not establish physical player UI or subtitle translation.
+
 For a short appearance-only acceptance on the same executable, use
 `bun run smoke:appearance`. It needs no Python, torrent data or transport child.
 Three offscreen app processes check a fresh System-theme profile under a

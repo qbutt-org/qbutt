@@ -57,7 +57,7 @@ async function run(command: string[], label: string, timeout = 120000): Promise<
 
 async function readState(): Promise<StreamingState | undefined> {
     try {
-        const state = JSON.parse(await readFile(statePath, "utf8")) as StreamingState;
+        const state = JSON.parse(await readFile(`${statePath}-${commandId}.json`, "utf8")) as StreamingState;
         assert(application?.exitCode === null || (application?.exitCode === 0 && state.phase === "finish"),
             "Qt streaming driver exited before its command completed");
         return state;
@@ -79,11 +79,12 @@ async function command(action: string, parameters: Record<string, number> = {}):
     return state;
 }
 
-async function range(url: string, expected: Buffer, first: number, last: number) {
+async function range(url: string, expected: Buffer, first: number, last: number, entityTag: string) {
     const response = await fetch(url, {
-        headers: {Range: `bytes=${first}-${last}`}, signal: AbortSignal.timeout(45000),
+        headers: {Range: `bytes=${first}-${last}`, "If-Match": entityTag}, signal: AbortSignal.timeout(45000),
     });
     assert.equal(response.status, 206, "A satisfiable byte range must return Partial Content");
+    assert.equal(response.headers.get("etag"), entityTag, "A range changed the complete file identity");
     assert.equal(response.headers.get("accept-ranges"), "bytes");
     assert.equal(response.headers.get("content-range"), `bytes ${first}-${last}/${expected.length}`);
     assert.equal(Number(response.headers.get("content-length")), last - first + 1);
@@ -307,12 +308,13 @@ print(json.dumps(descriptions))
         containers: ["MP4 faststart", "Matroska", "MP4 trailing moov"], faststartAtoms, trailingAtoms,
         formats: fixtures.map(fixture => ({name: fixture.name, pieceCount: fixture.pieceCount,
             paddingFiles: fixture.files.filter(file => file.pad).length}))});
+    const entityTags = new Set<string>();
     for (const fixture of fixtures) {
         const scenario = join(lab.root, fixture.name);
         await mkdir(scenario);
         const destination = join(lab.root, "download", fixture.name);
         commandPath = join(scenario, "command.json");
-        statePath = join(scenario, "state.json");
+        statePath = join(scenario, "state");
         const evidencePath = join(scenario, "qt-evidence.json");
         commandId = 0;
         const visibleFiles = fixture.files.filter(file => !file.pad);
@@ -332,6 +334,7 @@ print(json.dumps(descriptions))
         assert.deepEqual(ready?.files, visibleFiles.map(file => ({fileIndex: file.fileIndex, nativeIndex: file.index,
             path: file.path, offset: file.offset, size: file.size})), "Qt visible file mapping differs from native torrent metadata");
         await command("rate", {bytesPerSecond: 256 * 1024});
+        const fileEntityTags = new Map<number, string>();
         for (const file of visibleFiles) {
             const expected = sources.get(file.path)!;
             assert(file.fileIndex !== null);
@@ -343,6 +346,27 @@ print(json.dumps(descriptions))
             assert.equal(head.status, 200);
             assert.equal(Number(head.headers.get("content-length")), expected.length);
             assert.equal(head.headers.get("accept-ranges"), "bytes");
+            const entityTag = head.headers.get("etag");
+            assert(entityTag && /^"[\x21\x23-\x7e\x80-\xff]+"$/.test(entityTag),
+                "The verified file needs a syntactically valid strong ETag");
+            assert(!entityTags.has(entityTag), "Different torrent files shared a representation identity");
+            entityTags.add(entityTag);
+            fileEntityTags.set(file.fileIndex, entityTag);
+            for (const condition of ['"other-file"', `W/${entityTag}`]) {
+                const mismatch = await fetch(url, {
+                    headers: {Range: "bytes=0-0", "If-Match": condition},
+                    signal: AbortSignal.timeout(5000),
+                });
+                assert.equal(mismatch.status, 412, "A stale or weak entity tag allowed a torrent read");
+                assert.equal((await mismatch.arrayBuffer()).byteLength, 0);
+            }
+            for (const condition of ["*", `"other-file", ${entityTag}`]) {
+                const matched = await fetch(url, {
+                    method: "HEAD", headers: {"If-Match": condition}, signal: AbortSignal.timeout(5000),
+                });
+                assert.equal(matched.status, 200, "A matching If-Match condition was rejected");
+                assert.equal(matched.headers.get("etag"), entityTag);
+            }
             const mime = file.path.endsWith(".mp4") ? "video/mp4" : "video/x-matroska";
             assert.equal(head.headers.get("content-type")?.split(";")[0], mime);
             const forbidden = new URL(url);
@@ -380,7 +404,7 @@ print(json.dumps(descriptions))
                 await lab.checkpoint({check: "probe-role-does-not-preempt-playback", format: fixture.name,
                     independentConcurrentConsumers: true, prioritiesRestoredAfterCancel: true});
                 const priorityOffset = Math.floor(expected.length * 0.40);
-                const pendingPriorityRange = range(url.href, expected, priorityOffset, priorityOffset + 65535);
+                const pendingPriorityRange = range(url.href, expected, priorityOffset, priorityOffset + 65535, entityTag);
                 await Bun.sleep(100);
                 await command("priority", {fileIndex: file.fileIndex, priority: 0});
                 await command("rate", {bytesPerSecond: 512 * 1024});
@@ -398,10 +422,10 @@ print(json.dumps(descriptions))
             const before = await command("snapshot");
             assert(requestedPieces.every(piece => before.pieces[piece] === false),
                 "Remote seek targets already downloaded; this run cannot prove seek prioritization");
-            const beginning = await range(url.href, expected, 0, 32767);
+            const beginning = await range(url.href, expected, 0, 32767, entityTag);
             const ranges = await Promise.all([
-                range(url.href, expected, middle, middle + 64 * 1024 - 1),
-                range(url.href, expected, tail, tail + 64 * 1024 - 1),
+                range(url.href, expected, middle, middle + 64 * 1024 - 1, entityTag),
+                range(url.href, expected, tail, tail + 64 * 1024 - 1, entityTag),
             ]);
             const after = await command("snapshot");
             assert(after.progress < 1, "Streaming waited for full torrent completion before serving remote seeks");
@@ -431,7 +455,8 @@ print(json.dumps(descriptions))
             await lab.checkpoint({check: "remote-seek-concurrent-ranges-cancel-stop", format: fixture.name, file: file.path,
                 beginning, ranges, verifiedBefore: before.completedBytes, verifiedAfter: after.completedBytes,
                 torrentIncomplete: true, prioritiesRestored: closed.prioritiesRestored, sequential: closed.sequential,
-                headMime: mime, invalidRangeRejected: true, retiredCapabilityRejected: true, playback});
+                headMime: mime, entityTag, staleEntityRejected: true, weakEntityRejected: true,
+                invalidRangeRejected: true, retiredCapabilityRejected: true, playback});
             await command("rate", {bytesPerSecond: 256 * 1024});
         }
         await command("rate", {bytesPerSecond: 0});
@@ -454,6 +479,11 @@ print(json.dumps(descriptions))
         assert.equal(recovered.openStreams, 0, "Reload left an old playback capability active");
         const recoveredStream = await command("open", {fileIndex: 2});
         assert(recoveredStream.url);
+        assert.notEqual(recoveredStream.url, cached.url, "Recovery reused a retired playback capability");
+        const recoveredHead = await fetch(recoveredStream.url, {method: "HEAD", signal: AbortSignal.timeout(5000)});
+        assert.equal(recoveredHead.status, 200);
+        assert.equal(recoveredHead.headers.get("etag"), fileEntityTags.get(2),
+            "Reopening the same verified file changed its identity");
         await Bun.sleep(2000);
         const cachedPlayback = await play(new URL(recoveredStream.url), "cached-complete");
         await command("close", {fileIndex: 2});
@@ -469,7 +499,7 @@ print(json.dumps(descriptions))
             exactSha256: true, seedUploadPayloadBytes: seedEvidence.uploadPayloadBytes, qtEvidence: evidencePath,
             cachedPlayback, cachedPlaybackWithoutPeers: true,
             cancelledNativeReads: cancelled.cancelledNativeReads, completionActionsDeferredDuringPlayback: true,
-            reloadWithOutstandingReads: true,
+            reloadWithOutstandingReads: true, entityPreservedAfterReopen: true,
             scope: "Generated faststart/trailing-moov MP4 and MKV; production libtorrent, HTTP server and pinned mpv with null outputs"});
     }
 }
