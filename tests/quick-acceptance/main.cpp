@@ -43,6 +43,7 @@
 #include "reader-settings.h"
 #include "reader-translation-choice.h"
 #include "reader-text-translation.h"
+#include "reader-manga-translation.h"
 #include "reader.h"
 #include "reader-text.h"
 #include "sharing.h"
@@ -537,6 +538,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"syosetu-image"_s, u"Run the native Syosetu illustration and history acceptance, then exit."_s});
     parser.addOption({u"reader-translation-choice"_s, u"Run delayed reader translation choice persistence and session acceptance, then exit."_s});
     parser.addOption({u"reader-text-translation"_s, u"Run generated text through the installed Codex and production reader, then exit."_s});
+    parser.addOption({u"reader-manga-translation"_s, u"Run a generated manga page through the installed Codex and production reader, then exit."_s});
     parser.addOption({u"reader-progress"_s, u"Run exact reader progress and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader-settings"_s, u"Run reader settings persistence and SQLite faults, then exit."_s});
     parser.addOption({u"reader-settings-phase"_s, u"Run a reader settings restart fixture phase."_s, u"phase"_s});
@@ -582,6 +584,7 @@ int main(int argc, char *argv[])
         && !parser.isSet(u"reader"_s) && !parser.isSet(u"syosetu"_s)
         && !parser.isSet(u"syosetu-image"_s) && !parser.isSet(u"reader-translation-choice"_s)
         && !parser.isSet(u"reader-text-translation"_s)
+        && !parser.isSet(u"reader-manga-translation"_s)
         && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s)
         && !parser.isSet(u"variant-filters"_s) && !parser.isSet(u"work-details"_s));
 
@@ -664,9 +667,11 @@ int main(int argc, char *argv[])
     if (parser.isSet(u"exercise"_s) || parser.isSet(u"reader"_s) || parser.isSet(u"syosetu"_s)
         || parser.isSet(u"syosetu-image"_s) || parser.isSet(u"local-book-import"_s)
         || parser.isSet(u"reader-translation-choice"_s) || parser.isSet(u"reader-text-translation"_s)
+        || parser.isSet(u"reader-manga-translation"_s)
         || parser.isSet(u"worklist"_s))
     {
-        QTimer::singleShot(parser.isSet(u"reader-text-translation"_s) ? 600'000 : 360'000,
+        QTimer::singleShot(parser.isSet(u"reader-text-translation"_s) || parser.isSet(u"reader-manga-translation"_s)
+                ? 600'000 : 360'000,
             &application, [&application]
         {
             qCritical("Acceptance exceeded its overall time limit");
@@ -680,6 +685,7 @@ int main(int argc, char *argv[])
                 runLocalBookImport = parser.isSet(u"local-book-import"_s),
                 runReaderTranslationChoice = parser.isSet(u"reader-translation-choice"_s),
                 runReaderTextTranslation = parser.isSet(u"reader-text-translation"_s),
+                runReaderMangaTranslation = parser.isSet(u"reader-manga-translation"_s),
                 runWorkList = parser.isSet(u"worklist"_s)]
         {
             try
@@ -692,6 +698,8 @@ int main(int argc, char *argv[])
                     exerciseReaderTranslationChoiceRace(view, profilePath);
                 else if (runReaderTextTranslation)
                     exerciseReaderTextTranslation(view, profilePath);
+                else if (runReaderMangaTranslation)
+                    exerciseReaderMangaTranslation(view, profilePath);
                 else if (runReader)
                     exerciseReader(view, profilePath);
                 else if (runSyosetu || runSyosetuImage)

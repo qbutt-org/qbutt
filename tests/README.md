@@ -370,6 +370,17 @@ the accepted context must cite it. Require exit zero and
 Set `QT_QPA_FONTDIR=C:/Windows/Fonts` for legible offscreen renders. This is a
 generated native UI path at 1280×720 and 1440×900, not a host pointer test.
 
+Run `--reader-manga-translation --lang ru --profile <isolated-directory>` in
+the same offscreen environment with an installed, signed-in Codex. The native
+Qt fixture draws an original page with three vertical Japanese balloons and
+scene artwork, imports it through LocalBook, selects an image-capable model in
+the QML reader and accepts the native rendered translation. It checks the exact
+source digest and page, unchanged pixels outside accepted regions, Original,
+and pixel-identical cached reopening with Codex unavailable. Require exit zero
+and `PASS reader_manga_translation`; inspect the saved original, translated
+page and QQuickWidget PNGs in the isolated profile. This is a generated UI
+scenario, not a host pointer or representative artwork benchmark.
+
 Run `--reader-settings --lang ru` in the same offscreen environment for typed
 profile-wide fit persistence through the existing SQLite worker. Require exit
 zero and `PASS reader_settings`. The fixture checks Height defaults, explicit
