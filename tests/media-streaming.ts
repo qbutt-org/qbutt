@@ -30,6 +30,14 @@ interface MediaFixture extends Omit<TorrentFixture, "files"> {
 
 const executable = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 assert(executable, "Set QBUTT_QT_ACCEPTANCE_EXE to the deployed Qt process driver");
+const qplay = process.env.QBUTT_LAB_QPLAY;
+const qplayAcceptance = process.env.QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE;
+const qplayFixture = process.env.QBUTT_LAB_QPLAY_MATROSKA_FIXTURE;
+const expectedAcceptanceHash = process.env.QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE_SHA256;
+assert(qplay && qplayAcceptance && qplayFixture && expectedAcceptanceHash,
+    "Set QBUTT_LAB_QPLAY, QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE, QBUTT_LAB_QPLAY_MATROSKA_FIXTURE and QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE_SHA256");
+const qplayRoot = dirname(qplay);
+const qplayLibrary = join(qplayRoot, "engine", "libmpv-2.dll");
 process.env.QBUTT_LAB_PATHS = "1";
 const { runtimeDir: mediaRuntime, tools: { ffmpeg, mpv } } = await resolveMediaRuntime("", AbortSignal.timeout(30_000));
 process.env.QBUTT_LAB_EXE = executable;
@@ -37,6 +45,13 @@ const lab = await createLab("media-streaming");
 await lab.checkpoint({check: "explicit-media-tools", mediaRuntime: await realpath(mediaRuntime),
     mpv: {path: await realpath(mpv), sha256: sha256(await readFile(mpv))},
     ffmpeg: {path: await realpath(ffmpeg), sha256: sha256(await readFile(ffmpeg))}});
+const acceptanceHash = sha256(await readFile(qplayAcceptance));
+assert.equal(acceptanceHash, expectedAcceptanceHash.toLowerCase(), "Native qplay acceptance executable differs from the approved build");
+await lab.checkpoint({check: "native-qplay-artifacts", acceptance: await realpath(qplayAcceptance),
+    acceptanceSha256: acceptanceHash, fixture: await realpath(qplayFixture),
+    fixtureSha256: sha256(await readFile(qplayFixture)), qplay: await realpath(qplay),
+    qplaySha256: sha256(await readFile(qplay)), runtime: await realpath(qplayLibrary),
+    runtimeSha256: sha256(await readFile(qplayLibrary))});
 const mediaRoot = join(lab.root, "media");
 const source = join(mediaRoot, "seed", "generated-media");
 let commandPath = "";
@@ -46,8 +61,10 @@ let seed: Awaited<ReturnType<typeof startSeed>> | undefined;
 let failure: unknown;
 let commandId = 0;
 
-async function run(command: string[], label: string, timeout = 120000): Promise<string> {
-    const child = Bun.spawn(command, {cwd: mediaRuntime, stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true, timeout});
+async function run(command: string[], label: string,
+    options: {cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number} = {}): Promise<string> {
+    const child = Bun.spawn(command, {cwd: options.cwd ?? mediaRuntime, env: options.env ?? process.env,
+        stdin: "ignore", stdout: "pipe", stderr: "pipe", windowsHide: true, timeout: options.timeout ?? 120000});
     const [exit, output, errors] = await Promise.all([
         child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
     ]);
@@ -236,6 +253,7 @@ try {
     await mkdir(source, {recursive: true});
     const mp4 = join(source, "a-faststart.mp4");
     const mkv = join(source, "b-video.mkv");
+    const ass = join(source, "b-video.ass");
     const endMoov = join(source, "c-end-moov.mp4");
     await run([ffmpeg, "-hide_banner", "-nostdin", "-n", "-f", "lavfi", "-i",
         "testsrc2=size=640x360:rate=24:duration=90", "-f", "lavfi", "-i",
@@ -243,13 +261,31 @@ try {
         "-b:v", "2000k", "-minrate", "2000k", "-maxrate", "2000k", "-bufsize", "2000k",
         "-x264-params", "nal-hrd=cbr:force-cfr=1", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", mp4],
     "Legal FFmpeg video and audio generation");
-    await run([ffmpeg, "-hide_banner", "-nostdin", "-n", "-i", mp4, "-map", "0", "-c", "copy", mkv],
-        "Generated MKV remux");
+    await writeFile(ass, `[Script Info]
+ScriptType: v4.00+
+PlayResX: 320
+PlayResY: 180
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:19.00,Default,,0,0,0,,{\\an8}{\\pos(160,35)}Long overlapping cue
+Dialogue: 0,0:00:12.00,0:00:16.00,Default,,0,0,0,,Second cue
+`);
+    await run([ffmpeg, "-hide_banner", "-nostdin", "-n", "-i", mp4, "-i", ass,
+        "-map", "0", "-map", "1:0", "-c", "copy", mkv], "Generated indexed Matroska with ASS");
     await run([ffmpeg, "-hide_banner", "-nostdin", "-n", "-i", mp4, "-map", "0", "-c", "copy", endMoov],
         "Generated MP4 with trailing moov atom");
     for (const path of [mp4, mkv, endMoov])
         await run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-xerror", "-i", path,
             "-map", "0:v", "-map", "0:a", "-f", "null", "-"], "Generated media decode validation");
+    const authoredSubtitles = await run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-xerror",
+        "-i", mkv, "-map", "0:s:0", "-c:s", "copy", "-f", "ass", "pipe:1"], "Generated ASS track extraction");
+    assert(authoredSubtitles.includes("Style: Default,Arial,20") && authoredSubtitles.includes("Second cue"),
+        "Generated Matroska lost its authored text track");
     const payload: PayloadFile[] = [];
     const sources = new Map<string, Buffer>();
     for (const name of ["a-faststart.mp4", "b-video.mkv", "c-end-moov.mp4"]) {
@@ -304,7 +340,7 @@ for variant, flags in [("v1", lt.create_torrent.v1_only), ("v2", lt.create_torre
 print(json.dumps(descriptions))
 `;
     const fixtures = JSON.parse(await run([lab.python, "-c", generator, mediaRoot], "Media torrent generation")) as MediaFixture[];
-    await lab.checkpoint({check: "legal-media-generated", payload, codec: "H.264/AAC",
+    await lab.checkpoint({check: "legal-media-generated", payload, codec: "H.264/AAC with indexed Matroska ASS",
         containers: ["MP4 faststart", "Matroska", "MP4 trailing moov"], faststartAtoms, trailingAtoms,
         formats: fixtures.map(fixture => ({name: fixture.name, pieceCount: fixture.pieceCount,
             paddingFiles: fixture.files.filter(file => file.pad).length}))});
@@ -441,6 +477,43 @@ print(json.dumps(descriptions))
             await command("rate", {bytesPerSecond: 512 * 1024});
             const playback = await play(url, `${file.fileIndex}-incomplete`, (fixture.name === "media-v1") && (file.fileIndex === 0));
             assert((await command("snapshot")).progress < 1, "mpv waited for the whole torrent");
+            if ((fixture.name === "media-v1") && file.path.endsWith(".mkv")) {
+                const beforeNative = await command("snapshot");
+                assert(beforeNative.progress < 1, "Native qplay subtitle playback requires an incomplete torrent");
+                const profile = join(scenario, "qplay-subtitle-profile");
+                const prefix = join(scenario, "qplay-embedded-subtitles");
+                await mkdir(profile, {recursive: true});
+                const qplayEnvironment = {
+                    ...process.env,
+                    Path: `${qplayRoot};${process.env.Path ?? process.env.PATH ?? ""}`,
+                    QT_PLUGIN_PATH: qplayRoot,
+                    QML_IMPORT_PATH: join(qplayRoot, "qml"),
+                    QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES: "1",
+                    QPLAY_SUBTITLE_MKV_QA: "ass",
+                };
+                const seeded = await run([qplayFixture, url.href, "3", "Second cue", "ass", "12000", "19000", profile],
+                    "Cache seed from the real torrent stream", {cwd: qplayRoot, env: qplayEnvironment, timeout: 60000});
+                await writeFile(`${prefix}.seed.log`, seeded);
+                const nativeOutput = await run([qplayAcceptance, qplayLibrary, url.href, mkv, profile, prefix],
+                    "Native qplay translation from the real torrent stream",
+                    {cwd: qplayRoot, env: qplayEnvironment, timeout: 60000});
+                await writeFile(`${prefix}.log`, nativeOutput);
+                const result = JSON.parse(await readFile(`${prefix}.json`, "utf8"));
+                assert.equal(result.format, "ass");
+                assert.equal(result.remoteEmbeddedTranslation, true);
+                assert.equal(result.cacheStyleOriginal, true);
+                assert.equal(result.gpuPixelsChanged, true);
+                assert.equal(result.ownedChildren, 0);
+                assert(result.selectedSubtitle > 0, "Native qplay lost the original Matroska text track");
+                const afterNative = await command("snapshot");
+                assert(afterNative.progress < 1, "Native qplay waited for full torrent completion");
+                await lab.checkpoint({check: "native-qplay-embedded-subtitles", result,
+                    evidence: `${prefix}.json`, frame: `${prefix}.embedded-subtitle.png`,
+                    torrentVerifiedBefore: beforeNative.completedBytes,
+                    torrentVerifiedAfter: afterNative.completedBytes,
+                    torrentIncomplete: true, translationSource: "preseeded accepted cache"});
+                await rm(profile, {recursive: true, force: true});
+            }
             const closed = await command("close", {fileIndex: file.fileIndex});
             assert.equal(closed.openStreams, 0);
             assert.equal(closed.prioritiesRestored, true, "Stopping playback changed ordinary torrent priorities or sequential mode");
