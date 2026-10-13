@@ -833,18 +833,25 @@ completion leases and replay after the seed stops for v1, v2 and hybrid torrents
 Native pointer, appearance and hardware playback checks remain separate VM
 acceptance; a headless decoder does not establish those results.
 
-`bun tests/media-runtime.ts` exercises C++ qplay discovery/verification and
-actual mpv playback without the Bun content helper. Run it in the MSVC developer
-environment with the same Qt acceptance, bundle and qplay variables. It includes
-missing/incompatible installations, failed processes, the 64 KiB bound, the
-30-second timeout and cancellation/retry. `--case=native-playback` checks the
-qbutt `Media::Player` process launch, native qplay named-pipe IPC, actual media
-decoding, track selection, stop and replacement. Use a current native qplay
-portable runtime with a matching build manifest. For this hidden offscreen QA
-case, add the matching Qt SDK's `qoffscreen.dll` to `platforms` in an isolated
-copy of that runtime. `--case=<name>` repeats one affected scenario. Inspect
-the resulting process PIDs and require that each has exited; GUI/GPU and pointer
-acceptance remain separate.
+`bun tests/media-runtime.ts` exercises C++ qplay discovery/verification in the
+MSVC developer environment with the same Qt acceptance, bundle and qplay
+variables. Generated console probes cover missing/incompatible installations,
+failed processes, the 64 KiB bound, the 30-second timeout and cancellation.
+Select one with `--case=<name>`; these fault-only cases may use offscreen QPA.
+
+The default run, `--case=native-playback` and `--case=cancel-and-retry` launch
+actual qplay. Run them in the VM with `QBUTT_QT_ACCEPTANCE_NATIVE=1`; the runner
+uses Windows QPA. Reuse a verified native qplay runtime with its matching build
+manifest. `native-playback` checks the qbutt `Media::Player` launch, named-pipe
+IPC, decoding, track selection, stop and replacement. Inspect the resulting
+process PIDs and require that each has exited. These two Windows-QPA commands
+still need a run after the launch guard change; pointer/GPU acceptance is separate.
+
+The obsolete `media-audio.ts` Lua-trace fixture has been removed: native qplay
+does not load its mpv.conf or trace script. Provider voice selection, retaining
+a user-selected track and first-unpause/bookmark resume through the qbutt
+bridge still need a generated native bridge fixture. The standalone qplay audio
+fixture verifies player controls; it does not establish that provider handoff.
 
 On Windows, run the lab from an elevated terminal with PowerShell 7 available.
 Before launching a fixture, the shared runner registers persistent inbound firewall

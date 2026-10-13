@@ -15,9 +15,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QLocalSocket>
 #include <QScopeGuard>
 #include <QThread>
 
@@ -242,36 +240,6 @@ void MediaPlaybackAcceptance::run(QObject *errorReceiver, const QJsonObject &spe
             {
                 require(downloads == (options.launchToken == 0 ? 1 : 0), u"Download IPC bypassed the playback capability"_s);
                 check[u"downloads"_s] = downloads;
-            }
-
-            if (selection.value(u"switchTrack"_s).isDouble())
-            {
-                QFile trace(spec.value(u"tracePath"_s).toString());
-                require(trace.open(QIODevice::ReadOnly), u"Cannot read actual mpv IPC trace"_s);
-                QString pipe;
-                for (const QByteArray &line : trace.readAll().split('\n'))
-                {
-                    const QJsonObject event = QJsonDocument::fromJson(line).object();
-                    if (event.value(u"title"_s).toString() == selection.value(u"name"_s).toString())
-                        pipe = event.value(u"ipc"_s).toString();
-                }
-                require(!pipe.isEmpty(), u"The actual mpv IPC endpoint was not recorded"_s);
-                pipe.remove(u"\\\\.\\pipe\\"_s);
-                QLocalSocket user;
-                user.connectToServer(pipe);
-                waitFor(u"Actual mpv user-control IPC"_s, [&] { return user.state() == QLocalSocket::ConnectedState; });
-                user.write(QJsonDocument(QJsonObject {{u"command"_s, QJsonArray {u"set_property"_s, u"aid"_s,
-                    selection.value(u"switchTrack"_s)}}}).toJson(QJsonDocument::Compact) + '\n');
-                user.flush();
-                const double beforeSwitch = position;
-                waitFor(u"User audio selection remains active"_s, [&]
-                {
-                    return !errors.isEmpty() || ((selectedAudio(tracks).value(u"id"_s) == selection.value(u"switchTrack"_s))
-                        && (position >= beforeSwitch + 1));
-                });
-                require(errors.isEmpty(), u"User audio switching failed"_s);
-                check[u"userSelected"_s] = selectedAudio(tracks);
-                check[u"userSwitchPosition"_s] = position;
             }
 
             // Stop the real player before reading the persisted bookmark. A

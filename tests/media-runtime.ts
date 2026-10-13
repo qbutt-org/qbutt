@@ -6,6 +6,13 @@ import { basename, join, resolve } from "node:path";
 import { mediaRuntime } from "../components/content/media-runtime";
 import { assertQtRuntime } from "./qt-runtime";
 
+const selectedCase = process.argv.find(argument => argument.startsWith("--case="))?.slice(7);
+const nativeCases = new Set(["native-playback", "cancel-and-retry"]);
+if (!selectedCase || nativeCases.has(selectedCase)) {
+    assert.equal(process.env.QBUTT_QT_ACCEPTANCE_NATIVE, "1",
+        "Run actual qplay playback in the VM with QBUTT_QT_ACCEPTANCE_NATIVE=1 (Windows QPA).");
+}
+
 // Production Player probes actual qplay, then decodes a generated legal clip.
 // Native fault executables exercise the same process boundary without Bun IPC.
 const driver = process.env.QBUTT_QT_ACCEPTANCE_EXE;
@@ -101,7 +108,6 @@ const cases = [
     ] },
 ];
 const results = [];
-const selectedCase = process.argv.find(argument => argument.startsWith("--case="))?.slice(7);
 assert(!selectedCase || cases.some(scenario => scenario.name === selectedCase), "Unknown runtime scenario");
 for (const scenario of cases.filter(scenario => !selectedCase || scenario.name === selectedCase)) {
     const directory = join(root, scenario.name);
@@ -122,14 +128,31 @@ for (const scenario of cases.filter(scenario => !selectedCase || scenario.name =
         stopDuringPreparation: scenario.stopDuringPreparation, timeoutMs: scenario.timeoutMs }])
         .map(selection => ({ identity: "video:generated:exact", expectedId: 1, minimumPosition: 1, ...selection }));
     await writeFile(specPath, JSON.stringify({ mode: "media-playback", mediaPath: media, evidencePath, probeTracePath,
-        retryPlayerPath: qplay, selections }));
+        ...(scenario.name === "cancel-and-retry" ? { retryPlayerPath: qplay } : {}), selections }));
+    const native = nativeCases.has(scenario.name);
+    const environment: NodeJS.ProcessEnv = {
+        ...process.env,
+        QT_QPA_PLATFORM: native ? "windows" : "offscreen",
+        QT_FORCE_STDERR_LOGGING: "1",
+        QBUTT_QT_ACCEPTANCE_SPEC: specPath,
+        QBUTT_LAB_PATHS: "1",
+        QBUTT_LAB_QPLAY: scenario.player || probe,
+        QBUTT_LAB_QPLAY_PROFILE: qplayProfile,
+        QBUTT_NATIVE_PROBE_MODE: scenario.mode || "metadata",
+        QBUTT_NATIVE_PROBE_RESPONSE: response,
+        QBUTT_NATIVE_PROBE_TRACE: probeTracePath,
+    };
+    if (native) {
+        delete environment.QSG_RHI_BACKEND;
+        delete environment.QT_QUICK_BACKEND;
+    } else {
+        delete environment.QBUTT_QT_ACCEPTANCE_NATIVE;
+        environment.QSG_RHI_BACKEND = "software";
+    }
     const began = Date.now();
     const application = Bun.spawn([executable, `--profile=${profile}`], {
-        cwd: bundle, windowsHide: true, stdin: "ignore", timeout: 50_000,
-        env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QSG_RHI_BACKEND: "software", QBUTT_QT_ACCEPTANCE_SPEC: specPath,
-            QBUTT_LAB_PATHS: "1", QBUTT_LAB_QPLAY: scenario.player || probe, QBUTT_LAB_QPLAY_PROFILE: qplayProfile,
-            QBUTT_NATIVE_PROBE_MODE: scenario.mode || "metadata", QBUTT_NATIVE_PROBE_RESPONSE: response,
-            QBUTT_NATIVE_PROBE_TRACE: probeTracePath },
+        cwd: bundle, windowsHide: !native, stdin: "ignore", timeout: 50_000,
+        env: environment,
         stdout: Bun.file(join(directory, "stdout.log")), stderr: Bun.file(join(directory, "stderr.log")),
     });
     const exit = await application.exited;
