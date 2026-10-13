@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::AniLiberty,
         Self::AniTokyo,
         Self::YummyAnime,
@@ -25,6 +25,7 @@ impl Source {
         Self::LimeTorrents,
         Self::RoyalRoad,
         Self::Kakuyomu,
+        Self::Syosetu,
         Self::RanobeHub,
     ];
 
@@ -49,6 +50,7 @@ impl Source {
             Self::LimeTorrents => "limetorrents",
             Self::RoyalRoad => "royalroad",
             Self::Kakuyomu => "kakuyomu",
+            Self::Syosetu => "syosetu",
             Self::RanobeHub => "ranobehub",
         }
     }
@@ -78,6 +80,7 @@ impl Source {
             Self::LimeTorrents => "LimeTorrents",
             Self::RoyalRoad => "Royal Road",
             Self::Kakuyomu => "Kakuyomu",
+            Self::Syosetu => "小説家になろう",
             Self::RanobeHub => "RanobeHub",
         }
     }
@@ -101,8 +104,7 @@ impl Source {
             Self::RanobeLib => &[Category::Books],
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
             Self::FitGirl | Self::OnlineFix | Self::FreeTP | Self::ByRut => &[Category::Games],
-            Self::RoyalRoad => &[Category::Books],
-            Self::Kakuyomu => &[Category::Books],
+            Self::RoyalRoad | Self::Kakuyomu | Self::Syosetu => &[Category::Books],
             Self::RanobeHub => &[Category::Books],
             Self::Nyaa => &[
                 Category::Anime,
@@ -224,6 +226,7 @@ fn validate_reader(source: Source) -> crate::Result<()> {
             | Source::RanobeLib
             | Source::RoyalRoad
             | Source::Kakuyomu
+            | Source::Syosetu
             | Source::RanobeHub
             | Source::LocalBook
     ) {

@@ -34,6 +34,7 @@ pub enum Source {
     LimeTorrents,
     RoyalRoad,
     Kakuyomu,
+    Syosetu,
     RanobeHub,
 }
 
@@ -75,6 +76,7 @@ impl PublicationRef {
             Source::MangaLib => self.mangalib_id().map(|_| ()),
             Source::RanobeLib => self.ranobelib_id().map(|_| ()),
             Source::Kakuyomu => self.kakuyomu_id().map(|_| ()),
+            Source::Syosetu => self.syosetu_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
             Source::MangaDex => Err(crate::Error::InvalidReference),
         }
@@ -171,6 +173,20 @@ impl PublicationRef {
 
     pub(crate) fn kakuyomu_id(&self) -> crate::Result<&str> {
         if self.source == Source::Kakuyomu && canonical_kakuyomu_id(&self.id) {
+            Ok(&self.id)
+        } else {
+            Err(crate::Error::InvalidReference)
+        }
+    }
+
+    pub(crate) fn syosetu_id(&self) -> crate::Result<&str> {
+        let bytes = self.id.as_bytes();
+        if self.source == Source::Syosetu
+            && (6..=8).contains(&bytes.len())
+            && bytes[0] == b'n'
+            && bytes[1..5].iter().all(u8::is_ascii_digit)
+            && bytes[5..].iter().all(u8::is_ascii_lowercase)
+        {
             Ok(&self.id)
         } else {
             Err(crate::Error::InvalidReference)
@@ -459,6 +475,7 @@ impl VariantRef {
                 | (Source::Rutube, VariantSelector::RutubeVideo)
                 | (Source::RoyalRoad, VariantSelector::OriginalText)
                 | (Source::Kakuyomu, VariantSelector::OriginalText)
+                | (Source::Syosetu, VariantSelector::OriginalText)
                 | (
                     Source::RanobeHub,
                     VariantSelector::RanobeHubTranslation { .. }
@@ -514,6 +531,7 @@ impl ChapterRef {
             Source::Kakuyomu => self.id.split_once('/').is_some_and(|(work, episode)| {
                 work == self.variant.publication.id && canonical_kakuyomu_id(episode)
             }),
+            Source::Syosetu => self.id == "root" || canonical_decimal(&self.id),
             _ => false,
         } {
             Ok(())
