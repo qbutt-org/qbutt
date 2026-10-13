@@ -2,7 +2,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
-import QtQuick.Dialogs as Dialogs
 import QtQuick.Layouts
 import Qbutt.Content
 
@@ -25,6 +24,7 @@ ModalPicker {
     palette.base: theme.controlBackground
     palette.button: theme.controlBackground
     palette.mid: theme.controlPressed
+    onClosed: colors.dismiss()
 
     contentItem: ColumnLayout {
         spacing: 12
@@ -76,14 +76,12 @@ ModalPicker {
                     }
 
                     ReaderColorSwatch {
+                        id: backgroundSwatch
                         objectName: "readerBackgroundPicker"
                         theme: root.theme
                         swatchColor: root.effectiveBackground
                         Accessible.name: qsTr("Change background color")
-                        onClicked: {
-                            backgroundDialog.selectedColor = root.effectiveBackground;
-                            backgroundDialog.open();
-                        }
+                        onClicked: colors.openFor(backgroundSwatch, false)
                     }
                 }
 
@@ -103,14 +101,12 @@ ModalPicker {
                     }
 
                     ReaderColorSwatch {
+                        id: textSwatch
                         objectName: "readerTextColorPicker"
                         theme: root.theme
                         swatchColor: root.effectiveTextColor
                         Accessible.name: qsTr("Change text color")
-                        onClicked: {
-                            textDialog.selectedColor = root.effectiveTextColor;
-                            textDialog.open();
-                        }
+                        onClicked: colors.openFor(textSwatch, true)
                     }
                 }
 
@@ -320,22 +316,18 @@ ModalPicker {
         }
     }
 
-    // QQuickWidget's implicit dialog parent is the hosting QWidget window.
-    Dialogs.ColorDialog {
-        id: backgroundDialog
-        title: qsTr("Background")
-        options: Dialogs.ColorDialog.DontUseNativeDialog | Dialogs.ColorDialog.NoEyeDropperButton
-        popupType: Popup.Item
-        parentWindow: root.backdrop.Window.window
-        onAccepted: root.backend.setReaderBackgroundColor(selectedColor.toString())
-    }
-
-    Dialogs.ColorDialog {
-        id: textDialog
-        title: qsTr("Text color")
-        options: Dialogs.ColorDialog.DontUseNativeDialog | Dialogs.ColorDialog.NoEyeDropperButton
-        popupType: Popup.Item
-        parentWindow: root.backdrop.Window.window
-        onAccepted: root.backend.setReaderTextColor(selectedColor.toString())
+    ReaderColorPicker {
+        id: colors
+        theme: root.theme
+        backdrop: root.backdrop
+        selectedColor: textMode ? root.effectiveTextColor : root.effectiveBackground
+        defaultSelected: textMode
+            ? root.backend.readerTextColor === "" : root.backend.readerBackgroundColor === ""
+        onColorSelected: color => {
+            if (textMode)
+                root.backend.setReaderTextColor(color);
+            else
+                root.backend.setReaderBackgroundColor(color);
+        }
     }
 }

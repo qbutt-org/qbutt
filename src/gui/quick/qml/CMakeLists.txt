@@ -20,6 +20,9 @@ qt_add_qml_module(qbt_quick_ui STATIC
         ReaderCanvas.qml
         ReaderAppearancePicker.qml
         ReaderChromeButton.qml
+        ReaderColorEditor.qml
+        ReaderColorField.qml
+        ReaderColorPicker.qml
         ReaderColorSwatch.qml
         ReaderContinuousCanvas.qml
         ReaderFontPicker.qml

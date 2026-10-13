@@ -19304,6 +19304,59 @@ Please choose a different name and try again.</source>
     </message>
 </context>
 <context>
+    <name>ReaderColorPicker</name>
+    <message>
+        <source>Aa</source>
+        <translation>Аа</translation>
+    </message>
+    <message>
+        <source>Select %1</source>
+        <translation>Выбрать %1</translation>
+    </message>
+    <message>
+        <source>Default</source>
+        <translation>По умолчанию</translation>
+    </message>
+    <message>
+        <source>Custom color…</source>
+        <translation>Другой цвет…</translation>
+    </message>
+    <message>
+        <source>Text color</source>
+        <translation>Цвет текста</translation>
+    </message>
+    <message>
+        <source>Background</source>
+        <translation>Фон</translation>
+    </message>
+</context>
+<context>
+    <name>ReaderColorEditor</name>
+    <message>
+        <source>Hue</source>
+        <translation>Оттенок</translation>
+    </message>
+    <message>
+        <source>Hex color</source>
+        <translation>HEX-код цвета</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>Apply</source>
+        <translation>Применить</translation>
+    </message>
+</context>
+<context>
+    <name>ReaderColorField</name>
+    <message>
+        <source>Saturation and brightness</source>
+        <translation>Насыщенность и яркость</translation>
+    </message>
+</context>
+<context>
     <name>ReaderFontPicker</name>
     <message>
         <source>Font</source>
