@@ -502,6 +502,26 @@ the accepted context must cite it. Require exit zero and
 Set `QT_QPA_FONTDIR=C:/Windows/Fonts` for legible offscreen renders. This is a
 generated native UI path at 1280×720 and 1440×900, not a host pointer test.
 
+For bounded text read-ahead, build `qbutt-quick-acceptance` and
+`qbutt-codex-text-peer`, then run the following with the Qt `bin` directory on
+`PATH`. The command was verified on main `414f34429`; the evidence directory
+must not exist before running.
+
+```powershell
+bun tests/content-reading/text-ahead.ts `
+    'C:/Users/cawa1/Documents/Projects/qbutt/build/dev/qbutt-quick-acceptance.exe' `
+    'C:/Users/cawa1/Documents/Projects/qbutt/build/dev/tests/quick-acceptance/codex-text-peer/codex.exe' `
+    'C:/Users/cawa1/Documents/Projects/qbutt/build/dev/text-ahead-main-qa'
+```
+
+The hidden Qt process imports an authored FB2 and uses a controlled Codex peer,
+with no account or paid AI calls. Require exit zero and all four
+`PASS reader_text_ahead` lines. Its 17 turns check one following chapter,
+retained names/gender context, promotion without duplicate AI, cache reuse,
+foreground priority, cancellation on Original/language/model/effort/book/close,
+unchanged reading/history, stale context rejection and child-process cleanup.
+Online original prefetch and native pointer interaction remain separate checks.
+
 Run `--reader-manga-translation --lang ru --profile <isolated-directory>` in
 the same offscreen environment with an installed, signed-in Codex. The native
 Qt fixture draws an original page with three vertical Japanese balloons and
