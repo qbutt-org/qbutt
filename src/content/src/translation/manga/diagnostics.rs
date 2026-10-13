@@ -3,7 +3,7 @@
 use std::io::Write;
 use std::time::{Duration, Instant};
 
-use qbutt_codex::{CodexError, IMAGE_TOOL_CALL_LIMIT, Result, ToolCall};
+use qbutt_codex::{CodexError, IMAGE_TOOL_CALL_LIMIT, Result, ToolCall, ToolOutput};
 use serde::Serialize;
 use serde_json::json;
 
@@ -23,9 +23,10 @@ struct ToolRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     layer: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    crop: Option<&'static str>,
+    crop_count: Option<usize>,
     phase: CallPhase,
     outcome: &'static str,
+    output_image_count: usize,
     elapsed_ms: u64,
     #[serde(skip_serializing)]
     started: Instant,
@@ -50,7 +51,7 @@ impl ToolLedger {
             "read_context" => "read_context",
             _ => "unknown",
         };
-        let (layer, crop) = if tool == "inspect_page" {
+        let (layer, crop_count) = if tool == "inspect_page" {
             let layer = match call.arguments.get("layer").and_then(|value| value.as_str()) {
                 Some("original") => "original",
                 Some("mask") => "mask",
@@ -59,16 +60,12 @@ impl ToolLedger {
                 Some("comparison") => "comparison",
                 _ => "invalid",
             };
-            let crop = if call
+            let crop_count = call
                 .arguments
-                .get("crop")
-                .is_some_and(|value| !value.is_null())
-            {
-                "requested"
-            } else {
-                "none"
-            };
-            (Some(layer), Some(crop))
+                .get("crops")
+                .and_then(|value| value.as_array())
+                .map(Vec::len);
+            (Some(layer), crop_count)
         } else {
             (None, None)
         };
@@ -76,9 +73,10 @@ impl ToolLedger {
             ordinal: self.calls.len() + 1,
             tool,
             layer,
-            crop,
+            crop_count,
             phase: CallPhase::Validation,
             outcome: "pending",
+            output_image_count: 0,
             elapsed_ms: 0,
             started: Instant::now(),
         });
@@ -92,9 +90,13 @@ impl ToolLedger {
             .phase = phase;
     }
 
-    pub(super) fn finish<T>(&mut self, result: &Result<T>) {
+    pub(super) fn finish(&mut self, result: &Result<ToolOutput>) {
         let record = self.calls.last_mut().expect("Tool dispatch has a record");
         record.outcome = outcome(result);
+        record.output_image_count = match result {
+            Ok(output) => output.images.len(),
+            Err(_) => 0,
+        };
         record.elapsed_ms = record.started.elapsed().as_millis() as u64;
     }
 

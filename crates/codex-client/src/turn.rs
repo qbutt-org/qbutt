@@ -6,8 +6,8 @@ use tokio::sync::watch;
 use tokio::time::{Instant, timeout_at};
 
 use super::{
-    Client, CodexCompletion, CodexError, CodexRequest, FunctionTool, ModelModality, Result,
-    ToolCall, ToolHandler,
+    Client, CodexCompletion, CodexError, CodexRequest, FunctionTool, MAX_IMAGE_BYTES,
+    MAX_TOOL_IMAGES, ModelModality, Result, ToolCall, ToolHandler,
 };
 
 const TURN_TIMEOUT: Duration = Duration::from_secs(180);
@@ -255,8 +255,20 @@ impl Client {
         };
         let reply = match output {
             Ok(output) => {
+                if output.images.len() > MAX_TOOL_IMAGES {
+                    return Err(CodexError::Image);
+                }
+                let mut image_bytes = 0;
+                for image in &output.images {
+                    if image.bytes.len() > MAX_IMAGE_BYTES - image_bytes {
+                        return Err(CodexError::Image);
+                    }
+                    image_bytes += image.bytes.len();
+                }
                 let mut content = vec![json!({"type": "inputText", "text": output.text})];
-                if let Some(image) = output.image {
+                for (index, image) in output.images.into_iter().enumerate() {
+                    content
+                        .push(json!({"type": "inputText", "text": format!("Image {}", index + 1)}));
                     content.push(json!({"type": "inputImage", "imageUrl": image.url()?}));
                 }
                 json!({"id": id, "result": {"success": true, "contentItems": content}})

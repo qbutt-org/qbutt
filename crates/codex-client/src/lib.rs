@@ -21,7 +21,10 @@ pub use model::CodexModel;
 use process::{Scratch, installed_codex};
 pub use turn::IMAGE_TOOL_CALL_LIMIT;
 
-const MAX_IMAGE_BYTES: usize = 12 * 1024 * 1024;
+/// Encoded image bytes in one input or, in aggregate, one tool response.
+pub const MAX_IMAGE_BYTES: usize = 12 * 1024 * 1024;
+/// Separate images in one tool response.
+pub const MAX_TOOL_IMAGES: usize = 24;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CodexError {
@@ -108,7 +111,7 @@ pub struct ToolCall {
 
 pub struct ToolOutput {
     pub text: String,
-    pub image: Option<InputImage>,
+    pub images: Vec<InputImage>,
 }
 
 pub trait ToolHandler {

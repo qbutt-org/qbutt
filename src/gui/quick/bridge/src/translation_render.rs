@@ -75,10 +75,6 @@ mod ffi {
         error: String,
     }
 
-    struct MangaImage<'a> {
-        bytes: &'a [u8],
-    }
-
     unsafe extern "C++" {
         include!("qbutt_quick/translation_render.h");
 
@@ -89,7 +85,7 @@ mod ffi {
         ) -> MangaRenderOutput;
 
         fn crop_manga_page(
-            images: &[MangaImage<'_>],
+            image: &[u8],
             bounds: &MangaRect,
             cancelled: &RenderCancellation,
         ) -> MangaCropOutput;
@@ -107,18 +103,12 @@ pub struct QtMangaRenderer;
 impl manga::PageRenderer for QtMangaRenderer {
     fn crop(
         &self,
-        images: &[InputImage],
+        image: &InputImage,
         bounds: &Rect,
         cancelled: Arc<AtomicBool>,
     ) -> codex::Result<PageCrop> {
         let cancellation = RenderCancellation { flag: cancelled };
-        let sources = images
-            .iter()
-            .map(|image| ffi::MangaImage {
-                bytes: &image.bytes,
-            })
-            .collect::<Vec<_>>();
-        let output = ffi::crop_manga_page(&sources, &native_rect(bounds), &cancellation);
+        let output = ffi::crop_manga_page(&image.bytes, &native_rect(bounds), &cancellation);
         if !output.error.is_empty() {
             return Err(CodexError::Tool(output.error));
         }

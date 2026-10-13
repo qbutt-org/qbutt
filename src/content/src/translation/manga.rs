@@ -16,7 +16,8 @@ use crate::library::TranslationCacheKey;
 use super::context::{ContextAdditions, EvidenceSegment, TranslationContext};
 use qbutt_codex::{
     self as codex, CodexCompletion, CodexError, CodexRequest, FunctionTool, IMAGE_TOOL_CALL_LIMIT,
-    InputImage, ModelModality, ToolCall, ToolFuture, ToolHandler, ToolOutput,
+    InputImage, MAX_IMAGE_BYTES, MAX_TOOL_IMAGES, ModelModality, ToolCall, ToolFuture, ToolHandler,
+    ToolOutput,
 };
 
 mod diagnostics;
@@ -27,7 +28,9 @@ use diagnostics::{CallPhase, ToolLedger};
 const MAX_REGIONS: usize = 60;
 const MAX_INK_BOXES: usize = 4096;
 const MAX_RENDERS: usize = 3;
-const PIPELINE_VERSION: u32 = 6;
+const MAX_INSPECTION_CROPS: usize = MAX_TOOL_IMAGES / 3;
+const MAX_INSPECTION_PIXELS: u64 = 16_000_000;
+const PIPELINE_VERSION: u32 = 7;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Rect {
@@ -113,7 +116,7 @@ pub struct PageCrop {
 pub trait PageRenderer: Send + Sync + 'static {
     fn crop(
         &self,
-        images: &[InputImage],
+        image: &InputImage,
         bounds: &Rect,
         cancelled: Arc<AtomicBool>,
     ) -> codex::Result<PageCrop>;
@@ -160,12 +163,36 @@ struct PageTools<'a, R, C> {
 
 impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
     async fn inspect(&mut self, arguments: Value) -> codex::Result<ToolOutput> {
-        let layer = arguments
-            .get("layer")
-            .and_then(Value::as_str)
+        let layer = match arguments.get("layer").and_then(Value::as_str) {
+            Some("original") => "original",
+            Some("mask") => "mask",
+            Some("cleaned") => "cleaned",
+            Some("result") => "result",
+            Some("comparison") => "comparison",
+            _ => return Err(CodexError::Protocol),
+        };
+        let values = arguments
+            .get("crops")
+            .and_then(Value::as_array)
             .ok_or(CodexError::Protocol)?;
-        let images = if layer == "original" {
-            vec![self.original.clone()]
+        if values.len() > MAX_INSPECTION_CROPS || (values.is_empty() && layer == "comparison") {
+            return Err(CodexError::Tool(format!(
+                "Use at most {MAX_INSPECTION_CROPS} inspection crops; comparison requires at least one"
+            )));
+        }
+        let crops: Vec<Rect> = serde_json::from_value(Value::Array(values.clone()))
+            .map_err(|_| CodexError::Tool("Invalid inspection crops".into()))?;
+        if crops
+            .iter()
+            .any(|rect| !rect.valid() || rect.x + rect.width > 1.0 || rect.y + rect.height > 1.0)
+        {
+            return Err(CodexError::Tool(
+                "Inspection crops must be positive normalized rectangles inside the original page"
+                    .into(),
+            ));
+        }
+        let sources = if layer == "original" {
+            vec![("original", self.original.clone())]
         } else {
             let layers = &self
                 .revisions
@@ -175,58 +202,71 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
                 })?
                 .layers;
             match layer {
-                "result" => vec![InputImage::png(layers.result_png.clone())],
-                "cleaned" => vec![InputImage::png(layers.cleaned_png.clone())],
-                "mask" => vec![InputImage::png(layers.mask_png.clone())],
+                "result" => vec![("result", InputImage::png(layers.result_png.clone()))],
+                "cleaned" => vec![("cleaned", InputImage::png(layers.cleaned_png.clone()))],
+                "mask" => vec![("mask", InputImage::png(layers.mask_png.clone()))],
                 "comparison" => vec![
-                    self.original.clone(),
-                    InputImage::png(layers.cleaned_png.clone()),
-                    InputImage::png(layers.result_png.clone()),
+                    ("original", self.original.clone()),
+                    ("cleaned", InputImage::png(layers.cleaned_png.clone())),
+                    ("result", InputImage::png(layers.result_png.clone())),
                 ],
                 _ => return Err(CodexError::Protocol),
             }
         };
-        let bounds = arguments.get("crop").filter(|value| !value.is_null());
-        let Some(bounds) = bounds else {
-            if layer == "comparison" {
-                return Err(CodexError::Tool(
-                    "A comparison requires an inspection crop".into(),
-                ));
-            }
-            self.ledger.phase(CallPhase::Native);
+        self.ledger.phase(CallPhase::Native);
+        if crops.is_empty() {
             return Ok(ToolOutput {
                 text: format!("{layer} page image"),
-                image: images.into_iter().next(),
+                images: sources.into_iter().map(|(_, image)| image).collect(),
             });
-        };
-        let bounds: Rect = serde_json::from_value(bounds.clone())
-            .map_err(|_| CodexError::Tool("Invalid inspection crop".into()))?;
-        if !bounds.valid() || bounds.x + bounds.width > 1.0 || bounds.y + bounds.height > 1.0 {
-            return Err(CodexError::Tool(
-                "Inspection crop must be a positive normalized rectangle inside the original page"
-                    .into(),
-            ));
         }
-        self.ledger.phase(CallPhase::Native);
         let renderer = self.renderer.clone();
         let cancelled = self.cancelled.clone();
-        let crop = tokio::task::spawn_blocking(move || renderer.crop(&images, &bounds, cancelled))
-            .await
-            .map_err(|_| CodexError::Provider)??;
-        let panels = if layer == "comparison" {
-            vec!["original", "cleaned", "result"]
-        } else {
-            vec![layer]
-        };
+        let (images, details) = tokio::task::spawn_blocking(move || {
+            let mut images = Vec::new();
+            let mut details = Vec::new();
+            let mut pixels = 0_u64;
+            let mut bytes = 0;
+            for (crop_index, bounds) in crops.iter().enumerate() {
+                for (source_layer, source) in &sources {
+                    if cancelled.load(Ordering::Acquire) {
+                        return Err(CodexError::Cancelled);
+                    }
+                    let crop = renderer.crop(source, bounds, cancelled.clone())?;
+                    let crop_pixels = u64::from(crop.width) * u64::from(crop.height);
+                    if crop_pixels > MAX_INSPECTION_PIXELS - pixels
+                        || crop.image.bytes.len() > MAX_IMAGE_BYTES - bytes
+                    {
+                        return Err(CodexError::Tool(
+                            "Inspection images exceed the batch size limit; use fewer or smaller crops".into(),
+                        ));
+                    }
+                    pixels += crop_pixels;
+                    bytes += crop.image.bytes.len();
+                    details.push(json!({
+                        "image": images.len() + 1,
+                        "crop": crop_index + 1,
+                        "layer": source_layer,
+                        "bounds": crop.bounds,
+                        "width": crop.width,
+                        "height": crop.height,
+                    }));
+                    images.push(crop.image);
+                }
+            }
+            if cancelled.load(Ordering::Acquire) {
+                return Err(CodexError::Cancelled);
+            }
+            Ok((images, details))
+        })
+        .await
+        .map_err(|_| CodexError::Provider)??;
         Ok(ToolOutput {
             text: json!({
-                "panelsLeftToRight": panels,
-                "crop": crop.bounds,
-                "panelWidth": crop.width as usize / panels.len(),
-                "panelHeight": crop.height,
-                "instruction": "These are unscaled pixels. All region, layout and inkBox coordinates still refer to the full original page, never this crop."
+                "images": details,
+                "instruction": "Each numbered image is an unscaled native crop. All region, layout and inkBox coordinates refer to the full original page, never a crop."
             }).to_string(),
-            image: Some(crop.image),
+            images,
         })
     }
 
@@ -265,12 +305,13 @@ impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
         let latest = self.revisions.last().ok_or(CodexError::Protocol)?;
         let text = json!({
             "revision": self.revisions.len(),
+            "rendersRemaining": MAX_RENDERS - self.revisions.len(),
             "diagnostics": latest.layers.diagnostics,
             "instruction": "Inspect the returned actual result image. Revise only if legibility, meaning or artwork needs correction."
         }).to_string();
         Ok(ToolOutput {
             text,
-            image: Some(InputImage::png(latest.layers.result_png.clone())),
+            images: vec![InputImage::png(latest.layers.result_png.clone())],
         })
     }
 }
@@ -340,7 +381,8 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     let request = CodexRequest {
         instructions: format!(
             "{PAGE_INSTRUCTIONS} You have at most {IMAGE_TOOL_CALL_LIMIT} tool calls in total, including failed calls and work-context tools. \
-             Plan grouped crops for nearby difficult regions, reserve {MAX_RENDERS} calls for rendering and the comparison crops needed to review them, \
+             Batch the original crops for difficult regions in one inspect_page call, then batch their comparison crops after each render. \
+             Group nearby details and use at most {MAX_INSPECTION_CROPS} crops in a batch. Reserve {MAX_RENDERS} calls for rendering and their inspection batches, \
              and use at most four work-context calls. The supplied full original already shows readable balloons; \
              do not inspect every balloon separately or request redundant full-page images. Finish the required artwork review within this budget."
         ),
@@ -618,14 +660,18 @@ fn page_tools() -> Vec<FunctionTool> {
     vec![
         FunctionTool {
             name: "inspect_page",
-            description: "Inspect the original page or the most recent native mask, cleaned page or typeset result. Use a normalized crop for small text and artwork at native resolution. The comparison layer requires a crop and returns original, cleaned and result side by side without scaling. All coordinates use the full original page. Other layers allow omitted or null crop for the full page.",
+            description: "Inspect a batch of normalized crops from the original page or the latest native mask, cleaned page or result. Each crop is a separate numbered image at native resolution. Comparison returns separate original, cleaned and result images for each crop in that order. All coordinates refer to the full original page. An empty crops array returns the full page for layers other than comparison.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "layer": { "type": "string", "enum": ["original", "mask", "cleaned", "result", "comparison"] },
-                    "crop": { "anyOf": [rect, { "type": "null" }] },
+                    "crops": {
+                        "type": "array",
+                        "maxItems": MAX_INSPECTION_CROPS,
+                        "items": rect,
+                    },
                 },
-                "required": ["layer"],
+                "required": ["layer", "crops"],
                 "additionalProperties": false,
             }),
         },
@@ -668,10 +714,10 @@ const PAGE_INSTRUCTIONS: &str = concat!(
     "use 0 for ordinary level text. The rotated lettering must stay inside layout. ",
     "Bounds enclose both original text and the safe target layout inside each balloon or panel. ",
     "Tight ink boxes cover every source glyph, including long strokes, dots, punctuation and all vertical characters, excluding borders and artwork. ",
-    "Before placing boxes on unreadable details or art-backed text, inspect a grouped original crop with enough surrounding artwork to distinguish every source stroke. ",
+    "Before placing boxes on unreadable details or art-backed text, inspect their original crops in one batch, with enough surrounding artwork to distinguish every source stroke. ",
     "Layout is safe space for target-language text inside bounds. ",
     "Render the page with render_page and examine the actual returned image. ",
-    "For these difficult regions, inspect grouped comparison crops after rendering: original, cleaned and result appear side by side. ",
+    "After rendering, inspect one comparison batch for these difficult regions: each crop supplies separate original, cleaned and result images. ",
     "Check that no source strokes remain and that panel borders, contours, lines and screentone survive. ",
     "Layout diagnostics and unchanged pixels outside the mask do not establish cleanup quality. ",
     "Make at most two corrections when needed. ",

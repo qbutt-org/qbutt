@@ -178,7 +178,7 @@ Qbutt::MangaRenderOutput Qbutt::render_manga_page(
 }
 
 Qbutt::MangaCropOutput Qbutt::crop_manga_page(
-    const ::rust::Slice<const MangaImage> sources,
+    const ::rust::Slice<const std::uint8_t> encoded,
     const MangaRect &bounds, const RenderCancellation &cancelled)
 {
     MangaCropOutput output;
@@ -187,29 +187,14 @@ Qbutt::MangaCropOutput Qbutt::crop_manga_page(
         output.error = "Manga inspection cancelled";
         return output;
     }
-    if ((sources.size() != 1) && (sources.size() != 3))
+    QString error;
+    const QImage image = readMangaPage(encoded, error);
+    if (image.isNull())
     {
-        output.error = "Manga inspection requires one layer or three comparison layers";
+        output.error = toRust(error);
         return output;
     }
-    QList<QImage> images;
-    for (const MangaImage &source : sources)
-    {
-        if (render_cancelled(cancelled))
-        {
-            output.error = "Manga inspection cancelled";
-            return output;
-        }
-        QString error;
-        const QImage image = readMangaPage(source.bytes, error);
-        if (image.isNull())
-        {
-            output.error = toRust(error);
-            return output;
-        }
-        images.append(image);
-    }
-    const Content::MangaRender::Crop crop = Content::MangaRender::cropPages(images, rectangle(bounds),
+    const Content::MangaRender::Crop crop = Content::MangaRender::cropPage(image, rectangle(bounds),
         [&cancelled] { return render_cancelled(cancelled); });
     if (!crop.error.isEmpty())
     {

@@ -301,8 +301,8 @@ namespace
     }
 }
 
-Content::MangaRender::Crop Content::MangaRender::cropPages(
-    const QList<QImage> &images, const QRectF &bounds, const std::function<bool()> &cancelled)
+Content::MangaRender::Crop Content::MangaRender::cropPage(
+    const QImage &image, const QRectF &bounds, const std::function<bool()> &cancelled)
 {
     Crop crop;
     if (isCancelled(cancelled))
@@ -310,20 +310,10 @@ Content::MangaRender::Crop Content::MangaRender::cropPages(
         crop.error = QStringLiteral("Manga inspection cancelled");
         return crop;
     }
-    if ((images.size() != 1) && (images.size() != 3))
+    if (image.isNull() || (qint64(image.width()) * image.height() > MAX_PIXELS))
     {
-        crop.error = QStringLiteral("Manga inspection requires one layer or three comparison layers");
+        crop.error = QStringLiteral("Invalid or oversized manga page");
         return crop;
-    }
-    const QSize pageSize = images.constFirst().size();
-    for (const QImage &image : images)
-    {
-        if (image.isNull() || (image.size() != pageSize)
-            || (qint64(image.width()) * image.height() > MAX_PIXELS))
-        {
-            crop.error = QStringLiteral("Invalid, oversized or mismatched manga layers");
-            return crop;
-        }
     }
     if (!validRect(bounds) || (bounds.left() < 0) || (bounds.top() < 0)
         || (bounds.right() > 1) || (bounds.bottom() > 1))
@@ -332,38 +322,12 @@ Content::MangaRender::Crop Content::MangaRender::cropPages(
         return crop;
     }
 
-    const PixelBox box = pixelBox(bounds, pageSize);
+    const PixelBox box = pixelBox(bounds, image.size());
     const int width = box.right - box.left;
     const int height = box.bottom - box.top;
-    if (qint64(width) * height * images.size() > MAX_PIXELS)
-    {
-        crop.error = QStringLiteral("Manga inspection crop exceeds the pixel limit");
-        return crop;
-    }
-    if (images.size() == 1)
-    {
-        crop.image = images.constFirst().copy(box.left, box.top, width, height);
-    }
-    else
-    {
-        crop.image = QImage(width * images.size(), height, QImage::Format_RGBA8888);
-        QPainter painter(&crop.image);
-        painter.setCompositionMode(QPainter::CompositionMode_Source);
-        for (qsizetype index = 0; index < images.size(); ++index)
-        {
-            if (isCancelled(cancelled))
-            {
-                painter.end();
-                crop.image = {};
-                crop.error = QStringLiteral("Manga inspection cancelled");
-                return crop;
-            }
-            painter.drawImage(QPoint(index * width, 0), images.at(index), QRect(box.left, box.top, width, height));
-        }
-        painter.end();
-    }
-    crop.bounds = QRectF(qreal(box.left) / pageSize.width(), qreal(box.top) / pageSize.height(),
-        qreal(width) / pageSize.width(), qreal(height) / pageSize.height());
+    crop.image = image.copy(box.left, box.top, width, height);
+    crop.bounds = QRectF(qreal(box.left) / image.width(), qreal(box.top) / image.height(),
+        qreal(width) / image.width(), qreal(height) / image.height());
     if (isCancelled(cancelled))
     {
         crop.image = {};

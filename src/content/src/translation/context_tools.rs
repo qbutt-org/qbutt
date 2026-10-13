@@ -292,7 +292,7 @@ impl<'a, S: WorkChapterSource + ?Sized> WorkContextTools<'a, S> {
         };
         Ok(ToolOutput {
             text: value.to_string(),
-            image,
+            images: image.into_iter().collect(),
         })
     }
 }

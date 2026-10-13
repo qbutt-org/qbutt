@@ -91,7 +91,7 @@ namespace Content::MangaRender
         QString error;
     };
 
-    Crop cropPages(const QList<QImage> &images, const QRectF &bounds,
+    Crop cropPage(const QImage &image, const QRectF &bounds,
         const std::function<bool()> &cancelled = {});
     QFont mangaFont(FontFamily family);
     TextShape typesetText(const QList<TextRun> &runs, const QRectF &rect, QFont font,

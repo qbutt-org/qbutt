@@ -148,44 +148,24 @@ namespace
         const QRect expectedPixels(123, 250, 100, 101);
         for (const QImage &layer : {original, result.mask, result.cleaned, result.rendered})
         {
-            const Crop crop = cropPages({layer}, inspectionBounds);
+            const Crop crop = cropPage(layer, inspectionBounds);
             require(crop.error.isEmpty() && crop.image == layer.copy(expectedPixels),
                 u"Inspection crop rescaled or changed actual layer pixels"_s);
             require(crop.bounds == normalized(expectedPixels, original.size()),
                 u"Inspection crop lost its full-page coordinates"_s);
         }
-        require(cropPages({original}, QRectF(0, 0, 1, 1)).image == original,
+        require(cropPage(original, QRectF(0, 0, 1, 1)).image == original,
             u"Full-page inspection changed pixels"_s);
         for (const QRectF &invalidCrop : {QRectF(1, 0, 0.0000001, 0.1), QRectF(-0.0000001, 0, 0.1, 0.1),
                                          QRectF(0, 0, 0, 0.1), QRectF(0.9, 0, 0.2, 0.1)})
         {
-            const Crop crop = cropPages({original}, invalidCrop);
+            const Crop crop = cropPage(original, invalidCrop);
             require(!crop.error.isEmpty() && crop.image.isNull(), u"Invalid inspection crop was accepted"_s);
         }
         int cropChecks = 0;
-        const Crop cancelledCrop = cropPages({original}, inspectionBounds, [&cropChecks] { return ++cropChecks == 2; });
+        const Crop cancelledCrop = cropPage(original, inspectionBounds, [&cropChecks] { return ++cropChecks == 2; });
         require(!cancelledCrop.error.isEmpty() && cancelledCrop.image.isNull(),
             u"Cancelled inspection returned an image"_s);
-
-        const QList<QImage> comparedLayers {original, result.cleaned, result.rendered};
-        const Crop comparison = cropPages(comparedLayers, inspectionBounds);
-        require(comparison.error.isEmpty()
-            && comparison.image.size() == QSize(expectedPixels.width() * 3, expectedPixels.height()),
-            u"Comparison strip has the wrong native size"_s);
-        for (qsizetype index = 0; index < comparedLayers.size(); ++index)
-        {
-            require(comparison.image.copy(index * expectedPixels.width(), 0,
-                expectedPixels.width(), expectedPixels.height()) == comparedLayers.at(index).copy(expectedPixels),
-                u"Comparison strip changed or rescaled layer pixels"_s);
-        }
-        const Crop mismatched = cropPages({original, result.cleaned, result.rendered.copy(0, 0, 10, 10)}, inspectionBounds);
-        require(!mismatched.error.isEmpty() && mismatched.image.isNull(),
-            u"Mismatched comparison layers were accepted"_s);
-        cropChecks = 0;
-        const Crop cancelledComparison = cropPages(comparedLayers, inspectionBounds,
-            [&cropChecks] { return ++cropChecks == 3; });
-        require(!cancelledComparison.error.isEmpty() && cancelledComparison.image.isNull(),
-            u"Cancelled comparison returned a partial strip"_s);
 
         const Region &mixed = regions.at(12);
         Region plain = mixed;
@@ -221,7 +201,7 @@ namespace
             && result.rendered.save(outputDir + u"/result.png"_s)
             && result.cleaned.save(outputDir + u"/cleaned.png"_s)
             && result.mask.save(outputDir + u"/mask.png"_s), u"Native render artifacts could not be saved"_s);
-        qInfo() << "PASS manga_lettering families=3 physical_faces=12 regions=15 mixed=ok rotation=ok outside=unchanged crops=4 comparison=exact";
+        qInfo() << "PASS manga_lettering families=3 physical_faces=12 regions=15 mixed=ok rotation=ok outside=unchanged crops=4";
     }
 }
 
