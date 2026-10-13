@@ -93,7 +93,8 @@ namespace
     }
 }
 
-void exerciseReaderTextTranslation(Content::ContentView *view, const QString &profileDir)
+void exerciseReaderTextTranslation(Content::ContentView *view, const QString &profileDir,
+    const QString &requestedModel, const QString &requestedEffort)
 {
     auto *controller = view->findChild<Qbutt::ContentController *>();
     require(controller, u"Text translation controller is missing"_s);
@@ -173,16 +174,18 @@ void exerciseReaderTextTranslation(Content::ContentView *view, const QString &pr
     require(!controller->property("readerTranslationOptionsError").toBool()
         && modelChoice->isEnabled(), u"Installed Codex models are unavailable in QML"_s);
 
-    int modelIndex = 0;
+    const QString model = requestedModel.isEmpty() ? u"gpt-6.1-sol"_s : requestedModel;
+    const QString effort = requestedEffort.isEmpty() ? u"low"_s : requestedEffort;
+    int modelIndex = -1;
     for (int index = 0; index < controller->property("readerTranslationModelCount").toInt(); ++index)
     {
-        if (controller->readerTranslationModelAt(index) == u"gpt-6.1-sol"_s)
+        if (controller->readerTranslationModelAt(index) == model)
         {
             modelIndex = index;
             break;
         }
     }
-    const QString model = controller->readerTranslationModelAt(modelIndex);
+    require(modelIndex >= 0, u"Requested Codex text model is unavailable: "_s + model);
     activate(modelChoice, modelIndex + 1); // Index zero is Automatic.
     waitFor([&]
     {
@@ -192,17 +195,16 @@ void exerciseReaderTextTranslation(Content::ContentView *view, const QString &pr
     require(effortChoice->isVisible() && effortChoice->isEnabled(),
         u"Reasoning choice did not follow the selected model"_s);
 
-    int effortIndex = 0;
+    int effortIndex = -1;
     for (int index = 0; index < controller->property("readerTranslationEffortCount").toInt(); ++index)
     {
-        if (controller->readerTranslationEffortAt(index) == u"low"_s)
+        if (controller->readerTranslationEffortAt(index) == effort)
         {
             effortIndex = index;
             break;
         }
     }
-    const QString effort = controller->readerTranslationEffortAt(effortIndex);
-    require(!effort.isEmpty(), u"Selected model has no reasoning choices"_s);
+    require(effortIndex >= 0, u"Requested Codex text effort is unavailable: "_s + effort);
     activate(effortChoice, effortIndex);
     waitFor([&]
     {
@@ -229,11 +231,14 @@ void exerciseReaderTextTranslation(Content::ContentView *view, const QString &pr
         u"QML model and reasoning choice were not persisted"_s);
     selection.finish();
 
+    QElapsedTimer translationTimer;
+    translationTimer.start();
     activate(translation, 1);
     waitFor([&] { return controller->property("readerTranslationBusy").toBool(); },
         u"Live Codex translation start"_s);
     waitFor([&] { return !controller->property("readerTranslationBusy").toBool(); },
         u"Live Codex translation"_s, 240'000);
+    const qint64 translationMs = translationTimer.elapsed();
     require(controller->property("readerTranslationRequested").toBool()
         && !controller->property("readerTranslationError").toBool(),
         u"Live Codex translation did not reach the reader"_s);
@@ -306,6 +311,6 @@ void exerciseReaderTextTranslation(Content::ContentView *view, const QString &pr
         && !controller->property("readerTranslationError").toBool()
         && textAt(textBlocks(controller), paragraphIndex) == translated,
         u"Reopened reader did not reuse the exact translation without Codex"_s);
-    qInfo().noquote() << u"PASS reader_text_translation model=%1 effort=%2 context=later_chapter original=ok offline_cache=ok"_s
-        .arg(model, effort);
+    qInfo().noquote() << u"PASS reader_text_translation model=%1 effort=%2 translation_ms=%3 context=later_chapter original=ok offline_cache=ok"_s
+        .arg(model, effort).arg(translationMs);
 }

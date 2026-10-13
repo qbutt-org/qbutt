@@ -380,6 +380,10 @@ and pixel-identical cached reopening with Codex unavailable. Require exit zero
 and `PASS reader_manga_translation`; inspect the saved original, translated
 page and QQuickWidget PNGs in the isolated profile. This is a generated UI
 scenario, not a host pointer or representative artwork benchmark.
+Both scenarios accept `--translation-model <model> --translation-effort <effort>`
+through the QML controls. Their PASS lines report milliseconds from requesting
+translation until the reader leaves its busy state. Use a fresh profile for
+each configuration so an earlier cache cannot replace the live request.
 
 Run `--reader-settings --lang ru` in the same offscreen environment for typed
 profile-wide fit persistence through the existing SQLite worker. Require exit

@@ -154,7 +154,8 @@ namespace
     }
 }
 
-void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &profileDir)
+void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &profileDir,
+    const QString &requestedModel, const QString &requestedEffort)
 {
     auto *controller = view->findChild<Qbutt::ContentController *>();
     require(controller, u"Manga translation controller is missing"_s);
@@ -200,39 +201,44 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     }, u"Installed Codex manga models"_s, 120'000);
     require(!controller->property("readerTranslationOptionsError").toBool(),
         u"Installed Codex models are unavailable"_s);
+    const QString model = requestedModel.isEmpty() ? u"gpt-6.1-sol"_s : requestedModel;
+    const QString effort = requestedEffort.isEmpty() ? u"medium"_s : requestedEffort;
     int modelIndex = -1;
     for (int index = 0; index < controller->property("readerTranslationModelCount").toInt(); ++index)
     {
-        if (controller->readerTranslationModelAt(index) == u"gpt-6.1-sol"_s)
+        if (controller->readerTranslationModelAt(index) == model)
             modelIndex = index;
     }
-    require(modelIndex >= 0, u"gpt-6.1-sol is unavailable for image translation"_s);
+    require(modelIndex >= 0, u"Requested Codex manga model is unavailable: "_s + model);
     activate(modelChoice, modelIndex + 1);
     waitFor([&]
     {
-        return controller->property("readerTranslationModel").toString() == u"gpt-6.1-sol"_s
+        return controller->property("readerTranslationModel").toString() == model
             && !controller->property("readerTranslationOptionsLoading").toBool();
     }, u"Manga model selection"_s);
     int effortIndex = -1;
     for (int index = 0; index < controller->property("readerTranslationEffortCount").toInt(); ++index)
     {
-        if (controller->readerTranslationEffortAt(index) == u"medium"_s)
+        if (controller->readerTranslationEffortAt(index) == effort)
             effortIndex = index;
     }
-    require(effortIndex >= 0, u"Medium reasoning is unavailable"_s);
+    require(effortIndex >= 0, u"Requested Codex manga effort is unavailable: "_s + effort);
     activate(effortChoice, effortIndex);
     waitFor([&]
     {
-        return controller->property("readerTranslationEffort").toString() == u"medium"_s;
+        return controller->property("readerTranslationEffort").toString() == effort;
     }, u"Manga reasoning selection"_s);
     require(QMetaObject::invokeMethod(control(reader, u"readerTranslationClose"_s), "clicked"),
         u"Manga translation settings did not close"_s);
 
+    QElapsedTimer translationTimer;
+    translationTimer.start();
     activate(translation, 1);
     waitFor([&] { return controller->property("readerTranslationBusy").toBool(); },
         u"Live manga translation start"_s);
     waitFor([&] { return !controller->property("readerTranslationBusy").toBool(); },
         u"Live manga translation"_s, 360'000);
+    const qint64 translationMs = translationTimer.elapsed();
     require(controller->property("readerTranslationRequested").toBool()
         && !controller->property("readerTranslationError").toBool()
         && controller->property("readerPageIndex").toInt() == 0,
@@ -264,8 +270,8 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     const auto chapter = key.value(u"chapter"_s).toObject();
     const auto publication = chapter.value(u"variant"_s).toObject().value(u"publication"_s).toObject();
     require(!cache.next() && key.value(u"page"_s).toInt(-1) == 0
-        && key.value(u"model"_s).toString() == u"gpt-6.1-sol"_s
-        && key.value(u"effort"_s).toString() == u"medium"_s
+        && key.value(u"model"_s).toString() == model
+        && key.value(u"effort"_s).toString() == effort
         && key.value(u"target_language"_s).toString() == u"ru"_s
         && key.value(u"original_digest"_s).toString() == digest
         && chapter.value(u"id"_s).toString() == u"1"_s
@@ -331,6 +337,6 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     require(!controller->property("readerTranslationError").toBool()
         && pageImage(controller) == translated,
         u"Reopened manga did not reuse the exact translation offline"_s);
-    qInfo().noquote() << u"PASS reader_manga_translation model=gpt-6.1-sol effort=medium page=0 regions=%1 changed_pixels=%2 original=ok offline_cache=ok"_s
-        .arg(regions.size()).arg(changedInside);
+    qInfo().noquote() << u"PASS reader_manga_translation model=%1 effort=%2 translation_ms=%3 page=0 regions=%4 changed_pixels=%5 original=ok offline_cache=ok"_s
+        .arg(model, effort).arg(translationMs).arg(regions.size()).arg(changedInside);
 }

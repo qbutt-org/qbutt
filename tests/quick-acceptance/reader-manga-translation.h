@@ -8,4 +8,5 @@ namespace Content
 
 class QString;
 
-void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &profileDir);
+void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &profileDir,
+    const QString &requestedModel, const QString &requestedEffort);

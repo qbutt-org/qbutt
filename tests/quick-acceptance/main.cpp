@@ -539,6 +539,8 @@ int main(int argc, char *argv[])
     parser.addOption({u"reader-translation-choice"_s, u"Run delayed reader translation choice persistence and session acceptance, then exit."_s});
     parser.addOption({u"reader-text-translation"_s, u"Run generated text through the installed Codex and production reader, then exit."_s});
     parser.addOption({u"reader-manga-translation"_s, u"Run a generated manga page through the installed Codex and production reader, then exit."_s});
+    parser.addOption({u"translation-model"_s, u"Select a Codex model for a generated reader translation."_s, u"model"_s});
+    parser.addOption({u"translation-effort"_s, u"Select reasoning effort for a generated reader translation."_s, u"effort"_s});
     parser.addOption({u"reader-progress"_s, u"Run exact reader progress and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader-settings"_s, u"Run reader settings persistence and SQLite faults, then exit."_s});
     parser.addOption({u"reader-settings-phase"_s, u"Run a reader settings restart fixture phase."_s, u"phase"_s});
@@ -686,6 +688,8 @@ int main(int argc, char *argv[])
                 runReaderTranslationChoice = parser.isSet(u"reader-translation-choice"_s),
                 runReaderTextTranslation = parser.isSet(u"reader-text-translation"_s),
                 runReaderMangaTranslation = parser.isSet(u"reader-manga-translation"_s),
+                requestedTranslationModel = parser.value(u"translation-model"_s),
+                requestedTranslationEffort = parser.value(u"translation-effort"_s),
                 runWorkList = parser.isSet(u"worklist"_s)]
         {
             try
@@ -697,9 +701,11 @@ int main(int argc, char *argv[])
                 else if (runReaderTranslationChoice)
                     exerciseReaderTranslationChoiceRace(view, profilePath);
                 else if (runReaderTextTranslation)
-                    exerciseReaderTextTranslation(view, profilePath);
+                    exerciseReaderTextTranslation(view, profilePath,
+                        requestedTranslationModel, requestedTranslationEffort);
                 else if (runReaderMangaTranslation)
-                    exerciseReaderMangaTranslation(view, profilePath);
+                    exerciseReaderMangaTranslation(view, profilePath,
+                        requestedTranslationModel, requestedTranslationEffort);
                 else if (runReader)
                     exerciseReader(view, profilePath);
                 else if (runSyosetu || runSyosetuImage)
