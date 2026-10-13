@@ -267,11 +267,13 @@ bool Utils::OS::registerTorrentFileAssociation(const Path &executable)
     if (!QFileInfo(filename).isFile())
         return false;
 
+    const QString command = u'"' + filename + u"\" \"%1\"";
+    const QString icon = u'"' + filename + u"\",0";
     QSettings registry {u"HKEY_CURRENT_USER\\Software"_s, QSettings::NativeFormat};
     // Keep the ProgID and capabilities in sync with dist/windows/qbutt.iss.
     registry.setValue(u"Classes/qbutt.Torrent/Default"_s, u"qbutt torrent file"_s);
-    registry.setValue(u"Classes/qbutt.Torrent/DefaultIcon/Default"_s, u'"' + filename + u"\",0");
-    registry.setValue(u"Classes/qbutt.Torrent/shell/open/command/Default"_s, u'"' + filename + u"\" \"%1\"");
+    registry.setValue(u"Classes/qbutt.Torrent/DefaultIcon/Default"_s, icon);
+    registry.setValue(u"Classes/qbutt.Torrent/shell/open/command/Default"_s, command);
     registry.setValue(u"Classes/.torrent/OpenWithProgids/qbutt.Torrent"_s, QString {});
     registry.setValue(u"qbutt/Capabilities/ApplicationName"_s, u"qbutt"_s);
     registry.setValue(u"qbutt/Capabilities/ApplicationDescription"_s, u"qbutt BitTorrent client"_s);
