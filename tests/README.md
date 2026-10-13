@@ -141,16 +141,17 @@ references leave confirmed entries unchanged. The last command uses live public
 Software metadata and resolves the exact magnet without downloading a payload.
 
 Igruha's generated HTTPS scenario checks search, two versions on one article,
-the nonfirst exact torrent, replacement rejection, empty results, invalid
-responses and cancellation. It serves only four-byte legal fixture content
-inside torrent metadata:
+the publication-bound download page, the nonfirst exact torrent, replacement
+rejection, empty results, invalid responses and cancellation. It serves only
+four-byte legal fixture content inside torrent metadata:
 
 ```powershell
 cargo run --locked --offline --release -p qbutt-content --example igruha-fixtures
 ```
 
-The live browser-backed OpenTTD metadata handoff uses an isolated MainWindow
-profile with an existing qcatch connection; it does not download game files.
+The source is `itorrents-igruha.org`. Direct requests may receive a DDoS-Guard
+challenge; live acquisition uses an existing browser session. The OpenTTD
+metadata handoff runs in an isolated MainWindow profile without game payloads.
 
 TheLastGame has generated HTTPS/fault and two-process SQLite checks:
 

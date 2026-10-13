@@ -152,6 +152,16 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             "accepted {id}"
         );
     }
+    let wrong_landing = PublicationRef {
+        source: Source::Igruha,
+        id: "42-wrong-landing".into(),
+    };
+    assert!(matches!(
+        provider
+            .inspect(&wrong_landing, None, browser::BrowserChoice::Auto)
+            .await,
+        Err(Error::VariantUnavailable)
+    ));
 
     let slow = tokio::spawn(async move {
         provider
@@ -305,7 +315,7 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             format!("{origin}42-generated-legal.html")
         };
         let row = format!(
-            "<div class='main-item'><a class='main-item__title' href='{link}'>Generated Legal</a><a class='main-item__img'><img src='/uploads/posts/fixture.webp'></a></div>"
+            "<div class='game-card'><div class='game-card__cover'><img class='game-cover' src='/uploads/posts/fixture.webp'></div><div class='game-card__name'><a href='{link}'>Generated Legal</a></div></div>"
         );
         let rows = match query.as_str() {
             "empty" => String::new(),
@@ -313,7 +323,7 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             _ => row,
         };
         let body = format!(
-            "<html><div id='dle-content'><form id='fullsearch'><input name='story' value='{shown}'></form><div class='search-page'></div>{rows}</div></html>"
+            "<html><div id='dle-content'><div class='searchpage'><form id='fullsearch'><input id='searchinput' name='story' value='{shown}'></form></div>{rows}</div></html>"
         );
         return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
     }
@@ -326,15 +336,41 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
         } else {
             url.path().trim_start_matches('/').trim_end_matches(".html")
         };
+        let releases = if slug == "42-wrong-landing" {
+            format!(
+                "<div class='is-centered'><span class='size-line'>Размер: 4 MB v1.2 | Legal</span></div><div class='dl-bar'><a class='torrent' href='{origin}?do=download&amp;id=93'>Скачать торрент</a></div>"
+            )
+        } else {
+            format!(
+                "<div class='is-centered'><span class='size-line'>Размер: 4 MB v1.2 | Legal</span></div><div class='dl-bar'><a class='torrent' href='{origin}?do=download&amp;id=91'>Скачать торрент</a></div><div class='is-centered'><span class='size-line'>Размер: 4 MB v2.0 | Legal</span></div><div class='dl-bar'><a class='torrent' href='{origin}?do=download&amp;id=92'>Скачать торрент</a></div>"
+            )
+        };
         let body = format!(
-            "<html><head><link rel='canonical' href='{origin}{slug}.html'></head><body><div id='dle-content'><article class='page'><div class='page__main'><h1>Generated Legal</h1><div class='page__text'><div class='updategame'>Изменения: v2.0</div></div><div class='razmerep'>Размер: 4 MB v1.2 | Legal</div><div class='rv-dl' data-news='42'><div class='torrentrep'><a class='floating-button torrent' href='{origin}index.php?do=download&amp;id=91'>Скачать торрент</a></div></div><div class='razmerep'>Размер: 4 MB v2.0 | Legal</div><div class='rv-dl' data-news='42'><div class='torrentrep'><a class='floating-button torrent' href='{origin}index.php?do=download&amp;id=92'>Скачать торрент</a></div></div></div></article></div></body></html>"
+            "<html><head><link rel='canonical' href='{origin}{slug}.html'></head><body><div id='dle-content'><div class='page-title'><h1>Generated Legal</h1></div><div id='entry-poster-bg'><img class='entry-image' src='/uploads/posts/fixture.webp'></div><div class='updategame'>Изменения: v2.0</div><div class='blockinfo'>{releases}</div></div></body></html>"
         );
         return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
     }
-    if url
-        .query_pairs()
-        .any(|(name, value)| name == "do" && value == "download")
+    if url.path() == "/"
+        && url
+            .query_pairs()
+            .any(|(name, value)| name == "do" && value == "download")
     {
+        let id = url
+            .query_pairs()
+            .find(|(name, _)| name == "id")
+            .map(|(_, value)| value.into_owned());
+        let article = if id.as_deref() == Some("93") {
+            "43-other"
+        } else {
+            "42-generated-legal"
+        };
+        let body = format!(
+            "<html><div id='dle-content'><div class='dl-back'><a href='{origin}{article}.html'>Вернуться к игре</a></div><a id='btn-download' href='{origin}engine/download.php?id={}'>Скачать торрент</a></div></html>",
+            id.as_deref().unwrap_or("0")
+        );
+        return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
+    }
+    if url.path() == "/engine/download.php" {
         let id = url
             .query_pairs()
             .find(|(name, _)| name == "id")

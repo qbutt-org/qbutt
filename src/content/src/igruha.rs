@@ -12,11 +12,10 @@ use crate::{
     Variant, VariantRef, VariantSelector, Work,
 };
 
-const ORIGIN: &str = "https://repack-igruha.net";
+const ORIGIN: &str = "https://itorrents-igruha.org";
 
-/// The former torrent-igruha.org origin redirects here. The public DLE catalog
-/// can challenge anonymous HTTP, so borrow an already connected browser session
-/// only after a failed quiet request. No game payload is opened by this provider.
+/// The public DLE catalog can challenge anonymous HTTP. Borrow an already
+/// connected browser session only after a failed quiet request.
 pub struct Igruha {
     http: SourceHttp,
     origin: Url,
@@ -131,20 +130,28 @@ impl Igruha {
         let mut metadata = Vec::new();
         let mut hashes = HashSet::new();
         for download in page.downloads {
+            let landing = match self
+                .document(download.url.clone(), session, browser, choice)
+                .await
+            {
+                Err(Error::HttpStatus(404 | 410)) => continue,
+                result => result?,
+            };
+            let metadata_url = metadata_url(&landing, &self.origin, &url, &download.url)?;
             let response = self
                 .http
-                .session_referred_metadata(download.url.clone(), session, &url)
+                .session_referred_metadata(metadata_url.clone(), session, &download.url)
                 .await?;
-            let torrent = match torrent_response(response, &download.url) {
+            let torrent = match torrent_response(response, &metadata_url) {
                 Err(Error::HttpStatus(404 | 410)) => continue,
                 Err(Error::Challenge) => {
-                    self.borrow_browser(session, browser, choice, url.clone())
+                    self.borrow_browser(session, browser, choice, download.url.clone())
                         .await?;
                     let response = self
                         .http
-                        .session_referred_metadata(download.url.clone(), session, &url)
+                        .session_referred_metadata(metadata_url.clone(), session, &download.url)
                         .await?;
-                    match torrent_response(response, &download.url) {
+                    match torrent_response(response, &metadata_url) {
                         Err(Error::HttpStatus(404 | 410)) => continue,
                         result => result?,
                     }
@@ -285,25 +292,25 @@ fn torrent_response(response: SourceDocument, expected: &Url) -> Result<TorrentM
 fn search_results(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>> {
     let document = Html::parse_document(body);
     let root = document.root_element();
-    let input = unique(root, "#dle-content #fullsearch input[name='story']")?;
+    let input = unique(root, "#dle-content #fullsearch #searchinput[name='story']")?;
     if input.attr("value") != Some(query) {
         return Err(Error::InvalidResponse("Igruha search query changed"));
     }
-    unique(root, "#dle-content .search-page")?;
+    unique(root, "#dle-content .searchpage")?;
 
     let mut works = Vec::new();
     let mut seen = HashSet::new();
-    for row in root.select(&selector("#dle-content .main-item")) {
+    for row in root.select(&selector("#dle-content .game-card")) {
         if works.len() >= 100 {
             return Err(Error::InvalidResponse("excessive Igruha search results"));
         }
-        let link = unique(row, "a.main-item__title[href]")?;
+        let link = unique(row, ".game-card__name a[href]")?;
         let (reference, url) = publication(required(link, "href")?, origin)?;
         if !seen.insert(reference.clone()) {
             return Err(Error::InvalidResponse("duplicate Igruha publication"));
         }
         let mut work = work(reference, url, checked_text(link)?, true);
-        work.cover = optional(row, ".main-item__img img[src]")?
+        work.cover = optional(row, ".game-card__cover img.game-cover[src]")?
             .map(|image| cover_url(required(image, "src")?, origin))
             .transpose()?;
         works.push(work);
@@ -319,33 +326,33 @@ fn release_page(body: &str, origin: &Url, expected: &PublicationRef) -> Result<R
     if reference != *expected {
         return Err(Error::VariantUnavailable);
     }
-    let article = unique(root, "#dle-content article.page")?;
-    let title = checked_text(unique(article, ".page__main > h1")?)?;
+    let article = unique(root, "#dle-content")?;
+    let title = checked_text(unique(article, ".page-title > h1")?)?;
     let mut work = work(reference, url, title, false);
-    work.cover = optional(article, ".page__poster-media img[src]")?
+    work.cover = optional(article, "#entry-poster-bg img.entry-image[src]")?
         .map(|image| cover_url(required(image, "src")?, origin))
         .transpose()?;
-    let update = optional(article, ".page__text .updategame")?
+    let update = optional(article, ".updategame")?
         .map(checked_text)
         .transpose()?;
 
     let mut downloads = Vec::new();
-    for label in article.select(&selector(".page__main > .razmerep")) {
+    for label in article.select(&selector(".blockinfo > .is-centered > .size-line")) {
         if downloads.len() >= 8 {
             return Err(Error::InvalidResponse("excessive Igruha torrents"));
         }
-        let sibling = label
+        let wrapper = label
+            .parent()
+            .and_then(ElementRef::wrap)
+            .ok_or(Error::InvalidResponse("missing Igruha release wrapper"))?;
+        let sibling = wrapper
             .next_siblings()
             .find_map(ElementRef::wrap)
             .ok_or(Error::InvalidResponse("missing Igruha download block"))?;
-        if !sibling.value().classes().any(|class| class == "rv-dl") {
+        if !sibling.value().classes().any(|class| class == "dl-bar") {
             return Err(Error::InvalidResponse("Igruha download block changed"));
         }
-        let (number, _) = expected.id.split_once('-').ok_or(Error::InvalidReference)?;
-        if sibling.attr("data-news") != Some(number) {
-            return Err(Error::VariantUnavailable);
-        }
-        let link = unique(sibling, ".torrentrep a.floating-button.torrent[href]")?;
+        let link = unique(sibling, "a.torrent[href]")?;
         let download = download_url(required(link, "href")?, origin)?;
         let (size, title) = release_label(label, update.as_deref())?;
         downloads.push(Download {
@@ -427,7 +434,7 @@ fn publication(input: &str, origin: &Url) -> Result<(PublicationRef, Url)> {
 fn download_url(input: &str, origin: &Url) -> Result<Url> {
     let url = site_url(input, origin)?;
     let mut fields = url.query_pairs();
-    let valid = url.path() == "/index.php"
+    let valid = url.path() == "/"
         && fields
             .next()
             .as_ref()
@@ -441,6 +448,33 @@ fn download_url(input: &str, origin: &Url) -> Result<Url> {
     };
     if name != "id" || !canonical_decimal(&id) {
         return Err(Error::InvalidResponse("invalid Igruha torrent ID"));
+    }
+    Ok(url)
+}
+
+fn metadata_url(body: &str, origin: &Url, article: &Url, landing: &Url) -> Result<Url> {
+    let document = Html::parse_document(body);
+    let root = document.root_element();
+    let back = unique(root, "#dle-content .dl-back a[href]")?;
+    if site_url(required(back, "href")?, origin)? != *article {
+        return Err(Error::VariantUnavailable);
+    }
+    let link = unique(root, "#dle-content #btn-download[href]")?;
+    let url = site_url(required(link, "href")?, origin)?;
+    let id = landing
+        .query_pairs()
+        .find(|(name, _)| name == "id")
+        .map(|(_, value)| value)
+        .expect("validated Igruha download URL");
+    let mut fields = url.query_pairs();
+    if url.path() != "/engine/download.php"
+        || !fields
+            .next()
+            .as_ref()
+            .is_some_and(|(name, value)| name == "id" && value == &id)
+        || fields.next().is_some()
+    {
+        return Err(Error::InvalidResponse("invalid Igruha metadata URL"));
     }
     Ok(url)
 }
