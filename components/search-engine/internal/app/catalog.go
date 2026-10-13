@@ -20,7 +20,6 @@ import (
 var defaultSources = map[string]bool{
 	"rutor": true, "nyaasi": true, "nekobt": true, "noname-club": true,
 	"yts": true, "eztv": true, "1337x": true, "limetorrents": true,
-	"dodi":          true,
 	"gamestorrents": true, "animelayer": true, "animebybelka": true,
 }
 

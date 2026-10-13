@@ -15,9 +15,9 @@ const mainContent = input.includes("--main");
 assert(input.filter(arg => arg === "--main").length <= 1, "Repeated --main option");
 const args = input.filter(arg => arg !== "--main");
 assert(args.length === 0 || (args.length === 2 && args[0] === "--source"),
-    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub] [--main]");
+    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|dodi] [--main]");
 const selectedSource = args[1] ?? "aniliberty";
-assert(["aniliberty", "rutor", "limetorrents", "nnmclub"].includes(selectedSource), "Unsupported handoff source");
+assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "dodi"].includes(selectedSource), "Unsupported handoff source");
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
 const executable = resolve(source);
@@ -109,6 +109,7 @@ try {
     assert.equal(check.metadataPayloadEmpty, true);
     assert.equal(check.source, selectedSource);
     const category = selectedSource === "rutor" ? "software"
+        : selectedSource === "dodi" ? "games"
         : selectedSource === "aniliberty" ? "anime" : "movies";
     assert.equal(check.category, category);
     assert.equal(check.mainContent, mainContent);
@@ -135,14 +136,22 @@ try {
             const selected = variants.find((variant: { reference: unknown }) =>
                 JSON.stringify(variant.reference) === JSON.stringify(entry.preferences.selected));
             assert(selected, "Favorite did not retain its exact selected variant");
-            assert.equal(selected.info_hash, check.infoHash);
+            assert.equal(selected.info_hash, selectedSource === "dodi" ? null : check.infoHash);
         }
         finally {
             database.close();
         }
     }
     assert(check.projectedRow >= 0, "Scenario did not select a projected category row");
-    if (["rutor", "limetorrents", "nnmclub"].includes(selectedSource)) {
+    if (selectedSource === "dodi") {
+        assert.equal(check.variantCount, 1);
+        assert.equal(check.selectedRow, 0);
+        assert.equal(check.workId, "dodi:2643--devil-may-cry-5");
+        assert.equal(check.variantId, `${check.workId}:torrent:vpe2b0x0a9zw`);
+        assert.equal(check.infoHash, "b34fa7dfc9c95baf8509f6bd90a4ce5e1fde22e1");
+        assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
+    }
+    else if (["rutor", "limetorrents", "nnmclub"].includes(selectedSource)) {
         assert.equal(check.variantCount, 1);
         assert.equal(check.selectedRow, 0);
         if (selectedSource === "rutor")

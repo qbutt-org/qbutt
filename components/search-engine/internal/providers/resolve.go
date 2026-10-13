@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 func (s *session) resolve(address string, depth int) ([]byte, string, error) {
@@ -16,7 +17,7 @@ func (s *session) resolve(address string, depth int) ([]byte, string, error) {
 		return nil, "", err
 	}
 	isRuTrackerDownload := s.source.ID == "rutracker" && sameHost(address, s.source.URL) && u.Path == "/forum/dl.php"
-	if isRuTrackerDownload || isTorrentURL(address) {
+	if isRuTrackerDownload || strings.HasSuffix(strings.ToLower(u.Path), ".torrent") {
 		referer := s.source.URL
 		if isRuTrackerDownload {
 			referer += "/forum/viewtopic.php?" + url.Values{"t": {u.Query().Get("t")}}.Encode()

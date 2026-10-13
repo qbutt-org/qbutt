@@ -22,14 +22,6 @@ function publication(source: string, cooperative: boolean): string {
     const title = `Generated Game${cooperative ? " по сети" : ""}`;
     const comment = '<div id="comment-id-1"><b class="comm-author">Fixture author</b>'
         + '<div id="comm-id-1">Generated compatibility note</div></div>';
-    if (source === "dodi") {
-        return `<h1 class="entry-title">42- Generated Game (v${releaseVersion}) [DODI Repack]</h1>
-            <div class="entry-content"><p>Game Version: v${releaseVersion}</p>
-            <h3>Download Links</h3><p><strong>Torrent – <a href="${origin}/full.torrent">Click Here</a></strong></p>
-            <p><strong>SwiftUploads – <a href="${origin}/full.zip">Click Here</a></strong></p>
-            <h3>elamigos Updates</h3><p>Update v1.3.0 – <a href="${origin}/patch.zip">Click Here</a></p>
-            <p>Soundtrack Collection – <a href="${origin}/bonus.zip">Click Here</a></p></div>${comment}`;
-    }
     if (source === "fitgirl") {
         return `<h1 class="entry-title">Generated Game – v${releaseVersion}</h1><div class="entry-content">
             <h3>Download Mirrors (Torrent)</h3><ul>
@@ -145,11 +137,6 @@ try {
             assert(details.variants.some(variant => variant.version === "1.1.0"));
             assert(details.variants.some(variant => variant.version === releaseVersion));
         }
-        if (provider.source.id === "dodi") {
-            assert.deepEqual(new Set(details.variants.map(variant => variant.publicationKind)), new Set(["full", "patch", "optional"]));
-            assert(details.variants.filter(variant => variant.publicationKind === "full").every(variant => variant.version === releaseVersion),
-                "A newer patch must not overwrite the base repack version");
-        }
         if (provider.source.id === "onlinefix") {
             assert(details.description?.startsWith("Информация об игре: Generated co-op puzzle adventure.\nGenerated installation instructions."),
                 "OnlineFix must display the article body with meaningful line breaks");
@@ -197,16 +184,18 @@ try {
         notes: [{ text: "Second publication comment", url: `${origin}/second#comment`, author: "Second user" }] });
     releaseResults.add({ id: "generated:new-version", title: "Generated Game", category: "games",
         variants: [{ ...second, id: "generated:new-version", version: "2.0.0", infoHash: "b".repeat(40) }] });
-    assert.equal(aggregated?.variants.length, 2, "Distinct payload versions must survive hash deduplication");
+    assert.equal(aggregated?.variants.length, 3, "Exact source publications must survive shared hashes and new versions");
     assert.equal(aggregated?.notes?.length, 2, "Publication comments must survive streamed work merging");
-    const sharedPayload = aggregated!.variants.find(variant => variant.infoHash === first.infoHash)!;
-    assert(sharedPayload.notes?.some(note => note.text === "First source note" && note.author === "First author"));
-    assert(sharedPayload.notes?.some(note => note.text === "Second source note" && note.author === "Second author"));
+    const firstPublication = aggregated!.variants.find(variant => variant.id === first.id && variant.sourceId === first.sourceId)!;
+    const secondPublication = aggregated!.variants.find(variant => variant.id === second.id && variant.sourceId === second.sourceId)!;
+    assert.equal(firstPublication.infoHash, secondPublication.infoHash);
+    assert(firstPublication.notes?.some(note => note.text === "First source note" && note.author === "First author"));
+    assert(secondPublication.notes?.some(note => note.text === "Second source note" && note.author === "Second author"));
     assert(requests.every(request => !request.path.endsWith(".torrent") && request.method !== "POST"
         || request.path.includes("controller.php")), "The scenario must never fetch game payloads");
     console.log(JSON.stringify({ ok: true, sources: gamingProviders.length, publications: work.variants.length,
         inspected, resolved, checks: ["search", "coop-priority", "all-publications", "AJAX-repacks", "source-notes",
-            "publisher-mirrors", "base-patch-boundary", "onlinefix-description", "exact-share-roundtrip", "same-url-version-rejection", "missing-version-rejection"] }));
+            "publisher-mirrors", "onlinefix-description", "exact-share-roundtrip", "same-url-version-rejection", "missing-version-rejection"] }));
 }
 finally {
     server.stop(true);

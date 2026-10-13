@@ -56,12 +56,6 @@ func Sources() []Source {
 			Categories:    []string{"all", "games", "movies", "tv", "software", "books", "anime"},
 			RequiresLogin: true,
 		},
-		{
-			ID:         "dodi",
-			Name:       "DODI Repacks",
-			URL:        "https://dodi-repacks.site",
-			Categories: []string{"games"},
-		},
 	}
 }
 
@@ -73,12 +67,7 @@ func Search(ctx context.Context, id, query string, settings map[string]string, c
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
-	switch id {
-	case "rutracker":
-		return s.searchRuTracker(query)
-	default:
-		return s.searchWordPress(query)
-	}
+	return s.searchRuTracker(query)
 }
 
 func Inspect(ctx context.Context, id, address string, settings map[string]string, client *http.Client) (Record, error) {
@@ -147,14 +136,7 @@ func (s *session) inspect(address string) (Record, error) {
 	if err != nil || !sameHost(address, s.source.URL) {
 		return Record{}, errors.New("release page does not belong to the selected source")
 	}
-	if s.source.ID == "rutracker" {
-		return s.inspectRuTracker(u)
-	}
-	doc, err := s.document(address, s.source.URL)
-	if err != nil {
-		return Record{}, err
-	}
-	return s.inspectWordPress(doc, address)
+	return s.inspectRuTracker(u)
 }
 
 func (s *session) request(method, address, referer, body string) ([]byte, string, error) {

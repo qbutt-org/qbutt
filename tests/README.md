@@ -193,6 +193,21 @@ also check timeouts, cancellation and saved exact reading position after restart
 The live command reads only one public chapter and prints counts without chapter
 text. These commands do not establish native reader rendering.
 
+DODI has generated HTTPS, torrent-host form and isolated SQLite checks, plus a
+bounded public FileMe acquisition check:
+
+```powershell
+cargo run --locked --offline -p qbutt-content --example dodi-fixtures
+cargo run --locked --offline -p qbutt-content --example dodi
+cargo run --locked --offline -p qbutt-content --example dodi -- --resolve
+```
+
+The fixtures check exact publication and mirror identity, FileMe's guarded CDN
+redirect, cookie and authorization scopes, cancellation, metadata validation and
+size limits, and saved selection after reopening. Changed mirrors and form IDs,
+foreign redirects and cross-origin POST replay are rejected. `--resolve` obtains
+only the known Devil May Cry 5 torrent metadata. Up4Ever is not offered.
+
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in
 [development setup](../docs/development.md), then run:
@@ -406,7 +421,8 @@ Use the VM for visual work without opening windows on the host desktop.
 The combined application's `quick-handoff` scenario searches live AniLiberty,
 selects a non-default variant, opens the normal Add Torrent dialog and cancels
 it. `--source rutor` checks a live Software publication and its full-hash selector.
-Both paths select through the production QML category projection, freshly resolve
+`--source dodi --main` checks the FileMe bytes handoff and the native libtorrent
+dialog's exact hash. These paths select through the production QML category projection, freshly resolve
 the exact variant and check one handoff, the isolated destination and empty
 payload before and after shutdown:
 
@@ -416,6 +432,7 @@ $env:QBUTT_QT_ACCEPTANCE_EXE = 'C:/VMShared/qbutt-p1-quick/qbutt-qt-acceptance.e
 bun tests/qt-acceptance/quick-handoff.ts
 bun tests/qt-acceptance/quick-handoff.ts --source rutor
 bun tests/qt-acceptance/quick-handoff.ts --main
+bun tests/qt-acceptance/quick-handoff.ts --source dodi --main
 ```
 
 Deploy the current executable and its Qt Quick runtime together using

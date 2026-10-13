@@ -11,6 +11,4 @@ export const gamingProviders = [
         searchTitle: "#dle-content h2.title", content: ".full-story" }),
     createGameProvider({ id: "fitgirl", name: "FitGirl", url: "https://fitgirl-repacks.site", wordpress: true,
         searchTitle: ".entry-title a", content: ".entry-content" }),
-    createGameProvider({ id: "dodi", name: "DODI", url: "https://dodi-repacks.site", wordpress: true,
-        searchTitle: ".entry-title a", content: ".entry-content" }),
 ];

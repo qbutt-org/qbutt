@@ -115,12 +115,13 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
 
     const QString source = spec.value(u"source"_s).toString();
     require((source == u"aniliberty") || (source == u"rutor") || (source == u"limetorrents")
-            || (source == u"nnmclub"),
+            || (source == u"nnmclub") || (source == u"dodi"),
         u"Unsupported handoff source"_s);
     const bool ruTor = source == u"rutor";
     const bool limeTorrents = source == u"limetorrents";
     const bool nnmClub = source == u"nnmclub";
-    const bool singleTorrent = ruTor || limeTorrents || nnmClub;
+    const bool dodi = source == u"dodi";
+    const bool singleTorrent = ruTor || limeTorrents || nnmClub || dodi;
     QString sourceLabel = u"AniLiberty"_s;
     QString category = u"anime"_s;
     QString queryText = u"Frieren"_s;
@@ -141,6 +142,12 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         sourceLabel = u"NNM-Club"_s;
         category = u"movies"_s;
         queryText = u"Sintel"_s;
+    }
+    else if (dodi)
+    {
+        sourceLabel = u"DODI Repacks"_s;
+        category = u"games"_s;
+        queryText = u"Devil May Cry"_s;
     }
 
     const QDir payload(spec.value(u"payload"_s).toString());
@@ -308,6 +315,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         expectedWorkId = u"limetorrents:Big-Buck-Bunny-4K-UHD-HFR-60fps-FLAC-WEBDL-2160p-X264-mkv-torrent-9616433.html"_s;
     else if (nnmClub)
         expectedWorkId = u"nnmclub:906013"_s;
+    else if (dodi)
+        expectedWorkId = u"dodi:2643--devil-may-cry-5"_s;
     QString workId;
     for (int row = 0; row < works->rowCount(); ++row)
     {
@@ -358,13 +367,18 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(singleTorrent ? torrentRows.size() == 1 : torrentRows.size() >= 2, u"Exact torrent variants are missing"_s);
     const int selectedRow = torrentRows.constLast();
     const QString variantId = value(variants, selectedRow, "variantId");
-    const QString infoHash = value(variants, selectedRow, "infoHash").toLower();
+    const QString infoHash = dodi ? u"b34fa7dfc9c95baf8509f6bd90a4ce5e1fde22e1"_s
+        : value(variants, selectedRow, "infoHash").toLower();
     require(value(variants, selectedRow, "kind") == u"torrent", u"Selected variant is not a torrent"_s);
     require(value(variants, selectedRow, "source") == sourceLabel, u"Selected variant belongs to another source"_s);
     require(QRegularExpression(u"^[0-9a-f]{40}$"_s).match(infoHash).hasMatch(),
         u"Selected torrent has no verifiable SHA-1 metadata"_s);
     const QString defaultInfoHash = value(variants, torrentRows.constFirst(), "infoHash").toLower();
-    if (singleTorrent)
+    if (dodi)
+        require(value(variants, selectedRow, "infoHash").isEmpty()
+            && (variantId == workId + u":torrent:vpe2b0x0a9zw"_s),
+            u"DODI fabricated a hash or changed its exact FileMe selection"_s);
+    else if (singleTorrent)
         require(variantId == workId + u":torrent:"_s + infoHash, u"Torrent source lost its full-hash exact selector"_s);
     else
         require((selectedRow > 0) && (infoHash != defaultInfoHash), u"Variants do not have distinct hashes"_s);
@@ -402,6 +416,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(view.grabFramebuffer().save(screenshots.filePath(u"quick-search.png"_s)), u"Could not capture the selected variant"_s);
 
     int handoffs = 0;
+    int metadataBytes = 0;
     int added = 0;
     int failures = 0;
     int cancellations = 0;
@@ -433,19 +448,38 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         params.addStopped = true;
         managerAccepted = manager->addTorrent(magnet, params, AddTorrentOption::ShowDialog);
     });
+    QObject::connect(&view, &Content::ContentView::torrentMetadataReady, &observation,
+        [&](const QString &identity, const QByteArray &data)
+    {
+        require(dodi && (identity == variantId), u"Torrent bytes lost the exact selected FileMe identity"_s);
+        const auto descriptor = BitTorrent::TorrentDescriptor::load(data);
+        require(descriptor && (descriptor->infoHash().v1().toString() == infoHash),
+            u"DODI acquired different or malformed torrent bytes"_s);
+        ++handoffs;
+        metadataBytes = data.size();
+        guiThread = guiThread && (QThread::currentThread() == qApp->thread());
+        managerAccepted = mainContent || manager->addTorrentData(identity, data);
+    });
 
     clickItem(view, download);
     require(controller->property("resolving").toBool(), u"Download button did not resolve the selected variant"_s);
     waitFor([&] { return !controller->property("resolving").toBool(); }, 50'000, u"Exact torrent resolution"_s);
     require(controller->property("errorText").toString().isEmpty(), u"Exact resolution failed"_s);
     require(guiThread && (handoffs == 1) && managerAccepted && (failures == 0), u"Native torrent handoff failed"_s);
+    if (dodi)
+        require((metadataBytes > 0) && (metadataBytes <= 10 * 1024 * 1024), u"DODI metadata bytes were not bounded"_s);
 
     QList<AddNewTorrentDialog *> dialogs;
-    for (QWidget *widget : QApplication::topLevelWidgets())
+    waitFor([&]
     {
-        if (auto *dialog = qobject_cast<AddNewTorrentDialog *>(widget); dialog && dialog->isVisible())
-            dialogs.append(dialog);
-    }
+        dialogs.clear();
+        for (QWidget *widget : QApplication::topLevelWidgets())
+        {
+            if (auto *dialog = qobject_cast<AddNewTorrentDialog *>(widget); dialog && dialog->isVisible())
+                dialogs.append(dialog);
+        }
+        return !dialogs.isEmpty();
+    }, 5000, u"Native torrent dialog"_s);
     require(dialogs.size() == 1, u"Handoff did not open exactly one native torrent dialog"_s);
     QPointer<AddNewTorrentDialog> dialog = dialogs.first();
     auto *hashLabel = dialog->findChild<QLabel *>(u"labelInfohash1Data"_s);
@@ -488,6 +522,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         {u"variantCount"_s, variants->rowCount()},
         {u"defaultInfoHash"_s, defaultInfoHash},
         {u"handoffs"_s, handoffs},
+        {u"metadataBytes"_s, metadataBytes},
         {u"cancellations"_s, cancellations},
         {u"exactDialogHash"_s, true},
         {u"torrentCount"_s, session->torrents().size()},

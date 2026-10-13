@@ -4,7 +4,6 @@ import type { CheerioAPI } from "cheerio";
 import type { Provider, ProviderContext, Source, Variant, Work, WorkDetails } from "../../contracts.ts";
 import { assertExactVariant } from "../../references.ts";
 import { html } from "../http.ts";
-import { expandDodiLinks } from "./dodi.ts";
 import { expandFitgirlMirrors } from "./fitgirl.ts";
 
 interface Catalog {
@@ -72,9 +71,8 @@ function bytes(value: string): number | undefined {
     return Math.round(Number(match[1]!.replace(",", ".")) * 1024 ** power);
 }
 
-function titleOf(value: string, sourceId: string): string {
-    const title = sourceId === "dodi" ? cleanText(value).replace(/^\d+\s*[-–—]\s*/, "") : cleanText(value);
-    return title
+function titleOf(value: string): string {
+    return cleanText(value)
         .replace(/\s*\((?:Update\s+)?v\d.*$/i, "")
         .replace(/\s*\[DODI Repack\]\s*$/i, "")
         .replace(/\s*\+\s*Online (?:Multiplayer|Co-op)\s*$/i, "")
@@ -192,12 +190,10 @@ async function expandOnlinefix($: CheerioAPI, publication: string, context: Prov
 function releaseVariants($: CheerioAPI, source: Source, publication: string, title: string, selector: string): Variant[] {
     const body = $(selector).first();
     const variants = new Map<string, Variant>();
-    const overallVersion = source.id === "dodi"
-        ? version(body.text().match(/Game Version[^\n]+/i)?.[0] ?? "")
-        : source.id === "byrut" ? version(body.find(".main-release-block .info-basictor__item--version").first().text())
+    const overallVersion = source.id === "byrut" ? version(body.find(".main-release-block .info-basictor__item--version").first().text())
         : version($(".subhnamever, .subver_info, h1.entry-title").first().text());
     const cooperative = /по сети|совместное прохождение|кооператив|multiplayer|co-op/i.test(title);
-    const primaryAuthor = source.id === "fitgirl" ? "FitGirl" : source.id === "dodi" ? "DODI" : source.id === "onlinefix" ? "Online-Fix"
+    const primaryAuthor = source.id === "fitgirl" ? "FitGirl" : source.id === "onlinefix" ? "Online-Fix"
         : body.find('a[href*="/user/"]').first().text().trim() || undefined;
 
     function add(url: string, label: string, sectionText: string, options: {
@@ -326,7 +322,7 @@ export function createGameProvider(catalog: Catalog): Provider {
                 const variant: Variant = { id, sourceId: source.id, sourceName: source.name,
                     title, url, transport: "torrent", version: version(raw), needsInspection: true,
                     cooperative: /по сети|multiplayer|co-op/i.test(raw) || undefined };
-                works.set(url, { id, title: titleOf(title, source.id), category: "games", url,
+                works.set(url, { id, title: titleOf(title), category: "games", url,
                     cover: urlAt(item.find("img").attr("src") ?? item.closest("article,.shortstory,.base").find("img").first().attr("src"), base),
                     variants: [variant] });
             });
@@ -337,7 +333,6 @@ export function createGameProvider(catalog: Catalog): Provider {
             if (source.id === "byrut") await expandByrut($, variant.url, context);
             if (source.id === "onlinefix") await expandOnlinefix($, variant.url, context);
             if (source.id === "fitgirl") await expandFitgirlMirrors($, context);
-            if (source.id === "dodi") expandDodiLinks($);
             const body = $(catalog.content).first();
             if (!body.length) throw new Error("Структура страницы источника изменилась. Откройте исходную публикацию.");
             const title = cleanText($("h1.entry-title").first().text() || body.find("h1").first().text() || $("h1").last().text());
@@ -366,7 +361,7 @@ export function createGameProvider(catalog: Catalog): Provider {
                 if (url && text) notes.push({ text, url, author: source.name });
             }
             const details: WorkDetails = {
-                id: `${source.id}:${key(variant.url)}`, title: titleOf(title, source.id), category: "games", url: variant.url,
+                id: `${source.id}:${key(variant.url)}`, title: titleOf(title), category: "games", url: variant.url,
                 cover: urlAt($('meta[property="og:image"]').attr("content") ?? body.find("img").first().attr("src"), variant.url),
                 description: cleanText(description.text()),
                 notes,
