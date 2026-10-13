@@ -1,20 +1,27 @@
 #[path = "syosetu/response.rs"]
 mod response;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use reqwest::header::HeaderMap;
+use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
 use url::Url;
 
 use crate::http::SourceHttp;
-use crate::{Chapter, ChapterRef, Error, PublicationRef, Result, TextChapter, VariantRef, Work};
+use crate::{
+    Chapter, ChapterRef, Error, PublicationRef, Result, TextChapter, TextImageAsset, VariantRef,
+    Work,
+};
 
 const SEARCH_ORIGIN: &str = "https://yomou.syosetu.com";
 const CACHE_AGE: Duration = Duration::from_secs(5 * 60);
 const CACHE_BOOKS: usize = 8;
+const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_CHAPTER_IMAGE_BYTES: usize = 24 * 1024 * 1024;
+const IMAGE_CDN: &str = "img1.mitemin.net";
 
 /// Public Japanese works. Dropping an operation cancels its bounded HTTP work.
 pub struct Syosetu {
@@ -61,10 +68,47 @@ impl Syosetu {
 
     pub async fn chapter_text(&self, selected: &ChapterRef) -> Result<TextChapter> {
         selected.validate()?;
+        selected.variant.publication.syosetu_id()?;
         let _permit = self.requests.acquire().await.map_err(|_| Error::Timeout)?;
-        let url = response::chapter_url(selected);
-        let body = self.page(url).await?;
-        response::chapter(&body, selected)
+        tokio::time::timeout(Duration::from_secs(90), async {
+            let url = response::chapter_url(selected);
+            let body = self.page(url).await?;
+            let chapter = response::chapter(&body, selected)?;
+            let mut images = HashMap::new();
+            let mut total_bytes = 0;
+            for url in &chapter.images {
+                let host = url.host_str().expect("validated Mitemin image host");
+                let bytes = self
+                    .reader_http
+                    .image(url.clone(), &[host, IMAGE_CDN])
+                    .await?;
+                total_bytes += bytes.len();
+                if bytes.len() > MAX_IMAGE_BYTES || total_bytes > MAX_CHAPTER_IMAGE_BYTES {
+                    return Err(Error::ResponseTooLarge);
+                }
+
+                let media_type = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+                    "image/png"
+                } else if bytes.starts_with(b"\xff\xd8\xff") {
+                    "image/jpeg"
+                } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+                    "image/gif"
+                } else {
+                    return Err(Error::InvalidResponse("unsupported Syosetu chapter image"));
+                };
+                images.insert(
+                    url.clone(),
+                    TextImageAsset {
+                        id: format!("{:x}", Sha256::digest(&bytes)),
+                        media_type: media_type.into(),
+                        bytes: bytes.into(),
+                    },
+                );
+            }
+            chapter.into_text(images)
+        })
+        .await
+        .map_err(|_| Error::Timeout)?
     }
 
     async fn book(&self, publication: &PublicationRef) -> Result<Arc<response::Book>> {

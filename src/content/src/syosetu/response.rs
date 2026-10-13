@@ -1,16 +1,17 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use scraper::{ElementRef, Html, Selector};
 use url::Url;
 
 use crate::{
-    Category, Chapter, ChapterRef, Error, PublicationRef, Result, Source, TextChapter, Transport,
-    Variant, VariantRef, VariantSelector, Work,
+    Category, Chapter, ChapterRef, Error, PublicationRef, Result, Source, TextChapter,
+    TextImageAsset, Transport, Variant, VariantRef, VariantSelector, Work,
 };
 
 pub(super) const READER_ORIGIN: &str = "https://ncode.syosetu.com";
 pub(super) const MAX_PAGES: usize = 100;
 const MAX_CHAPTERS: usize = 10_000;
+const MAX_IMAGES: usize = 64;
 
 pub(super) struct BookPage {
     pub work: Work,
@@ -21,6 +22,31 @@ pub(super) struct BookPage {
 pub(super) struct Book {
     pub work: Work,
     pub chapters: Vec<Chapter>,
+}
+
+pub(super) struct ChapterPage {
+    reference: ChapterRef,
+    html: String,
+    pub images: Vec<Url>,
+}
+
+impl ChapterPage {
+    pub fn into_text(self, images: HashMap<Url, TextImageAsset>) -> Result<TextChapter> {
+        TextChapter::from_html_with_images(
+            self.reference,
+            &self.html,
+            &mut |source| {
+                let url = image_url(source)?;
+                let image = images
+                    .get(&url)
+                    .cloned()
+                    .ok_or(Error::InvalidResponse("missing Syosetu chapter image"))?;
+                Ok(Some(image))
+            },
+            None,
+            None,
+        )
+    }
 }
 
 pub(super) fn search(body: &str) -> Result<Vec<Work>> {
@@ -119,7 +145,9 @@ pub(super) fn book_page(
     }
     if chapters.is_empty() && page == 1 && total_pages == 1 {
         if document
-            .select(&selector(".p-novel__text"))
+            .select(&selector(
+                ".p-novel__text:not(.p-novel__text--preface):not(.p-novel__text--afterword)",
+            ))
             .next()
             .is_some()
         {
@@ -145,7 +173,7 @@ pub(super) fn book_page(
     })
 }
 
-pub(super) fn chapter(body: &str, expected: &ChapterRef) -> Result<TextChapter> {
+pub(super) fn chapter(body: &str, expected: &ChapterRef) -> Result<ChapterPage> {
     expected.validate()?;
     let document = Html::parse_document(body);
     let published = site_url(
@@ -156,8 +184,78 @@ pub(super) fn chapter(body: &str, expected: &ChapterRef) -> Result<TextChapter> 
     if chapter_reference(&published)? != *expected {
         return Err(Error::VariantUnavailable);
     }
-    let content = one(&document, ".p-novel__text")?;
-    TextChapter::from_html(expected.clone(), &content.inner_html())
+
+    let mut sections = [None; 3];
+    let mut images = Vec::new();
+    for section in document.select(&selector(".p-novel__text")) {
+        let order = if section
+            .value()
+            .classes()
+            .any(|class| class == "p-novel__text--preface")
+        {
+            0
+        } else if section
+            .value()
+            .classes()
+            .any(|class| class == "p-novel__text--afterword")
+        {
+            2
+        } else {
+            1
+        };
+        if sections[order].replace(section).is_some() {
+            return Err(Error::InvalidResponse("duplicate Syosetu chapter section"));
+        }
+        for image in section.select(&selector("img[src]")) {
+            let url = image_url(image.attr("src").unwrap())?;
+            if !images.contains(&url) {
+                if images.len() == MAX_IMAGES {
+                    return Err(Error::ResponseTooLarge);
+                }
+                images.push(url);
+            }
+        }
+    }
+    if sections[1].is_none() {
+        return Err(Error::InvalidResponse("missing Syosetu chapter body"));
+    }
+    Ok(ChapterPage {
+        reference: expected.clone(),
+        html: sections
+            .into_iter()
+            .flatten()
+            .map(|section| section.inner_html())
+            .collect::<Vec<_>>()
+            .join("<hr>"),
+        images,
+    })
+}
+
+pub(super) fn image_url(value: &str) -> Result<Url> {
+    let origin = Url::parse(READER_ORIGIN).expect("fixed Syosetu origin");
+    let url = origin.join(value).map_err(|_| Error::UnsafeAddress)?;
+    let account = url
+        .host_str()
+        .and_then(|host| host.strip_suffix(".mitemin.net"));
+    let image = url
+        .path()
+        .strip_prefix("/userpageimage/viewimagebig/icode/i")
+        .and_then(|path| path.strip_suffix('/'));
+    if !account
+        .is_some_and(|value| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
+        || !image.is_some_and(|value| {
+            !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
+        })
+        || url.port().is_some()
+        || url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(Error::UnsafeAddress);
+    }
+    Ok(url)
 }
 
 pub(super) fn join_pages(pages: Vec<BookPage>) -> Result<Book> {

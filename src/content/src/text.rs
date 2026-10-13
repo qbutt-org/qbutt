@@ -1,5 +1,5 @@
-//! Original chapter content. Providers select the chapter body; local books
-//! may attach bounded images, but no executable markup or external resources.
+//! Original chapter content. Providers select the chapter body and may attach
+//! bounded image bytes, but no executable markup or external resources.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -107,7 +107,8 @@ impl TextChapter {
         Self::from_blocks(reference, builder.blocks)
     }
 
-    pub fn from_local_html(
+    /// Images resolve to acquired bytes; source addresses never reach the UI.
+    pub fn from_html_with_images(
         reference: ChapterRef,
         body: &str,
         resolve_image: &mut dyn FnMut(&str) -> Result<Option<TextImageAsset>>,

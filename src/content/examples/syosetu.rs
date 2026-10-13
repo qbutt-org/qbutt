@@ -3,7 +3,10 @@
 
 use std::error::Error;
 
-use qbutt_content::{PublicationRef, Source, Syosetu, TextSpan, VariantSelector};
+use qbutt_content::{
+    ChapterRef, PublicationRef, Source, Syosetu, TextBlockKind, TextSpan, VariantRef,
+    VariantSelector,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -47,11 +50,51 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let short_text = source.chapter_text(&short_chapters[0].reference).await?;
     assert!(short_text.text_bytes() > 1_000);
 
+    let notes = source.chapter_text(&chapter_ref("n4830bu", "1")).await?;
+    assert!(
+        notes
+            .blocks
+            .iter()
+            .any(|block| block.kind == TextBlockKind::Separator)
+    );
+    assert!(notes.text_bytes() > 1_000);
+
+    let illustrated = source.chapter_text(&chapter_ref("n7653fr", "39")).await?;
+    assert_eq!(illustrated.assets.len(), 1);
+    assert!(illustrated.assets[0].bytes.len() > 1_000);
+    assert!(
+        illustrated
+            .blocks
+            .iter()
+            .any(|block| block.kind == TextBlockKind::Image)
+    );
+    assert!(
+        illustrated
+            .blocks
+            .iter()
+            .any(|block| block.kind == TextBlockKind::Separator)
+    );
+
     println!(
-        "PASS Syosetu live search/inspect/paginated TOC/nonfirst ruby text/short work; chapters={} text_bytes={} short_bytes={}",
+        "PASS Syosetu live search/inspect/paginated TOC/nonfirst ruby text/short work/author notes/inline image; chapters={} text_bytes={} short_bytes={} notes_bytes={} image_bytes={}",
         chapters.len(),
         text.text_bytes(),
-        short_text.text_bytes()
+        short_text.text_bytes(),
+        notes.text_bytes(),
+        illustrated.assets[0].bytes.len()
     );
     Ok(())
+}
+
+fn chapter_ref(publication: &str, chapter: &str) -> ChapterRef {
+    ChapterRef {
+        variant: VariantRef {
+            publication: PublicationRef {
+                source: Source::Syosetu,
+                id: publication.into(),
+            },
+            selector: VariantSelector::OriginalText,
+        },
+        id: chapter.into(),
+    }
 }

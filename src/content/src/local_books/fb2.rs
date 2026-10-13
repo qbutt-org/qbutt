@@ -139,8 +139,13 @@ impl LocalBook {
                 bytes: bytes.into(),
             }))
         };
-        let chapter =
-            TextChapter::from_local_html(reference.clone(), &html, &mut resolve_image, None, None)?;
+        let chapter = TextChapter::from_html_with_images(
+            reference.clone(),
+            &html,
+            &mut resolve_image,
+            None,
+            None,
+        )?;
         Ok(chapter)
     }
 }

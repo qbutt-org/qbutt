@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
         media_type: "image/png".into(),
         bytes: image_bytes.into(),
     };
-    let original = TextChapter::from_local_html(
+    let original = TextChapter::from_html_with_images(
         reference(1),
         "<h2 id='entry'>レンの旅</h2><p>レンは森に戻った。</p><img src='scene.png'><p>『また会えたね』とレンは言った。</p>",
         &mut |_| Ok(Some(image.clone())),
