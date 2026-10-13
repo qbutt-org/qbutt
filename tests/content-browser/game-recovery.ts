@@ -91,7 +91,6 @@ const native = { async check(url: string, _signal: AbortSignal, interactive = fa
 }, close() {} };
 const catalog = new Catalog(directory, directory, settings, browser as never, native as never);
 catalog.providers.splice(0, catalog.providers.length, provider);
-catalog.engine.request = async () => {};
 const originalContext = catalog.context.bind(catalog);
 catalog.context = async (id, signal, publicationUrl) => {
     const context = await originalContext(id, signal, publicationUrl);

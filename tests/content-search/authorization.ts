@@ -63,7 +63,6 @@ const freeProvider: Provider = {
     },
 };
 catalog.providers.splice(0, catalog.providers.length, hdrezkaProvider, freeProvider);
-catalog.engine.request = async () => {};
 const originalContext = catalog.context.bind(catalog);
 catalog.context = async (id, signal, publicationUrl) => {
     const context = await originalContext(id, signal, publicationUrl);

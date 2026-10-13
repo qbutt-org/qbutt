@@ -59,7 +59,7 @@ In the player's **Subtitle** menu, select an embedded or external text track and
 
 Open books and comics from search or through **File → Read file…**. Supported formats include EPUB, FB2, TXT, HTML, CBZ/ZIP archives of images, and individual images. The reader saves your position and caches chapters. Its settings include paged and continuous modes, fit to screen height or width, brightness, page spacing, and reading area width. In paged mode, click the left or right side of the page to turn it.
 
-AI translation works with text and manga pages: it recognizes lettering and displays the translation in the Neucha font. The original remains available; a glossary and manual corrections help keep names and terminology consistent. The reader and subtitle translation automatically use **Codex** when it is installed and signed in. Choose another service, **OpenRouter** or a compatible API, in **Sources → AI translation**. Text and images submitted for translation are sent to the selected service.
+AI translation in the reader works with text and manga pages: it recognizes lettering and displays the translation in the Neucha font. The original remains available; a glossary and manual corrections help keep names and terminology consistent. The reader automatically uses **Codex** when it is installed and signed in. Choose another service, **OpenRouter** or a compatible API, in **Sources → AI translation**. Text and images submitted for translation are sent to the selected service.
 
 ## Connecting your browser
 
@@ -93,22 +93,22 @@ Windows x64, Visual Studio 2022 with C++ and the Windows SDK, CMake, Git, and Py
 ./scripts/build-windows.ps1
 ```
 
-The script downloads pinned dependencies, including Bun and Go, and builds the portable ZIP and EXE installer locally. `-BuildRoot` sets the build directory; `-ArtifactRoot` sets the output directory. The bundle includes the search and content processes and a pinned qplay build. Python and Bun are not required to run the finished app.
+The script downloads pinned dependencies, including Bun and Go, and builds the portable ZIP and EXE installer locally. `-BuildRoot` sets the build directory; `-ArtifactRoot` sets the output directory. The bundle includes `qbutt-net` and a pinned qplay build. Bun is used only during the build; Python and Bun are not required to run the finished app.
 
 `upstream-lock.json` pins component Git revisions, protocol versions, and SHA-256 hashes of installers, portable archives, and third-party runtime sources. `scripts/package-products.ts` verifies the finished artifacts before including them in the build. The portable bundle contains its own qplay in the `qplay/` subfolder. qcatch is downloaded from a pinned URL only when its install button is clicked.
 
-The ModernX profile, upscaling, frame generation, mpv, and supporting media tools belong to the qplay repository. The extension, its Windows helper, and the browser connection belong to qcatch. qbutt owns torrent Range streaming, viewing history, and AI subtitle translation. Each app keeps its own settings; callers pass media and playback options.
+The ModernX profile, upscaling, frame generation, mpv, supporting media tools, and subtitle translation belong to the qplay repository. The extension, its Windows helper, and the browser connection belong to qcatch. qbutt owns torrent Range streaming and viewing history. The apps pass media and playback options without copying each other's settings.
 
 Component sources are available at the pinned Git revisions in the [qplay](https://github.com/qbutt-org/qplay) and [qcatch](https://github.com/qbutt-org/qcatch) repositories; third-party runtime sources are published in separate technical releases of those products. The build verifies their archives and keeps them in the dependency cache. Downloaded packages, generated GPU engines, and user caches are stored outside the source tree.
 
-`components/content/bun.lock` and `components/search-engine/go.sum` pin the content and search process dependencies. The bundle records the source revision, working tree dirty state, and executable SHA-256 hashes in `build-manifest.json`, and includes dependency licenses and notices.
+The former Bun implementation in `components/content/` remains for separate integration checks, but is excluded from the product build. The bundle records the source revision, working tree dirty state, and SHA-256 hashes of released files in `build-manifest.json`, along with their dependency licenses and notices.
 
 | Path | Responsibility |
 |---|---|
 | `src/base/`, `src/gui/` | Native services, libtorrent integration, and the Qt interface |
-| `components/content/` | Sources, library, direct downloads, reading, translation, and the qcatch connection |
-| `components/search-engine/` | Go search process and Cardigann definitions catalog |
-| `src/base/media/` | qplay integration, torrent Range streaming, and subtitle translation |
+| `src/content/`, `src/gui/quick/bridge/` | Native sources, library, downloads, and reading |
+| `components/content/` | Former implementation for separate integration checks |
+| `src/base/media/` | qplay integration and torrent Range streaming |
 | `scripts/package-products.ts`, `upstream-lock.json` | Verification and packaging of pinned product components |
 
 See the [Rust/QML and redesign plan](docs/implementation.md), [project rules](AGENTS.md), [content contracts](docs/agents/content.md), [architecture](docs/qbutt-architecture.md), and [integration checks](tests/README.md). Windows releases are built locally, without automatic builds in GitHub Actions.

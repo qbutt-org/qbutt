@@ -36,6 +36,7 @@ const server = Bun.serve({ port: 0, fetch(request) {
 const adapter = join(directory, "catalog-adapter.ts");
 await writeFile(adapter, `
 import { Catalog as ProductionCatalog } from ${JSON.stringify(join(sourceRoot, "catalog.ts"))};
+export { translationSource } from ${JSON.stringify(join(sourceRoot, "catalog.ts"))};
 export class Catalog extends ProductionCatalog {
     constructor(...args) {
         super(...args);
@@ -47,7 +48,6 @@ export class Catalog extends ProductionCatalog {
                 return response.json();
             },
         })));
-        this.engine.request = async () => {};
     }
 }
 `);
@@ -73,6 +73,13 @@ child.stdout.on("data", chunk => {
     while ((end = buffered.indexOf("\n")) >= 0) {
         const event = JSON.parse(buffered.slice(0, end)) as Event;
         buffered = buffered.slice(end + 1);
+        if (event.id === 0 && event.event === "browserRequest") {
+            const browser = event.data as { id: number; command: { method: string } };
+            assert.equal(browser.command.method, "status");
+            child.stdin.write(JSON.stringify({ browserReply: { id: browser.id,
+                result: { selected: "auto", ready: false, browsers: [] } } }) + "\n");
+            continue;
+        }
         const request = pending.get(event.id);
         if (!request) continue;
         request.events.push(event);

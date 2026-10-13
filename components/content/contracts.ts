@@ -15,7 +15,6 @@ export type Category =
 export interface SearchRequest {
     query: string;
     category: Category;
-    expanded?: boolean;
     sources?: string[];
     language?: string;
 }

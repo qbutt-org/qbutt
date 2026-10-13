@@ -111,7 +111,6 @@ const provider: Provider = { source: { id: "generated", name: "Generated", url: 
             headers: { Authorization: `Bearer ${secret}` } };
     } };
 catalog.providers.splice(0, catalog.providers.length, provider);
-catalog.engine.request = async () => {};
 const originalContext = catalog.context.bind(catalog);
 catalog.context = async (id, signal, publicationUrl) => {
     const context = await originalContext(id, signal, publicationUrl);

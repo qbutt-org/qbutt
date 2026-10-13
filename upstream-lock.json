@@ -61,16 +61,6 @@
     "repository": "https://github.com/qbutt-org/qbutt-net.git",
     "commit": "7f77346048bc6a091432223e81ab30ba12a5ea9a"
   },
-  "searchEngine": {
-    "harbrr": {
-      "repository": "https://github.com/nitrobass24/harbrr.git",
-      "commit": "e2463f4b5475879fa9cf2bb477e065634bac05b4"
-    },
-    "jackett": {
-      "repository": "https://github.com/Jackett/Jackett.git",
-      "commit": "d3cf2f5026bbb2f509325902db0a85e48f37ea17"
-    }
-  },
   "assets": {
     "tablerIcons": {
       "repository": "https://github.com/tabler/tabler-icons.git",

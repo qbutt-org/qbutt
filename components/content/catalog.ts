@@ -1,10 +1,8 @@
 import { createHash } from "node:crypto";
-import { join } from "node:path";
 import { Cookie, CookieJar } from "tough-cookie";
 
 import type { Provider, ProviderContext, SearchRequest, Source, Variant, Work } from "./contracts";
 import type { BrowserBridge } from "./browser";
-import { SearchEngine } from "./engine";
 import { ContentError } from "./errors";
 import { sourceFetch, safeError } from "./net";
 import { readingProviders } from "./providers/reading";
@@ -49,56 +47,17 @@ export const translationSource: Source = {
 };
 
 export class Catalog {
-    readonly engine: SearchEngine;
     readonly providers: Provider[] = [...videoProviders, ...gamingProviders, ...readingProviders];
     private readonly sessions = new Map<string, SourceSession>();
     private readonly inspections = new Map<string, { work: Work; expiresAt: number }>();
     private searchResults?: SearchResults;
 
     constructor(readonly dataDir: string, readonly appDir: string, readonly settings: SourceSettings,
-        private readonly browser: BrowserBridge, private readonly webview = new WebViewSessions(dataDir, appDir)) {
-        this.engine = new SearchEngine(join(appDir, "qbutt-search.exe"), join(dataDir, "indexers"));
-    }
+        private readonly browser: BrowserBridge, private readonly webview = new WebViewSessions(dataDir, appDir)) {}
 
-    async sources(signal: AbortSignal): Promise<Source[]> {
-        const engines = await this.indexers(signal);
-
-        // The richer game adapters own publication variants and instructions.
-        // Keep their simpler definitions in the engine catalog but expose only
-        // one selectable source for the same site in the product.
-        const replaced = new Set(["byrutor", "freetp", "onlinefix", "fitgirl", "torrentigruha"]);
+    async sources(): Promise<Source[]> {
         const native = await Promise.all(this.providers.map(provider => this.settings.describe(provider.source)));
-        const indexers = engines.filter(source => !replaced.has(source.id))
-            .map(source => ({ ...source, health: this.settings.health(source.id) }));
-        return [...native, ...indexers, await this.settings.describe(translationSource)];
-    }
-
-    private async indexers(signal: AbortSignal): Promise<Source[]> {
-        let sources: Source[] = [];
-        await this.engine.request("sources", {}, event => {
-            if (event.event === "sources")
-                sources = event.data as Source[];
-        }, signal);
-        return sources;
-    }
-
-    async browserSessions(signal: AbortSignal, selected?: string[]): Promise<{
-        cookies: Record<string, string>; userAgents: Record<string, string>;
-    }> {
-        const cookies: Record<string, string> = {};
-        const userAgents: Record<string, string> = {};
-        const status = await this.browser.status(signal);
-        if (!status.ready)
-            return { cookies, userAgents };
-        const sources = (await this.indexers(signal)).filter(source => selected
-            ? selected.includes(source.id) : source.enabled || source.id === "rutracker");
-        for (const source of sources) {
-            const session = await this.browser.cookies(source.url, { signal });
-            cookies[source.id] = session.map(cookie => `${cookie.name}=${cookie.value}`).join("; ");
-            if (status.userAgent)
-                userAgents[source.id] = status.userAgent;
-        }
-        return { cookies, userAgents };
+        return [...native, await this.settings.describe(translationSource)];
     }
 
     async context(id: string, signal: AbortSignal, publicationUrl?: string): Promise<ProviderContext> {
@@ -338,55 +297,12 @@ export class Catalog {
             await Promise.all(Array.from({ length: Math.min(4, providers.length) }, worker));
         };
 
-        const engineSelected = request.sources?.filter(id => !this.providers.some(provider => provider.source.id === id));
-        const searchEngine = !selected || !!engineSelected?.length;
-        const searchIndexers = async (title: string, expanded = request.expanded) => {
-            if (!searchEngine)
-                return;
-            try {
-                const session = await this.browserSessions(signal, engineSelected?.length ? engineSelected : undefined);
-                const counts = new Map<string, number>();
-                await this.engine.request("search", {
-                    ...request,
-                    query: title,
-                    expanded,
-                    ...(engineSelected?.length ? { sources: engineSelected } : {}),
-                    exclude: ["byrutor", "freetp", "onlinefix", "fitgirl", "torrentigruha"],
-                    ...session,
-                }, event => {
-                    if (event.event === "result") {
-                        const work = event.data as Work;
-                        if (results.add(work)) {
-                            const sourceId = work.variants[0].sourceId;
-                            counts.set(sourceId, (counts.get(sourceId) || 0) + 1);
-                        }
-                    }
-                    else if (event.event === "source") {
-                        const source = event.data as { sourceId: string; status: string; count?: number };
-                        if (["complete", "error", "login_required"].includes(source.status))
-                            this.settings.recordHealth(source.sourceId, source.status !== "complete"
-                                ? new Error((event.data as { message?: string }).message || "The source could not be reached.") : undefined,
-                                { method: "search", request: { query: title, category: request.category } });
-                        emit("source", { ...source, ...(source.count === undefined ? {} : { count: counts.get(source.sourceId) || 0 }) });
-                    }
-                    else if (event.event !== "summary")
-                        emit(event.event, event.data);
-                }, signal);
-            }
-            catch (error) {
-                if (!signal.aborted)
-                    emit("source", { sourceId: "indexers", status: "error", message: safeError(error) });
-            }
-        };
-
-        await Promise.all([searchIndexers(query), searchProviders(query)]);
+        await searchProviders(query);
         for (const alias of results.titleAliases(query)) {
             signal.throwIfAborted();
             results.addQuery(alias);
-            await Promise.all([searchIndexers(alias), searchProviders(alias)]);
+            await searchProviders(alias);
         }
-        if (!selected && !request.expanded && results.size < 10)
-            await searchIndexers(query, true);
         signal.throwIfAborted();
         emit("summary", { count: results.size });
     }
@@ -411,18 +327,7 @@ export class Catalog {
                 await this.sourceOperation(provider.source.id, signal, check,
                     context => provider.search(check.request, context), options);
             }
-            else {
-                const source = (await this.indexers(signal)).find(source => source.id === id);
-                if (!source) throw new Error("Select an available source.");
-                await this.engine.request("search", { ...check.request, sources: [id],
-                    ...await this.browserSessions(signal, [id]) }, event => {
-                    if (event.event !== "source") return;
-                    const result = event.data as { status: string; message?: string };
-                    if (["complete", "error", "login_required"].includes(result.status))
-                        this.settings.recordHealth(id, result.status !== "complete"
-                            ? new Error(result.message || "The source could not be reached.") : undefined, check);
-                }, signal);
-            }
+            else throw new Error("Select an available source.");
         }
         catch (error) {
             signal.throwIfAborted();
@@ -445,49 +350,23 @@ export class Catalog {
                 throw error;
             }
         }
-        try {
-            const work = await this.inspectPublication(variant, signal, emit, options);
-            signal.throwIfAborted();
-            this.inspections.delete(key);
-            this.inspections.set(key, { work, expiresAt: Date.now() + 5 * 60_000 });
-            if (this.inspections.size > 64) this.inspections.delete(this.inspections.keys().next().value!);
-            return work;
-        }
-        catch (error) {
-            if (!this.providers.some(provider => provider.source.id === variant.sourceId)
-                && (!signal.aborted || signal.reason?.name === "TimeoutError"))
-                this.settings.recordHealth(variant.sourceId, error, { method: "inspect", variant });
-            throw error;
-        }
+        const work = await this.inspectPublication(variant, signal, emit, options);
+        signal.throwIfAborted();
+        this.inspections.delete(key);
+        this.inspections.set(key, { work, expiresAt: Date.now() + 5 * 60_000 });
+        if (this.inspections.size > 64) this.inspections.delete(this.inspections.keys().next().value!);
+        return work;
     }
 
     private async inspectPublication(variant: Variant, signal: AbortSignal, emit?: (work: Work) => void,
         options: { interactive?: boolean } = {}): Promise<Work> {
         const provider = this.providers.find(item => item.source.id === variant.sourceId);
-        if (provider) {
-            return this.sourceOperation(provider.source.id, signal, { method: "inspect", variant },
-                context => {
-                    if (!provider.inspect) throw new Error("This source has no additional item details.");
-                    return provider.inspect(variant, context, emit);
-                }, options);
-        }
-
-        let details: Work | undefined;
-        await this.engine.request("inspect", { variant, ...await this.browserSessions(signal, [variant.sourceId]) }, event => {
-            if (event.event === "details")
-                details = event.data as Work;
-        }, signal);
-        if (!details)
-            throw new Error("This item could not be opened.");
-        this.settings.recordHealth(variant.sourceId, undefined, { method: "inspect", variant });
-        // The indexer owns release details; catalog association supplies episode labels.
-        details.variants = details.variants.map(item => item.transport === "torrent"
-            && item.sourceId === variant.sourceId && item.id === variant.id
-            && item.url === variant.url && item.infoHash === variant.infoHash
-            ? { ...item, episode: item.episode ?? variant.episode, season: item.season ?? variant.season,
-                notes: item.notes ?? variant.notes }
-            : item);
-        return details;
+        if (!provider) throw new Error("Select an available source.");
+        return this.sourceOperation(provider.source.id, signal, { method: "inspect", variant },
+            context => {
+                if (!provider.inspect) throw new Error("This source has no additional item details.");
+                return provider.inspect(variant, context, emit);
+            }, options);
     }
 
     async acquisitionHeaders(sourceId: string, url: string, headers: Record<string, string>): Promise<Record<string, string>> {
@@ -511,6 +390,5 @@ export class Catalog {
 
     close(): void {
         this.webview.close();
-        this.engine.close();
     }
 }

@@ -105,7 +105,6 @@ const provider: Provider = {
     },
 };
 catalog.providers.splice(0, catalog.providers.length, provider);
-catalog.engine.request = async () => {};
 const sessionContext = catalog.context.bind(catalog);
 catalog.context = async (id, signal, publicationUrl) => {
     const context = await sessionContext(id, signal, publicationUrl);

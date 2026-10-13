@@ -210,7 +210,7 @@ async function run(): Promise<void> {
                     emit("result", { id, title, category: video ? "movies" : "all", variants: [selected] });
                     return;
                 }
-                return dispatch("discover", { url: query }, signal, emit);
+                throw new Error("This link is not supported by an available source.");
             }
             if (query.startsWith("magnet:")) {
                 if (!new URL(query).searchParams.getAll("xt").some(hash => /^urn:bt(?:ih|mh):[a-z\d]+$/i.test(hash)))
@@ -236,7 +236,7 @@ async function run(): Promise<void> {
             return;
         }
         case "sources":
-            emit("sources", await catalog.sources(signal));
+            emit("sources", await catalog.sources());
             return;
         case "checkSource": {
             const id = String(params.id || "");
@@ -254,7 +254,7 @@ async function run(): Promise<void> {
                         id: inspected.publication.id, url: inspected.publication.url },
                 });
             }
-            emit("sources", await catalog.sources(signal));
+            emit("sources", await catalog.sources());
             return;
         }
         case "configureSource": {
@@ -263,23 +263,12 @@ async function run(): Promise<void> {
                 throw new Error("Select a source.");
             const changes = params.settings ? Object.fromEntries(Object.entries(object(params.settings))
                 .map(([key, value]) => [key, String(value)])) : undefined;
-            if (catalog.providers.some(provider => provider.source.id === id) || id === "ai") {
-                await settings.configure(id, typeof params.enabled === "boolean" ? params.enabled : undefined, changes);
-            }
-            else
-                await catalog.engine.request("configureSource", { ...params, settings: changes }, () => {}, signal);
-            emit("sources", await catalog.sources(signal));
+            if (!catalog.providers.some(provider => provider.source.id === id) && id !== "ai")
+                throw new Error("Select an available source.");
+            await settings.configure(id, typeof params.enabled === "boolean" ? params.enabled : undefined, changes);
+            emit("sources", await catalog.sources());
             return;
         }
-        case "refresh":
-        case "discover":
-            await catalog.engine.request(method === "refresh" ? "update" : "discover", params,
-                event => {
-                    if (event.event !== "sources")
-                        emit(event.event, event.data);
-                }, signal);
-            emit("sources", await catalog.sources(signal));
-            return;
         case "chooseBrowser": {
             const choice = String(params.browser || "auto");
             if (!["auto", "edge", "chrome"].includes(choice))

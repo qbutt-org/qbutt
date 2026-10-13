@@ -31,7 +31,7 @@ qbutt сохраняет удобство нативного qBittorrent и ра
 
 ### Контентная подсистема
 
-Контракт разделяет qbutt и самостоятельные qplay/qcatch. Прикладная логика поиска и контента работает на Rust внутри qbutt, экраны используют QML/Qt Quick и типизированную границу с существующим C++-ядром. Прежние Bun/Go-процессы не входят в продуктовую сборку; их исходники остаются для отдельных интеграционных проверок. Статус и порядок миграции ведутся в [плане](implementation.md), команды проверок — в [tests/README.md](../tests/README.md). [Контентные контракты](agents/content.md) задают предметные ограничения и текущую карту владельцев.
+Контракт разделяет qbutt и самостоятельные qplay/qcatch. Прикладная логика поиска и контента работает на Rust внутри qbutt, экраны используют QML/Qt Quick и типизированную границу с существующим C++-ядром. Прежний Bun-процесс не входит в продуктовую сборку; его исходники остаются для отдельных интеграционных проверок. Статус и порядок миграции ведутся в [плане](implementation.md), команды проверок — в [tests/README.md](../tests/README.md). [Контентные контракты](agents/content.md) задают предметные ограничения и текущую карту владельцев.
 
 ## 2. Что установлено исследованием
 
@@ -149,7 +149,6 @@ qbutt/
   src/base/            application services, libtorrent integration
   src/gui/             native Qt presentation
   components/content/ providers, library, reader, AI and product integration
-  components/search-engine/ Cardigann and native indexers
   scripts/             local build and packaging
   tests/               isolated integration and native acceptance fixtures
   docs/adr/            architectural decisions

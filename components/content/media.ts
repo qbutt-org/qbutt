@@ -158,12 +158,7 @@ async function resolveContent(variant: Variant, catalog: Catalog, signal: AbortS
             ...(captureId ? { selection: { captureId } } : {}),
         };
     }
-    else {
-        await catalog.engine.request("resolve", { variant, ...await catalog.browserSessions(signal, [variant.sourceId]) }, event => {
-            if (event.event === "resolved")
-                resolved = event.data as ResolvedContent;
-        }, signal);
-    }
+    else throw new Error("Select an available source.");
 
     if (!resolved)
         throw new Error("The selected variant is unavailable.");

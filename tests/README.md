@@ -546,9 +546,9 @@ provider acquisition or native pointer interaction.
 
 ## Content, reading and playback
 
-The Windows product build contains no Bun/Go content or search worker. The old
-`components/content/` and `components/search-engine/` processes remain as explicit
-integration fixtures for scenarios that have not moved to the Rust controller.
+The Windows product build contains no Bun content worker. The old
+`components/content/` process remains as an explicit integration fixture for
+scenarios that have not moved to the Rust controller.
 The helper fixture forwards browser actions over its parent stdio connection.
 The independent qplay product owns the player, prepared
 profile, FFmpeg, ffprobe and yt-dlp. Content tests create their own profiles and
@@ -557,16 +557,13 @@ paths come from the verified qplay `--runtime-info-json` response; fixtures do
 not copy or modify its immutable engine.
 Browser scenarios use the independent qcatch executable and extension.
 
-Build legacy fixture executables separately with Bun and Go pinned in
+Build the legacy fixture executable separately with Bun pinned in
 `upstream-lock.json`. The example setup below is unverified for this change and
 is not part of the release build:
 
 ```powershell
 $env:QBUTT_CONTENT_APP_DIR = 'C:/path/to/legacy-fixture'
 New-Item -ItemType Directory -Force $env:QBUTT_CONTENT_APP_DIR | Out-Null
-Push-Location components/search-engine
-go build -mod=readonly -trimpath -o "$env:QBUTT_CONTENT_APP_DIR/qbutt-search.exe" ./cmd/qbutt-search
-Pop-Location
 Push-Location components/content
 bun install --frozen-lockfile --ignore-scripts
 bun build --compile --target=bun-windows-x64-baseline ./main.ts --outfile "$env:QBUTT_CONTENT_APP_DIR/qbutt-content.exe"
@@ -578,15 +575,12 @@ bundle:
 
 ```powershell
 $env:QBUTT_CONTENT_BIN = "$env:QBUTT_CONTENT_APP_DIR/qbutt-content.exe"
-$env:QBUTT_SEARCH_BIN = "$env:QBUTT_CONTENT_APP_DIR/qbutt-search.exe"
 $env:QBUTT_LAB_QPLAY = 'C:/path/to/portable/qplay/qplay.exe'
 $env:QBUTT_QCATCH_EXE = 'C:/path/to/qcatch/qcatch.exe'
 $env:QBUTT_QCATCH_EXTENSION_DIR = 'C:/path/to/qcatch/extension'
 $env:QBUTT_QUICK_ACCEPTANCE_EXE = 'C:/path/to/build/qbutt-quick-acceptance.exe'
 $env:QBUTT_QCATCH_SETUP_FIXTURE_EXE = 'C:/path/to/build/qcatch-fixture/qcatch.exe'
 $env:QBUTT_LAB_PATHS = '1'
-bun run smoke:content
-bun run smoke:content-search
 bun tests/content-search/catalog.ts
 bun tests/content-search/progressive-integration.ts
 bun tests/content-search/history-integration.ts
