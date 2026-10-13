@@ -27,13 +27,22 @@ pub(super) async fn run(
     })
     .await??;
 
-    for fault in ["none", "foreign", "mime", "status", "challenge"] {
-        let operation = source.search(
-            "browser",
-            Category::Movies,
-            Some(&handle),
-            BrowserChoice::Edge,
-        );
+    for fault in [
+        "none",
+        "anime_empty",
+        "books_empty",
+        "unknown_empty",
+        "foreign",
+        "mime",
+        "status",
+        "challenge",
+    ] {
+        let (category, category_name) = match fault {
+            "anime_empty" | "unknown_empty" => (Category::Anime, "Anime"),
+            "books_empty" => (Category::Books, "Other"),
+            _ => (Category::Movies, "Movies"),
+        };
+        let operation = source.search("browser", category, Some(&handle), BrowserChoice::Edge);
         let responses = async {
             let request = browser_fixture::read(&mut edge).await?;
             assert_eq!(request["method"], "fetch");
@@ -53,18 +62,28 @@ pub(super) async fn run(
                 "headers":{"content-type":if fault == "mime" { "application/json" } else { "text/html; charset=windows-1251" }},
                 "body":body,"url":arrived
             }})).await?;
-            if fault == "none" {
+            if matches!(
+                fault,
+                "none" | "anime_empty" | "books_empty" | "unknown_empty"
+            ) {
                 let request = browser_fixture::read(&mut edge).await?;
                 assert_eq!(request["method"], "fetch");
                 assert_eq!(
                     request["url"],
-                    origin.join("category-search/browser/Movies/1/")?.as_str()
+                    origin
+                        .join(&format!("category-search/browser/{category_name}/1/"))?
+                        .as_str()
                 );
+                let body = match fault {
+                    "anime_empty" | "books_empty" => search_page("category empty", category_name),
+                    "unknown_empty" => search_page("unknown message", category_name),
+                    _ => search_page("browser", category_name),
+                };
                 browser_fixture::write(
                     &mut edge,
                     &json!({"id":request["id"],"result":{
                         "status":200,"headers":{"content-type":"text/html"},
-                        "body":search_page("browser", "Movies"),"url":request["url"]
+                        "body":body,"url":request["url"]
                     }}),
                 )
                 .await?;
@@ -75,6 +94,7 @@ pub(super) async fn run(
         responded?;
         match fault {
             "none" => assert_eq!(result?.len(), 2),
+            "anime_empty" | "books_empty" => assert!(result?.is_empty()),
             "challenge" => assert!(matches!(result, Err(Error::Challenge))),
             "status" => assert!(matches!(result, Err(Error::HttpStatus(502)))),
             _ => assert!(matches!(result, Err(Error::InvalidResponse(_)))),

@@ -227,6 +227,22 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .await?;
         assert_eq!(release.category, category);
         assert_eq!(release.variants[0].info_hash.as_deref(), Some(HASH));
+
+        assert!(
+            source
+                .search("category empty", category, None, BrowserChoice::Auto)
+                .await?
+                .is_empty(),
+            "empty {category:?} category after a successful general search"
+        );
+    }
+    for query in ["missing heading", "missing message", "unknown message"] {
+        for category in [Category::Anime, Category::Books] {
+            let result = source
+                .search(query, category, None, BrowserChoice::Auto)
+                .await;
+            assert!(matches!(result, Err(Error::InvalidResponse(_))));
+        }
     }
     browser_checks::run(&source, &fixture.origin).await?;
 
@@ -264,7 +280,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     drop(library);
     std::fs::remove_dir_all(profile)?;
     println!(
-        "PASS 1337x_fixtures generated_https=ok form_cookie_jar=ok categories=6 exact_magnet=ok stale=rejected uploader_exclusion=isolated malformed_foreign=rejected browser_fetch=ok browser_fault_cancel=ok empty=ok cancel=connection_closed sqlite=reopened payload=none"
+        "PASS 1337x_fixtures generated_https=ok form_cookie_jar=ok categories=6 category_empty=6 category_faults=6 exact_magnet=ok stale=rejected uploader_exclusion=isolated malformed_foreign=rejected browser_fetch=ok browser_category_empty=2 browser_fault_cancel=ok empty=ok cancel=connection_closed sqlite=reopened payload=none"
     );
     Ok(())
 }

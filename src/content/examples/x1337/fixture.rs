@@ -13,13 +13,35 @@ pub(super) const HASH: &str = "0123456789abcdef0123456789abcdef01234567";
 pub(super) const OTHER_HASH: &str = "abcdef0123456789abcdef0123456789abcdef01";
 pub(super) const PUBLICATION: &str = "42/Generated-Legal";
 
-fn empty_page() -> String {
-    "<div class=box-info-heading><h1>Message:</h1></div><div class=box-info-detail><p>No results were returned. Please refine your search.</p></div>".into()
+fn empty_page(category: &str) -> String {
+    let message = if category.is_empty() {
+        "No results were returned. Please refine your search."
+    } else {
+        "No results were returned."
+    };
+    format!(
+        "<div class=box-info-heading><h1>Message:</h1></div><div class=box-info-detail><p>{message}</p></div>"
+    )
 }
 
 pub(super) fn search_page(query: &str, category: &str) -> String {
-    if query == "empty" {
-        return empty_page();
+    if query == "empty" || (query == "category empty" && !category.is_empty()) {
+        return empty_page(category);
+    }
+    if !category.is_empty() {
+        match query {
+            "missing heading" => return "<div class=box-info-detail></div>".into(),
+            "missing message" => {
+                return "<div class=box-info-heading><h1>Message:</h1></div>".into();
+            }
+            "unknown message" => {
+                return empty_page(category).replace(
+                    "No results were returned.",
+                    "The search is temporarily unavailable.",
+                );
+            }
+            _ => {}
+        }
     }
     let (subcategory, id) = match category {
         "Games" => (10, 52),
@@ -236,7 +258,12 @@ impl Fixture {
                         } else if query == "bad session" {
                             ("200 OK", "Bad search request".into())
                         } else {
-                            ("200 OK", search_page(&query, segments.get(2).copied().unwrap_or("")))
+                            let category = if segments[0] == "category-search" {
+                                segments.get(2).copied().unwrap_or("")
+                            } else {
+                                ""
+                            };
+                            ("200 OK", search_page(&query, category))
                         };
                         let header = format!("HTTP/1.1 {status}\r\nContent-Type: {mime}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n", body.len());
                         let _ = stream.write_all(header.as_bytes()).await;

@@ -229,9 +229,10 @@ fn empty_search(root: ElementRef<'_>) -> Result<bool> {
     if text(unique(root, ".box-info-heading > h1")?) != "Message:" {
         return Ok(false);
     }
-    if text(unique(root, ".box-info-detail > p")?)
-        != "No results were returned. Please refine your search."
-    {
+    if !matches!(
+        text(unique(root, ".box-info-detail > p")?).as_str(),
+        "No results were returned." | "No results were returned. Please refine your search."
+    ) {
         return Err(Error::InvalidResponse("unrecognized 1337x search message"));
     }
     Ok(true)
