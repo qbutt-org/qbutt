@@ -91,6 +91,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .await?;
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].reference.id, "42-generated-legal");
+    assert_eq!(found[0].title, "Generated Legal (Свободная игра)");
     assert!(found[0].needs_inspection);
 
     let work = provider
@@ -315,7 +316,7 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             format!("{origin}42-generated-legal.html")
         };
         let row = format!(
-            "<div class='game-card'><div class='game-card__cover'><img class='game-cover' src='/uploads/posts/fixture.webp'></div><div class='game-card__name'><a href='{link}'>Generated Legal</a></div></div>"
+            "<div class='game-card'><div class='game-card__cover'><img class='game-cover' src='/uploads/posts/fixture.webp'></div><div class='game-card__name'><a href='{link}'>Generated Legal (Свободная игра)</a></div></div>"
         );
         let rows = match query.as_str() {
             "empty" => String::new(),
@@ -325,7 +326,7 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
         let body = format!(
             "<html><div id='dle-content'><div class='searchpage'><form id='fullsearch'><input id='searchinput' name='story' value='{shown}'></form></div>{rows}</div></html>"
         );
-        return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
+        return html(body);
     }
     if url.path().ends_with(".html") {
         if url.path().contains("missing") {
@@ -346,9 +347,9 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             )
         };
         let body = format!(
-            "<html><head><link rel='canonical' href='{origin}{slug}.html'></head><body><div id='dle-content'><div class='page-title'><h1>Generated Legal</h1></div><div id='entry-poster-bg'><img class='entry-image' src='/uploads/posts/fixture.webp'></div><div class='updategame'>Изменения: v2.0</div><div class='blockinfo'>{releases}</div></div></body></html>"
+            "<html><head><link rel='canonical' href='{origin}{slug}.html'></head><body><div id='dle-content'><div class='page-title'><h1>Generated Legal (Свободная игра)</h1></div><div id='entry-poster-bg'><img class='entry-image' src='/uploads/posts/fixture.webp'></div><div class='updategame'>Изменения: v2.0</div><div class='blockinfo'>{releases}</div></div></body></html>"
         );
-        return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
+        return html(body);
     }
     if url.path() == "/"
         && url
@@ -368,7 +369,7 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             "<html><div id='dle-content'><div class='dl-back'><a href='{origin}{article}.html'>Вернуться к игре</a></div><a id='btn-download' href='{origin}engine/download.php?id={}'>Скачать торрент</a></div></html>",
             id.as_deref().unwrap_or("0")
         );
-        return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
+        return html(body);
     }
     if url.path() == "/engine/download.php" {
         let id = url
@@ -384,4 +385,17 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
         return ("200 OK", "application/x-bittorrent", bytes.to_vec());
     }
     ("404 Not Found", "text/html", Vec::new())
+}
+
+fn html(body: String) -> (&'static str, &'static str, Vec<u8>) {
+    let (bytes, _, invalid) = encoding_rs::WINDOWS_1251.encode(&body);
+    assert!(
+        !invalid,
+        "fixture HTML must be representable in Windows-1251"
+    );
+    (
+        "200 OK",
+        "text/html; charset=windows-1251",
+        bytes.into_owned(),
+    )
 }

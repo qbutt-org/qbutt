@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
+use encoding_rs::WINDOWS_1251;
 use scraper::{ElementRef, Html, Selector};
 use url::Url;
 
@@ -253,12 +254,11 @@ fn html_response(response: SourceDocument, expected: &Url) -> Result<String> {
     {
         return Err(Error::InvalidResponse("Igruha document is not HTML"));
     }
-    let body = String::from_utf8(response.body)
-        .map_err(|_| Error::InvalidResponse("Igruha document is not UTF-8"))?;
+    let (body, _) = WINDOWS_1251.decode_without_bom_handling(&response.body);
     if body.contains("__ddg") || body.contains("DDoS-Guard") {
         return Err(Error::Challenge);
     }
-    Ok(body)
+    Ok(body.into_owned())
 }
 
 fn torrent_response(response: SourceDocument, expected: &Url) -> Result<TorrentMetadata> {

@@ -140,10 +140,11 @@ six supported categories, raw release/version titles and preferences; rejected
 references leave confirmed entries unchanged. The last command uses live public
 Software metadata and resolves the exact magnet without downloading a payload.
 
-Igruha's generated HTTPS scenario checks search, two versions on one article,
-the publication-bound download page, the nonfirst exact torrent, replacement
-rejection, empty results, invalid responses and cancellation. It serves only
-four-byte legal fixture content inside torrent metadata:
+Igruha's generated HTTPS scenario serves Windows-1251 documents and checks
+search, two versions on one article, the publication-bound download page,
+the nonfirst exact torrent, replacement rejection, empty results, invalid
+responses and cancellation. It serves only four-byte legal fixture content
+inside torrent metadata:
 
 ```powershell
 cargo run --locked --offline --release -p qbutt-content --example igruha-fixtures
