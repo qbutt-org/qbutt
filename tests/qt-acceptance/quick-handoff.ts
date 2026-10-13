@@ -15,9 +15,9 @@ const mainContent = input.includes("--main");
 assert(input.filter(arg => arg === "--main").length <= 1, "Repeated --main option");
 const args = input.filter(arg => arg !== "--main");
 assert(args.length === 0 || (args.length === 2 && args[0] === "--source"),
-    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|rutracker|dodi|byrut|freetp|fitgirl] [--main]");
+    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|rutracker|dodi|byrut|freetp|fitgirl|onlinefix] [--main]");
 const selectedSource = args[1] ?? "aniliberty";
-assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "rutracker", "dodi", "byrut", "freetp", "fitgirl"].includes(selectedSource), "Unsupported handoff source");
+assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "rutracker", "dodi", "byrut", "freetp", "fitgirl", "onlinefix"].includes(selectedSource), "Unsupported handoff source");
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
 const executable = resolve(source);
@@ -109,7 +109,7 @@ try {
     assert.equal(check.metadataPayloadEmpty, true);
     assert.equal(check.source, selectedSource);
     const category = selectedSource === "rutor" ? "software"
-        : ["dodi", "byrut", "freetp", "fitgirl"].includes(selectedSource) ? "games"
+        : ["dodi", "byrut", "freetp", "fitgirl", "onlinefix"].includes(selectedSource) ? "games"
         : selectedSource === "aniliberty" ? "anime" : "movies";
     assert.equal(check.category, category);
     assert.equal(check.mainContent, mainContent);
@@ -163,6 +163,11 @@ try {
         assert.equal(check.infoHash, "e54e92ed62a49401fc224642e65f8ca03709c95e");
         assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
         assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
+    }
+    else if (selectedSource === "onlinefix") {
+        assert.equal(check.workId, "onlinefix:games/sandbox/16274-stardew-valley-po-seti.html");
+        assert.equal(check.infoHash, "063043892eac8f94c5eb249669548a3f93b7c3a5");
+        assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
     }
     else if (selectedSource === "fitgirl") {
         assert.equal(check.workId, "fitgirl:cyberpunk-2077");

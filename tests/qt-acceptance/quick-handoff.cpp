@@ -114,7 +114,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     const QString source = spec.value(u"source"_s).toString();
     require((source == u"aniliberty") || (source == u"rutor") || (source == u"limetorrents")
             || (source == u"nnmclub") || (source == u"dodi") || (source == u"byrut")
-            || (source == u"freetp") || (source == u"fitgirl") || (source == u"rutracker"),
+            || (source == u"freetp") || (source == u"fitgirl") || (source == u"rutracker")
+            || (source == u"onlinefix"),
         u"Unsupported handoff source"_s);
     const bool ruTor = source == u"rutor";
     const bool limeTorrents = source == u"limetorrents";
@@ -124,7 +125,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     const bool byRut = source == u"byrut";
     const bool freeTP = source == u"freetp";
     const bool fitGirl = source == u"fitgirl";
-    const bool torrentFile = dodi || byRut || freeTP;
+    const bool onlineFix = source == u"onlinefix";
+    const bool torrentFile = dodi || byRut || freeTP || onlineFix;
     const bool singleTorrent = ruTor || limeTorrents || nnmClub || ruTracker || torrentFile;
     QString sourceLabel = u"AniLiberty"_s;
     QString category = u"anime"_s;
@@ -176,6 +178,12 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         sourceLabel = u"FitGirl"_s;
         category = u"games"_s;
         queryText = u"Cyberpunk"_s;
+    }
+    else if (onlineFix)
+    {
+        sourceLabel = u"Online-Fix"_s;
+        category = u"games"_s;
+        queryText = u"Stardew Valley"_s;
     }
 
     const QDir payload(spec.value(u"payload"_s).toString());
@@ -364,6 +372,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         expectedWorkId = u"freetp:6327"_s;
     else if (fitGirl)
         expectedWorkId = u"fitgirl:cyberpunk-2077"_s;
+    else if (onlineFix)
+        expectedWorkId = u"onlinefix:games/sandbox/16274-stardew-valley-po-seti.html"_s;
     QString workId;
     for (int row = 0; row < works->rowCount(); ++row)
     {
@@ -441,6 +451,10 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         require(infoHash == u"e54e92ed62a49401fc224642e65f8ca03709c95e", u"Known KLETKA torrent hash changed"_s);
     if (fitGirl)
         require(infoHash == u"f081eec38f08f5d663db807b39c5c33bb1049e2f", u"Known Cyberpunk variant hash changed"_s);
+    if (onlineFix)
+        require(infoHash == u"063043892eac8f94c5eb249669548a3f93b7c3a5"
+            && value(variants, selectedRow, "label").startsWith(u"Full game:"_s),
+            u"Online-Fix full-game torrent changed"_s);
     auto *list = root->findChild<QQuickItem *>(u"contentVariants"_s);
     auto *download = root->findChild<QQuickItem *>(u"contentDownload"_s);
     require(list && download, u"Variant controls are missing"_s);

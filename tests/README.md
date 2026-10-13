@@ -226,6 +226,15 @@ size limits, and saved selection after reopening. Changed mirrors and form IDs,
 foreign redirects and cross-origin POST replay are rejected. `--resolve` obtains
 only the known Devil May Cry 5 torrent metadata. Up4Ever is not offered.
 
+Online-Fix has a generated HTTPS acquisition fixture and a read-only live
+example. The live command fetches only the full-game `.torrent` metadata for
+Stardew Valley; it does not request a fix archive or game payload.
+
+```powershell
+cargo run --manifest-path src/content/Cargo.toml --example online-fix-fixtures --locked
+cargo run --manifest-path src/content/Cargo.toml --example online-fix --locked -- 'Stardew Valley'
+```
+
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in
 [development setup](../docs/development.md), then run:
@@ -466,12 +475,12 @@ Use the VM for visual work without opening windows on the host desktop.
 The combined application's `quick-handoff` scenario searches live AniLiberty,
 selects a non-default variant, opens the normal Add Torrent dialog and cancels
 it. `--source rutor` checks a live Software publication and its full-hash selector.
-`--source dodi --main`, `--source byrut --main` and `--source freetp --main`
-check exact torrent bytes. `--source fitgirl --main` selects the older of two
-Cyberpunk magnet variants. These paths verify the native dialog's hash, select
-through the production QML category projection, freshly resolve
-the exact variant and check one handoff, the isolated destination and empty
-payload before and after shutdown:
+`--source dodi --main`, `--source byrut --main`, `--source freetp --main`
+and `--source onlinefix --main` check exact torrent bytes. `--source fitgirl --main`
+selects the older of two Cyberpunk magnet variants. These paths verify the
+native dialog's hash, select through the production QML category projection,
+freshly resolve the exact variant and check one handoff, the isolated
+destination and empty payload before and after shutdown:
 
 ```powershell
 cmake --build --preset windows --target qbutt-qt-acceptance --parallel 6
@@ -482,6 +491,7 @@ bun tests/qt-acceptance/quick-handoff.ts --main
 bun tests/qt-acceptance/quick-handoff.ts --source dodi --main
 bun tests/qt-acceptance/quick-handoff.ts --source byrut --main
 bun tests/qt-acceptance/quick-handoff.ts --source freetp --main
+bun tests/qt-acceptance/quick-handoff.ts --source onlinefix --main
 bun tests/qt-acceptance/quick-handoff.ts --source fitgirl --main
 ```
 
