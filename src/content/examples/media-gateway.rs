@@ -360,13 +360,19 @@ async fn exercise_prepared_mp4(origin: &Url) -> AcceptanceResult<()> {
     let full = local_get(&client, &prepared.url, None).await?;
     assert_eq!(full.status(), 200);
     assert_eq!(full.headers()["content-type"].to_str()?, "video/mp4");
-    assert_eq!(
-        full.bytes()
-            .await
-            .map_err(|_| io::Error::other("protected MP4 body failed"))?
-            .len(),
-        2048
-    );
+    let full = full
+        .bytes()
+        .await
+        .map_err(|_| io::Error::other("protected MP4 body failed"))?;
+    assert_eq!(full.len(), 2048);
+    let zero_range = local_get(&client, &prepared.url, Some("bytes=0-")).await?;
+    assert_eq!(zero_range.status(), 200);
+    assert_eq!(zero_range.headers()["content-length"], "2048");
+    assert_eq!(zero_range.bytes().await?, full);
+    for range in ["bytes=1-", "bytes=0-1", "bytes=-1"] {
+        let rejected = local_get(&client, &prepared.url, Some(range)).await?;
+        assert_eq!(rejected.status(), 502, "ignored partial range {range}");
+    }
     let rejected = local_get(&client, &prepared.url, Some("bytes=2048-")).await?;
     assert_eq!(rejected.status(), 416);
     gateway.close().await;

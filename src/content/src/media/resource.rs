@@ -404,6 +404,10 @@ fn valid_range_response(response: &Response, requested: Option<&str>) -> bool {
     let Some(requested) = requested else {
         return response.status() == StatusCode::OK;
     };
+    // A complete response also fulfills an open range beginning at zero.
+    if response.status() == StatusCode::OK {
+        return requested == "bytes=0-" && !response.headers().contains_key("content-range");
+    }
     if response.status() != StatusCode::PARTIAL_CONTENT {
         return false;
     }
