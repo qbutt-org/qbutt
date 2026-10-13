@@ -184,7 +184,7 @@ try {
     await mkdir(join(qplayProfile, "config"), { recursive: true });
     for (const entry of await readdir(bundle, { withFileTypes: true })) {
         if (entry.isFile() && (/\.dll$/i.test(entry.name)
-            || ["qt.conf", "qbutt-net.exe", "qbutt-search.exe"].includes(entry.name)))
+            || ["qt.conf", "qbutt-net.exe"].includes(entry.name)))
             await copyFile(join(bundle, entry.name), join(runtime, entry.name));
     }
     for (const name of ["platforms", "styles", "imageformats", "sqldrivers"])

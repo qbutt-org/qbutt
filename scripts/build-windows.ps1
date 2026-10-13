@@ -247,8 +247,7 @@ $bunVersion = & $bun --version
 if ($LASTEXITCODE -ne 0 -or $bunVersion -ne $pins.bun.version) {
     throw 'Bun does not match upstream-lock.json.'
 }
-$bunLicense = Join-Path $bunToolchain 'LICENSE.md'
-Save-VerifiedDownload $bunLicense $pins.bun.licenseUrl $pins.bun.licenseSha256
+
 $qtLicenses = Join-Path $DependencyRoot "qt-licenses/$($pins.qt.version)"
 New-Item -ItemType Directory -Force $qtLicenses | Out-Null
 $qtLicensePaths = @(foreach ($license in $pins.qt.licenseFiles) {
@@ -275,24 +274,6 @@ try {
     Invoke-Native $go @('build', '-mod=readonly', '-trimpath', '-o', (Join-Path $BuildRoot 'qbutt-net.exe'), './cmd/qbutt-net')
     $goVersion = & $go version
     if ($LASTEXITCODE -ne 0) { throw 'Cannot record Go version.' }
-}
-finally { Pop-Location }
-
-$searchEngine = Join-Path $SourceDir 'components/search-engine'
-Push-Location $searchEngine
-try {
-    Invoke-Native $go @('build', '-mod=readonly', '-trimpath', '-o', (Join-Path $BuildRoot 'qbutt-search.exe'), './cmd/qbutt-search')
-}
-finally { Pop-Location }
-
-$content = Join-Path $SourceDir 'components/content'
-Push-Location $content
-try {
-    Invoke-Native $bun @('install', '--frozen-lockfile', '--ignore-scripts')
-    Invoke-Native $bun @('build', '--compile', "--target=$($pins.bun.target)", "--compile-executable-path=$bun",
-        '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig', '--windows-hide-console',
-        '--windows-title=qbutt Content', '--windows-publisher=The qbutt Project', "--windows-version=$expectedFixedVersion",
-        './main.ts', '--outfile', (Join-Path $BuildRoot 'qbutt-content.exe'))
 }
 finally { Pop-Location }
 
@@ -326,7 +307,6 @@ New-Item -ItemType Directory -Path $portable | Out-Null
 New-Item -ItemType Directory -Path "$portable/profile" | Out-Null
 'This directory keeps qbutt settings and session data next to the application.' | Set-Content "$portable/profile/README.txt"
 Copy-Item -LiteralPath (Join-Path $BuildRoot 'qbutt.exe'), (Join-Path $BuildRoot 'qbutt-net.exe'),
-    (Join-Path $BuildRoot 'qbutt-content.exe'), (Join-Path $BuildRoot 'qbutt-search.exe'),
     (Join-Path $BuildRoot 'qbutt-webview.exe') -Destination $portable
 Invoke-Native "$qtRoot/bin/windeployqt.exe" @('--release', '--quickwidgets', '--no-compiler-runtime', '--include-plugins', 'qoffscreen',
     '--exclude-plugins', 'qsqlibase,qsqlmimer,qsqloci,qsqlodbc,qsqlpsql',
@@ -347,14 +327,12 @@ $qtPortableLicenses = Join-Path $licenses 'qt'
 New-Item -ItemType Directory -Path $qtPortableLicenses | Out-Null
 Copy-Item -LiteralPath $qtLicensePaths -Destination $qtPortableLicenses
 Copy-Item -Path "$qtRoot/sbom/*.spdx.json" -Destination $licenses
-Copy-Item -LiteralPath $bunLicense -Destination "$licenses/bun.txt"
 Copy-Item -LiteralPath (Join-Path $webviewSdk 'LICENSE.txt') -Destination "$licenses/WebView2-SDK.txt"
 Copy-Item -LiteralPath (Join-Path $webviewSdk 'NOTICE.txt') -Destination "$licenses/WebView2-NOTICE.txt"
 Copy-Item -LiteralPath (Join-Path $SourceDir 'resources/fonts/Neucha-OFL.txt') -Destination "$licenses/Neucha-OFL.txt"
 Copy-Item -LiteralPath (Join-Path $SourceDir 'src/icons/LICENSE-Tabler') -Destination "$licenses/Tabler-Icons.txt"
 Invoke-Native $bun @((Join-Path $SourceDir 'scripts/package-products.ts'), '--destination', $portable,
     '--cache', (Join-Path $DependencyRoot 'products'))
-Invoke-Native $bun @((Join-Path $SourceDir 'scripts/collect-content-notices.ts'), '--bundle', $portable, '--go', $go)
 Invoke-Native $bun @((Join-Path $SourceDir 'scripts/collect-rust-notices.ts'), '--bundle', $portable,
     '--cargo', $cargo, '--rustc', $rustc)
 Push-Location $net
@@ -390,13 +368,6 @@ for source verification. Its WebView2 SDK $($pins.webview2.version) loader is li
 statically under BSD-3-Clause (licenses/WebView2-SDK.txt and licenses/WebView2-NOTICE.txt).
 Pinned SDK distribution: $($pins.webview2.url)
 
-qbutt-content and qbutt-search are bundled private worker processes.
-Their exact dependency versions, source archives and license texts are recorded in
-licenses/qbutt-content-notices.json and licenses/qbutt-content-notices.txt.
-qbutt-search includes the Harbrr Cardigann engine and the bundled Jackett definitions,
-under GPL version 2 or later. The selected source revisions are recorded in upstream-lock.json.
-The Bun $($pins.bun.version) runtime and its dependencies are described in licenses/bun.txt.
-Pinned Bun source and relinking instructions: $($pins.bun.sourceUrl)
 qplay is an independent mpv-based player installed alongside qbutt. Its prepared
 profile, media tools, licenses and corresponding source archives belong to qplay.
 qcatch is an optional independent browser extension and native capture application.
@@ -447,14 +418,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Cannot record source status.' }
     dependencyLockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash.ToLowerInvariant()
     cargoLockSha256 = (Get-FileHash -LiteralPath $cargoLockPath -Algorithm SHA256).Hash.ToLowerInvariant()
     rustToolchainSha256 = (Get-FileHash -LiteralPath $rustToolchainPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    contentDependencyLockSha256 = (Get-FileHash -LiteralPath (Join-Path $content 'bun.lock') -Algorithm SHA256).Hash.ToLowerInvariant()
-    searchDependencyLockSha256 = (Get-FileHash -LiteralPath (Join-Path $searchEngine 'go.sum') -Algorithm SHA256).Hash.ToLowerInvariant()
     products = $lock.products
     binaries = [ordered]@{
         qbutt = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
-        content = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-content.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
         webview = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-webview.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
-        search = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-search.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
         net = (Get-FileHash -LiteralPath (Join-Path $portable 'qbutt-net.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
     }
 } | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $ArtifactRoot 'build-manifest.json')

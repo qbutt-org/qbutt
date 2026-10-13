@@ -481,9 +481,8 @@ $env:QBUTT_LAB_QPLAY = 'C:/Tools/qbutt/main-combined-qa/runtime/qplay/qplay.exe'
 bun tests/qt-acceptance/native-watch.ts
 ```
 
-The bundle must include the verified qplay distribution. Native Watch does not
-need `qbutt-content.exe`. The runner uses a fresh profile
-and headless video/audio output. Require exit zero and passing evidence: exact
+The bundle must include the verified qplay distribution. The runner uses a fresh
+profile and headless video/audio output. Require exit zero and passing evidence: exact
 AniLiberty episode/quality, real mpv file-loaded and advancing time, History only
 after ACK with the full Work/preferences, and retired gateway after stop.
 It does not establish native pointer or GPU playback.
@@ -532,9 +531,10 @@ provider acquisition or native pointer interaction.
 
 ## Content, reading and playback
 
-The Windows build bundles `qbutt-content.exe` and `qbutt-search.exe` for the
-remaining legacy consumers. qbutt owns the in-process Rust browser pipe broker;
-the helper forwards browser actions over its existing parent stdio connection.
+The Windows product build contains no Bun/Go content or search worker. The old
+`components/content/` and `components/search-engine/` processes remain as explicit
+integration fixtures for scenarios that have not moved to the Rust controller.
+The helper fixture forwards browser actions over its parent stdio connection.
 The independent qplay product owns the player, prepared
 profile, FFmpeg, ffprobe and yt-dlp. Content tests create their own profiles and
 bridge discovery files; they do not use a signed-in application profile. Tool
@@ -542,11 +542,29 @@ paths come from the verified qplay `--runtime-info-json` response; fixtures do
 not copy or modify its immutable engine.
 Browser scenarios use the independent qcatch executable and extension.
 
+Build legacy fixture executables separately with Bun and Go pinned in
+`upstream-lock.json`. The example setup below is unverified for this change and
+is not part of the release build:
+
 ```powershell
-$env:QBUTT_CONTENT_APP_DIR = 'C:/path/to/portable'
+$env:QBUTT_CONTENT_APP_DIR = 'C:/path/to/legacy-fixture'
+New-Item -ItemType Directory -Force $env:QBUTT_CONTENT_APP_DIR | Out-Null
+Push-Location components/search-engine
+go build -mod=readonly -trimpath -o "$env:QBUTT_CONTENT_APP_DIR/qbutt-search.exe" ./cmd/qbutt-search
+Pop-Location
+Push-Location components/content
+bun install --frozen-lockfile --ignore-scripts
+bun build --compile --target=bun-windows-x64-baseline ./main.ts --outfile "$env:QBUTT_CONTENT_APP_DIR/qbutt-content.exe"
+Pop-Location
+```
+
+Point the legacy scenarios at that fixture and qplay in the verified product
+bundle:
+
+```powershell
 $env:QBUTT_CONTENT_BIN = "$env:QBUTT_CONTENT_APP_DIR/qbutt-content.exe"
 $env:QBUTT_SEARCH_BIN = "$env:QBUTT_CONTENT_APP_DIR/qbutt-search.exe"
-$env:QBUTT_LAB_QPLAY = "$env:QBUTT_CONTENT_APP_DIR/qplay/qplay.exe"
+$env:QBUTT_LAB_QPLAY = 'C:/path/to/portable/qplay/qplay.exe'
 $env:QBUTT_QCATCH_EXE = 'C:/path/to/qcatch/qcatch.exe'
 $env:QBUTT_QCATCH_EXTENSION_DIR = 'C:/path/to/qcatch/extension'
 $env:QBUTT_QUICK_ACCEPTANCE_EXE = 'C:/path/to/build/qbutt-quick-acceptance.exe'

@@ -170,6 +170,5 @@ for (const trace of traces) {
 if (!selectedCase || selectedCase === "native-playback")
     assert(traces.length >= 4, "Actual qplay launches were not recorded");
 const resultPath = join(root, "result.json");
-await writeFile(resultPath, JSON.stringify({ status: "passed",
-    contentHelperPresent: await Bun.file(join(bundle, "qbutt-content.exe")).exists(), results, traces }, null, 2));
+await writeFile(resultPath, JSON.stringify({ status: "passed", results, traces }, null, 2));
 console.log(JSON.stringify({ status: "passed", root, resultPath }));

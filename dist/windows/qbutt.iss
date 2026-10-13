@@ -40,6 +40,11 @@ Source: "{#BundleDir}\*"; DestDir: "{app}"; Excludes: "\profile,\profile\*,\qpla
 Source: "{#BundleDir}\components\qplay-setup.exe"; Flags: dontcopy
 
 [InstallDelete]
+Type: files; Name: "{app}\qbutt-content.exe"
+Type: files; Name: "{app}\qbutt-search.exe"
+Type: files; Name: "{app}\licenses\qbutt-content-notices.json"
+Type: files; Name: "{app}\licenses\qbutt-content-notices.txt"
+Type: files; Name: "{app}\licenses\bun.txt"
 Type: filesandordirs; Name: "{app}\media"; Check: LegacyMediaOwned
 Type: filesandordirs; Name: "{app}\browser-extension"; Check: LegacyExtensionOwned
 Type: files; Name: "{app}\scripts\register-content-browser.ps1"

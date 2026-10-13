@@ -18,14 +18,21 @@ if ($version -notmatch '^(\d+\.\d+\.\d+)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$
 }
 $fileVersion = $matches[1]
 $lock = Get-Content -LiteralPath (Join-Path $SourceDir 'upstream-lock.json') -Raw | ConvertFrom-Json
-foreach ($required in @('qbutt.exe', 'qbutt-net.exe', 'qbutt-content.exe', 'qbutt-search.exe',
+foreach ($required in @('qbutt.exe', 'qbutt-net.exe', 'qbutt-webview.exe',
     'Qt6Core.dll', 'platforms/qwindows.dll', 'THIRD-PARTY-NOTICES.txt',
     'components/qplay-setup.exe', 'qplay/qplay.exe', 'qplay/qplay.portable',
     'qplay/build-manifest.json', 'qplay/upstream-lock.json',
-    'licenses/qbutt-content-notices.txt', 'licenses/Tabler-Icons.txt', 'licenses/rust/dependencies.json',
+    'licenses/go.txt', 'licenses/qbutt-net-notices.json', 'licenses/qbutt-net-notices.txt',
+    'licenses/Tabler-Icons.txt', 'licenses/rust/dependencies.json',
     'licenses/rust/standard-library/COPYRIGHT-library.html')) {
     if (-not (Test-Path -LiteralPath (Join-Path $BundleDir $required) -PathType Leaf)) {
         throw "Incomplete application bundle: $required"
+    }
+}
+foreach ($obsolete in @('qbutt-content.exe', 'qbutt-search.exe',
+    'licenses/qbutt-content-notices.json', 'licenses/qbutt-content-notices.txt', 'licenses/bun.txt')) {
+    if (Test-Path -LiteralPath (Join-Path $BundleDir $obsolete) -PathType Leaf) {
+        throw "Obsolete worker in application bundle: $obsolete"
     }
 }
 New-Item -ItemType Directory -Force $OutputDir | Out-Null

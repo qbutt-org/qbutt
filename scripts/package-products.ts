@@ -3,7 +3,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
 import lock from "../upstream-lock.json";
-import { verifiedArtifact, type ArtifactPin } from "../components/content/product-artifacts";
+import { verifiedArtifact, type ArtifactPin } from "./verified-artifact";
 
 const { values } = parseArgs({ options: {
     destination: { type: "string" }, cache: { type: "string" },
