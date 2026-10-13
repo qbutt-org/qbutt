@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use qbutt_content::{
-    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, FitGirl, FreeTP, Kakuyomu,
+    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, FitGirl, FreeTP, Kakuyomu,
     LibSession, LimeTorrents, MangaDex, MangaLib, NnmClub, Nyaa, OnlineFix, RanobeHub, RanobeLib,
     ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation, Syosetu,
     TextChapter, TheLastGame, Work, YummyAnime,
@@ -35,6 +35,7 @@ pub(super) struct Catalog {
     nyaa: Nyaa,
     rutube: Rutube,
     fitgirl: FitGirl,
+    dodi: Dodi,
     online_fix: OnlineFix,
     freetp: FreeTP,
     byrut: ByRut,
@@ -82,6 +83,7 @@ impl Catalog {
             nyaa: Nyaa::new()?,
             rutube: Rutube::new()?,
             fitgirl: FitGirl::new()?,
+            dodi: Dodi::new()?,
             online_fix: OnlineFix::new()?,
             freetp: FreeTP::new()?,
             byrut: ByRut::new()?,
@@ -148,6 +150,7 @@ impl Catalog {
                     Source::Nyaa => self.nyaa.search(query, *category).await,
                     Source::Rutube => self.rutube.search(query, *category).await,
                     Source::FitGirl => self.fitgirl.search(query, *category).await,
+                    Source::Dodi => self.dodi.search(query).await,
                     Source::OnlineFix => self.online_fix.search(query, *category).await,
                     Source::FreeTP => self.freetp.search(query, *category).await,
                     Source::ByRut => {
@@ -216,6 +219,7 @@ impl Catalog {
                     Source::Nyaa => self.nyaa.inspect(reference).await,
                     Source::Rutube => self.rutube.inspect(reference).await,
                     Source::FitGirl => self.fitgirl.inspect(reference).await,
+                    Source::Dodi => self.dodi.inspect(reference).await,
                     Source::OnlineFix => self.online_fix.inspect(reference).await,
                     Source::FreeTP => self.freetp.inspect(reference).await,
                     Source::ByRut => {
@@ -269,6 +273,7 @@ impl Catalog {
                     Source::Nyaa => self.nyaa.resolve(reference).await,
                     Source::Rutube => self.rutube.resolve(reference).await,
                     Source::FitGirl => self.fitgirl.resolve(reference).await,
+                    Source::Dodi => self.dodi.resolve(reference).await,
                     Source::OnlineFix => self.online_fix.resolve(reference).await,
                     Source::FreeTP => self.freetp.resolve(reference).await,
                     Source::ByRut => {

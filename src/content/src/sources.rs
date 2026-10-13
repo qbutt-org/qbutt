@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::AniLiberty,
         Self::AniTokyo,
         Self::YummyAnime,
@@ -20,6 +20,7 @@ impl Source {
         Self::Nyaa,
         Self::Rutube,
         Self::FitGirl,
+        Self::Dodi,
         Self::OnlineFix,
         Self::FreeTP,
         Self::ByRut,

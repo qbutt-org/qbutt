@@ -168,6 +168,7 @@ pub fn variant_id(reference: &VariantRef) -> String {
     match &reference.selector {
         VariantSelector::Torrent { id } => format!("{publication}:torrent:{id}"),
         VariantSelector::TorrentHash { info_hash } => format!("{publication}:torrent:{info_hash}"),
+        VariantSelector::DodiTorrent { id } => format!("{publication}:torrent:{id}"),
         VariantSelector::Episode { id, quality } => {
             format!("{publication}:episode:{id}:{}", quality.height())
         }
