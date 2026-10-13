@@ -320,6 +320,7 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
                 | Source::OnlineFix
                 | Source::FreeTP
                 | Source::ByRut
+                | Source::TheLastGame
                 | Source::LimeTorrents,
                 VariantSelector::TorrentHash { info_hash },
             ) => {

@@ -47,6 +47,7 @@ mod sharing;
 mod sources;
 mod syosetu;
 mod text;
+mod thelastgame;
 mod torrent;
 pub mod translation;
 #[cfg(windows)]
@@ -97,4 +98,5 @@ pub use sharing::{ShareError, SharedWork};
 pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSettings};
 pub use syosetu::Syosetu;
 pub use text::{TextBlock, TextBlockKind, TextChapter, TextChapterCache, TextImageAsset, TextSpan};
+pub use thelastgame::TheLastGame;
 pub use yummyanime::YummyAnime;

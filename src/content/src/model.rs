@@ -32,6 +32,8 @@ pub enum Source {
     FreeTP,
     #[serde(rename = "byrut")]
     ByRut,
+    #[serde(rename = "thelastgame")]
+    TheLastGame,
     #[serde(rename = "limetorrents")]
     LimeTorrents,
     RoyalRoad,
@@ -73,6 +75,7 @@ impl PublicationRef {
             Source::OnlineFix => self.online_fix_path().map(|_| ()),
             Source::FreeTP => self.freetp_id().map(|_| ()),
             Source::ByRut => self.byrut_slug().map(|_| ()),
+            Source::TheLastGame => crate::thelastgame::publication_slug(self).map(|_| ()),
             Source::LimeTorrents => crate::limetorrents::publication_path(self).map(|_| ()),
             Source::RoyalRoad => self.royalroad_id().map(|_| ()),
             Source::RanobeHub => self.ranobehub_id().map(|_| ()),
@@ -481,6 +484,7 @@ impl VariantRef {
                 | (Source::OnlineFix, VariantSelector::TorrentHash { .. })
                 | (Source::FreeTP, VariantSelector::TorrentHash { .. })
                 | (Source::ByRut, VariantSelector::TorrentHash { .. })
+                | (Source::TheLastGame, VariantSelector::TorrentHash { .. })
                 | (Source::LimeTorrents, VariantSelector::TorrentHash { .. })
                 | (Source::Rutube, VariantSelector::RutubeVideo)
                 | (Source::RoyalRoad, VariantSelector::OriginalText)
