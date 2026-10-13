@@ -505,44 +505,109 @@ fn decode_additions(
 }
 
 fn output_schema(blocks: usize) -> Value {
-    let text = |limit| json!({"type":"string","minLength":1,"maxLength":limit});
+    let text = |limit| {
+        json!({
+            "type": "string",
+            "minLength": 1,
+            "maxLength": limit
+        })
+    };
     let evidence = json!({
-        "type":"object","properties":{
-            "chapter_id":text(128),"segment_id":text(128),"quote":text(500)
-        },"required":["chapter_id","segment_id","quote"],"additionalProperties":false
+        "type": "object",
+        "properties": {
+            "chapter_id": text(128),
+            "segment_id": text(128),
+            "quote": text(500)
+        },
+        "required": ["chapter_id", "segment_id", "quote"],
+        "additionalProperties": false
     });
     json!({
-        "type":"object","properties":{
-            "blocks":{"type":"array","minItems":blocks,"maxItems":blocks,"items":{
-                "type":"object","properties":{
-                    "id":text(128),"spans":{"type":"array","minItems":1,"maxItems":500,"items":{
-                        "type":"object","properties":{
-                            "kind":{"type":"string","enum":["text","ruby","image"]},
-                            "text":{"type":"string"},"bold":{"type":"boolean"},
-                            "italic":{"type":"boolean"},"underline":{"type":"boolean"},"reading":{"type":"string"},
-                            "asset_id":{"type":"string"}
-                        },"required":["kind","text","bold","italic","underline","reading","asset_id"],
-                        "additionalProperties":false
-                    }}
-                },"required":["id","spans"],"additionalProperties":false
-            }},
-            "terms":{"type":"array","maxItems":40,"items":{
-                "type":"object","properties":{
-                    "source":text(200),"target":text(300),
-                    "forms":{"type":"array","maxItems":16,"items":{
-                        "type":"object","properties":{
-                            "source":text(200),"target":text(300),"evidence":evidence.clone()
+        "type": "object",
+        "properties": {
+            "blocks": {
+                "type": "array",
+                "minItems": blocks,
+                "maxItems": blocks,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": text(128),
+                        "spans": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 500,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "kind": {
+                                        "type": "string",
+                                        "enum": ["text", "ruby", "image"]
+                                    },
+                                    "text": {"type": "string"},
+                                    "bold": {"type": "boolean"},
+                                    "italic": {"type": "boolean"},
+                                    "underline": {"type": "boolean"},
+                                    "reading": {"type": "string"},
+                                    "asset_id": {"type": "string"}
+                                },
+                                "required": [
+                                    "kind", "text", "bold", "italic", "underline", "reading", "asset_id"
+                                ],
+                                "additionalProperties": false
+                            }
+                        }
+                    },
+                    "required": ["id", "spans"],
+                    "additionalProperties": false
+                }
+            },
+            "terms": {
+                "type": "array",
+                "maxItems": 40,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "source": text(200),
+                        "target": text(300),
+                        "forms": {
+                            "type": "array",
+                            "maxItems": 16,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "source": text(200),
+                                    "target": text(300),
+                                    "evidence": evidence.clone()
+                                },
+                                "required": ["source", "target", "evidence"],
+                                "additionalProperties": false
+                            }
                         },
-                        "required":["source","target","evidence"],"additionalProperties":false
-                    }},"evidence":evidence.clone()
-                },"required":["source","target","forms","evidence"],"additionalProperties":false
-            }},
-            "facts":{"type":"array","maxItems":40,"items":{
-                "type":"object","properties":{
-                    "subject":text(200),"attribute":text(80),"value":text(300),"evidence":evidence
-                },"required":["subject","attribute","value","evidence"],"additionalProperties":false
-            }}
-        },"required":["blocks","terms","facts"],"additionalProperties":false
+                        "evidence": evidence.clone()
+                    },
+                    "required": ["source", "target", "forms", "evidence"],
+                    "additionalProperties": false
+                }
+            },
+            "facts": {
+                "type": "array",
+                "maxItems": 40,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "subject": text(200),
+                        "attribute": text(80),
+                        "value": text(300),
+                        "evidence": evidence
+                    },
+                    "required": ["subject", "attribute", "value", "evidence"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "required": ["blocks", "terms", "facts"],
+        "additionalProperties": false
     })
 }
 
