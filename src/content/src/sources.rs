@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::AniLiberty,
         Self::AniTokyo,
         Self::YummyAnime,
@@ -30,6 +30,7 @@ impl Source {
         Self::RoyalRoad,
         Self::Kakuyomu,
         Self::Syosetu,
+        Self::Estar,
         Self::RanobeHub,
     ];
 
@@ -59,6 +60,7 @@ impl Source {
             Self::RoyalRoad => "royalroad",
             Self::Kakuyomu => "kakuyomu",
             Self::Syosetu => "syosetu",
+            Self::Estar => "estar",
             Self::RanobeHub => "ranobehub",
         }
     }
@@ -93,6 +95,7 @@ impl Source {
             Self::RoyalRoad => "Royal Road",
             Self::Kakuyomu => "Kakuyomu",
             Self::Syosetu => "小説家になろう",
+            Self::Estar => "エブリスタ",
             Self::RanobeHub => "RanobeHub",
         }
     }
@@ -130,6 +133,7 @@ impl Source {
             Self::RoyalRoad => "https://www.royalroad.com",
             Self::Kakuyomu => "https://kakuyomu.jp",
             Self::Syosetu => "https://yomou.syosetu.com",
+            Self::Estar => "https://estar.jp",
             Self::RanobeHub => "https://ranobehub.org",
         })
     }
@@ -149,7 +153,7 @@ impl Source {
             | Self::ByRut
             | Self::TheLastGame
             | Self::Dodi => &[Category::Games],
-            Self::RoyalRoad | Self::Kakuyomu | Self::Syosetu => &[Category::Books],
+            Self::RoyalRoad | Self::Kakuyomu | Self::Syosetu | Self::Estar => &[Category::Books],
             Self::RanobeHub => &[Category::Books],
             Self::Nyaa => &[
                 Category::Anime,
@@ -273,6 +277,7 @@ fn validate_reader(source: Source) -> crate::Result<()> {
             | Source::RoyalRoad
             | Source::Kakuyomu
             | Source::Syosetu
+            | Source::Estar
             | Source::RanobeHub
             | Source::LocalBook
     ) {

@@ -42,6 +42,7 @@ pub enum Source {
     RoyalRoad,
     Kakuyomu,
     Syosetu,
+    Estar,
     RanobeHub,
 }
 
@@ -88,6 +89,7 @@ impl PublicationRef {
             Source::RanobeLib => self.ranobelib_id().map(|_| ()),
             Source::Kakuyomu => self.kakuyomu_id().map(|_| ()),
             Source::Syosetu => self.syosetu_id().map(|_| ()),
+            Source::Estar => self.estar_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
             Source::MangaDex => Err(crate::Error::InvalidReference),
         }
@@ -273,6 +275,10 @@ impl PublicationRef {
 
     pub(crate) fn royalroad_id(&self) -> crate::Result<u64> {
         self.decimal_id(Source::RoyalRoad)
+    }
+
+    pub(crate) fn estar_id(&self) -> crate::Result<u64> {
+        self.decimal_id(Source::Estar)
     }
 
     pub(crate) fn ranobehub_id(&self) -> crate::Result<u64> {
@@ -588,6 +594,7 @@ impl VariantRef {
                 | (Source::RoyalRoad, VariantSelector::OriginalText)
                 | (Source::Kakuyomu, VariantSelector::OriginalText)
                 | (Source::Syosetu, VariantSelector::OriginalText)
+                | (Source::Estar, VariantSelector::OriginalText)
                 | (
                     Source::RanobeHub,
                     VariantSelector::RanobeHubTranslation { .. }
@@ -645,6 +652,9 @@ impl ChapterRef {
                 work == self.variant.publication.id && canonical_kakuyomu_id(episode)
             }),
             Source::Syosetu => self.id == "root" || canonical_decimal(&self.id),
+            Source::Estar => self.id.split_once('/').is_some_and(|(work, page)| {
+                work == self.variant.publication.id && canonical_decimal(page)
+            }),
             _ => false,
         } {
             Ok(())

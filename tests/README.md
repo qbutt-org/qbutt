@@ -235,6 +235,17 @@ cargo run --manifest-path src/content/Cargo.toml --example online-fix-fixtures -
 cargo run --manifest-path src/content/Cargo.toml --example online-fix --locked -- 'Stardew Valley'
 ```
 
+E★エブリスタ has generated parsing, formatting and access faults, plus a bounded
+public search, work, chapter-list and nonfirst-chapter check:
+
+```powershell
+cargo run --locked -p qbutt-content --example estar-fixtures
+cargo run --locked -p qbutt-content --example estar
+```
+
+The live command reads three public viewer pages and prints counts without
+chapter text. The provider checks each page for ticket access before reading it.
+
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in
 [development setup](../docs/development.md), then run:

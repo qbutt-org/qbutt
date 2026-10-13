@@ -18,6 +18,7 @@ mod captured_video;
 mod dodi;
 mod download;
 mod error;
+mod estar;
 #[cfg(windows)]
 mod external_video;
 mod fitgirl;
@@ -69,6 +70,7 @@ pub use download::{
     DownloadStorage, MediaTools,
 };
 pub use error::{Error, Result};
+pub use estar::Estar;
 #[cfg(windows)]
 pub use external_video::{ExternalVideoError, resolve_external_video};
 pub use fitgirl::FitGirl;

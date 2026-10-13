@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use qbutt_content::{
-    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, FitGirl, FreeTP, Kakuyomu,
+    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, Estar, FitGirl, FreeTP, Kakuyomu,
     LibSession, LimeTorrents, MangaDex, MangaLib, NnmClub, Nyaa, OnlineFix, RanobeHub, RanobeLib,
     ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation, Syosetu,
     TextChapter, TheLastGame, Work, X1337, YummyAnime,
@@ -47,6 +47,7 @@ pub(super) struct Catalog {
     royalroad: RoyalRoad,
     kakuyomu: Kakuyomu,
     syosetu: Syosetu,
+    estar: Estar,
 }
 
 impl Catalog {
@@ -96,6 +97,7 @@ impl Catalog {
             royalroad: RoyalRoad::new()?,
             kakuyomu: Kakuyomu::new()?,
             syosetu: Syosetu::new()?,
+            estar: Estar::new()?,
         })
     }
 
@@ -186,6 +188,7 @@ impl Catalog {
                     Source::RoyalRoad => self.royalroad.search(query).await,
                     Source::Kakuyomu => self.kakuyomu.search(query).await,
                     Source::Syosetu => self.syosetu.search(query).await,
+                    Source::Estar => self.estar.search(query).await,
                 }?;
                 Ok(SourceResponse::Search(works))
             }
@@ -263,6 +266,7 @@ impl Catalog {
                     Source::RoyalRoad => self.royalroad.inspect(reference).await,
                     Source::Kakuyomu => self.kakuyomu.inspect(reference).await,
                     Source::Syosetu => self.syosetu.inspect(reference).await,
+                    Source::Estar => self.estar.inspect(reference).await,
                 }?;
                 Ok(SourceResponse::Inspect(work))
             }
@@ -324,7 +328,8 @@ impl Catalog {
                     | Source::RanobeHub
                     | Source::RoyalRoad
                     | Source::Kakuyomu
-                    | Source::Syosetu => Err(qbutt_content::Error::InvalidReference),
+                    | Source::Syosetu
+                    | Source::Estar => Err(qbutt_content::Error::InvalidReference),
                 }?;
                 Ok(SourceResponse::Resolve(resolved))
             }
@@ -351,6 +356,7 @@ impl Catalog {
                     Source::RoyalRoad => self.royalroad.chapters(reference).await,
                     Source::Kakuyomu => self.kakuyomu.chapters(reference).await,
                     Source::Syosetu => self.syosetu.chapters(reference).await,
+                    Source::Estar => self.estar.chapters(reference).await,
                     _ => Err(qbutt_content::Error::InvalidReference),
                 }?;
                 Ok(SourceResponse::Chapters(chapters))
@@ -363,6 +369,7 @@ impl Catalog {
                         | Source::RoyalRoad
                         | Source::Kakuyomu
                         | Source::Syosetu
+                        | Source::Estar
                 ) =>
             {
                 self.text_chapter(reference).await?;
@@ -400,6 +407,7 @@ impl Catalog {
             Source::RoyalRoad => self.royalroad.chapter_text(reference).await,
             Source::Kakuyomu => self.kakuyomu.chapter_text(reference).await,
             Source::Syosetu => self.syosetu.chapter_text(reference).await,
+            Source::Estar => self.estar.chapter_text(reference).await,
             _ => Err(qbutt_content::Error::InvalidReference),
         }
     }
