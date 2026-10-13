@@ -23,7 +23,7 @@ mod output;
 const MAX_REGIONS: usize = 60;
 const MAX_INK_BOXES: usize = 4096;
 const MAX_RENDERS: usize = 3;
-const PIPELINE_VERSION: u32 = 4;
+const PIPELINE_VERSION: u32 = 5;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Rect {
@@ -98,8 +98,22 @@ pub struct RenderLayers {
     pub diagnostics: Value,
 }
 
+pub struct PageCrop {
+    pub image: InputImage,
+    pub bounds: Rect,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// Called off the GUI thread by the reader's native Qt render bridge.
 pub trait PageRenderer: Send + Sync + 'static {
+    fn crop(
+        &self,
+        images: &[InputImage],
+        bounds: &Rect,
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<PageCrop>;
+
     fn render(
         &self,
         original: &InputImage,
@@ -140,47 +154,72 @@ struct PageTools<'a, R, C> {
 }
 
 impl<R: PageRenderer, C: ToolHandler + Send> PageTools<'_, R, C> {
-    fn inspect(&self, arguments: Value) -> codex::Result<ToolOutput> {
+    async fn inspect(&mut self, arguments: Value) -> codex::Result<ToolOutput> {
         let layer = arguments
             .get("layer")
             .and_then(Value::as_str)
             .ok_or(CodexError::Protocol)?;
-        if layer != "original" && self.revisions.is_empty() {
+        let images = if layer == "original" {
+            vec![self.original.clone()]
+        } else {
+            let layers = &self
+                .revisions
+                .last()
+                .ok_or_else(|| {
+                    CodexError::Tool("Render the page before inspecting its output layers".into())
+                })?
+                .layers;
+            match layer {
+                "result" => vec![InputImage::png(layers.result_png.clone())],
+                "cleaned" => vec![InputImage::png(layers.cleaned_png.clone())],
+                "mask" => vec![InputImage::png(layers.mask_png.clone())],
+                "comparison" => vec![
+                    self.original.clone(),
+                    InputImage::png(layers.cleaned_png.clone()),
+                    InputImage::png(layers.result_png.clone()),
+                ],
+                _ => return Err(CodexError::Protocol),
+            }
+        };
+        let bounds = arguments.get("crop").filter(|value| !value.is_null());
+        let Some(bounds) = bounds else {
+            if layer == "comparison" {
+                return Err(CodexError::Tool(
+                    "A comparison requires an inspection crop".into(),
+                ));
+            }
+            return Ok(ToolOutput {
+                text: format!("{layer} page image"),
+                image: images.into_iter().next(),
+            });
+        };
+        let bounds: Rect = serde_json::from_value(bounds.clone())
+            .map_err(|_| CodexError::Tool("Invalid inspection crop".into()))?;
+        if !bounds.valid() || bounds.x + bounds.width > 1.0 || bounds.y + bounds.height > 1.0 {
             return Err(CodexError::Tool(
-                "Render the page before inspecting its output layers".into(),
+                "Inspection crop must be a positive normalized rectangle inside the original page"
+                    .into(),
             ));
         }
-        let image = match layer {
-            "original" => self.original.clone(),
-            "result" => InputImage::png(
-                self.revisions
-                    .last()
-                    .ok_or(CodexError::Protocol)?
-                    .layers
-                    .result_png
-                    .clone(),
-            ),
-            "cleaned" => InputImage::png(
-                self.revisions
-                    .last()
-                    .ok_or(CodexError::Protocol)?
-                    .layers
-                    .cleaned_png
-                    .clone(),
-            ),
-            "mask" => InputImage::png(
-                self.revisions
-                    .last()
-                    .ok_or(CodexError::Protocol)?
-                    .layers
-                    .mask_png
-                    .clone(),
-            ),
-            _ => return Err(CodexError::Protocol),
+        let renderer = self.renderer.clone();
+        let cancelled = self.cancelled.clone();
+        let crop = tokio::task::spawn_blocking(move || renderer.crop(&images, &bounds, cancelled))
+            .await
+            .map_err(|_| CodexError::Provider)??;
+        let panels = if layer == "comparison" {
+            vec!["original", "cleaned", "result"]
+        } else {
+            vec![layer]
         };
         Ok(ToolOutput {
-            text: format!("{layer} page image"),
-            image: Some(image),
+            text: json!({
+                "panelsLeftToRight": panels,
+                "crop": crop.bounds,
+                "panelWidth": crop.width as usize / panels.len(),
+                "panelHeight": crop.height,
+                "instruction": "These are unscaled pixels. All region, layout and inkBox coordinates still refer to the full original page, never this crop."
+            }).to_string(),
+            image: Some(crop.image),
         })
     }
 
@@ -232,7 +271,7 @@ impl<R: PageRenderer, C: ToolHandler + Send> ToolHandler for PageTools<'_, R, C>
     fn call(&mut self, call: ToolCall) -> ToolFuture<'_> {
         Box::pin(async move {
             match call.name.as_str() {
-                "inspect_page" => self.inspect(call.arguments),
+                "inspect_page" => self.inspect(call.arguments).await,
                 "render_page" => self.render(call.arguments).await,
                 _ => self.context_tools.call(call).await,
             }
@@ -557,11 +596,12 @@ fn page_tools() -> Vec<FunctionTool> {
     vec![
         FunctionTool {
             name: "inspect_page",
-            description: "Inspect the original page or the most recent native mask, cleaned page or typeset result. Returns the actual pixels. Use after render only when another layer helps diagnose a visible problem.",
+            description: "Inspect the original page or the most recent native mask, cleaned page or typeset result. Use a normalized crop for small text and artwork at native resolution. The comparison layer requires a crop and returns original, cleaned and result side by side without scaling. All coordinates use the full original page. Other layers allow omitted or null crop for the full page.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "layer": { "type": "string", "enum": ["original", "mask", "cleaned", "result"] },
+                    "layer": { "type": "string", "enum": ["original", "mask", "cleaned", "result", "comparison"] },
+                    "crop": { "anyOf": [rect, { "type": "null" }] },
                 },
                 "required": ["layer"],
                 "additionalProperties": false,
@@ -605,10 +645,14 @@ const PAGE_INSTRUCTIONS: &str = concat!(
     "Match visibly rotated lettering with angle in clockwise degrees between -45 and 45; ",
     "use 0 for ordinary level text. The rotated lettering must stay inside layout. ",
     "Bounds enclose both original text and the safe target layout inside each balloon or panel. ",
-    "Tight ink boxes enclose only source glyphs, excluding borders and artwork. ",
+    "Tight ink boxes cover every source glyph, including long strokes, dots, punctuation and all vertical characters, excluding borders and artwork. ",
+    "Before placing boxes on small or art-backed text, inspect an original crop with enough surrounding artwork to distinguish every source stroke. ",
     "Layout is safe space for target-language text inside bounds. ",
-    "Render the page with render_page, examine the actual returned image, ",
-    "and make at most two corrections when needed. ",
+    "Render the page with render_page and examine the actual returned image. ",
+    "For small or art-backed text, inspect a comparison crop after rendering: original, cleaned and result appear side by side. ",
+    "Check that no source strokes remain and that panel borders, contours, lines and screentone survive. ",
+    "Layout diagnostics and unchanged pixels outside the mask do not establish cleanup quality. ",
+    "Make at most two corrections when needed. ",
     "Accept only a revision you actually rendered and saw. Return its revision number, ",
     "plus at most 20 useful names, forms and explicit character facts for later pages. ",
     "Each added convention must cite an accepted region ID and an exact source-text quote ",

@@ -4,7 +4,9 @@ use std::sync::{
 };
 
 use qbutt_codex::{self as codex, CodexError, InputImage};
-use qbutt_content::translation::manga::{self, FontFamily, Ink, PageRegion, Rect, RenderLayers};
+use qbutt_content::translation::manga::{
+    self, FontFamily, Ink, PageCrop, PageRegion, Rect, RenderLayers,
+};
 use serde_json::json;
 
 pub struct RenderCancellation {
@@ -65,6 +67,18 @@ mod ffi {
         error: String,
     }
 
+    struct MangaCropOutput {
+        png: Vec<u8>,
+        bounds: MangaRect,
+        width: u32,
+        height: u32,
+        error: String,
+    }
+
+    struct MangaImage<'a> {
+        bytes: &'a [u8],
+    }
+
     unsafe extern "C++" {
         include!("qbutt_quick/translation_render.h");
 
@@ -73,6 +87,12 @@ mod ffi {
             regions: &[MangaRegion],
             cancelled: &RenderCancellation,
         ) -> MangaRenderOutput;
+
+        fn crop_manga_page(
+            images: &[MangaImage<'_>],
+            bounds: &MangaRect,
+            cancelled: &RenderCancellation,
+        ) -> MangaCropOutput;
     }
 
     extern "Rust" {
@@ -85,6 +105,36 @@ mod ffi {
 pub struct QtMangaRenderer;
 
 impl manga::PageRenderer for QtMangaRenderer {
+    fn crop(
+        &self,
+        images: &[InputImage],
+        bounds: &Rect,
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<PageCrop> {
+        let cancellation = RenderCancellation { flag: cancelled };
+        let sources = images
+            .iter()
+            .map(|image| ffi::MangaImage {
+                bytes: &image.bytes,
+            })
+            .collect::<Vec<_>>();
+        let output = ffi::crop_manga_page(&sources, &native_rect(bounds), &cancellation);
+        if !output.error.is_empty() {
+            return Err(CodexError::Tool(output.error));
+        }
+        Ok(PageCrop {
+            image: InputImage::png(output.png),
+            bounds: Rect {
+                x: output.bounds.x,
+                y: output.bounds.y,
+                width: output.bounds.width,
+                height: output.bounds.height,
+            },
+            width: output.width,
+            height: output.height,
+        })
+    }
+
     fn render(
         &self,
         original: &InputImage,

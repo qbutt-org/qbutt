@@ -45,6 +45,35 @@ namespace
         return {rect.x, rect.y, rect.width, rect.height};
     }
 
+    QImage readMangaPage(const ::rust::Slice<const std::uint8_t> bytes, QString &error)
+    {
+        if (bytes.size() > 96 * 1024 * 1024)
+        {
+            error = QStringLiteral("Manga image exceeds the encoded size limit");
+            return {};
+        }
+
+        QByteArray input(reinterpret_cast<const char *>(bytes.data()), static_cast<qsizetype>(bytes.size()));
+        QBuffer buffer(&input);
+        if (!buffer.open(QIODevice::ReadOnly))
+        {
+            error = QStringLiteral("Manga image could not be opened");
+            return {};
+        }
+        QImageReader reader(&buffer);
+        reader.setAutoTransform(true);
+        const QSize size = reader.size();
+        if (!size.isValid() || (qint64(size.width()) * size.height() > 16'000'000))
+        {
+            error = QStringLiteral("Invalid or oversized manga page");
+            return {};
+        }
+        const QImage image = reader.read();
+        if (image.isNull())
+            error = QStringLiteral("Manga image could not be decoded");
+        return image;
+    }
+
     ::rust::String statusName(const Content::MangaRender::Status status)
     {
         using Status = Content::MangaRender::Status;
@@ -79,32 +108,11 @@ Qbutt::MangaRenderOutput Qbutt::render_manga_page(
         return output;
     }
 
-    if (original.size() > 96 * 1024 * 1024)
-    {
-        output.error = "Manga image exceeds the encoded size limit";
-        return output;
-    }
-
-    QByteArray input(reinterpret_cast<const char *>(original.data()), static_cast<qsizetype>(original.size()));
-    QBuffer buffer(&input);
-    if (!buffer.open(QIODevice::ReadOnly))
-    {
-        output.error = "Manga image could not be opened";
-        return output;
-    }
-    QImageReader reader(&buffer);
-    reader.setAutoTransform(true);
-    const QSize size = reader.size();
-    if (!size.isValid() || (qint64(size.width()) * size.height() > 16'000'000))
-    {
-        output.error = "Invalid or oversized manga page";
-        return output;
-    }
-
-    const QImage image = reader.read();
+    QString error;
+    const QImage image = readMangaPage(original, error);
     if (image.isNull())
     {
-        output.error = "Manga image could not be decoded";
+        output.error = toRust(error);
         return output;
     }
 
@@ -166,5 +174,65 @@ Qbutt::MangaRenderOutput Qbutt::render_manga_page(
     output.mask_png = png(rendered.mask);
     if (output.result_png.empty() || output.cleaned_png.empty() || output.mask_png.empty())
         output.error = "Manga PNG encoding failed";
+    return output;
+}
+
+Qbutt::MangaCropOutput Qbutt::crop_manga_page(
+    const ::rust::Slice<const MangaImage> sources,
+    const MangaRect &bounds, const RenderCancellation &cancelled)
+{
+    MangaCropOutput output;
+    if (render_cancelled(cancelled))
+    {
+        output.error = "Manga inspection cancelled";
+        return output;
+    }
+    if ((sources.size() != 1) && (sources.size() != 3))
+    {
+        output.error = "Manga inspection requires one layer or three comparison layers";
+        return output;
+    }
+    QList<QImage> images;
+    for (const MangaImage &source : sources)
+    {
+        if (render_cancelled(cancelled))
+        {
+            output.error = "Manga inspection cancelled";
+            return output;
+        }
+        QString error;
+        const QImage image = readMangaPage(source.bytes, error);
+        if (image.isNull())
+        {
+            output.error = toRust(error);
+            return output;
+        }
+        images.append(image);
+    }
+    const Content::MangaRender::Crop crop = Content::MangaRender::cropPages(images, rectangle(bounds),
+        [&cancelled] { return render_cancelled(cancelled); });
+    if (!crop.error.isEmpty())
+    {
+        output.error = toRust(crop.error);
+        return output;
+    }
+    output.png = png(crop.image);
+    if (output.png.empty())
+    {
+        output.error = "Manga crop PNG encoding failed";
+        return output;
+    }
+    if (render_cancelled(cancelled))
+    {
+        output.png.clear();
+        output.error = "Manga inspection cancelled";
+        return output;
+    }
+    output.bounds.x = crop.bounds.x();
+    output.bounds.y = crop.bounds.y();
+    output.bounds.width = crop.bounds.width();
+    output.bounds.height = crop.bounds.height();
+    output.width = static_cast<std::uint32_t>(crop.image.width());
+    output.height = static_cast<std::uint32_t>(crop.image.height());
     return output;
 }
