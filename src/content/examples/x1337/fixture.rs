@@ -58,7 +58,7 @@ pub(super) fn search_page(query: &str, category: &str) -> String {
         query
     };
     format!(
-        "<div class=box-info-heading><h1>Searching for: <span>{label}</span> in:</h1></div>{table}"
+        "<script src='/cdn-cgi/challenge-platform/scripts/jsd/main.js'></script><div class=box-info-heading><h1>Searching for: <span>{label}</span> in:</h1></div>{table}"
     )
 }
 
@@ -67,7 +67,7 @@ fn detail_page(hash: &str, magnet_hash: Option<&str>, uploader: &str) -> String 
         format!(r#"<a href="magnet:?xt=urn:btih:{value}&amp;dn=Generated+Legal">Magnet</a>"#)
     });
     format!(
-        r#"<div class=torrent-detail-page>
+        r#"<script src='/cdn-cgi/challenge-platform/scripts/jsd/main.js'></script><div class=torrent-detail-page>
         <div class=box-info-heading><h1>Generated Legal</h1></div>
         <ul class=list>
             <li><strong>Category</strong><span>Movies</span></li>

@@ -176,7 +176,9 @@ impl X1337 {
 fn document(response: SourceDocument) -> Result<(Url, String)> {
     let body = String::from_utf8(response.body)
         .map_err(|_| Error::InvalidResponse("1337x document is not UTF-8"))?;
-    if body.contains("/cdn-cgi/challenge-platform/") || body.contains("cf-challenge") {
+    if body.contains("cf-challenge")
+        || (response.status == 403 && body.contains("/cdn-cgi/challenge-platform/"))
+    {
         return Err(Error::Challenge);
     }
     if !(200..300).contains(&response.status) {

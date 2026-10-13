@@ -44,7 +44,7 @@ pub(super) async fn run(
                 origin.join("search/browser/1/")?
             };
             let body = if fault == "challenge" {
-                "<script src='/cdn-cgi/challenge-platform/fixture'></script>".into()
+                "<div id='cf-challenge'>Complete check</div>".into()
             } else {
                 search_page("browser", "Movies")
             };
