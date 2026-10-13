@@ -279,6 +279,16 @@ production-window PNGs at 1440×900 and 1280×720. These renders and programmati
 keyboard actions do not establish native pointer interaction, backdrop blur or
 application switching.
 
+Run `--work-details` with the same offscreen environment in EN/Light and
+RU/Dark. Generated SQLite publications contain different descriptions and an
+exact saved variant. The production view must retain its three-line summary,
+offer Details only for truncated text and show complete selectable plain text
+with the selected source in the existing modal. The scenario checks scrolling,
+closing on work or variant changes, refresh and restart at 1280×720 and 1440×900.
+An unavailable selected publication must leave its description empty. Require
+exit zero and `PASS work_details`. Native pointer, blur and focus acceptance
+remains separate.
+
 Run `--worklist --lang ru` with the same isolated offscreen environment to check
 the production results delegates. It scrolls the live metadata list, saves an
 exact translation, switches Search/Favorites/History, invokes the row action and

@@ -40,6 +40,7 @@ qt_add_qml_module(qbt_quick_ui STATIC
         VariantDelegate.qml
         VariantFilters.qml
         WorkDelegate.qml
+        WorkDetailsModal.qml
         WorkPane.qml
 )
 target_link_libraries(qbt_quick_ui PRIVATE Qt::QuickControls2)

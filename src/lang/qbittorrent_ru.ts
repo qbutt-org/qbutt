@@ -18850,6 +18850,10 @@ Please choose a different name and try again.</source>
 <context>
     <name>WorkPane</name>
     <message>
+        <source>Details</source>
+        <translation>Подробнее</translation>
+    </message>
+    <message>
         <source>Share</source>
         <translation>Поделиться</translation>
     </message>
@@ -18916,6 +18920,13 @@ Please choose a different name and try again.</source>
     <message>
         <source>Enable this source in Sources.</source>
         <translation>Включите источник в «Источниках».</translation>
+    </message>
+</context>
+<context>
+    <name>WorkDetailsModal</name>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
     </message>
 </context>
 <context>

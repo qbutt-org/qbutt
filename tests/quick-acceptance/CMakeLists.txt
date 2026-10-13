@@ -78,6 +78,8 @@ qt_add_executable(qbutt-quick-acceptance
     sources.h
     variant-filters.cpp
     variant-filters.h
+    work-details.cpp
+    work-details.h
     work-filter.cpp
     work-filter.h
     worklist.cpp

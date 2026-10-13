@@ -14,6 +14,16 @@ use super::ffi;
 use super::library::LibraryAction;
 use crate::models::{self, variant_id, work_id};
 
+fn selected_publication<'a>(
+    group: &'a WorkGroup,
+    selected: Option<&VariantRef>,
+) -> Option<&'a Work> {
+    match selected {
+        Some(selected) => group.publication(&selected.publication),
+        None => group.anchor_work(),
+    }
+}
+
 impl ffi::ContentController {
     pub(super) fn selected_work_publications(&self) -> Vec<PublicationRef> {
         self.selected_group
@@ -119,6 +129,17 @@ impl ffi::ContentController {
             }
         }
         self.as_mut().show_group(&group, generation)
+    }
+
+    pub(super) fn selected_publication_source(&self) -> QString {
+        let publication = self.selected_group.as_ref().and_then(|group| {
+            let selected = self
+                .work_preferences
+                .get(&group.anchor)
+                .and_then(|preferences| preferences.selected.as_ref());
+            selected_publication(group, selected)
+        });
+        QString::from(publication.map_or("", |work| work.reference.source.name()))
     }
 
     pub(super) fn selected_work_category(&self) -> QString {
@@ -374,6 +395,10 @@ impl ffi::ContentController {
             return;
         };
         let reference = variant.reference.clone();
+        let description = selected_publication(&group, Some(&reference))
+            .and_then(|work| work.description.as_deref())
+            .unwrap_or_default();
+        let description = QString::from(description);
         let generation = self.inspection.generation;
         let was_resolving = self.resolving;
         let preferences = {
@@ -382,6 +407,7 @@ impl ffi::ContentController {
             state.source_status.pending_variant_action = None;
             state.resolving = false;
             state.selected_variant_id = id.clone();
+            state.selected_work_description = description;
             let preferences = state
                 .work_preferences
                 .entry(group.anchor.clone())
@@ -410,6 +436,15 @@ impl ffi::ContentController {
         if was_resolving {
             self.as_mut().resolving_changed();
         }
+        if self.inspection.generation != generation
+            || self.resolution.generation != resolution_generation
+            || self.selected_variant_id != id
+        {
+            return;
+        }
+        // The same text can belong to another publication. Notify its source
+        // together with the description, without storing another projection.
+        self.as_mut().selected_work_description_changed();
         if self.inspection.generation != generation
             || self.resolution.generation != resolution_generation
             || self.selected_variant_id != id
@@ -559,17 +594,25 @@ impl ffi::ContentController {
             return false;
         }
         let work = group.and_then(WorkGroup::anchor_work);
-        let (id, title, description) = match work {
+        let (id, title) = match work {
             Some(work) => (
                 QString::from(work_id(&work.reference)),
                 QString::from(&work.title),
-                QString::from(work.description.as_deref().unwrap_or_default()),
             ),
-            None => (QString::default(), QString::default(), QString::default()),
+            None => (QString::default(), QString::default()),
         };
-        let variant_id = work
+        let selected = work
             .and_then(|work| self.work_preferences.get(&work.reference))
-            .and_then(|preferences| preferences.selected.as_ref())
+            .and_then(|preferences| preferences.selected.as_ref());
+        let publication = group.and_then(|group| selected_publication(group, selected));
+        let description = QString::from(
+            publication
+                .and_then(|work| work.description.as_deref())
+                .unwrap_or_default(),
+        );
+        let source_changed = self.selected_publication_source()
+            != QString::from(publication.map_or("", |work| work.reference.source.name()));
+        let variant_id = selected
             .map(variant_id)
             .map(QString::from)
             .unwrap_or_default();
@@ -584,7 +627,7 @@ impl ffi::ContentController {
                     .map(|work| work.category)
                     != work.map(|work| work.category),
                 state.selected_work_title != title,
-                state.selected_work_description != description,
+                state.selected_work_description != description || source_changed,
                 state.selected_variant_id != variant_id,
             );
             state.selected_work_id = id;

@@ -172,6 +172,8 @@ Pane {
         }
 
         Label {
+            id: description
+            objectName: "contentWorkDescription"
             Layout.fillWidth: true
             visible: text.length > 0
             text: root.backend.selectedWorkDescription
@@ -180,6 +182,15 @@ Pane {
             maximumLineCount: 3
             elide: Text.ElideRight
             textFormat: Text.PlainText
+        }
+
+        ActionButton {
+            id: detailsButton
+            objectName: "contentWorkDetails"
+            theme: root.theme
+            visible: description.truncated
+            text: qsTr("Details")
+            onClicked: details.active = true
         }
 
         ProgressBar {
@@ -297,6 +308,24 @@ Pane {
                 visible: !root.backend.inspecting && variants.count === 0 && root.backend.errorText === ""
                 text: qsTr("No variants found")
                 color: root.theme.muted
+            }
+        }
+    }
+
+    Loader {
+        id: details
+        active: false
+        sourceComponent: WorkDetailsModal {
+            backend: root.backend
+            theme: root.theme
+            backdrop: root.backdrop
+            Component.onCompleted: open()
+            onClosed: {
+                details.active = false;
+                if (detailsButton.visible)
+                    detailsButton.forceActiveFocus();
+                else
+                    variants.forceActiveFocus();
             }
         }
     }
