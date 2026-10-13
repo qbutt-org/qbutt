@@ -23,7 +23,7 @@ mod output;
 const MAX_REGIONS: usize = 60;
 const MAX_INK_BOXES: usize = 4096;
 const MAX_RENDERS: usize = 3;
-const PIPELINE_VERSION: u32 = 3;
+const PIPELINE_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Rect {
@@ -62,11 +62,29 @@ pub enum Ink {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FontFamily {
+    Comic,
+    Serif,
+    Condensed,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextRun {
+    pub text: String,
+    pub bold: bool,
+    pub italic: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PageRegion {
     pub id: String,
     pub source_text: String,
-    pub translation: String,
+    pub translation: Vec<TextRun>,
+    pub family: FontFamily,
+    pub angle: f64,
     pub bounds: Rect,
     pub layout: Rect,
     pub ink: Ink,
@@ -303,11 +321,7 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
         serde_json::from_value(value).map_err(|_| CodexError::Protocol)?;
     output.validate_selection(tools.revisions.len())?;
     let accepted = tools.revisions.swap_remove(output.revision - 1);
-    if !all_regions_rendered(&accepted.regions, &accepted.layers.diagnostics) {
-        return Err(CodexError::Tool(
-            "The selected render still contains untranslated or overflowing regions".into(),
-        ));
-    }
+    validate_rendered_regions(&accepted.regions, &accepted.layers.diagnostics)?;
     let (additions, evidence) =
         output.decode_context(&job.chapter, job.page, &job.original, &accepted.regions)?;
     let mut context = job.work_context;
@@ -381,11 +395,7 @@ pub async fn render_cached<R: PageRenderer>(
     let native_flag = Arc::clone(&flag);
     let rendered = tokio::task::spawn_blocking(move || {
         let layers = renderer.render(&original, &regions, native_flag)?;
-        if !all_regions_rendered(&regions, &layers.diagnostics) {
-            return Err(CodexError::Tool(
-                "Cached manga translation cannot be rendered".into(),
-            ));
-        }
+        validate_rendered_regions(&regions, &layers.diagnostics)?;
         Ok(layers)
     })
     .await
@@ -395,15 +405,46 @@ pub async fn render_cached<R: PageRenderer>(
     rendered
 }
 
-fn all_regions_rendered(regions: &[PageRegion], diagnostics: &Value) -> bool {
+fn validate_rendered_regions(regions: &[PageRegion], diagnostics: &Value) -> codex::Result<()> {
     let Some(results) = diagnostics.get("regions").and_then(Value::as_array) else {
-        return false;
+        return Err(CodexError::Tool(
+            "Manga render has no region diagnostics".into(),
+        ));
     };
-    results.len() == regions.len()
-        && regions.iter().zip(results).all(|(region, result)| {
-            result.get("id").and_then(Value::as_str) == Some(region.id.as_str())
-                && result.get("status").and_then(Value::as_str) == Some("Rendered")
-        })
+    if results.len() != regions.len() {
+        return Err(CodexError::Tool(
+            "Manga render region count does not match".into(),
+        ));
+    }
+    let mut failures = 0;
+    let mut details = Vec::new();
+    for (region, result) in regions.iter().zip(results) {
+        if result.get("id").and_then(Value::as_str) == Some(region.id.as_str())
+            && result.get("status").and_then(Value::as_str) == Some("Rendered")
+        {
+            continue;
+        }
+        failures += 1;
+        if details.len() < 5 {
+            let status = result
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("Missing");
+            details.push(json!({
+                "id": region.id,
+                "status": status.chars().take(32).collect::<String>(),
+                "fontPixels": result.get("fontPixels").and_then(Value::as_u64),
+                "layoutLines": result.get("layoutLines").and_then(Value::as_u64),
+            }));
+        }
+    }
+    if failures > 0 {
+        return Err(CodexError::Tool(format!(
+            "Manga render has {failures} incomplete regions: {}",
+            json!(details)
+        )));
+    }
+    Ok(())
 }
 
 fn validate_regions(regions: &[PageRegion]) -> codex::Result<()> {
@@ -428,8 +469,23 @@ fn validate_regions(regions: &[PageRegion]) -> codex::Result<()> {
             "id must be nonempty and unique on this page"
         } else if region.source_text.trim().is_empty() || region.source_text.len() > 2000 {
             "sourceText must contain the visible original text"
-        } else if region.translation.trim().is_empty() || region.translation.len() > 3000 {
-            "translation must contain target-language text"
+        } else if region.translation.is_empty()
+            || region.translation.len() > 32
+            || region.translation.iter().any(|run| run.text.is_empty())
+            || region
+                .translation
+                .iter()
+                .all(|run| run.text.trim().is_empty())
+            || region
+                .translation
+                .iter()
+                .map(|run| run.text.len())
+                .sum::<usize>()
+                > 3000
+        {
+            "translation must contain one to 32 styled text runs, at most 3000 bytes in total"
+        } else if !region.angle.is_finite() || !(-45.0..=45.0).contains(&region.angle) {
+            "angle must be between -45 and 45 clockwise degrees"
         } else if !region.bounds.valid() {
             "bounds must be a positive rectangle inside the normalized page"
         } else if !region.layout.valid() || !region.bounds.contains(&region.layout) {
@@ -467,7 +523,23 @@ fn page_tools() -> Vec<FunctionTool> {
         "properties": {
             "id": { "type": "string", "minLength": 1, "maxLength": 64 },
             "sourceText": { "type": "string" },
-            "translation": { "type": "string" },
+            "translation": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 32,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "text": { "type": "string", "minLength": 1 },
+                        "bold": { "type": "boolean" },
+                        "italic": { "type": "boolean" },
+                    },
+                    "required": ["text", "bold", "italic"],
+                    "additionalProperties": false,
+                },
+            },
+            "family": { "type": "string", "enum": ["comic", "serif", "condensed"] },
+            "angle": { "type": "number", "minimum": -45, "maximum": 45 },
             "bounds": rect,
             "layout": rect,
             "ink": { "type": "string", "enum": ["dark", "light"] },
@@ -478,7 +550,7 @@ fn page_tools() -> Vec<FunctionTool> {
                 "items": rect,
             },
         },
-        "required": ["id", "sourceText", "translation", "bounds", "layout", "ink", "inkBoxes"],
+        "required": ["id", "sourceText", "translation", "family", "angle", "bounds", "layout", "ink", "inkBoxes"],
         "additionalProperties": false,
     });
 
@@ -497,7 +569,7 @@ fn page_tools() -> Vec<FunctionTool> {
         },
         FunctionTool {
             name: "render_page",
-            description: "Render all visible page text through qbutt's native cleaner and typesetter. Provide every region in reading order. Bounds enclose both source glyphs and the safe target layout inside a balloon or panel; inkBoxes tightly enclose only source glyph ink; layout is for horizontal target-language lettering. Returns the real result image and layout diagnostics. At most three renders including corrections.",
+            description: "Render all visible page text through qbutt's native cleaner and typesetter. Provide every region in reading order. Bounds enclose both source glyphs and the safe target layout inside a balloon or panel; inkBoxes tightly enclose only source glyph ink. Returns the real result image and layout diagnostics. At most three renders including corrections.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -525,9 +597,16 @@ const PAGE_INSTRUCTIONS: &str = concat!(
     "If a name, pronoun or reading order is ambiguous, use available same-work context tools ",
     "to inspect relevant chapters. ",
     "For each region provide source text, natural target-language translation and normalized rectangles. ",
+    "Match the source lettering: comic for handwritten dialogue, serif for formal printed narration, ",
+    "and condensed for narrow emphatic lettering. Choose by visible letterforms, not text meaning. ",
+    "Translation is contiguous text runs with bold and italic matching the source emphasis, ",
+    "including emphasis on individual words. Use one run when the whole region has one style. ",
+    "Preserve intentional letter case; do not force all text to uppercase. ",
+    "Match visibly rotated lettering with angle in clockwise degrees between -45 and 45; ",
+    "use 0 for ordinary level text. The rotated lettering must stay inside layout. ",
     "Bounds enclose both original text and the safe target layout inside each balloon or panel. ",
     "Tight ink boxes enclose only source glyphs, excluding borders and artwork. ",
-    "Layout is safe space for horizontal target-language text inside bounds. ",
+    "Layout is safe space for target-language text inside bounds. ",
     "Render the page with render_page, examine the actual returned image, ",
     "and make at most two corrections when needed. ",
     "Accept only a revision you actually rendered and saw. Return its revision number, ",

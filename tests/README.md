@@ -484,6 +484,18 @@ and pixel-identical cached reopening with Codex unavailable. Require exit zero
 and `PASS reader_manga_translation`; inspect the saved original, translated
 page and QQuickWidget PNGs in the isolated profile. This is a generated UI
 scenario, not a host pointer or representative artwork benchmark.
+
+`tests/manga-render` is a standalone Qt 6.12 Gui CMake fixture. Configure it in
+the assigned build slot with `CMAKE_BUILD_TYPE=RelWithDebInfo`, then build
+`qbutt-manga-render-acceptance` with two jobs. Run that executable with one
+isolated output-directory argument and `QT_QPA_PLATFORM=offscreen`.
+Require exit zero and `PASS manga_lettering`. Inspect `original.png` and
+`result.png`: the authored page exercises all 12 bundled physical font faces,
+Russian letters including Ё/ё, mixed emphasis, rotated text and light captions.
+The fixture also checks unchanged pixels outside regions, deterministic
+rerendering, missing-glyph retention and cancellation. It does not establish
+AI style recognition or cleanup quality on scanned artwork.
+
 Both scenarios accept `--translation-model <model> --translation-effort <effort>`
 through the QML controls. Their PASS lines report milliseconds from requesting
 translation until the reader leaves its busy state. Use a fresh profile for

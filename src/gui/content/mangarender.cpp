@@ -10,10 +10,13 @@
 #include <cmath>
 
 #include <QFontDatabase>
+#include <QGlyphRun>
 #include <QPainter>
 #include <QPen>
+#include <QRawFont>
 #include <QTextLayout>
 #include <QTextOption>
+#include <QTransform>
 
 namespace
 {
@@ -298,20 +301,55 @@ namespace
     }
 }
 
-QFont Content::MangaRender::mangaFont()
+QFont Content::MangaRender::mangaFont(const FontFamily family)
 {
-    static const QString family = []
+    static const std::array<QString, 3> families = []
     {
-        const int fontId = QFontDatabase::addApplicationFont(QStringLiteral(":/reader/Neucha.ttf"));
-        const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
-        return families.isEmpty() ? QString() : families.constFirst();
+        std::array<QString, 3> loaded;
+        const std::array<QString, 3> prefixes {
+            QStringLiteral("BalsamiqSans"),
+            QStringLiteral("PT_Serif-Web"),
+            QStringLiteral("FiraSansCondensed")
+        };
+        const QStringList faces {
+            QStringLiteral("Regular"), QStringLiteral("Bold"),
+            QStringLiteral("Italic"), QStringLiteral("BoldItalic")
+        };
+        for (std::size_t index = 0; index < prefixes.size(); ++index)
+        {
+            for (const QString &face : faces)
+            {
+                const QString path = QStringLiteral(":/reader/%1-%2.ttf").arg(prefixes[index], face);
+                const int fontId = QFontDatabase::addApplicationFont(path);
+                const QStringList names = QFontDatabase::applicationFontFamilies(fontId);
+                if (names.isEmpty())
+                    return std::array<QString, 3> {};
+                loaded[index] = names.constFirst();
+            }
+        }
+        return loaded;
     }();
-    return QFont(family);
+    QFont font(families.at(static_cast<std::size_t>(family)));
+    font.setStyleStrategy(QFont::NoFontMerging);
+    return font;
 }
 
 Content::MangaRender::TextShape Content::MangaRender::typesetText(
-    QString text, const QRectF &rect, QFont font, const int maximumPixels)
+    const QList<TextRun> &runs, const QRectF &rect, QFont font, const int maximumPixels,
+    const qreal angle)
 {
+    QString text;
+    QList<QTextLayout::FormatRange> formats;
+    for (const TextRun &run : runs)
+    {
+        QTextLayout::FormatRange range;
+        range.start = static_cast<int>(text.size());
+        range.length = static_cast<int>(run.text.size());
+        range.format.setFontWeight(run.bold ? QFont::Bold : QFont::Normal);
+        range.format.setFontItalic(run.italic);
+        formats.append(range);
+        text += run.text;
+    }
     text.replace(u'\n', QChar::LineSeparator);
     QTextOption option;
     option.setWrapMode(QTextOption::WordWrap);
@@ -320,6 +358,7 @@ Content::MangaRender::TextShape Content::MangaRender::typesetText(
     {
         font.setPixelSize(pixels);
         QTextLayout layout(text, font);
+        layout.setFormats(formats);
         layout.setTextOption(option);
         layout.beginLayout();
         qreal height = 0;
@@ -341,12 +380,23 @@ Content::MangaRender::TextShape Content::MangaRender::typesetText(
 
         QPainterPath path;
         const QPointF origin(rect.left(), rect.top() + ((rect.height() - height) / 2));
-        for (int index = 0; index < layout.lineCount(); ++index)
+        for (const QGlyphRun &run : layout.glyphRuns())
         {
-            const QTextLine line = layout.lineAt(index);
-            const QString fragment = text.mid(line.textStart(), line.textLength()).trimmed();
-            path.addText(origin + line.position() + QPointF(0, line.ascent()), font, fragment);
+            const QRawFont rawFont = run.rawFont();
+            const QList<quint32> glyphs = run.glyphIndexes();
+            const QList<QPointF> positions = run.positions();
+            for (qsizetype index = 0; index < glyphs.size(); ++index)
+            {
+                if (glyphs.at(index) == 0)
+                    return {{}, 0, 0, Status::MissingGlyph};
+                path.addPath(rawFont.pathForGlyph(glyphs.at(index)).translated(origin + positions.at(index)));
+            }
         }
+        QTransform transform;
+        transform.translate(rect.center().x(), rect.center().y());
+        transform.rotate(angle);
+        transform.translate(-rect.center().x(), -rect.center().y());
+        path = transform.map(path);
         if (!rect.contains(path.boundingRect()))
             continue;
         return {path, pixels, layout.lineCount()};
@@ -367,12 +417,6 @@ Content::MangaRender::Result Content::MangaRender::render(const QImage &original
     }
 
     const QImage source = original.convertToFormat(QImage::Format_RGBA8888);
-    const QFont font = mangaFont();
-    if (font.family().isEmpty())
-    {
-        result.error = QStringLiteral("Bundled manga font unavailable");
-        return result;
-    }
     result.mask = QImage(source.size(), QImage::Format_Grayscale8);
     result.mask.fill(0);
     QList<PixelBox> boxes;
@@ -389,7 +433,10 @@ Content::MangaRender::Result Content::MangaRender::render(const QImage &original
             result.error = QStringLiteral("Manga render cancelled");
             return result;
         }
-        if (region.translation.trimmed().isEmpty())
+        QString translation;
+        for (const TextRun &run : region.translation)
+            translation += run.text;
+        if (translation.trimmed().isEmpty())
         {
             diagnostic.status = Status::EmptyTranslation;
             result.diagnostics.append(diagnostic);
@@ -397,7 +444,9 @@ Content::MangaRender::Result Content::MangaRender::render(const QImage &original
         }
         if (!validRect(region.bounds) || !validRect(region.layout)
             || !containsRect(region.bounds, region.layout)
-            || region.inkBoxes.isEmpty())
+            || region.inkBoxes.isEmpty() || !std::isfinite(region.angle)
+            || (qAbs(region.angle) > 45) || (region.translation.size() > 32)
+            || (translation.toUtf8().size() > 3000))
         {
             diagnostic.status = region.inkBoxes.isEmpty() ? Status::NoInkMask : Status::InvalidGeometry;
             result.diagnostics.append(diagnostic);
@@ -436,13 +485,19 @@ Content::MangaRender::Result Content::MangaRender::render(const QImage &original
             result.diagnostics.append(diagnostic);
             continue;
         }
-        const int maximumPixels = qMin(48, qMax(1, qRound(qMin(textRect.width(), textRect.height()) * 0.26)));
-        const TextShape shape = typesetText(region.translation, textRect, font, maximumPixels);
+        const QFont font = mangaFont(region.family);
+        if (font.family().isEmpty())
+        {
+            result.error = QStringLiteral("Bundled manga fonts unavailable");
+            return result;
+        }
+        const int maximumPixels = qMin(256, qMax(1, qFloor(textRect.height())));
+        const TextShape shape = typesetText(region.translation, textRect, font, maximumPixels, region.angle);
         diagnostic.fontPixels = shape.fontPixels;
         diagnostic.layoutLines = shape.lines;
-        if (shape.path.isEmpty() || (shape.fontPixels < 9))
+        if (shape.status != Status::Rendered || shape.path.isEmpty() || (shape.fontPixels < 9))
         {
-            diagnostic.status = Status::Overflow;
+            diagnostic.status = shape.status == Status::Rendered ? Status::Overflow : shape.status;
             result.diagnostics.append(diagnostic);
             continue;
         }

@@ -28,13 +28,30 @@ namespace Content::MangaRender
         EmptyTranslation,
         InvalidGeometry,
         Overflow,
-        NoInkMask
+        NoInkMask,
+        MissingGlyph
+    };
+
+    enum class FontFamily
+    {
+        Comic,
+        Serif,
+        Condensed
+    };
+
+    struct TextRun
+    {
+        QString text;
+        bool bold = false;
+        bool italic = false;
     };
 
     struct Region
     {
         QString id;
-        QString translation;
+        QList<TextRun> translation;
+        FontFamily family = FontFamily::Comic;
+        qreal angle = 0;
         QRectF bounds;
         QRectF layout;
         QList<QRectF> inkBoxes;
@@ -55,6 +72,7 @@ namespace Content::MangaRender
         QPainterPath path;
         int fontPixels = 0;
         int lines = 0;
+        Status status = Status::Rendered;
     };
 
     struct Result
@@ -66,8 +84,9 @@ namespace Content::MangaRender
         QString error;
     };
 
-    QFont mangaFont();
-    TextShape typesetText(QString text, const QRectF &rect, QFont font, int maximumPixels);
+    QFont mangaFont(FontFamily family);
+    TextShape typesetText(const QList<TextRun> &runs, const QRectF &rect, QFont font,
+        int maximumPixels, qreal angle = 0);
     Result render(const QImage &original, const QList<Region> &regions,
         const std::function<bool()> &cancelled = {});
 }

@@ -60,6 +60,8 @@ namespace
             return "Overflow";
         case Status::NoInkMask:
             return "NoInkMask";
+        case Status::MissingGlyph:
+            return "MissingGlyph";
         }
         return "Unknown";
     }
@@ -112,9 +114,26 @@ Qbutt::MangaRenderOutput Qbutt::render_manga_page(
     {
         Content::MangaRender::Region region;
         region.id = fromRust(value.id);
-        region.translation = fromRust(value.translation);
+        for (const MangaTextRun &run : value.translation)
+            region.translation.append({fromRust(run.text), run.bold, run.italic});
+        switch (value.family)
+        {
+        case MangaFontFamily::Comic:
+            region.family = Content::MangaRender::FontFamily::Comic;
+            break;
+        case MangaFontFamily::Serif:
+            region.family = Content::MangaRender::FontFamily::Serif;
+            break;
+        case MangaFontFamily::Condensed:
+            region.family = Content::MangaRender::FontFamily::Condensed;
+            break;
+        default:
+            output.error = "Invalid manga font family";
+            return output;
+        }
         region.bounds = rectangle(value.bounds);
         region.layout = rectangle(value.layout);
+        region.angle = value.angle;
         region.ink = value.ink == 1 ? Content::MangaRender::Ink::Light : Content::MangaRender::Ink::Dark;
         for (const MangaRect &box : value.ink_boxes)
             region.inkBoxes.append(rectangle(box));

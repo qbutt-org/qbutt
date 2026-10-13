@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use qbutt_codex::{self as codex, CodexError, InputImage};
-use qbutt_content::translation::manga::{self, Ink, PageRegion, Rect, RenderLayers};
+use qbutt_content::translation::manga::{self, FontFamily, Ink, PageRegion, Rect, RenderLayers};
 use serde_json::json;
 
 pub struct RenderCancellation {
@@ -17,6 +17,18 @@ fn render_cancelled(cancellation: &RenderCancellation) -> bool {
 
 #[cxx::bridge(namespace = "Qbutt")]
 mod ffi {
+    enum MangaFontFamily {
+        Comic,
+        Serif,
+        Condensed,
+    }
+
+    struct MangaTextRun {
+        text: String,
+        bold: bool,
+        italic: bool,
+    }
+
     struct MangaRect {
         x: f64,
         y: f64,
@@ -26,7 +38,9 @@ mod ffi {
 
     struct MangaRegion {
         id: String,
-        translation: String,
+        translation: Vec<MangaTextRun>,
+        family: MangaFontFamily,
+        angle: f64,
         bounds: MangaRect,
         layout: MangaRect,
         ink: u8,
@@ -81,7 +95,21 @@ impl manga::PageRenderer for QtMangaRenderer {
             .iter()
             .map(|region| ffi::MangaRegion {
                 id: region.id.clone(),
-                translation: region.translation.clone(),
+                translation: region
+                    .translation
+                    .iter()
+                    .map(|run| ffi::MangaTextRun {
+                        text: run.text.clone(),
+                        bold: run.bold,
+                        italic: run.italic,
+                    })
+                    .collect(),
+                family: match region.family {
+                    FontFamily::Comic => ffi::MangaFontFamily::Comic,
+                    FontFamily::Serif => ffi::MangaFontFamily::Serif,
+                    FontFamily::Condensed => ffi::MangaFontFamily::Condensed,
+                },
+                angle: region.angle,
                 bounds: native_rect(&region.bounds),
                 layout: native_rect(&region.layout),
                 ink: match region.ink {

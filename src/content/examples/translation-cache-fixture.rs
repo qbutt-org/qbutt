@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use qbutt_content::translation::context::{
     ContextAdditions, ContextEvidence, EvidenceSegment, ImageObservation, TranslationTerm,
 };
+use qbutt_content::translation::manga::{FontFamily, Ink, PageRegion, Rect, TextRun};
 use qbutt_content::translation::text::{cache_key, restore_cached};
 use qbutt_content::{
     ChapterRef, Library, PublicationRef, Source, TextChapter, TextSpan, TranslationCacheKey,
@@ -268,8 +269,45 @@ fn main() -> Result<()> {
             provider: "codex".into(),
             model: "gpt-6.1-sol".into(),
             effort: "low".into(),
-            pipeline: 2,
+            pipeline: 4,
         };
+        let regions = vec![PageRegion {
+            id: evidence.id.clone(),
+            source_text: evidence.text.clone(),
+            translation: vec![
+                TextRun {
+                    text: "Фрирен, ".into(),
+                    bold: false,
+                    italic: false,
+                },
+                TextRun {
+                    text: "подожди!".into(),
+                    bold: true,
+                    italic: true,
+                },
+            ],
+            family: FontFamily::Comic,
+            angle: -12.0,
+            bounds: Rect {
+                x: 0.1,
+                y: 0.2,
+                width: 0.4,
+                height: 0.4,
+            },
+            layout: Rect {
+                x: 0.15,
+                y: 0.25,
+                width: 0.3,
+                height: 0.3,
+            },
+            ink: Ink::Dark,
+            ink_boxes: vec![Rect {
+                x: 0.15,
+                y: 0.25,
+                width: 0.2,
+                height: 0.2,
+            }],
+        }];
         let additions = ContextAdditions {
             terms: vec![term.clone()],
             facts: vec![],
@@ -277,7 +315,7 @@ fn main() -> Result<()> {
         let accepted = library.save_translation(
             manga_key.clone(),
             0,
-            &vec!["Фрирен"],
+            &regions,
             additions,
             &[evidence.clone()],
         )?;
@@ -288,9 +326,10 @@ fn main() -> Result<()> {
         let context = library.translation_context(&manga.variant.publication, "ru")?;
         assert_eq!(context.terms, vec![term.clone()]);
         let exact = manga_key.clone();
+        let cached = library.cached_translation::<Vec<PageRegion>>(&exact)?;
         assert_eq!(
-            library.cached_translation::<Vec<String>>(&exact)?,
-            Some(vec!["Фрирен".into()])
+            serde_json::to_value(cached)?,
+            serde_json::to_value(Some(regions))?
         );
         let mut forged = term;
         forged.source = "待って".into();

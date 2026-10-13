@@ -1,6 +1,19 @@
 <RCC>
     <qresource prefix="/reader">
-        <file alias="Neucha.ttf">../../../resources/fonts/Neucha.ttf</file>
-        <file alias="Neucha-OFL.txt">../../../resources/fonts/Neucha-OFL.txt</file>
+        <file alias="BalsamiqSans-Regular.ttf">../../../resources/fonts/BalsamiqSans-Regular.ttf</file>
+        <file alias="BalsamiqSans-Bold.ttf">../../../resources/fonts/BalsamiqSans-Bold.ttf</file>
+        <file alias="BalsamiqSans-Italic.ttf">../../../resources/fonts/BalsamiqSans-Italic.ttf</file>
+        <file alias="BalsamiqSans-BoldItalic.ttf">../../../resources/fonts/BalsamiqSans-BoldItalic.ttf</file>
+        <file alias="BalsamiqSans-OFL.txt">../../../resources/fonts/BalsamiqSans-OFL.txt</file>
+        <file alias="PT_Serif-Web-Regular.ttf">../../../resources/fonts/PT_Serif-Web-Regular.ttf</file>
+        <file alias="PT_Serif-Web-Bold.ttf">../../../resources/fonts/PT_Serif-Web-Bold.ttf</file>
+        <file alias="PT_Serif-Web-Italic.ttf">../../../resources/fonts/PT_Serif-Web-Italic.ttf</file>
+        <file alias="PT_Serif-Web-BoldItalic.ttf">../../../resources/fonts/PT_Serif-Web-BoldItalic.ttf</file>
+        <file alias="PT_Serif-Web-OFL.txt">../../../resources/fonts/PT_Serif-Web-OFL.txt</file>
+        <file alias="FiraSansCondensed-Regular.ttf">../../../resources/fonts/FiraSansCondensed-Regular.ttf</file>
+        <file alias="FiraSansCondensed-Bold.ttf">../../../resources/fonts/FiraSansCondensed-Bold.ttf</file>
+        <file alias="FiraSansCondensed-Italic.ttf">../../../resources/fonts/FiraSansCondensed-Italic.ttf</file>
+        <file alias="FiraSansCondensed-BoldItalic.ttf">../../../resources/fonts/FiraSansCondensed-BoldItalic.ttf</file>
+        <file alias="FiraSansCondensed-OFL.txt">../../../resources/fonts/FiraSansCondensed-OFL.txt</file>
     </qresource>
 </RCC>
