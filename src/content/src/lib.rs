@@ -46,6 +46,7 @@ mod rutor;
 #[cfg(windows)]
 mod rutracker;
 mod rutube;
+mod secrets;
 mod sharing;
 mod sources;
 mod syosetu;
@@ -82,9 +83,10 @@ pub use igruha::Igruha;
 pub use kakuyomu::Kakuyomu;
 pub use lib_api::LibSession;
 pub use library::{
-    LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
-    ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, TranslationCacheKey,
-    TranslationSelection, VariantFilters, VariantPreferences,
+    LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView,
+    OpenRouterSettings, ReaderFit, ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings,
+    TextTranslationService, TextTranslationSettings, TranslationCacheKey, TranslationSelection,
+    VariantFilters, VariantPreferences,
 };
 pub use limetorrents::LimeTorrents;
 pub use local_books::{LocalBook, LocalBookChapter, LocalBookFormat};

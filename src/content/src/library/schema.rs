@@ -5,7 +5,7 @@ use rusqlite::{Connection, TransactionBehavior};
 use super::{Library, LibraryError, LibraryResult};
 
 const APPLICATION_ID: i64 = 0x51424c42;
-const SCHEMA_VERSION: i64 = 11;
+const SCHEMA_VERSION: i64 = 12;
 const DATABASE_NAME: &str = "content-library.sqlite";
 const TRANSLATION_SELECTION_SCHEMA: &str = "CREATE TABLE translation_selection (
     target_language TEXT PRIMARY KEY NOT NULL,
@@ -87,11 +87,12 @@ impl Library {
             )?;
             transaction.execute_batch(TRANSLATION_SELECTION_SCHEMA)?;
             transaction.execute_batch(TRANSLATED_IMAGES_SCHEMA)?;
+            transaction.execute_batch(super::translation_service::SERVICE_SCHEMA)?;
             transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if application_id != APPLICATION_ID {
             return Err(LibraryError::ForeignDatabase);
-        } else if matches!(version, 8..=10) {
+        } else if matches!(version, 8..=11) {
             if version == 8 {
                 transaction.execute_batch(TRANSLATION_SELECTION_SCHEMA)?;
             }
@@ -101,7 +102,10 @@ impl Library {
                      ADD COLUMN translation_language TEXT NOT NULL DEFAULT 'ru';",
                 )?;
             }
-            transaction.execute_batch(TRANSLATED_IMAGES_SCHEMA)?;
+            if version <= 10 {
+                transaction.execute_batch(TRANSLATED_IMAGES_SCHEMA)?;
+            }
+            transaction.execute_batch(super::translation_service::SERVICE_SCHEMA)?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         } else if version != SCHEMA_VERSION {
             return Err(LibraryError::UnsupportedSchema(version));
@@ -311,6 +315,43 @@ impl Library {
         if !selection_table_valid || selection_columns_valid != 4 {
             return Err(LibraryError::InvalidSchema);
         }
+        let service_table_valid: bool = transaction.query_row(
+            "SELECT EXISTS (
+                SELECT 1 FROM pragma_table_list
+                WHERE schema = 'main' AND name = 'text_translation_service'
+                    AND type = 'table' AND ncol = 5 AND strict = 1
+            )",
+            [],
+            |row| row.get(0),
+        )?;
+        if !service_table_valid {
+            return Err(LibraryError::InvalidSchema);
+        }
+        let service_columns: Vec<(String, String, bool, bool)> = {
+            let mut statement = transaction.prepare("SELECT name, type, \"notnull\", pk FROM pragma_table_xinfo('text_translation_service') WHERE hidden = 0 ORDER BY cid")?;
+            statement
+                .query_map([], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })?
+                .collect::<std::result::Result<_, _>>()?
+        };
+        let expected_columns = [
+            ("id", "INTEGER", true, true),
+            ("service", "TEXT", true, false),
+            ("model", "TEXT", true, false),
+            ("effort", "TEXT", true, false),
+            ("api_key_dpapi", "BLOB", false, false),
+        ];
+        if service_columns.len() != expected_columns.len()
+            || service_columns.iter().zip(expected_columns).any(
+                |((name, kind, notnull, pk), expected)| {
+                    (name.as_str(), kind.as_str(), *notnull, *pk) != expected
+                },
+            )
+        {
+            return Err(LibraryError::InvalidSchema);
+        }
+        super::translation_service::read_settings(&transaction)?;
         // The registered catalog owns the current set. Preserve saved rows and
         // initialize settings for newly registered sources in the same transaction.
         for source in crate::Source::ALL {

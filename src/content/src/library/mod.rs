@@ -8,6 +8,7 @@ mod schema;
 mod settings;
 mod sources;
 mod translation;
+mod translation_service;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -20,6 +21,9 @@ pub use entry::{
 };
 pub use settings::{ReaderFit, ReaderMode, ReaderSettings};
 pub use translation::{TranslationCacheKey, TranslationSelection};
+pub use translation_service::{
+    OpenRouterSettings, TextTranslationService, TextTranslationSettings,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LibraryError {
@@ -41,6 +45,8 @@ pub enum LibraryError {
     InvalidEntry(&'static str),
     #[error("The content library update was cancelled")]
     Cancelled,
+    #[error("Protected translation settings failed: {0}")]
+    Credentials(&'static str),
     #[error("The system clock cannot provide a valid library timestamp")]
     Clock,
 }
