@@ -12,11 +12,13 @@ use tokio::io::BufReader;
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::watch;
 
+mod imagegen;
 mod model;
 mod process;
 mod rpc;
 mod turn;
 
+pub use imagegen::{ImageGenerationCompletion, MAX_GENERATED_IMAGE_BYTES, generate_image};
 pub use model::CodexModel;
 use process::{Scratch, installed_codex};
 pub use turn::IMAGE_TOOL_CALL_LIMIT;
@@ -44,7 +46,9 @@ pub enum CodexError {
     Protocol,
     #[error("Codex could not complete the request")]
     Provider,
-    #[error("The input image is too large or has an unsupported format")]
+    #[error("Image generation is unavailable in the installed Codex")]
+    ImageGenerationUnavailable,
+    #[error("The image is too large or has an unsupported format")]
     Image,
     #[error("{0}")]
     Tool(String),
@@ -145,13 +149,36 @@ pub struct CodexCompletion {
     pub usage: Option<TokenUsage>,
 }
 
-/// The only inference entry point. Cancellation drops setup immediately; an
-/// active turn is first interrupted and then its owned process is reaped.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RequestMode {
+    Structured,
+    ImageGeneration,
+}
+
+enum Completion {
+    Structured(CodexCompletion),
+    ImageGeneration(ImageGenerationCompletion),
+}
+
+/// Structured inference keeps all built-in tools disabled. Cancellation drops
+/// setup immediately; an active turn is interrupted and its process is reaped.
 pub async fn complete(
     request: CodexRequest,
     tools: &mut impl ToolHandler,
-    mut cancelled: watch::Receiver<bool>,
+    cancelled: watch::Receiver<bool>,
 ) -> Result<CodexCompletion> {
+    match infer(request, tools, cancelled, RequestMode::Structured).await? {
+        Completion::Structured(result) => Ok(result),
+        Completion::ImageGeneration(_) => Err(CodexError::Isolation),
+    }
+}
+
+async fn infer(
+    request: CodexRequest,
+    tools: &mut impl ToolHandler,
+    mut cancelled: watch::Receiver<bool>,
+    mode: RequestMode,
+) -> Result<Completion> {
     if *cancelled.borrow() {
         return Err(CodexError::Cancelled);
     }
@@ -160,9 +187,17 @@ pub async fn complete(
     }
     let workspace = Scratch::new()?;
     let executable = installed_codex().ok_or(CodexError::Unavailable)?;
-    let mut client = Client::start(&executable, workspace.path(), &[]).await?;
+    let mut client = Client::start(&executable, workspace.path(), &[], mode).await?;
     let prepare = async {
         client.prepare(&executable, workspace.path()).await?;
+        if mode == RequestMode::ImageGeneration {
+            let capabilities = client
+                .request("modelProvider/capabilities/read", serde_json::json!({}))
+                .await?;
+            if capabilities.get("imageGeneration") != Some(&Value::Bool(true)) {
+                return Err(CodexError::ImageGenerationUnavailable);
+            }
+        }
         let (model, effort) = client
             .select_model(
                 request.modality,
@@ -200,7 +235,8 @@ pub async fn resolve_selection(
 ) -> Result<(String, String)> {
     let workspace = Scratch::new()?;
     let executable = installed_codex().ok_or(CodexError::Unavailable)?;
-    let mut client = Client::start(&executable, workspace.path(), &[]).await?;
+    let mut client =
+        Client::start(&executable, workspace.path(), &[], RequestMode::Structured).await?;
     let result = async {
         client.prepare(&executable, workspace.path()).await?;
         client.select_model(modality, model, effort).await
@@ -214,7 +250,8 @@ pub async fn resolve_selection(
 pub async fn available_models(modality: ModelModality) -> Result<Vec<CodexModel>> {
     let workspace = Scratch::new()?;
     let executable = installed_codex().ok_or(CodexError::Unavailable)?;
-    let mut client = Client::start(&executable, workspace.path(), &[]).await?;
+    let mut client =
+        Client::start(&executable, workspace.path(), &[], RequestMode::Structured).await?;
     let result = async {
         client.prepare(&executable, workspace.path()).await?;
         client.available_models(modality).await
@@ -225,6 +262,7 @@ pub async fn available_models(modality: ModelModality) -> Result<Vec<CodexModel>
 }
 
 struct Client {
+    mode: RequestMode,
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,

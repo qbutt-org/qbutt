@@ -6,11 +6,14 @@ use tokio::sync::watch;
 use tokio::time::{Instant, timeout_at};
 
 use super::{
-    Client, CodexCompletion, CodexError, CodexRequest, FunctionTool, MAX_IMAGE_BYTES,
-    MAX_TOOL_IMAGES, ModelModality, Result, ToolCall, ToolHandler,
+    Client, CodexCompletion, CodexError, CodexRequest, Completion, FunctionTool, MAX_IMAGE_BYTES,
+    MAX_TOOL_IMAGES, ModelModality, RequestMode, Result, ToolCall, ToolHandler,
 };
 
+use super::imagegen::ImageGenerationState;
+
 const TURN_TIMEOUT: Duration = Duration::from_secs(180);
+const IMAGE_GENERATION_TIMEOUT: Duration = Duration::from_secs(360);
 const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(5);
 const TEXT_TOOL_CALL_LIMIT: usize = 12;
 pub const IMAGE_TOOL_CALL_LIMIT: usize = 24;
@@ -73,7 +76,7 @@ impl Client {
         cancelled: &mut watch::Receiver<bool>,
         model: String,
         effort: String,
-    ) -> Result<CodexCompletion> {
+    ) -> Result<Completion> {
         let mut input = vec![json!({"type": "text", "text": request.prompt, "text_elements": []})];
         if let Some(image) = request.image {
             input.push(json!({"type": "image", "url": image.url()?}));
@@ -100,9 +103,15 @@ impl Client {
             .ok_or(CodexError::Protocol)?
             .to_owned();
         if turn.get("status") == Some(&json!("completed")) {
-            return self.finish(turn, model, effort);
+            return self.finish(turn, model, effort, ImageGenerationState::default());
         }
-        let deadline = Instant::now() + TURN_TIMEOUT;
+        let timeout = if self.mode == RequestMode::ImageGeneration {
+            IMAGE_GENERATION_TIMEOUT
+        } else {
+            TURN_TIMEOUT
+        };
+        let deadline = Instant::now() + timeout;
+        let mut generated = ImageGenerationState::default();
         let tool_call_limit = match request.modality {
             ModelModality::Text => TEXT_TOOL_CALL_LIMIT,
             ModelModality::Image => IMAGE_TOOL_CALL_LIMIT,
@@ -130,8 +139,7 @@ impl Client {
                     }
                     self.handle_tool(
                         message,
-                        &thread,
-                        &turn_id,
+                        (&thread, &turn_id),
                         &request.tools,
                         tools,
                         cancelled,
@@ -154,10 +162,13 @@ impl Client {
                     }
                 }
                 Some("item/completed") => {
-                    let item = message
-                        .pointer("/params/item")
-                        .ok_or(CodexError::Protocol)?;
-                    if item.get("type") == Some(&json!("agentMessage")) {
+                    let item = turn_item(&message, &thread, &turn_id)?;
+                    if item.get("type") == Some(&json!("imageGeneration")) {
+                        if self.mode != RequestMode::ImageGeneration {
+                            return Err(CodexError::Isolation);
+                        }
+                        generated.complete(item)?;
+                    } else if item.get("type") == Some(&json!("agentMessage")) {
                         self.answer = item.get("text").and_then(Value::as_str).map(str::to_owned);
                     } else if !matches!(
                         item.get("type").and_then(Value::as_str),
@@ -173,8 +184,14 @@ impl Client {
                     }
                 }
                 Some("item/started") => {
-                    let kind = message.pointer("/params/item/type").and_then(Value::as_str);
-                    if !matches!(
+                    let item = turn_item(&message, &thread, &turn_id)?;
+                    let kind = item.get("type").and_then(Value::as_str);
+                    if kind == Some("imageGeneration") {
+                        if self.mode != RequestMode::ImageGeneration {
+                            return Err(CodexError::Isolation);
+                        }
+                        generated.start(item)?;
+                    } else if !matches!(
                         kind,
                         Some(
                             "agentMessage"
@@ -198,7 +215,10 @@ impl Client {
                                 .ok_or(CodexError::Protocol)?,
                             model,
                             effort,
+                            generated,
                         );
+                    } else {
+                        return Err(CodexError::Isolation);
                     }
                 }
                 Some("error")
@@ -218,13 +238,13 @@ impl Client {
     async fn handle_tool(
         &mut self,
         message: Value,
-        thread: &str,
-        turn: &str,
+        identity: (&str, &str),
         declared: &[FunctionTool],
         tools: &mut impl ToolHandler,
         cancelled: &mut watch::Receiver<bool>,
         deadline: Instant,
     ) -> Result<()> {
+        let (thread, turn) = identity;
         let id = message.get("id").cloned().ok_or(CodexError::Protocol)?;
         let params = message.get("params").ok_or(CodexError::Protocol)?;
         let name = params
@@ -301,7 +321,13 @@ impl Client {
         }
     }
 
-    fn finish(&self, turn: &Value, model: String, effort: String) -> Result<CodexCompletion> {
+    fn finish(
+        &self,
+        turn: &Value,
+        model: String,
+        effort: String,
+        generated: ImageGenerationState,
+    ) -> Result<Completion> {
         if turn.get("status") != Some(&json!("completed")) {
             return Err(CodexError::Provider);
         }
@@ -318,11 +344,29 @@ impl Client {
             .or(self.answer.as_deref())
             .ok_or(CodexError::Protocol)?;
         let value = serde_json::from_str(answer).map_err(|_| CodexError::Protocol)?;
-        Ok(CodexCompletion {
+        if self.mode == RequestMode::ImageGeneration {
+            return Ok(Completion::ImageGeneration(generated.finish(
+                value,
+                model,
+                effort,
+                self.usage.clone(),
+            )?));
+        }
+        Ok(Completion::Structured(CodexCompletion {
             value,
             model,
             effort,
             usage: self.usage.clone(),
-        })
+        }))
     }
+}
+
+fn turn_item<'a>(message: &'a Value, thread: &str, turn: &str) -> Result<&'a Value> {
+    let params = message.get("params").ok_or(CodexError::Protocol)?;
+    if params.get("threadId").and_then(Value::as_str) != Some(thread)
+        || params.get("turnId").and_then(Value::as_str) != Some(turn)
+    {
+        return Err(CodexError::Isolation);
+    }
+    params.get("item").ok_or(CodexError::Protocol)
 }

@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::io::BufReader;
 use tokio::process::Command;
 
-use super::{Client, CodexError, Result};
+use super::{Client, CodexError, RequestMode, Result};
 
 pub(super) const DISABLED_FEATURES: &[&str] = &[
     "shell_tool",
@@ -25,6 +25,7 @@ pub(super) const DISABLED_FEATURES: &[&str] = &[
     "skill_mcp_dependency_install",
     "workspace_dependencies",
     "code_mode",
+    "code_mode_only",
 ];
 
 pub(super) struct Scratch(PathBuf);
@@ -55,6 +56,7 @@ impl Client {
         executable: &Path,
         cwd: &Path,
         disabled_servers: &[String],
+        mode: RequestMode,
     ) -> Result<Self> {
         let mut command = Command::new(executable);
         command.current_dir(cwd).env_clear();
@@ -81,7 +83,10 @@ impl Client {
             }
         }
         for feature in DISABLED_FEATURES {
-            command.arg("-c").arg(format!("features.{feature}=false"));
+            let enabled = *feature == "image_generation" && mode == RequestMode::ImageGeneration;
+            command
+                .arg("-c")
+                .arg(format!("features.{feature}={enabled}"));
         }
         for server in disabled_servers {
             if !server
@@ -116,6 +121,7 @@ impl Client {
         let stdin = child.stdin.take().ok_or(CodexError::Protocol)?;
         let stdout = BufReader::new(child.stdout.take().ok_or(CodexError::Protocol)?);
         Ok(Self {
+            mode,
             child,
             stdin,
             stdout,

@@ -6,7 +6,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::time::{Instant, timeout_at};
 
 use super::process::DISABLED_FEATURES;
-use super::{Client, CodexError, Result};
+use super::{Client, CodexError, RequestMode, Result};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
@@ -17,7 +17,7 @@ impl Client {
         let inherited = self.check_isolation().await?;
         if !inherited.is_empty() {
             self.stop().await;
-            *self = Self::start(executable, workspace, &inherited).await?;
+            *self = Self::start(executable, workspace, &inherited, self.mode).await?;
             self.initialize().await?;
             if !self.check_isolation().await?.is_empty() {
                 return Err(CodexError::Isolation);
@@ -111,10 +111,10 @@ impl Client {
             .await?;
         let config = result.get("config").ok_or(CodexError::Protocol)?;
         let features = config.get("features").ok_or(CodexError::Isolation)?;
-        if DISABLED_FEATURES
-            .iter()
-            .any(|name| features.get(*name) != Some(&Value::Bool(false)))
-            || config.get("web_search") != Some(&Value::String("disabled".into()))
+        if DISABLED_FEATURES.iter().any(|name| {
+            let enabled = *name == "image_generation" && self.mode == RequestMode::ImageGeneration;
+            features.get(*name) != Some(&Value::Bool(enabled))
+        }) || config.get("web_search") != Some(&Value::String("disabled".into()))
             || config.get("notify") != Some(&json!([]))
         {
             return Err(CodexError::Isolation);

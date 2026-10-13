@@ -517,6 +517,16 @@ exact cache identity and offline reuse after another chapter expands the work
 context. Require exit zero and `PASS translation_cache`; a job with an outdated
 context must still be rejected when saving.
 
+`cargo run --locked --offline -p qbutt-codex --example imagegen-protocol`
+checks the isolated public Codex APIs through an owned Windows mock CLI. It
+requires no account or inference. The generated fixture covers one PNG plus
+final JSON, exact event identity, size limits, malformed output, cancellation,
+setup timeout and process reaping; ordinary structured requests keep image
+generation disabled. Require exit zero and every `PASS imagegen_protocol` check.
+`imagegen-live` is a separate opt-in installed-account example, taking a prepared
+comparison JSON and output directory. It spends image-generation quota and saves
+the PNG and acceptance receipt, including rejected candidates.
+
 Run `--reader-settings --lang ru` in the same offscreen environment for typed
 profile-wide fit persistence through the existing SQLite worker. Require exit
 zero and `PASS reader_settings`. The fixture checks Height defaults, explicit
