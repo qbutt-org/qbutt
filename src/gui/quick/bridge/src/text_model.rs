@@ -171,14 +171,25 @@ fn styled_text(spans: &[TextSpan]) -> String {
     let mut output = String::new();
     for span in spans {
         match span {
-            TextSpan::Text { text, bold, italic } => {
+            TextSpan::Text {
+                text,
+                bold,
+                italic,
+                underline,
+            } => {
                 if *bold {
                     output.push_str("<b>");
                 }
                 if *italic {
                     output.push_str("<i>");
                 }
+                if *underline {
+                    output.push_str("<u>");
+                }
                 escape_text(text, &mut output);
+                if *underline {
+                    output.push_str("</u>");
+                }
                 if *italic {
                     output.push_str("</i>");
                 }

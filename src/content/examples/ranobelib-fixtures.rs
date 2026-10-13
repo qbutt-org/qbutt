@@ -50,7 +50,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             {"type": "heading", "content": [{"type": "text", "text": "Generated heading"}]},
             {"type": "paragraph"},
             {"type": "paragraph", "content": [
-                {"type": "text", "text": "Original ", "marks": [{"type": "italic"}]},
+                {"type": "text", "text": "Original ", "marks": [{"type": "italic"}, {"type": "underline"}]},
                 {"type": "text", "text": "emphasis", "marks": [{"type": "bold"}]},
                 {"type": "hardBreak"},
                 {"type": "text", "text": "<script>literal source text</script>"}
@@ -70,6 +70,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         TextSpan::Text {
             italic: true,
             bold: false,
+            underline: true,
             ..
         }
     ));
@@ -140,13 +141,25 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
     let mut html = valid.clone();
     html["content"] = json!(concat!(
-        "<h3>Generated HTML heading</h3><p>Safe <b>bold</b> and <i>italic</i>.</p>",
+        "<h3>Generated HTML heading</h3><p>Safe <u><b>bold</b></u> and <i>italic</i>.</p>",
         "<script>must disappear</script><p hidden>must disappear</p>",
         "<img src='https://127.0.0.1/private'><hr><p>Generated note</p>"
     ));
     let parsed = decode(html, &selected, &record)?;
     assert_eq!(parsed.blocks.len(), 4);
     assert_eq!(parsed.blocks[0].kind, TextBlockKind::Heading);
+    assert!(parsed.blocks[1].spans.iter().any(|span| matches!(
+        span,
+        TextSpan::Text {
+            bold: true,
+            underline: true,
+            ..
+        }
+    )));
+    assert_eq!(
+        serde_json::from_slice::<TextChapter>(&serde_json::to_vec(&chapter)?)?,
+        chapter
+    );
     assert!(
         !parsed
             .blocks

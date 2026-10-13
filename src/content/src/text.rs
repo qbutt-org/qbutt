@@ -34,6 +34,8 @@ pub enum TextSpan {
         text: String,
         bold: bool,
         italic: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        underline: bool,
     },
     Ruby {
         text: String,
@@ -116,7 +118,7 @@ impl TextChapter {
         }
         let fragment = Html::parse_fragment(body);
         let mut builder = ChapterBuilder::default();
-        builder.visit(fragment.root_element(), false, false, 0)?;
+        builder.visit(fragment.root_element(), false, false, false, 0)?;
         builder.finish(TextBlockKind::Paragraph)?;
         Self::from_blocks(reference, builder.blocks)
     }
@@ -140,7 +142,7 @@ impl TextChapter {
             end_fragment,
             ..ChapterBuilder::default()
         };
-        builder.visit(fragment.root_element(), false, false, 0)?;
+        builder.visit(fragment.root_element(), false, false, false, 0)?;
         builder.finish(TextBlockKind::Paragraph)?;
         let total = builder.blocks.len();
         let entry_found = builder.entry_index.is_some();
@@ -330,6 +332,7 @@ impl ChapterBuilder<'_> {
         element: ElementRef<'_>,
         bold: bool,
         italic: bool,
+        underline: bool,
         depth: usize,
     ) -> Result<()> {
         if depth > MAX_DEPTH {
@@ -384,7 +387,7 @@ impl ChapterBuilder<'_> {
             return Ok(());
         }
         if name == "br" {
-            return self.text("\n", bold, italic);
+            return self.text("\n", bold, italic, underline);
         }
         if name == "hr" {
             self.finish(TextBlockKind::Paragraph)?;
@@ -444,12 +447,17 @@ impl ChapterBuilder<'_> {
         }
         let bold = bold || matches!(name, "b" | "strong");
         let italic = italic || matches!(name, "i" | "em");
+        let underline = underline || name == "u";
         for child in element.children() {
             match child.value() {
-                Node::Text(value) => self.text(&normalize_text(value), bold, italic)?,
-                Node::Element(_) => {
-                    self.visit(ElementRef::wrap(child).unwrap(), bold, italic, depth + 1)?
-                }
+                Node::Text(value) => self.text(&normalize_text(value), bold, italic, underline)?,
+                Node::Element(_) => self.visit(
+                    ElementRef::wrap(child).unwrap(),
+                    bold,
+                    italic,
+                    underline,
+                    depth + 1,
+                )?,
                 _ => {}
             }
         }
@@ -480,7 +488,7 @@ impl ChapterBuilder<'_> {
         Ok(())
     }
 
-    fn text(&mut self, text: &str, bold: bool, italic: bool) -> Result<()> {
+    fn text(&mut self, text: &str, bold: bool, italic: bool, underline: bool) -> Result<()> {
         if text.is_empty() {
             return Ok(());
         }
@@ -489,9 +497,11 @@ impl ChapterBuilder<'_> {
             text: previous,
             bold: was_bold,
             italic: was_italic,
+            underline: was_underlined,
         }) = self.spans.last_mut()
             && bold == *was_bold
             && italic == *was_italic
+            && underline == *was_underlined
         {
             previous.push_str(text);
         } else {
@@ -499,6 +509,7 @@ impl ChapterBuilder<'_> {
                 text: text.into(),
                 bold,
                 italic,
+                underline,
             });
         }
         Ok(())

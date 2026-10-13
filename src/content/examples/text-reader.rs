@@ -11,7 +11,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn main() -> Result<()> {
     let body = r#"
         <h2>A chapter written for this fixture</h2>
-        <p>Original &amp; <strong>bold</strong> <em>italic</em><br>Next line.</p>
+        <p>Original &amp; <u><strong>bold</strong> <em>italic</em></u><br>Next line.</p>
         <p><ruby>物語<rp>(</rp><rt>ものがたり</rt><rp>)</rp></ruby> stays original.</p>
         <p>&lt;img src='https://invalid.test/pixel'&gt;</p>
         <script>forbidden script</script><iframe>forbidden frame</iframe>
@@ -52,6 +52,25 @@ fn main() -> Result<()> {
     assert!(!String::from_utf8_lossy(&original).contains("forbidden"));
     assert!(!String::from_utf8_lossy(&original).contains("hidden text"));
     assert_eq!(serde_json::from_slice::<TextChapter>(&original)?, chapter);
+    assert!(chapter.blocks[1].spans.iter().any(|span| matches!(
+        span,
+        TextSpan::Text {
+            bold: true,
+            underline: true,
+            ..
+        }
+    )));
+    assert!(chapter.blocks[1].spans.iter().any(|span| matches!(
+        span,
+        TextSpan::Text {
+            italic: true,
+            underline: true,
+            ..
+        }
+    )));
+    let unstyled_underline =
+        TextChapter::from_html(reference(1), &body.replace("<u>", "").replace("</u>", ""))?;
+    assert_eq!(chapter.blocks[1].id, unstyled_underline.blocks[1].id);
 
     let inserted = TextChapter::from_html(
         reference(1),

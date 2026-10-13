@@ -280,6 +280,7 @@ enum Inline {
 enum Mark {
     Bold,
     Italic,
+    Underline,
 }
 
 impl Document {
@@ -302,11 +303,13 @@ impl Document {
                         text,
                         bold: marks.iter().any(|mark| matches!(mark, Mark::Bold)),
                         italic: marks.iter().any(|mark| matches!(mark, Mark::Italic)),
+                        underline: marks.iter().any(|mark| matches!(mark, Mark::Underline)),
                     },
                     Inline::HardBreak => TextSpan::Text {
                         text: "\n".into(),
                         bold: false,
                         italic: false,
+                        underline: false,
                     },
                 })
                 .collect::<Vec<_>>();

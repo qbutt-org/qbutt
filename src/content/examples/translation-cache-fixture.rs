@@ -25,12 +25,13 @@ fn main() -> Result<()> {
         },
         id: "1001/1".into(),
     };
-    let original = TextChapter::from_html(reference, "<p>レンは帰った。</p>")?;
+    let original = TextChapter::from_html(reference, "<p><u>レンは帰った。</u></p>")?;
     let mut translated = original.clone();
     translated.blocks[0].spans = vec![TextSpan::Text {
         text: "Рен вернулась.".into(),
         bold: false,
         italic: false,
+        underline: true,
     }];
 
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();

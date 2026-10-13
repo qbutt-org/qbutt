@@ -308,6 +308,7 @@ struct OutputSpan {
     text: String,
     bold: bool,
     italic: bool,
+    underline: bool,
     reading: String,
     asset_id: String,
 }
@@ -358,6 +359,15 @@ fn validate_block(output: OutputBlock, source: &TextBlock) -> codex::Result<Vec<
         .spans
         .iter()
         .any(|span| matches!(span, TextSpan::Text { italic: true, .. }));
+    let allows_underline = source.spans.iter().any(|span| {
+        matches!(
+            span,
+            TextSpan::Text {
+                underline: true,
+                ..
+            }
+        )
+    });
     let readings: Vec<_> = source
         .spans
         .iter()
@@ -386,15 +396,17 @@ fn validate_block(output: OutputBlock, source: &TextBlock) -> codex::Result<Vec<
                 if span.reading.is_empty()
                     && span.asset_id.is_empty()
                     && (!span.bold || allows_bold)
-                    && (!span.italic || allows_italic) =>
+                    && (!span.italic || allows_italic)
+                    && (!span.underline || allows_underline) =>
             {
                 spans.push(TextSpan::Text {
                     text: span.text,
                     bold: span.bold,
                     italic: span.italic,
+                    underline: span.underline,
                 });
             }
-            "ruby" if span.asset_id.is_empty() && !span.bold && !span.italic => {
+            "ruby" if span.asset_id.is_empty() && !span.bold && !span.italic && !span.underline => {
                 translated_readings.push(span.reading.clone());
                 spans.push(TextSpan::Ruby {
                     text: span.text,
@@ -405,7 +417,8 @@ fn validate_block(output: OutputBlock, source: &TextBlock) -> codex::Result<Vec<
                 if span.text.is_empty()
                     && span.reading.is_empty()
                     && !span.bold
-                    && !span.italic =>
+                    && !span.italic
+                    && !span.underline =>
             {
                 let (asset_id, alt) = images
                     .get(translated_images.len())
@@ -506,9 +519,9 @@ fn output_schema(blocks: usize) -> Value {
                         "type":"object","properties":{
                             "kind":{"type":"string","enum":["text","ruby","image"]},
                             "text":{"type":"string"},"bold":{"type":"boolean"},
-                            "italic":{"type":"boolean"},"reading":{"type":"string"},
+                            "italic":{"type":"boolean"},"underline":{"type":"boolean"},"reading":{"type":"string"},
                             "asset_id":{"type":"string"}
-                        },"required":["kind","text","bold","italic","reading","asset_id"],
+                        },"required":["kind","text","bold","italic","underline","reading","asset_id"],
                         "additionalProperties":false
                     }}
                 },"required":["id","spans"],"additionalProperties":false
