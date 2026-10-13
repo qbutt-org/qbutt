@@ -4,6 +4,7 @@ import { BrowserBridge } from "./browser";
 import { Catalog } from "./catalog";
 import { maxMessageBytes, type Request, type SearchRequest, type Variant, type Work } from "./contracts";
 import { safeError } from "./net";
+import { readingOriginal } from "./providers/reading-originals";
 import { handleReaderRequest } from "./reader/service";
 import { mergeVariants, mergeWorkMetadata, rankVariants } from "./results";
 import { SourceSettings } from "./settings";
@@ -161,7 +162,13 @@ async function run(): Promise<void> {
         switch (method) {
         case "search": {
             const query = String(params.query || "").trim();
-            if (/^(?:https?:\/\/|qbutt:|magnet:)/i.test(query))
+            if (/^https?:\/\//i.test(query)) {
+                const publication = readingOriginal(query);
+                if (!publication) throw new Error("This link is not supported.");
+                emit("result", await catalog.inspect(publication, signal));
+                return;
+            }
+            if (/^(?:qbutt:|magnet:)/i.test(query))
                 throw new Error("This link is not supported.");
             await catalog.search({ ...params, query, category: params.category || "all" } as SearchRequest, signal, emit);
             return;
