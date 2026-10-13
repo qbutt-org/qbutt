@@ -327,6 +327,9 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
                 variant.transport == Transport::Torrent
                     && variant.info_hash.as_deref() == Some(info_hash)
             }
+            (Source::Dodi, VariantSelector::DodiTorrent { .. }) => {
+                variant.transport == Transport::Torrent && variant.info_hash.is_none()
+            }
             _ => false,
         };
         if !consistent {

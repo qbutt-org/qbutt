@@ -46,6 +46,7 @@ impl Source {
             Self::NnmClub => "nnmclub",
             Self::Nyaa => "nyaa",
             Self::Rutube => "rutube",
+            Self::Dodi => "dodi",
             Self::FitGirl => "fitgirl",
             Self::OnlineFix => "onlinefix",
             Self::FreeTP => "freetp",
@@ -78,6 +79,7 @@ impl Source {
             Self::NnmClub => "NNM-Club",
             Self::Nyaa => "Nyaa.si",
             Self::Rutube => "Rutube",
+            Self::Dodi => "DODI Repacks",
             Self::FitGirl => "FitGirl",
             Self::OnlineFix => "Online-Fix",
             Self::FreeTP => "FreeTP",
@@ -109,9 +111,12 @@ impl Source {
             Self::MangaDex | Self::MangaLib => &[Category::Manga],
             Self::RanobeLib => &[Category::Books],
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
-            Self::FitGirl | Self::OnlineFix | Self::FreeTP | Self::ByRut | Self::TheLastGame => {
-                &[Category::Games]
-            }
+            Self::FitGirl
+            | Self::OnlineFix
+            | Self::FreeTP
+            | Self::ByRut
+            | Self::TheLastGame
+            | Self::Dodi => &[Category::Games],
             Self::RoyalRoad | Self::Kakuyomu | Self::Syosetu => &[Category::Books],
             Self::RanobeHub => &[Category::Books],
             Self::Nyaa => &[

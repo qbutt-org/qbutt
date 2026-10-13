@@ -24,6 +24,7 @@ pub enum Source {
     NnmClub,
     Nyaa,
     Rutube,
+    Dodi,
     #[serde(rename = "fitgirl")]
     FitGirl,
     #[serde(rename = "onlinefix")]
@@ -71,6 +72,7 @@ impl PublicationRef {
             Source::NnmClub => self.nnmclub_id().map(|_| ()),
             Source::Nyaa => self.nyaa_id().map(|_| ()),
             Source::Rutube => self.rutube_id().map(|_| ()),
+            Source::Dodi => self.dodi_parts().map(|_| ()),
             Source::FitGirl => self.fitgirl_slug().map(|_| ()),
             Source::OnlineFix => self.online_fix_path().map(|_| ()),
             Source::FreeTP => self.freetp_id().map(|_| ()),
@@ -259,6 +261,25 @@ impl PublicationRef {
         self.decimal_id(Source::AnimeSpirit)
     }
 
+    pub(crate) fn dodi_parts(&self) -> crate::Result<(u64, &str)> {
+        let (id, slug) = self
+            .id
+            .split_once("--")
+            .ok_or(crate::Error::InvalidReference)?;
+        if self.source != Source::Dodi
+            || !canonical_decimal(id)
+            || slug.is_empty()
+            || slug.len() > 240
+            || !slug
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            return Err(crate::Error::InvalidReference);
+        }
+        let id = id.parse().map_err(|_| crate::Error::InvalidReference)?;
+        Ok((id, slug))
+    }
+
     fn decimal_id(&self, source: Source) -> crate::Result<u64> {
         if self.source != source {
             return Err(crate::Error::InvalidReference);
@@ -306,6 +327,9 @@ pub enum VariantSelector {
     },
     TorrentHash {
         info_hash: String,
+    },
+    DodiTorrent {
+        id: String,
     },
     Episode {
         id: String,
@@ -373,6 +397,12 @@ impl VariantSelector {
                     && info_hash
                         .bytes()
                         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            }
+            Self::DodiTorrent { id } => {
+                id.len() == 12
+                    && id
+                        .bytes()
+                        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
             }
             Self::Episode { id, .. } | Self::Rutube { episode_id: id } => {
                 !id.is_empty() && id.len() <= 128
@@ -480,6 +510,7 @@ impl VariantRef {
                 | (Source::RuTracker, VariantSelector::TorrentHash { .. })
                 | (Source::NnmClub, VariantSelector::TorrentHash { .. })
                 | (Source::Nyaa, VariantSelector::TorrentHash { .. })
+                | (Source::Dodi, VariantSelector::DodiTorrent { .. })
                 | (Source::FitGirl, VariantSelector::TorrentHash { .. })
                 | (Source::OnlineFix, VariantSelector::TorrentHash { .. })
                 | (Source::FreeTP, VariantSelector::TorrentHash { .. })
