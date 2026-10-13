@@ -4,7 +4,7 @@ use reqwest::Response;
 use tokio::fs;
 use url::Url;
 
-use super::{DownloadError, Materializer};
+use super::{DownloadError, Materializer, audio_title_matches};
 use crate::PlaybackAudioTrack;
 
 impl Materializer<'_> {
@@ -66,8 +66,7 @@ impl Materializer<'_> {
             let matches = choices
                 .iter()
                 .filter(|attributes| {
-                    (track.title.is_empty()
-                        || hls_attribute(attributes, "NAME") == Some(track.title.as_str()))
+                    audio_title_matches(hls_attribute(attributes, "NAME"), track)
                         && track.language.as_deref().is_none_or(|language| {
                             hls_attribute(attributes, "LANGUAGE") == Some(language)
                         })

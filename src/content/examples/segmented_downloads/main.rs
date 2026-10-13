@@ -2,6 +2,8 @@
 //! Pass a fresh output directory, generated HLS/DASH media directory, and the
 //! verified ffmpeg/ffprobe paths from one qplay runtime.
 
+mod audio;
+
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -129,15 +131,17 @@ fn decode(ffmpeg: &Path, path: &Path) {
     );
 }
 
-async fn serve(listener: TcpListener, media: PathBuf) {
+async fn serve(listener: TcpListener, media: PathBuf, requests: Arc<Mutex<Vec<String>>>) {
     loop {
         let (mut socket, _) = listener.accept().await.unwrap();
         let media = media.clone();
+        let requests = Arc::clone(&requests);
         tokio::spawn(async move {
             let mut head = [0u8; 4096];
             let count = socket.read(&mut head).await.unwrap_or(0);
             let request = String::from_utf8_lossy(&head[..count]);
             let path = request.split_whitespace().nth(1).unwrap_or("/");
+            requests.lock().unwrap().push(path.to_owned());
             let slow = path.starts_with("/slow/");
             let expired = path.starts_with("/expired/") && !path.ends_with("master.m3u8");
             let name = path.rsplit('/').next().unwrap_or("");
@@ -234,7 +238,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
     let address: SocketAddr = listener.local_addr()?;
-    let server = tokio::spawn(serve(listener, fixture));
+    audio::prepare(&fixture, &tools)?;
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let server = tokio::spawn(serve(listener, fixture.clone(), Arc::clone(&requests)));
     let client = reqwest::Client::builder()
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -302,6 +308,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         fs::read(destination.join("HLS.mkv"))?,
         b"existing user payload"
+    );
+
+    audio::verify(&queue, address.port(), &fixture, &tools).await?;
+    assert!(
+        !requests.lock().unwrap().iter().any(|path| {
+            ["/voice-0", "/voice-2", "/voice-3"]
+                .iter()
+                .any(|prefix| path.starts_with(prefix))
+        }),
+        "Unselected HLS voices were downloaded"
     );
 
     for name in ["live.m3u8", "drm.m3u8", "dynamic.mpd", "protected.mpd"] {

@@ -6,7 +6,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::sync::watch;
 
-use super::{DownloadError, Inputs, MediaTools};
+use super::{DownloadError, Inputs, MediaTools, audio_title_matches};
 use crate::PlaybackAudioTrack;
 
 #[derive(Deserialize)]
@@ -65,24 +65,22 @@ pub(super) async fn select_audio(
         .iter()
         .filter(|stream| stream.codec_type == "audio")
         .collect::<Vec<_>>();
-    if exact_input && audio.len() == 1 {
-        return Ok(audio[0].index);
-    }
-    let matches = probe
-        .streams
-        .iter()
+    let exact_track = exact_input && audio.len() == 1;
+    let matches = audio
+        .into_iter()
         .filter(|stream| {
-            stream.codec_type == "audio"
-                && (wanted.title.is_empty()
-                    || stream.tags.as_ref().and_then(|tags| tags.title.as_deref())
-                        == Some(&wanted.title))
-                && wanted.language.as_deref().is_none_or(|language| {
+            let labels_match = exact_track
+                || (audio_title_matches(
+                    stream.tags.as_ref().and_then(|tags| tags.title.as_deref()),
+                    wanted,
+                ) && wanted.language.as_deref().is_none_or(|language| {
                     stream
                         .tags
                         .as_ref()
                         .and_then(|tags| tags.language.as_deref())
                         == Some(language)
-                })
+                }));
+            labels_match
                 && wanted
                     .codec
                     .as_deref()
@@ -123,6 +121,8 @@ pub(super) async fn mux(
         Some(stream) => args.extend([
             "-map".into(),
             format!("{}:{stream}", usize::from(inputs.audio.is_some())),
+            "-disposition:a:0".into(),
+            "default".into(),
         ]),
         None => args.extend([
             "-map".into(),

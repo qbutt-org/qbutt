@@ -13,8 +13,8 @@ use url::Url;
 
 use super::transfer::{StagedDownload, staged_local_file};
 use super::{DownloadError, MediaTools};
-use crate::PlaybackMedia;
 use crate::media::MediaResources;
+use crate::{PlaybackAudioTrack, PlaybackMedia};
 
 const MAX_MANIFEST: usize = 2 * 1024 * 1024;
 const MAX_RESOURCE: u64 = 32 * 1024 * 1024 * 1024;
@@ -92,6 +92,14 @@ pub(super) struct SubtitleInput {
 enum AuxiliaryKind {
     Audio,
     Subtitle,
+}
+
+fn audio_title_matches(title: Option<&str>, wanted: &PlaybackAudioTrack) -> bool {
+    (wanted.title.is_empty() || title == Some(wanted.title.as_str()))
+        && wanted
+            .kind
+            .as_deref()
+            .is_none_or(|kind| title.is_some_and(|title| title.contains(kind)))
 }
 
 pub(super) async fn stage(

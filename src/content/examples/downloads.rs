@@ -183,6 +183,78 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .exists()
     );
 
+    let publication_names = (1..=1501)
+        .map(|index| {
+            if index == 1 {
+                "Publication race.mp4".to_owned()
+            } else {
+                format!("Publication race ({index}).mp4")
+            }
+        })
+        .collect::<Vec<_>>();
+    for name in &publication_names {
+        fs::write(destination.join(name), b"existing publication collision")?;
+    }
+    let publication = queue
+        .enqueue(request(address.port(), "media.mp4", "Publication race"))
+        .await?;
+    wait_for(&mut updates, &publication.id, |job| {
+        job.status == DownloadStatus::Publishing
+    })
+    .await;
+    queue.close().await;
+    let publication_after_close = updates
+        .borrow()
+        .iter()
+        .find(|job| job.id == publication.id)
+        .cloned()
+        .ok_or("publication job was lost")?;
+    assert!(matches!(
+        publication_after_close.status,
+        DownloadStatus::Error | DownloadStatus::Complete
+    ));
+    assert!(
+        !destination
+            .join(format!(".qbutt-staging/{}.part", publication.id))
+            .exists()
+    );
+    let retained_names = fs::read_dir(&destination)?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("Publication race")
+        })
+        .count();
+    if publication_after_close.status == DownloadStatus::Complete {
+        assert_eq!(retained_names, publication_names.len() + 1);
+        assert_eq!(
+            fs::read(publication_after_close.path.as_ref().unwrap())?,
+            *payload
+        );
+    } else {
+        assert!(publication_after_close.path.is_none());
+        assert_eq!(retained_names, publication_names.len());
+    }
+    for name in &publication_names {
+        let path = destination.join(name);
+        assert_eq!(fs::read(&path)?, b"existing publication collision");
+        fs::remove_file(path)?;
+    }
+
+    let queue =
+        DownloadQueue::open_fixture(store.clone(), destination.clone(), client.clone()).await?;
+    let mut updates = queue.subscribe();
+    assert_eq!(
+        updates.borrow().iter().find(|job| job.id == publication.id),
+        Some(&publication_after_close)
+    );
+    println!(
+        "PASS native_download_publication_shutdown outcome={:?} collisions=1501 existing_bytes=preserved staged=removed restart=confirmed",
+        publication_after_close.status
+    );
     let interrupted = queue
         .enqueue(request(address.port(), "slow.mp4", "Interrupted"))
         .await?;
@@ -215,7 +287,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await;
     assert_eq!(fs::read(completed_after_restart.path.unwrap())?, *payload);
-    assert_eq!(restored_updates.borrow().len(), 4);
+    assert_eq!(restored_updates.borrow().len(), 5);
     assert_eq!(fs::read(marker)?, b"unrelated user bytes");
     restored.close().await;
     server.abort();
@@ -227,7 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .any(|bytes| bytes == b"fixture.example")
     );
     println!(
-        "PASS native_downloads bytes={} complete=3 cancel=1 retry=2 incomplete=1 interrupted_restart=1 collision=1 fresh_open=untouched",
+        "PASS native_downloads bytes={} complete=3 cancel=1 publication_shutdown=1 retry=2 incomplete=1 interrupted_restart=1 collision=1 fresh_open=untouched",
         payload.len()
     );
     Ok(())
