@@ -188,8 +188,8 @@ fn response(
         "login-until-cookie" if !head.contains("clearance=fixture-pass") => {
             return cp1251("200 OK", login());
         }
-        "session" if !authenticated => return cp1251("200 OK", login()),
-        "challenge" => {
+        "session" | "borrow-challenge" if !authenticated => return cp1251("200 OK", login()),
+        "challenge" | "borrow-challenge" => {
             return cp1251(
                 "403 Forbidden",
                 "<script src='/cdn-cgi/challenge-platform/check.js'></script>".into(),
@@ -228,6 +228,10 @@ fn response(
         );
     }
     match case {
+        "benign-challenge-script" => cp1251(
+            "200 OK",
+            format!("<script src='/cdn-cgi/challenge-platform/check.js'></script>{body}"),
+        ),
         "mime" => ("200 OK", "application/json", "", body.into_bytes()),
         "encoding" => ("200 OK", "text/html; charset=UTF-8", "", vec![0xff]),
         "charset" => (
@@ -265,17 +269,30 @@ fn map() -> String {
         (862, 9007),
         (99, 9008),
     ] {
-        body.push_str(&format!("<li><span><a href='https://feed.fixture.example/atom/f/{parent}.atom'>Feed</a><a href='{parent}'>Родитель</a></span><ul><li><span><a href='{child}'>Потомок</a></span></li></ul></li>"));
+        body.push_str(&format!(
+            r#"<li>
+                <span>
+                    <a href='https://feed.fixture.example/atom/f/{parent}.atom'>Feed</a>
+                    <a href='{parent}'>Родитель</a>
+                </span>
+                <ul><li><span><a href='{child}'>Потомок</a></span></li></ul>
+            </li>"#
+        ));
     }
-    body.push_str("<li><span><span class='c-title' title='Книги и журналы'></span></span><ul><li><span><a href='9006'>Книги</a></span></li></ul></li></ul></div>");
+    body.push_str(
+        r#"<li>
+            <span><span class='c-title' title='Книги и журналы'></span></span>
+            <ul><li><span><a href='9006'>Книги</a></span></li></ul>
+        </li></ul></div>"#,
+    );
     body
 }
 
-fn login() -> String {
+pub(super) fn login() -> String {
     "<form action='login.php'><input name='login_username'><input name='login_password' type='password'></form>".into()
 }
 
-fn search(url: &Url, case: &str) -> String {
+pub(super) fn search(url: &Url, case: &str) -> String {
     // Decode nm from the complete request target. Url::query_pairs assumes UTF-8,
     // and url.path() would lose the query that this fixture must verify.
     let encoded = url

@@ -249,7 +249,10 @@ impl RuTracker {
                         .http
                         .session_document(url.clone(), &mut session.http)
                         .await?;
-                    return document(response, &url);
+                    match document(response, &url) {
+                        Err(Error::Challenge | Error::LoginRequired) => {}
+                        result => return result,
+                    }
                 }
                 Err(error) => match error {
                     BrowserError::BrowserRequired

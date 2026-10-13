@@ -37,6 +37,20 @@ mod rutracker {
             clearance: std::sync::Mutex::new(None),
         }
     }
+
+    pub(super) async fn document_after_late_browser(
+        source: &RuTracker,
+        url: Url,
+        browser: &BrowserHandle,
+    ) -> Result<String> {
+        let mut session = OperationSession {
+            http: SourceSession::anonymous(source.origin.clone())?,
+            browser: BrowserBorrow::None,
+        };
+        source
+            .document(url, &mut session, Some(browser), BrowserChoice::Edge)
+            .await
+    }
 }
 
 #[path = "browser/fixture.rs"]
@@ -157,6 +171,14 @@ async fn main() -> CheckResult {
             .search("generated", Category::Anime, None, choice)
             .await?
             .is_empty()
+    );
+    fixture.case("benign-challenge-script");
+    assert_eq!(
+        source
+            .search("generated", Category::Anime, None, choice)
+            .await?
+            .len(),
+        1
     );
     for case in [
         "missing-href",
@@ -453,6 +475,33 @@ async fn browser_sessions(
 
     let mut edge = browser_fixture::extension(&discovery, "edge", "fixture-browser", false).await?;
     wait_browser(&handle, 1).await?;
+    fixture.case("borrow-challenge");
+    let url = fixture
+        .origin
+        .join("/forum/tracker.php?nm=generated&o=10&s=2&df=1")?;
+    let operation = rutracker::document_after_late_browser(&source, url.clone(), &handle);
+    let response = async {
+        answer_session(&mut edge, fixture, false).await?;
+        let wire = browser_fixture::read(&mut edge).await?;
+        assert_eq!(wire["method"], "fetch");
+        assert_eq!(wire["url"], url.as_str());
+        browser_fixture::write(
+            &mut edge,
+            &json!({
+                "id":wire["id"],
+                "result":{
+                    "status":200,
+                    "url":url,
+                    "headers":{"content-type":"text/html; charset=Windows-1251"},
+                    "body":fixture::search(&url, "normal")
+                }
+            }),
+        )
+        .await
+    };
+    let (result, reply) = tokio::join!(operation, response);
+    reply?;
+    assert!(result?.contains("id='tor-tbl'"));
     fixture.case("session");
     let operation = source.search(
         "generated",
@@ -519,7 +568,8 @@ async fn browser_sessions(
     );
     let response = async {
         let wire = browser_fixture::read(&mut chrome).await?;
-        browser_fixture::write(&mut chrome, &json!({"id":wire["id"],"result":[]})).await
+        browser_fixture::write(&mut chrome, &json!({"id":wire["id"],"result":[]})).await?;
+        answer_fetch_login(&mut chrome).await
     };
     let (result, reply) = tokio::join!(operation, response);
     reply?;
@@ -599,7 +649,31 @@ async fn answer_session(
     if expired {
         cookie["expirationDate"] = json!(1.0);
     }
-    browser_fixture::write(client, &json!({"id":wire["id"], "result":[cookie]})).await
+    browser_fixture::write(client, &json!({"id":wire["id"], "result":[cookie]})).await?;
+    if expired {
+        answer_fetch_login(client).await?;
+    }
+    Ok(())
+}
+
+async fn answer_fetch_login(
+    client: &mut tokio::net::windows::named_pipe::NamedPipeClient,
+) -> CheckResult {
+    let wire = browser_fixture::read(client).await?;
+    assert_eq!(wire["method"], "fetch");
+    browser_fixture::write(
+        client,
+        &json!({
+            "id":wire["id"],
+            "result":{
+                "status":200,
+                "url":wire["url"],
+                "headers":{"content-type":"text/html; charset=Windows-1251"},
+                "body":fixture::login()
+            }
+        }),
+    )
+    .await
 }
 
 fn library(work: &Work) -> CheckResult {

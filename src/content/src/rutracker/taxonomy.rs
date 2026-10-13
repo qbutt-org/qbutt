@@ -41,8 +41,7 @@ pub(crate) fn categories(body: &str) -> Result<Categories> {
                     .value()
                     .attr("href")
                     .is_some_and(|href| href.as_bytes().first().is_some_and(u8::is_ascii_digit))
-            })
-            {
+            }) {
                 category = root_category(decimal(required(parent, "href")?)?);
             } else if let Some(section) = label.select(&selector(".c-title")).next() {
                 category = match section.attr("title") {
