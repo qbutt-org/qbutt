@@ -97,7 +97,7 @@ The script downloads pinned dependencies, including Bun and Go, and builds the p
 
 `upstream-lock.json` pins component Git revisions, protocol versions, and SHA-256 hashes of installers, portable archives, and third-party runtime sources. `scripts/package-products.ts` verifies the finished artifacts before including them in the build. The portable bundle contains its own qplay in the `qplay/` subfolder. qcatch is downloaded from a pinned URL only when its install button is clicked.
 
-The ModernX profile, upscaling, frame generation, mpv, supporting media tools, and subtitle translation belong to the qplay repository. The extension, its Windows helper, and the browser connection belong to qcatch. qbutt owns torrent Range streaming and viewing history. The apps pass media and playback options without copying each other's settings.
+The player interface, upscaling, frame generation, mpv, media tools, and subtitle translation belong to the qplay repository. The extension, its Windows helper, and the browser connection belong to qcatch. qbutt owns torrent Range streaming and viewing history. The apps pass media and playback options to each other.
 
 Component sources are available at the pinned Git revisions in the [qplay](https://github.com/qbutt-org/qplay) and [qcatch](https://github.com/qbutt-org/qcatch) repositories; third-party runtime sources are published in separate technical releases of those products. The build verifies their archives and keeps them in the dependency cache. Downloaded packages, generated GPU engines, and user caches are stored outside the source tree.
 

@@ -148,7 +148,8 @@ Application services принимают пользовательские реш�
 qbutt/
   src/base/            application services, libtorrent integration
   src/gui/             native Qt presentation
-  components/content/ providers, library, reader, AI and product integration
+  src/content/         native providers, library, reader, AI and downloads
+  components/content/  retained legacy integration fixtures
   scripts/             local build and packaging
   tests/               isolated integration and native acceptance fixtures
   docs/adr/            architectural decisions
