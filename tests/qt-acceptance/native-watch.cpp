@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native-watch.h"
+#include "media-save.h"
 
 #include <functional>
 #include <stdexcept>
@@ -156,6 +157,7 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     quint64 readyToken = 0;
     QString readyIdentity;
     QUrl gatewayListener;
+    QUrl playbackUrl;
     bool historyEmptyBeforeAck = false;
     QList<quint64> started;
     QStringList startedIdentities;
@@ -171,6 +173,7 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     {
         readyToken = token;
         readyIdentity = identity;
+        playbackUrl = url;
         gatewayListener = proxyUrl.isValid() ? proxyUrl : url;
         descriptorIsHttps = url.scheme() == u"https"_s;
         descriptorIsLocal = (url.scheme() == u"http"_s) && (url.host() == u"127.0.0.1"_s)
@@ -209,6 +212,8 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     require(!tracks.isEmpty(), u"qplay did not report decoded media tracks"_s);
     waitFor([&] { return !controller->property("libraryPending").toBool() && (history->rowCount() == 1); },
         u"Main Watch confirmed history"_s);
+    if (spec.contains(u"savePipeFile"_s))
+        exerciseMediaSave(*view, *player, readyToken, playbackUrl, variantId, spec, evidence);
     player->stop();
     require(finished == QList<quint64> {readyToken}, u"Main Watch terminal outcome is not unique"_s);
     waitFor([&]
