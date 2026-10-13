@@ -21,6 +21,8 @@ const selections = {
     anitokyo: { query: "Psyren", workId: "anitokyo:9981", episode: "1", translation: "Дублированный" },
     animespirit: { query: "Magical Explorer", workId: "animespirit:16461", episode: "2",
         translation: "Субтитры AnimeJoy" },
+    vkvideo: { query: "Sintel Blender", workId: "vkvideo:-76820671_456239057",
+        variantSuffix: ":video", contentKind: "video" },
 } as const;
 const sourceId = process.argv[2]?.replace(/^--source=/, "") ?? "aniliberty";
 assert(sourceId in selections, `Unknown native video source: ${sourceId}`);
@@ -57,7 +59,8 @@ await writeFile(join(profile, "qbutt", "config", "qbutt.ini"), [
 ].join("\n"));
 const evidencePath = join(root, "evidence.json");
 const specPath = join(root, "spec.json");
-await writeFile(specPath, JSON.stringify({ mode: "native-watch", evidencePath, source: sourceId, ...selection }));
+await writeFile(specPath, JSON.stringify({ mode: "native-watch", evidencePath,
+    screenshots: join(root, "screenshots"), source: sourceId, ...selection }));
 const application = Bun.spawn([executable, `--profile=${profile}`], {
     cwd: bundle,
     windowsHide: true,
@@ -83,7 +86,8 @@ assert.equal(check.name, "native-watch");
 assert.equal(check.source, sourceId);
 assert.equal(check.workId, selection.workId);
 assert.equal(check.identity, `video:${check.variantId}`);
-assert.equal(check.descriptorIsHttps, true);
+assert(check.descriptorIsHttps || check.descriptorIsLocal);
+assert.equal(check.contentKind, "contentKind" in selection ? selection.contentKind : "anime");
 assert(check.trackCount > 0);
 const database = new Database(join(check.libraryPath, "content-library.sqlite"), { readonly: true });
 try {
@@ -110,6 +114,12 @@ try {
         const selector = entry.last_opened.variant.selector.episode;
         assert(selector);
         assert.equal(check.variantId, `aniliberty:9542:episode:${selector.id}:${selector.quality.slice(1)}`);
+    }
+    if (sourceId === "vkvideo") {
+        assert.equal(check.variantId, `${selection.workId}:video`);
+        assert.equal(publication.url, `https://vkvideo.ru/video${publicationId}`);
+        assert.equal(entry.last_opened.variant.selector, "vk_video");
+        assert(!rows[0]!.entry.includes("headers") && !rows[0]!.entry.includes(".mp4"));
     }
 } finally {
     database.close();

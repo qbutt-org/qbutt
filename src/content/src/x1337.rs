@@ -57,7 +57,7 @@ impl X1337 {
             Category::Games => "Games",
             Category::Software => "Apps",
             Category::Books => "Other",
-            Category::Manga => return Ok(Vec::new()),
+            Category::Manga | Category::Video => return Ok(Vec::new()),
         };
         let query = query
             .split(|character: char| !character.is_alphanumeric())

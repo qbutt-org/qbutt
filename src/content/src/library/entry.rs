@@ -289,6 +289,7 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
                 variant.transport == Transport::Video
             }
             (Source::Rutube, VariantSelector::RutubeVideo) => variant.transport == Transport::Video,
+            (Source::VkVideo, VariantSelector::VkVideo) => variant.transport == Transport::Video,
             (
                 Source::RoyalRoad | Source::Kakuyomu | Source::Syosetu | Source::Estar,
                 VariantSelector::OriginalText,

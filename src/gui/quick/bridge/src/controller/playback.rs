@@ -425,7 +425,13 @@ impl ffi::ContentController {
             } else {
                 None
             };
-            let external = if let Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
+            let external = if let Ok(SourceResponse::Resolve(ResolvedContent::BrowserVideo {
+                media,
+                ..
+            })) = &result
+            {
+                Some(MediaGateway::prepare(media.clone()).await.map_err(|_| ()))
+            } else if let Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
                 reference,
                 url,
                 ..
@@ -529,6 +535,11 @@ impl ffi::ContentController {
                             .set_error(Some(ffi::ContentError::Playback)),
                     },
                     Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
+                        reference: resolved,
+                        title,
+                        ..
+                    }))
+                    | Ok(SourceResponse::Resolve(ResolvedContent::BrowserVideo {
                         reference: resolved,
                         title,
                         ..

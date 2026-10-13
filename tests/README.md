@@ -209,6 +209,21 @@ media playlist for its highest unambiguous HLS rendition. Identical CDN mirror
 attributes keep the first declared URI; differing maximum attributes fail.
 These checks fetch no media segments and do not establish native playback.
 
+VK Video has a generated native browser/SQLite scenario:
+
+```powershell
+cargo run --locked --offline -p qbutt-content --example vkvideo-fixtures
+```
+
+It checks native search, exact selected-video resolution, stale identity rejection,
+browser choice, challenges, cancellation, public Share references and reopened
+Favorites/History. Browser thumbnail query URLs and playback credentials do not
+enter stored works. `vkvideo-live` is an explicit acceptance executable using
+`QBUTT_BROWSER_BRIDGE_DISCOVERY` and the already connected Edge session. Its query
+is the first argument; optional `QBUTT_VKVIDEO_PUBLICATION` selects one returned
+public ID for guarded MP4 range checks. It prints public metadata only. These
+provider checks do not establish qplay playback or native pointer input.
+
 RanobeHub has generated HTTPS/fault and two-process SQLite checks, plus a bounded
 public search, work, chapter-list and nonfirst-chapter check:
 
@@ -563,6 +578,7 @@ $env:QBUTT_LAB_QPLAY = 'C:/Tools/qbutt/main-combined-qa/runtime/qplay/qplay.exe'
 bun tests/qt-acceptance/native-watch.ts
 bun tests/qt-acceptance/native-watch.ts --source=anitokyo
 bun tests/qt-acceptance/native-watch.ts --source=animespirit
+bun tests/qt-acceptance/native-watch.ts --source=vkvideo
 ```
 
 The bundle must include the verified qplay distribution. The runner uses a fresh
@@ -575,6 +591,12 @@ reported media tracks, advancing time and the same saved selection in History.
 AniTokyo uses Psyren episode 1 with Дублированный; AnimeSpirit uses Magical
 Explorer episode 2 with Субтитры AnimeJoy. Each run stops after a brief decode.
 It does not establish native pointer or GPU playback.
+The VK mode searches for the Blender open movie Sintel, preserves publication
+`-76820671_456239057`, exercises Video category filtering and uses the existing
+qcatch session to resolve the selected video. qplay receives only the guarded
+local media URL. This mode requires the real connected browser; it checks the
+same actual playback ACK, exact History and gateway retirement. Product-window
+renders are saved at 1440×900 and 1280×720.
 
 The `language-switch` scenario uses the deployed combined executable and Qt
 catalogs beside its `qt.conf`:

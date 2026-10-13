@@ -18406,6 +18406,10 @@ Please choose a different name and try again.</source>
 <context>
     <name>SearchPage</name>
     <message>
+        <source>Video</source>
+        <translation>Видео</translation>
+    </message>
+    <message>
         <source>Open book or comic</source>
         <translation>Открыть книгу или комикс</translation>
     </message>
@@ -18528,6 +18532,10 @@ Please choose a different name and try again.</source>
 </context>
 <context>
     <name>WorkDelegate</name>
+    <message>
+        <source>Video</source>
+        <translation>Видео</translation>
+    </message>
     <message>
         <source>Local book</source>
         <translation>Локальная книга</translation>

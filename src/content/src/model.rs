@@ -24,6 +24,8 @@ pub enum Source {
     NnmClub,
     Nyaa,
     Rutube,
+    #[serde(rename = "vkvideo")]
+    VkVideo,
     Dodi,
     #[serde(rename = "fitgirl")]
     FitGirl,
@@ -77,6 +79,7 @@ impl PublicationRef {
             Source::NnmClub => self.nnmclub_id().map(|_| ()),
             Source::Nyaa => self.nyaa_id().map(|_| ()),
             Source::Rutube => self.rutube_id().map(|_| ()),
+            Source::VkVideo => self.vkvideo_id().map(|_| ()),
             Source::Dodi => self.dodi_parts().map(|_| ()),
             Source::FitGirl => self.fitgirl_slug().map(|_| ()),
             Source::OnlineFix => self.online_fix_path().map(|_| ()),
@@ -374,6 +377,18 @@ impl PublicationRef {
         Ok((id, slug))
     }
 
+    pub(crate) fn vkvideo_id(&self) -> crate::Result<&str> {
+        let Some((owner, video)) = self.id.split_once('_') else {
+            return Err(crate::Error::InvalidReference);
+        };
+        let owner = owner.strip_prefix('-').unwrap_or(owner);
+        if self.source == Source::VkVideo && canonical_decimal(owner) && canonical_decimal(video) {
+            Ok(&self.id)
+        } else {
+            Err(crate::Error::InvalidReference)
+        }
+    }
+
     fn decimal_id(&self, source: Source) -> crate::Result<u64> {
         if self.source != source {
             return Err(crate::Error::InvalidReference);
@@ -434,6 +449,8 @@ pub enum VariantSelector {
     },
     /// The single video identified by the containing Rutube publication.
     RutubeVideo,
+    /// The single video identified by the containing VK Video publication.
+    VkVideo,
     YummyAnimeVideo {
         id: u64,
         episode: String,
@@ -484,7 +501,7 @@ impl VariantSelector {
                         byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
                     })
             }
-            Self::RutubeVideo | Self::OriginalText | Self::LocalPages => true,
+            Self::RutubeVideo | Self::VkVideo | Self::OriginalText | Self::LocalPages => true,
             Self::Torrent { id } => *id != 0,
             Self::TorrentHash { info_hash } => {
                 info_hash.len() == 40
@@ -614,6 +631,7 @@ impl VariantRef {
                 | (Source::LimeTorrents, VariantSelector::TorrentHash { .. })
                 | (Source::X1337, VariantSelector::TorrentHash { .. })
                 | (Source::Rutube, VariantSelector::RutubeVideo)
+                | (Source::VkVideo, VariantSelector::VkVideo)
                 | (Source::RoyalRoad, VariantSelector::OriginalText)
                 | (Source::Kakuyomu, VariantSelector::OriginalText)
                 | (Source::Syosetu, VariantSelector::OriginalText)
@@ -640,6 +658,7 @@ pub enum Category {
     Manga,
     Movies,
     Tv,
+    Video,
     Games,
     Software,
     Books,
@@ -836,5 +855,11 @@ pub enum ResolvedContent {
         reference: VariantRef,
         title: String,
         url: Url,
+    },
+    /// One exact browser resolution. Its protected descriptor remains ephemeral.
+    BrowserVideo {
+        reference: VariantRef,
+        title: String,
+        media: PlaybackMedia,
     },
 }

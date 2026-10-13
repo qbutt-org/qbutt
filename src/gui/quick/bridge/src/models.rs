@@ -173,7 +173,7 @@ pub fn variant_id(reference: &VariantRef) -> String {
             format!("{publication}:episode:{id}:{}", quality.height())
         }
         VariantSelector::Rutube { episode_id } => format!("{publication}:rutube:{episode_id}"),
-        VariantSelector::RutubeVideo => format!("{publication}:video"),
+        VariantSelector::RutubeVideo | VariantSelector::VkVideo => format!("{publication}:video"),
         VariantSelector::OriginalText => format!("{publication}:original"),
         VariantSelector::LocalPages => format!("{publication}:pages"),
         VariantSelector::YummyAnimeVideo {
@@ -238,6 +238,7 @@ pub fn category_key(category: Category) -> &'static str {
         Category::Manga => "manga",
         Category::Movies => "movies",
         Category::Tv => "tv",
+        Category::Video => "video",
         Category::Games => "games",
         Category::Software => "software",
         Category::Books => "books",

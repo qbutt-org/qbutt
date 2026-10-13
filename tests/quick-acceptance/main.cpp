@@ -228,7 +228,7 @@ namespace
             const QString source = value(works, row, "source");
             const QString category = value(works, row, "category");
             require(!source.isEmpty() && QStringList {u"movies"_s, u"tv"_s, u"anime"_s,
-                u"manga"_s, u"games"_s, u"software"_s, u"books"_s}.contains(category),
+                u"manga"_s, u"video"_s, u"games"_s, u"software"_s, u"books"_s}.contains(category),
                 u"Incorrect work source or category role: %1 / %2"_s.arg(source, category));
             if (source == u"AniLiberty")
             {

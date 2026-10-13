@@ -56,6 +56,7 @@ pub(super) fn downloadable_video(reference: &VariantRef) -> bool {
     match &reference.selector {
         VariantSelector::Episode { .. }
         | VariantSelector::RutubeVideo
+        | VariantSelector::VkVideo
         | VariantSelector::AniTokyoVideo { .. }
         | VariantSelector::AnimeSpiritKodik { .. } => true,
         VariantSelector::YummyAnimeVideo { player, .. } => {
@@ -515,7 +516,13 @@ impl ffi::ContentController {
         let qt_thread = self.qt_thread();
         services.runtime.spawn(async move {
             let result = catalog.execute(&request.operation).await;
-            let external = if let Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
+            let external = if let Ok(SourceResponse::Resolve(ResolvedContent::BrowserVideo {
+                media,
+                ..
+            })) = &result
+            {
+                Some(prepare_acquisition(media.clone()).await.map_err(|_| ()))
+            } else if let Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
                 reference,
                 url,
                 ..
@@ -582,6 +589,11 @@ impl ffi::ContentController {
                         None => Err(qbutt_content::DownloadError::InvalidSelection),
                     },
                     Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
+                        reference: resolved,
+                        title,
+                        ..
+                    }))
+                    | Ok(SourceResponse::Resolve(ResolvedContent::BrowserVideo {
                         reference: resolved,
                         title,
                         ..

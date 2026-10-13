@@ -54,6 +54,8 @@ mod thelastgame;
 mod torrent;
 pub mod translation;
 #[cfg(windows)]
+mod vkvideo;
+#[cfg(windows)]
 pub mod webview;
 mod x1337;
 mod yummyanime;
@@ -106,5 +108,7 @@ pub use sources::{SourceFailure, SourceFailureReason, SourceOperation, SourceSet
 pub use syosetu::Syosetu;
 pub use text::{TextBlock, TextBlockKind, TextChapter, TextChapterCache, TextImageAsset, TextSpan};
 pub use thelastgame::TheLastGame;
+#[cfg(windows)]
+pub use vkvideo::VkVideo;
 pub use x1337::X1337;
 pub use yummyanime::YummyAnime;

@@ -40,7 +40,7 @@ impl RuTor {
             Category::Games => &[8],
             Category::Software => &[9],
             Category::Books => &[11],
-            Category::Manga => return Ok(Vec::new()),
+            Category::Manga | Category::Video => return Ok(Vec::new()),
         };
 
         let mut works = Vec::new();

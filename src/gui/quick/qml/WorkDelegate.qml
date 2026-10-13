@@ -18,6 +18,8 @@ ItemDelegate {
             return qsTr("Movies");
         if (category === "tv")
             return qsTr("TV series");
+        if (category === "video")
+            return qsTr("Video");
         if (category === "anime")
             return qsTr("Anime");
         if (category === "manga")

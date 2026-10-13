@@ -33,7 +33,9 @@ impl Nyaa {
             Category::Books => "3_0",
             Category::Software => "6_1",
             Category::Games => "6_2",
-            Category::Movies | Category::Tv | Category::Manga => return Ok(Vec::new()),
+            Category::Movies | Category::Tv | Category::Video | Category::Manga => {
+                return Ok(Vec::new());
+            }
         };
         let mut url = self.origin.clone();
         url.query_pairs_mut().extend_pairs([

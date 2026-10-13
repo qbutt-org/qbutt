@@ -189,7 +189,7 @@ namespace
             empty = view.rootObject()->findChild<QQuickItem *>(u"contentEmptyResults"_s);
             require(category && results && pane && empty, u"Production category controls are missing"_s);
             proxy = qobject_cast<Content::WorkFilterModel *>(results->property("model").value<QObject *>());
-            require(proxy && (category->property("count").toInt() == 8), u"Production category proxy or selector is invalid"_s);
+            require(proxy && (category->property("count").toInt() == 9), u"Production category proxy or selector is invalid"_s);
         }
 
         void choose(const int index, const QString &key)
@@ -263,7 +263,7 @@ namespace
         require((favoriteIds.size() == 6) && (historyIds.size() == 6) && (favoriteIds != historyIds),
             u"Equal-count stored sources need distinct confirmed orders"_s);
         screen.controller->setListMode(Qbutt::Search::ListMode::Favorites);
-        for (const auto &[index, category] : {std::pair {7, u"books"_s}, {5, u"games"_s}, {6, u"software"_s}})
+        for (const auto &[index, category] : {std::pair {8, u"books"_s}, {6, u"games"_s}, {7, u"software"_s}})
         {
             screen.choose(index, category);
             waitFor([&] { return screen.results->property("count").toInt() == 2; }, u"Equal-count category switch"_s);
@@ -271,7 +271,7 @@ namespace
             require((screen.proxy->sourceModel() == favorites) && (identities(favorites) == favoriteIds)
                 && (identities(history) == historyIds), u"Category filtering damaged stored source collections"_s);
         }
-        screen.choose(7, u"books"_s);
+        screen.choose(8, u"books"_s);
         screen.visibleRows(u"books"_s);
         const QString selected = u"rutor:900000001"_s;
         screen.controller->selectWork(selected);
@@ -292,10 +292,10 @@ namespace
             u"Keyboard selection retained another exact variant"_s);
         key(screen.view, Qt::Key_Home);
         screen.selection(selected, true);
-        screen.choose(5, u"games"_s);
+        screen.choose(6, u"games"_s);
         screen.selection(selected, false);
         require(screen.proxy->rowCount() == 2, u"Hidden category switch changed the equal-count fixture"_s);
-        screen.choose(7, u"books"_s);
+        screen.choose(8, u"books"_s);
         screen.selection(selected, true);
         require((screen.controller->property("selectedVariantId").toString() == exact)
             && (savedEntry(database, selected).value(u"preferences"_s) == preferences), u"Hidden/back filter changed exact preferences"_s);
@@ -318,7 +318,7 @@ namespace
         screen.selection(selected, false);
         require((history->rowCount(QModelIndex()) == 6) && (screen.proxy->rowCount() == 1),
             u"Updated source category did not refilter the real snapshot"_s);
-        screen.choose(6, u"software"_s);
+        screen.choose(7, u"software"_s);
         screen.selection(selected, true);
         screen.visibleRows(u"software"_s);
         for (int number = 1; number <= 6; ++number)
@@ -333,7 +333,7 @@ namespace
         waitFor([&] { return screen.empty->isVisible(); }, u"Empty History presentation"_s);
         require(screen.empty->property("text").toString() == QCoreApplication::translate("SearchPage", "History is empty"),
             u"All-category History used category-empty wording"_s);
-        screen.choose(4, u"manga"_s);
+        screen.choose(5, u"manga"_s);
         require(screen.empty->property("text").toString() == QCoreApplication::translate("SearchPage", "No titles in this category"),
             u"Filtered empty History lost its category wording"_s);
         screen.controller->setListMode(Qbutt::Search::ListMode::Favorites);
@@ -366,8 +366,8 @@ namespace
             if (!filteredDuringSearch && screen.controller->property("busy").toBool())
             {
                 const auto before = identities(works);
-                screen.choose(5, u"games"_s);
-                screen.choose(6, u"software"_s);
+                screen.choose(6, u"games"_s);
+                screen.choose(7, u"software"_s);
                 require(identities(works) == before, u"Filtering during search removed source rows"_s);
                 filteredDuringSearch = true;
             }
@@ -385,7 +385,7 @@ namespace
         screen.visibleRows(u"software"_s);
         screen.choose(0, QString());
         require((identities(works) == all) && (identities(screen.proxy) == all), u"All filter lost live accumulated results"_s);
-        screen.choose(6, u"software"_s);
+        screen.choose(7, u"software"_s);
         require(identities(screen.proxy) == software, u"Software filter lost its previous results"_s);
         screen.results->forceActiveFocus();
         key(screen.view, Qt::Key_Home);
@@ -397,9 +397,9 @@ namespace
         screen.controller->setSelectedFavorite(true);
         settled(screen.controller);
         const QString exact = screen.controller->property("selectedVariantId").toString();
-        screen.choose(5, u"games"_s);
+        screen.choose(6, u"games"_s);
         screen.selection(publication, false);
-        screen.choose(6, u"software"_s);
+        screen.choose(7, u"software"_s);
         screen.selection(publication, true);
         require(screen.controller->property("selectedVariantId").toString() == exact, u"Live hidden/back category changed exact torrent preference"_s);
         return publication;
@@ -458,7 +458,7 @@ void exerciseCategory()
         QObject::connect(view.engine(), &QQmlEngine::warnings, &view, [&](const QList<QQmlError> &) { ++warnings; });
         Screen screen(view);
         screen.controller->setListMode(Qbutt::Search::ListMode::Favorites);
-        screen.choose(7, u"books"_s);
+        screen.choose(8, u"books"_s);
         require(screen.proxy->indexOfId(publication) >= 0, u"Saved category fixture was not loaded"_s);
         auto *favorites = model(screen.controller, "favorites");
         int changed = 0;
@@ -474,7 +474,7 @@ void exerciseCategory()
             && (value(favorites, favorites->indexOfId(publication), "category") == u"software"_s),
             u"Fresh inspection did not update the native source category"_s);
         screen.selection(publication, false);
-        screen.choose(6, u"software"_s);
+        screen.choose(7, u"software"_s);
         screen.selection(publication, true);
         require(savedEntry(database, publication).value(u"preferences"_s) == preferences,
             u"Category enrichment replaced exact saved variant preferences"_s);
@@ -491,7 +491,7 @@ void exerciseCategory()
             u"Empty Favorites presentation"_s);
         require(screen.empty->property("text").toString() == QCoreApplication::translate("SearchPage", "No favorites"),
             u"All-category empty Favorites used category-empty wording"_s);
-        screen.choose(6, u"software"_s);
+        screen.choose(7, u"software"_s);
         require(screen.empty->property("text").toString() == QCoreApplication::translate("SearchPage", "No titles in this category"),
             u"Filtered empty Favorites lost its category wording"_s);
     }

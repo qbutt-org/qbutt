@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 27] = [
         Self::AniLiberty,
         Self::AniTokyo,
         Self::YummyAnime,
@@ -19,6 +19,7 @@ impl Source {
         Self::NnmClub,
         Self::Nyaa,
         Self::Rutube,
+        Self::VkVideo,
         Self::FitGirl,
         Self::Dodi,
         Self::OnlineFix,
@@ -50,6 +51,7 @@ impl Source {
             Self::NnmClub => "nnmclub",
             Self::Nyaa => "nyaa",
             Self::Rutube => "rutube",
+            Self::VkVideo => "vkvideo",
             Self::Dodi => "dodi",
             Self::FitGirl => "fitgirl",
             Self::OnlineFix => "onlinefix",
@@ -86,6 +88,7 @@ impl Source {
             Self::NnmClub => "NNM-Club",
             Self::Nyaa => "Nyaa.si",
             Self::Rutube => "Rutube",
+            Self::VkVideo => "VK Video",
             Self::Dodi => "DODI Repacks",
             Self::FitGirl => "FitGirl",
             Self::OnlineFix => "Online-Fix",
@@ -125,6 +128,7 @@ impl Source {
             Self::NnmClub => "https://nnmclub.to",
             Self::Nyaa => "https://nyaa.si",
             Self::Rutube => "https://rutube.ru",
+            Self::VkVideo => "https://vkvideo.ru",
             Self::FitGirl => "https://fitgirl-repacks.site",
             Self::Dodi => "https://dodi-repacks.site",
             Self::TheLastGame => "https://thelastgame.ru",
@@ -151,6 +155,7 @@ impl Source {
             Self::MangaDex | Self::MangaLib => &[Category::Manga],
             Self::RanobeLib => &[Category::Books],
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
+            Self::VkVideo => &[Category::Video],
             Self::FitGirl
             | Self::OnlineFix
             | Self::FreeTP

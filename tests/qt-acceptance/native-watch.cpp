@@ -6,6 +6,7 @@
 
 #include <QAbstractItemModel>
 #include <QApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QJsonArray>
@@ -88,6 +89,20 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Source preferences"_s);
     controller->search(query);
     waitFor([&] { return !controller->property("busy").toBool(); }, u"Native search"_s);
+    if (sourceId == u"vkvideo"_s)
+    {
+        auto *category = view->rootObject()->findChild<QQuickItem *>(u"contentCategory"_s);
+        auto *results = view->rootObject()->findChild<QQuickItem *>(u"contentResults"_s);
+        require(category && results && (results->property("count").toInt() > 0),
+            u"Native VK search returned no visible publications"_s);
+        const int count = results->property("count").toInt();
+        require(category->setProperty("currentIndex", 1), u"Native movie category is unavailable"_s);
+        waitFor([&] { return results->property("count").toInt() == 0; }, u"VK category exclusion"_s);
+        require(category->setProperty("currentIndex", 3)
+            && (category->property("currentValue").toString() == u"video"_s),
+            u"Native Video category is unavailable"_s);
+        waitFor([&] { return results->property("count").toInt() == count; }, u"VK category restoration"_s);
+    }
     controller->selectWork(workId);
     waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Native video variants"_s);
     require(controller->property("errorText").toString().isEmpty(), u"Native video inspection failed"_s);
@@ -117,6 +132,21 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     controller->selectVariant(variantId);
     auto *button = view->rootObject()->findChild<QQuickItem *>(u"contentDownload"_s);
     require(button && button->isEnabled(), u"Native Watch action is unavailable"_s);
+    const QString screenshots = spec.value(u"screenshots"_s).toString();
+    if (!screenshots.isEmpty())
+    {
+        require(QDir().mkpath(screenshots), u"Native Watch screenshot directory failed"_s);
+        for (const QSize &size : {QSize(1440, 900), QSize(1280, 720)})
+        {
+            window->resize(size);
+            QEventLoop frame;
+            QTimer::singleShot(250, &frame, &QEventLoop::quit);
+            frame.exec();
+            require(window->grab().save(QDir(screenshots).filePath(
+                u"native-watch-%1x%2.png"_s.arg(size.width()).arg(size.height()))),
+                u"Native Watch product render failed"_s);
+        }
+    }
 
     QObject observations;
     auto *player = Media::Player::instance();
@@ -125,7 +155,7 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     QStringList errors;
     quint64 readyToken = 0;
     QString readyIdentity;
-    QUrl proxy;
+    QUrl gatewayListener;
     bool historyEmptyBeforeAck = false;
     QList<quint64> started;
     QStringList startedIdentities;
@@ -133,6 +163,7 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     double position = 0;
     QObject::connect(player, &Media::Player::error, &observations, [&](const QString &message) { errors.append(message); });
     bool descriptorIsHttps = false;
+    bool descriptorIsLocal = false;
     QString contentKind;
     QJsonArray tracks;
     QObject::connect(view, &Content::ContentView::videoReady, &observations,
@@ -140,8 +171,10 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     {
         readyToken = token;
         readyIdentity = identity;
-        proxy = proxyUrl;
+        gatewayListener = proxyUrl.isValid() ? proxyUrl : url;
         descriptorIsHttps = url.scheme() == u"https"_s;
+        descriptorIsLocal = (url.scheme() == u"http"_s) && (url.host() == u"127.0.0.1"_s)
+            && (url.port() > 0) && !proxyUrl.isValid();
         contentKind = kind;
         historyEmptyBeforeAck = history->rowCount() == 0;
     });
@@ -165,9 +198,11 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     require(readyToken && historyEmptyBeforeAck && (readyIdentity == u"video:"_s + variantId)
         && (started == QList<quint64> {readyToken}) && (startedIdentities == QStringList {readyIdentity}),
         u"Main Watch did not confirm its exact launch once"_s);
-    require(descriptorIsHttps && contentKind == u"anime"_s,
+    require((descriptorIsHttps || descriptorIsLocal)
+        && (contentKind == spec.value(u"contentKind"_s).toString(u"anime"_s)),
         u"Main Watch did not hand the exact video descriptor to qplay"_s);
-    require(proxy.isValid() && proxy.host() == u"127.0.0.1"_s && proxy.port() > 0,
+    require(gatewayListener.isValid() && gatewayListener.host() == u"127.0.0.1"_s
+        && gatewayListener.port() > 0,
         u"Main Watch has no isolated media gateway"_s);
     waitFor([&] { return (position >= 0.5) || !errors.isEmpty(); }, u"Main Watch actual decoding"_s);
     require(errors.isEmpty(), u"Main Watch decoding failed"_s);
@@ -179,7 +214,7 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     waitFor([&]
     {
         QTcpSocket socket;
-        socket.connectToHost(proxy.host(), proxy.port());
+        socket.connectToHost(gatewayListener.host(), gatewayListener.port());
         return !socket.waitForConnected(100);
     }, u"Main Watch media listener retirement"_s);
     evidence[u"checks"_s] = QJsonArray {QJsonObject {{u"name"_s, u"native-watch"_s},
@@ -187,6 +222,7 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
         {u"translation"_s, translation}, {u"variantId"_s, variantId},
         {u"variantCount"_s, variantCount}, {u"identity"_s, readyIdentity},
         {u"trackCount"_s, static_cast<int>(tracks.size())}, {u"descriptorIsHttps"_s, descriptorIsHttps},
+        {u"descriptorIsLocal"_s, descriptorIsLocal}, {u"contentKind"_s, contentKind},
         {u"launchToken"_s, static_cast<qint64>(readyToken)}, {u"position"_s, position},
         {u"historyAfterActualAck"_s, true}, {u"listenerRetired"_s, true},
         {u"libraryPath"_s, specialFolderLocation(SpecialFolder::Data).toString()}}};

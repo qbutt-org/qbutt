@@ -7,7 +7,7 @@ use qbutt_content::{
     AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, Estar, FitGirl, FreeTP,
     Igruha, Kakuyomu, LibSession, LimeTorrents, MangaDex, MangaLib, NnmClub, Nyaa, OnlineFix,
     RanobeHub, RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source,
-    SourceOperation, Syosetu, TextChapter, TheLastGame, Work, X1337, YummyAnime,
+    SourceOperation, Syosetu, TextChapter, TheLastGame, VkVideo, Work, X1337, YummyAnime,
 };
 
 use super::browser::BrowserClient;
@@ -155,6 +155,14 @@ impl Catalog {
                     }
                     Source::Nyaa => self.nyaa.search(query, *category).await,
                     Source::Rutube => self.rutube.search(query, *category).await,
+                    Source::VkVideo => {
+                        let browser = self
+                            .browser
+                            .handle()
+                            .await
+                            .map_err(qbutt_content::Error::BrowserSession)?;
+                        VkVideo.search(query, *category, &browser, choice).await
+                    }
                     Source::FitGirl => self.fitgirl.search(query, *category).await,
                     Source::Dodi => self.dodi.search(query).await,
                     Source::OnlineFix => self.online_fix.search(query, *category).await,
@@ -245,6 +253,14 @@ impl Catalog {
                     }
                     Source::Nyaa => self.nyaa.inspect(reference).await,
                     Source::Rutube => self.rutube.inspect(reference).await,
+                    Source::VkVideo => {
+                        let browser = self
+                            .browser
+                            .handle()
+                            .await
+                            .map_err(qbutt_content::Error::BrowserSession)?;
+                        VkVideo.inspect(reference, &browser, choice).await
+                    }
                     Source::FitGirl => self.fitgirl.inspect(reference).await,
                     Source::Dodi => self.dodi.inspect(reference).await,
                     Source::OnlineFix => self.online_fix.inspect(reference).await,
@@ -318,6 +334,14 @@ impl Catalog {
                     }
                     Source::Nyaa => self.nyaa.resolve(reference).await,
                     Source::Rutube => self.rutube.resolve(reference).await,
+                    Source::VkVideo => {
+                        let browser = self
+                            .browser
+                            .handle()
+                            .await
+                            .map_err(qbutt_content::Error::BrowserSession)?;
+                        VkVideo.resolve(reference, &browser, choice).await
+                    }
                     Source::FitGirl => self.fitgirl.resolve(reference).await,
                     Source::Dodi => self.dodi.resolve(reference).await,
                     Source::OnlineFix => self.online_fix.resolve(reference).await,

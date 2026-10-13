@@ -183,6 +183,7 @@ Page {
                     { label: qsTr("All"), value: "" },
                     { label: qsTr("Movies"), value: "movies" },
                     { label: qsTr("TV series"), value: "tv" },
+                    { label: qsTr("Video"), value: "video" },
                     { label: qsTr("Anime"), value: "anime" },
                     { label: qsTr("Manga"), value: "manga" },
                     { label: qsTr("Games"), value: "games" },
