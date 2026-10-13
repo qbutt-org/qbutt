@@ -478,12 +478,14 @@ Run `--reader-manga-translation --lang ru --profile <isolated-directory>` in
 the same offscreen environment with an installed, signed-in Codex. The native
 Qt fixture draws an original page with three vertical Japanese balloons and
 scene artwork, imports it through LocalBook, selects an image-capable model in
-the QML reader and accepts the native rendered translation. It checks the exact
-source digest and page, unchanged pixels outside accepted regions, Original,
-and pixel-identical cached reopening with Codex unavailable. Require exit zero
+the QML reader and requests a prepared translation through built-in Codex
+imagegen. It checks the exact source digest, page, normalized geometry and PNG
+cache identity, Original, and pixel-identical reopening with Codex unavailable. Require exit zero
 and `PASS reader_manga_translation`; inspect the saved original, translated
 page and QQuickWidget PNGs in the isolated profile. This is a generated UI
-scenario, not a host pointer or representative artwork benchmark.
+scenario, not a host pointer or representative artwork benchmark. The generated
+page can redraw non-text pixels: semantic accuracy, lettering and preservation
+of artwork must be reviewed separately; the PASS line does not establish them.
 
 `tests/manga-render` is a standalone Qt 6.12 Gui CMake fixture. Configure it in
 the assigned build slot with `CMAKE_BUILD_TYPE=RelWithDebInfo`, then build
@@ -497,6 +499,14 @@ mask/cleaned layers; explicit black/white colors must match the defaults.
 The fixture also checks unchanged pixels outside regions, deterministic
 rerendering, missing-glyph retention and cancellation. It does not establish
 AI style recognition or cleanup quality on scanned artwork.
+
+The same executable accepts `--normalize <original> <generated> <output.png>`
+to replay a saved imagegen result without inference. Multiple original arguments
+describe the geometry of consecutive equal-width vertical segments. This mode
+checks full decoding, bounded pixel counts and aspect ratio before resizing;
+it does not stitch segments or assess internal panel/artwork preservation.
+Require exit zero and `PASS generated_page_normalized` for valid geometry;
+an altered aspect ratio must return nonzero without writing the output.
 
 The two QML translation scenarios accept `--translation-model <model>` and
 `--translation-effort <effort>` through the QML controls. Their PASS lines report

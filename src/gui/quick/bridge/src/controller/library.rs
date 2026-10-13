@@ -5,7 +5,6 @@ use std::sync::Arc;
 use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::translation::context::{ContextAdditions, EvidenceSegment, TranslationContext};
-use qbutt_content::translation::manga::PageRegion;
 use qbutt_content::translation::text::{cache_key, restore_cached};
 use qbutt_content::{
     DownloadJob, DownloadStorage, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView,
@@ -165,7 +164,7 @@ enum LibraryCommand {
     MangaSave {
         key: TranslationCacheKey,
         expected_context_revision: u64,
-        regions: Vec<PageRegion>,
+        png: Vec<u8>,
         additions: ContextAdditions,
         evidence: Vec<EvidenceSegment>,
         reply: oneshot::Sender<LibraryResult<TranslationContext>>,
@@ -191,7 +190,7 @@ pub(super) struct TranslationLookup {
 pub(super) struct MangaTranslationLookup {
     pub key: TranslationCacheKey,
     pub context: TranslationContext,
-    pub cached: Option<Vec<PageRegion>>,
+    pub cached: Option<Vec<u8>>,
 }
 
 #[derive(Clone)]
@@ -329,7 +328,7 @@ impl LibraryWorker {
         &self,
         key: TranslationCacheKey,
         expected_context_revision: u64,
-        regions: Vec<PageRegion>,
+        png: Vec<u8>,
         additions: ContextAdditions,
         evidence: Vec<EvidenceSegment>,
     ) -> LibraryResult<TranslationContext> {
@@ -338,7 +337,7 @@ impl LibraryWorker {
             .send(LibraryCommand::MangaSave {
                 key,
                 expected_context_revision,
-                regions,
+                png,
                 additions,
                 evidence,
                 reply,
@@ -513,8 +512,7 @@ impl LibraryWorker {
                                         &key.chapter.variant.publication,
                                         &key.target_language,
                                     )?;
-                                    let cached =
-                                        library.cached_translation::<Vec<PageRegion>>(&key)?;
+                                    let cached = library.cached_translation_image(&key)?;
                                     Ok(MangaTranslationLookup {
                                         key,
                                         context,
@@ -526,7 +524,7 @@ impl LibraryWorker {
                         LibraryCommand::MangaSave {
                             key,
                             expected_context_revision,
-                            regions,
+                            png,
                             additions,
                             evidence,
                             reply,
@@ -537,10 +535,10 @@ impl LibraryWorker {
                                     "translation library is unavailable",
                                 ))
                                 .and_then(|library| {
-                                    library.save_translation(
+                                    library.save_image_translation(
                                         key,
                                         expected_context_revision,
-                                        &regions,
+                                        &png,
                                         additions,
                                         &evidence,
                                     )

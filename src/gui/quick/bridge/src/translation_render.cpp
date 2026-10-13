@@ -104,6 +104,47 @@ namespace
     }
 }
 
+Qbutt::MangaImageOutput Qbutt::normalize_generated_manga_page(
+    const ::rust::Slice<const std::uint8_t> original,
+    const ::rust::Slice<const std::uint8_t> generated, const RenderCancellation &cancelled)
+{
+    MangaImageOutput output;
+    if (render_cancelled(cancelled))
+    {
+        output.error = "Generated manga page validation cancelled";
+        return output;
+    }
+    QString error;
+    const QImage originalImage = readMangaPage(original, error);
+    if (originalImage.isNull())
+    {
+        output.error = toRust(error);
+        return output;
+    }
+    const QImage generatedImage = readMangaPage(generated, error);
+    if (generatedImage.isNull())
+    {
+        output.error = toRust(error);
+        return output;
+    }
+    const Content::MangaRender::NormalizedPage normalized = Content::MangaRender::normalizeGeneratedPage(
+        originalImage.size(), generatedImage, [&cancelled] { return render_cancelled(cancelled); });
+    if (!normalized.error.isEmpty())
+    {
+        output.error = toRust(normalized.error);
+        return output;
+    }
+    output.png = png(normalized.image);
+    if (render_cancelled(cancelled))
+    {
+        output.png.clear();
+        output.error = "Generated manga page validation cancelled";
+    }
+    else if (output.png.empty())
+        output.error = "Generated manga PNG encoding failed";
+    return output;
+}
+
 Qbutt::MangaRenderOutput Qbutt::render_manga_page(
     ::rust::Slice<const std::uint8_t> original,
     ::rust::Slice<const MangaRegion> regions,

@@ -258,6 +258,25 @@ int main(int argc, char **argv)
     QGuiApplication application(argc, argv);
     try
     {
+        const QStringList arguments = application.arguments();
+        if (arguments.size() >= 5 && arguments.at(1) == u"--normalize"_s)
+        {
+            QSize originalSize {0, 0};
+            for (int index = 2; index < arguments.size() - 2; ++index)
+            {
+                const QImage original(arguments.at(index));
+                require(!original.isNull(), u"Original image could not be decoded"_s);
+                require(originalSize.isEmpty() || originalSize.width() == original.width(),
+                    u"Vertical source segments must have the same width"_s);
+                originalSize = {original.width(), originalSize.height() + original.height()};
+            }
+            const QImage generated(arguments.at(arguments.size() - 2));
+            const NormalizedPage normalized = normalizeGeneratedPage(originalSize, generated);
+            require(normalized.error.isEmpty(), normalized.error);
+            require(normalized.image.save(arguments.constLast()), u"Normalized page could not be saved"_s);
+            qInfo() << "PASS generated_page_normalized" << generated.size() << "to" << normalized.image.size();
+            return 0;
+        }
         require(application.arguments().size() == 2, u"Pass an isolated output directory"_s);
         const QString outputDir = application.arguments().at(1);
         require(QDir().mkpath(outputDir), u"Output directory could not be created"_s);

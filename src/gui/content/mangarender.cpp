@@ -302,6 +302,44 @@ namespace
     }
 }
 
+Content::MangaRender::NormalizedPage Content::MangaRender::normalizeGeneratedPage(
+    const QSize &originalSize, const QImage &generated, const std::function<bool()> &cancelled)
+{
+    NormalizedPage result;
+    if (cancelled && cancelled())
+    {
+        result.error = QStringLiteral("Generated manga page validation cancelled");
+        return result;
+    }
+    if (originalSize.isEmpty() || generated.isNull()
+        || (qint64(originalSize.width()) * originalSize.height() > MAX_PIXELS)
+        || (qint64(generated.width()) * generated.height() > MAX_PIXELS))
+    {
+        result.error = QStringLiteral("Invalid or oversized generated manga page");
+        return result;
+    }
+
+    // Permit integer rounding of at most one pixel on each generated axis.
+    // A changed aspect ratio must not be hidden by stretching, cropping or padding.
+    const qint64 difference = std::abs(qint64(generated.width()) * originalSize.height()
+        - qint64(generated.height()) * originalSize.width());
+    if (difference > qint64(originalSize.width()) + originalSize.height())
+    {
+        result.error = QStringLiteral("Generated manga page changed the original aspect ratio");
+        return result;
+    }
+
+    result.image = generated.scaled(originalSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    if (cancelled && cancelled())
+    {
+        result.image = {};
+        result.error = QStringLiteral("Generated manga page validation cancelled");
+    }
+    else if (result.image.isNull())
+        result.error = QStringLiteral("Generated manga page could not be resized");
+    return result;
+}
+
 Content::MangaRender::Crop Content::MangaRender::cropPage(
     const QImage &image, const QRectF &bounds, const std::function<bool()> &cancelled)
 {

@@ -12,7 +12,6 @@
 #include <QFile>
 #include <QFont>
 #include <QImage>
-#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLinearGradient>
@@ -247,7 +246,7 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     waitFor([&] { return controller->property("readerTranslationBusy").toBool(); },
         u"Live manga translation start"_s);
     waitFor([&] { return !controller->property("readerTranslationBusy").toBool(); },
-        u"Live manga translation"_s, 360'000);
+        u"Live manga translation"_s, 420'000);
     const qint64 translationMs = translationTimer.elapsed();
     qInfo().noquote() << u"LIVE reader_manga_translation model=%1 effort=%2 target=%3 translation_ms=%4"_s
         .arg(model, effort, targetLanguage).arg(translationMs);
@@ -271,10 +270,11 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     database.setDatabaseName(profileDir + u"/content-library.sqlite"_s);
     require(database.open(), database.lastError().text());
     QSqlQuery cache(database);
-    require(cache.exec(u"SELECT key, content FROM translated_content"_s) && cache.next(),
+    require(cache.exec(u"SELECT key, png FROM translated_images"_s) && cache.next(),
         u"Native manga translation was not cached"_s);
     const auto key = QJsonDocument::fromJson(cache.value(0).toByteArray()).object();
-    const auto regions = QJsonDocument::fromJson(cache.value(1).toByteArray()).array();
+    const auto cachedImage = QImage::fromData(cache.value(1).toByteArray(), "PNG")
+        .convertToFormat(QImage::Format_ARGB32);
     QFile originalFile(originalPath);
     require(originalFile.open(QIODevice::ReadOnly), u"Original manga file was lost"_s);
     const QString digest = QString::fromLatin1(
@@ -289,32 +289,14 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
         && chapter.value(u"id"_s).toString() == u"1"_s
         && publication.value(u"source"_s).toString() == u"local_book"_s
         && publication.value(u"id"_s).toString() == digest
-        && regions.size() >= 3,
-        u"Cached manga translation has the wrong page, selection or regions"_s);
+        && key.value(u"provider"_s).toString() == u"codex-imagegen"_s
+        && cachedImage == translated,
+        u"Cached manga translation has the wrong page, selection or image"_s);
     cache.finish();
 
-    int changedInside = 0;
-    for (int y = 0; y < original.height(); ++y)
-    {
-        for (int x = 0; x < original.width(); ++x)
-        {
-            bool inside = false;
-            for (const auto &entry : regions)
-            {
-                const auto bounds = entry.toObject().value(u"bounds"_s).toObject();
-                const double left = bounds.value(u"x"_s).toDouble() * original.width();
-                const double top = bounds.value(u"y"_s).toDouble() * original.height();
-                const double right = left + bounds.value(u"width"_s).toDouble() * original.width();
-                const double bottom = top + bounds.value(u"height"_s).toDouble() * original.height();
-                inside |= x >= left - 1 && x <= right + 1 && y >= top - 1 && y <= bottom + 1;
-            }
-            if (original.pixel(x, y) == translated.pixel(x, y))
-                continue;
-            require(inside, u"Native renderer changed artwork outside accepted regions"_s);
-            ++changedInside;
-        }
-    }
-    require(changedInside > 1000, u"Translated page did not alter the source lettering"_s);
+    // Image generation redraws the page. Geometry and cache identity are checked
+    // here; lettering and artwork preservation require reviewing the saved images.
+    require(translated != original, u"Translated page did not change the original"_s);
 
     activate(translation, 0);
     require(!controller->property("readerTranslationRequested").toBool()
@@ -351,6 +333,6 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
         && pageImage(controller) == translated,
         u"Reopened manga did not reuse the exact translation offline"_s);
     capture(view, profileDir + u"/manga-reader-cached.png"_s, QSize(1440, 900));
-    qInfo().noquote() << u"PASS reader_manga_translation model=%1 effort=%2 target=%3 translation_ms=%4 page=0 regions=%5 changed_pixels=%6 original=ok offline_cache=ok"_s
-        .arg(model, effort, targetLanguage).arg(translationMs).arg(regions.size()).arg(changedInside);
+    qInfo().noquote() << u"PASS reader_manga_translation model=%1 effort=%2 target=%3 translation_ms=%4 page=0 geometry=ok original=ok offline_cache=ok visual_review=required"_s
+        .arg(model, effort, targetLanguage).arg(translationMs);
 }

@@ -7,6 +7,7 @@ use qbutt_codex::{self as codex, CodexError, InputImage};
 use qbutt_content::translation::manga::{
     self, FontFamily, Ink, PageCrop, PageRegion, Rect, RenderLayers,
 };
+use qbutt_content::translation::manga_imagegen::GeneratedPageValidator;
 use serde_json::json;
 
 pub struct RenderCancellation {
@@ -77,6 +78,11 @@ mod ffi {
         error: String,
     }
 
+    struct MangaImageOutput {
+        png: Vec<u8>,
+        error: String,
+    }
+
     unsafe extern "C++" {
         include!("qbutt_quick/translation_render.h");
 
@@ -91,6 +97,12 @@ mod ffi {
             bounds: &MangaRect,
             cancelled: &RenderCancellation,
         ) -> MangaCropOutput;
+
+        fn normalize_generated_manga_page(
+            original: &[u8],
+            generated: &[u8],
+            cancelled: &RenderCancellation,
+        ) -> MangaImageOutput;
     }
 
     extern "Rust" {
@@ -101,6 +113,28 @@ mod ffi {
 }
 
 pub struct QtMangaRenderer;
+
+impl GeneratedPageValidator for QtMangaRenderer {
+    fn normalize(
+        &self,
+        original: &InputImage,
+        png: &[u8],
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<Vec<u8>> {
+        let cancellation = RenderCancellation { flag: cancelled };
+        let output = ffi::normalize_generated_manga_page(&original.bytes, png, &cancellation);
+        if cancellation.flag.load(Ordering::Acquire) {
+            return Err(CodexError::Cancelled);
+        }
+        if !output.error.is_empty() {
+            return Err(CodexError::Tool(output.error));
+        }
+        if output.png.len() > codex::MAX_GENERATED_IMAGE_BYTES {
+            return Err(CodexError::Image);
+        }
+        Ok(output.png)
+    }
+}
 
 impl manga::PageRenderer for QtMangaRenderer {
     fn crop(

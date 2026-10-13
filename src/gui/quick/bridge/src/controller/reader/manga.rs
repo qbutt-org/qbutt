@@ -6,10 +6,11 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_codex::{self as codex, CodexError, ModelModality};
 use qbutt_content::translation::context_tools::{
-    ChapterExcerpt, WorkChapterSource, WorkContextTools, tool_definitions,
+    ChapterExcerpt, WorkChapterSource, WorkContextTools,
 };
 use qbutt_content::translation::manga::{self, PageJob};
-use qbutt_content::{Chapter, ChapterRef, LibraryError, TranslationSelection};
+use qbutt_content::translation::manga_imagegen;
+use qbutt_content::{Chapter, ChapterRef, LibraryError, LocalBook, TranslationSelection};
 use tokio::sync::{Semaphore, watch};
 
 use super::super::catalog::Catalog;
@@ -76,6 +77,7 @@ impl TranslationFailure {
 
 struct MangaChapterSource {
     catalog: Arc<Catalog>,
+    local_book: Option<Arc<LocalBook>>,
 }
 
 impl WorkChapterSource for MangaChapterSource {
@@ -85,6 +87,24 @@ impl WorkChapterSource for MangaChapterSource {
         offset: usize,
     ) -> Pin<Box<dyn Future<Output = codex::Result<ChapterExcerpt>> + Send + '_>> {
         Box::pin(async move {
+            if let Some(book) = self.local_book.as_ref().cloned() {
+                return tokio::task::spawn_blocking(move || {
+                    let pages = book
+                        .chapter_pages(&chapter)
+                        .map_err(|_| CodexError::Provider)?;
+                    let image = pages.images.get(offset).ok_or(CodexError::Protocol)?;
+                    let bytes = book.image_bytes(image).map_err(|_| CodexError::Provider)?;
+                    Ok(ChapterExcerpt {
+                        chapter,
+                        offset,
+                        total_parts: pages.images.len(),
+                        parts: Vec::new(),
+                        image: Some(manga::input_image(bytes)?),
+                    })
+                })
+                .await
+                .map_err(|_| CodexError::Protocol)?;
+            }
             let mut source = self
                 .catalog
                 .reader_source(chapter.variant.publication.source)
@@ -117,7 +137,7 @@ async fn translate(
     chapter: ChapterRef,
     page: usize,
     chapters: Vec<Chapter>,
-    catalog: Arc<Catalog>,
+    source: MangaChapterSource,
     library: LibraryWorker,
     byte_limit: Arc<Semaphore>,
     language: String,
@@ -132,7 +152,7 @@ async fn translate(
         .await
         .map_err(TranslationFailure::Library)?;
     if let Some(selection) = &saved {
-        let key = manga::cache_key(
+        let key = manga_imagegen::cache_key(
             chapter.clone(),
             page as u32,
             &input,
@@ -144,15 +164,11 @@ async fn translate(
             .manga_lookup(key)
             .await
             .map_err(TranslationFailure::Library)?;
-        if let Some(regions) = lookup.cached {
-            let layers =
-                manga::render_cached(input, regions, Arc::new(QtMangaRenderer), cancelled.clone())
-                    .await
-                    .map_err(TranslationFailure::Codex)?;
+        if let Some(png) = lookup.cached {
             if *cancelled.borrow() {
                 return Err(TranslationFailure::Codex(CodexError::Cancelled));
             }
-            let page = CachedPage::translated(original, layers.result_png, byte_limit)
+            let page = CachedPage::translated(original, png, byte_limit)
                 .await
                 .map_err(TranslationFailure::Cache)?;
             return Ok(Arc::new(page));
@@ -167,7 +183,7 @@ async fn translate(
     )
     .await
     .map_err(TranslationFailure::Codex)?;
-    let key = manga::cache_key(
+    let key = manga_imagegen::cache_key(
         chapter.clone(),
         page as u32,
         &input,
@@ -182,14 +198,7 @@ async fn translate(
     if *cancelled.borrow() {
         return Err(TranslationFailure::Codex(CodexError::Cancelled));
     }
-    let layers = if let Some(regions) = lookup.cached {
-        let layers =
-            manga::render_cached(input, regions, Arc::new(QtMangaRenderer), cancelled.clone())
-                .await
-                .map_err(TranslationFailure::Codex)?;
-        if *cancelled.borrow() {
-            return Err(TranslationFailure::Codex(CodexError::Cancelled));
-        }
+    let png = if let Some(png) = lookup.cached {
         library
             .remember_translation_selection(TranslationSelection {
                 target_language: language,
@@ -199,9 +208,8 @@ async fn translate(
             })
             .await
             .map_err(TranslationFailure::Library)?;
-        layers
+        png
     } else {
-        let source = MangaChapterSource { catalog };
         let mut tools = WorkContextTools::new(
             &chapter,
             &chapters,
@@ -211,7 +219,7 @@ async fn translate(
         )
         .map_err(TranslationFailure::Codex)?;
         let expected_context_revision = lookup.context.revision;
-        let result = manga::translate_page(
+        let result = manga_imagegen::translate_page(
             PageJob {
                 chapter,
                 page: page as u32,
@@ -223,10 +231,6 @@ async fn translate(
             },
             Arc::new(QtMangaRenderer),
             &mut tools,
-            tool_definitions()
-                .into_iter()
-                .filter(|tool| tool.name != "search_work_text")
-                .collect(),
             cancelled.clone(),
         )
         .await
@@ -238,18 +242,18 @@ async fn translate(
             .save_manga_translation(
                 lookup.key,
                 expected_context_revision,
-                result.regions,
+                result.png.clone(),
                 result.additions,
                 result.evidence,
             )
             .await
             .map_err(TranslationFailure::Library)?;
-        result.layers
+        result.png
     };
     if *cancelled.borrow() {
         return Err(TranslationFailure::Codex(CodexError::Cancelled));
     }
-    let page = CachedPage::translated(original, layers.result_png, byte_limit)
+    let page = CachedPage::translated(original, png, byte_limit)
         .await
         .map_err(TranslationFailure::Cache)?;
     Ok(Arc::new(page))
@@ -339,7 +343,14 @@ impl ffi::ContentController {
         };
         let chapter = chapter.reference.clone();
         let chapters = self.reader.chapters.all();
-        let catalog = Arc::clone(&services.catalog);
+        let source = MangaChapterSource {
+            catalog: Arc::clone(&services.catalog),
+            local_book: self
+                .local_book
+                .as_ref()
+                .cloned()
+                .filter(|book| book.reference() == chapter.variant.publication),
+        };
         let byte_limit = Arc::clone(&services.reader_bytes);
         let language = self.reader_settings.value.translation_language.clone();
         let qt_thread = self.qt_thread();
@@ -361,7 +372,7 @@ impl ffi::ContentController {
         }
         let task = self.services.as_ref().unwrap().runtime.spawn(async move {
             let result = translate(
-                original, chapter, index, chapters, catalog, library, byte_limit, language,
+                original, chapter, index, chapters, source, library, byte_limit, language,
                 cancelled,
             )
             .await;

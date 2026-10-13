@@ -94,6 +94,14 @@ namespace Content::MangaRender
         QString error;
     };
 
+    struct NormalizedPage
+    {
+        QImage image;
+        QString error;
+    };
+
+    NormalizedPage normalizeGeneratedPage(const QSize &originalSize, const QImage &generated,
+        const std::function<bool()> &cancelled = {});
     Crop cropPage(const QImage &image, const QRectF &bounds,
         const std::function<bool()> &cancelled = {});
     QFont mangaFont(FontFamily family);
