@@ -90,6 +90,42 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Source preferences"_s);
     controller->search(query);
     waitFor([&] { return !controller->property("busy").toBool(); }, u"Native search"_s);
+    auto *works = qobject_cast<QAbstractItemModel *>(controller->property("works").value<QObject *>());
+    require(works, u"Native search results are missing"_s);
+    QModelIndex selectedSource;
+    for (int row = 0; row < sources->rowCount(); ++row)
+    {
+        const auto index = sources->index(row, 0);
+        if (sources->data(index, sourceIdRole).toString() == sourceId)
+            selectedSource = index;
+    }
+    const auto sourceRoles = sources->roleNames();
+    const bool sourceEnabled = sources->data(selectedSource, sourceRoles.key("enabled")).toBool();
+    const bool sourceFailed = sources->data(selectedSource, sourceRoles.key("failed")).toBool();
+    const QString sourceFailure = sources->data(selectedSource, sourceRoles.key("failureText")).toString();
+    const QString searchError = controller->property("errorText").toString();
+    QJsonArray workIds;
+    const int workIdRole = works->roleNames().key("workId");
+    for (int row = 0; row < works->rowCount(); ++row)
+    {
+        const QString id = works->data(works->index(row, 0), workIdRole).toString();
+        workIds.append(id);
+    }
+    QJsonObject selection {
+        {u"source"_s, sourceId},
+        {u"workId"_s, workId},
+        {u"sourceEnabled"_s, sourceEnabled},
+        {u"sourceFailed"_s, sourceFailed},
+        {u"sourceFailure"_s, sourceFailure},
+        {u"searchError"_s, searchError},
+        {u"workCount"_s, works->rowCount()},
+        {u"workIds"_s, workIds}
+    };
+    evidence[u"selection"_s] = selection;
+    require(selectedSource.isValid() && sourceEnabled, u"Native Watch source is disabled or missing"_s);
+    require(!sourceFailed, u"Native search source failed: "_s + sourceFailure);
+    require(searchError.isEmpty(), u"Native search failed: "_s + searchError);
+    require(workIds.contains(workId), u"Native search did not return the selected publication"_s);
     if (sourceId == u"vkvideo"_s)
     {
         auto *category = view->rootObject()->findChild<QQuickItem *>(u"contentCategory"_s);
@@ -106,27 +142,42 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     }
     controller->selectWork(workId);
     waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Native video variants"_s);
-    require(controller->property("errorText").toString().isEmpty(), u"Native video inspection failed"_s);
+    const QString inspectionError = controller->property("errorText").toString();
+    selection[u"inspectionError"_s] = inspectionError;
+    evidence[u"selection"_s] = selection;
+    require(inspectionError.isEmpty(), u"Native video inspection failed: "_s + inspectionError);
     auto *variants = qobject_cast<QAbstractItemModel *>(controller->property("variants").value<QObject *>());
     auto *history = qobject_cast<QAbstractItemModel *>(controller->property("history").value<QObject *>());
     require(variants && history && (history->rowCount() == 0), u"Native inspection recorded premature history"_s);
     QString variantId;
     int matches = 0;
     const auto roles = variants->roleNames();
+    QJsonArray variantRows;
     for (int row = 0; row < variants->rowCount(); ++row)
     {
         const auto index = variants->index(row, 0);
         const QString id = variants->data(index, roles.key("variantId")).toString();
+        const QString variantEpisode = variants->data(index, roles.key("episode")).toString();
+        const QString variantTranslation = variants->data(index, roles.key("translation")).toString();
+        variantRows.append(QJsonObject {
+            {u"variantId"_s, id},
+            {u"episode"_s, variantEpisode},
+            {u"translation"_s, variantTranslation}
+        });
         if (id.startsWith(workId + u":"_s)
             && (variantSuffix.isEmpty() || id.endsWith(variantSuffix))
-            && (episode.isEmpty() || variants->data(index, roles.key("episode")).toString() == episode)
-            && (translation.isEmpty() || variants->data(index, roles.key("translation")).toString() == translation))
+            && (episode.isEmpty() || variantEpisode == episode)
+            && (translation.isEmpty() || variantTranslation == translation))
         {
             if (variantId.isEmpty())
                 variantId = id;
             ++matches;
         }
     }
+    selection[u"variantCount"_s] = variants->rowCount();
+    selection[u"variantMatches"_s] = matches;
+    selection[u"variants"_s] = variantRows;
+    evidence[u"selection"_s] = selection;
     require(!variantId.isEmpty() && ((episode.isEmpty() && translation.isEmpty()) || matches == 1),
         u"Native source has no unique selected video"_s);
     const int variantCount = variants->rowCount();

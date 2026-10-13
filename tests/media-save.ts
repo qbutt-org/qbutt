@@ -70,6 +70,9 @@ assert((await stat(mediaPath)).isFile(), "Legal media is missing");
 const mediaHash = sha256(await media.bytes());
 await run(["C:/Program Files/Git/usr/bin/openssl.exe", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
     "-days", "2", "-subj", "/CN=anilibria.top", "-addext", "subjectAltName=DNS:anilibria.top",
+    "-addext", "basicConstraints=critical,CA:FALSE",
+    "-addext", "keyUsage=critical,digitalSignature,keyEncipherment",
+    "-addext", "extendedKeyUsage=serverAuth",
     "-keyout", privateKey, "-out", certificate]);
 const sourcePaths = [join(repository, "src/content/src/http.rs"), join(repository, "src/content/src/download/transfer.rs")];
 const sourceStatus = await run(["git", "-c", `safe.directory=${repository}`, "status", "--porcelain", "--", ...sourcePaths]);
@@ -91,6 +94,7 @@ for (const item of transport) {
     item.patched = new TextEncoder().encode(source.replaceAll(needle, redirect));
 }
 
+let searchReads = 0;
 let publicationReads = 0;
 let payloadReads = 0;
 let failNextResolution = false;
@@ -107,8 +111,10 @@ const server = Bun.serve({
     tls: { cert: Bun.file(certificate), key: Bun.file(privateKey) },
     fetch(request) {
         const path = new URL(request.url).pathname;
-        if (path === "/api/v1/app/search/releases")
+        if (path === "/api/v1/app/search/releases") {
+            ++searchReads;
             return Response.json([publication]);
+        }
         if (path === "/api/v1/anime/releases/900001") {
             ++publicationReads;
             if (failNextResolution) {
@@ -188,6 +194,10 @@ try {
         if (!pipe)
             await Bun.sleep(200);
     }
+    if (!pipe && application.exitCode !== null && await Bun.file(evidencePath).exists()) {
+        const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
+        assert.equal(application.exitCode, 0, JSON.stringify(evidence));
+    }
     assert(/^qbutt-mpv-[0-9a-f-]+$/.test(pipe), "Actual isolated qplay IPC endpoint was not found");
     failNextResolution = true;
     await writeFile(pipeFile, pipe);
@@ -217,12 +227,13 @@ try {
     } finally {
         database.close();
     }
-    await writeFile(join(output, "receipt.json"), JSON.stringify({ status: "passed", evidence, publicationReads,
+    await writeFile(join(output, "receipt.json"), JSON.stringify({ status: "passed", evidence, searchReads, publicationReads,
         payloadReads, injectedFailure, persisted, mediaHash, driverSha256: sha256(await readFile(driver)),
         qplaySha256: sha256(await readFile(qplay)), originalDigests }, null, 4) + "\n");
     completed = true;
 } catch (error) {
-    await writeFile(join(output, "failure.json"), JSON.stringify({ status: "failed", error: String(error) }, null, 4));
+    await writeFile(join(output, "failure.json"), JSON.stringify({ status: "failed", error: String(error),
+        searchReads, publicationReads, payloadReads, injectedFailure }, null, 4));
     throw error;
 } finally {
     clearTimeout(applicationTimer);
