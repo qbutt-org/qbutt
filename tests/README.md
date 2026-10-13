@@ -74,6 +74,10 @@ Run `--sources --lang ru` in the isolated offscreen host to check the typed
 SourceModel and production Sources overlay. The scenario covers delayed profile
 initialization, persisted enablement, ordered writes, stale/reentrant outcomes,
 exact operation retry and SQLite failures. Require exit zero and `PASS sources`.
+Set `QBUTT_QCATCH_SETUP_FIXTURE_EXE` to the built `qcatch-fixture/qcatch.exe`.
+The isolated registry redirects the selected browser to this CLI sink: the
+generated Challenge checks its exact site URL, missing-browser feedback and
+retained failure until the saved operation is retried.
 This process scenario does not establish native pointer, blur or browser login.
 
 The protected playback transport has a generated HTTP/HTTPS integration scenario:

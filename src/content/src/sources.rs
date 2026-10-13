@@ -96,11 +96,36 @@ impl Source {
 
     pub fn account_url(self) -> Option<&'static str> {
         match self {
-            Self::RuTracker => Some("https://rutracker.org/forum/index.php"),
-            Self::MangaLib => Some("https://mangalib.me"),
-            Self::RanobeLib => Some("https://ranobelib.me"),
+            Self::RuTracker | Self::MangaLib | Self::RanobeLib => self.site_url(),
             _ => None,
         }
+    }
+
+    pub fn site_url(self) -> Option<&'static str> {
+        Some(match self {
+            Self::LocalBook => return None,
+            Self::AniLiberty => "https://anilibria.top",
+            Self::AniTokyo => "https://anitokyo.tv",
+            Self::YummyAnime => "https://yani.tv",
+            Self::AnimeSpirit => "https://my.animespirit.ru",
+            Self::MangaDex => "https://mangadex.org",
+            Self::MangaLib => "https://mangalib.me",
+            Self::RanobeLib => "https://ranobelib.me",
+            Self::RuTor => "https://rutor.info",
+            Self::RuTracker => "https://rutracker.org/forum/index.php",
+            Self::NnmClub => "https://nnmclub.to",
+            Self::Nyaa => "https://nyaa.si",
+            Self::Rutube => "https://rutube.ru",
+            Self::FitGirl => "https://fitgirl-repacks.site",
+            Self::OnlineFix => "https://online-fix.me",
+            Self::FreeTP => "https://freetp.org",
+            Self::ByRut => "https://byrutgame.org",
+            Self::LimeTorrents => "https://www.limetorrents.fun",
+            Self::RoyalRoad => "https://www.royalroad.com",
+            Self::Kakuyomu => "https://kakuyomu.jp",
+            Self::Syosetu => "https://yomou.syosetu.com",
+            Self::RanobeHub => "https://ranobehub.org",
+        })
     }
 
     pub fn categories(self) -> &'static [Category] {

@@ -182,10 +182,21 @@ pub struct SourceRequest {
 }
 
 impl ffi::ContentController {
-    pub fn open_source_account(mut self: Pin<&mut Self>, id: QString) -> bool {
+    pub fn open_source_account(self: Pin<&mut Self>, id: QString) -> bool {
         let Some(url) = Source::from_id(&id.to_string()).and_then(Source::account_url) else {
             return false;
         };
+        self.open_source_page(id, url)
+    }
+
+    pub fn open_source_site(self: Pin<&mut Self>, id: QString) -> bool {
+        let Some(url) = Source::from_id(&id.to_string()).and_then(Source::site_url) else {
+            return false;
+        };
+        self.open_source_page(id, url)
+    }
+
+    fn open_source_page(mut self: Pin<&mut Self>, id: QString, url: &'static str) -> bool {
         let Some(browser) = self
             .services
             .as_ref()

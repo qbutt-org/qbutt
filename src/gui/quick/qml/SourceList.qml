@@ -82,7 +82,7 @@ ColumnLayout {
 
                         Button {
                             objectName: "contentSourceAccount_" + sourceRow.model.sourceId
-                            visible: sourceRow.model.accountSource
+                            visible: sourceRow.model.accountSource && sourceRow.model.challengeSite === ""
                             Layout.preferredHeight: 28
                             padding: 0
                             flat: true
@@ -94,16 +94,6 @@ ColumnLayout {
                                     ? "" : sourceRow.model.sourceId
                                 root.openFailedSourceId = ""
                             }
-                        }
-
-                        Image {
-                            objectName: "contentSourceFailure_" + sourceRow.model.sourceId
-                            Layout.preferredWidth: 20
-                            Layout.preferredHeight: 20
-                            visible: sourceRow.model.failed
-                            source: root.theme.iconSource("error")
-                            sourceSize: Qt.size(20, 20)
-                            Accessible.ignored: true
                         }
 
                         BusyIndicator {
@@ -129,28 +119,19 @@ ColumnLayout {
                         }
                     }
 
-                    Label {
-                        objectName: "contentSourceFailureText_" + sourceRow.model.sourceId
-                        Layout.fillWidth: true
-                        Layout.leftMargin: sourceCheck.indicator.width + sourceCheck.spacing
-                        visible: sourceRow.model.failed
-                        text: sourceRow.model.failureText
-                        color: root.theme.muted
-                        wrapMode: Text.Wrap
-                        textFormat: Text.PlainText
-                    }
-
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.leftMargin: sourceCheck.indicator.width + sourceCheck.spacing
-                        visible: root.expandedSourceId === sourceRow.model.sourceId
+                        visible: sourceRow.model.failed || root.expandedSourceId === sourceRow.model.sourceId
                         spacing: 12
 
                         Label {
+                            objectName: "contentSourceFailureText_" + sourceRow.model.sourceId
                             Layout.fillWidth: true
                             text: root.openFailedSourceId === sourceRow.model.sourceId
                                 ? qsTranslate("SourcePicker", "Could not open the browser. Choose another in Options > Search > Browser.")
-                                : qsTranslate("SourcePicker", "Uses your browser session when available.")
+                                : sourceRow.model.failed ? sourceRow.model.failureText
+                                    : qsTranslate("SourcePicker", "Uses your browser session when available.")
                             color: root.theme.muted
                             wrapMode: Text.Wrap
                             textFormat: Text.PlainText
@@ -159,10 +140,15 @@ ColumnLayout {
                         ActionButton {
                             objectName: "contentSourceOpen_" + sourceRow.model.sourceId
                             theme: root.theme
-                            text: qsTranslate("SourcePicker", "Open %1").arg(sourceRow.model.name)
+                            visible: sourceRow.model.challengeSite !== ""
+                                || root.expandedSourceId === sourceRow.model.sourceId
+                            text: qsTranslate("SourcePicker", "Open %1").arg(sourceRow.model.challengeSite || sourceRow.model.name)
                             onClicked: {
                                 root.openFailedSourceId = ""
-                                if (!root.backend.openSourceAccount(sourceRow.model.sourceId))
+                                const accepted = sourceRow.model.challengeSite !== ""
+                                    ? root.backend.openSourceSite(sourceRow.model.sourceId)
+                                    : root.backend.openSourceAccount(sourceRow.model.sourceId)
+                                if (!accepted)
                                     root.openFailedSourceId = sourceRow.model.sourceId
                             }
                         }

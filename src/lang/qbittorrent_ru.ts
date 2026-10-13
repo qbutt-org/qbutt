@@ -19070,6 +19070,10 @@ Please choose a different name and try again.</source>
         <translation>Подключите qcatch: Настройки → Поиск → Браузер.</translation>
     </message>
     <message>
+        <source>The source requires a browser check.</source>
+        <translation>Источник требует проверки в браузере.</translation>
+    </message>
+    <message>
         <source>Could not get data from this source.</source>
         <translation>Не удалось получить данные от источника.</translation>
     </message>

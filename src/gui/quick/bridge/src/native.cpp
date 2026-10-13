@@ -94,6 +94,8 @@ QString Qbutt::sourceError(const std::int32_t reason)
         return QCoreApplication::translate("ContentController", "Choose a browser under Options > Search > Browser.");
     case 9:
         return QCoreApplication::translate("ContentController", "Connect qcatch under Options > Search > Browser.");
+    case 10:
+        return QCoreApplication::translate("ContentController", "The source requires a browser check.");
     default:
         return QCoreApplication::translate("ContentController", "Could not get data from this source.");
     }

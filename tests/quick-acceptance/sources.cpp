@@ -11,6 +11,8 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeyEvent>
@@ -26,6 +28,8 @@
 
 #include "gui/quick/contentview.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
+
+#include "browser-registration.h"
 
 using namespace Qt::Literals::StringLiterals;
 
@@ -121,12 +125,12 @@ namespace
             {u"query"_s, u"Frieren"_s}, {u"category"_s, u"anime"_s}, {u"language"_s, QJsonValue::Null}}}};
     }
 
-    void failure(QSqlDatabase &database, const QJsonObject &operation)
+    void failure(QSqlDatabase &database, const QJsonObject &operation, const QString &reason = u"timeout"_s)
     {
         QSqlQuery query(database);
         query.prepare(u"UPDATE source_settings SET failure = ?, revision = revision + 1 WHERE source = 'aniliberty'"_s);
         query.addBindValue(QString::fromUtf8(QJsonDocument(QJsonObject {
-            {u"operation"_s, operation}, {u"reason"_s, u"timeout"_s}}).toJson(QJsonDocument::Compact)));
+            {u"operation"_s, operation}, {u"reason"_s, reason}}).toJson(QJsonDocument::Compact)));
         require(query.exec() && (query.numRowsAffected() == 1), query.lastError().text());
     }
 
@@ -143,6 +147,8 @@ void exerciseSources()
     require(QGuiApplication::platformName() == u"offscreen"_s, u"Sources process fixture requires offscreen Qt"_s);
     QTemporaryDir profile;
     require(profile.isValid(), u"Owned source profile failed"_s);
+    const QString openLogPath = QDir(profile.path()).filePath(u"browser-open.log"_s);
+    qputenv("QBUTT_QCATCH_SETUP_FIXTURE_LOG", openLogPath.toUtf8());
     const auto drain = qScopeGuard([]
     {
         if (!QThreadPool::globalInstance()->waitForDone(100'000))
@@ -166,6 +172,8 @@ void exerciseSources()
     }
     require(!controller->openSourceAccount(u"aniliberty"_s),
         u"Anonymous source unexpectedly opened an account action"_s);
+    require(!controller->openSourceSite(u"local_book"_s) && !controller->openSourceSite(u"unknown"_s),
+        u"Private or unknown source advertised a website action"_s);
     bool reenteredInit = false;
     QObject initObserver;
     const auto initConnection = QObject::connect(controller.get(), &Qbutt::ContentController::sourcesChanged, &initObserver, [&]
@@ -295,7 +303,7 @@ void exerciseSources()
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Snapshot retry connection did not drain"_s);
 
     exec(database, u"UPDATE source_settings SET enabled = (source = 'aniliberty')"_s);
-    failure(database, inspection(u"9542"_s));
+    failure(database, inspection(u"9542"_s), u"challenge"_s);
     controller = std::make_unique<Qbutt::ContentController>();
     controller->initLibrary(profile.path());
     loaded(*controller);
@@ -303,13 +311,42 @@ void exerciseSources()
     QObject::connect(controller.get(), &Qbutt::ContentController::torrentReady, &observer, [&] { ++handoffs; });
     require(value(model(*controller, "sources"), u"aniliberty"_s, "failed").toBool()
         && controller->property("errorText").toString().isEmpty(), u"Persisted source failure did not remain confined to Sources"_s);
+    require(value(model(*controller, "sources"), u"aniliberty"_s, "challengeSite").toString() == u"anilibria.top"_s
+        && value(model(*controller, "sources"), u"aniliberty"_s, "failureText").toString()
+            == QCoreApplication::translate("ContentController", "The source requires a browser check."),
+        u"Challenge lost its exact website or translated state"_s);
+    {
+        BrowserRegistrationFixture browsers(profile.path());
+        require(browsers.isReady() && browsers.setInstalled(u"chrome"_s, true), u"Isolated browser sink failed"_s);
+        controller->setBrowserChoice(u"chrome"_s);
+        bool opened = false;
+        QObject browserObserver;
+        QObject::connect(controller.get(), &Qbutt::ContentController::sourceAccountOpened, &browserObserver,
+            [&](const QString &id, const bool accepted)
+            {
+                require(id == u"aniliberty"_s, u"Source browser outcome lost its identity"_s);
+                opened = accepted;
+            });
+        const auto originalFailure = persistedFailure(database);
+        require(controller->openSourceSite(u"aniliberty"_s), u"Explicit source website action rejected"_s);
+        waitFor([&] { return opened && QFileInfo(openLogPath).size() == QByteArray("https://anilibria.top\n").size(); },
+            u"Exact source browser open"_s);
+        QFile openLog(openLogPath);
+        require(openLog.open(QIODevice::ReadOnly) && openLog.readAll() == "https://anilibria.top\n",
+            u"Browser sink received the wrong source URL"_s);
+        require(value(model(*controller, "sources"), u"aniliberty"_s, "failed").toBool()
+            && persistedFailure(database) == originalFailure && (handoffs == 0),
+            u"Opening the source website was treated as a successful retry"_s);
+    }
     require(controller->retrySource(u"aniliberty"_s), u"Actual inspect retry rejected"_s);
     // The HTTP job is live, but its callback cannot run until this newer SQL revision is installed.
     failure(database, searchOperation());
     waitFor([&] { return !value(model(*controller, "sources"), u"aniliberty"_s, "retrying").toBool(); }, u"Late inspect retry"_s, 50'000);
     saved(*controller);
     require(persistedFailure(database).value(u"operation"_s).toObject() == searchOperation()
-        && value(model(*controller, "sources"), u"aniliberty"_s, "failed").toBool(), u"Late success cleared a different failure revision"_s);
+        && value(model(*controller, "sources"), u"aniliberty"_s, "failed").toBool(),
+        u"Late success did not retain the newer failure: "_s
+            + QString::fromUtf8(QJsonDocument(persistedFailure(database)).toJson(QJsonDocument::Compact)));
     require(controller->retrySource(u"aniliberty"_s), u"Current exact inspect retry rejected"_s);
     waitFor([&] { return !value(model(*controller, "sources"), u"aniliberty"_s, "retrying").toBool(); }, u"Exact inspect retry"_s, 50'000);
     saved(*controller);
@@ -331,6 +368,7 @@ void exerciseSources()
         && (persistedFailure(database).value(u"reason"_s) != QJsonValue(u"timeout"_s)), u"Actual source failure was not recorded with its exact public operation"_s);
     controller.reset();
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Missing publication connection did not drain"_s);
+    failure(database, inspection(u"18446744073709551615"_s), u"challenge"_s);
 
     Content::ContentView view(profile.path());
     view.resize(1440, 900);
@@ -366,9 +404,46 @@ void exerciseSources()
     auto *libAccount = visualItem(content, u"contentSourceAccount_mangalib"_s);
     auto *libOpen = visualItem(content, u"contentSourceOpen_mangalib"_s);
     auto *anonymousAccount = visualItem(content, u"contentSourceAccount_aniliberty"_s);
+    auto *siteOpen = visualItem(content, u"contentSourceOpen_aniliberty"_s);
     require(toggle && localRetry && globalRetry && sourceError && searchError
         && toggle->property("checked").toBool() && sourceError->isVisible() && !searchError->isVisible(),
         u"Source failure was not visible only inside the production Sources overlay"_s);
+    require(siteOpen && siteOpen->isVisible() && siteOpen->property("text").toString()
+        == QCoreApplication::translate("SourcePicker", "Open %1").arg(u"anilibria.top"_s)
+        && localRetry->property("text").toString() == QCoreApplication::translate("SourcePicker", "Try again")
+        && sourceError->property("text").toString()
+            == QCoreApplication::translate("ContentController", "The source requires a browser check."),
+        u"Challenge did not show its exact website separately from saved-operation retry"_s);
+    {
+        BrowserRegistrationFixture browsers(profile.path());
+        require(browsers.isReady() && browsers.setInstalled(u"chrome"_s, true), u"Production isolated browser sink failed"_s);
+        uiController->setBrowserChoice(u"edge"_s);
+        bool openFailed = false;
+        int browserOutcomes = 0;
+        QObject browserObserver;
+        QObject::connect(uiController, &Qbutt::ContentController::sourceAccountOpened, &browserObserver,
+            [&](const QString &id, const bool accepted)
+            {
+                require(id == u"aniliberty"_s, u"Production source browser outcome lost its identity"_s);
+                ++browserOutcomes;
+                openFailed = !accepted;
+            });
+        require(QMetaObject::invokeMethod(siteOpen, "clicked"), u"Production source website action failed"_s);
+        waitFor([&] { return openFailed; }, u"Missing selected browser outcome"_s);
+        require(sourceError->property("text").toString() == QCoreApplication::translate("SourcePicker",
+            "Could not open the browser. Choose another in Options > Search > Browser."),
+            u"Missing selected browser did not show the existing settings route"_s);
+        uiController->setBrowserChoice(u"chrome"_s);
+        require(QMetaObject::invokeMethod(siteOpen, "clicked"), u"Production source website retry failed"_s);
+        waitFor([&] { return (browserOutcomes == 2) && !openFailed; }, u"Source website state after opening"_s);
+        waitFor([&] { return QFileInfo(openLogPath).size() == 2 * QByteArray("https://anilibria.top\n").size(); },
+            u"Production exact website browser sink"_s);
+        require(value(model(*uiController, "sources"), u"aniliberty"_s, "failed").toBool()
+            && persistedFailure(database).value(u"reason"_s) == QJsonValue(u"challenge"_s)
+            && sourceError->property("text").toString()
+                == QCoreApplication::translate("ContentController", "The source requires a browser check."),
+            u"Production website opening cleared the saved Challenge"_s);
+    }
     require(libAccount && libAccount->isVisible() && libOpen && !libOpen->isVisible()
         && anonymousAccount && !anonymousAccount->isVisible(),
         u"Account action is visible on the wrong source or expanded by default"_s);
@@ -376,6 +451,23 @@ void exerciseSources()
         u"Lib account details did not open"_s);
     require(QMetaObject::invokeMethod(libAccount, "clicked") && !libOpen->isVisible(),
         u"Lib account details did not close"_s);
+    const auto render = [&](const QString &phase)
+    {
+        const QString imageDirectory = qEnvironmentVariable("QBUTT_SOURCE_QA_IMAGES");
+        if (imageDirectory.isEmpty())
+            return;
+        require(QDir().mkpath(imageDirectory), u"Source render directory failed"_s);
+        for (const QSize &size : {QSize(1440, 900), QSize(1280, 720)})
+        {
+            view.resize(size);
+            QEventLoop frame;
+            QTimer::singleShot(200, &frame, &QEventLoop::quit);
+            frame.exec();
+            require(view.grabFramebuffer().save(QDir(imageDirectory).filePath(u"sources-%1-%2x%3.png"_s
+                .arg(phase).arg(size.width()).arg(size.height()))), u"Production source render failed"_s);
+        }
+    };
+    render(u"challenge"_s);
     const auto key = [&]
     {
         toggle->forceActiveFocus(Qt::TabFocusReason);
@@ -392,19 +484,7 @@ void exerciseSources()
     saved(*uiController);
     require(toggle->property("checked").toBool() && globalRetry->isVisible() && globalRetry->isEnabled()
         && !localRetry->isEnabled() && !searchError->isVisible(), u"Failed source write exposed a no-op local retry or lost its chosen state"_s);
-    const QString imageDirectory = qEnvironmentVariable("QBUTT_SOURCE_QA_IMAGES");
-    if (!imageDirectory.isEmpty())
-    {
-        require(QDir().mkpath(imageDirectory), u"Source render directory failed"_s);
-        for (const QSize &size : {QSize(1440, 900), QSize(1280, 720)})
-        {
-            view.resize(size);
-            QEventLoop frame;
-            QTimer::singleShot(200, &frame, &QEventLoop::quit);
-            frame.exec();
-            require(view.grabFramebuffer().save(QDir(imageDirectory).filePath(u"sources-%1x%2.png"_s.arg(size.width()).arg(size.height()))), u"Production source render failed"_s);
-        }
-    }
+    render(u"settings-error"_s);
     const auto preserveContext = [&]
     {
         require((model(*uiController, "works")->rowCount() == workCount)
@@ -461,6 +541,18 @@ void exerciseSources()
         return reopened && reopened->property("opened").toBool() && choice && choice->property("checked").toBool();
     }, u"Sources overlay retained choice"_s);
     require(!searchError->isVisible(), u"Closing Sources leaked its source failure into search"_s);
+    picker = view.rootObject()->findChild<QObject *>(u"contentSourcePicker"_s);
+    localRetry = visualItem(picker->property("contentItem").value<QQuickItem *>(), u"contentSourceRetry_aniliberty"_s);
+    require(localRetry && localRetry->isEnabled(), u"Reopened exact Challenge retry is missing"_s);
+    const auto challengeOperation = persistedFailure(database).value(u"operation"_s);
+    require(QMetaObject::invokeMethod(localRetry, "clicked"), u"Production exact Challenge retry failed"_s);
+    waitFor([&] { return !value(model(*uiController, "sources"), u"aniliberty"_s, "retrying").toBool(); },
+        u"Production exact Challenge retry"_s, 50'000);
+    saved(*uiController);
+    require(persistedFailure(database).value(u"operation"_s) == challengeOperation
+        && persistedFailure(database).value(u"reason"_s) != QJsonValue(u"challenge"_s)
+        && value(model(*uiController, "sources"), u"aniliberty"_s, "challengeSite").toString().isEmpty(),
+        u"Challenge retry substituted the saved operation or retained the stale browser action"_s);
 
-    qInfo("PASS sources=typed persisted_choices=restart loading_search=gated sqlite_write_retry=exact reentrant_choice=latest corrupt_source=isolated late_success=retained actual_inspect_search_retry=cleared actual_missing_publication=recorded source_handoff=none account_actions=exact production_overlay=close_reopen source_switch=keyboard source_SQL_retry=QML");
+    qInfo("PASS sources=typed persisted_choices=restart loading_search=gated sqlite_write_retry=exact reentrant_choice=latest corrupt_source=isolated late_success=retained actual_inspect_search_retry=cleared actual_missing_publication=recorded source_handoff=none account_actions=exact challenge_site=exact selected_browser=required website_open=not_recovery production_overlay=close_reopen source_switch=keyboard source_SQL_retry=QML");
 }

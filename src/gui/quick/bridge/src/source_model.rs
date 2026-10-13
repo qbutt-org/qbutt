@@ -126,6 +126,7 @@ impl ffi::SourceModel {
                             SourceFailureReason::SourceCheckRequired => 7,
                             SourceFailureReason::BrowserChoiceRequired => 8,
                             SourceFailureReason::BrowserSession => 9,
+                            SourceFailureReason::Challenge => 10,
                             _ => 0,
                         })
                     })
@@ -144,6 +145,16 @@ impl ffi::SourceModel {
                     )),
             ),
             8 => QVariant::from(&row.source.account_url().is_some()),
+            9 => {
+                let site = match (row.failure, row.source.site_url()) {
+                    (Some(SourceFailureReason::Challenge), Some(site)) => {
+                        let site = url::Url::parse(site).expect("fixed source site");
+                        QString::from(site.host_str().expect("source site host"))
+                    }
+                    _ => QString::default(),
+                };
+                QVariant::from(&site)
+            }
             _ => QVariant::default(),
         }
     }
@@ -160,6 +171,7 @@ impl ffi::SourceModel {
             "retrying",
             "manualCheck",
             "accountSource",
+            "challengeSite",
         ]
         .iter()
         .enumerate()

@@ -786,6 +786,9 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "openSourceAccount"]
         fn open_source_account(self: Pin<&mut Self>, id: QString) -> bool;
+        #[qinvokable]
+        #[cxx_name = "openSourceSite"]
+        fn open_source_site(self: Pin<&mut Self>, id: QString) -> bool;
         #[qsignal]
         #[cxx_name = "sourceAccountOpened"]
         fn source_account_opened(self: Pin<&mut Self>, id: QString, opened: bool);
