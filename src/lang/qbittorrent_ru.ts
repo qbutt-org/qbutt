@@ -8980,6 +8980,22 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>Magnet-ссылки зарегистрированы для qbutt.</translation>
     </message>
     <message>
+        <source>Register .torrent files again</source>
+        <translation>Перерегистрировать .torrent-файлы</translation>
+    </message>
+    <message>
+        <source>Torrent files</source>
+        <translation>Torrent-файлы</translation>
+    </message>
+    <message>
+        <source>Could not register .torrent files.</source>
+        <translation>Не удалось зарегистрировать .torrent-файлы.</translation>
+    </message>
+    <message>
+        <source>.torrent files registered for qbutt. You can change the default in Windows Settings.</source>
+        <translation>.torrent-файлы зарегистрированы для qbutt. Приложение по умолчанию можно выбрать в настройках Windows.</translation>
+    </message>
+    <message>
         <source>General</source>
         <translation>Основные</translation>
     </message>

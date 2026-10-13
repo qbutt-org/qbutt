@@ -57,8 +57,13 @@ Root: HKA; Subkey: "Software\Classes\qbutt.Magnet"; ValueType: string; ValueName
 Root: HKA; Subkey: "Software\Classes\qbutt.Magnet"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKA; Subkey: "Software\Classes\qbutt.Magnet\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\qbutt.exe"",0"
 Root: HKA; Subkey: "Software\Classes\qbutt.Magnet\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\qbutt.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\qbutt.Torrent"; ValueType: string; ValueName: ""; ValueData: "qbutt torrent file"
+Root: HKA; Subkey: "Software\Classes\qbutt.Torrent\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\qbutt.exe"",0"
+Root: HKA; Subkey: "Software\Classes\qbutt.Torrent\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\qbutt.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.torrent\OpenWithProgids"; ValueType: string; ValueName: "qbutt.Torrent"; ValueData: ""
 Root: HKA; Subkey: "Software\qbutt\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "qbutt"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\qbutt\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "qbutt BitTorrent client"
+Root: HKA; Subkey: "Software\qbutt\Capabilities\FileAssociations"; ValueType: string; ValueName: ".torrent"; ValueData: "qbutt.Torrent"
 Root: HKA; Subkey: "Software\qbutt\Capabilities\URLAssociations"; ValueType: string; ValueName: "magnet"; ValueData: "qbutt.Magnet"
 Root: HKA; Subkey: "Software\qbutt\Capabilities\URLAssociations"; ValueType: string; ValueName: "qbutt"; ValueData: "qbutt"
 Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "qbutt"; ValueData: "Software\qbutt\Capabilities"; Flags: uninsdeletevalue
@@ -138,6 +143,14 @@ begin
     if RegQueryStringValue(HKCU64, 'Software\Classes\qbutt\shell\open\command', '', Command)
         and (CompareText(Command, ExpandConstant('"{app}\qbutt.exe" "%1"')) = 0) then
         RegDeleteKeyIncludingSubkeys(HKCU64, 'Software\Classes\qbutt');
+    if RegQueryStringValue(HKCU64, 'Software\Classes\qbutt.Torrent\shell\open\command', '', Command)
+        and (CompareText(Command, ExpandConstant('"{app}\qbutt.exe" "%1"')) = 0) then
+    begin
+        RegDeleteKeyIncludingSubkeys(HKCU64, 'Software\Classes\qbutt.Torrent');
+        RegDeleteValue(HKCU64, 'Software\Classes\.torrent\OpenWithProgids', 'qbutt.Torrent');
+        RegDeleteKeyIfEmpty(HKCU64, 'Software\Classes\.torrent\OpenWithProgids');
+        RegDeleteKeyIfEmpty(HKCU64, 'Software\Classes\.torrent');
+    end;
     if RegQueryStringValue(HKCU64, 'Software\Classes\magnet\shell\open\command', '', Command)
         and (CompareText(Command, ExpandConstant('"{app}\qbutt.exe" "%1"')) = 0) then
     begin

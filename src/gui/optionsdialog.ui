@@ -856,7 +856,7 @@
              </widget>
             </item>
             <item>
-             <layout class="QHBoxLayout" name="horizontalLayoutMagnetAssociation">
+             <layout class="QHBoxLayout" name="horizontalLayoutAssociations">
               <item>
                <widget class="QPushButton" name="buttonRegisterMagnetLinks">
                 <property name="text">
@@ -865,7 +865,14 @@
                </widget>
               </item>
               <item>
-               <spacer name="magnetAssociationSpacer">
+               <widget class="QPushButton" name="buttonRegisterTorrentFiles">
+                <property name="text">
+                 <string>Register .torrent files again</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="associationsSpacer">
                 <property name="orientation">
                  <enum>Qt::Orientation::Horizontal</enum>
                 </property>

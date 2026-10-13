@@ -575,8 +575,18 @@ void OptionsDialog::loadDownloadsTabOptions()
         else
             QMessageBox::information(this, tr("Magnet links"), tr("Magnet links registered for qbutt."));
     });
+
+    connect(m_ui->buttonRegisterTorrentFiles, &QAbstractButton::clicked, this, [this]()
+    {
+        if (!Utils::OS::registerTorrentFileAssociation(Path(QCoreApplication::applicationFilePath())))
+            QMessageBox::warning(this, tr("Torrent files"), tr("Could not register .torrent files."));
+        else
+            QMessageBox::information(this, tr("Torrent files"), tr(".torrent files registered for qbutt. "
+                "You can change the default in Windows Settings."));
+    });
 #else
     m_ui->buttonRegisterMagnetLinks->hide();
+    m_ui->buttonRegisterTorrentFiles->hide();
 #endif
 
     m_ui->comboSavingMode->setCurrentIndex(!session->isAutoTMMDisabledByDefault());

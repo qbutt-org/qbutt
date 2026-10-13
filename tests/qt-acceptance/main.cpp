@@ -111,6 +111,7 @@
 #include "base/releaseupdater.h"
 #include "base/torrentfilter.h"
 #include "base/torrentfileswatcher.h"
+#include "base/utils/os.h"
 #include "gui/aboutdialog.h"
 #include "gui/addnewtorrentdialog.h"
 #include "gui/desktopintegration.h"
@@ -2762,6 +2763,14 @@ namespace
             require(registerMagnet->isVisible() && registerMagnet->text() == (russian
                     ? u"Перерегистрировать magnet-ссылки"_s : u"Register magnet links again"_s),
                 u"Magnet registration action is hidden or untranslated"_s);
+            auto *registerTorrent = requiredChild<QPushButton>(&options, u"buttonRegisterTorrentFiles"_s);
+            require(registerTorrent->isVisible() && registerTorrent->text() == (russian
+                    ? u"Перерегистрировать .torrent-файлы"_s : u"Register .torrent files again"_s),
+                u"Torrent registration action is hidden or untranslated"_s);
+            require(registerTorrent->parentWidget() == registerMagnet->parentWidget()
+                    && (registerTorrent->geometry().left() > registerMagnet->geometry().right())
+                    && (registerTorrent->geometry().top() == registerMagnet->geometry().top()),
+                u"Torrent registration action is not beside magnet registration"_s);
             if (phase == u"functional")
             {
                 require(spec.value(u"registryFixture"_s).toBool(), u"Magnet registration requires an isolated registry"_s);
@@ -2789,6 +2798,48 @@ namespace
                     u"Magnet registration changed the protected choice"_s);
                 addCheck(evidence, {{u"name"_s, u"magnet-registration"_s}, {u"handlerRepaired"_s, true},
                     {u"protectedChoicePreserved"_s, true}});
+
+                const QString torrentChoice = u"Microsoft/Windows/CurrentVersion/Explorer/FileExts/.torrent/UserChoice/"_s;
+                const QString torrentCommand = u"Classes/qbutt.Torrent/shell/open/command/Default"_s;
+                registry.setValue(torrentChoice + u"ProgId", u"Other.Torrent"_s);
+                registry.setValue(torrentChoice + u"Hash", u"protected-torrent-choice"_s);
+                registry.setValue(u"Classes/.torrent/Default"_s, u"Other.Torrent"_s);
+                registry.setValue(u"Classes/.torrent/OpenWithProgids/Other.Torrent"_s, QString {});
+                registry.setValue(torrentCommand, u"broken-handler.exe \"%1\""_s);
+                registry.sync();
+                const QStringList keys = registry.allKeys();
+                require(!Utils::OS::registerTorrentFileAssociation(Path(screenshots.filePath(u"missing-qbutt.exe"_s))),
+                    u"Torrent registration accepted a missing executable"_s);
+                registry.sync();
+                require((registry.allKeys() == keys)
+                        && (registry.value(torrentCommand).toString() == u"broken-handler.exe \"%1\""),
+                    u"Rejected torrent registration wrote to the registry"_s);
+                for (int attempt = 0; attempt < 2; ++attempt)
+                {
+                    answerMessageBox(&options, QMessageBox::Ok);
+                    registerTorrent->click();
+                    registry.sync();
+                    require(registry.value(torrentCommand).toString() == command
+                            && registry.value(u"Classes/qbutt.Torrent/DefaultIcon/Default"_s).toString()
+                                == u'"' + executable + u"\",0",
+                        u"Torrent registration did not repair the quoted command and icon"_s);
+                    require(registry.contains(u"Classes/.torrent/OpenWithProgids/qbutt.Torrent"_s)
+                            && registry.value(u"Classes/.torrent/OpenWithProgids/qbutt.Torrent"_s).toString().isEmpty()
+                            && registry.value(u"qbutt/Capabilities/FileAssociations/.torrent"_s).toString() == u"qbutt.Torrent"
+                            && registry.value(u"RegisteredApplications/qbutt"_s).toString() == u"Software\\qbutt\\Capabilities"
+                            && registry.value(u"Microsoft/Windows/CurrentVersion/App Paths/qbutt.exe/Default"_s).toString() == executable,
+                        u"Torrent registration is missing Windows application capabilities"_s);
+                    require(registry.value(u"Classes/.torrent/Default"_s).toString() == u"Other.Torrent"
+                            && registry.contains(u"Classes/.torrent/OpenWithProgids/Other.Torrent"_s)
+                            && registry.value(torrentChoice + u"ProgId").toString() == u"Other.Torrent"
+                            && registry.value(torrentChoice + u"Hash").toString() == u"protected-torrent-choice"
+                            && registry.value(choice + u"ProgId").toString() == u"Other.Magnet"
+                            && registry.value(u"Classes/magnet/shell/open/command/Default"_s).toString() == command,
+                        u"Torrent registration changed an unrelated association or protected choice"_s);
+                }
+                addCheck(evidence, {{u"name"_s, u"torrent-registration"_s}, {u"handlerRepaired"_s, true},
+                    {u"idempotent"_s, true}, {u"missingExecutableRejected"_s, true},
+                    {u"otherAssociationsPreserved"_s, true}, {u"protectedChoicePreserved"_s, true}});
             }
 #endif
             pages->setCurrentRow(8);

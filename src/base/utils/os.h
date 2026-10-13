@@ -51,6 +51,7 @@ namespace Utils::OS
 #ifdef Q_OS_WIN
     Path windowsSystemPath();
     bool registerMagnetLinkAssociation(const Path &executable);
+    bool registerTorrentFileAssociation(const Path &executable);
 
     template <typename T>
     T loadWinAPI(const QString &source, const char *funcName)
