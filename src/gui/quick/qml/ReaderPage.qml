@@ -217,7 +217,7 @@ Page {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.margins: 24
-            width: navigationControls.implicitWidth + 12
+            width: 100
             height: 50
             radius: height / 2
             color: Qt.tint(root.readingBackground, Qt.rgba(root.chromeForeground.r,
@@ -226,20 +226,20 @@ Page {
                 ? root.backend.readerChapterCount > 1 : root.backend.readerPageCount > 1)
 
             RowLayout {
-                id: navigationControls
                 anchors.fill: parent
-                anchors.leftMargin: 4
-                anchors.rightMargin: 4
-                spacing: 2
+                spacing: 0
 
                 ReaderChromeButton {
                     id: previous
                     objectName: "readerPreviousPage"
-                    Layout.preferredWidth: 40
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                     theme: root.theme
                     foreground: root.chromeForeground
                     icon.source: root.theme.iconSource("chevron-left")
                     horizontalPadding: 0
+                    leftCornerRadius: navigation.radius
+                    rightCornerRadius: 0
                     Accessible.name: root.backend.readerIsText
                         ? qsTr("Previous chapter") : qsTr("Previous page")
                     enabled: root.backend.readerIsText
@@ -257,11 +257,14 @@ Page {
                 ReaderChromeButton {
                     id: next
                     objectName: "readerNextPage"
-                    Layout.preferredWidth: 40
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
                     theme: root.theme
                     foreground: root.chromeForeground
                     icon.source: root.theme.iconSource("chevron-right")
                     horizontalPadding: 0
+                    leftCornerRadius: 0
+                    rightCornerRadius: navigation.radius
                     Accessible.name: root.backend.readerIsText
                         ? qsTr("Next chapter") : qsTr("Next page")
                     enabled: root.backend.readerIsText
