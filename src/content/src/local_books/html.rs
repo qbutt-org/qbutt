@@ -62,6 +62,6 @@ impl LocalBook {
                 bytes: bytes.into(),
             }))
         };
-        TextChapter::from_local_html(reference.clone(), &html, &mut resolve_image, None, None)
+        TextChapter::from_html_with_images(reference.clone(), &html, &mut resolve_image, None, None)
     }
 }
