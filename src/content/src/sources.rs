@@ -24,6 +24,7 @@ impl Source {
         Self::OnlineFix,
         Self::FreeTP,
         Self::ByRut,
+        Self::Igruha,
         Self::TheLastGame,
         Self::LimeTorrents,
         Self::X1337,
@@ -54,6 +55,7 @@ impl Source {
             Self::OnlineFix => "onlinefix",
             Self::FreeTP => "freetp",
             Self::ByRut => "byrut",
+            Self::Igruha => "igruha",
             Self::TheLastGame => "thelastgame",
             Self::LimeTorrents => "limetorrents",
             Self::X1337 => "1337x",
@@ -89,6 +91,7 @@ impl Source {
             Self::OnlineFix => "Online-Fix",
             Self::FreeTP => "FreeTP",
             Self::ByRut => "ByRut",
+            Self::Igruha => "Torrent-Igruha",
             Self::TheLastGame => "TheLastGame",
             Self::LimeTorrents => "LimeTorrents",
             Self::X1337 => "1337x",
@@ -128,6 +131,7 @@ impl Source {
             Self::OnlineFix => "https://online-fix.me",
             Self::FreeTP => "https://freetp.org",
             Self::ByRut => "https://byrutgame.org",
+            Self::Igruha => "https://itorrents-igruha.org",
             Self::LimeTorrents => "https://www.limetorrents.fun",
             Self::X1337 => "https://1337x.to/home/",
             Self::RoyalRoad => "https://www.royalroad.com",
@@ -151,6 +155,7 @@ impl Source {
             | Self::OnlineFix
             | Self::FreeTP
             | Self::ByRut
+            | Self::Igruha
             | Self::TheLastGame
             | Self::Dodi => &[Category::Games],
             Self::RoyalRoad | Self::Kakuyomu | Self::Syosetu | Self::Estar => &[Category::Books],

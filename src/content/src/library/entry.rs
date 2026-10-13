@@ -320,6 +320,7 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
                 | Source::OnlineFix
                 | Source::FreeTP
                 | Source::ByRut
+                | Source::Igruha
                 | Source::TheLastGame
                 | Source::LimeTorrents
                 | Source::X1337,

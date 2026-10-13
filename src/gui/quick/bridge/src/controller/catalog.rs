@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use qbutt_content::{
-    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, Estar, FitGirl, FreeTP, Kakuyomu,
+    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, Estar, FitGirl, FreeTP, Igruha, Kakuyomu,
     LibSession, LimeTorrents, MangaDex, MangaLib, NnmClub, Nyaa, OnlineFix, RanobeHub, RanobeLib,
     ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source, SourceOperation, Syosetu,
     TextChapter, TheLastGame, Work, X1337, YummyAnime,
@@ -39,6 +39,7 @@ pub(super) struct Catalog {
     online_fix: OnlineFix,
     freetp: FreeTP,
     byrut: ByRut,
+    igruha: Igruha,
     thelastgame: TheLastGame,
     limetorrents: LimeTorrents,
     x1337: X1337,
@@ -89,6 +90,7 @@ impl Catalog {
             online_fix: OnlineFix::new()?,
             freetp: FreeTP::new()?,
             byrut: ByRut::new()?,
+            igruha: Igruha::new()?,
             thelastgame: TheLastGame::new()?,
             limetorrents: LimeTorrents::new()?,
             x1337: X1337::new()?,
@@ -159,6 +161,16 @@ impl Catalog {
                     Source::FreeTP => self.freetp.search(query, *category).await,
                     Source::ByRut => {
                         self.byrut
+                            .search(
+                                query,
+                                *category,
+                                self.browser.existing_handle().await.as_ref(),
+                                choice,
+                            )
+                            .await
+                    }
+                    Source::Igruha => {
+                        self.igruha
                             .search(
                                 query,
                                 *category,
@@ -246,6 +258,15 @@ impl Catalog {
                             )
                             .await
                     }
+                    Source::Igruha => {
+                        self.igruha
+                            .inspect(
+                                reference,
+                                self.browser.existing_handle().await.as_ref(),
+                                choice,
+                            )
+                            .await
+                    }
                     Source::TheLastGame => self.thelastgame.inspect(reference).await,
                     Source::LimeTorrents => self.limetorrents.inspect(reference).await,
                     Source::X1337 => {
@@ -303,6 +324,15 @@ impl Catalog {
                     Source::FreeTP => self.freetp.resolve(reference).await,
                     Source::ByRut => {
                         self.byrut
+                            .resolve(
+                                reference,
+                                self.browser.existing_handle().await.as_ref(),
+                                choice,
+                            )
+                            .await
+                    }
+                    Source::Igruha => {
+                        self.igruha
                             .resolve(
                                 reference,
                                 self.browser.existing_handle().await.as_ref(),

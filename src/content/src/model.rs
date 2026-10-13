@@ -33,6 +33,8 @@ pub enum Source {
     FreeTP,
     #[serde(rename = "byrut")]
     ByRut,
+    #[serde(rename = "igruha")]
+    Igruha,
     #[serde(rename = "thelastgame")]
     TheLastGame,
     #[serde(rename = "limetorrents")]
@@ -80,6 +82,7 @@ impl PublicationRef {
             Source::OnlineFix => self.online_fix_path().map(|_| ()),
             Source::FreeTP => self.freetp_id().map(|_| ()),
             Source::ByRut => self.byrut_slug().map(|_| ()),
+            Source::Igruha => self.igruha_slug().map(|_| ()),
             Source::TheLastGame => self.thelastgame_slug().map(|_| ()),
             Source::LimeTorrents => self.limetorrents_path().map(|_| ()),
             Source::X1337 => self.x1337_path().map(|_| ()),
@@ -192,6 +195,25 @@ impl PublicationRef {
             return Err(crate::Error::InvalidReference);
         };
         if self.source != Source::ByRut
+            || !canonical_decimal(number)
+            || slug.is_empty()
+            || slug.len() > 200
+            || slug.starts_with('-')
+            || slug.ends_with('-')
+            || !slug
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            return Err(crate::Error::InvalidReference);
+        }
+        Ok(&self.id)
+    }
+
+    pub(crate) fn igruha_slug(&self) -> crate::Result<&str> {
+        let Some((number, slug)) = self.id.split_once('-') else {
+            return Err(crate::Error::InvalidReference);
+        };
+        if self.source != Source::Igruha
             || !canonical_decimal(number)
             || slug.is_empty()
             || slug.len() > 200
@@ -587,6 +609,7 @@ impl VariantRef {
                 | (Source::OnlineFix, VariantSelector::TorrentHash { .. })
                 | (Source::FreeTP, VariantSelector::TorrentHash { .. })
                 | (Source::ByRut, VariantSelector::TorrentHash { .. })
+                | (Source::Igruha, VariantSelector::TorrentHash { .. })
                 | (Source::TheLastGame, VariantSelector::TorrentHash { .. })
                 | (Source::LimeTorrents, VariantSelector::TorrentHash { .. })
                 | (Source::X1337, VariantSelector::TorrentHash { .. })

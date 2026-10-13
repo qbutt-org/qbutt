@@ -24,6 +24,7 @@ mod external_video;
 mod fitgirl;
 mod freetp;
 mod http;
+mod igruha;
 mod kakuyomu;
 mod kodik;
 mod lib_api;
@@ -75,6 +76,7 @@ pub use estar::Estar;
 pub use external_video::{ExternalVideoError, resolve_external_video};
 pub use fitgirl::FitGirl;
 pub use freetp::FreeTP;
+pub use igruha::Igruha;
 pub use kakuyomu::Kakuyomu;
 pub use lib_api::LibSession;
 pub use library::{

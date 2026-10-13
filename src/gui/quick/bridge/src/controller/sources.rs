@@ -273,6 +273,7 @@ impl ffi::ContentController {
             Source::MangaLib,
             Source::RanobeLib,
             Source::ByRut,
+            Source::Igruha,
             Source::YummyAnime,
         ] {
             {
