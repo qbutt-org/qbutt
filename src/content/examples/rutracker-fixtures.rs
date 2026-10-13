@@ -11,6 +11,8 @@ pub use qbutt_content::webview;
 #[path = "../src/browser/mod.rs"]
 pub mod browser;
 
+#[path = "../src/limetorrents.rs"]
+mod limetorrents;
 #[path = "../src/torrent.rs"]
 mod torrent;
 
@@ -62,7 +64,8 @@ async fn main() -> CheckResult {
     if let Some(path) = std::env::args().nth(1) {
         let bytes = std::fs::read(path)?;
         let body = rutracker::document::decode(&bytes, Some("text/html; charset=Windows-1251"))?;
-        let map = rutracker::taxonomy::categories(&body)?;
+        let origin = Url::parse("https://rutracker.org")?;
+        let map = rutracker::taxonomy::categories(&body, &origin)?;
         assert!(map.len() > 1000);
         for (forum, category) in [
             (7, Category::Movies),
@@ -91,9 +94,7 @@ async fn main() -> CheckResult {
     let found = &results[0];
     assert_eq!(found.title, "Синтел [версия 2] & legal");
     assert_eq!(found.reference.id, "42");
-    assert_eq!(found.variants[0].info_hash.as_deref(), Some(HASH));
-    assert_eq!(found.variants[0].size, Some(734_003_200));
-    assert_eq!(found.variants[0].seeders, Some(12));
+    assert!(found.variants.is_empty());
     assert!(found.needs_inspection);
     {
         let requests = fixture.requests.lock().unwrap();
@@ -106,20 +107,21 @@ async fn main() -> CheckResult {
 
     let work = source.inspect(&found.reference, None, choice).await?;
     assert_eq!(work.reference, found.reference);
-    assert_eq!(work.variants[0].reference, found.variants[0].reference);
+    assert_eq!(work.variants[0].info_hash.as_deref(), Some(HASH));
+    assert_eq!(work.variants[0].size, Some(734_003_200));
     assert_eq!(
         work.description.as_deref(),
         Some("Созданный fixture для общественного достояния")
     );
     assert!(!work.needs_inspection);
     match source
-        .resolve(&found.variants[0].reference, None, choice)
+        .resolve(&work.variants[0].reference, None, choice)
         .await?
     {
         ResolvedContent::Torrent {
             reference, magnet, ..
         } => {
-            assert_eq!(reference, found.variants[0].reference);
+            assert_eq!(reference, work.variants[0].reference);
             assert!(
                 magnet
                     .query_pairs()
@@ -163,8 +165,6 @@ async fn main() -> CheckResult {
         "duplicate",
         "foreign-topic",
         "unknown-forum",
-        "bad-magnet",
-        "bad-size",
         "malformed-empty",
         "mime",
         "encoding",
@@ -219,22 +219,24 @@ async fn main() -> CheckResult {
         "changed-hash",
         "changed-topic",
         "changed-download",
+        "bad-magnet",
+        "bad-size",
         "torrent-only",
         "gone",
     ] {
         fixture.case(case);
         let error = source
-            .resolve(&found.variants[0].reference, None, choice)
+            .resolve(&work.variants[0].reference, None, choice)
             .await
             .err()
             .unwrap();
-        if case == "torrent-only" {
-            assert!(matches!(error, Error::UnsupportedTorrent));
-        } else {
-            assert!(matches!(error, Error::VariantUnavailable));
+        match case {
+            "torrent-only" => assert!(matches!(error, Error::UnsupportedTorrent)),
+            "bad-magnet" | "bad-size" => assert!(matches!(error, Error::InvalidResponse(_))),
+            _ => assert!(matches!(error, Error::VariantUnavailable)),
         }
     }
-    browser_sessions(&fixture, &source).await?;
+    browser_sessions(&fixture, &source, &work).await?;
     webview_sessions(&fixture).await?;
     library(&work)?;
     fixture.stop().await?;
@@ -407,7 +409,11 @@ async fn webview_sessions(fixture: &Fixture) -> CheckResult {
     Ok(())
 }
 
-async fn browser_sessions(fixture: &Fixture, source: &rutracker::RuTracker) -> CheckResult {
+async fn browser_sessions(
+    fixture: &Fixture,
+    source: &rutracker::RuTracker,
+    work: &Work,
+) -> CheckResult {
     let directory = std::env::temp_dir().join(format!(
         "qbutt-rutracker-browser-{}-{}",
         std::process::id(),
@@ -455,12 +461,13 @@ async fn browser_sessions(fixture: &Fixture, source: &rutracker::RuTracker) -> C
     let (result, reply) = tokio::join!(operation, response);
     reply?;
     let found = result?.remove(0);
+    assert!(found.variants.is_empty());
     for resolve in [false, true] {
         let operation = async {
             if resolve {
                 source
                     .resolve(
-                        &found.variants[0].reference,
+                        &work.variants[0].reference,
                         Some(&handle),
                         BrowserChoice::Edge,
                     )

@@ -265,9 +265,9 @@ fn map() -> String {
         (862, 9007),
         (99, 9008),
     ] {
-        body.push_str(&format!("<li><span><a href='{parent}'>Родитель</a></span><ul><li><span><a href='{child}'>Потомок</a></span></li></ul></li>"));
+        body.push_str(&format!("<li><span><a href='https://feed.fixture.example/atom/f/{parent}.atom'>Feed</a><a href='viewforum.php?f={parent}'>Родитель</a></span><ul><li><span><a href='viewforum.php?f={child}'>Потомок</a></span></li></ul></li>"));
     }
-    body.push_str("<li><span><span class='c-title' title='Книги и журналы'></span></span><ul><li><span><a href='9006'>Книги</a></span></li></ul></li></ul></div>");
+    body.push_str("<li><span><span class='c-title' title='Книги и журналы'></span></span><ul><li><span><a href='viewforum.php?f=9006'>Книги</a></span></li></ul></li></ul></div>");
     body
 }
 
@@ -330,20 +330,18 @@ fn search(url: &Url, case: &str) -> String {
         (49, 9008),
     ] {
         let mut row = format!(
-            "<tr id='tor_{id}'><td><a href='tracker.php?f={forum}'>Форум</a></td><td class='t-title-col'><a class='tLink' data-topic_id='{id}' href='viewtopic.php?t={id}'>Синтел [версия 2] &amp; legal</a></td><td class='tor-size' data-ts_text='734003200'>700 MB</td><td class='seedmed'>12</td><td><a href='magnet:?xt=urn:btih:{HASH}'>magnet</a></td></tr>"
+            "<tr id='trs-tr-{id}'><td><a href='tracker.php?f={forum}&amp;nm=generated'>Форум</a></td><td class='t-title-col'><a class='tLink' data-topic_id='{id}' href='viewtopic.php?t={id}'>Синтел [версия 2] &amp; legal</a></td><td class='tor-size' data-ts_text='734003200'>700 MB</td><td class='seedmed'>12</td></tr>"
         );
         if id == 42 {
             row = match case {
                 "missing-href" => row.replace(" href='viewtopic.php?t=42'", ""),
                 "missing-topic-id" => row.replace(" data-topic_id='42'", ""),
-                "row-id" => row.replace("tor_42", "tor_50"),
+                "row-id" => row.replace("trs-tr-42", "trs-tr-50"),
                 "foreign-topic" => row.replace(
                     "href='viewtopic.php?t=42'",
                     "href='https://foreign.example/forum/viewtopic.php?t=42'",
                 ),
                 "unknown-forum" => row.replace("f=9001", "f=99999"),
-                "bad-magnet" => row.replace(HASH, "invalid"),
-                "bad-size" => row.replace("734003200", "invalid"),
                 "duplicate" => format!("{row}{row}"),
                 _ => row,
             };
@@ -357,7 +355,16 @@ fn search(url: &Url, case: &str) -> String {
 fn topic(case: &str) -> String {
     let title_id = if case == "changed-topic" { 43 } else { 42 };
     let download_id = if case == "changed-download" { 43 } else { 42 };
-    let hash = if case == "changed-hash" { OTHER } else { HASH };
+    let hash = match case {
+        "changed-hash" => OTHER,
+        "bad-magnet" => "invalid",
+        _ => HASH,
+    };
+    let size = if case == "bad-size" {
+        "invalid"
+    } else {
+        "734003200"
+    };
     let magnet = if case == "torrent-only" {
         String::new()
     } else {
@@ -366,6 +373,6 @@ fn topic(case: &str) -> String {
         )
     };
     format!(
-        "<div class='nav'><a href='viewforum.php?f=33'>Аниме</a><a href='viewforum.php?f=9001'>Потомок</a></div><h1 id='topic-title'><a href='viewtopic.php?t={title_id}'>Синтел [версия 2] &amp; legal</a></h1><div class='post_body'>Созданный fixture для общественного достояния</div><table class='attach'><tr><td><a class='dl-stub' href='dl.php?t={download_id}'>Скачать торрент</a>{magnet}</td></tr></table>"
+        "<div class='nav'><a href='viewforum.php?f=33'>Аниме</a><a href='viewforum.php?f=9001'>Потомок</a></div><a id='topic-title' href='viewtopic.php?t={title_id}'>Синтел [версия 2] &amp; legal</a><div class='post_body'>Созданный fixture для общественного достояния</div><table class='attach'><tr><td><a class='dl-stub' href='dl.php?t={download_id}'>Скачать торрент</a><span id='tor-size-humn' title='{size}'>700 MB</span>{magnet}</td></tr></table>"
     )
 }

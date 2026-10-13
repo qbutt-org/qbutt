@@ -166,7 +166,7 @@ impl RuTracker {
     ) -> Result<taxonomy::Categories> {
         let url = self.origin.join("/forum/index.php?map").unwrap();
         let body = self.document(url, session, browser, choice).await?;
-        taxonomy::categories(&body)
+        taxonomy::categories(&body, &self.origin)
     }
 
     async fn source_session(

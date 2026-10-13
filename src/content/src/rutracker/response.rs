@@ -17,13 +17,6 @@ pub(crate) struct Release {
     magnet: Url,
 }
 
-struct TorrentMetadata {
-    title: String,
-    hash: Option<String>,
-    size: Option<u64>,
-    seeders: Option<u64>,
-}
-
 impl Release {
     pub(crate) fn resolve(self, selected: &VariantRef) -> Result<ResolvedContent> {
         if self.work.variants[0].reference != *selected {
@@ -66,7 +59,7 @@ pub(crate) fn search(
         let title = unique(row, "td.t-title-col a.tLink")?;
         let reference = publication(required(title, "href")?, origin, "viewtopic.php")?;
         if required(title, "data-topic_id")? != reference.id
-            || row.attr("id") != Some(format!("tor_{}", reference.id).as_str())
+            || row.attr("id") != Some(format!("trs-tr-{}", reference.id).as_str())
             || !seen.insert(reference.clone())
         {
             return Err(Error::InvalidResponse("RuTracker topic identity differs"));
@@ -79,26 +72,12 @@ pub(crate) fn search(
         if *actual != Some(category) {
             continue;
         }
-        let hash = optional(row, "a[href^='magnet:']")?
-            .map(|link| magnet(required(link, "href")?).map(|(_, hash)| hash))
-            .transpose()?;
-        let size = unique(row, "td.tor-size")?
-            .attr("data-ts_text")
-            .map(number)
-            .transpose()?;
-        let seeders = optional(row, ".seedmed")?
-            .map(|cell| number(&text(cell)))
-            .transpose()?;
         works.push(work(
             reference,
             origin,
             category,
-            TorrentMetadata {
-                title: text(title),
-                hash,
-                size,
-                seeders,
-            },
+            text(title),
+            Vec::new(),
             true,
         )?);
     }
@@ -114,9 +93,7 @@ pub(crate) fn release(
     expected.rutracker_id()?;
     let document = Html::parse_document(body);
     let title = unique(document.root_element(), "#topic-title")?;
-    if let Some(link) = optional(title, "a")?
-        && publication(required(link, "href")?, origin, "viewtopic.php")? != *expected
-    {
+    if publication(required(title, "href")?, origin, "viewtopic.php")? != *expected {
         return Err(Error::VariantUnavailable);
     }
     let attachment = unique(document.root_element(), "table.attach")?;
@@ -128,6 +105,7 @@ pub(crate) fn release(
         return Err(Error::UnsupportedTorrent);
     };
     let (magnet, hash) = magnet(required(link, "href")?)?;
+    let size = number(required(unique(attachment, "#tor-size-humn")?, "title")?)?;
     let mut category = None;
     for link in document.select(&selector(".nav a[href], a.nav[href]")) {
         let href = required(link, "href")?;
@@ -141,16 +119,32 @@ pub(crate) fn release(
             .ok_or(Error::InvalidResponse("unknown RuTracker topic forum"))?;
     }
     let category = category.ok_or(Error::InvalidResponse("missing RuTracker topic category"))?;
+    let title = text(title);
+    let variant = Variant {
+        reference: VariantRef {
+            publication: expected.clone(),
+            selector: VariantSelector::TorrentHash {
+                info_hash: hash.clone(),
+            },
+        },
+        title: Some(title.clone()),
+        transport: Transport::Torrent,
+        episode: None,
+        quality: None,
+        translation: None,
+        languages: Vec::new(),
+        player: None,
+        size: Some(size),
+        seeders: None,
+        info_hash: Some(hash),
+        reported_video_ads: false,
+    };
     let mut work = work(
         expected.clone(),
         origin,
         category,
-        TorrentMetadata {
-            title: text(title),
-            hash: Some(hash),
-            size: None,
-            seeders: None,
-        },
+        title,
+        vec![variant],
         false,
     )?;
     let post = document
@@ -174,40 +168,13 @@ fn work(
     reference: PublicationRef,
     origin: &Url,
     category: Category,
-    metadata: TorrentMetadata,
+    title: String,
+    variants: Vec<Variant>,
     needs_inspection: bool,
 ) -> Result<Work> {
-    let TorrentMetadata {
-        title,
-        hash,
-        size,
-        seeders,
-    } = metadata;
     if title.is_empty() || title.len() > 4096 {
         return Err(Error::InvalidResponse("invalid RuTracker topic title"));
     }
-    let variants = hash
-        .into_iter()
-        .map(|hash| Variant {
-            reference: VariantRef {
-                publication: reference.clone(),
-                selector: VariantSelector::TorrentHash {
-                    info_hash: hash.clone(),
-                },
-            },
-            title: Some(title.clone()),
-            transport: Transport::Torrent,
-            episode: None,
-            quality: None,
-            translation: None,
-            languages: Vec::new(),
-            player: None,
-            size,
-            seeders,
-            info_hash: Some(hash),
-            reported_video_ads: false,
-        })
-        .collect();
     Ok(Work {
         url: topic_url(origin, &reference),
         reference,
@@ -243,13 +210,18 @@ fn publication(href: &str, origin: &Url, path: &str) -> Result<PublicationRef> {
     Ok(reference)
 }
 
-fn forum_id(href: &str, origin: &Url, path: &str) -> Result<u64> {
+pub(super) fn forum_id(href: &str, origin: &Url, path: &str) -> Result<u64> {
     let url = site_url(href, origin)?;
     let mut fields = url.query_pairs();
     let Some((name, id)) = fields.next() else {
         return Err(Error::InvalidResponse("missing RuTracker forum ID"));
     };
-    if url.path() != format!("/forum/{path}") || name != "f" || fields.next().is_some() {
+    if url.path() != format!("/forum/{path}") || name != "f" {
+        return Err(Error::InvalidResponse("invalid RuTracker forum URL"));
+    }
+    if let Some((name, _)) = fields.next()
+        && (path != "tracker.php" || name != "nm" || fields.next().is_some())
+    {
         return Err(Error::InvalidResponse("invalid RuTracker forum URL"));
     }
     decimal(&id)
