@@ -185,7 +185,9 @@ async fn main() -> CheckResult {
     assert_eq!(fixture.posts.lock().unwrap().len(), 1);
     assert!(fixture.posts.lock().unwrap()[0].contains("nm=%D1%E8%ED%F2%E5%EB+%26+legal"));
     assert!(fixture.posts.lock().unwrap()[0].contains("f%5B%5D=216"));
+    assert!(fixture.posts.lock().unwrap()[0].contains("f%5B%5D=1339"));
     assert!(!fixture.posts.lock().unwrap()[0].contains("f%5B%5D=533"));
+    assert!(!fixture.posts.lock().unwrap()[0].contains("f%5B%5D=735"));
     assert!(!fixture.posts.lock().unwrap()[0].contains("f%5B%5D=256"));
     assert!(!fixture.posts.lock().unwrap()[0].contains("f%5B%5D=257"));
 
@@ -237,6 +239,15 @@ async fn main() -> CheckResult {
             .await?,
         ResolvedContent::Torrent { .. }
     ));
+
+    fixture.case("children");
+    let animated = source
+        .search("Sintel", Category::Movies, None, BrowserChoice::Auto)
+        .await?;
+    assert_eq!(animated.len(), 1);
+    assert_eq!(animated[0].reference.id, "44");
+    assert_eq!(animated[0].category, Category::Movies);
+    fixture.case("normal");
 
     fixture.case("changed-hash");
     assert!(matches!(
@@ -694,11 +705,36 @@ fn page(
         return (
             "200 OK",
             format!(
-                "<form id='search_form'><select id='fs' name='f[]'><optgroup label='Трекер: Видео. Кино, Театр, Муз.видео'><option value='216'>Кино</option>{boundary}<option value='257'>Клипы</option></optgroup><optgroup label='Трекер: Программы, Операционные системы'><option value='533'>Программы</option></optgroup></select></form>"
+                concat!(
+                    "<form id='search_form'><select id='fs' name='f[]'>",
+                    "<optgroup label='Трекер: Всё для детей и родителей'>",
+                    "<option value='1339'>Зарубежные Мультфильмы 21-го века (HD, FHD, UHD)</option>",
+                    "<option value='735'>Аудиокниги для детей и родителей</option></optgroup>",
+                    "<optgroup label='Трекер: Видео. Кино, Театр, Муз.видео'>",
+                    "<option value='216'>Кино</option>{boundary}",
+                    "<option value='257'>Клипы</option></optgroup>",
+                    "<optgroup label='Трекер: Программы, Операционные системы'>",
+                    "<option value='533'>Программы</option></optgroup></select></form>"
+                ),
+                boundary = boundary
             ),
         );
     }
     if path == "/forum/tracker.php" && method == "POST" {
+        if mode == "children" {
+            return (
+                "200 OK",
+                concat!(
+                    "<table class='forumline tablesorter'><tbody>",
+                    "<tr class='prow1'><td><a href='tracker.php?f=1339'>Animated films</a>",
+                    "<a href='viewtopic.php?t=44'>Sintel</a></td></tr>",
+                    "<tr class='prow2'><td><a href='tracker.php?f=735'>Audio books</a>",
+                    "<a href='viewtopic.php?t=45'>Sintel audio book</a></td></tr>",
+                    "</tbody></table>"
+                )
+                .into(),
+            );
+        }
         if mode == "empty" {
             return (
                 "200 OK",

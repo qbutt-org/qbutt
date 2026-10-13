@@ -24,21 +24,35 @@ impl Forums {
         let mut software = HashSet::new();
         let mut movie_boundary = false;
         for group in list.select(&selector("optgroup[label]")) {
-            let (destination, films) = match required(group, "label")?.trim() {
-                "Трекер: Видео. Кино, Театр, Муз.видео" => {
-                    (&mut movies, true)
-                }
-                "Трекер: Программы, Операционные системы" => {
-                    (&mut software, false)
-                }
-                _ => continue,
-            };
+            let label = required(group, "label")?.trim();
+            if !matches!(
+                label,
+                "Трекер: Видео. Кино, Театр, Муз.видео"
+                    | "Трекер: Всё для детей и родителей"
+                    | "Трекер: Программы, Операционные системы"
+            ) {
+                continue;
+            }
             for option in group.select(&selector("option[value]")) {
-                if films && text(option) == "Театр и Музыкальное видео" {
+                let name = text(option);
+                if label == "Трекер: Видео. Кино, Театр, Муз.видео"
+                    && name == "Театр и Музыкальное видео"
+                {
                     movie_boundary = true;
                     break;
                 }
+                if label == "Трекер: Всё для детей и родителей"
+                    && !name.to_lowercase().contains("фильмы")
+                {
+                    continue;
+                }
                 let id = decimal(required(option, "value")?)?;
+                let destination = if label == "Трекер: Программы, Операционные системы"
+                {
+                    &mut software
+                } else {
+                    &mut movies
+                };
                 if !destination.insert(id) {
                     return Err(Error::InvalidResponse("duplicate NNM-Club forum"));
                 }
