@@ -345,8 +345,7 @@ try {
         downloadedStreams: probe.streams.map((stream: { codec_type: string }) => stream.codec_type),
         downloadedDuration: Number(probe.format.duration),
         downloadedSha256: createHash("sha256").update(await readFile(completed.path!)).digest("hex"),
-        transientCapabilityNotPersisted: true, exactSubtitlePairRestored: true,
-        unregisteredAndStaleSubtitlePairsNotRestored: true, reopenedSubtitlePairStable: true };
+        transientCapabilityNotPersisted: true };
     await writeFile(join(root, "result.json"), JSON.stringify(result, null, 2));
     passed = true;
     console.log(JSON.stringify({ ...result, evidence: join(root, "result.json") }));
