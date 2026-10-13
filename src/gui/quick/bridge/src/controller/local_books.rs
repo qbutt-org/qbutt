@@ -171,6 +171,7 @@ impl ffi::ContentController {
     }
 
     fn show_local_book(mut self: Pin<&mut Self>, book: Arc<LocalBook>) {
+        self.as_mut().close_reader();
         let (generation, _) = self.as_mut().cancel_detail();
         self.as_mut().rust_mut().local_book = Some(Arc::clone(&book));
         let group = WorkGroup::single(book.work());

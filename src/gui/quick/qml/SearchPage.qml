@@ -26,6 +26,9 @@ Page {
         resumeBrowserCapture = false;
         browserSettings.close();
     }
+    function openLocalBookPicker(): void {
+        localBookPicker.open();
+    }
     readonly property WorkModel activeWorks: backend.listMode === Search.History ? backend.history
         : backend.listMode === Search.Favorites ? backend.favorites : backend.works
 
@@ -51,8 +54,8 @@ Page {
     FileDialog {
         id: localBookPicker
         objectName: "localBookPicker"
-        title: qsTr("Open book")
-        nameFilters: [qsTr("Books (*.epub *.fb2 *.txt)")]
+        title: qsTr("Open book or comic")
+        nameFilters: [qsTr("Books and comics (*.epub *.cbz *.zip *.html *.htm *.txt *.fb2 *.png *.jpg *.jpeg *.webp *.gif *.bmp)")]
         onAccepted: root.backend.importLocalBook(selectedFile)
     }
 
@@ -96,7 +99,7 @@ Page {
 
     function localBookErrorText(code: string): string {
         switch (code) {
-        case "select": return qsTr("Choose an EPUB, FB2 or TXT file");
+        case "select": return qsTr("Choose a book or comic file");
         case "library": return qsTr("The library is not ready");
         case "save": return qsTr("The book could not be saved");
         case "missing": return qsTr("The book file is no longer available");
@@ -202,13 +205,6 @@ Page {
                 theme: appearance
                 text: qsTranslate("SourcePicker", "Sources")
                 onClicked: sources.open()
-            }
-
-            ActionButton {
-                objectName: "contentOpenBook"
-                theme: appearance
-                text: qsTr("Open book")
-                onClicked: localBookPicker.open()
             }
         }
 

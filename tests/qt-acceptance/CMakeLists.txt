@@ -4,16 +4,12 @@ qt_add_executable(qbutt-qt-acceptance
     add-torrent-layout.h
     metadata-cancel.cpp
     metadata-cancel.h
-    modal-overlay.cpp
-    modal-overlay.h
     quick-handoff.cpp
     quick-handoff.h
     native-watch.cpp
     native-watch.h
     language-switch.cpp
     language-switch.h
-    reader-flow.cpp
-    reader-flow.h
     update-registry.cpp
     update-registry.h
     media-playback.cpp

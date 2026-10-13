@@ -2,6 +2,8 @@
 
 mod epub;
 mod fb2;
+mod html;
+mod pages;
 
 use std::fs::File;
 use std::io::Read;
@@ -12,8 +14,8 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::{
-    Category, Chapter, ChapterRef, Error, PublicationRef, Result, Source, TextChapter, Transport,
-    Variant, VariantRef, VariantSelector, Work,
+    Category, Chapter, ChapterImage, ChapterPages, ChapterRef, Error, PublicationRef, Result,
+    Source, TextChapter, Transport, Variant, VariantRef, VariantSelector, Work,
 };
 
 const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -22,12 +24,16 @@ const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_ENTRY_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_CHAPTER_BYTES: usize = 4 * 1024 * 1024;
 const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PAGE_BYTES: usize = 24 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LocalBookFormat {
     Epub,
     Fb2,
     Txt,
+    Html,
+    ComicArchive,
+    Image,
 }
 
 #[derive(Clone, Debug)]
@@ -46,6 +52,7 @@ pub struct LocalBook {
     pub format: LocalBookFormat,
     pub chapters: Vec<LocalBookChapter>,
     path: PathBuf,
+    page_paths: Vec<String>,
 }
 
 impl LocalBook {
@@ -59,7 +66,10 @@ impl LocalBook {
             "epub" => LocalBookFormat::Epub,
             "fb2" => LocalBookFormat::Fb2,
             "txt" => LocalBookFormat::Txt,
-            _ => return Err(Error::InvalidLocalBook("Choose an EPUB, FB2 or TXT file")),
+            "html" | "htm" => LocalBookFormat::Html,
+            "cbz" | "zip" => LocalBookFormat::ComicArchive,
+            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" => LocalBookFormat::Image,
+            _ => return Err(Error::InvalidLocalBook("Choose a book or comic file")),
         };
         let metadata = path.metadata().map_err(Error::LocalBookIo)?;
         if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_FILE_BYTES {
@@ -67,7 +77,12 @@ impl LocalBook {
                 "The book file is empty or too large",
             ));
         }
-        if format == LocalBookFormat::Txt && metadata.len() > MAX_CHAPTER_BYTES as u64 {
+        if matches!(format, LocalBookFormat::Txt | LocalBookFormat::Html)
+            && metadata.len() > MAX_CHAPTER_BYTES as u64
+        {
+            return Err(Error::ResponseTooLarge);
+        }
+        if format == LocalBookFormat::Image && metadata.len() > MAX_PAGE_BYTES as u64 {
             return Err(Error::ResponseTooLarge);
         }
         let id = hash_file(&path)?;
@@ -82,11 +97,13 @@ impl LocalBook {
             format,
             chapters: Vec::new(),
             path,
+            page_paths: Vec::new(),
         };
         match format {
             LocalBookFormat::Epub => book.inspect_epub()?,
             LocalBookFormat::Fb2 => book.inspect_fb2()?,
-            LocalBookFormat::Txt => book.chapters.push(LocalBookChapter {
+            LocalBookFormat::ComicArchive | LocalBookFormat::Image => book.inspect_pages()?,
+            LocalBookFormat::Txt | LocalBookFormat::Html => book.chapters.push(LocalBookChapter {
                 id: "1".into(),
                 title: book.title.clone(),
                 resource: String::new(),
@@ -138,8 +155,19 @@ impl LocalBook {
     pub fn variant(&self) -> VariantRef {
         VariantRef {
             publication: self.reference(),
-            selector: VariantSelector::OriginalText,
+            selector: if self.is_paged() {
+                VariantSelector::LocalPages
+            } else {
+                VariantSelector::OriginalText
+            },
         }
+    }
+
+    fn is_paged(&self) -> bool {
+        matches!(
+            self.format,
+            LocalBookFormat::ComicArchive | LocalBookFormat::Image
+        )
     }
 
     pub fn work(&self) -> Work {
@@ -156,7 +184,11 @@ impl LocalBook {
             variants: vec![Variant {
                 reference: self.variant(),
                 title: None,
-                transport: Transport::Text,
+                transport: if self.is_paged() {
+                    Transport::Manga
+                } else {
+                    Transport::Text
+                },
                 episode: None,
                 quality: None,
                 translation: None,
@@ -182,7 +214,11 @@ impl LocalBook {
                 title: Some(chapter.title.clone()),
                 volume: None,
                 number: None,
-                pages: 0,
+                pages: if self.is_paged() {
+                    self.page_paths.len() as u32
+                } else {
+                    0
+                },
             })
             .collect()
     }
@@ -201,7 +237,51 @@ impl LocalBook {
             LocalBookFormat::Epub => self.read_epub_chapter(reference, chapter),
             LocalBookFormat::Fb2 => self.read_fb2_chapter(reference, chapter),
             LocalBookFormat::Txt => self.read_txt_chapter(reference),
+            LocalBookFormat::Html => self.read_html_chapter(reference),
+            LocalBookFormat::ComicArchive | LocalBookFormat::Image => Err(Error::InvalidReference),
         }
+    }
+
+    pub fn chapter_pages(&self, reference: &ChapterRef) -> Result<ChapterPages> {
+        reference.validate()?;
+        if !self.is_paged()
+            || reference.variant != self.variant()
+            || !self
+                .chapters
+                .iter()
+                .any(|chapter| chapter.id == reference.id)
+        {
+            return Err(Error::InvalidReference);
+        }
+        self.verify()?;
+        let images = (0..self.page_paths.len())
+            .map(|index| ChapterImage {
+                url: Url::parse(&format!("qbutt-local://{}/page/{index}", self.id)).unwrap(),
+            })
+            .collect();
+        Ok(ChapterPages {
+            reference: reference.clone(),
+            images,
+        })
+    }
+
+    pub fn image_bytes(&self, image: &ChapterImage) -> Result<Vec<u8>> {
+        let url = image.url();
+        let index = url
+            .path()
+            .strip_prefix("/page/")
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|index| *index < self.page_paths.len());
+        if !self.is_paged()
+            || url.scheme() != "qbutt-local"
+            || url.host_str() != Some(self.id.as_str())
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || index.is_none()
+        {
+            return Err(Error::InvalidReference);
+        }
+        self.read_page(index.unwrap())
     }
 
     fn read_txt_chapter(&self, reference: &ChapterRef) -> Result<TextChapter> {
@@ -243,6 +323,19 @@ fn image_media_type(value: &str) -> Option<&'static str> {
         "image/jpeg" => Some("image/jpeg"),
         "image/webp" => Some("image/webp"),
         "image/gif" => Some("image/gif"),
+        "image/bmp" => Some("image/bmp"),
+        _ => None,
+    }
+}
+
+fn image_media_type_for_name(name: &str) -> Option<&'static str> {
+    let extension = name.rsplit_once('.')?.1.to_ascii_lowercase();
+    match extension.as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        "gif" => Some("image/gif"),
+        "bmp" => Some("image/bmp"),
         _ => None,
     }
 }
@@ -253,6 +346,7 @@ fn valid_image_bytes(media_type: &str, bytes: &[u8]) -> bool {
         "image/jpeg" => bytes.starts_with(b"\xff\xd8\xff"),
         "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
         "image/webp" => bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP".as_slice()),
+        "image/bmp" => bytes.starts_with(b"BM"),
         _ => false,
     }
 }

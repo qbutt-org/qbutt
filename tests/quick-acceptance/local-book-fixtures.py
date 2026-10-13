@@ -1,12 +1,15 @@
 """Generate small original EPUB, FB2 and TXT books for native reader QA."""
 
 import base64
+import io
 import shutil
 import struct
 import sys
 import zipfile
 import zlib
 from pathlib import Path
+
+from PIL import Image
 
 
 def png(width: int = 96, height: int = 64) -> bytes:
@@ -131,6 +134,49 @@ def main() -> None:
     create_fb2(destination / "native.fb2", illustration)
     (destination / "native.txt").write_text("Opening line.\nAnother line.\n\nClosing paragraph.\n", encoding="utf-8")
     (destination / "bad-encoding.fb2").write_bytes(b'<?xml version="1.0" encoding=\xc3\xa9?>')
+
+    image = Image.new("RGB", (96, 64), (0, 157, 247))
+    for extension, format_name in [("png", "PNG"), ("jpg", "JPEG"), ("webp", "WEBP"),
+                                   ("gif", "GIF"), ("bmp", "BMP")]:
+        image.save(destination / f"single.{extension}", format=format_name)
+
+    html_folder = destination / "html"
+    (html_folder / "images").mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(destination / "single.png", html_folder / "images" / "drawing.png")
+    (html_folder / "local.html").write_text("""<html><head><title>Private title</title>
+<script>doNotRender()</script></head><body><h1>Local chapter</h1>
+<p>Bold <strong>word</strong>.</p><ol><li>First item</li></ol>
+<img src="images/drawing.png" alt="Drawing">
+<img src="../single.png" alt="Escaped image">
+<img src="https://example.invalid/tracker.png" alt="Remote image">
+</body></html>""", encoding="utf-8")
+
+    with zipfile.ZipFile(destination / "native.cbz", "w") as comic:
+        for number in (10, 2, 1):
+            page = io.BytesIO()
+            Image.new("RGB", (900, 1400), (number * 20, 157, 247)).save(page, format="PNG")
+            (destination / f"comic-page{number}.png").write_bytes(page.getvalue())
+            comic.writestr(f"page{number}.png", page.getvalue())
+        comic.writestr("metadata.txt", "Ignored")
+    shutil.copyfile(destination / "native.cbz", destination / "native.zip")
+    with zipfile.ZipFile(destination / "corrupt-page.cbz", "w") as comic:
+        comic.writestr("page.png", b"not an image")
+    for name, entries in {
+        "traversal.cbz": [("../escape.png", illustration)],
+        "duplicate.cbz": [("page1.png", illustration), ("./page1.png", illustration)],
+        "oversized.cbz": [("page1.png", b"BM" + b"x" * (24 * 1024 * 1024))],
+    }.items():
+        with zipfile.ZipFile(destination / name, "w") as comic:
+            for entry_name, data in entries:
+                comic.writestr(entry_name, data)
+
+    encrypted = bytearray((destination / "native.cbz").read_bytes())
+    for signature, flags_offset in ((b"PK\x03\x04", 6), (b"PK\x01\x02", 8)):
+        offset = 0
+        while (offset := encrypted.find(signature, offset)) != -1:
+            encrypted[offset + flags_offset] |= 1
+            offset += 4
+    (destination / "encrypted.cbz").write_bytes(encrypted)
 
 
 if __name__ == "__main__":

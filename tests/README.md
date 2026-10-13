@@ -329,11 +329,13 @@ within-block offset, finite bounds, atomic failure and immutable retry.
 Require exit zero and the respective `PASS` output. These fixtures do not
 establish QML viewport confirmation or native pointer interaction.
 
-Generate isolated local-book fixtures with
+With Pillow installed for the generated image formats, create isolated local-book fixtures with
 `python tests/quick-acceptance/local-book-fixtures.py <fixture-directory>`, then
 run `cargo run --manifest-path src/content/Cargo.toml --example local-books --locked -- <fixture-directory>`.
-The fixture opens EPUB, FB2 and TXT, checks spine and section order,
-formatting, embedded images, changed-file identity and unsafe archive rejection.
+The fixture opens EPUB, FB2, TXT, HTML, CBZ/ZIP and individual image files.
+It checks chapter and natural page order, formatting, local image bounds,
+changed-file identity, private path restoration, invalid page bytes, and unsafe,
+duplicate, encrypted and oversized archives.
 Open the same files through the native file dialog in a separate profile to
 confirm rendering and position restoration.
 
@@ -537,19 +539,6 @@ It checks exact capture and session data, guarded Watch bytes, durable Download
 acknowledgements, completed decoded media and subtitle style, Qt Downloads
 state, and expired and cancelled selections without fallback jobs. Native
 pointer QA remains a separate check.
-
-The reader's Qt lifecycle and chapter picker use the deployed acceptance driver:
-
-```powershell
-$env:QBUTT_QT_ACCEPTANCE_EXE = 'C:/path/to/portable/qbutt-qt-acceptance.exe'
-$env:QBUTT_LAB_EXE = 'C:/path/to/portable/qbutt.exe'
-bun tests/qt-acceptance/reader-flow.ts
-```
-
-This generated-content integration checks exact chapter IDs, modal search,
-close/reopen state, different-book reset and reader persistence. It also renders
-Light and Dark at 1280×720 and 1440×900. Actual pointer input and application
-switching remain separate native VM checks.
 
 Search, online-source and original-language tests make bounded real upstream
 requests. A blocked source is an error, not evidence of an unavailable account

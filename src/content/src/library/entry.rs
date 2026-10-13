@@ -291,6 +291,9 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
             (Source::LocalBook, VariantSelector::OriginalText) => {
                 variant.transport == Transport::Text
             }
+            (Source::LocalBook, VariantSelector::LocalPages) => {
+                variant.transport == Transport::Manga
+            }
             (Source::MangaDex, VariantSelector::MangaTranslation { .. }) => {
                 variant.transport == Transport::Manga
             }

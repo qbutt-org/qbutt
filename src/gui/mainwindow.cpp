@@ -76,7 +76,6 @@
 #include "base/version.h"
 #include "aboutdialog.h"
 #include "content/browsercapture.h"
-#include "content/readerwidget.h"
 #include "content/translationsettingsdialog.h"
 #include "cookiesdialog.h"
 #include "desktopintegration.h"
@@ -153,23 +152,8 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     });
     connect(m_ui->actionReadFile, &QAction::triggered, this, [this]
     {
-        if (!m_localReader)
-        {
-            m_localReader = new Content::ReaderWidget(this);
-            connect(m_localReader, &Content::ReaderWidget::closed, this, [this]
-            {
-                m_tabs->removeTab(m_tabs->indexOf(m_localReader));
-                m_localReader->deleteLater();
-                m_localReader.clear();
-                displaySearchTab();
-            });
-        }
-        if (m_localReader->chooseFile())
-        {
-            if (m_tabs->indexOf(m_localReader) < 0)
-                m_tabs->addTab(m_localReader, tr("Read file…"));
-            m_tabs->setCurrentWidget(m_localReader);
-        }
+        displaySearchTab();
+        ensureContentView()->openLocalBookPicker();
     });
     connect(m_ui->actionContentDownloads, &QAction::triggered, this, [this]
     {
@@ -1357,8 +1341,6 @@ void MainWindow::changeEvent(QEvent *event)
         handleRSSUnreadCountUpdated(RSS::Session::instance()->rootFolder()->unreadCount());
     if (m_executionLog)
         m_tabs->setTabText(m_tabs->indexOf(m_executionLog), tr("Execution Log"));
-    if (m_localReader)
-        m_tabs->setTabText(m_tabs->indexOf(m_localReader), tr("Read file…"));
     if (m_downloadsWidget)
     {
         m_tabs->setTabText(m_tabs->indexOf(m_downloadsWidget), tr("Downloads"));
@@ -1443,8 +1425,7 @@ void MainWindow::showStatusBar(bool show)
 void MainWindow::updateContextControls()
 {
     const bool contentActive = m_searchWidget && (m_tabs->currentWidget() == m_searchWidget);
-    const bool readerActive = (contentActive && m_searchWidget->isReading())
-        || (m_localReader && (m_tabs->currentWidget() == m_localReader));
+    const bool readerActive = contentActive && m_searchWidget->isReading();
     m_ui->toolBar->setVisible(Preferences::instance()->isToolbarDisplayed() && (m_tabs->currentWidget() == m_splitter));
     if (m_statusBar)
         m_statusBar->setVisible(!readerActive);

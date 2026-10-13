@@ -23,6 +23,7 @@ namespace Content
         explicit ContentView(const QString &profileDir, QWidget *parent = nullptr);
         ~ContentView() override;
         void giveFocusToSearchInput();
+        void openLocalBookPicker();
         bool isReading() const;
         bool confirmPlayback(quint64 launchToken);
         bool finishPlayback(quint64 launchToken);

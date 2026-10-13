@@ -147,9 +147,9 @@ impl LocalBook {
     }
 }
 
-fn check_zip(bytes: &[u8]) -> Result<()> {
+pub(super) fn check_zip(bytes: &[u8]) -> Result<()> {
     let mut archive = ZipArchive::new(Cursor::new(bytes))
-        .map_err(|_| Error::InvalidLocalBook("The EPUB archive is invalid"))?;
+        .map_err(|_| Error::InvalidLocalBook("The book archive is invalid"))?;
     if archive.len() > MAX_ARCHIVE_ENTRIES {
         return Err(Error::ResponseTooLarge);
     }
@@ -158,18 +158,19 @@ fn check_zip(bytes: &[u8]) -> Result<()> {
     for index in 0..archive.len() {
         let entry = archive
             .by_index_raw(index)
-            .map_err(|_| Error::InvalidLocalBook("The EPUB archive is invalid"))?;
+            .map_err(|_| Error::InvalidLocalBook("The book archive is invalid"))?;
         let entry_name = entry
             .name()
-            .map_err(|_| Error::InvalidLocalBook("The EPUB archive has an invalid filename"))?;
+            .map_err(|_| Error::InvalidLocalBook("The book archive has an invalid filename"))?;
         let name = safe_archive_path(entry_name.trim_end_matches('/'))?;
-        if !names.insert(name)
+        if entry.encrypted()
+            || !names.insert(name)
             || entry
                 .unix_mode()
                 .is_some_and(|mode| mode & 0o170000 == 0o120000)
         {
             return Err(Error::InvalidLocalBook(
-                "The EPUB has unsafe archive entries",
+                "The book has unsafe archive entries",
             ));
         }
         if entry.size() > MAX_ENTRY_BYTES {
@@ -191,19 +192,24 @@ fn safe_archive_path(path: &str) -> Result<String> {
         || path.chars().any(char::is_control)
     {
         return Err(Error::InvalidLocalBook(
-            "The EPUB has an unsafe archive path",
+            "The book has an unsafe archive path",
         ));
     }
     let mut parts = Vec::new();
     for part in path.split('/') {
         if part == ".." || part.is_empty() {
             return Err(Error::InvalidLocalBook(
-                "The EPUB has an unsafe archive path",
+                "The book has an unsafe archive path",
             ));
         }
         if part != "." {
             parts.push(part);
         }
+    }
+    if parts.is_empty() {
+        return Err(Error::InvalidLocalBook(
+            "The book has an unsafe archive path",
+        ));
     }
     Ok(parts.join("/"))
 }

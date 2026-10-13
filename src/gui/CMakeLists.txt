@@ -44,12 +44,7 @@ add_library(qbt_gui STATIC
     color.h
     colorscheme.h
     content/browsercapture.h
-    content/chapterpicker.h
     content/mangarender.h
-    content/modaloverlay.h
-    content/readerimages.h
-    content/readersettingsdialog.h
-    content/readerwidget.h
     content/translationsettingsdialog.h
     cookiesdialog.h
     cookiesmodel.h
@@ -161,11 +156,6 @@ add_library(qbt_gui STATIC
     autoexpandabledialog.cpp
     banlistoptionsdialog.cpp
     content/browsercapture.cpp
-    content/chapterpicker.cpp
-    content/modaloverlay.cpp
-    content/readerimages.cpp
-    content/readersettingsdialog.cpp
-    content/readerwidget.cpp
     content/translationsettingsdialog.cpp
     cookiesdialog.cpp
     cookiesmodel.cpp

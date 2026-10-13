@@ -7,7 +7,8 @@ use std::time::Duration;
 use cxx_qt::CxxQtThread;
 use cxx_qt_lib::{QString, QUrl};
 use qbutt_content::{
-    ChapterImage, ChapterPages, ChapterRef, LibSession, MangaDex, MangaLib, Source, SourceOperation,
+    ChapterImage, ChapterPages, ChapterRef, LibSession, LocalBook, MangaDex, MangaLib, Source,
+    SourceOperation,
 };
 use tempfile::{NamedTempFile, TempDir, TempPath};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
@@ -20,6 +21,7 @@ use super::sources::SourceRequest;
 pub(super) enum ReaderSource {
     MangaDex(Arc<MangaDex>),
     MangaLib(Arc<MangaLib>, Box<LibSession>),
+    LocalBook(Arc<LocalBook>),
 }
 
 impl Catalog {
@@ -46,6 +48,13 @@ impl ReaderSource {
         match self {
             Self::MangaDex(source) => source.chapter_pages(reference).await,
             Self::MangaLib(source, session) => source.chapter_pages(reference, session).await,
+            Self::LocalBook(book) => {
+                let book = Arc::clone(book);
+                let reference = reference.clone();
+                tokio::task::spawn_blocking(move || book.chapter_pages(&reference))
+                    .await
+                    .map_err(|_| qbutt_content::Error::InvalidReference)?
+            }
         }
     }
 
@@ -53,6 +62,13 @@ impl ReaderSource {
         match self {
             Self::MangaDex(source) => source.image_bytes(image).await,
             Self::MangaLib(source, session) => source.image_bytes(image, session).await,
+            Self::LocalBook(book) => {
+                let book = Arc::clone(book);
+                let image = image.clone();
+                tokio::task::spawn_blocking(move || book.image_bytes(&image))
+                    .await
+                    .map_err(|_| qbutt_content::Error::InvalidReference)?
+            }
         }
     }
 }
@@ -190,6 +206,7 @@ pub(super) enum PageEvent {
 
 pub(super) async fn read_chapter(
     catalog: Arc<Catalog>,
+    local_book: Option<Arc<LocalBook>>,
     request: SourceRequest,
     mut position: watch::Receiver<ReaderViewport>,
     qt_thread: CxxQtThread<ffi::ContentController>,
@@ -201,9 +218,16 @@ pub(super) async fn read_chapter(
         let SourceOperation::Chapter(reference) = &request.operation else {
             return Err(qbutt_content::Error::InvalidReference);
         };
-        let mut source = catalog
-            .reader_source(reference.variant.publication.source)
-            .await?;
+        let mut source = if reference.variant.publication.source == Source::LocalBook {
+            let book = local_book
+                .filter(|book| book.variant() == reference.variant)
+                .ok_or(qbutt_content::Error::InvalidReference)?;
+            ReaderSource::LocalBook(book)
+        } else {
+            catalog
+                .reader_source(reference.variant.publication.source)
+                .await?
+        };
         let pages = source.chapter_pages(reference).await?;
         Ok((source, pages))
     }

@@ -80,7 +80,6 @@ namespace Content
 {
     class BrowserCapture;
     class ContentView;
-    class ReaderWidget;
     class TranslationSettingsDialog;
 }
 
@@ -251,7 +250,6 @@ private:
     QAction *m_queueSeparatorMenu = nullptr;
     QSplitter *m_splitter = nullptr;
     QPointer<Content::ContentView> m_searchWidget;
-    QPointer<Content::ReaderWidget> m_localReader;
     QPointer<QQuickWidget> m_downloadsWidget;
     Content::BrowserCapture *m_browserCapture = nullptr;
     QPointer<RSSWidget> m_rssWidget;

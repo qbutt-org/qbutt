@@ -5251,8 +5251,8 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
     </message>
     <message>
         <location filename="../gui/mainwindow.cpp" line="149"/>
-        <source>Read file…</source>
-        <translation>Читать файл…</translation>
+        <source>Open book…</source>
+        <translation>Открыть книгу…</translation>
     </message>
     <message>
         <location filename="../gui/mainwindow.cpp" line="159"/>
@@ -18685,16 +18685,16 @@ Please choose a different name and try again.</source>
 <context>
     <name>SearchPage</name>
     <message>
-        <source>Open book</source>
-        <translation>Открыть книгу</translation>
+        <source>Open book or comic</source>
+        <translation>Открыть книгу или комикс</translation>
     </message>
     <message>
-        <source>Books (*.epub *.fb2 *.txt)</source>
-        <translation>Книги (*.epub *.fb2 *.txt)</translation>
+        <source>Books and comics (*.epub *.cbz *.zip *.html *.htm *.txt *.fb2 *.png *.jpg *.jpeg *.webp *.gif *.bmp)</source>
+        <translation>Книги и комиксы (*.epub *.cbz *.zip *.html *.htm *.txt *.fb2 *.png *.jpg *.jpeg *.webp *.gif *.bmp)</translation>
     </message>
     <message>
-        <source>Choose an EPUB, FB2 or TXT file</source>
-        <translation>Выберите файл EPUB, FB2 или TXT</translation>
+        <source>Choose a book or comic file</source>
+        <translation>Выберите файл книги или комикса</translation>
     </message>
     <message>
         <source>The library is not ready</source>

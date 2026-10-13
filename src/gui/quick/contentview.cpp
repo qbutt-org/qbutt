@@ -151,6 +151,12 @@ Content::ContentView::~ContentView()
     m_controller->closeBrowserRelay();
 }
 
+void Content::ContentView::openLocalBookPicker()
+{
+    if (rootObject())
+        QMetaObject::invokeMethod(rootObject(), "openLocalBookPicker");
+}
+
 QQuickWidget *Content::ContentView::createDownloadsView(QWidget *parent)
 {
     auto *view = new QQuickWidget(parent);

@@ -174,6 +174,7 @@ pub fn variant_id(reference: &VariantRef) -> String {
         VariantSelector::Rutube { episode_id } => format!("{publication}:rutube:{episode_id}"),
         VariantSelector::RutubeVideo => format!("{publication}:video"),
         VariantSelector::OriginalText => format!("{publication}:original"),
+        VariantSelector::LocalPages => format!("{publication}:pages"),
         VariantSelector::YummyAnimeVideo {
             id,
             episode,

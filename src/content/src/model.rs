@@ -339,6 +339,8 @@ pub enum VariantSelector {
     },
     /// The original text published by the containing source publication.
     OriginalText,
+    /// Pages stored in one local comic archive or image.
+    LocalPages,
     RanobeHubTranslation {
         branch: String,
     },
@@ -354,7 +356,7 @@ impl VariantSelector {
                         byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
                     })
             }
-            Self::RutubeVideo | Self::OriginalText => true,
+            Self::RutubeVideo | Self::OriginalText | Self::LocalPages => true,
             Self::Torrent { id } => *id != 0,
             Self::TorrentHash { info_hash } => {
                 info_hash.len() == 40
@@ -481,6 +483,7 @@ impl VariantRef {
                     VariantSelector::RanobeHubTranslation { .. }
                 )
                 | (Source::LocalBook, VariantSelector::OriginalText)
+                | (Source::LocalBook, VariantSelector::LocalPages)
         );
         if matches_source {
             Ok(())

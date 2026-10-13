@@ -4,7 +4,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 
-use qbutt_content::{LocalBook, TextBlockKind, TextSpan};
+use qbutt_content::{Library, LocalBook, TextBlockKind, TextSpan, Transport};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory = std::env::args().nth(1).expect("fixture directory argument");
@@ -123,6 +123,85 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(text.blocks.len(), 2);
     assert_eq!(text.blocks[0].plain_text(), "Opening line.\nAnother line.");
 
+    let html = LocalBook::open(directory.join("html/local.html"))?;
+    assert_eq!(html.work().variants[0].transport, Transport::Text);
+    let chapter = html.read_chapter(&html.chapter_list()[0].reference)?;
+    assert!(
+        chapter
+            .blocks
+            .iter()
+            .any(|block| block.kind == TextBlockKind::Heading)
+    );
+    assert!(
+        chapter
+            .blocks
+            .iter()
+            .any(|block| matches!(block.kind, TextBlockKind::ListItem { .. }))
+    );
+    assert!(
+        chapter
+            .blocks
+            .iter()
+            .flat_map(|block| &block.spans)
+            .any(|span| matches!(span, TextSpan::Text { bold: true, .. }))
+    );
+    assert_eq!(chapter.assets.len(), 1);
+    assert_eq!(chapter.assets[0].media_type, "image/png");
+    assert!(
+        !chapter
+            .blocks
+            .iter()
+            .any(|block| block.plain_text().contains("doNotRender"))
+    );
+
+    for extension in ["cbz", "zip"] {
+        let comic = LocalBook::open(directory.join(format!("native.{extension}")))?;
+        assert_eq!(comic.work().variants[0].transport, Transport::Manga);
+        assert_eq!(comic.chapter_list().len(), 1);
+        assert_eq!(comic.chapter_list()[0].pages, 3);
+        let pages = comic.chapter_pages(&comic.chapter_list()[0].reference)?;
+        for (index, number) in [1, 2, 10].into_iter().enumerate() {
+            assert_eq!(
+                comic.image_bytes(&pages.images[index])?,
+                std::fs::read(directory.join(format!("comic-page{number}.png")))?
+            );
+        }
+    }
+    let comic = LocalBook::open(directory.join("native.cbz"))?;
+    let profile = directory.join("reader-profile");
+    Library::open(&profile)?.save_local_book(&comic)?;
+    let library = Library::open(&profile)?;
+    assert_eq!(
+        library.local_book_path(&comic.reference())?,
+        Some(comic.path().to_path_buf())
+    );
+    for extension in ["png", "jpg", "webp", "gif", "bmp"] {
+        let image = LocalBook::open(directory.join(format!("single.{extension}")))?;
+        let chapter = &image.chapter_list()[0];
+        assert_eq!(image.work().variants[0].transport, Transport::Manga);
+        assert_eq!(chapter.pages, 1);
+        let pages = image.chapter_pages(&chapter.reference)?;
+        assert_eq!(
+            image.image_bytes(&pages.images[0])?,
+            std::fs::read(directory.join(format!("single.{extension}")))?
+        );
+    }
+    for name in [
+        "traversal.cbz",
+        "duplicate.cbz",
+        "encrypted.cbz",
+        "oversized.cbz",
+    ] {
+        assert!(
+            LocalBook::open(directory.join(name)).is_err(),
+            "{name} accepted"
+        );
+    }
+
+    let corrupt = LocalBook::open(directory.join("corrupt-page.cbz"))?;
+    let pages = corrupt.chapter_pages(&corrupt.chapter_list()[0].reference)?;
+    assert!(corrupt.image_bytes(&pages.images[0]).is_err());
+
     assert!(LocalBook::open(directory.join("unsafe.epub")).is_err());
     let changed = directory.join("changed.txt");
     std::fs::copy(directory.join("native.txt"), &changed)?;
@@ -138,6 +217,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     assert!(LocalBook::open(directory.join("bad-encoding.fb2")).is_err());
 
-    println!("PASS local EPUB, FB2, TXT, changed-file and malformed-file checks");
+    let changed_comic = directory.join("changed.cbz");
+    std::fs::copy(directory.join("native.cbz"), &changed_comic)?;
+    let comic = LocalBook::open(&changed_comic)?;
+    let pages = comic.chapter_pages(&comic.chapter_list()[0].reference)?;
+    OpenOptions::new()
+        .append(true)
+        .open(&changed_comic)?
+        .write_all(b"changed")?;
+    assert!(comic.image_bytes(&pages.images[0]).is_err());
+
+    println!("PASS local books, comics, images, bounded HTML resources and archive faults");
     Ok(())
 }

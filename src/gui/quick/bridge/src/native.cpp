@@ -187,7 +187,8 @@ QSize Qbutt::validatedImageSize(const QString &path)
     const QByteArray format = reader.format();
     if (!size.isValid() || (size.width() > dimensionLimit) || (size.height() > dimensionLimit)
         || ((static_cast<qint64>(size.width()) * size.height()) > pixelLimit)
-        || ((format != "jpeg") && (format != "jpg") && (format != "png") && (format != "webp")))
+        || ((format != "jpeg") && (format != "jpg") && (format != "png")
+            && (format != "webp") && (format != "gif") && (format != "bmp")))
     {
         return {};
     }

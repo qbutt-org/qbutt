@@ -484,7 +484,7 @@
   </action>
   <action name="actionReadFile">
    <property name="text">
-    <string>Read file…</string>
+    <string>Open book…</string>
    </property>
   </action>
   <action name="actionContentDownloads">
