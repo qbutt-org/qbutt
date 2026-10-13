@@ -19,6 +19,7 @@ mod downloads;
 mod library;
 mod local_books;
 mod playback;
+mod qcatch_setup;
 mod reader;
 pub(crate) mod reader_pages;
 mod reader_settings;
@@ -93,6 +94,39 @@ pub mod ffi {
     qnamespace!("Qbutt::Reader");
     #[qml_element]
     qnamespace!("Qbutt::Sources");
+    #[qml_element]
+    qnamespace!("Qbutt::Browser");
+
+    #[qenum]
+    #[namespace = "Qbutt::Browser"]
+    enum ConnectionState {
+        Checking,
+        Connected,
+        Disconnected,
+        ChoiceRequired,
+        NoBrowser,
+        OwnerExists,
+        Unavailable,
+    }
+
+    #[qenum]
+    #[namespace = "Qbutt::Browser"]
+    enum SetupState {
+        Idle,
+        Busy,
+        Waiting,
+        Failed,
+    }
+
+    #[qenum]
+    #[namespace = "Qbutt::Browser"]
+    enum SetupFailure {
+        None,
+        Integrity,
+        Download,
+        Install,
+        Connect,
+    }
 
     #[qenum]
     #[namespace = "Qbutt::Sources"]
@@ -230,6 +264,8 @@ pub mod ffi {
         fn retireContentServices(services: Box<Services>);
         #[rust_name = "browser_installations"]
         fn browserInstallations() -> Vec<BrowserInstallation>;
+        #[rust_name = "qcatch_executable"]
+        fn qcatchExecutable() -> QString;
         #[rust_name = "open_browser_url"]
         fn openBrowserUrl(url: &QString, choice: &QString) -> bool;
         #[rust_name = "browser_discovery_path"]
@@ -305,6 +341,12 @@ pub mod ffi {
             NOTIFY = variant_filters_changed
         )]
         #[qproperty(*mut SourceModel, sources, READ = sources_model, CONSTANT)]
+        #[qproperty(QString, browser_choice, cxx_name = "browserChoice", READ = browser_choice, NOTIFY = browser_changed)]
+        #[qproperty(ConnectionState, browser_connection_state, cxx_name = "browserConnectionState", READ = browser_connection_state, NOTIFY = browser_changed)]
+        #[qproperty(QString, browser_connected_name, cxx_name = "browserConnectedName", READ = browser_connected_name, NOTIFY = browser_changed)]
+        #[qproperty(SetupState, browser_setup_state, cxx_name = "browserSetupState", READ = browser_setup_state, NOTIFY = browser_changed)]
+        #[qproperty(SetupFailure, browser_setup_failure, cxx_name = "browserSetupFailure", READ = browser_setup_failure, NOTIFY = browser_changed)]
+        #[qproperty(QString, browser_extension_directory, cxx_name = "browserExtensionDirectory", READ = browser_extension_directory, NOTIFY = browser_changed)]
         #[qproperty(SettingsState, source_settings_state, cxx_name = "sourceSettingsState", READ = source_settings_state, NOTIFY = sources_changed)]
         #[qproperty(QString, source_settings_error_text, cxx_name = "sourceSettingsErrorText", READ = source_settings_error_text, NOTIFY = sources_changed)]
         #[qproperty(*mut PageModel, reader_pages, cxx_name = "readerPages", READ = reader_pages, CONSTANT)]
@@ -701,8 +743,32 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "retrySourceSettings"]
         fn retry_source_settings(self: Pin<&mut Self>) -> bool;
+        fn browser_choice(&self) -> QString;
+        fn browser_connection_state(&self) -> ConnectionState;
+        fn browser_connected_name(&self) -> QString;
+        fn browser_setup_state(&self) -> SetupState;
+        fn browser_setup_failure(&self) -> SetupFailure;
+        fn browser_extension_directory(&self) -> QString;
         #[cxx_name = "setBrowserChoice"]
         fn set_browser_choice(self: Pin<&mut Self>, choice: QString);
+        #[qinvokable]
+        #[cxx_name = "chooseBrowser"]
+        fn choose_browser(self: Pin<&mut Self>, choice: QString);
+        #[qsignal]
+        #[cxx_name = "browserChoiceRequested"]
+        fn browser_choice_requested(self: Pin<&mut Self>, choice: QString);
+        #[qinvokable]
+        #[cxx_name = "watchBrowser"]
+        fn watch_browser(self: Pin<&mut Self>);
+        #[qinvokable]
+        #[cxx_name = "closeBrowserSettings"]
+        fn close_browser_settings(self: Pin<&mut Self>);
+        #[qinvokable]
+        #[cxx_name = "connectQcatch"]
+        fn connect_qcatch(self: Pin<&mut Self>);
+        #[qsignal]
+        #[cxx_name = "browserChanged"]
+        fn browser_changed(self: Pin<&mut Self>);
         #[qinvokable]
         #[cxx_name = "openSourceAccount"]
         fn open_source_account(self: Pin<&mut Self>, id: QString) -> bool;
@@ -1134,6 +1200,15 @@ pub struct ContentControllerRust {
     reader_settings: ReaderSettingsState,
     translation_options: TranslationOptionsState,
     browser_requests: HashMap<(u64, u64), JoinHandle<()>>,
+    browser_watch: Pending,
+    browser_setup_generation: u64,
+    browser_ui_active: bool,
+    browser_choice: QString,
+    browser_connection_state: ffi::ConnectionState,
+    browser_connected_name: QString,
+    browser_setup_state: ffi::SetupState,
+    browser_setup_failure: ffi::SetupFailure,
+    browser_extension_directory: QString,
 }
 
 impl Default for ContentControllerRust {
@@ -1231,6 +1306,15 @@ impl Default for ContentControllerRust {
             reader_settings: ReaderSettingsState::default(),
             translation_options: TranslationOptionsState::default(),
             browser_requests: HashMap::new(),
+            browser_watch: Pending::default(),
+            browser_setup_generation: 0,
+            browser_ui_active: false,
+            browser_choice: QString::from("auto"),
+            browser_connection_state: ffi::ConnectionState::Checking,
+            browser_connected_name: QString::default(),
+            browser_setup_state: ffi::SetupState::Idle,
+            browser_setup_failure: ffi::SetupFailure::None,
+            browser_extension_directory: QString::default(),
         }
     }
 }
@@ -1244,6 +1328,7 @@ impl Drop for ContentControllerRust {
         self.captured_download.cancel();
         self.captured_watch.cancel();
         self.account_open.cancel();
+        self.browser_watch.cancel();
         self.source_status.cancel_retries();
         if let Some(task) = self.download_task.take() {
             task.abort();

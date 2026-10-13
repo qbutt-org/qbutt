@@ -477,6 +477,7 @@ $env:QBUTT_LAB_QPLAY = "$env:QBUTT_CONTENT_APP_DIR/qplay/qplay.exe"
 $env:QBUTT_QCATCH_EXE = 'C:/path/to/qcatch/qcatch.exe'
 $env:QBUTT_QCATCH_EXTENSION_DIR = 'C:/path/to/qcatch/extension'
 $env:QBUTT_QUICK_ACCEPTANCE_EXE = 'C:/path/to/build/qbutt-quick-acceptance.exe'
+$env:QBUTT_QCATCH_SETUP_FIXTURE_EXE = 'C:/path/to/build/qcatch-fixture/qcatch.exe'
 $env:QBUTT_LAB_PATHS = '1'
 bun run smoke:content
 bun run smoke:content-search
@@ -489,6 +490,7 @@ bun run smoke:content-reading
 bun run smoke:content-downloads
 bun run smoke:content-browser
 bun tests/content-browser/helper-relay.ts
+bun tests/content-browser/settings-native.ts
 bun tests/content-browser/startup.ts
 bun tests/content-browser/optional-cookies.ts
 bun tests/content-browser/capture-downloads.ts
@@ -514,6 +516,9 @@ checks the real qcatch native host, the pipe's current-user DACL, exact media
 selection, malformed peers, cancellation and owned discovery cleanup. The helper
 scenario also starts the real Bun service, verifies one terminal outcome, then
 restarts and crashes that helper while preserving the single native broker.
+The settings scenario uses a generated qcatch CLI fixture and direct legal
+pipe peers to check the native controller's browser choice, Auto ambiguity,
+setup callback and failure state. It never opens the extension setup page.
 The startup scenario uses disposable per-process registry overrides: a missing
 native host fails immediately, while a registered host reconnecting after 31
 seconds completes the first exact capture without manual retry.

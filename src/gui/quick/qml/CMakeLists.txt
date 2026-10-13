@@ -14,6 +14,7 @@ qt_add_qml_module(qbt_quick_ui STATIC
         FacetField.qml
         IconButton.qml
         ModalPicker.qml
+        BrowserSettingsModal.qml
         NavigationTab.qml
         QueryField.qml
         ReaderCanvas.qml

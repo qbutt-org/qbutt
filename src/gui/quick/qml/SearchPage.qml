@@ -11,6 +11,21 @@ Page {
     objectName: "contentQuickSearch"
 
     required property ContentController backend
+    property bool captureBrowserPending: false
+    property bool resumeBrowserCapture: false
+    signal browserSetupReady()
+    signal browserSetupDismissed()
+
+    function openBrowserSettingsForCapture(): void {
+        captureBrowserPending = true;
+        browserSettings.open();
+    }
+
+    function closeBrowserSettingsForCapture(): void {
+        captureBrowserPending = false;
+        resumeBrowserCapture = false;
+        browserSettings.close();
+    }
     readonly property WorkModel activeWorks: backend.listMode === Search.History ? backend.history
         : backend.listMode === Search.Favorites ? backend.favorites : backend.works
 
@@ -393,6 +408,29 @@ Page {
         theme: appearance
         backdrop: root
         onClosed: sourceButton.forceActiveFocus()
+    }
+
+    BrowserSettingsModal {
+        id: browserSettings
+        backend: root.backend
+        theme: appearance
+        backdrop: root
+        onConnected: {
+            if (root.captureBrowserPending) {
+                root.captureBrowserPending = false;
+                root.resumeBrowserCapture = true;
+                close();
+            }
+        }
+        onClosed: {
+            if (root.resumeBrowserCapture) {
+                root.resumeBrowserCapture = false;
+                root.browserSetupReady();
+            } else if (root.captureBrowserPending) {
+                root.captureBrowserPending = false;
+                root.browserSetupDismissed();
+            }
+        }
     }
 
     Loader {

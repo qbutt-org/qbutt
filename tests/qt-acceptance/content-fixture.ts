@@ -14,9 +14,6 @@ const library = await LibraryStore.open(join(dirname(logPath), "library"));
 const searchWorks = new Map<string, Work>();
 const fixtureStages = new Map<string, () => void>();
 let continueEpisodes: (() => void) | undefined;
-let browserInstalled = false;
-let browserReady = false;
-let failNextConnect = false;
 let interactiveChecks = 0;
 let sourceFailed = true;
 let sourceFailureCode = "browser_check_required";
@@ -211,29 +208,6 @@ async function handle(request: Request): Promise<void> {
         emit(id, "jobs", [failure]);
         emit(id, "error", failure);
         return;
-    } else if (method === "connectBrowser" || method === "browserStatus") {
-        log(method, "edge", { params, ready: browserReady });
-        if (method === "connectBrowser") {
-            if (failNextConnect) {
-                failNextConnect = false;
-                emit(id, "error", { message: "Original setup failure. Try again." });
-                return;
-            }
-            browserInstalled = true;
-        }
-        emit(id, "browser", {
-            selected: "edge", detected: "edge", qcatchInstalled: browserInstalled, ready: browserReady,
-            ...(browserReady ? { connectedBrowser: "edge" } : {}),
-            browsers: [{ id: "edge", name: "Microsoft Edge", connected: browserReady }],
-            ...(method === "connectBrowser" ? {
-                browser: "edge", extensionDirectory: "C:\\Original qcatch\\extension",
-            } : {}),
-        });
-    } else if (method === "setBrowserFixture") {
-        if (typeof params.installed === "boolean") browserInstalled = params.installed;
-        if (typeof params.ready === "boolean") browserReady = params.ready;
-        if (typeof params.failNextConnect === "boolean") failNextConnect = params.failNextConnect;
-        log(method, "edge", { params });
     } else if (method === "advanceFixture") {
         const query = String(params.query);
         const resume = fixtureStages.get(query);
@@ -463,10 +437,9 @@ async function handle(request: Request): Promise<void> {
             ...((params.variant as Variant).id === "rejected"
                 ? { audioTrack: { title: "Unavailable Studio", type: "Declared voice", codec: "pcm_s16le", channels: 1 } } : {}) });
     } else if (method === "resolve" && (params.variant as Variant).sourceId === "fixture-browser") {
-        log("resolve", "fixture-browser", { params, ready: browserReady });
-        emit(id, "error", browserReady
-            ? { message: "Original resumed selection." }
-            : { code: "browser_required", message: "Connect the browser extension.", url: (params.variant as Variant).url });
+        log("resolve", "fixture-browser", { params });
+        emit(id, "error", { code: "browser_required", message: "Connect the browser extension.",
+            url: (params.variant as Variant).url });
         return;
     } else if (method === "resolve" || method === "download") {
         log("resolve", String((params.variant as Variant)?.sourceId), { params });

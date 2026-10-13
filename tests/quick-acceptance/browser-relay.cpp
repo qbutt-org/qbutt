@@ -22,6 +22,7 @@
 #include "browser-registration.h"
 #include "gui/content/browsercapture.h"
 #include "gui/quick/contentview.h"
+#include "qbutt_quick/src/controller.cxxqt.h"
 
 namespace
 {
@@ -64,6 +65,23 @@ int runBrowserRelayHost()
     {
         Content::ContentView view(profile.path());
         view.initDownloads(QDir(profile.path()).filePath(QStringLiteral("downloads")));
+        auto *controller = view.findChild<Qbutt::ContentController *>();
+        if (!controller)
+            return 2;
+        QObject::connect(controller, &Qbutt::ContentController::browserChoiceRequested,
+            &view, &Content::ContentView::setBrowserChoice);
+        QObject::connect(controller, &Qbutt::ContentController::browserChanged, &view, [controller]
+        {
+            const QJsonObject state {
+                {QStringLiteral("choice"), controller->property("browserChoice").toString()},
+                {QStringLiteral("connection"), controller->property("browserConnectionState").toInt()},
+                {QStringLiteral("setup"), controller->property("browserSetupState").toInt()},
+                {QStringLiteral("failure"), controller->property("browserSetupFailure").toInt()},
+                {QStringLiteral("connectedName"), controller->property("browserConnectedName").toString()},
+                {QStringLiteral("extensionDirectory"), controller->property("browserExtensionDirectory").toString()}
+            };
+            send({{QStringLiteral("browserUi"), state}});
+        });
         Content::BrowserCapture capture;
         QObject::connect(&capture, &Content::BrowserCapture::watchRequested, &view,
             [&view, &capture](const QUrl &page, const QString &title, const QString &captureId)
@@ -170,6 +188,34 @@ int runBrowserRelayHost()
                     view.closeBrowserSession(generation);
                 else if (event == QStringLiteral("browserInitialize"))
                     view.initializeBrowser();
+                else if (event == QStringLiteral("browserUiWatch"))
+                    controller->watchBrowser();
+                else if (event == QStringLiteral("browserUiClose"))
+                    controller->closeBrowserSettings();
+                else if (event == QStringLiteral("browserUiChoice"))
+                    controller->chooseBrowser(data.value(QStringLiteral("choice")).toString());
+                else if (event == QStringLiteral("browserUiSetup"))
+                    controller->connectQcatch();
+                else if (event == QStringLiteral("browserUiInstalled"))
+                {
+                    if (!registration.setInstalled(data.value(QStringLiteral("browser")).toString(),
+                            data.value(QStringLiteral("installed")).toBool()))
+                    {
+                        qApp->exit(1);
+                    }
+                }
+                else if (event == QStringLiteral("browserUiDefault"))
+                {
+                    if (!registration.setDefault(data.value(QStringLiteral("browser")).toString()))
+                        qApp->exit(1);
+                }
+                else if (event == QStringLiteral("qcatchFixtureInstall"))
+                {
+                    if (!registration.setQcatchInstalled())
+                        qApp->exit(1);
+                }
+                else if (event == QStringLiteral("qcatchFixtureFault"))
+                    qputenv("QBUTT_QCATCH_SETUP_FIXTURE_FAIL", data.value(QStringLiteral("fault")).toString().toUtf8());
                 else if (event == QStringLiteral("captureOpen"))
                     capture.open(QUrl(data.value(QStringLiteral("url")).toString(), QUrl::StrictMode));
                 else if (event == QStringLiteral("captureCancel"))

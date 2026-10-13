@@ -224,6 +224,27 @@ impl ffi::ContentController {
 
     pub fn set_browser_choice(mut self: Pin<&mut Self>, value: QString) {
         let choice = super::browser::choice(&value.to_string());
+        if self.browser_choice != value {
+            let setup_running =
+                self.as_mut()
+                    .rust_mut()
+                    .services
+                    .as_mut()
+                    .is_some_and(|services| {
+                        services.browser.setup_busy() && !services.browser.cancel_setup()
+                    });
+            if !setup_running {
+                let generation = self.browser_setup_generation.wrapping_add(1);
+                self.as_mut().rust_mut().browser_setup_generation = generation;
+                self.as_mut().rust_mut().browser_setup_state = ffi::SetupState::Idle;
+                self.as_mut().rust_mut().browser_extension_directory = QString::default();
+            }
+            self.as_mut().rust_mut().browser_choice = value;
+            self.as_mut().browser_changed();
+            if self.browser_ui_active {
+                self.as_mut().watch_browser();
+            }
+        }
         let Some(services) = self.services.as_ref() else {
             return;
         };

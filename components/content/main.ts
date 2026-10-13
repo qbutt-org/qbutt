@@ -7,7 +7,6 @@ import { DownloadQueue } from "./downloads";
 import { resolveVariant } from "./media";
 import { publicUrl, safeError } from "./net";
 import { NetworkProxy } from "./networkproxy";
-import { productExecutable } from "./products";
 import { handleReaderRequest } from "./reader/service";
 import { assertExactVariant, linkId, publicReference } from "./references";
 import { readingOriginal } from "./providers/reading-originals";
@@ -290,17 +289,6 @@ async function run(): Promise<void> {
                 }, signal);
             emit("sources", await catalog.sources(signal));
             return;
-        case "browserStatus":
-            emit("browser", { ...await browser.status(signal, true), qcatchInstalled: !!await productExecutable("qcatch", appDir) });
-            return;
-        case "connectBrowser": {
-            const choice = String(params.browser || "auto");
-            if (!["auto", "edge", "chrome"].includes(choice))
-                throw new Error("Select an installed browser.");
-            browser.setBrowser(choice as BrowserChoice);
-            emit("browser", await browser.connectBrowser(choice as BrowserChoice, signal));
-            return;
-        }
         case "chooseBrowser": {
             const choice = String(params.browser || "auto");
             if (!["auto", "edge", "chrome"].includes(choice))

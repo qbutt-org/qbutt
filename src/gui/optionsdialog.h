@@ -36,6 +36,7 @@
 #include "guiapplicationcomponent.h"
 
 class QListWidgetItem;
+class QQuickItem;
 
 class AdvancedSettings;
 
@@ -93,6 +94,7 @@ public slots:
     void reject() override;
 
 private slots:
+    void syncBrowserSettingsVisible();
     void adjustProxyOptions();
     void on_buttonBox_accepted();
     void on_buttonBox_rejected();
@@ -214,6 +216,7 @@ private:
     SettingValue<int> m_storeLastViewedPage;
 
     QPushButton *m_applyButton = nullptr;
+    QQuickItem *m_sourcesRoot = nullptr;
 
     AdvancedSettings *m_advancedSettings = nullptr;
 

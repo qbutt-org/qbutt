@@ -42,7 +42,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMessageBox>
-#include <QVBoxLayout>
+#include <QMetaObject>
+#include <QQuickItem>
 
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/sharelimits.h"
@@ -68,7 +69,6 @@
 #include "addnewtorrentdialog.h"
 #include "advancedsettings.h"
 #include "banlistoptionsdialog.h"
-#include "content/browserconnectionwidget.h"
 #include "content/translationsettingsdialog.h"
 #include "interfaces/iguiapplication.h"
 #include "ipsubnetwhitelistoptionsdialog.h"
@@ -201,19 +201,16 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, Content::ContentView *content
     loadSpeedTabOptions();
     loadBittorrentTabOptions();
     loadRSSTabOptions();
-    m_ui->searchPageLayout->insertWidget(0, content->createSourcesView(m_ui->tabSearchPage), 1);
-    connect(m_ui->browserSettingsButton, &QPushButton::clicked, this, [this]
+    auto *sources = content->createSourcesView(m_ui->tabSearchPage);
+    m_ui->searchPageLayout->insertWidget(0, sources, 1);
+    m_sourcesRoot = sources->rootObject();
+    if (m_sourcesRoot)
+        connect(m_sourcesRoot, SIGNAL(browserSettingsVisibleChanged()),
+            this, SLOT(syncBrowserSettingsVisible()));
+    connect(m_ui->browserSettingsButton, &QPushButton::clicked, this, [sources]
     {
-        auto *dialog = new QDialog(this);
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
-        dialog->setWindowTitle(tr("Browser"));
-        auto *layout = new QVBoxLayout(dialog);
-        layout->addWidget(new Content::BrowserConnectionWidget(true, dialog));
-        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
-        connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
-        layout->addWidget(buttons);
-        dialog->resize(520, 240);
-        dialog->open();
+        if (sources->rootObject())
+            QMetaObject::invokeMethod(sources->rootObject(), "openBrowserSettings");
     });
     connect(m_ui->translationSettingsButton, &QPushButton::clicked, this, [this]
     {
@@ -252,6 +249,14 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, Content::ContentView *content
 
     if (const QSize dialogSize = m_storeDialogSize; dialogSize.isValid())
         resize(dialogSize);
+}
+
+void OptionsDialog::syncBrowserSettingsVisible()
+{
+    const bool visible = m_sourcesRoot && m_sourcesRoot->property("browserSettingsVisible").toBool();
+    m_ui->settingsNavigation->setDisabled(visible);
+    m_ui->buttonBox->setDisabled(visible);
+    m_ui->contentSettingsActionsWidget->setDisabled(visible);
 }
 
 OptionsDialog::~OptionsDialog()
@@ -1746,6 +1751,11 @@ void OptionsDialog::on_buttonBox_rejected()
 
 void OptionsDialog::reject()
 {
+    if (m_sourcesRoot && m_sourcesRoot->property("browserSettingsVisible").toBool())
+    {
+        QMetaObject::invokeMethod(m_sourcesRoot, "closeBrowserSettings");
+        return;
+    }
 #ifdef QBT_HAS_COLORSCHEME_OPTION
     UIThemeManager::instance()->previewColorScheme(UIThemeManager::instance()->colorScheme());
 #endif

@@ -76,7 +76,6 @@
 #include "base/version.h"
 #include "aboutdialog.h"
 #include "content/browsercapture.h"
-#include "content/browserprerequisitewidget.h"
 #include "content/readerwidget.h"
 #include "content/translationsettingsdialog.h"
 #include "cookiesdialog.h"
@@ -849,8 +848,12 @@ Content::ContentView *MainWindow::ensureContentView()
     {
         m_searchWidget = new Content::ContentView(specialFolderLocation(SpecialFolder::Data).toString(), m_tabs);
         m_searchWidget->setBrowserChoice(Preferences::instance()->browserChoice());
+        connect(m_searchWidget, &Content::ContentView::browserChoiceRequested,
+            Preferences::instance(), &Preferences::setBrowserChoice);
         connect(Preferences::instance(), &Preferences::browserChoiceChanged,
             m_searchWidget, &Content::ContentView::setBrowserChoice);
+        connect(Preferences::instance(), &Preferences::browserChoiceChanged,
+            Content::Client::instance(), &Content::Client::updateBrowserChoice);
         m_searchWidget->hide();
         m_searchWidget->initDownloads(BitTorrent::Session::instance()->savePath().toString());
         connect(m_searchWidget, &Content::ContentView::browserReply, Content::Client::instance(), &Content::Client::replyBrowser);
@@ -1710,23 +1713,16 @@ void MainWindow::acceptSharedLink(const QUrl &url)
             m_browserCapture, &Content::BrowserCapture::finishWatch);
         connect(m_browserCapture, &Content::BrowserCapture::browserRequired, this, [this]
         {
-            if (!m_browserPrerequisite)
-            {
-                m_browserPrerequisite = new Content::BrowserPrerequisiteWidget(m_tabs);
-                m_browserPrerequisite->setSource(u"qcatch"_s);
-                m_tabs->addTab(m_browserPrerequisite, u"qcatch"_s);
-                connect(m_browserPrerequisite, &Content::BrowserPrerequisiteWidget::connected,
-                    m_browserCapture, &Content::BrowserCapture::retry);
-                connect(m_browserPrerequisite, &Content::BrowserPrerequisiteWidget::backRequested, this, [this]
-                {
-                    m_browserCapture->cancel();
-                    closeBrowserPrerequisite();
-                    displaySearchTab();
-                });
-            }
-            m_tabs->setCurrentWidget(m_browserPrerequisite);
+            displaySearchTab(true);
+            m_tabs->setCurrentWidget(ensureContentView());
+            m_searchWidget->openBrowserSettingsForCapture();
         });
-        connect(m_browserCapture, &Content::BrowserCapture::completed, this, &MainWindow::closeBrowserPrerequisite);
+        connect(ensureContentView(), &Content::ContentView::browserSetupReady,
+            m_browserCapture, &Content::BrowserCapture::retry);
+        connect(ensureContentView(), &Content::ContentView::browserSetupDismissed,
+            m_browserCapture, &Content::BrowserCapture::cancel);
+        connect(m_browserCapture, &Content::BrowserCapture::completed,
+            ensureContentView(), &Content::ContentView::closeBrowserSettingsForCapture);
     }
     m_browserCapture->open(url);
     activate();
@@ -1766,16 +1762,6 @@ void MainWindow::showCaptureProgress(const QString &message)
     }
     m_capturePreparationDialog->setLabelText(message);
     m_capturePreparationDialog->show();
-}
-
-void MainWindow::closeBrowserPrerequisite()
-{
-    if (m_browserPrerequisite)
-    {
-        m_tabs->removeTab(m_tabs->indexOf(m_browserPrerequisite));
-        m_browserPrerequisite->deleteLater();
-        m_browserPrerequisite.clear();
-    }
 }
 
 // Display an input dialog to prompt user for

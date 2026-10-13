@@ -79,7 +79,6 @@ namespace MacUtils
 namespace Content
 {
     class BrowserCapture;
-    class BrowserPrerequisiteWidget;
     class ContentView;
     class ReaderWidget;
     class TranslationSettingsDialog;
@@ -212,7 +211,6 @@ private:
     void showReleaseUpdateDialog();
     QQuickWidget *downloadsWidget();
     void showCaptureProgress(const QString &message);
-    void closeBrowserPrerequisite();
 
     Ui::MainWindow *m_ui = nullptr;
 
@@ -255,7 +253,6 @@ private:
     QPointer<Content::ContentView> m_searchWidget;
     QPointer<Content::ReaderWidget> m_localReader;
     QPointer<QQuickWidget> m_downloadsWidget;
-    QPointer<Content::BrowserPrerequisiteWidget> m_browserPrerequisite;
     Content::BrowserCapture *m_browserCapture = nullptr;
     QPointer<RSSWidget> m_rssWidget;
     QPointer<ExecutionLogWidget> m_executionLog;

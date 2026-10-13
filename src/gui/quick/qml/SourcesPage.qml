@@ -9,6 +9,15 @@ Page {
     objectName: "contentSourcesPage"
 
     required property ContentController backend
+    readonly property bool browserSettingsVisible: browserSettings.visible
+
+    function openBrowserSettings(): void {
+        browserSettings.open();
+    }
+
+    function closeBrowserSettings(): void {
+        browserSettings.close();
+    }
 
     padding: 16
     palette.window: applicationPalette.window
@@ -29,4 +38,12 @@ Page {
         backend: root.backend
         theme: appearance
     }
+
+    BrowserSettingsModal {
+        id: browserSettings
+        backend: root.backend
+        theme: appearance
+        backdrop: root
+    }
+
 }

@@ -94,6 +94,8 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     connect(m_controller, &Qbutt::ContentController::torrentMetadataReady, this, &ContentView::torrentMetadataReady);
     connect(m_controller, &Qbutt::ContentController::videoReady, this, &ContentView::videoReady);
     connect(m_controller, &Qbutt::ContentController::browserReply, this, &ContentView::browserReply);
+    connect(m_controller, &Qbutt::ContentController::browserChoiceRequested,
+        this, &ContentView::browserChoiceRequested);
     connect(m_controller, &Qbutt::ContentController::downloadQueued, this, &ContentView::downloadQueued);
     connect(m_controller, &Qbutt::ContentController::mediaToolsRequested, this, [this](const quint64 requestId)
     {
@@ -135,6 +137,11 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     setResizeMode(QQuickWidget::SizeRootObjectToView);
     setInitialProperties({{QStringLiteral("backend"), QVariant::fromValue(m_controller)}});
     loadFromModule(QStringLiteral("Qbutt.Views"), QStringLiteral("SearchPage"));
+    if (rootObject())
+    {
+        connect(rootObject(), SIGNAL(browserSetupReady()), this, SIGNAL(browserSetupReady()));
+        connect(rootObject(), SIGNAL(browserSetupDismissed()), this, SIGNAL(browserSetupDismissed()));
+    }
 }
 
 Content::ContentView::~ContentView()
@@ -216,6 +223,18 @@ void Content::ContentView::initializeBrowser()
 void Content::ContentView::setBrowserChoice(const QString &choice)
 {
     m_controller->setBrowserChoice(choice);
+}
+
+void Content::ContentView::openBrowserSettingsForCapture()
+{
+    if (rootObject())
+        QMetaObject::invokeMethod(rootObject(), "openBrowserSettingsForCapture");
+}
+
+void Content::ContentView::closeBrowserSettingsForCapture()
+{
+    if (rootObject())
+        QMetaObject::invokeMethod(rootObject(), "closeBrowserSettingsForCapture");
 }
 
 void Content::ContentView::relayBrowserRequest(const quint64 generation, const quint64 id, const QByteArray &request)

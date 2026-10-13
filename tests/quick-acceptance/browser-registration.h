@@ -14,6 +14,9 @@ public:
     ~BrowserRegistrationFixture();
     bool isReady() const;
     bool setRegistered(const QString &browser, bool registered);
+    bool setInstalled(const QString &browser, bool installed);
+    bool setDefault(const QString &browser);
+    bool setQcatchInstalled();
 
 private:
     QString m_directory;

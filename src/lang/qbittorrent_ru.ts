@@ -19569,4 +19569,103 @@ Please choose a different name and try again.</source>
         <translation>Загрузок пока нет</translation>
     </message>
 </context>
+<context>
+    <name>BrowserSettingsModal</name>
+    <message>
+        <source>Browser</source>
+        <translation>Браузер</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Automatic</source>
+        <translation>Автоматически</translation>
+    </message>
+    <message>
+        <source>Preparing qcatch…</source>
+        <translation>Подготовка qcatch…</translation>
+    </message>
+    <message>
+        <source>The qcatch download failed its integrity check.</source>
+        <translation>Файл установки qcatch не прошёл проверку целостности.</translation>
+    </message>
+    <message>
+        <source>Could not download qcatch. Check your connection and try again.</source>
+        <translation>Не удалось загрузить qcatch. Проверьте соединение и повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Could not install qcatch. Try again.</source>
+        <translation>Не удалось установить qcatch. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Could not open qcatch setup. Try again.</source>
+        <translation>Не удалось открыть настройку qcatch. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>qcatch connected in %1.</source>
+        <translation>qcatch подключён в %1.</translation>
+    </message>
+    <message>
+        <source>Another qbutt profile owns the browser connection. Close it and retry.</source>
+        <translation>Подключение к браузеру занято другим профилем qbutt. Закройте его и повторите попытку.</translation>
+    </message>
+    <message>
+        <source>The browser connection is unavailable.</source>
+        <translation>Подключение к браузеру недоступно.</translation>
+    </message>
+    <message>
+        <source>Microsoft Edge is not installed.</source>
+        <translation>Microsoft Edge не установлен.</translation>
+    </message>
+    <message>
+        <source>Google Chrome is not installed.</source>
+        <translation>Google Chrome не установлен.</translation>
+    </message>
+    <message>
+        <source>Install Microsoft Edge or Google Chrome to use qcatch.</source>
+        <translation>Для qcatch установите Microsoft Edge или Google Chrome.</translation>
+    </message>
+    <message>
+        <source>Choose Microsoft Edge or Google Chrome.</source>
+        <translation>Выберите Microsoft Edge или Google Chrome.</translation>
+    </message>
+    <message>
+        <source>Waiting for the qcatch extension…</source>
+        <translation>Ожидание расширения qcatch…</translation>
+    </message>
+    <message>
+        <source>Checking connection…</source>
+        <translation>Проверка подключения…</translation>
+    </message>
+    <message>
+        <source>qcatch is not connected.</source>
+        <translation>qcatch не подключён.</translation>
+    </message>
+    <message>
+        <source>In Extensions, turn on Developer mode and choose Load unpacked:</source>
+        <translation>На странице расширений включите режим разработчика и выберите «Загрузить распакованное»:</translation>
+    </message>
+    <message>
+        <source>qcatch extension folder</source>
+        <translation>Папка расширения qcatch</translation>
+    </message>
+    <message>
+        <source>Retry</source>
+        <translation>Повторить</translation>
+    </message>
+    <message>
+        <source>Open setup</source>
+        <translation>Открыть настройку</translation>
+    </message>
+    <message>
+        <source>Try again</source>
+        <translation>Повторить попытку</translation>
+    </message>
+    <message>
+        <source>Connect qcatch</source>
+        <translation>Подключить qcatch</translation>
+    </message>
+</context>
 </TS>

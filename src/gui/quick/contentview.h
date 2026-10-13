@@ -28,6 +28,8 @@ namespace Content
         bool finishPlayback(quint64 launchToken);
         void initializeBrowser();
         void setBrowserChoice(const QString &choice);
+        void openBrowserSettingsForCapture();
+        void closeBrowserSettingsForCapture();
         void relayBrowserRequest(quint64 generation, quint64 id, const QByteArray &request);
         void cancelBrowserRequest(quint64 generation, quint64 id);
         void closeBrowserSession(quint64 generation);
@@ -52,6 +54,9 @@ namespace Content
         void readerActiveChanged();
         void searchFinished(bool failed);
         void browserReply(quint64 generation, quint64 id, const QByteArray &reply);
+        void browserChoiceRequested(const QString &choice);
+        void browserSetupReady();
+        void browserSetupDismissed();
         void sharedLinkFailed(bool malformed);
         void downloadQueued();
         void capturedDownloadFinished(const QString &captureId, const QString &reason);

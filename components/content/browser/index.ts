@@ -1,7 +1,4 @@
-import { dirname } from "node:path";
-
 import { ContentError } from "../errors";
-import { connectQcatch } from "../products";
 import type { ResolvedContent } from "../contracts.ts";
 import {
     MAX_MESSAGE_BYTES,
@@ -58,20 +55,6 @@ export class BrowserBridge {
 
     setBrowser(browser: BrowserChoice): void {
         this.options.browser = browser;
-    }
-
-    async connectBrowser(browser: BrowserChoice, signal: AbortSignal) {
-        if (browser === "firefox")
-            throw new ContentError("browser_unsupported", "qcatch supports Microsoft Edge and Google Chrome.");
-        this.setBrowser(browser);
-        const status = await this.status(signal, true);
-        const selected = browser === "auto"
-            ? status.detected ?? (status.browsers.length === 1 ? status.browsers[0]?.id : undefined)
-            : browser;
-        if (!selected || !status.browsers.some(installed => installed.id === selected))
-            throw new ContentError("browser_choice_required", "Choose an installed browser in Sources.");
-        const setup = await connectQcatch(dirname(process.execPath), selected, signal);
-        return { ...await this.status(signal), browser: selected, extensionDirectory: setup.extensionDirectory };
     }
 
     async cookies(url: string, options: { signal?: AbortSignal } = {}): Promise<BrowserCookie[]> {

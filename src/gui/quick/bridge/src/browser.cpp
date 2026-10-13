@@ -20,15 +20,13 @@ namespace
 #ifdef Q_OS_WIN
     QString browserPath(const bool edge)
     {
-        const QString relative = edge ? QStringLiteral("Microsoft/Edge/Application/msedge.exe")
-            : QStringLiteral("Google/Chrome/Application/chrome.exe");
-        for (const QString &root : {qEnvironmentVariable("LOCALAPPDATA"), qEnvironmentVariable("ProgramFiles"),
-            qEnvironmentVariable("ProgramFiles(x86)")})
+        const QString executable = edge ? QStringLiteral("msedge.exe") : QStringLiteral("chrome.exe");
+        for (const QString &hive : {QStringLiteral("HKEY_CURRENT_USER"), QStringLiteral("HKEY_LOCAL_MACHINE")})
         {
-            if (root.isEmpty())
-                continue;
-            const QString path = QDir(root).filePath(relative);
-            if (QFileInfo(path).isFile())
+            const QSettings application {hive + QStringLiteral("\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\")
+                + executable, QSettings::NativeFormat};
+            const QString path = application.value(QStringLiteral("Default")).toString();
+            if (QDir::isAbsolutePath(path) && QFileInfo(path).isFile())
                 return path;
         }
         return {};
@@ -92,6 +90,22 @@ namespace
     }
 #endif
     return browsers;
+}
+
+QString Qbutt::qcatchExecutable()
+{
+#ifdef Q_OS_WIN
+    const QSettings installation {QStringLiteral("HKEY_CURRENT_USER\\Software\\qbutt-org\\qcatch"),
+        QSettings::NativeFormat};
+    const QString directory = installation.value(QStringLiteral("InstallDir")).toString();
+    if (!QDir::isAbsolutePath(directory))
+        return {};
+
+    const QFileInfo executable {QDir(directory).filePath(QStringLiteral("qcatch.exe"))};
+    if (executable.isFile() && !executable.isSymLink())
+        return executable.absoluteFilePath();
+#endif
+    return {};
 }
 
 QString Qbutt::browserDiscoveryPath()

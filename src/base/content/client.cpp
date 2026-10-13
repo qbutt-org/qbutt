@@ -31,14 +31,6 @@ namespace
             message = Content::Client::tr("qplay is unavailable or damaged. Reinstall qplay or run the qbutt installer again.");
         else if (code == u"qplay_incompatible")
             message = Content::Client::tr("This version of qplay is incompatible. Install a compatible qplay version.");
-        else if (code == u"qcatch_unavailable")
-            message = Content::Client::tr("qcatch setup did not complete. Reinstall qcatch or run the qbutt installer again.");
-        else if (code == u"qcatch_incompatible")
-            message = Content::Client::tr("This version of qcatch is incompatible. Install a compatible qcatch version.");
-        else if (code == u"component_download_failed")
-            message = Content::Client::tr("Could not download the component. Check your connection and try again.");
-        else if (code == u"component_integrity_failed")
-            message = Content::Client::tr("The component failed its integrity check. Reinstall qbutt and try again.");
         else if (code == u"capture_expired")
             message = Content::Client::tr("This capture expired or changed. Choose the media again in qcatch.");
         else if (code == u"capture_session")
@@ -188,7 +180,7 @@ qint64 Content::Client::request(const QString &method, const QJsonObject &params
         }
     });
     const int timeout = ((method == u"reader.translate") || (method == u"reader.ahead")) ? 1800000
-        : (method == u"connectBrowser") ? 600000 : 180000;
+        : 180000;
     QTimer::singleShot(timeout, this, [this, id, method]
     {
         if (!m_pending.remove(id))
@@ -206,6 +198,12 @@ void Content::Client::cancel(const qint64 id)
 {
     if (id > 0)
         request(u"cancel"_s, {{u"id"_s, id}});
+}
+
+void Content::Client::updateBrowserChoice(const QString &choice)
+{
+    if (m_process.state() != QProcess::NotRunning)
+        request(u"chooseBrowser"_s, {{u"browser"_s, choice}});
 }
 
 void Content::Client::flushRequests()

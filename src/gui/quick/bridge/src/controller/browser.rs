@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::sync::RwLock;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QByteArray;
+use cxx_qt_lib::QString;
 use qbutt_content::browser::{
     BrowserBroker, BrowserChoice, BrowserCommand, BrowserError, BrowserHandle, BrowserId,
     BrowserStatus,
@@ -16,6 +18,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use super::ffi;
+use super::qcatch_setup::{self, SetupControl, SetupError};
 
 const MAX_REQUESTS: usize = 16;
 const MAX_MESSAGE_BYTES: usize = 768 * 1024;
@@ -24,6 +27,8 @@ const MAX_BROWSER_ID: u64 = 9_007_199_254_740_991;
 pub(super) struct BrowserService {
     client: BrowserClient,
     initialization: Option<JoinHandle<Result<(), BrowserError>>>,
+    setup: Option<JoinHandle<()>>,
+    setup_control: Option<Arc<StdMutex<SetupControl>>>,
 }
 
 #[derive(Clone)]
@@ -103,11 +108,39 @@ impl BrowserService {
                 choice: Arc::new(RwLock::new(BrowserChoice::Auto)),
             },
             initialization: None,
+            setup: None,
+            setup_control: None,
         }
     }
 
     pub(super) fn client(&self) -> BrowserClient {
         self.client.clone()
+    }
+
+    pub(super) fn setup_busy(&self) -> bool {
+        self.setup.as_ref().is_some_and(|task| !task.is_finished())
+    }
+
+    pub(super) fn start_setup(
+        &mut self,
+        task: JoinHandle<()>,
+        control: Arc<StdMutex<SetupControl>>,
+    ) {
+        self.setup = Some(task);
+        self.setup_control = Some(control);
+    }
+
+    pub(super) fn cancel_setup(&mut self) -> bool {
+        let Some(control) = self.setup_control.as_ref() else {
+            return false;
+        };
+        if control.lock().expect("setup lock").cancel() {
+            if let Some(task) = self.setup.as_ref() {
+                task.abort();
+            }
+            return true;
+        }
+        false
     }
 
     fn initialize(&mut self, runtime: &Runtime) {
@@ -119,6 +152,10 @@ impl BrowserService {
     }
 
     pub(super) async fn shutdown(&mut self) {
+        self.cancel_setup();
+        if let Some(setup) = self.setup.take() {
+            let _ = setup.await;
+        }
         let state = std::mem::replace(&mut *self.client.state.lock().await, BrowserState::Stopped);
         if let Some(initialization) = self.initialization.take() {
             let _ = initialization.await;
@@ -260,6 +297,277 @@ fn status(
 }
 
 impl ffi::ContentController {
+    pub fn browser_choice(&self) -> QString {
+        self.browser_choice.clone()
+    }
+
+    pub fn browser_connection_state(&self) -> ffi::ConnectionState {
+        self.browser_connection_state
+    }
+
+    pub fn browser_connected_name(&self) -> QString {
+        self.browser_connected_name.clone()
+    }
+
+    pub fn browser_setup_state(&self) -> ffi::SetupState {
+        self.browser_setup_state
+    }
+
+    pub fn browser_setup_failure(&self) -> ffi::SetupFailure {
+        self.browser_setup_failure
+    }
+
+    pub fn browser_extension_directory(&self) -> QString {
+        self.browser_extension_directory.clone()
+    }
+
+    pub fn choose_browser(mut self: Pin<&mut Self>, selected: QString) {
+        if !matches!(selected.to_string().as_str(), "auto" | "edge" | "chrome") {
+            return;
+        }
+        self.as_mut().browser_choice_requested(selected);
+    }
+
+    pub fn watch_browser(mut self: Pin<&mut Self>) {
+        self.as_mut().rust_mut().browser_ui_active = true;
+        self.as_mut().rust_mut().browser_watch.cancel();
+        self.as_mut().rust_mut().browser_connection_state = ffi::ConnectionState::Checking;
+        self.as_mut().rust_mut().browser_connected_name = QString::default();
+        self.as_mut().browser_changed();
+        let Some(services) = self.services.as_ref() else {
+            self.as_mut().rust_mut().browser_connection_state = ffi::ConnectionState::Unavailable;
+            self.as_mut().browser_changed();
+            return;
+        };
+        let generation = self.browser_watch.generation;
+        let client = services.browser.client();
+        let qt_thread = self.qt_thread();
+        let task = services.runtime.spawn(async move {
+            match client.handle().await {
+                Ok(handle) => {
+                    let mut updates = handle.subscribe();
+                    let status = handle.status();
+                    let _ = qt_thread.queue(move |mut controller| {
+                        if controller.browser_ui_active
+                            && controller.browser_watch.generation == generation
+                        {
+                            controller.as_mut().apply_browser_status(status);
+                        }
+                    });
+                    while updates.changed().await.is_ok() {
+                        let status = updates.borrow_and_update().clone();
+                        let _ = qt_thread.queue(move |mut controller| {
+                            if controller.browser_ui_active
+                                && controller.browser_watch.generation == generation
+                            {
+                                controller.as_mut().apply_browser_status(status);
+                            }
+                        });
+                    }
+                }
+                Err(error) => {
+                    let _ = qt_thread.queue(move |mut controller| {
+                        if controller.browser_ui_active
+                            && controller.browser_watch.generation == generation
+                        {
+                            let state = match error {
+                                BrowserError::OwnerExists => ffi::ConnectionState::OwnerExists,
+                                _ => ffi::ConnectionState::Unavailable,
+                            };
+                            controller.as_mut().rust_mut().browser_connection_state = state;
+                            controller.as_mut().browser_changed();
+                        }
+                    });
+                }
+            }
+        });
+        self.as_mut().rust_mut().browser_watch.task = Some(task);
+    }
+
+    fn apply_browser_status(mut self: Pin<&mut Self>, status: BrowserStatus) {
+        let chosen = choice(&self.browser_choice.to_string());
+        let connected = match chosen {
+            BrowserChoice::Auto if status.connections.len() == 1 => status.connections.first(),
+            BrowserChoice::Auto => None,
+            BrowserChoice::Edge => status
+                .connections
+                .iter()
+                .find(|peer| peer.browser == BrowserId::Edge),
+            BrowserChoice::Chrome => status
+                .connections
+                .iter()
+                .find(|peer| peer.browser == BrowserId::Chrome),
+        };
+        if let Some(peer) = connected {
+            self.as_mut().rust_mut().browser_connected_name = QString::from(match peer.browser {
+                BrowserId::Edge => "Microsoft Edge",
+                BrowserId::Chrome => "Google Chrome",
+            });
+            self.as_mut().rust_mut().browser_connection_state = ffi::ConnectionState::Connected;
+        } else {
+            self.as_mut().rust_mut().browser_connected_name = QString::default();
+            let installations = ffi::browser_installations();
+            let installed = installations
+                .iter()
+                .filter(|browser| browser.installed)
+                .collect::<Vec<_>>();
+            let state = if status.stopped {
+                ffi::ConnectionState::Unavailable
+            } else if chosen == BrowserChoice::Auto && status.connections.len() > 1 {
+                ffi::ConnectionState::ChoiceRequired
+            } else if installed.is_empty()
+                || (chosen != BrowserChoice::Auto
+                    && !installed
+                        .iter()
+                        .any(|browser| browser.id.to_string() == self.browser_choice.to_string()))
+            {
+                ffi::ConnectionState::NoBrowser
+            } else if chosen == BrowserChoice::Auto
+                && installed.len() > 1
+                && !installed.iter().any(|browser| browser.is_default)
+            {
+                ffi::ConnectionState::ChoiceRequired
+            } else {
+                ffi::ConnectionState::Disconnected
+            };
+            self.as_mut().rust_mut().browser_connection_state = state;
+        }
+        self.as_mut().browser_changed();
+    }
+
+    pub fn close_browser_settings(mut self: Pin<&mut Self>) {
+        self.as_mut().rust_mut().browser_ui_active = false;
+        self.as_mut().rust_mut().browser_watch.cancel();
+        let aborted = self
+            .as_mut()
+            .rust_mut()
+            .services
+            .as_mut()
+            .is_some_and(|services| services.browser.cancel_setup());
+        if aborted {
+            let generation = self.browser_setup_generation.wrapping_add(1);
+            self.as_mut().rust_mut().browser_setup_generation = generation;
+            self.as_mut().rust_mut().browser_setup_state = ffi::SetupState::Idle;
+            self.as_mut().rust_mut().browser_extension_directory = QString::default();
+            self.as_mut().browser_changed();
+        }
+    }
+
+    pub fn connect_qcatch(mut self: Pin<&mut Self>) {
+        if !self.browser_ui_active
+            || self.browser_connection_state != ffi::ConnectionState::Disconnected
+        {
+            return;
+        }
+        let selected = choice(&self.browser_choice.to_string());
+        let setup_generation = self.browser_setup_generation.wrapping_add(1);
+        let qt_thread = self.qt_thread();
+        let mut rust = self.as_mut().rust_mut();
+        let Some(services) = rust.services.as_mut() else {
+            return;
+        };
+        if services.browser.setup_busy() {
+            return;
+        }
+        let client = services.browser.client();
+        let control = Arc::new(StdMutex::new(SetupControl::default()));
+        let worker_control = control.clone();
+        let task = services.runtime.spawn(async move {
+            let installed = ffi::browser_installations();
+            let browser = match selected {
+                BrowserChoice::Edge => installed
+                    .iter()
+                    .find(|entry| entry.id.to_string() == "edge" && entry.installed)
+                    .map(|_| "edge"),
+                BrowserChoice::Chrome => installed
+                    .iter()
+                    .find(|entry| entry.id.to_string() == "chrome" && entry.installed)
+                    .map(|_| "chrome"),
+                BrowserChoice::Auto => {
+                    let connected = client
+                        .existing_handle()
+                        .await
+                        .map(|handle| handle.status().connections)
+                        .unwrap_or_default();
+                    match connected.as_slice() {
+                        [peer] => Some(match peer.browser {
+                            BrowserId::Edge => "edge",
+                            BrowserId::Chrome => "chrome",
+                        }),
+                        [_, ..] => None,
+                        [] => installed
+                            .iter()
+                            .find(|entry| entry.installed && entry.is_default)
+                            .or_else(|| {
+                                let browsers = installed
+                                    .iter()
+                                    .filter(|entry| entry.installed)
+                                    .collect::<Vec<_>>();
+                                (browsers.len() == 1).then(|| browsers[0])
+                            })
+                            .map(|entry| {
+                                if entry.id.to_string() == "edge" {
+                                    "edge"
+                                } else {
+                                    "chrome"
+                                }
+                            }),
+                    }
+                }
+            };
+            let result = match browser {
+                Some(browser) => qcatch_setup::connect(browser, &worker_control).await,
+                None => Err(SetupError::Connect),
+            };
+            let _ = qt_thread.queue(move |mut controller| {
+                if controller.browser_setup_generation != setup_generation {
+                    return;
+                }
+                if !controller.browser_ui_active {
+                    controller.as_mut().rust_mut().browser_setup_state = ffi::SetupState::Idle;
+                    return;
+                }
+                if choice(&controller.browser_choice.to_string()) != selected {
+                    controller.as_mut().rust_mut().browser_setup_state = ffi::SetupState::Idle;
+                    controller.as_mut().browser_changed();
+                    return;
+                }
+                match result {
+                    Ok(directory) => {
+                        controller.as_mut().rust_mut().browser_extension_directory =
+                            QString::from(directory.to_string_lossy().as_ref());
+                        controller.as_mut().rust_mut().browser_setup_state =
+                            ffi::SetupState::Waiting;
+                    }
+                    Err(SetupError::Cancelled) => {
+                        controller.as_mut().rust_mut().browser_setup_state = ffi::SetupState::Idle;
+                    }
+                    Err(error) => {
+                        controller.as_mut().rust_mut().browser_setup_state =
+                            ffi::SetupState::Failed;
+                        controller.as_mut().rust_mut().browser_setup_failure = match error {
+                            SetupError::Integrity => ffi::SetupFailure::Integrity,
+                            SetupError::Download => ffi::SetupFailure::Download,
+                            SetupError::Install | SetupError::Unavailable => {
+                                ffi::SetupFailure::Install
+                            }
+                            SetupError::Connect => ffi::SetupFailure::Connect,
+                            SetupError::Cancelled => ffi::SetupFailure::None,
+                        };
+                    }
+                }
+                controller.as_mut().browser_changed();
+                controller.as_mut().watch_browser();
+            });
+        });
+        services.browser.start_setup(task, control);
+        self.as_mut().rust_mut().browser_setup_generation = setup_generation;
+        self.as_mut().rust_mut().browser_setup_state = ffi::SetupState::Busy;
+        self.as_mut().rust_mut().browser_setup_failure = ffi::SetupFailure::None;
+        self.as_mut().rust_mut().browser_extension_directory = QString::default();
+        self.as_mut().browser_changed();
+    }
+
     pub fn initialize_browser(mut self: Pin<&mut Self>) {
         if let Some(services) = self.as_mut().rust_mut().services.as_mut() {
             services.browser.initialize(&services.runtime);

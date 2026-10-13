@@ -24,6 +24,13 @@ set_property(SOURCE ../../src/base/media/runtime.cpp APPEND PROPERTY COMPILE_DEF
     "QBUTT_QPLAY_PROTOCOL_VERSION=${qbutt_qplay_protocol_version}"
 )
 
+qt_add_executable(qbutt-qcatch-cli-fixture qcatch-fixture.cpp)
+set_target_properties(qbutt-qcatch-cli-fixture PROPERTIES
+    OUTPUT_NAME qcatch
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qcatch-fixture"
+)
+target_link_libraries(qbutt-qcatch-cli-fixture PRIVATE Qt::Core)
+
 qt_add_executable(qbutt-quick-acceptance
     main.cpp
     ../../src/base/media/runtime.cpp

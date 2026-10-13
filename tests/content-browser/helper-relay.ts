@@ -78,15 +78,9 @@ try {
     };
     let current = startHelper("chrome");
     helper = current.process;
-    current.send(1, "browserStatus");
-    await waitFor(() => current.messages.some(message => message.id === 1 && message.event === "complete"), "helper browser status");
-    assert.equal(current.messages.find(message => message.event === "browser")?.data.ready, false,
-        "Configured Chrome must not borrow the connected Edge session");
     current.send(5, "chooseBrowser", { browser: "edge" });
     await waitFor(() => current.messages.some(message => message.id === 5 && message.event === "complete"), "live browser choice");
-    current.send(6, "browserStatus");
-    await waitFor(() => current.messages.some(message => message.id === 6 && message.event === "complete"), "chosen browser status");
-    assert.equal(current.messages.find(message => message.id === 6 && message.event === "browser")?.data.connectedBrowser, "edge");
+    assert.equal((await parent.status()).connectedBrowser, "edge");
     const captureId = crypto.randomUUID();
     const capture = openLink("qbutt://capture?d=" + Buffer.from(JSON.stringify({ v: 1,
         pageUrl: "https://example.com/watch", title: "Generated capture", action: "watch", captureId })).toString("base64url"));
@@ -106,9 +100,7 @@ try {
     assert.equal(current.process.exitCode, 0);
     current = startHelper("edge");
     helper = current.process;
-    current.send(1, "browserStatus");
-    await waitFor(() => current.messages.some(message => message.id === 1 && message.event === "complete"), "restarted helper status");
-    assert.equal(current.messages.find(message => message.event === "browser")?.data.connectedBrowser, "edge");
+    assert.equal((await parent.status()).connectedBrowser, "edge");
     assert.deepEqual(JSON.parse(await readFile(discovery, "utf8")), owned, "Helper restart must retain the sole native broker");
     current.send(2, "resolve", { variant: capture.variant });
     await waitFor(() => commands.filter(command => command.method === "resolve").length === 2, "restarted helper resolve");
@@ -134,9 +126,9 @@ try {
     current = startHelper("edge");
     helper = current.process;
     sendPeer({ id: abandoned.id, result: { kind: "video", resolver: "direct", url: "https://example.com/generated.mp4", selection: { captureId } } });
-    current.send(1, "browserStatus");
-    await waitFor(() => current.messages.some(message => message.id === 1 && message.event === "complete"), "helper recovery after crash");
-    assert.equal(current.messages.filter(message => message.id === 1 && ["complete", "error"].includes(message.event)).length, 1);
+    await Bun.sleep(100);
+    assert.equal(current.messages.filter(message => ["complete", "error"].includes(message.event)).length, 0,
+        "Late response must not reach the restarted helper");
     current.process.stdin.end();
     await waitFor(() => current.process.exitCode !== null, "restarted helper shutdown");
     assert.equal(current.process.exitCode, 0);

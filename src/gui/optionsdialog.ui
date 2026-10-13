@@ -3205,35 +3205,49 @@ Disable encryption: Only connect to peers without protocol encryption</string>
          <number>0</number>
         </property>
         <item>
-         <layout class="QHBoxLayout" name="contentSettingsActions">
-          <item>
-           <widget class="QPushButton" name="browserSettingsButton">
-            <property name="text">
-             <string>Browser…</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="translationSettingsButton">
-            <property name="text">
-             <string>Subtitle translation…</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <spacer name="contentSettingsActionsSpacer">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>0</width>
-              <height>0</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-         </layout>
+         <widget class="QWidget" name="contentSettingsActionsWidget">
+          <layout class="QHBoxLayout" name="contentSettingsActions">
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <item>
+            <widget class="QPushButton" name="browserSettingsButton">
+             <property name="text">
+              <string>Browser…</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="translationSettingsButton">
+             <property name="text">
+              <string>Subtitle translation…</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="contentSettingsActionsSpacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
         </item>
        </layout>
       </widget>

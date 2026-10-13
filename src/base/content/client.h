@@ -22,6 +22,7 @@ namespace Content
         qint64 request(const QString &method, const QJsonObject &params = {});
         void cancel(qint64 id);
         void replyBrowser(quint64 generation, quint64 id, const QByteArray &reply);
+        void updateBrowserChoice(const QString &choice);
 
     signals:
         void eventReceived(qint64 id, const QString &event, const QJsonValue &data);

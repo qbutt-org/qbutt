@@ -26,13 +26,13 @@ export async function mediaRuntime(appDir: string, signal: AbortSignal): Promise
     let pending = runtimes.get(key);
     if (!pending) {
         pending = (async () => {
-            const player = labPlayer ? resolve(labPlayer) : await productExecutable("qplay", appDir);
+            const player = labPlayer ? resolve(labPlayer) : await productExecutable(appDir);
             if (!player) throw new ContentError("qplay_unavailable", "qplay is not installed. Reinstall qbutt or install qplay and try again.");
             const { stdout } = await promisify(execFile)(player, ["--runtime-info-json"], {
                 windowsHide: true, timeout: 30_000, maxBuffer: 64 * 1024,
             });
             const info = JSON.parse(stdout);
-            validateProductVersion("qplay", info);
+            validateProductVersion(info);
             const tools: Record<MediaTool, string> = {
                 mpv: info.tools?.mpv,
                 ffmpeg: info.tools?.ffmpeg,
