@@ -18,6 +18,8 @@ assert(args.length === 0 || (args.length === 2 && args[0] === "--source"),
     "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|rutracker|dodi|byrut|freetp|fitgirl|onlinefix|igruha] [--main]");
 const selectedSource = args[1] ?? "aniliberty";
 assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "rutracker", "dodi", "byrut", "freetp", "fitgirl", "onlinefix", "igruha"].includes(selectedSource), "Unsupported handoff source");
+assert(selectedSource !== "igruha" || mainContent,
+    "Igruha handoff requires --main to use MainWindow's browser connection");
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
 const executable = resolve(source);
