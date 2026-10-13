@@ -86,7 +86,7 @@ impl TheLastGame {
     }
 
     async fn release(&self, publication: &PublicationRef) -> Result<Release> {
-        let slug = publication_slug(publication)?;
+        let slug = publication.thelastgame_slug()?;
         let url = self
             .origin
             .join(&format!("/{slug}/"))
@@ -306,23 +306,6 @@ fn publication(input: &str, origin: &Url) -> Result<(PublicationRef, Url)> {
     };
     reference.validate()?;
     Ok((reference, url))
-}
-
-pub(crate) fn publication_slug(reference: &PublicationRef) -> Result<&str> {
-    let slug = &reference.id;
-    if reference.source == Source::TheLastGame
-        && !slug.is_empty()
-        && slug.len() <= 200
-        && !slug.starts_with('-')
-        && !slug.ends_with('-')
-        && slug
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-    {
-        Ok(slug)
-    } else {
-        Err(Error::InvalidReference)
-    }
 }
 
 fn torrent_url(input: &str, origin: &Url) -> Option<Url> {

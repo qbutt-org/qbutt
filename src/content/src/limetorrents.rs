@@ -76,7 +76,7 @@ impl LimeTorrents {
     }
 
     async fn release(&self, publication: &PublicationRef) -> Result<Release> {
-        let path = publication_path(publication)?;
+        let path = publication.limetorrents_path()?;
         let url = self
             .origin
             .join(path)
@@ -95,35 +95,6 @@ impl LimeTorrents {
 struct Release {
     work: Work,
     magnet: Url,
-}
-
-pub(crate) fn publication_path(reference: &PublicationRef) -> Result<&str> {
-    if reference.source != Source::LimeTorrents
-        || reference.id.is_empty()
-        || reference.id.len() > 512
-    {
-        return Err(Error::InvalidReference);
-    }
-    let decoded = percent_encoding::percent_decode_str(&reference.id)
-        .decode_utf8()
-        .map_err(|_| Error::InvalidReference)?;
-    if decoded
-        .bytes()
-        .any(|byte| matches!(byte, b'/' | b'\\' | b'?' | b'#'))
-        || decoded.chars().any(char::is_control)
-    {
-        return Err(Error::InvalidReference);
-    }
-    let (slug, id) = reference
-        .id
-        .strip_suffix(".html")
-        .and_then(|path| path.rsplit_once("-torrent-"))
-        .ok_or(Error::InvalidReference)?;
-    let number = id.parse::<u64>().map_err(|_| Error::InvalidReference)?;
-    if slug.is_empty() || number == 0 || number.to_string() != id {
-        return Err(Error::InvalidReference);
-    }
-    Ok(&reference.id)
 }
 
 fn search_results(body: &str, origin: &Url, query: &str, category: Category) -> Result<Vec<Work>> {
@@ -296,7 +267,7 @@ fn publication(input: &str, origin: &Url) -> Result<(PublicationRef, Url)> {
         source: Source::LimeTorrents,
         id: url.path().trim_start_matches('/').to_owned(),
     };
-    publication_path(&reference)?;
+    reference.limetorrents_path()?;
     Ok((reference, url))
 }
 

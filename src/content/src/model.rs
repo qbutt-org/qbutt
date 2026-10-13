@@ -77,8 +77,8 @@ impl PublicationRef {
             Source::OnlineFix => self.online_fix_path().map(|_| ()),
             Source::FreeTP => self.freetp_id().map(|_| ()),
             Source::ByRut => self.byrut_slug().map(|_| ()),
-            Source::TheLastGame => crate::thelastgame::publication_slug(self).map(|_| ()),
-            Source::LimeTorrents => crate::limetorrents::publication_path(self).map(|_| ()),
+            Source::TheLastGame => self.thelastgame_slug().map(|_| ()),
+            Source::LimeTorrents => self.limetorrents_path().map(|_| ()),
             Source::RoyalRoad => self.royalroad_id().map(|_| ()),
             Source::RanobeHub => self.ranobehub_id().map(|_| ()),
             Source::MangaLib => self.mangalib_id().map(|_| ()),
@@ -178,6 +178,51 @@ impl PublicationRef {
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
         {
+            return Err(crate::Error::InvalidReference);
+        }
+        Ok(&self.id)
+    }
+
+    pub(crate) fn thelastgame_slug(&self) -> crate::Result<&str> {
+        let slug = &self.id;
+        if self.source == Source::TheLastGame
+            && !slug.is_empty()
+            && slug.len() <= 200
+            && !slug.starts_with('-')
+            && !slug.ends_with('-')
+            && slug
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            Ok(slug)
+        } else {
+            Err(crate::Error::InvalidReference)
+        }
+    }
+
+    pub(crate) fn limetorrents_path(&self) -> crate::Result<&str> {
+        if self.source != Source::LimeTorrents || self.id.is_empty() || self.id.len() > 512 {
+            return Err(crate::Error::InvalidReference);
+        }
+        let decoded = percent_encoding::percent_decode_str(&self.id)
+            .decode_utf8()
+            .map_err(|_| crate::Error::InvalidReference)?;
+        if decoded
+            .bytes()
+            .any(|byte| matches!(byte, b'/' | b'\\' | b'?' | b'#'))
+            || decoded.chars().any(char::is_control)
+        {
+            return Err(crate::Error::InvalidReference);
+        }
+        let (slug, id) = self
+            .id
+            .strip_suffix(".html")
+            .and_then(|path| path.rsplit_once("-torrent-"))
+            .ok_or(crate::Error::InvalidReference)?;
+        let number = id
+            .parse::<u64>()
+            .map_err(|_| crate::Error::InvalidReference)?;
+        if slug.is_empty() || number == 0 || number.to_string() != id {
             return Err(crate::Error::InvalidReference);
         }
         Ok(&self.id)
