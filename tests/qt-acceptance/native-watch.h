@@ -6,5 +6,5 @@ class QJsonObject;
 
 namespace NativeWatchAcceptance
 {
-    void run(Application &application, QJsonObject &evidence);
+    void run(Application &application, const QJsonObject &spec, QJsonObject &evidence);
 }

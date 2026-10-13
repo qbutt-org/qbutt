@@ -508,12 +508,19 @@ $env:QBUTT_QT_ACCEPTANCE_EXE = 'C:/Tools/qbutt/main-combined-qa/runtime/qbutt-qt
 $env:QBUTT_QT_ACCEPTANCE_BUNDLE = 'C:/Tools/qbutt/main-combined-qa/runtime'
 $env:QBUTT_LAB_QPLAY = 'C:/Tools/qbutt/main-combined-qa/runtime/qplay/qplay.exe'
 bun tests/qt-acceptance/native-watch.ts
+bun tests/qt-acceptance/native-watch.ts --source=anitokyo
+bun tests/qt-acceptance/native-watch.ts --source=animespirit
 ```
 
 The bundle must include the verified qplay distribution. The runner uses a fresh
 profile and headless video/audio output. Require exit zero and passing evidence: exact
 AniLiberty episode/quality, real mpv file-loaded and advancing time, History only
 after ACK with the full Work/preferences, and retired gateway after stop.
+The AniTokyo and AnimeSpirit modes isolate their source, select the exact live
+publication, episode and voice, then check qplay's matching variant identity,
+reported media tracks, advancing time and the same saved selection in History.
+AniTokyo uses Psyren episode 1 with Дублированный; AnimeSpirit uses Magical
+Explorer episode 2 with Субтитры AnimeJoy. Each run stops after a brief decode.
 It does not establish native pointer or GPU playback.
 
 The `language-switch` scenario uses the deployed combined executable and Qt

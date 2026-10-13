@@ -15,6 +15,17 @@ const executable = resolve(source);
 const bundle = resolve(process.env.QBUTT_QT_ACCEPTANCE_BUNDLE ?? dirname(executable));
 assertQtRuntime(bundle);
 assert((await stat(qplay)).isFile(), "qplay executable is missing");
+
+const selections = {
+    aniliberty: { query: "Frieren", workId: "aniliberty:9542", variantSuffix: ":480" },
+    anitokyo: { query: "Psyren", workId: "anitokyo:9981", episode: "1", translation: "Дублированный" },
+    animespirit: { query: "Magical Explorer", workId: "animespirit:16461", episode: "2",
+        translation: "Субтитры AnimeJoy" },
+} as const;
+const sourceId = process.argv[2]?.replace(/^--source=/, "") ?? "aniliberty";
+assert(sourceId in selections, `Unknown native video source: ${sourceId}`);
+const selection = selections[sourceId as keyof typeof selections];
+
 const root = await mkdtemp(join(tmpdir(), "qbutt-main-watch-"));
 const profile = join(root, "profile");
 const qplayProfile = join(root, "qplay");
@@ -46,7 +57,7 @@ await writeFile(join(profile, "qbutt", "config", "qbutt.ini"), [
 ].join("\n"));
 const evidencePath = join(root, "evidence.json");
 const specPath = join(root, "spec.json");
-await writeFile(specPath, JSON.stringify({ mode: "native-watch", evidencePath }));
+await writeFile(specPath, JSON.stringify({ mode: "native-watch", evidencePath, source: sourceId, ...selection }));
 const application = Bun.spawn([executable, `--profile=${profile}`], {
     cwd: bundle,
     windowsHide: true,
@@ -69,19 +80,37 @@ assert.equal(exit, 0, `Main Watch failed; inspect ${root}`);
 assert.equal(evidence.status, "passed", JSON.stringify(evidence));
 const check = evidence.checks[0];
 assert.equal(check.name, "native-watch");
+assert.equal(check.source, sourceId);
+assert.equal(check.workId, selection.workId);
+assert.equal(check.identity, `video:${check.variantId}`);
+assert.equal(check.descriptorIsHttps, true);
+assert(check.trackCount > 0);
 const database = new Database(join(check.libraryPath, "content-library.sqlite"), { readonly: true });
 try {
     assert.equal((database.query("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check, "ok");
     const rows = database.query("SELECT entry FROM library WHERE json_extract(entry, '$.last_opened') IS NOT NULL").all() as { entry: string }[];
     assert.equal(rows.length, 1);
     const entry = JSON.parse(rows[0]!.entry);
-    assert.equal(entry.work.reference.id, "9542");
-    assert.equal(entry.work.variants.length, check.variantCount);
+    const publicationId = selection.workId.split(":")[1];
+    const publication = entry.group.publications.find((work: { reference: { id: string } }) =>
+        work.reference.id === publicationId);
+    assert(publication);
+    assert.equal(publication.variants.length, check.variantCount);
     assert.deepEqual(entry.preferences.selected, entry.last_opened.variant);
-    const selector = entry.last_opened.variant.selector.episode;
-    assert(selector);
-    assert.equal(check.variantId, `aniliberty:9542:episode:${selector.id}:${selector.quality.slice(1)}`);
-    assert.equal(check.identity, `video:${check.variantId}`);
+    const opened = publication.variants.find((variant: { reference: unknown }) =>
+        JSON.stringify(variant.reference) === JSON.stringify(entry.last_opened.variant));
+    assert(opened);
+    if ("episode" in selection) {
+        assert.equal(opened.episode, selection.episode);
+    }
+    if ("translation" in selection) {
+        assert.equal(opened.translation, selection.translation);
+    }
+    if (sourceId === "aniliberty") {
+        const selector = entry.last_opened.variant.selector.episode;
+        assert(selector);
+        assert.equal(check.variantId, `aniliberty:9542:episode:${selector.id}:${selector.quality.slice(1)}`);
+    }
 } finally {
     database.close();
 }

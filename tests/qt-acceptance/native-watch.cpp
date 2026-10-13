@@ -49,7 +49,7 @@ namespace
     }
 }
 
-void NativeWatchAcceptance::run(Application &application, QJsonObject &evidence)
+void NativeWatchAcceptance::run(Application &application, const QJsonObject &spec, QJsonObject &evidence)
 {
     require(QGuiApplication::platformName() == u"offscreen"_s, u"Native Watch fixture requires offscreen Qt"_s);
     auto *session = BitTorrent::Session::instance();
@@ -65,29 +65,54 @@ void NativeWatchAcceptance::run(Application &application, QJsonObject &evidence)
     auto *controller = view->findChild<Qbutt::ContentController *>();
     require(controller, u"Main content controller is missing"_s);
     waitFor([&] { return controller->getLibraryState() == Qbutt::Library::LibraryState::Ready; }, u"Native library"_s);
-    require(controller->setSourceEnabled(u"rutor"_s, false) && controller->setSourceEnabled(u"mangadex"_s, false),
-        u"Native Watch source fixture rejected"_s);
+
+    const QString sourceId = spec.value(u"source"_s).toString();
+    const QString query = spec.value(u"query"_s).toString();
+    const QString workId = spec.value(u"workId"_s).toString();
+    const QString episode = spec.value(u"episode"_s).toString();
+    const QString translation = spec.value(u"translation"_s).toString();
+    const QString variantSuffix = spec.value(u"variantSuffix"_s).toString();
+    require(!sourceId.isEmpty() && !query.isEmpty() && workId.startsWith(sourceId + u":"_s),
+        u"Native Watch selection is incomplete"_s);
+
+    auto *sources = qobject_cast<QAbstractItemModel *>(controller->property("sources").value<QObject *>());
+    require(sources, u"Native source settings are missing"_s);
+    const int sourceIdRole = sources->roleNames().key("sourceId");
+    require(sourceIdRole != 0, u"Native source IDs are unavailable"_s);
+    for (int row = 0; row < sources->rowCount(); ++row)
+    {
+        const QString id = sources->data(sources->index(row, 0), sourceIdRole).toString();
+        if (id != sourceId)
+            require(controller->setSourceEnabled(id, false), u"Native Watch source fixture rejected "_s + id);
+    }
     waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Source preferences"_s);
-    controller->search(u"Frieren"_s);
+    controller->search(query);
     waitFor([&] { return !controller->property("busy").toBool(); }, u"Native search"_s);
-    controller->selectWork(u"aniliberty:9542"_s);
+    controller->selectWork(workId);
     waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Native video variants"_s);
     require(controller->property("errorText").toString().isEmpty(), u"Native video inspection failed"_s);
     auto *variants = qobject_cast<QAbstractItemModel *>(controller->property("variants").value<QObject *>());
     auto *history = qobject_cast<QAbstractItemModel *>(controller->property("history").value<QObject *>());
     require(variants && history && (history->rowCount() == 0), u"Native inspection recorded premature history"_s);
     QString variantId;
+    int matches = 0;
     const auto roles = variants->roleNames();
     for (int row = 0; row < variants->rowCount(); ++row)
     {
-        const QString id = variants->data(variants->index(row, 0), roles.key("variantId")).toString();
-        if (id.contains(u":episode:"_s) && id.endsWith(u":480"_s))
+        const auto index = variants->index(row, 0);
+        const QString id = variants->data(index, roles.key("variantId")).toString();
+        if (id.startsWith(workId + u":"_s)
+            && (variantSuffix.isEmpty() || id.endsWith(variantSuffix))
+            && (episode.isEmpty() || variants->data(index, roles.key("episode")).toString() == episode)
+            && (translation.isEmpty() || variants->data(index, roles.key("translation")).toString() == translation))
         {
-            variantId = id;
-            break;
+            if (variantId.isEmpty())
+                variantId = id;
+            ++matches;
         }
     }
-    require(!variantId.isEmpty(), u"Native source has no exact 480p video"_s);
+    require(!variantId.isEmpty() && ((episode.isEmpty() && translation.isEmpty()) || matches == 1),
+        u"Native source has no unique selected video"_s);
     const int variantCount = variants->rowCount();
     controller->selectVariant(variantId);
     auto *button = view->rootObject()->findChild<QQuickItem *>(u"contentDownload"_s);
@@ -107,12 +132,17 @@ void NativeWatchAcceptance::run(Application &application, QJsonObject &evidence)
     QList<quint64> finished;
     double position = 0;
     QObject::connect(player, &Media::Player::error, &observations, [&](const QString &message) { errors.append(message); });
+    bool descriptorIsHttps = false;
+    QString contentKind;
+    QJsonArray tracks;
     QObject::connect(view, &Content::ContentView::videoReady, &observations,
-        [&](const quint64 token, const QString &identity, const QUrl &, const QUrl &proxyUrl, const QString &, const QString &)
+        [&](const quint64 token, const QString &identity, const QUrl &url, const QUrl &proxyUrl, const QString &, const QString &kind)
     {
         readyToken = token;
         readyIdentity = identity;
         proxy = proxyUrl;
+        descriptorIsHttps = url.scheme() == u"https"_s;
+        contentKind = kind;
         historyEmptyBeforeAck = history->rowCount() == 0;
     });
     QObject::connect(player, &Media::Player::playbackStarted, &observations,
@@ -123,6 +153,7 @@ void NativeWatchAcceptance::run(Application &application, QJsonObject &evidence)
     });
     QObject::connect(player, &Media::Player::playbackFinished, &observations, [&](const quint64 token) { finished.append(token); });
     QObject::connect(player, &Media::Player::positionChanged, &observations, [&](const double seconds) { position = seconds; });
+    QObject::connect(player, &Media::Player::tracksChanged, &observations, [&](const QJsonArray &actual) { tracks = actual; });
     const QPointF point = button->mapToScene(QPointF(button->width() / 2, button->height() / 2));
     const QPointF global = view->mapToGlobal(point.toPoint());
     QMouseEvent press(QEvent::MouseButtonPress, point, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
@@ -134,8 +165,13 @@ void NativeWatchAcceptance::run(Application &application, QJsonObject &evidence)
     require(readyToken && historyEmptyBeforeAck && (readyIdentity == u"video:"_s + variantId)
         && (started == QList<quint64> {readyToken}) && (startedIdentities == QStringList {readyIdentity}),
         u"Main Watch did not confirm its exact launch once"_s);
+    require(descriptorIsHttps && contentKind == u"anime"_s,
+        u"Main Watch did not hand the exact video descriptor to qplay"_s);
+    require(proxy.isValid() && proxy.host() == u"127.0.0.1"_s && proxy.port() > 0,
+        u"Main Watch has no isolated media gateway"_s);
     waitFor([&] { return (position >= 0.5) || !errors.isEmpty(); }, u"Main Watch actual decoding"_s);
     require(errors.isEmpty(), u"Main Watch decoding failed"_s);
+    require(!tracks.isEmpty(), u"qplay did not report decoded media tracks"_s);
     waitFor([&] { return !controller->property("libraryPending").toBool() && (history->rowCount() == 1); },
         u"Main Watch confirmed history"_s);
     player->stop();
@@ -147,7 +183,10 @@ void NativeWatchAcceptance::run(Application &application, QJsonObject &evidence)
         return !socket.waitForConnected(100);
     }, u"Main Watch media listener retirement"_s);
     evidence[u"checks"_s] = QJsonArray {QJsonObject {{u"name"_s, u"native-watch"_s},
-        {u"variantId"_s, variantId}, {u"variantCount"_s, variantCount}, {u"identity"_s, readyIdentity},
+        {u"source"_s, sourceId}, {u"workId"_s, workId}, {u"episode"_s, episode},
+        {u"translation"_s, translation}, {u"variantId"_s, variantId},
+        {u"variantCount"_s, variantCount}, {u"identity"_s, readyIdentity},
+        {u"trackCount"_s, static_cast<int>(tracks.size())}, {u"descriptorIsHttps"_s, descriptorIsHttps},
         {u"launchToken"_s, static_cast<qint64>(readyToken)}, {u"position"_s, position},
         {u"historyAfterActualAck"_s, true}, {u"listenerRetired"_s, true},
         {u"libraryPath"_s, specialFolderLocation(SpecialFolder::Data).toString()}}};

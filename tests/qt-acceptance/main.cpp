@@ -3208,7 +3208,7 @@ namespace
         }
         if (spec.value(u"mode"_s).toString() == u"native-watch")
         {
-            NativeWatchAcceptance::run(application, evidence);
+            NativeWatchAcceptance::run(application, spec, evidence);
             return;
         }
         if ((spec.value(u"mode"_s).toString() == u"quick-handoff")
