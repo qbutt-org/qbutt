@@ -10,6 +10,21 @@ connection replacement and interruption. Lib credentials are also rejected by
 the foreign reply adapter.
 Real qcatch site storage and live accounts remain separate acceptance scenarios.
 
+The live `mangalib` example accepts a publication ID, search query and zero-based
+chapter index. It uses an anonymous session and chooses the first translation
+branch returned by the native provider. This invocation passed after building the
+release example in the existing MSVC/Cargo environment:
+
+```powershell
+& .\build\dev\cargo\build\x86_64-pc-windows-msvc\release\examples\mangalib.exe '242614--dungeon-crawler-carl' 'Dungeon Crawler Carl' 1
+```
+
+Require exit zero and inspect the JSON's exact branch/chapter, page count and
+downloaded image SHA. The example also rejects absent branches/uploads. Without
+arguments it retains the Yotsuba control case. It does not establish native image
+decoding or account-required access; an age notice on the website alone does not
+establish an API login requirement.
+
 `tests/content-reading/lib-session.ts` runs the hidden Qt `--lib-session`
 scenario against generated HTTPS content and a private qcatch pipe. Pass the
 acceptance executable, PEM certificate and key. The fixture build resolves
