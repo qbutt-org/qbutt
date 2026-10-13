@@ -9,6 +9,11 @@ pub use qbutt_content::{Error, Result, TorrentMetadata};
 mod browser;
 
 #[cfg(windows)]
+mod webview {
+    pub use qbutt_content::webview::WebViewSession;
+}
+
+#[cfg(windows)]
 #[allow(dead_code)]
 mod http {
     include!("../src/http.rs");

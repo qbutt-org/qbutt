@@ -21,6 +21,7 @@ mod error;
 mod external_video;
 mod fitgirl;
 mod freetp;
+mod dodi;
 mod http;
 mod kakuyomu;
 mod kodik;
@@ -72,6 +73,7 @@ pub use fitgirl::FitGirl;
 pub use freetp::FreeTP;
 pub use kakuyomu::Kakuyomu;
 pub use lib_api::LibSession;
+pub use dodi::Dodi;
 pub use library::{
     LastOpened, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView, ReaderFit,
     ReaderMode, ReaderPosition, ReaderProgress, ReaderSettings, TranslationCacheKey,

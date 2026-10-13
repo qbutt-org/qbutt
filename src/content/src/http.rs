@@ -277,6 +277,33 @@ impl SourceHttp {
         .map_err(|_| Error::Timeout)?
     }
 
+    /// File-host forms can redirect to explicitly known payload hosts. Cookie
+    /// domain matching and origin-scoped authorization still apply per hop.
+    pub(crate) async fn session_hosted_metadata(
+        &self,
+        url: Url,
+        session: &mut SourceSession,
+        form: &str,
+        allowed_hosts: &[&str],
+    ) -> Result<SourceDocument> {
+        if allowed_hosts.is_empty() {
+            return Err(Error::UnsafeAddress);
+        }
+        tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(
+                url,
+                ResponseKind::Metadata,
+                allowed_hosts,
+                Some(form),
+                Some(session),
+                None,
+            ),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
+    }
+
     async fn fetch(
         &self,
         mut url: Url,
@@ -302,7 +329,11 @@ impl SourceHttp {
             }
         }
         let raw = matches!(kind, ResponseKind::Document | ResponseKind::Metadata);
-        let same_origin = !matches!(kind, ResponseKind::Image | ResponseKind::Playlist);
+        let same_origin = match kind {
+            ResponseKind::Image | ResponseKind::Playlist => false,
+            ResponseKind::Metadata => allowed_hosts.is_empty(),
+            _ => true,
+        };
         let max_bytes = match kind {
             ResponseKind::Metadata => crate::TorrentMetadata::MAX_BYTES,
             ResponseKind::Html | ResponseKind::Playlist | ResponseKind::Document => MAX_HTML_BYTES,
@@ -310,16 +341,19 @@ impl SourceHttp {
         };
         for redirects in 0..=MAX_REDIRECTS {
             validate_https_url(&url)?;
-            // Catalog and form redirects stay on the fixed origin. Images and
-            // playlists may use public CDNs; every connection uses checked DNS.
+            // Catalog redirects stay on the fixed origin. Metadata may use its
+            // explicit host list; every connection uses checked public DNS.
             if same_origin && url.origin() != self.origin.origin() {
+                return Err(Error::UnsafeAddress);
+            }
+            if form.is_some() && url.origin() != self.origin.origin() {
                 return Err(Error::UnsafeAddress);
             }
             if !allowed_hosts.is_empty()
                 && (!url
                     .host_str()
                     .is_some_and(|host| allowed_hosts.contains(&host))
-                    || url.port().is_some())
+                    || url.port_or_known_default() != self.origin.port_or_known_default())
             {
                 return Err(Error::UnsafeAddress);
             }
