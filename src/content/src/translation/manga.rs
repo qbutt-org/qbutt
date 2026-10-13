@@ -31,7 +31,7 @@ const MAX_INK_BOXES: usize = 4096;
 const MAX_RENDERS: usize = 3;
 const MAX_INSPECTION_CROPS: usize = MAX_TOOL_IMAGES / 3;
 const MAX_INSPECTION_PIXELS: u64 = 16_000_000;
-const PIPELINE_VERSION: u32 = 9;
+const PIPELINE_VERSION: u32 = 10;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Rect {
