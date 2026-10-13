@@ -13,6 +13,43 @@ use super::context::{
 };
 
 const MAX_CONTEXT_ITEMS: usize = 20;
+const MAX_TEXT_RUNS: usize = 32;
+const MAX_TRANSLATION_BYTES: usize = 3000;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextRun {
+    pub text: String,
+    pub bold: bool,
+    pub italic: bool,
+}
+
+pub(super) fn valid_text_runs(runs: &[TextRun]) -> bool {
+    !runs.is_empty()
+        && runs.len() <= MAX_TEXT_RUNS
+        && runs.iter().all(|run| !run.text.is_empty())
+        && runs.iter().any(|run| !run.text.trim().is_empty())
+        && runs.iter().map(|run| run.text.len()).sum::<usize>() <= MAX_TRANSLATION_BYTES
+}
+
+pub(super) fn text_runs_schema() -> Value {
+    json!({
+        "type": "array",
+        "description": "Contiguous translated text with explicit bold and italic per fragment. The concatenated text must contain at most 3000 UTF-8 bytes.",
+        "minItems": 1,
+        "maxItems": MAX_TEXT_RUNS,
+        "items": {
+            "type": "object",
+            "properties": {
+                "text": { "type": "string", "minLength": 1 },
+                "bold": { "type": "boolean" },
+                "italic": { "type": "boolean" },
+            },
+            "required": ["text", "bold", "italic"],
+            "additionalProperties": false,
+        },
+    })
+}
 
 pub struct PageJob {
     pub chapter: ChapterRef,

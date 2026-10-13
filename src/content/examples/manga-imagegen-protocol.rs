@@ -147,7 +147,7 @@ async fn exercise(native: &Path) -> Result<()> {
     let original = image(ORIGINAL);
     let key = cache_key(chapter.clone(), 0, &original, "ru", "gpt-6.1-sol", "low");
     assert_eq!(key.provider, "codex-imagegen");
-    assert_eq!(key.pipeline, 1);
+    assert_eq!(key.pipeline, 2);
     assert_ne!(
         key,
         qbutt_content::translation::manga::cache_key(
@@ -165,6 +165,12 @@ async fn exercise(native: &Path) -> Result<()> {
         "partial-usage",
         "invalid-term",
         "invalid-quote",
+        "invalid-runs-empty",
+        "invalid-runs-count",
+        "invalid-runs-text",
+        "invalid-runs-bytes",
+        "invalid-runs-flags",
+        "invalid-runs-plain",
         "metadata-rejected",
         "validator-rejected",
         "cancel-normalize",
@@ -249,8 +255,9 @@ async fn exercise(native: &Path) -> Result<()> {
                 accepted.apply(&chapter.variant.publication, page.additions, &page.evidence)?;
                 assert_eq!(accepted.revision, 1);
             }
-            ("metadata-rejected" | "invalid-term" | "invalid-quote", Err(CodexError::Tool(_)))
-            | ("validator-rejected", Err(CodexError::Image))
+            (failed, Err(CodexError::Tool(_)))
+                if failed.starts_with("invalid-") || failed == "metadata-rejected" => {}
+            ("validator-rejected", Err(CodexError::Image))
             | ("cancel-normalize", Err(CodexError::Cancelled)) => {}
             (_, Err(error)) => return Err(format!("{case}: unexpected {error}").into()),
             (_, Ok(_)) => return Err(format!("{case}: invalid page accepted").into()),
@@ -269,7 +276,7 @@ async fn exercise(native: &Path) -> Result<()> {
             .iter()
             .filter(|entry| entry.get("pid").is_some())
             .collect();
-        let generated = !matches!(case, "invalid-term" | "invalid-quote");
+        let generated = !case.starts_with("invalid-");
         assert_eq!(processes.len(), if generated { 2 } else { 1 });
         assert_eq!(processes[0]["phase"], "translation");
         for process in &processes {

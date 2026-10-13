@@ -14,7 +14,7 @@ use crate::ChapterRef;
 use crate::library::TranslationCacheKey;
 
 use super::context::{ContextAdditions, EvidenceSegment};
-pub use super::page::{PageJob, Rect};
+pub use super::page::{PageJob, Rect, TextRun};
 use qbutt_codex::{
     self as codex, CodexCompletion, CodexError, CodexRequest, FunctionTool, IMAGE_TOOL_CALL_LIMIT,
     InputImage, MAX_IMAGE_BYTES, MAX_TOOL_IMAGES, ModelModality, ToolCall, ToolFuture, ToolHandler,
@@ -47,14 +47,6 @@ pub enum FontFamily {
     Comic,
     Serif,
     Condensed,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct TextRun {
-    pub text: String,
-    pub bold: bool,
-    pub italic: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -534,20 +526,7 @@ fn validate_regions(regions: &[PageRegion]) -> codex::Result<()> {
             "id must be nonempty and unique on this page"
         } else if region.source_text.trim().is_empty() || region.source_text.len() > 2000 {
             "sourceText must contain the visible original text"
-        } else if region.translation.is_empty()
-            || region.translation.len() > 32
-            || region.translation.iter().any(|run| run.text.is_empty())
-            || region
-                .translation
-                .iter()
-                .all(|run| run.text.trim().is_empty())
-            || region
-                .translation
-                .iter()
-                .map(|run| run.text.len())
-                .sum::<usize>()
-                > 3000
-        {
+        } else if !super::page::valid_text_runs(&region.translation) {
             "translation must contain one to 32 styled text runs, at most 3000 bytes in total"
         } else if !region.angle.is_finite() || !(-45.0..=45.0).contains(&region.angle) {
             "angle must be between -45 and 45 clockwise degrees"
@@ -589,21 +568,7 @@ fn page_tools() -> Vec<FunctionTool> {
         "properties": {
             "id": { "type": "string", "minLength": 1, "maxLength": 64 },
             "sourceText": { "type": "string" },
-            "translation": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 32,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "text": { "type": "string", "minLength": 1 },
-                        "bold": { "type": "boolean" },
-                        "italic": { "type": "boolean" },
-                    },
-                    "required": ["text", "bold", "italic"],
-                    "additionalProperties": false,
-                },
-            },
+            "translation": super::page::text_runs_schema(),
             "family": { "type": "string", "enum": ["comic", "serif", "condensed"] },
             "angle": { "type": "number", "minimum": -45, "maximum": 45 },
             "textColor": { "type": ["string", "null"], "pattern": "^#[0-9A-Fa-f]{6}$" },

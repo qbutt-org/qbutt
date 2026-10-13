@@ -160,8 +160,13 @@ pub fn run() -> Result<()> {
                     }),
                 )?;
                 if image_phase {
-                    assert!(!matches!(case.as_str(), "invalid-term" | "invalid-quote"));
+                    assert!(!case.starts_with("invalid-"));
                     assert_eq!(prompt["translations"][0]["translation"], translation(&case));
+                    let runs = prompt["translations"][0]["translation"].as_array().unwrap();
+                    assert_eq!(runs[1]["bold"], false);
+                    assert_eq!(runs[1]["italic"], true);
+                    assert_eq!(runs[3]["bold"], true);
+                    assert_eq!(runs[3]["italic"], true);
                     assert_eq!(prompt["translations"][0]["sourceText"], SOURCE_TEXT);
                     assert_eq!(
                         request["params"]["outputSchema"]["required"],
@@ -188,6 +193,15 @@ pub fn run() -> Result<()> {
                     assert_eq!(
                         request["params"]["outputSchema"]["required"],
                         json!(["regions", "terms", "facts"])
+                    );
+                    let schema = &request["params"]["outputSchema"]["properties"]["regions"]["items"]
+                        ["properties"]["translation"];
+                    assert_eq!(schema["type"], "array");
+                    assert_eq!(schema["minItems"], 1);
+                    assert_eq!(schema["maxItems"], 32);
+                    assert_eq!(
+                        schema["items"]["required"],
+                        json!(["text", "bold", "italic"])
                     );
                     send(
                         &mut output,
@@ -237,11 +251,33 @@ fn proposal(case: &str) -> Value {
     })
 }
 
-fn translation(case: &str) -> &'static str {
-    if case == "en" {
-        "Ren is my elder sister."
-    } else {
-        "Рен — моя старшая сестра."
+fn translation(case: &str) -> Value {
+    match case {
+        "invalid-runs-empty" => json!([]),
+        "invalid-runs-count" => json!(vec![
+            json!({"text": "x", "bold": false, "italic": false});
+            33
+        ]),
+        "invalid-runs-text" => json!([{"text": "", "bold": false, "italic": false}]),
+        "invalid-runs-bytes" => {
+            json!([{"text": "文".repeat(1001), "bold": false, "italic": false}])
+        }
+        "invalid-runs-flags" => json!([{"text": "Ren", "bold": false}]),
+        "invalid-runs-plain" => json!("Ren is my elder sister."),
+        "en" => json!([
+            {"text": "Ren is my elder sister. ", "bold": false, "italic": false},
+            {"text": "DOKJA", "bold": false, "italic": true},
+            {"text": " means ", "bold": false, "italic": false},
+            {"text": "reader", "bold": true, "italic": true},
+            {"text": ".", "bold": false, "italic": false},
+        ]),
+        _ => json!([
+            {"text": "Рен — моя старшая сестра. ", "bold": false, "italic": false},
+            {"text": "докча", "bold": false, "italic": true},
+            {"text": " означает ", "bold": false, "italic": false},
+            {"text": "читатель", "bold": true, "italic": true},
+            {"text": ".", "bold": false, "italic": false},
+        ]),
     }
 }
 
