@@ -56,6 +56,8 @@ qt_add_executable(qbutt-quick-acceptance
     history.h
     reader.cpp
     reader.h
+    reader-text.cpp
+    reader-text.h
     reader-continuous.cpp
     reader-continuous.h
     reader-progress.cpp
