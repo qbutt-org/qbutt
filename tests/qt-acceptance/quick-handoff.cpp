@@ -115,13 +115,15 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
 
     const QString source = spec.value(u"source"_s).toString();
     require((source == u"aniliberty") || (source == u"rutor") || (source == u"limetorrents")
-            || (source == u"nnmclub") || (source == u"dodi"),
+            || (source == u"nnmclub") || (source == u"dodi") || (source == u"byrut"),
         u"Unsupported handoff source"_s);
     const bool ruTor = source == u"rutor";
     const bool limeTorrents = source == u"limetorrents";
     const bool nnmClub = source == u"nnmclub";
     const bool dodi = source == u"dodi";
-    const bool singleTorrent = ruTor || limeTorrents || nnmClub || dodi;
+    const bool byRut = source == u"byrut";
+    const bool torrentFile = dodi || byRut;
+    const bool singleTorrent = ruTor || limeTorrents || nnmClub || torrentFile;
     QString sourceLabel = u"AniLiberty"_s;
     QString category = u"anime"_s;
     QString queryText = u"Frieren"_s;
@@ -148,6 +150,12 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         sourceLabel = u"DODI Repacks"_s;
         category = u"games"_s;
         queryText = u"Devil May Cry"_s;
+    }
+    else if (byRut)
+    {
+        sourceLabel = u"ByRut"_s;
+        category = u"games"_s;
+        queryText = u"Stardew Valley"_s;
     }
 
     const QDir payload(spec.value(u"payload"_s).toString());
@@ -317,6 +325,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         expectedWorkId = u"nnmclub:906013"_s;
     else if (dodi)
         expectedWorkId = u"dodi:2643--devil-may-cry-5"_s;
+    else if (byRut)
+        expectedWorkId = u"byrut:2799-stardew-valley"_s;
     QString workId;
     for (int row = 0; row < works->rowCount(); ++row)
     {
@@ -386,6 +396,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         require(infoHash == u"c97f976894b81bb0f0befea584c9a81ad3bd9f5a", u"Known public-domain torrent hash changed"_s);
     if (nnmClub)
         require(infoHash == u"eeddbd381bc734373bccf170a17d3bba23fa33a3", u"Known Sintel torrent hash changed"_s);
+    if (byRut)
+        require(infoHash == u"942e9eeace33f7cfefa4fbcc129a1a9f12097638", u"Known Stardew Valley torrent hash changed"_s);
     auto *list = root->findChild<QQuickItem *>(u"contentVariants"_s);
     auto *download = root->findChild<QQuickItem *>(u"contentDownload"_s);
     require(list && download, u"Variant controls are missing"_s);
@@ -451,10 +463,10 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     QObject::connect(&view, &Content::ContentView::torrentMetadataReady, &observation,
         [&](const QString &identity, const QByteArray &data)
     {
-        require(dodi && (identity == variantId), u"Torrent bytes lost the exact selected FileMe identity"_s);
+        require(torrentFile && (identity == variantId), u"Torrent bytes lost the exact selected publication identity"_s);
         const auto descriptor = BitTorrent::TorrentDescriptor::load(data);
         require(descriptor && (descriptor->infoHash().v1().toString() == infoHash),
-            u"DODI acquired different or malformed torrent bytes"_s);
+            u"Source acquired different or malformed torrent bytes"_s);
         ++handoffs;
         metadataBytes = data.size();
         guiThread = guiThread && (QThread::currentThread() == qApp->thread());
@@ -466,8 +478,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     waitFor([&] { return !controller->property("resolving").toBool(); }, 50'000, u"Exact torrent resolution"_s);
     require(controller->property("errorText").toString().isEmpty(), u"Exact resolution failed"_s);
     require(guiThread && (handoffs == 1) && managerAccepted && (failures == 0), u"Native torrent handoff failed"_s);
-    if (dodi)
-        require((metadataBytes > 0) && (metadataBytes <= 10 * 1024 * 1024), u"DODI metadata bytes were not bounded"_s);
+    if (torrentFile)
+        require((metadataBytes > 0) && (metadataBytes <= 10 * 1024 * 1024), u"Torrent metadata bytes were not bounded"_s);
 
     QList<AddNewTorrentDialog *> dialogs;
     waitFor([&]

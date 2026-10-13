@@ -15,9 +15,9 @@ const mainContent = input.includes("--main");
 assert(input.filter(arg => arg === "--main").length <= 1, "Repeated --main option");
 const args = input.filter(arg => arg !== "--main");
 assert(args.length === 0 || (args.length === 2 && args[0] === "--source"),
-    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|dodi] [--main]");
+    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|dodi|byrut] [--main]");
 const selectedSource = args[1] ?? "aniliberty";
-assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "dodi"].includes(selectedSource), "Unsupported handoff source");
+assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "dodi", "byrut"].includes(selectedSource), "Unsupported handoff source");
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
 const executable = resolve(source);
@@ -109,7 +109,7 @@ try {
     assert.equal(check.metadataPayloadEmpty, true);
     assert.equal(check.source, selectedSource);
     const category = selectedSource === "rutor" ? "software"
-        : selectedSource === "dodi" ? "games"
+        : ["dodi", "byrut"].includes(selectedSource) ? "games"
         : selectedSource === "aniliberty" ? "anime" : "movies";
     assert.equal(check.category, category);
     assert.equal(check.mainContent, mainContent);
@@ -149,6 +149,13 @@ try {
         assert.equal(check.workId, "dodi:2643--devil-may-cry-5");
         assert.equal(check.variantId, `${check.workId}:torrent:vpe2b0x0a9zw`);
         assert.equal(check.infoHash, "b34fa7dfc9c95baf8509f6bd90a4ce5e1fde22e1");
+        assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
+    }
+    else if (selectedSource === "byrut") {
+        assert.equal(check.variantCount, 1);
+        assert.equal(check.workId, "byrut:2799-stardew-valley");
+        assert.equal(check.infoHash, "942e9eeace33f7cfefa4fbcc129a1a9f12097638");
+        assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
         assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
     }
     else if (["rutor", "limetorrents", "nnmclub"].includes(selectedSource)) {
