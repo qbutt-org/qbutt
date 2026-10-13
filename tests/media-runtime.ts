@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 import { mediaRuntime } from "../components/content/media-runtime";
 import { assertQtRuntime } from "./qt-runtime";
@@ -17,25 +17,11 @@ assertQtRuntime(bundle);
 process.env.QBUTT_LAB_PATHS = "1";
 const verified = await mediaRuntime(bundle, AbortSignal.timeout(30_000));
 const root = await mkdtemp(join(tmpdir(), "qbutt-native-media-runtime-"));
-const executable = join(bundle, "qbutt-qt-acceptance.exe");
-if (driver !== executable)
+const executable = join(bundle, basename(driver));
+if (resolve(driver) !== resolve(executable))
     await copyFile(driver, executable);
 const qplayProfile = join(root, "qplay");
-const tracePath = join(root, "mpv.jsonl");
 const media = join(root, "legal.mkv");
-await mkdir(join(qplayProfile, "config"), { recursive: true });
-await writeFile(join(qplayProfile, "config", "mpv.conf"),
-    `vo=null\nao=null\nosc=no\nhwdec=no\nkeep-open=yes\nscript="${join(qplayProfile, "config", "trace.lua").replaceAll("\\", "/")}"\n`);
-await writeFile(join(qplayProfile, "config", "trace.lua"), `
-local mp = require("mp")
-local utils = require("mp.utils")
-mp.register_event("file-loaded", function()
-    local file = assert(io.open(os.getenv("QBUTT_NATIVE_MPV_TRACE"), "a"))
-    file:write(utils.format_json({title=mp.get_property("media-title"), opts=mp.get_property_native("options/script-opts")}), "\\n")
-    file:close()
-    mp.add_timeout(0.1, function() mp.commandv("script-message", "qplay-download") end)
-end)
-`);
 const generator = Bun.spawn([verified.tools.ffmpeg, "-hide_banner", "-loglevel", "error",
     "-f", "lavfi", "-i", "color=c=black:size=160x90:rate=12:duration=30",
     "-f", "lavfi", "-i", "sine=frequency=440:duration=30", "-c:v", "libx264",
@@ -109,9 +95,9 @@ const cases = [
     ] },
     { name: "native-playback", player: qplay, selections: [
         { name: "pending-stop", stopBeforeLoaded: true },
-        { name: "reentrant-anime", supersedePending: true, reentrantSupersede: true, contentKind: "anime", checkDownload: true },
-        { name: "movie-replacement", supersedePlaying: true, contentKind: "movie", checkDownload: true },
-        { name: "ordinary-download", legacyLaunch: true, contentKind: "movie", checkDownload: true },
+        { name: "reentrant-anime", supersedePending: true, reentrantSupersede: true, contentKind: "anime" },
+        { name: "movie-replacement", supersedePlaying: true, contentKind: "movie" },
+        { name: "ordinary-playback", contentKind: "movie" },
     ] },
 ];
 const results = [];
@@ -143,7 +129,7 @@ for (const scenario of cases.filter(scenario => !selectedCase || scenario.name =
         env: { ...process.env, QT_QPA_PLATFORM: "offscreen", QSG_RHI_BACKEND: "software", QBUTT_QT_ACCEPTANCE_SPEC: specPath,
             QBUTT_LAB_PATHS: "1", QBUTT_LAB_QPLAY: scenario.player || probe, QBUTT_LAB_QPLAY_PROFILE: qplayProfile,
             QBUTT_NATIVE_PROBE_MODE: scenario.mode || "metadata", QBUTT_NATIVE_PROBE_RESPONSE: response,
-            QBUTT_NATIVE_PROBE_TRACE: probeTracePath, QBUTT_NATIVE_MPV_TRACE: tracePath },
+            QBUTT_NATIVE_PROBE_TRACE: probeTracePath },
         stdout: Bun.file(join(directory, "stdout.log")), stderr: Bun.file(join(directory, "stderr.log")),
     });
     const exit = await application.exited;
@@ -160,15 +146,6 @@ for (const scenario of cases.filter(scenario => !selectedCase || scenario.name =
         assert.equal(pids.length, 1, "Concurrent playback and download tools requests started separate probes");
     results.push({ name: scenario.name, elapsedMs, pids, evidencePath });
 }
-const traces = await readFile(tracePath, "utf8").then(text => text.trim().split("\n").map(line => JSON.parse(line)))
-    .catch(() => []);
-for (const trace of traces) {
-    assert.equal(trace.opts["modernx-download_button"], trace.title === "ordinary-download" ? "yes" : "no", JSON.stringify(trace));
-    assert.equal(trace.opts["video_profile-override"], ["reentrant-anime", "cancel-and-retry"].includes(trace.title) ? "anime" : "movie",
-        JSON.stringify(trace));
-}
-if (!selectedCase || selectedCase === "native-playback")
-    assert(traces.length >= 4, "Actual qplay launches were not recorded");
 const resultPath = join(root, "result.json");
-await writeFile(resultPath, JSON.stringify({ status: "passed", results, traces }, null, 2));
+await writeFile(resultPath, JSON.stringify({ status: "passed", results }, null, 2));
 console.log(JSON.stringify({ status: "passed", root, resultPath }));

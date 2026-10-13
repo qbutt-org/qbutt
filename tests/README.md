@@ -664,8 +664,8 @@ set `QBUTT_QT_ACCEPTANCE_EXE` to it and run `bun run smoke:media`.
 Content and media scenarios require the absolute `QBUTT_LAB_QPLAY` path above.
 The override is accepted only with `QBUTT_LAB_PATHS=1`; missing paths fail before
 the fixture can discover a different installed player.
-They create an isolated qplay profile and load generated configuration and Lua
-through qplay's `--profile-dir`; they do not modify its immutable runtime.
+They use an isolated qplay profile through `--profile-dir` and do not modify
+its bundled runtime.
 Use the Python fixture environment above. The fixture checks incomplete MP4/MKV
 ranges, actual decoding and seeking, restored priorities, cancellation,
 completion leases and replay after the seed stops for v1, v2 and hybrid torrents.
@@ -676,9 +676,14 @@ acceptance; a headless decoder does not establish those results.
 actual mpv playback without the Bun content helper. Run it in the MSVC developer
 environment with the same Qt acceptance, bundle and qplay variables. It includes
 missing/incompatible installations, failed processes, the 64 KiB bound, the
-30-second timeout, cancellation/retry and retained qplay script capabilities.
-`--case=<name>` repeats one affected scenario. Inspect the resulting process PIDs
-and require that each has exited; GUI/GPU acceptance remains separate.
+30-second timeout and cancellation/retry. `--case=native-playback` checks the
+qbutt `Media::Player` process launch, native qplay named-pipe IPC, actual media
+decoding, track selection, stop and replacement. Use a current native qplay
+portable runtime with a matching build manifest. For this hidden offscreen QA
+case, add the matching Qt SDK's `qoffscreen.dll` to `platforms` in an isolated
+copy of that runtime. `--case=<name>` repeats one affected scenario. Inspect
+the resulting process PIDs and require that each has exited; GUI/GPU and pointer
+acceptance remain separate.
 
 On Windows, run the lab from an elevated terminal with PowerShell 7 available.
 Before launching a fixture, the shared runner registers persistent inbound firewall
