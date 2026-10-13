@@ -358,6 +358,17 @@ translation in an obsolete reader session. Require exit zero and
 `PASS reader_translation_choice`. This checks controller state and persistence,
 not a completed AI translation or native pointer interaction.
 
+Run `--reader-text-translation --lang ru --profile <isolated-directory>` in the
+same offscreen environment with an installed, signed-in Codex. It creates a
+small legal FB2 in the isolated profile and uses the production QML reader to
+choose a live model and reasoning effort, translate the first chapter, return
+to Original and reopen the exact cached translation with Codex unavailable to
+that process. The second chapter contains the first chapter's gender clue;
+the accepted context must cite it. Require exit zero and
+`PASS reader_text_translation`. The profile receives three QQuickWidget renders.
+Set `QT_QPA_FONTDIR=C:/Windows/Fonts` for legible offscreen renders. This is a
+generated native UI path at 1280×720 and 1440×900, not a host pointer test.
+
 Run `--reader-settings --lang ru` in the same offscreen environment for typed
 profile-wide fit persistence through the existing SQLite worker. Require exit
 zero and `PASS reader_settings`. The fixture checks Height defaults, explicit

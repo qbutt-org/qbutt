@@ -70,6 +70,8 @@ qt_add_executable(qbutt-quick-acceptance
     reader-settings-ui.h
     reader-translation-choice.cpp
     reader-translation-choice.h
+    reader-text-translation.cpp
+    reader-text-translation.h
     sharing.cpp
     sharing.h
     torrent-source.cpp

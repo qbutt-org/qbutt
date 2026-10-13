@@ -30,7 +30,7 @@ ScrollView {
         userScrolling = false;
         pendingPosition = { generation: generation, blockId: blockId, offset: offset };
         blocks.cancelFlick();
-        Qt.callLater(restorePosition);
+        restoreTimer.start();
     }
 
     function restorePosition(): void {
@@ -58,7 +58,7 @@ ScrollView {
         blocks.contentY = block.y + position.offset * block.height;
         blocks.returnToBounds();
         pendingPosition = null;
-        Qt.callLater(saveScroll);
+        saveTimer.start();
     }
 
     function saveScroll(): void {
@@ -108,6 +108,24 @@ ScrollView {
         blocks.cancelFlick();
         userScrolling = true;
         blocks.contentY = position;
+    }
+
+    Timer {
+        id: restoreTimer
+        interval: 0
+        onTriggered: root.restorePosition()
+    }
+
+    Timer {
+        id: saveTimer
+        interval: 0
+        onTriggered: root.saveScroll()
+    }
+
+    Timer {
+        id: retainTimer
+        interval: 0
+        onTriggered: root.retainPosition()
     }
 
     Component.onCompleted: requestPosition(backend.readerTextGeneration, backend.readerTextAnchor, backend.readerTextOffset)
@@ -172,13 +190,13 @@ ScrollView {
         reuseItems: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
-        onContentYChanged: Qt.callLater(root.saveScroll)
+        onContentYChanged: saveTimer.start()
         onDraggingChanged: {
             if (dragging)
                 root.userScrolling = true;
         }
         onMovementEnded: root.saveScroll()
-        onCountChanged: Qt.callLater(root.restorePosition)
+        onCountChanged: restoreTimer.start()
         onWidthChanged: root.retainPosition()
         onHeightChanged: root.retainPosition()
 
@@ -235,7 +253,7 @@ ScrollView {
                 Accessible.name: readingBlock.plainText
             }
 
-            onHeightChanged: Qt.callLater(root.retainPosition)
+            onHeightChanged: retainTimer.start()
         }
 
         TapHandler {
