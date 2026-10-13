@@ -77,7 +77,6 @@
 #include "base/bittorrent/infohash.h"
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/torrent.h"
-#include "base/content/client.h"
 #include "base/exceptions.h"
 #include "base/global.h"
 #include "base/logger.h"
@@ -1484,7 +1483,6 @@ void Application::cleanup()
     delete m_addTorrentManager;
 #endif
     Media::Player::freeInstance();
-    Content::Client::freeInstance();
     Net::PathManager::freeInstance();
     BitTorrent::Session::freeInstance();
     Net::ReverseResolution::freeInstance();

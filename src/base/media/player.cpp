@@ -18,15 +18,12 @@
 #include <QLocale>
 #include <QMimeDatabase>
 #include <QRegularExpression>
-#include <QSet>
 #include <QUuid>
 
 #include "base/bittorrent/infohash.h"
 #include "base/bittorrent/torrent.h"
-#include "base/content/client.h"
 #include "base/global.h"
 #include "base/path.h"
-#include "base/profile.h"
 #include "base/settingsstorage.h"
 #include "runtime.h"
 #include "streamserver.h"
@@ -39,56 +36,6 @@ namespace
     constexpr int AUDIO_TRACKS_REQUEST = 1;
     constexpr int AUDIO_SELECT_REQUEST = 2;
     constexpr int AUDIO_VERIFY_REQUEST = 3;
-
-    bool isRussian(const QString &language)
-    {
-        return QLocale::codeToLanguage(language.section(u'-', 0, 0).section(u'_', 0, 0)) == QLocale::Russian;
-    }
-
-    int selectedSubtitle(const QJsonArray &tracks)
-    {
-        for (const QJsonValue &value : tracks)
-        {
-            const QJsonObject track = value.toObject();
-            if ((track.value(u"type"_s).toString() == u"sub") && track.value(u"selected"_s).toBool()
-                && (track.value(u"main-selection"_s).toInt() == 0))
-                return track.value(u"id"_s).toInt();
-        }
-        return 0;
-    }
-
-    QUrl subtitleUrl(const QString &fileName)
-    {
-        const QUrl url(fileName);
-        return url.scheme().isEmpty() || QFileInfo(fileName).isAbsolute() ? QUrl::fromLocalFile(fileName) : url;
-    }
-
-    QJsonObject subtitleSource(const QJsonObject &track)
-    {
-        static const QSet<QString> textCodecs {u"ass"_s, u"ssa"_s, u"subrip"_s, u"srt"_s,
-            u"webvtt"_s, u"mov_text"_s, u"text"_s, u"ttml"_s};
-        if ((track.value(u"type"_s).toString() != u"sub") || (track.value(u"id"_s).toInt() <= 0)
-            || isRussian(track.value(u"lang"_s).toString())
-            || !textCodecs.contains(track.value(u"codec"_s).toString().toLower()))
-            return {};
-
-        QJsonObject source {{u"id"_s, track.value(u"id"_s)},
-            {u"ffIndex"_s, track.value(u"ff-index"_s).toInt(0)},
-            {u"codec"_s, track.value(u"codec"_s)}, {u"language"_s, track.value(u"lang"_s).toString()}};
-        const QString external = track.value(u"external-filename"_s).toString();
-        if (!external.isEmpty())
-        {
-            const QUrl url = subtitleUrl(external);
-            if (!url.isValid() || !((url.scheme() == u"file") || (url.scheme() == u"http") || (url.scheme() == u"https")))
-                return {};
-            source.insert(u"url"_s, QString::fromUtf8(url.toEncoded()));
-        }
-        else if (!track.value(u"ff-index"_s).isDouble() || (track.value(u"ff-index"_s).toInt(-1) < 0))
-        {
-            return {};
-        }
-        return source;
-    }
 }
 
 QPointer<Player> Player::m_instance;
@@ -383,7 +330,6 @@ void Player::startPrepared(const QString &executable)
     m_position = 0;
     m_duration = 0;
     m_stopping = false;
-    m_subtitles = {};
     if (!prepareCookies())
     {
         stopProcess();
@@ -475,10 +421,6 @@ bool Player::prepareCookies()
 
 void Player::stopProcess()
 {
-    cancelSubtitleRequest();
-    m_subtitles.enabled = false;
-    m_subtitles.queued = {};
-    m_subtitles.action.clear();
     if (m_stopping)
         return;
 
@@ -510,8 +452,6 @@ void Player::stopProcess()
 
 void Player::finishPlayback()
 {
-    cancelSubtitleRequest();
-    m_subtitles = {};
     savePosition();
     StreamServer::instance()->closeStream(m_current.url);
     m_connectTimer.stop();
@@ -576,11 +516,6 @@ void Player::loadMedia()
     sendCommand({u"observe_property"_s, 2, u"duration"_s});
     sendCommand({u"observe_property"_s, 3, u"track-list"_s});
     sendCommand({u"observe_property"_s, 4, u"eof-reached"_s});
-    sendCommand({u"observe_property"_s, 5, u"sub-visibility"_s});
-    sendCommand({u"observe_property"_s, 6, u"sub-delay"_s});
-    sendCommand({u"observe_property"_s, 7, u"demuxer-start-time"_s});
-    sendCommand({u"observe_property"_s, 8, u"options/sid"_s});
-    publishSubtitleState(u"no-track"_s);
 
     QJsonArray headers;
     for (auto it = m_current.options.headers.cbegin(); it != m_current.options.headers.cend(); ++it)
@@ -647,13 +582,6 @@ void Player::readMessages()
 
         const QJsonObject message = QJsonDocument::fromJson(line).object();
         const int requestId = message.value(u"request_id"_s).toInt();
-        if ((requestId != 0) && (requestId == m_subtitles.commandId))
-        {
-            finishSubtitleCommand(message);
-            continue;
-        }
-        if (requestId >= 10)
-            continue;
         const QString commandError = message.value(u"error"_s).toString();
         if (!commandError.isEmpty() && (commandError != u"success"))
         {
@@ -733,8 +661,6 @@ void Player::readMessages()
         }
         else if (event == u"file-loaded")
         {
-            m_subtitles.loaded = true;
-            sendSubtitleCommand({u"get_property"_s, u"demuxer-start-time"_s}, SubtitleCommand::StartTime);
             if (m_initialAudioId == -1)
             {
                 sendCommand({u"get_property"_s, u"track-list"_s}, AUDIO_TRACKS_REQUEST);
@@ -747,19 +673,6 @@ void Player::readMessages()
         else if ((event == u"playback-restart") && (m_initialAudioId == 0))
         {
             setPlaying(true);
-            m_subtitles.loaded = true;
-            m_subtitles.seeking = false;
-            requestSubtitles();
-        }
-        else if (event == u"seek")
-        {
-            cancelSubtitleRequest();
-            ++m_subtitles.generation;
-            m_subtitles.seeking = true;
-            m_subtitles.requestedBucket = -1;
-            m_subtitles.windowStart = 0;
-            m_subtitles.windowEnd = 0;
-            m_subtitles.queued = {};
         }
         else if (event == u"client-message")
         {
@@ -769,8 +682,6 @@ void Player::readMessages()
                 if (m_current.options.launchToken == 0)
                     emit downloadRequested(m_current.url, m_current.title, m_current.options);
             }
-            else if ((arguments.size() == 2) && (arguments.at(0).toString() == u"qplay-subtitles"))
-                subtitleAction(arguments.at(1).toString());
         }
         else if ((event == u"end-file") && (message.value(u"reason"_s).toString() == u"error"))
         {
@@ -779,8 +690,6 @@ void Player::readMessages()
         }
         else if (event == u"end-file")
         {
-            cancelSubtitleRequest();
-            m_subtitles.loaded = false;
             savePosition();
             setPlaying(false);
             finishLaunch(m_current);
@@ -793,7 +702,6 @@ void Player::readMessages()
             {
                 m_position = data.toDouble();
                 emit positionChanged(m_position);
-                requestSubtitles();
             }
             else if ((name == u"duration") && data.isDouble())
             {
@@ -802,60 +710,12 @@ void Player::readMessages()
             }
             else if (name == u"track-list")
             {
-                m_subtitles.tracks = data.toArray();
-                if ((m_subtitles.translatedId > 0) && std::none_of(m_subtitles.tracks.cbegin(), m_subtitles.tracks.cend(),
-                    [this](const QJsonValue &value)
-                    {
-                        const QJsonObject track = value.toObject();
-                        return (track.value(u"type"_s).toString() == u"sub")
-                            && (track.value(u"id"_s).toInt() == m_subtitles.translatedId);
-                    }))
-                {
-                    m_subtitles.translatedId = 0;
-                    m_subtitles.revision.clear();
-                }
                 emit tracksChanged(data.toArray());
-                publishSubtitleState();
-            }
-            else if (name == u"options/sid")
-            {
-                updateSubtitleSelection(data);
-            }
-            else if ((name == u"sub-visibility") && data.isBool() && !data.toBool())
-            {
-                m_subtitles.enabled = false;
-                cancelSubtitleRequest();
-                ++m_subtitles.generation;
-                ++m_subtitles.selectionGeneration;
-                m_subtitles.queued = {};
-                m_subtitles.action.clear();
-                publishSubtitleState(u"original"_s);
-            }
-            else if ((name == u"sub-delay") && data.isDouble() && std::isfinite(data.toDouble()))
-            {
-                const double delay = data.toDouble();
-                if (delay != m_subtitles.delay)
-                {
-                    cancelSubtitleRequest();
-                    ++m_subtitles.generation;
-                    m_subtitles.requestedBucket = -1;
-                    m_subtitles.windowStart = 0;
-                    m_subtitles.windowEnd = 0;
-                    m_subtitles.queued = {};
-                    m_subtitles.delay = delay;
-                    requestSubtitles();
-                }
-            }
-            else if ((name == u"demuxer-start-time") && data.isDouble() && std::isfinite(data.toDouble()))
-            {
-                m_subtitles.startTime = data.toDouble();
             }
             else if ((name == u"eof-reached") && data.isBool())
             {
                 if (data.toBool())
                 {
-                    cancelSubtitleRequest();
-                    m_subtitles.loaded = false;
                     savePosition();
                     setPlaying(false);
                 }
@@ -870,504 +730,6 @@ void Player::sendCommand(const QJsonArray &command, const int requestId)
     if (requestId != 0)
         message.insert(u"request_id"_s, requestId);
     m_ipc.write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
-}
-
-void Player::cancelSubtitleRequest()
-{
-    if (m_subtitles.request != 0)
-        Content::Client::instance()->cancel(std::exchange(m_subtitles.request, 0));
-}
-
-void Player::updateSubtitleSelection(const QJsonValue &selection)
-{
-    if (selection.toString() == u"auto")
-        return;
-
-    const int selectedId = selection.toInt();
-    if ((selectedId > 0) && ((selectedId == m_subtitles.translatedId)
-        || (selectedId == m_subtitles.loading.value(u"trackId"_s).toInt())
-        || (((m_subtitles.command == SubtitleCommand::OriginalSelect)
-                || (m_subtitles.command == SubtitleCommand::OriginalVerify))
-            && (selectedId == m_subtitles.source.value(u"id"_s).toInt()))))
-        return;
-
-    m_subtitles.enabled = false;
-    cancelSubtitleRequest();
-    ++m_subtitles.generation;
-    ++m_subtitles.selectionGeneration;
-    m_subtitles.queued = {};
-    m_subtitles.action.clear();
-    publishSubtitleState(u"original"_s);
-}
-
-void Player::subtitleAction(const QString &action)
-{
-    if (action == u"settings")
-    {
-        emit subtitleSettingsRequested();
-        return;
-    }
-    if (!m_subtitles.loaded || !((action == u"translate") || (action == u"original")
-        || ((action == u"retry") && (m_subtitles.status.value(u"state"_s).toString() == u"error"))))
-        return;
-
-    cancelSubtitleRequest();
-    ++m_subtitles.generation;
-    ++m_subtitles.selectionGeneration;
-    m_subtitles.enabled = false;
-    m_subtitles.requestedBucket = -1;
-    m_subtitles.windowStart = 0;
-    m_subtitles.windowEnd = 0;
-    m_subtitles.queued = {};
-    m_subtitles.action = action;
-    applySubtitles();
-}
-
-void Player::publishSubtitleState(const QString &state, const QString &message, const QJsonObject &progress)
-{
-    QJsonObject status = m_subtitles.status;
-    if (!state.isEmpty())
-    {
-        status = {{u"state"_s, state}, {u"message"_s, message}};
-        if (!progress.isEmpty())
-            status.insert(u"progress"_s, progress);
-    }
-    const int selectedId = selectedSubtitle(m_subtitles.tracks);
-    const bool usingSource = (selectedId == 0) || (selectedId == m_subtitles.translatedId)
-        || (selectedId == m_subtitles.loading.value(u"trackId"_s).toInt());
-    const int candidateId = usingSource ? m_subtitles.source.value(u"id"_s).toInt() : selectedId;
-    bool canTranslate = false;
-    for (const QJsonValue &value : m_subtitles.tracks)
-    {
-        const QJsonObject track = value.toObject();
-        const int id = track.value(u"id"_s).toInt();
-        if ((track.value(u"type"_s).toString() == u"sub") && (id == candidateId))
-        {
-            canTranslate = !subtitleSource(track).isEmpty();
-            break;
-        }
-    }
-    status.insert(u"canTranslate"_s, canTranslate);
-    if (status == m_subtitles.status)
-        return;
-
-    m_subtitles.status = status;
-    sendCommand({u"set_property"_s, u"user-data/qbutt-subtitles"_s, status}, ++m_nextSubtitleCommand);
-}
-
-void Player::initializeSubtitles(const QJsonArray &tracks, const bool explicitTranslation)
-{
-    m_subtitles.tracks = tracks;
-    const int selectedId = selectedSubtitle(tracks);
-    const int originalId = m_subtitles.source.value(u"id"_s).toInt();
-    const bool selectedTranslation = (selectedId > 0) && (selectedId == m_subtitles.translatedId);
-    if (explicitTranslation)
-    {
-        QJsonObject source;
-        for (const QJsonValue &value : tracks)
-        {
-            const QJsonObject track = value.toObject();
-            if ((track.value(u"type"_s).toString() == u"sub")
-                && (track.value(u"id"_s).toInt() == ((selectedTranslation || (selectedId == 0)) ? originalId : selectedId)))
-                source = subtitleSource(track);
-        }
-        if (source.isEmpty())
-        {
-            publishSubtitleState((selectedId > 0) ? u"unsupported"_s : u"no-track"_s);
-            return;
-        }
-        m_subtitles.source = source;
-        m_subtitles.enabled = true;
-        sendCommand({u"set_property"_s, u"sub-visibility"_s, true}, ++m_nextSubtitleCommand);
-    }
-    else if (m_subtitles.enabled)
-    {
-        for (const QJsonValue &value : tracks)
-        {
-            const QJsonObject track = value.toObject();
-            if ((track.value(u"type"_s).toString() != u"sub") || (track.value(u"id"_s).toInt() != selectedId))
-                continue;
-            if (isRussian(track.value(u"lang"_s).toString()))
-            {
-                m_subtitles.enabled = false;
-                publishSubtitleState(u"original"_s);
-                return;
-            }
-            if (subtitleSource(track).isEmpty())
-            {
-                m_subtitles.enabled = false;
-                publishSubtitleState(u"unsupported"_s);
-                return;
-            }
-        }
-        int bestScore = -1;
-        int russianId = 0;
-        for (const QJsonValue &value : tracks)
-        {
-            const QJsonObject track = value.toObject();
-            if ((track.value(u"type"_s).toString() != u"sub") || (track.value(u"id"_s).toInt() <= 0))
-                continue;
-            if (isRussian(track.value(u"lang"_s).toString()))
-                russianId = track.value(u"id"_s).toInt();
-            const QJsonObject source = subtitleSource(track);
-            if (source.isEmpty())
-                continue;
-            const int score = ((track.value(u"id"_s).toInt() == selectedId) ? 4 : 0)
-                + (track.value(u"default"_s).toBool() ? 2 : 0) + (!track.value(u"forced"_s).toBool() ? 1 : 0);
-            if (score > bestScore)
-            {
-                bestScore = score;
-                m_subtitles.source = source;
-            }
-        }
-        if (russianId > 0)
-        {
-            m_subtitles.enabled = false;
-            if (russianId != selectedId)
-            {
-                m_subtitles.loading = {{u"trackId"_s, russianId}};
-                m_subtitles.loadingGeneration = m_subtitles.generation;
-                m_subtitles.enabled = true;
-                sendSubtitleCommand({u"set_property"_s, u"sid"_s, russianId}, SubtitleCommand::Select);
-            }
-            publishSubtitleState(u"original"_s);
-            return;
-        }
-    }
-
-    if (!m_subtitles.enabled || m_subtitles.source.isEmpty())
-    {
-        publishSubtitleState((selectedId > 0) ? u"original"_s : u"no-track"_s);
-        return;
-    }
-    if (!m_subtitles.source.isEmpty() && !m_subtitles.source.contains(u"url"_s) && !m_subtitles.startTime)
-    {
-        subtitleFailure(tr("The player could not identify the subtitle timing. Choose an external subtitle file."));
-        return;
-    }
-    requestSubtitles();
-}
-
-void Player::requestSubtitles()
-{
-    if (!m_subtitles.loaded || !m_subtitles.enabled || m_subtitles.seeking || m_stopping
-        || m_subtitles.source.isEmpty() || (m_subtitles.request != 0) || !std::isfinite(m_position))
-        return;
-
-    const double position = std::max(0.0, m_position - m_subtitles.delay);
-    const qint64 bucket = static_cast<qint64>(std::floor(position / 60));
-    if ((bucket == m_subtitles.requestedBucket)
-        || ((position >= m_subtitles.windowStart) && (m_subtitles.windowEnd - position > 60)))
-        return;
-
-    QJsonObject headers;
-    for (auto it = m_current.options.headers.cbegin(); it != m_current.options.headers.cend(); ++it)
-        headers.insert(it.key(), it.value());
-    const QString identity = m_current.options.identity.isEmpty()
-        ? QString::fromUtf8(m_current.url.toEncoded()) : m_current.options.identity;
-    m_subtitles.requestedBucket = bucket;
-    auto *client = Content::Client::instance();
-    connect(client, &Content::Client::eventReceived, this, &Player::receiveSubtitleEvent, Qt::UniqueConnection);
-    m_subtitles.request = client->request(u"subtitles.ahead"_s,
-        {{u"identity"_s, identity}, {u"url"_s, QString::fromUtf8(m_current.url.toEncoded())},
-            {u"headers"_s, headers}, {u"proxyUrl"_s, QString::fromUtf8(m_current.options.proxyUrl.toEncoded())},
-            {u"track"_s, m_subtitles.source}, {u"position"_s, position},
-            {u"startTime"_s, m_subtitles.source.contains(u"url"_s) ? 0 : m_subtitles.startTime.value()},
-            {u"targetLanguage"_s, u"ru"_s}});
-    publishSubtitleState(u"translating"_s);
-}
-
-void Player::receiveSubtitleEvent(const qint64 id, const QString &event, const QJsonValue &data)
-{
-    if ((id != 0) && (id == m_subtitles.request))
-        receiveSubtitles(event, data.toObject());
-}
-
-void Player::receiveSubtitles(const QString &event, const QJsonObject &data)
-{
-    if (event == u"subtitleProgress")
-    {
-        if (m_subtitles.enabled && m_subtitles.loaded)
-        {
-            QJsonObject progress;
-            for (const QString &key : {u"phase"_s, u"provider"_s, u"model"_s})
-            {
-                if (data.value(key).isString())
-                    progress.insert(key, data.value(key));
-            }
-            publishSubtitleState(u"translating"_s, {}, progress);
-        }
-        return;
-    }
-    if (event == u"error")
-    {
-        m_subtitles.request = 0;
-        subtitleFailure(data.value(u"message"_s).toString());
-        return;
-    }
-    if ((event != u"subtitle") && (event != u"complete"))
-        return;
-    if (event == u"complete")
-        m_subtitles.request = 0;
-
-    const QString identity = m_current.options.identity.isEmpty()
-        ? QString::fromUtf8(m_current.url.toEncoded()) : m_current.options.identity;
-    if (!m_subtitles.enabled || !m_subtitles.loaded || (data.value(u"identity"_s).toString() != identity))
-        return;
-
-    if (event == u"complete")
-    {
-        const QString status = data.value(u"status"_s).toString();
-        if ((status == u"already-target") || (status == u"unsupported"))
-        {
-            m_subtitles.enabled = false;
-            publishSubtitleState((status == u"unsupported") ? u"unsupported"_s : u"original"_s);
-            return;
-        }
-        if (status != u"ready")
-        {
-            subtitleFailure(data.value(u"message"_s).toString());
-            return;
-        }
-    }
-
-    const double windowStart = data.value(u"windowStart"_s).toDouble(-1);
-    const double windowEnd = data.value(u"windowEnd"_s).toDouble(-1);
-    if (!std::isfinite(windowStart) || !std::isfinite(windowEnd) || (windowStart < 0)
-        || (windowEnd <= windowStart) || (windowEnd - windowStart > 120.01))
-    {
-        subtitleFailure(tr("The subtitle translation returned an invalid time window."));
-        return;
-    }
-    m_subtitles.windowStart = windowStart;
-    m_subtitles.windowEnd = windowEnd;
-    if (event == u"complete")
-    {
-        if ((m_subtitles.translatedId > 0) && m_subtitles.loading.isEmpty()
-            && (selectedSubtitle(m_subtitles.tracks) == m_subtitles.translatedId))
-            publishSubtitleState(u"translated"_s);
-        return;
-    }
-
-    const QUrl url(data.value(u"url"_s).toString());
-    const QFileInfo file(url.toLocalFile());
-    const QDir cache(QDir(Profile::instance()->location(SpecialFolder::Data).toString()).filePath(u"content/subtitles"_s));
-    const QString relative = cache.relativeFilePath(file.canonicalFilePath());
-    static const QRegularExpression cachePattern(u"^[0-9a-f]{64}/translated-([0-9a-f]{64})\\.(ass|srt|vtt)$"_s);
-    const QRegularExpressionMatch match = cachePattern.match(QDir::fromNativeSeparators(relative));
-    if (!url.isLocalFile() || !file.isFile() || file.isSymLink() || (file.size() <= 0) || (file.size() > 16 * 1024 * 1024)
-        || !match.hasMatch() || (match.captured(1) != data.value(u"revision"_s).toString())
-        || !isRussian(data.value(u"language"_s).toString()))
-    {
-        subtitleFailure(tr("The subtitle translation returned an invalid cached file."));
-        return;
-    }
-    if (((data.value(u"revision"_s).toString() == m_subtitles.revision)
-            && (selectedSubtitle(m_subtitles.tracks) == m_subtitles.translatedId))
-        || (data.value(u"revision"_s) == m_subtitles.loading.value(u"revision"_s)))
-        return;
-
-    m_subtitles.queued = data;
-    applySubtitles();
-}
-
-void Player::applySubtitles()
-{
-    if ((m_subtitles.command != SubtitleCommand::None) || !m_subtitles.loading.isEmpty())
-        return;
-
-    if (!m_subtitles.action.isEmpty())
-    {
-        const QString action = std::exchange(m_subtitles.action, {});
-        m_subtitles.actionGeneration = m_subtitles.selectionGeneration;
-        if (action == u"original")
-        {
-            const int sourceId = m_subtitles.source.value(u"id"_s).toInt();
-            if (sourceId > 0)
-            {
-                sendCommand({u"set_property"_s, u"sub-visibility"_s, true}, ++m_nextSubtitleCommand);
-                sendSubtitleCommand({u"set_property"_s, u"sid"_s, sourceId}, SubtitleCommand::OriginalSelect);
-            }
-            else
-                publishSubtitleState(u"original"_s);
-        }
-        else
-        {
-            sendSubtitleCommand({u"get_property"_s, u"track-list"_s}, SubtitleCommand::TranslateTracks);
-        }
-        return;
-    }
-    if (!m_subtitles.enabled || m_subtitles.queued.isEmpty())
-        return;
-
-    m_subtitles.loading = std::exchange(m_subtitles.queued, {});
-    m_subtitles.loadingGeneration = m_subtitles.generation;
-    if ((m_subtitles.translatedId > 0) && (m_subtitles.loading.value(u"revision"_s).toString() == m_subtitles.revision))
-    {
-        m_subtitles.loading.insert(u"trackId"_s, m_subtitles.translatedId);
-        sendSubtitleCommand({u"set_property"_s, u"sid"_s, m_subtitles.translatedId}, SubtitleCommand::Select);
-        return;
-    }
-    const QUrl url(m_subtitles.loading.value(u"url"_s).toString());
-    sendSubtitleCommand({u"sub-add"_s, url.toLocalFile(), u"auto"_s,
-        tr("Russian [AI translation]"), u"ru"_s}, SubtitleCommand::Add);
-}
-
-void Player::sendSubtitleCommand(const QJsonArray &command, const SubtitleCommand stage)
-{
-    m_subtitles.command = stage;
-    m_subtitles.commandId = ++m_nextSubtitleCommand;
-    sendCommand(command, m_subtitles.commandId);
-}
-
-void Player::finishSubtitleCommand(const QJsonObject &message)
-{
-    const SubtitleCommand command = std::exchange(m_subtitles.command, SubtitleCommand::None);
-    m_subtitles.commandId = 0;
-    if (((command == SubtitleCommand::TranslateTracks) || (command == SubtitleCommand::OriginalSelect)
-            || (command == SubtitleCommand::OriginalVerify))
-        && (m_subtitles.actionGeneration != m_subtitles.selectionGeneration))
-    {
-        applySubtitles();
-        return;
-    }
-    if (command == SubtitleCommand::StartTime)
-    {
-        const QJsonValue time = message.value(u"data"_s);
-        if (time.isDouble() && std::isfinite(time.toDouble()))
-            m_subtitles.startTime = time.toDouble();
-        else
-            m_subtitles.startTime.reset();
-        sendSubtitleCommand({u"get_property"_s, u"options/sid"_s}, SubtitleCommand::SourceSelection);
-        return;
-    }
-    const QString commandError = message.value(u"error"_s).toString();
-    if (!commandError.isEmpty() && (commandError != u"success"))
-    {
-        if (!m_subtitles.loading.isEmpty() && (!m_subtitles.enabled || !m_subtitles.loaded
-            || (m_subtitles.loadingGeneration != m_subtitles.generation)))
-        {
-            const int trackId = m_subtitles.loading.value(u"trackId"_s).toInt();
-            if ((trackId > 0) && m_subtitles.loading.contains(u"url"_s))
-                sendCommand({u"sub-remove"_s, trackId}, ++m_nextSubtitleCommand);
-            m_subtitles.loading = {};
-            applySubtitles();
-            return;
-        }
-        m_subtitles.loading = {};
-        subtitleFailure(((command == SubtitleCommand::OriginalSelect) || (command == SubtitleCommand::OriginalVerify))
-            ? tr("The original subtitle track is no longer available. Choose another track.")
-            : tr("The player could not load translated subtitles. Choose the original subtitle track."));
-        return;
-    }
-    if (command == SubtitleCommand::SourceSelection)
-    {
-        const QString action = std::exchange(m_subtitles.action, {});
-        updateSubtitleSelection(message.value(u"data"_s));
-        m_subtitles.action = action;
-        sendSubtitleCommand({u"get_property"_s, u"track-list"_s}, SubtitleCommand::SourceTracks);
-        return;
-    }
-    if ((command == SubtitleCommand::SourceTracks) || (command == SubtitleCommand::TranslateTracks))
-    {
-        initializeSubtitles(message.value(u"data"_s).toArray(), command == SubtitleCommand::TranslateTracks);
-        applySubtitles();
-        return;
-    }
-    if (command == SubtitleCommand::OriginalSelect)
-    {
-        sendSubtitleCommand({u"get_property"_s, u"track-list"_s}, SubtitleCommand::OriginalVerify);
-        return;
-    }
-    if (command == SubtitleCommand::OriginalVerify)
-    {
-        m_subtitles.tracks = message.value(u"data"_s).toArray();
-        if (selectedSubtitle(m_subtitles.tracks) == m_subtitles.source.value(u"id"_s).toInt())
-            publishSubtitleState(u"original"_s);
-        else
-            subtitleFailure(tr("The original subtitle track is no longer available. Choose another track."));
-        applySubtitles();
-        return;
-    }
-    if (command == SubtitleCommand::Add)
-    {
-        sendSubtitleCommand({u"get_property"_s, u"track-list"_s}, SubtitleCommand::AddedTracks);
-        return;
-    }
-    if (command == SubtitleCommand::Select)
-    {
-        sendSubtitleCommand({u"get_property"_s, u"track-list"_s}, SubtitleCommand::Verify);
-        return;
-    }
-
-    const QJsonArray tracks = message.value(u"data"_s).toArray();
-    const QUrl url(m_subtitles.loading.value(u"url"_s).toString());
-    QJsonObject added;
-    for (const QJsonValue &value : tracks)
-    {
-        const QJsonObject track = value.toObject();
-        if ((track.value(u"type"_s).toString() == u"sub")
-            && ((track.value(u"id"_s).toInt() == m_subtitles.loading.value(u"trackId"_s).toInt(-1))
-                || (!url.isEmpty() && (subtitleUrl(track.value(u"external-filename"_s).toString()) == url))))
-            added = track;
-    }
-    const int addedId = added.value(u"id"_s).toInt();
-    if (!m_subtitles.enabled || !m_subtitles.loaded || (m_subtitles.loadingGeneration != m_subtitles.generation))
-    {
-        if ((addedId > 0) && !url.isEmpty())
-            sendCommand({u"sub-remove"_s, addedId}, ++m_nextSubtitleCommand);
-        m_subtitles.loading = {};
-        applySubtitles();
-        return;
-    }
-    if (addedId <= 0)
-    {
-        subtitleFailure(tr("The player could not find the translated subtitle track. Choose the original subtitle track."));
-        return;
-    }
-    if (command == SubtitleCommand::AddedTracks)
-    {
-        m_subtitles.loading.insert(u"trackId"_s, addedId);
-        sendSubtitleCommand({u"set_property"_s, u"sid"_s, addedId}, SubtitleCommand::Select);
-        return;
-    }
-    if (!added.value(u"selected"_s).toBool() || (added.value(u"main-selection"_s).toInt() != 0)
-        || !isRussian(added.value(u"lang"_s).toString()))
-    {
-        subtitleFailure(tr("The player could not select translated subtitles. Choose the original subtitle track."));
-        return;
-    }
-    if (url.isEmpty())
-    {
-        m_subtitles.loading = {};
-        m_subtitles.enabled = false;
-        publishSubtitleState(u"original"_s);
-        applySubtitles();
-        return;
-    }
-    const bool firstTranslation = (m_subtitles.translatedId == 0);
-    if ((m_subtitles.translatedId > 0) && (m_subtitles.translatedId != addedId))
-        sendCommand({u"sub-remove"_s, m_subtitles.translatedId}, ++m_nextSubtitleCommand);
-    m_subtitles.translatedId = addedId;
-    m_subtitles.revision = m_subtitles.loading.value(u"revision"_s).toString();
-    m_subtitles.loading = {};
-    publishSubtitleState(u"translated"_s);
-    if (firstTranslation)
-        sendCommand({u"show-text"_s, tr("Russian subtitles ready"), 3000});
-    applySubtitles();
-}
-
-void Player::subtitleFailure(const QString &message)
-{
-    m_subtitles.enabled = false;
-    cancelSubtitleRequest();
-    m_subtitles.queued = {};
-    if (m_subtitles.command == SubtitleCommand::None)
-        m_subtitles.loading = {};
-    const QString explanation = message.isEmpty()
-        ? tr("Subtitle translation is unavailable. Retry or open Options > Search > Subtitle translation.") : message;
-    publishSubtitleState(u"error"_s, explanation);
-    applySubtitles();
 }
 
 void Player::savePosition()

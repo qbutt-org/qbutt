@@ -6,11 +6,9 @@
 #pragma once
 
 #include <memory>
-#include <optional>
 
 #include <QElapsedTimer>
 #include <QJsonArray>
-#include <QJsonObject>
 #include <QList>
 #include <QLocalSocket>
 #include <QMap>
@@ -76,7 +74,6 @@ namespace Media
         void positionChanged(double seconds);
         void durationChanged(double seconds);
         void tracksChanged(const QJsonArray &tracks);
-        void subtitleSettingsRequested();
         void downloadRequested(const QUrl &url, const QString &title, const Media::PlaybackOptions &options);
 
     private:
@@ -94,49 +91,6 @@ namespace Media
             PlaybackOptions options;
             QString positionKey;
             PlaybackState state = PlaybackState::Finished;
-        };
-
-        enum class SubtitleCommand
-        {
-            None,
-            StartTime,
-            SourceSelection,
-            SourceTracks,
-            TranslateTracks,
-            OriginalSelect,
-            OriginalVerify,
-            Add,
-            AddedTracks,
-            Select,
-            Verify
-        };
-
-        struct SubtitleTranslation
-        {
-            QJsonObject source;
-            QJsonObject loading;
-            QJsonObject queued;
-            QJsonArray tracks;
-            QJsonObject status;
-            QString action;
-            QString revision;
-            qint64 request = 0;
-            qint64 requestedBucket = -1;
-            double windowStart = 0;
-            double windowEnd = 0;
-            double delay = 0;
-            std::optional<double> startTime;
-            int translatedId = 0;
-            int commandId = 0;
-            SubtitleCommand command = SubtitleCommand::None;
-            // Seeking invalidates translated windows, not the user's subtitle choice.
-            quint64 generation = 0;
-            quint64 selectionGeneration = 0;
-            quint64 actionGeneration = 0;
-            quint64 loadingGeneration = 0;
-            bool loaded = false;
-            bool enabled = true;
-            bool seeking = false;
         };
 
         explicit Player(QObject *parent);
@@ -158,19 +112,6 @@ namespace Media
         void sendCommand(const QJsonArray &command, int requestId = 0);
         void savePosition();
         void setPlaying(bool playing);
-        void cancelSubtitleRequest();
-        void updateSubtitleSelection(const QJsonValue &selection);
-        void initializeSubtitles(const QJsonArray &tracks, bool explicitTranslation = false);
-        void subtitleAction(const QString &action);
-        void publishSubtitleState(const QString &state = {}, const QString &message = {}, const QJsonObject &progress = {});
-        void requestSubtitles();
-        void receiveSubtitleEvent(qint64 id, const QString &event, const QJsonValue &data);
-        void receiveSubtitles(const QString &event, const QJsonObject &data);
-        void applySubtitles();
-        void sendSubtitleCommand(const QJsonArray &command, SubtitleCommand stage);
-        void finishSubtitleCommand(const QJsonObject &message);
-        void subtitleFailure(const QString &message);
-
         std::unique_ptr<QTemporaryFile> m_cookies;
         QProcess m_process;
         QLocalSocket m_ipc;
@@ -188,8 +129,6 @@ namespace Media
         int m_initialAudioId = 0;
         bool m_playing = false;
         bool m_stopping = false;
-        SubtitleTranslation m_subtitles;
-        int m_nextSubtitleCommand = 10;
 
         static QPointer<Player> m_instance;
     };

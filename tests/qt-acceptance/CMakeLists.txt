@@ -14,8 +14,6 @@ qt_add_executable(qbutt-qt-acceptance
     update-registry.h
     media-playback.cpp
     media-playback.h
-    subtitles-playback.cpp
-    subtitles-playback.h
     ${qBittorrent_SOURCE_DIR}/src/app/application.h
     ${qBittorrent_SOURCE_DIR}/src/app/application.cpp
     ${qBittorrent_SOURCE_DIR}/src/app/applicationinstancemanager.h

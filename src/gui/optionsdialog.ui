@@ -3212,8 +3212,8 @@ Disable encryption: Only connect to peers without protocol encryption</string>
          <number>0</number>
         </property>
         <item>
-         <widget class="QWidget" name="contentSettingsActionsWidget">
-          <layout class="QHBoxLayout" name="contentSettingsActions">
+         <widget class="QWidget" name="browserSettingsActionWidget">
+          <layout class="QHBoxLayout" name="browserSettingsActionLayout">
            <property name="leftMargin">
             <number>0</number>
            </property>
@@ -3234,14 +3234,7 @@ Disable encryption: Only connect to peers without protocol encryption</string>
             </widget>
            </item>
            <item>
-            <widget class="QPushButton" name="translationSettingsButton">
-             <property name="text">
-              <string>Subtitle translation…</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <spacer name="contentSettingsActionsSpacer">
+            <spacer name="browserSettingsActionSpacer">
              <property name="orientation">
               <enum>Qt::Orientation::Horizontal</enum>
              </property>

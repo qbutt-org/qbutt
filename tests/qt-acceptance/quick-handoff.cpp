@@ -34,13 +34,11 @@
 #include "base/bittorrent/addtorrenterror.h"
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/torrentdescriptor.h"
-#include "base/media/player.h"
 #include "base/net/portforwarder.h"
 #include "base/preferences.h"
 #include "base/profile.h"
 #include "base/utils/fs.h"
 #include "gui/addnewtorrentdialog.h"
-#include "gui/content/translationsettingsdialog.h"
 #include "gui/fspathedit.h"
 #include "gui/guiaddtorrentmanager.h"
 #include "gui/mainwindow.h"
@@ -569,13 +567,6 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     {
         require(application.mainWindow()->grab().save(screenshots.filePath(u"main-content.png"_s)),
             u"Could not capture main content view"_s);
-        Media::Player::instance()->subtitleSettingsRequested();
-        auto *settings = application.mainWindow()->findChild<Content::TranslationSettingsDialog *>();
-        require(settings && settings->isVisible()
-            && (settings->windowTitle() == Content::TranslationSettingsDialog::tr("AI translation")),
-            u"Player subtitle settings did not open the AI-only settings view"_s);
-        settings->close();
-        check[u"playerAiSettingsRoute"_s] = true;
         require(!controller->getSelectedFavorite(), u"Fresh profile unexpectedly has a favorite"_s);
         auto *favorite = root->findChild<QQuickItem *>(u"contentFavorite"_s);
         require(favorite && favorite->isEnabled(), u"Main favorite action is unavailable"_s);

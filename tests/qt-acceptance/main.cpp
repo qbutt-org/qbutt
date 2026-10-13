@@ -104,7 +104,6 @@
 #include "base/logger.h"
 #include "base/media/streamserver.h"
 #include "media-playback.h"
-#include "subtitles-playback.h"
 #include "base/net/pathmanager.h"
 #include "base/path.h"
 #include "base/preferences.h"
@@ -3262,12 +3261,6 @@ namespace
         {
             window->hide();
             MediaPlaybackAcceptance::run(window, spec, evidence);
-            return;
-        }
-        if (spec.value(u"mode"_s).toString() == u"subtitles-playback")
-        {
-            window->hide();
-            SubtitlesPlaybackAcceptance::run(window, spec, evidence);
             return;
         }
         if (spec.value(u"mode"_s).toString() == u"profile-import")

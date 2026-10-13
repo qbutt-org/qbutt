@@ -25,7 +25,6 @@ add_library(qbt_base STATIC
     algorithm.h
     applicationcomponent.h
     asyncfilestorage.h
-    content/client.h
     content/readersettings.h
     bittorrent/abstractfilestorage.h
     bittorrent/addtorrenterror.h
@@ -163,7 +162,6 @@ add_library(qbt_base STATIC
     addtorrentmanager.cpp
     applicationcomponent.cpp
     asyncfilestorage.cpp
-    content/client.cpp
     bittorrent/abstractfilestorage.cpp
     bittorrent/addtorrentparams.cpp
     bittorrent/bandwidthscheduler.cpp

@@ -64,7 +64,6 @@
 
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/sessionstatus.h"
-#include "base/content/client.h"
 #include "base/global.h"
 #include "base/media/player.h"
 #include "base/path.h"
@@ -76,7 +75,6 @@
 #include "base/version.h"
 #include "aboutdialog.h"
 #include "content/browsercapture.h"
-#include "content/translationsettingsdialog.h"
 #include "cookiesdialog.h"
 #include "desktopintegration.h"
 #include "downloadfromurldialog.h"
@@ -163,17 +161,6 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     {
         QMessageBox::warning(this, tr("Playback"), message);
     }, Qt::QueuedConnection);
-    connect(Media::Player::instance(), &Media::Player::subtitleSettingsRequested, this, [this]
-    {
-        if (!m_subtitleSettings)
-        {
-            m_subtitleSettings = new Content::TranslationSettingsDialog(this);
-            m_subtitleSettings->setAttribute(Qt::WA_DeleteOnClose);
-        }
-        m_subtitleSettings->show();
-        m_subtitleSettings->raise();
-        m_subtitleSettings->activateWindow();
-    });
     connect(Media::Player::instance(), &Media::Player::preparationChanged, this, [this](const QString &message)
     {
         if (message.isEmpty())
@@ -257,23 +244,6 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 
     qDebug("create tabWidget");
     m_tabs = new HidableTabWidget(this);
-    connect(Content::Client::instance(), &Content::Client::browserRequested, this,
-        [this](const quint64 generation, const quint64 id, const QByteArray &request)
-    {
-        ensureContentView()->relayBrowserRequest(generation, id, request);
-    });
-    connect(Content::Client::instance(), &Content::Client::browserCanceled, this,
-        [this](const quint64 generation, const quint64 id)
-    {
-        if (m_searchWidget)
-            m_searchWidget->cancelBrowserRequest(generation, id);
-    });
-    connect(Content::Client::instance(), &Content::Client::browserSessionClosed, this,
-        [this](const quint64 generation)
-    {
-        if (m_searchWidget)
-            m_searchWidget->closeBrowserSession(generation);
-    });
     connect(m_tabs.data(), &QTabWidget::currentChanged, this, &MainWindow::tabChanged);
 
     m_splitter = new QSplitter(Qt::Horizontal, this);
@@ -836,11 +806,8 @@ Content::ContentView *MainWindow::ensureContentView()
             Preferences::instance(), &Preferences::setBrowserChoice);
         connect(Preferences::instance(), &Preferences::browserChoiceChanged,
             m_searchWidget, &Content::ContentView::setBrowserChoice);
-        connect(Preferences::instance(), &Preferences::browserChoiceChanged,
-            Content::Client::instance(), &Content::Client::updateBrowserChoice);
         m_searchWidget->hide();
         m_searchWidget->initDownloads(BitTorrent::Session::instance()->savePath().toString());
-        connect(m_searchWidget, &Content::ContentView::browserReply, Content::Client::instance(), &Content::Client::replyBrowser);
         connect(m_searchWidget, &Content::ContentView::downloadQueued, this, [this]
         {
             m_tabs->setCurrentWidget(downloadsWidget());
@@ -1006,7 +973,6 @@ void MainWindow::cleanup()
 
     delete m_browserCapture;
     m_browserCapture = nullptr;
-    disconnect(Content::Client::instance(), nullptr, this, nullptr);
     delete m_downloadsWidget;
     delete m_options;
     delete m_searchWidget;

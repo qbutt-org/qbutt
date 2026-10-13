@@ -45,7 +45,6 @@ add_library(qbt_gui STATIC
     colorscheme.h
     content/browsercapture.h
     content/mangarender.h
-    content/translationsettingsdialog.h
     cookiesdialog.h
     cookiesmodel.h
     deletionconfirmationdialog.h
@@ -156,7 +155,6 @@ add_library(qbt_gui STATIC
     autoexpandabledialog.cpp
     banlistoptionsdialog.cpp
     content/browsercapture.cpp
-    content/translationsettingsdialog.cpp
     cookiesdialog.cpp
     cookiesmodel.cpp
     deletionconfirmationdialog.cpp

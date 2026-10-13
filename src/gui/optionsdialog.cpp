@@ -69,7 +69,6 @@
 #include "addnewtorrentdialog.h"
 #include "advancedsettings.h"
 #include "banlistoptionsdialog.h"
-#include "content/translationsettingsdialog.h"
 #include "interfaces/iguiapplication.h"
 #include "ipsubnetwhitelistoptionsdialog.h"
 #include "pathswidget.h"
@@ -212,12 +211,6 @@ OptionsDialog::OptionsDialog(IGUIApplication *app, Content::ContentView *content
         if (sources->rootObject())
             QMetaObject::invokeMethod(sources->rootObject(), "openBrowserSettings");
     });
-    connect(m_ui->translationSettingsButton, &QPushButton::clicked, this, [this]
-    {
-        auto *dialog = new Content::TranslationSettingsDialog(this);
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
-        dialog->open();
-    });
 #ifndef DISABLE_WEBUI
     loadWebUITabOptions();
 #endif
@@ -256,7 +249,7 @@ void OptionsDialog::syncBrowserSettingsVisible()
     const bool visible = m_sourcesRoot && m_sourcesRoot->property("browserSettingsVisible").toBool();
     m_ui->settingsNavigation->setDisabled(visible);
     m_ui->buttonBox->setDisabled(visible);
-    m_ui->contentSettingsActionsWidget->setDisabled(visible);
+    m_ui->browserSettingsActionWidget->setDisabled(visible);
 }
 
 OptionsDialog::~OptionsDialog()
