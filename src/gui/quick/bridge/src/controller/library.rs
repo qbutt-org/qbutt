@@ -5,11 +5,13 @@ use std::sync::Arc;
 use cxx_qt::{CxxQtThread, CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_content::translation::context::{ContextAdditions, EvidenceSegment, TranslationContext};
+use qbutt_content::translation::openrouter::OpenRouter;
 use qbutt_content::translation::text::{cache_key, restore_cached};
 use qbutt_content::{
     DownloadJob, DownloadStorage, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView,
-    LocalBook, PublicationRef, ReaderProgress, ReaderSettings, SourceSettings, TextChapter,
-    TranslationCacheKey, TranslationSelection, VariantPreferences, Work, WorkGroup,
+    LocalBook, OpenRouterSettings, PublicationRef, ReaderProgress, ReaderSettings, SourceSettings,
+    TextChapter, TextTranslationService, TextTranslationSettings, TranslationCacheKey,
+    TranslationSelection, VariantPreferences, Work, WorkGroup,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};
@@ -130,6 +132,14 @@ enum LibraryCommand {
     Request(Box<LibraryRequest>),
     DownloadJobs(oneshot::Sender<LibraryResult<Vec<DownloadJob>>>),
     SaveDownload(DownloadJob, oneshot::Sender<LibraryResult<()>>),
+    TextTranslationSettings(oneshot::Sender<LibraryResult<TextTranslationSettings>>),
+    ConfigureTextTranslation {
+        service: TextTranslationService,
+        options: OpenRouterSettings,
+        api_key: Option<String>,
+        reply: oneshot::Sender<LibraryResult<TextTranslationSettings>>,
+    },
+    OpenRouterClient(oneshot::Sender<LibraryResult<OpenRouter>>),
     ReadTranslationSelection {
         language: String,
         reply: oneshot::Sender<LibraryResult<Option<TranslationSelection>>>,
@@ -145,6 +155,7 @@ enum LibraryCommand {
     TranslationLookup {
         original: Arc<TextChapter>,
         language: String,
+        provider: String,
         model: String,
         effort: String,
         reply: oneshot::Sender<LibraryResult<TranslationLookup>>,
@@ -224,6 +235,49 @@ impl DownloadStorage for DownloadStore {
 }
 
 impl LibraryWorker {
+    pub(super) async fn text_translation_settings(&self) -> LibraryResult<TextTranslationSettings> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::TextTranslationSettings(reply))
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
+    }
+
+    pub(super) async fn configure_text_translation(
+        &self,
+        service: TextTranslationService,
+        options: OpenRouterSettings,
+        api_key: Option<String>,
+    ) -> LibraryResult<TextTranslationSettings> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::ConfigureTextTranslation {
+                service,
+                options,
+                api_key,
+                reply,
+            })
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
+    }
+
+    pub(super) async fn openrouter_client(&self) -> LibraryResult<OpenRouter> {
+        let (reply, received) = oneshot::channel();
+        self.sender
+            .send(LibraryCommand::OpenRouterClient(reply))
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?;
+        received
+            .await
+            .map_err(|_| LibraryError::InvalidEntry("translation library is unavailable"))?
+    }
+
     pub(super) async fn translation_selection(
         &self,
         language: String,
@@ -267,6 +321,7 @@ impl LibraryWorker {
         &self,
         original: Arc<TextChapter>,
         language: String,
+        provider: String,
         model: String,
         effort: String,
     ) -> LibraryResult<TranslationLookup> {
@@ -275,6 +330,7 @@ impl LibraryWorker {
             .send(LibraryCommand::TranslationLookup {
                 original,
                 language,
+                provider,
                 model,
                 effort,
                 reply,
@@ -417,6 +473,44 @@ impl LibraryWorker {
                                 .and_then(|library| library.save_download_job(&job));
                             let _ = reply.send(result);
                         }
+                        LibraryCommand::TextTranslationSettings(reply) => {
+                            let result = library
+                                .as_ref()
+                                .ok_or(LibraryError::InvalidEntry(
+                                    "translation library is unavailable",
+                                ))
+                                .and_then(Library::text_translation_settings);
+                            let _ = reply.send(result);
+                        }
+                        LibraryCommand::ConfigureTextTranslation {
+                            service,
+                            options,
+                            api_key,
+                            reply,
+                        } => {
+                            let result = library
+                                .as_mut()
+                                .ok_or(LibraryError::InvalidEntry(
+                                    "translation library is unavailable",
+                                ))
+                                .and_then(|library| {
+                                    library.configure_text_translation(
+                                        service,
+                                        &options,
+                                        api_key.as_deref(),
+                                    )
+                                });
+                            let _ = reply.send(result);
+                        }
+                        LibraryCommand::OpenRouterClient(reply) => {
+                            let result = library
+                                .as_ref()
+                                .ok_or(LibraryError::InvalidEntry(
+                                    "translation library is unavailable",
+                                ))
+                                .and_then(Library::openrouter_client);
+                            let _ = reply.send(result);
+                        }
                         LibraryCommand::ReadTranslationSelection { language, reply } => {
                             let result = library
                                 .as_ref()
@@ -447,6 +541,7 @@ impl LibraryWorker {
                         LibraryCommand::TranslationLookup {
                             original,
                             language,
+                            provider,
                             model,
                             effort,
                             reply,
@@ -461,7 +556,9 @@ impl LibraryWorker {
                                         &original.reference.variant.publication,
                                         &language,
                                     )?;
-                                    let key = cache_key(&original, &language, &model, &effort)?;
+                                    let key = cache_key(
+                                        &original, &language, &provider, &model, &effort,
+                                    )?;
                                     let cached = library
                                         .cached_translation::<TextChapter>(&key)?
                                         .map(|chapter| {

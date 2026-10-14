@@ -1,9 +1,19 @@
 //! Generated HTTPS acceptance of the native text transport. No installed key,
 //! remote API, provider billing or helper process is used.
 
-pub use qbutt_content::OpenRouterSettings;
+pub use qbutt_content::translation::{context, context_tools};
+pub use qbutt_content::{
+    Chapter, ChapterRef, LibraryError, LibraryResult, OpenRouterSettings, Result, TextBlock,
+    TextChapter, TextSpan,
+};
+mod library {
+    pub use qbutt_content::TranslationCacheKey;
+}
 #[path = "../src/secrets.rs"]
 mod secrets;
+#[allow(dead_code)]
+#[path = "../src/translation/text.rs"]
+mod text;
 #[allow(dead_code)]
 mod openrouter {
     include!("../src/translation/openrouter.rs");
@@ -33,7 +43,7 @@ use serde_json::{Value, json};
 use openrouter::{OpenRouterError, OpenRouterRequest};
 use peer::{Peer, Reply};
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+type FixtureResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn response(finish: &str, message: Value) -> Value {
     json!({
@@ -80,7 +90,7 @@ impl ToolHandler for Context {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> FixtureResult<()> {
     let final_message = json!({"role": "assistant", "content": "{\"accepted\":true}"});
     let tool_message = json!({
         "role": "assistant", "content": null,
@@ -118,6 +128,7 @@ async fn main() -> Result<()> {
     );
     assert_eq!(captured[0]["provider"], json!({"require_parameters": true}));
     assert!(captured[0].get("models").is_none());
+    assert!(captured[0].get("parallel_tool_calls").is_none());
     assert_eq!(captured[0]["reasoning"], json!({"effort": "low"}));
     drop(captured);
     println!("PASS openrouter_http context_continuity schema model effort usage");
@@ -147,6 +158,20 @@ async fn main() -> Result<()> {
             Reply::Json(response("tool_calls", many_tools)),
         ),
         ("authentication", Reply::Status(401)),
+        ("forbidden", Reply::Status(403)),
+        ("request-shape", Reply::Status(400)),
+        ("bad-gateway", Reply::Status(502)),
+        ("unavailable", Reply::Status(503)),
+        (
+            "provider-code",
+            Reply::Json(json!({"error": {"code": 400, "message": "generated-fixture-key"}})),
+        ),
+        (
+            "untrusted-code",
+            Reply::Json(
+                json!({"error": {"code": "generated-fixture-key", "message": "generated-fixture-key"}}),
+            ),
+        ),
         ("credits", Reply::Status(402)),
         ("rate-limit", Reply::Status(429)),
         ("provider", Reply::Status(500)),
@@ -173,22 +198,32 @@ async fn main() -> Result<()> {
             .err()
             .ok_or("invalid response accepted")?;
         match (name, &error) {
-            ("foreign-model", OpenRouterError::Provider)
+            ("foreign-model", OpenRouterError::ModelMismatch)
             | ("foreign-tool" | "tool-limit", OpenRouterError::Tool)
-            | ("authentication", OpenRouterError::Authentication)
-            | ("credits" | "rate-limit", OpenRouterError::Limit)
-            | ("provider", OpenRouterError::Provider)
+            | ("authentication", OpenRouterError::Authentication(401))
+            | ("forbidden", OpenRouterError::Authentication(403))
+            | ("credits", OpenRouterError::Limit(402))
+            | ("rate-limit", OpenRouterError::Limit(429))
+            | ("request-shape", OpenRouterError::Http(400))
+            | ("provider", OpenRouterError::Http(500))
+            | ("bad-gateway", OpenRouterError::Http(502))
+            | ("unavailable", OpenRouterError::Http(503))
+            | ("provider-code", OpenRouterError::ProviderCode(400))
+            | ("untrusted-code", OpenRouterError::Provider)
             | ("incomplete" | "malformed-final" | "oversized", OpenRouterError::Protocol)
             | ("timeout", OpenRouterError::Timeout) => {}
             _ => return Err(format!("{name}: unexpected {error}").into()),
         }
         assert!(!error.to_string().contains("generated-fixture-key"));
+        assert!(!format!("{error:?}").contains("generated-fixture-key"));
         assert_eq!(
             peer.requests.lock().await.len(),
             1,
             "HTTP errors must not trigger retries"
         );
-        println!("PASS openrouter_http case={name} requests=1 secret_redacted=true");
+        println!(
+            "PASS openrouter_http case={name} requests=1 secret_redacted=true diagnostic={error}"
+        );
     }
 
     let peer = Peer::start(vec![Reply::Delay]).await;
@@ -209,5 +244,126 @@ async fn main() -> Result<()> {
     let (result, _) = tokio::join!(work, control);
     assert!(matches!(result, Err(OpenRouterError::Cancelled)));
     println!("PASS openrouter_http active_cancel requests=1");
+    exercise_text().await?;
+    Ok(())
+}
+
+async fn exercise_text() -> FixtureResult<()> {
+    use qbutt_content::{PublicationRef, Source, VariantRef, VariantSelector};
+    use text::{TextTranslationOptions, TextTranslationProvider, translate_chapter};
+
+    let reference = ChapterRef {
+        variant: VariantRef {
+            publication: PublicationRef {
+                source: Source::Kakuyomu,
+                id: "1001".into(),
+            },
+            selector: VariantSelector::OriginalText,
+        },
+        id: "1001/1".into(),
+    };
+    let original = TextChapter::from_html(reference, "<p>レンは帰った。</p>")?;
+    let later = TextChapter::from_html(
+        ChapterRef {
+            id: "1001/2".into(),
+            ..original.reference.clone()
+        },
+        "<p>レンは妹に言った。『私はあなたの姉です』</p>",
+    )?;
+    let chapters: Vec<_> = [&original, &later]
+        .into_iter()
+        .enumerate()
+        .map(|(index, chapter)| Chapter {
+            reference: chapter.reference.clone(),
+            title: Some(format!("Generated chapter {}", index + 1)),
+            number: Some((index + 1).to_string()),
+            volume: None,
+            pages: 0,
+        })
+        .collect();
+    let later_segment = later.blocks[0].id.clone();
+    let source = move |reference: ChapterRef| {
+        let later = later.clone();
+        async move {
+            assert_eq!(reference, later.reference);
+            Ok(later)
+        }
+    };
+    let target = json!({
+        "blocks": [{
+            "id": original.blocks[0].id,
+            "spans": [{
+                "kind": "text", "text": "Рен вернулась.",
+                "bold": false, "italic": false, "underline": false,
+                "reading": "", "asset_id": ""
+            }]
+        }],
+        "terms": [],
+        "facts": [{
+            "subject": "レン", "attribute": "gender", "value": "female",
+            "evidence": {
+                "chapter_id": "1001/2", "segment_id": later_segment,
+                "quote": "レンは妹に言った。『私はあなたの姉です』"
+            }
+        }]
+    });
+    let tool_message = json!({
+        "role": "assistant", "content": null,
+        "tool_calls": [{
+            "id": "later-chapter", "type": "function",
+            "function": {
+                "name": "get_chapter",
+                "arguments": json!({"chapter_id": "1001/2", "offset": 0}).to_string()
+            }
+        }]
+    });
+    for (name, mut output) in [("accepted", target.clone()), ("invented-evidence", target)] {
+        if name == "invented-evidence" {
+            output["facts"][0]["evidence"]["quote"] = json!("Invented gender clue");
+        }
+        let peer = Peer::start(vec![
+            Reply::Json(response("tool_calls", tool_message.clone())),
+            Reply::Json(response(
+                "stop",
+                json!({"role": "assistant", "content": output.to_string()}),
+            )),
+        ])
+        .await;
+        let provider = TextTranslationProvider::OpenRouter(openrouter::fixture(peer.http.clone()));
+        let (_cancel, cancelled) = tokio::sync::watch::channel(false);
+        let translated = translate_chapter(
+            &original,
+            &chapters,
+            &source,
+            &context::TranslationContext::default(),
+            &TextTranslationOptions {
+                target_language: "ru".into(),
+                model: Some("example/text-model".into()),
+                effort: Some("low".into()),
+            },
+            &provider,
+            cancelled,
+        )
+        .await;
+        if name == "accepted" {
+            let translated = translated?;
+            assert_eq!(translated.chapter.blocks[0].plain_text(), "Рен вернулась.");
+            assert_eq!(translated.additions.facts[0].value, "female");
+            assert_eq!(translated.evidence.len(), 2);
+            assert_eq!(
+                text::restore_cached(&original, translated.chapter.clone())?,
+                translated.chapter
+            );
+        } else {
+            assert!(
+                translated.is_err(),
+                "invented fact accepted by shared validation"
+            );
+        }
+        assert_eq!(peer.requests.lock().await.len(), 2);
+        println!(
+            "PASS openrouter_text case={name} exact_original_anchors context_tools shared_validation"
+        );
+    }
     Ok(())
 }

@@ -171,6 +171,15 @@ pub mod ffi {
     }
 
     #[qenum]
+    #[namespace = "Qbutt::Reader"]
+    enum TranslationSettingsError {
+        NoTranslationSettingsError,
+        InvalidTranslationModel,
+        TranslationKeyProtectionFailed,
+        TranslationSettingsStorageFailed,
+    }
+
+    #[qenum]
     #[namespace = "Qbutt::Search"]
     enum SearchState {
         Idle,
@@ -534,6 +543,41 @@ pub mod ffi {
             NOTIFY = reader_changed
         )]
         #[qproperty(
+            QString,
+            reader_text_translation_service,
+            cxx_name = "readerTextTranslationService",
+            READ = reader_text_translation_service,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_openrouter_model,
+            cxx_name = "readerOpenRouterModel",
+            READ = reader_openrouter_model,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
+            QString,
+            reader_openrouter_effort,
+            cxx_name = "readerOpenRouterEffort",
+            READ = reader_openrouter_effort,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
+            bool,
+            reader_openrouter_key_configured,
+            cxx_name = "readerOpenRouterKeyConfigured",
+            READ = reader_openrouter_key_configured,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
+            TranslationSettingsError,
+            reader_translation_settings_error,
+            cxx_name = "readerTranslationSettingsError",
+            READ = reader_translation_settings_error,
+            NOTIFY = reader_translation_options_changed
+        )]
+        #[qproperty(
             i32,
             reader_translation_model_count,
             cxx_name = "readerTranslationModelCount",
@@ -883,6 +927,11 @@ pub mod ffi {
         fn reader_settings_state(&self) -> ReaderSettingsState;
         fn reader_settings_error_text(&self) -> QString;
         fn reader_translation_language(&self) -> QString;
+        fn reader_text_translation_service(&self) -> QString;
+        fn reader_openrouter_model(&self) -> QString;
+        fn reader_openrouter_effort(&self) -> QString;
+        fn reader_openrouter_key_configured(&self) -> bool;
+        fn reader_translation_settings_error(&self) -> TranslationSettingsError;
         fn reader_translation_model_count(&self) -> i32;
         fn reader_translation_effort_count(&self) -> i32;
         fn reader_translation_model(&self) -> QString;
@@ -948,6 +997,16 @@ pub mod ffi {
         #[qinvokable]
         #[cxx_name = "loadReaderTranslationOptions"]
         fn load_reader_translation_options(self: Pin<&mut Self>) -> bool;
+        #[qinvokable]
+        #[cxx_name = "configureReaderTextTranslation"]
+        fn configure_reader_text_translation(
+            self: Pin<&mut Self>,
+            service: QString,
+            model: QString,
+            effort: QString,
+            api_key: QString,
+            remove_key: bool,
+        ) -> bool;
         #[qinvokable]
         #[cxx_name = "setReaderTranslationModel"]
         fn set_reader_translation_model(self: Pin<&mut Self>, model: QString) -> bool;

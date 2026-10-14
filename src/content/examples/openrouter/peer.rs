@@ -83,7 +83,10 @@ impl Peer {
                 match reply {
                     Reply::Delay => tokio::time::sleep(Duration::from_secs(30)).await,
                     Reply::Oversized => {
-                        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4194305\r\nConnection: close\r\n\r\n").await.unwrap();
+                        stream
+                            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4194305\r\nConnection: close\r\n\r\n")
+                            .await
+                            .unwrap();
                     }
                     Reply::Status(status) => {
                         let body = "generated-fixture-key must not appear in an error";
@@ -96,7 +99,8 @@ impl Peer {
                     Reply::Json(body) => {
                         let body = serde_json::to_vec(&body).unwrap();
                         let header = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n",
                             body.len()
                         );
                         stream.write_all(header.as_bytes()).await.unwrap();

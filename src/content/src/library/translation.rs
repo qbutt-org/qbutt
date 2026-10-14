@@ -5,7 +5,7 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params, types::ValueRef};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use super::{Library, LibraryError, LibraryResult};
+use super::{Library, LibraryError, LibraryResult, TextTranslationService};
 use crate::translation::context::{ContextAdditions, EvidenceSegment, TranslationContext};
 use crate::{ChapterRef, PublicationRef};
 
@@ -295,15 +295,33 @@ fn accept_translation_context(
             ],
         )?;
     }
-    write_selection(
-        transaction,
-        &TranslationSelection {
-            target_language: key.target_language.clone(),
-            model: key.model.clone(),
-            effort: key.effort.clone(),
-            explicit: false,
-        },
-    )?;
+    match key.provider.as_str() {
+        "codex" => write_selection(
+            transaction,
+            &TranslationSelection {
+                target_language: key.target_language.clone(),
+                model: key.model.clone(),
+                effort: key.effort.clone(),
+                explicit: false,
+            },
+        )?,
+        "openrouter" if key.page.is_none() => {
+            let settings = super::translation_service::read_settings(transaction)?;
+            if settings.service != TextTranslationService::OpenRouter
+                || settings.openrouter.model != key.model
+                || settings.openrouter.effort != key.effort
+            {
+                return Err(LibraryError::InvalidEntry(
+                    "OpenRouter translation settings changed during the job",
+                ));
+            }
+        }
+        _ => {
+            return Err(LibraryError::InvalidEntry(
+                "translation provider is invalid",
+            ));
+        }
+    }
     Ok(context)
 }
 

@@ -23,14 +23,20 @@ const MAX_TOOL_CALLS: usize = 12;
 pub enum OpenRouterError {
     #[error("Configure an OpenRouter model and reasoning effort")]
     Configuration,
-    #[error("OpenRouter rejected the API key or model access")]
-    Authentication,
-    #[error("OpenRouter has insufficient credits or has reached its limit")]
-    Limit,
+    #[error("OpenRouter rejected the API key or model access (HTTP {0})")]
+    Authentication(u16),
+    #[error("OpenRouter has insufficient credits or has reached its limit (HTTP {0})")]
+    Limit(u16),
     #[error("The OpenRouter connection failed")]
     Network,
-    #[error("OpenRouter could not complete the request")]
+    #[error("OpenRouter rejected the request (HTTP {0})")]
+    Http(u16),
+    #[error("OpenRouter reported a provider error (code {0})")]
+    ProviderCode(u16),
+    #[error("OpenRouter reported a provider error without a recognized code")]
     Provider,
+    #[error("OpenRouter returned a different model")]
+    ModelMismatch,
     #[error("OpenRouter returned invalid or incomplete translation data")]
     Protocol,
     #[error("OpenRouter translation was cancelled")]
@@ -70,7 +76,7 @@ impl OpenRouter {
         }
         let authorization = key
             .authorization()
-            .map_err(|_| OpenRouterError::Authentication)?;
+            .map_err(|_| OpenRouterError::Configuration)?;
         let http = reqwest::Client::builder()
             .https_only(true)
             .no_proxy()
@@ -138,7 +144,6 @@ impl OpenRouter {
                 "model": self.settings.model,
                 "messages": messages,
                 "tools": definitions,
-                "parallel_tool_calls": false,
                 "provider": {"require_parameters": true},
                 "plugins": [],
                 "stream": false,
@@ -155,10 +160,20 @@ impl OpenRouter {
                 body["reasoning"] = json!({"effort": self.settings.effort});
             }
             let response = self.send(body).await?;
-            if response.get("error").is_some_and(|error| !error.is_null())
-                || response.get("model").and_then(Value::as_str) != Some(&self.settings.model)
-            {
-                return Err(OpenRouterError::Provider);
+            if let Some(error) = response.get("error").filter(|error| !error.is_null()) {
+                return Err(error
+                    .get("code")
+                    .and_then(Value::as_u64)
+                    .filter(|code| (100..=599).contains(code))
+                    .map(|code| OpenRouterError::ProviderCode(code as u16))
+                    .unwrap_or(OpenRouterError::Provider));
+            }
+            let model = response
+                .get("model")
+                .and_then(Value::as_str)
+                .ok_or(OpenRouterError::Protocol)?;
+            if model != self.settings.model {
+                return Err(OpenRouterError::ModelMismatch);
             }
             accumulate_usage(&mut usage, response.get("usage"))?;
             let choices = response
@@ -276,9 +291,9 @@ impl OpenRouter {
             .map_err(network_error)?;
         match response.status().as_u16() {
             200 => {}
-            401 | 403 => return Err(OpenRouterError::Authentication),
-            402 | 429 => return Err(OpenRouterError::Limit),
-            _ => return Err(OpenRouterError::Provider),
+            status @ (401 | 403) => return Err(OpenRouterError::Authentication(status)),
+            status @ (402 | 429) => return Err(OpenRouterError::Limit(status)),
+            status => return Err(OpenRouterError::Http(status)),
         }
         if response
             .content_length()
@@ -287,11 +302,7 @@ impl OpenRouter {
             return Err(OpenRouterError::Protocol);
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| OpenRouterError::Network)?
-        {
+        while let Some(chunk) = response.chunk().await.map_err(network_error)? {
             if chunk.len() > MAX_RESPONSE_BYTES - bytes.len() {
                 return Err(OpenRouterError::Protocol);
             }

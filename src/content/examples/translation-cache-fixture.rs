@@ -40,7 +40,7 @@ fn main() -> Result<()> {
     let profile = std::env::temp_dir().join(format!("qbutt-translation-cache-{nonce}"));
     let result = (|| -> Result<()> {
         let mut library = Library::open(&profile)?;
-        let key = cache_key(&original, "ru", "gpt-6.1-sol", "low")?;
+        let key = cache_key(&original, "ru", "codex", "gpt-6.1-sol", "low")?;
         library.save_translation(
             key.clone(),
             0,
@@ -58,6 +58,7 @@ fn main() -> Result<()> {
             "ALTER TABLE reader_settings DROP COLUMN translation_language;
              DROP TABLE translation_selection;
              DROP TABLE translated_images;
+             DROP TABLE text_translation_service;
              PRAGMA user_version = 8;",
         )?;
         drop(connection);
@@ -87,7 +88,7 @@ fn main() -> Result<()> {
             .translation_selection("ru")?
             .ok_or("selection missing")?;
         assert_eq!(saved, selection);
-        let exact = cache_key(&original, "ru", &saved.model, &saved.effort)?;
+        let exact = cache_key(&original, "ru", "codex", &saved.model, &saved.effort)?;
         let chapter: TextChapter = library
             .cached_translation(&exact)?
             .ok_or("exact translation missing")?;
@@ -97,7 +98,7 @@ fn main() -> Result<()> {
             ("ru", "gpt-6.1-sol", "medium"),
             ("en", "gpt-6.1-sol", "low"),
         ] {
-            let different = cache_key(&original, language, model, effort)?;
+            let different = cache_key(&original, language, "codex", model, effort)?;
             assert!(
                 library
                     .cached_translation::<TextChapter>(&different)?
@@ -111,7 +112,7 @@ fn main() -> Result<()> {
             ..saved
         };
         library.save_translation_selection(&explicit)?;
-        let different = cache_key(&original, "ru", "another-model", "low")?;
+        let different = cache_key(&original, "ru", "codex", "another-model", "low")?;
         assert!(
             library
                 .save_translation(
@@ -131,7 +132,13 @@ fn main() -> Result<()> {
             .translation_selection("ru")?
             .ok_or("automatic selection missing")?;
         assert!(!automatic.explicit);
-        let offline_key = cache_key(&original, "ru", &automatic.model, &automatic.effort)?;
+        let offline_key = cache_key(
+            &original,
+            "ru",
+            "codex",
+            &automatic.model,
+            &automatic.effort,
+        )?;
         assert!(
             library
                 .cached_translation::<TextChapter>(&offline_key)?
@@ -171,7 +178,7 @@ fn main() -> Result<()> {
                 image_observation: None,
             },
         };
-        let second_key = cache_key(&second, "ru", "gpt-6.1-sol", "low")?;
+        let second_key = cache_key(&second, "ru", "codex", "gpt-6.1-sol", "low")?;
         let expanded = library.save_translation(
             second_key,
             0,
@@ -197,7 +204,7 @@ fn main() -> Result<()> {
 
         let mut library = Library::open(&profile)?;
         let current = library.translation_context(&original.reference.variant.publication, "ru")?;
-        let current_key = cache_key(&original, "ru", "gpt-6.1-sol", "low")?;
+        let current_key = cache_key(&original, "ru", "codex", "gpt-6.1-sol", "low")?;
         assert_eq!(current.revision, 1);
         assert_eq!(current_key, key);
         let previous: Option<TextChapter> = library.cached_translation(&current_key)?;
@@ -412,7 +419,7 @@ fn exercise_cancelled_save(profile: &Path, original: &TextChapter) -> Result<()>
     let publication = &original.reference.variant.publication;
     let context = writer.translation_context(publication, "ru")?;
     let selection = writer.translation_selection("ru")?;
-    let key = cache_key(original, "ru", "cancelled-model", "low")?;
+    let key = cache_key(original, "ru", "codex", "cancelled-model", "low")?;
     let evidence = EvidenceSegment {
         chapter: original.reference.clone(),
         id: original.blocks[0].id.clone(),
@@ -549,7 +556,11 @@ fn exercise_image_cache(
 
     // Schema 10 keeps its JSON cache, context, selected model and Original history.
     let connection = rusqlite::Connection::open(profile.join("content-library.sqlite"))?;
-    connection.execute_batch("DROP TABLE translated_images; PRAGMA user_version = 10;")?;
+    connection.execute_batch(
+        "DROP TABLE translated_images;
+         DROP TABLE text_translation_service;
+         PRAGMA user_version = 10;",
+    )?;
     let mut library = Library::open(profile)?;
     assert_eq!(library.translation_context(publication, "ru")?, context);
     assert_eq!(library.translation_selection("ru")?, selection);
@@ -768,7 +779,7 @@ fn exercise_image_cache(
             explicit: false,
         })
     );
-    let text_key = cache_key(original, "ru", "gpt-6.1-sol", "low")?;
+    let text_key = cache_key(original, "ru", "codex", "gpt-6.1-sol", "low")?;
     let cached = library
         .cached_translation(&text_key)?
         .ok_or("text cache vanished")?;

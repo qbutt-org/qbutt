@@ -4,9 +4,13 @@ use std::sync::Arc;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
 use qbutt_codex::{self as codex, CodexError, ModelModality};
-use qbutt_content::translation::text::{TextTranslationOptions, translate_chapter};
+use qbutt_content::translation::openrouter::OpenRouterError;
+use qbutt_content::translation::text::{
+    TextTranslationError, TextTranslationOptions, TextTranslationProvider, translate_chapter,
+};
 use qbutt_content::{
-    Chapter, ChapterRef, LibraryError, LocalBook, TextChapter, TranslationSelection,
+    Chapter, ChapterRef, LibraryError, LocalBook, TextChapter, TextTranslationService,
+    TranslationSelection,
 };
 use tokio::sync::{Semaphore, watch};
 
@@ -64,6 +68,7 @@ impl TextTranslationState {
 
 enum TranslationFailure {
     Codex(CodexError),
+    OpenRouter(OpenRouterError),
     Library(LibraryError),
 }
 
@@ -79,6 +84,7 @@ impl TranslationFailure {
         match self {
             Self::Codex(error) => error.to_string(),
             Self::Library(error) => error.to_string(),
+            Self::OpenRouter(error) => error.to_string(),
         }
     }
 }
@@ -93,54 +99,91 @@ async fn translate(
     language: String,
     cancelled: watch::Receiver<bool>,
 ) -> Result<Arc<TextChapter>, TranslationFailure> {
-    let saved = library
-        .translation_selection(language.clone())
+    let settings = library
+        .text_translation_settings()
         .await
         .map_err(TranslationFailure::Library)?;
-    if let Some(selection) = &saved {
-        let lookup = library
-            .translation_lookup(
-                Arc::clone(&original),
-                language.clone(),
-                selection.model.clone(),
-                selection.effort.clone(),
-            )
-            .await
-            .map_err(TranslationFailure::Library)?;
-        if let Some(cached) = lookup.cached {
-            return Ok(Arc::new(cached));
-        }
-    }
-
-    let explicit = saved.as_ref().filter(|selection| selection.explicit);
-    let (model, effort) = codex::resolve_selection(
-        ModelModality::Image,
-        explicit.map(|selection| selection.model.as_str()),
-        explicit.map(|selection| selection.effort.as_str()),
-    )
-    .await
-    .map_err(TranslationFailure::Codex)?;
-    let lookup = library
-        .translation_lookup(
-            Arc::clone(&original),
-            language.clone(),
-            model.clone(),
-            effort.clone(),
-        )
-        .await
-        .map_err(TranslationFailure::Library)?;
-    if let Some(cached) = lookup.cached {
-        library
-            .remember_translation_selection(TranslationSelection {
-                target_language: language,
+    let (provider, lookup, model, effort) =
+        if settings.service == TextTranslationService::OpenRouter {
+            let model = settings.openrouter.model;
+            let effort = settings.openrouter.effort;
+            let lookup = library
+                .translation_lookup(
+                    Arc::clone(&original),
+                    language.clone(),
+                    "openrouter".into(),
+                    model.clone(),
+                    effort.clone(),
+                )
+                .await
+                .map_err(TranslationFailure::Library)?;
+            if let Some(cached) = lookup.cached {
+                return Ok(Arc::new(cached));
+            }
+            let client = library
+                .openrouter_client()
+                .await
+                .map_err(TranslationFailure::Library)?;
+            (
+                TextTranslationProvider::OpenRouter(client),
+                lookup,
                 model,
                 effort,
-                explicit: explicit.is_some(),
-            })
+            )
+        } else {
+            let saved = library
+                .translation_selection(language.clone())
+                .await
+                .map_err(TranslationFailure::Library)?;
+            if let Some(selection) = &saved {
+                let lookup = library
+                    .translation_lookup(
+                        Arc::clone(&original),
+                        language.clone(),
+                        "codex".into(),
+                        selection.model.clone(),
+                        selection.effort.clone(),
+                    )
+                    .await
+                    .map_err(TranslationFailure::Library)?;
+                if let Some(cached) = lookup.cached {
+                    return Ok(Arc::new(cached));
+                }
+            }
+
+            let explicit = saved.as_ref().filter(|selection| selection.explicit);
+            let (model, effort) = codex::resolve_selection(
+                ModelModality::Text,
+                explicit.map(|selection| selection.model.as_str()),
+                explicit.map(|selection| selection.effort.as_str()),
+            )
             .await
-            .map_err(TranslationFailure::Library)?;
-        return Ok(Arc::new(cached));
-    }
+            .map_err(TranslationFailure::Codex)?;
+            let lookup = library
+                .translation_lookup(
+                    Arc::clone(&original),
+                    language.clone(),
+                    "codex".into(),
+                    model.clone(),
+                    effort.clone(),
+                )
+                .await
+                .map_err(TranslationFailure::Library)?;
+            if let Some(cached) = lookup.cached {
+                library
+                    .remember_translation_selection(TranslationSelection {
+                        target_language: language,
+                        model,
+                        effort,
+                        explicit: explicit.is_some(),
+                    })
+                    .await
+                    .map_err(TranslationFailure::Library)?;
+                return Ok(Arc::new(cached));
+            }
+
+            (TextTranslationProvider::Codex, lookup, model, effort)
+        };
 
     let source = move |reference: ChapterRef| {
         let catalog = Arc::clone(&catalog);
@@ -164,10 +207,14 @@ async fn translate(
             model: Some(model),
             effort: Some(effort),
         },
+        &provider,
         cancelled.clone(),
     )
     .await
-    .map_err(TranslationFailure::Codex)?;
+    .map_err(|error| match error {
+        TextTranslationError::Codex(error) => TranslationFailure::Codex(error),
+        TextTranslationError::OpenRouter(error) => TranslationFailure::OpenRouter(error),
+    })?;
     library
         .save_translation(
             lookup.key,

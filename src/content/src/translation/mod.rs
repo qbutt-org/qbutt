@@ -1,4 +1,4 @@
-//! Translation jobs use Codex as an installed, isolated inference provider.
+//! Native translation shares context validation and accepted cache ownership.
 //! The caller owns cancellation, caching, and committing the accepted result.
 
 pub mod context;

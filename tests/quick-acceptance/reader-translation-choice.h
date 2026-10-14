@@ -9,3 +9,5 @@ namespace Content
 }
 
 void exerciseReaderTranslationChoiceRace(Content::ContentView *view, const QString &profileDir);
+
+void exerciseReaderOpenRouterSettings(Content::ContentView *view, const QString &profileDir);

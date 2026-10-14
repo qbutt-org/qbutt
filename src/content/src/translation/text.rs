@@ -15,6 +15,7 @@ use super::context::{
     TranslationForm, TranslationTerm,
 };
 use super::context_tools::{ChapterExcerpt, WorkChapterSource, WorkContextTools, tool_definitions};
+use super::openrouter::{OpenRouter, OpenRouterError, OpenRouterRequest};
 use crate::library::TranslationCacheKey;
 use crate::{Chapter, ChapterRef, LibraryResult, TextBlock, TextChapter, TextSpan};
 use qbutt_codex::{self as codex, CodexError, CodexRequest, ModelModality, TokenUsage};
@@ -61,6 +62,19 @@ where
     }
 }
 
+pub enum TextTranslationProvider {
+    Codex,
+    OpenRouter(OpenRouter),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum TextTranslationError {
+    #[error(transparent)]
+    Codex(#[from] CodexError),
+    #[error(transparent)]
+    OpenRouter(#[from] OpenRouterError),
+}
+
 #[derive(Clone, Debug)]
 pub struct TextTranslationOptions {
     pub target_language: String,
@@ -80,6 +94,7 @@ pub struct TextTranslation {
 pub fn cache_key(
     original: &TextChapter,
     target_language: &str,
+    provider: &str,
     model: &str,
     effort: &str,
 ) -> LibraryResult<TranslationCacheKey> {
@@ -90,7 +105,7 @@ pub fn cache_key(
         page: None,
         target_language: target_language.to_owned(),
         original_digest: format!("{digest:x}"),
-        provider: "codex".into(),
+        provider: provider.into(),
         model: model.to_owned(),
         effort: effort.to_owned(),
         pipeline: PIPELINE_VERSION,
@@ -136,24 +151,42 @@ pub async fn translate_chapter(
     source: &impl ChapterTextSource,
     context: &TranslationContext,
     options: &TextTranslationOptions,
+    provider: &TextTranslationProvider,
     cancelled: watch::Receiver<bool>,
-) -> codex::Result<TextTranslation> {
+) -> Result<TextTranslation, TextTranslationError> {
     original.validate().map_err(|_| CodexError::Protocol)?;
-    if !crate::model::canonical_language(&options.target_language) {
-        return Err(CodexError::Tool("Target language is invalid".into()));
+    if !matches!(options.target_language.as_str(), "ru" | "en") {
+        return Err(CodexError::Tool("Target language is invalid".into()).into());
     }
     context
         .validate(&original.reference.variant.publication)
         .map_err(|_| CodexError::Protocol)?;
-    let (model, effort) = match (&options.model, &options.effort) {
-        (Some(model), Some(effort)) => (model.clone(), effort.clone()),
-        _ => {
-            codex::resolve_selection(
-                ModelModality::Image,
-                options.model.as_deref(),
-                options.effort.as_deref(),
-            )
-            .await?
+    let (model, effort) = match provider {
+        TextTranslationProvider::Codex => match (&options.model, &options.effort) {
+            (Some(model), Some(effort)) => (model.clone(), effort.clone()),
+            _ => {
+                codex::resolve_selection(
+                    ModelModality::Text,
+                    options.model.as_deref(),
+                    options.effort.as_deref(),
+                )
+                .await?
+            }
+        },
+        TextTranslationProvider::OpenRouter(client) => {
+            let settings = client.settings();
+            if options
+                .model
+                .as_ref()
+                .is_some_and(|model| model != &settings.model)
+                || options
+                    .effort
+                    .as_ref()
+                    .is_some_and(|effort| effort != &settings.effort)
+            {
+                return Err(OpenRouterError::Configuration.into());
+            }
+            (settings.model.clone(), settings.effort.clone())
         }
     };
 
@@ -202,35 +235,73 @@ pub async fn translate_chapter(
                 "blocks": source_blocks,
                 "chapter_count": chapters.len(),
             });
-            let request = CodexRequest {
-                instructions: INSTRUCTIONS.into(),
-                prompt: prompt.to_string(),
-                modality: ModelModality::Image,
-                image: None,
-                output_schema: output_schema(source_blocks.len()),
-                model: Some(model.clone()),
-                effort: Some(effort.clone()),
-                tools: tool_definitions(),
+            let schema = output_schema(source_blocks.len());
+            let (value, batch_usage) = match provider {
+                TextTranslationProvider::Codex => {
+                    let completion = codex::complete(
+                        CodexRequest {
+                            instructions: INSTRUCTIONS.into(),
+                            prompt: prompt.to_string(),
+                            modality: ModelModality::Text,
+                            image: None,
+                            output_schema: schema,
+                            model: Some(model.clone()),
+                            effort: Some(effort.clone()),
+                            tools: tool_definitions(),
+                        },
+                        &mut tools,
+                        cancelled.clone(),
+                    )
+                    .await?;
+                    if completion.model != model || completion.effort != effort {
+                        return Err(CodexError::ModelUnavailable.into());
+                    }
+                    (completion.value, completion.usage)
+                }
+                TextTranslationProvider::OpenRouter(client) => {
+                    let completion = client
+                        .complete(
+                            OpenRouterRequest {
+                                instructions: INSTRUCTIONS.into(),
+                                prompt: prompt.to_string(),
+                                output_schema: schema,
+                                tools: tool_definitions(),
+                            },
+                            &mut tools,
+                            cancelled.clone(),
+                        )
+                        .await?;
+                    (completion.value, completion.usage)
+                }
             };
-            let completion = codex::complete(request, &mut tools, cancelled.clone()).await?;
-            if completion.model != model || completion.effort != effort {
-                return Err(CodexError::ModelUnavailable);
-            }
-            if let Some(batch_usage) = completion.usage {
-                usage.total_tokens += batch_usage.total_tokens;
-                usage.input_tokens += batch_usage.input_tokens;
-                usage.cached_input_tokens += batch_usage.cached_input_tokens;
-                usage.cache_write_input_tokens += batch_usage.cache_write_input_tokens;
-                usage.output_tokens += batch_usage.output_tokens;
-                usage.reasoning_output_tokens += batch_usage.reasoning_output_tokens;
+            if let Some(batch_usage) = batch_usage {
+                for (total, count) in [
+                    (&mut usage.total_tokens, batch_usage.total_tokens),
+                    (&mut usage.input_tokens, batch_usage.input_tokens),
+                    (
+                        &mut usage.cached_input_tokens,
+                        batch_usage.cached_input_tokens,
+                    ),
+                    (
+                        &mut usage.cache_write_input_tokens,
+                        batch_usage.cache_write_input_tokens,
+                    ),
+                    (&mut usage.output_tokens, batch_usage.output_tokens),
+                    (
+                        &mut usage.reasoning_output_tokens,
+                        batch_usage.reasoning_output_tokens,
+                    ),
+                ] {
+                    *total = total.checked_add(count).ok_or(CodexError::Protocol)?;
+                }
             }
             let response: Output =
-                serde_json::from_value(completion.value).map_err(|_| CodexError::Protocol)?;
+                serde_json::from_value(value).map_err(|_| CodexError::Protocol)?;
             if response.blocks.len() != source_blocks.len()
                 || response.terms.len() > 40
                 || response.facts.len() > 40
             {
-                return Err(CodexError::Protocol);
+                return Err(CodexError::Protocol.into());
             }
             for (output, &index) in response.blocks.into_iter().zip(chunk.iter()) {
                 let source_block = &original.blocks[index];

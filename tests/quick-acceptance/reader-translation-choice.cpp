@@ -4,9 +4,14 @@
 #include <functional>
 #include <stdexcept>
 
+#include <QAbstractItemModel>
 #include <QDebug>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QImage>
+#include <QKeyEvent>
+#include <QMouseEvent>
+#include <QQuickItem>
 #include <QScopeGuard>
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -186,4 +191,202 @@ void exerciseReaderTranslationChoiceRace(Content::ContentView *view, const QStri
         u"New translation target was not persisted"_s);
     controller->closeReader();
     qInfo().noquote() << u"PASS reader_translation_choice delayed_original=ok session=ok same_session=ok reopen=ok language=ok"_s;
+}
+
+void exerciseReaderOpenRouterSettings(Content::ContentView *view, const QString &profileDir)
+{
+    auto *controller = view->findChild<Qbutt::ContentController *>();
+    require(controller, u"Reader controller missing"_s);
+    waitFor([&] { return controller->property("libraryState").value<Qbutt::Library::LibraryState>()
+        == Qbutt::Library::LibraryState::Ready; }, u"OpenRouter library"_s);
+    controller->importLocalBook(QUrl::fromLocalFile(profileDir + u"/authored.html"_s));
+    waitFor([&] { return controller->property("readerOpen").toBool()
+        && !controller->property("readerBusy").toBool(); }, u"Authored original"_s);
+    auto *loader = view->rootObject()->findChild<QObject *>(u"contentReaderLoader"_s);
+    auto *reader = loader ? loader->property("item").value<QQuickItem *>() : nullptr;
+    require(reader, u"Production reader missing"_s);
+    const auto item = [&](const QString &name)
+    {
+        auto *result = reader->findChild<QQuickItem *>(name);
+        require(result, u"Missing OpenRouter control: "_s + name);
+        return result;
+    };
+    const auto click = [&](QQuickItem *target)
+    {
+        const QPointF point = target->mapToScene(QPointF(target->width() / 2, target->height() / 2));
+        const QPointF global = view->mapToGlobal(point.toPoint());
+        QMouseEvent press(QEvent::MouseButtonPress, point, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, point, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &release);
+    };
+    const auto content = [&]
+    {
+        auto *blocks = qobject_cast<QAbstractItemModel *>(controller->property("readerTextBlocks").value<QObject *>());
+        require(blocks, u"Native text model missing"_s);
+        const int role = blocks->roleNames().key("plainText", -1);
+        QStringList result;
+        for (int row = 0; row < blocks->rowCount(); ++row)
+            result.append(blocks->data(blocks->index(row, 0), role).toString());
+        return result;
+    };
+    const auto capture = [&](const QString &name, const QSize &size)
+    {
+        view->resize(size);
+        QEventLoop frame;
+        QTimer::singleShot(200, &frame, &QEventLoop::quit);
+        frame.exec();
+        const QImage image = view->grabFramebuffer();
+        require(image.size() == size && image.save(profileDir + u"/"_s + name), u"OpenRouter render failed"_s);
+    };
+    const auto pressKey = [&](const Qt::Key key)
+    {
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &press);
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(view, &release);
+    };
+    const auto enterText = [&](QQuickItem *field, const QString &text)
+    {
+        click(field);
+        QKeyEvent select(QEvent::KeyPress, Qt::Key_A, Qt::ControlModifier);
+        QCoreApplication::sendEvent(view, &select);
+        QKeyEvent input(QEvent::KeyPress, 0, Qt::NoModifier, text);
+        QCoreApplication::sendEvent(view, &input);
+        require(field->property("text").toString() == text, u"Text field did not accept input"_s);
+    };
+    const QString connectionName = u"reader-openrouter-settings"_s;
+    auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, connectionName);
+    const auto closeDatabase = qScopeGuard([&]
+    {
+        database.close();
+        database = {};
+        QSqlDatabase::removeDatabase(connectionName);
+    });
+    database.setDatabaseName(profileDir + u"/content-library.sqlite"_s);
+    require(database.open(), database.lastError().text());
+    const auto execute = [&](const QString &sql)
+    {
+        QSqlQuery query(database);
+        require(query.exec(sql), query.lastError().text());
+    };
+    const QString failWrite = u"CREATE TRIGGER fail_service_write BEFORE UPDATE ON text_translation_service "
+        u"BEGIN SELECT RAISE(ABORT, 'fixture'); END;"_s;
+    const QStringList original = content();
+    auto *popup = reader->findChild<QObject *>(u"readerTranslationPicker"_s);
+    click(item(u"readerTranslationSettings"_s));
+    waitFor([&] { return popup && popup->property("visible").toBool()
+        && !controller->property("readerTranslationOptionsLoading").toBool(); }, u"OpenRouter options"_s);
+    require(controller->property("readerTextTranslationService").toString() == u"openrouter"_s
+        && controller->property("readerTranslationModelCount").toInt() == 0,
+        u"OpenRouter settings depend on Codex discovery"_s);
+    auto *model = item(u"readerOpenRouterModel"_s);
+    auto *key = item(u"readerOpenRouterKey"_s);
+    auto *apply = item(u"readerTranslationApply"_s);
+    auto *error = item(u"readerTranslationSettingsError"_s);
+    require(key->property("text").toString().isEmpty() && key->property("echoMode").toInt() == 2,
+        u"Key field is not empty and masked"_s);
+    capture(u"openrouter-empty-1440.png"_s, QSize(1440, 900));
+    enterText(model, u"invalid"_s);
+    click(apply);
+    waitFor([&] { return controller->property("readerTranslationSettingsError").toInt() == 1; }, u"Model validation"_s);
+    require(error->isVisible() && model->property("text").toString() == u"invalid"_s,
+        u"Validation discarded the user's model or hid its error"_s);
+    capture(u"openrouter-invalid-1280.png"_s, QSize(1280, 720));
+    enterText(model, u"example/text-model"_s);
+    enterText(key, u"generated-fixture-key"_s);
+    execute(failWrite);
+    click(apply);
+    waitFor([&] { return !controller->property("readerTranslationOptionsLoading").toBool()
+        && controller->property("readerTranslationSettingsError").toInt() == 3; }, u"Failed key save"_s);
+    require(!controller->property("readerOpenRouterKeyConfigured").toBool()
+        && key->property("text").toString() == u"generated-fixture-key"_s
+        && model->property("text").toString() == u"example/text-model"_s
+        && item(u"readerTranslationSaveError"_s)->isVisible(),
+        u"Failed key save lost its retry input or reported success"_s);
+    capture(u"openrouter-save-error-1280.png"_s, QSize(1280, 720));
+    execute(u"DROP TRIGGER fail_service_write"_s);
+    click(apply);
+    waitFor([&] { return !controller->property("readerTranslationOptionsLoading").toBool()
+        && controller->property("readerOpenRouterKeyConfigured").toBool(); }, u"Protected key save retry"_s);
+    require(key->property("text").toString().isEmpty(), u"Saved key remained in UI"_s);
+    capture(u"openrouter-saved-1440.png"_s, QSize(1440, 900));
+    execute(failWrite);
+    click(item(u"readerOpenRouterRemoveKey"_s));
+    click(apply);
+    waitFor([&] { return !controller->property("readerTranslationOptionsLoading").toBool()
+        && controller->property("readerTranslationSettingsError").toInt() == 3; }, u"Failed key removal"_s);
+    require(controller->property("readerOpenRouterKeyConfigured").toBool()
+        && popup->property("removeKey").toBool()
+        && item(u"readerTranslationSaveError"_s)->isVisible(),
+        u"Failed removal lost its intent or reported the saved key removed"_s);
+    execute(u"DROP TRIGGER fail_service_write"_s);
+    click(apply);
+    waitFor([&] { return !controller->property("readerTranslationOptionsLoading").toBool()
+        && !controller->property("readerOpenRouterKeyConfigured").toBool(); }, u"Explicit key removal retry"_s);
+    auto *service = item(u"readerTranslationService"_s);
+    click(service);
+    pressKey(Qt::Key_Home);
+    pressKey(Qt::Key_Return);
+    click(apply);
+    waitFor([&] { return !controller->property("readerTranslationOptionsLoading").toBool()
+        && controller->property("readerTextTranslationService").toString() == u"codex"_s; }, u"Explicit Codex service"_s);
+    require(!model->isVisible() && item(u"readerTranslationModel"_s)->isVisible(),
+        u"Codex service did not switch its model controls"_s);
+    capture(u"codex-settings-1280.png"_s, QSize(1280, 720));
+    click(service);
+    pressKey(Qt::Key_End);
+    pressKey(Qt::Key_Return);
+    click(apply);
+    waitFor([&] { return !controller->property("readerTranslationOptionsLoading").toBool()
+        && controller->property("readerTextTranslationService").toString() == u"openrouter"_s; }, u"Explicit OpenRouter service"_s);
+    require(model->isVisible() && !item(u"readerTranslationModel"_s)->isVisible()
+        && !controller->property("readerTranslationOptionsError").toBool(),
+        u"OpenRouter remained dependent on the Codex catalog"_s);
+    click(item(u"readerTranslationClose"_s));
+    waitFor([&] { return !popup->property("visible").toBool(); }, u"Options dismissal"_s);
+    require(controller->setReaderTextTranslation(true), u"Exact offline translation rejected"_s);
+    waitFor([&] { return !controller->property("readerTranslationBusy").toBool()
+        && content().value(0).startsWith(u"Cached: "_s); }, u"Exact offline cache"_s);
+    require(!controller->property("readerTranslationError").toBool(), u"Offline cached translation failed"_s);
+    const QStringList cached = content();
+    require(controller->setReaderTextTranslation(false) && content() == original, u"Original text changed"_s);
+    require(controller->setReaderTextTranslation(true), u"Cache restoration rejected"_s);
+    waitFor([&] { return content() == cached; }, u"Repeated exact cache"_s);
+    require(controller->setReaderTextTranslation(false), u"Return to Original rejected"_s);
+    controller->closeReader();
+    controller->importLocalBook(QUrl::fromLocalFile(profileDir + u"/authored.html"_s));
+    waitFor([&] { return controller->property("readerOpen").toBool()
+        && !controller->property("readerBusy").toBool(); }, u"Reader reopen"_s);
+    require(controller->setReaderTextTranslation(true), u"Reopened offline cache rejected"_s);
+    waitFor([&] { return content() == cached; }, u"Reopened exact cache"_s);
+    require(controller->setReaderTextTranslation(false) && content() == original, u"Reopened Original changed"_s);
+
+    require(controller->setReaderTextTranslation(true), u"Delayed save cache rejected"_s);
+    waitFor([&] { return content() == cached; }, u"Delayed save cached translation"_s);
+    execute(u"BEGIN IMMEDIATE"_s);
+    require(controller->configureReaderTextTranslation(u"openrouter"_s, u"example/text-model"_s,
+        u"low"_s, u"generated-delayed-key"_s, false), u"Delayed key save rejected"_s);
+    require(controller->setReaderTextTranslation(false), u"Original during key save rejected"_s);
+    controller->closeReader();
+    controller->importLocalBook(QUrl::fromLocalFile(profileDir + u"/authored.html"_s));
+    bool restoredAfterReopen = false;
+    QObject observation;
+    QObject::connect(controller, &Qbutt::ContentController::readerChanged, &observation, [&]
+    {
+        restoredAfterReopen |= controller->property("readerTranslationRequested").toBool();
+    }, Qt::DirectConnection);
+    execute(u"COMMIT"_s);
+    waitFor([&] { return controller->property("readerOpen").toBool()
+        && !controller->property("readerBusy").toBool()
+        && !controller->property("readerTranslationOptionsLoading").toBool()
+        && controller->property("readerOpenRouterKeyConfigured").toBool(); }, u"Delayed key save acknowledgement"_s);
+    require(!restoredAfterReopen && !controller->property("readerTranslationRequested").toBool()
+        && content() == original, u"Late key save restored translation in another reader session"_s);
+    require(controller->configureReaderTextTranslation(u"openrouter"_s, u"example/text-model"_s,
+        u"low"_s, u""_s, true), u"Delayed fixture key removal rejected"_s);
+    waitFor([&] { return !controller->property("readerTranslationOptionsLoading").toBool()
+        && !controller->property("readerOpenRouterKeyConfigured").toBool(); }, u"Delayed fixture key removal"_s);
+    qInfo().noquote() << u"PASS reader_openrouter explicit_service model_error masked_key native_dpapi "
+        u"save_failure_retry removal_failure_retry delayed_save_original offline_cache original reopen no_inference"_s;
 }

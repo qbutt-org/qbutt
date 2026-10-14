@@ -19291,6 +19291,66 @@ Please choose a different name and try again.</source>
         <source>Try again</source>
         <translation>Повторить</translation>
     </message>
+    <message>
+        <source>Default</source>
+        <translation>По умолчанию</translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation>Без рассуждения</translation>
+    </message>
+    <message>
+        <source>Minimal</source>
+        <translation>Минимальный</translation>
+    </message>
+    <message>
+        <source>Service</source>
+        <translation>Сервис</translation>
+    </message>
+    <message>
+        <source>Translation service</source>
+        <translation>Сервис перевода</translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <translation>Модель</translation>
+    </message>
+    <message>
+        <source>OpenRouter model</source>
+        <translation>Модель OpenRouter</translation>
+    </message>
+    <message>
+        <source>API key</source>
+        <translation>Ключ API</translation>
+    </message>
+    <message>
+        <source>OpenRouter API key</source>
+        <translation>Ключ API OpenRouter</translation>
+    </message>
+    <message>
+        <source>Saved key</source>
+        <translation>Ключ сохранён</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Удалить</translation>
+    </message>
+    <message>
+        <source>Enter a model in author/model format.</source>
+        <translation>Введите модель в формате author/model.</translation>
+    </message>
+    <message>
+        <source>Windows could not protect the API key.</source>
+        <translation>Windows не удалось защитить ключ API.</translation>
+    </message>
+    <message>
+        <source>Translation settings could not be saved.</source>
+        <translation>Не удалось сохранить настройки перевода.</translation>
+    </message>
+    <message>
+        <source>Apply</source>
+        <translation>Применить</translation>
+    </message>
 </context>
 <context>
     <name>Content::BrowserCapture</name>
