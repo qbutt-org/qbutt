@@ -276,7 +276,16 @@ live metadata/manifest check using Big Buck Bunny:
 cargo run --locked --offline -p qbutt-content --example rutube-fixtures
 cargo run --locked --offline -p qbutt-content --example sources
 cargo run --locked --offline -p qbutt-content --example rutube
+cargo run --locked --offline -p qbutt-content --example aniliberty-rutube -- 9467 2
 ```
+
+`aniliberty-rutube` searches and inspects the specified AniLiberty publication,
+then resolves only its selected episode's Rutube reference. Its defaults are
+publication 9467, which reports licensed free viewing, and episode 2. The first
+JSON line contains only public identity; require exit zero and the final `PASS`
+line for a successful manifest check. Rutube may deny this publication by region
+or rights; that is a failed resolve, not playback evidence. Neither live example
+downloads media segments or proves native playback, seeking or History resume.
 
 The fixtures reject paid, locked, hidden, deleted and substituted publications,
 denied access, DRM, malformed quality data, unsafe redirects and oversized
@@ -285,8 +294,7 @@ and unknown categories without relabeling them from the requested category.
 The AniLiberty slice resolves its nonfirst Rutube episode through the same native
 Rutube owner. It pins both episode and video IDs, rejects replacements before
 requesting the other provider, and preserves the original reference through
-sharing and a second Library process. Generated HTTPS establishes this path;
-the three sampled live AniLiberty publications contained no Rutube episodes.
+sharing and a second Library process.
 The sources scenario also initializes a newly registered source in an existing
 database while preserving other sources' saved enablement and failures.
 The live command verifies the exact free publication and selects the concrete
