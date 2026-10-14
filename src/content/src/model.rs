@@ -615,6 +615,7 @@ impl VariantRef {
     pub fn supports_video_acquisition(&self) -> bool {
         match &self.selector {
             VariantSelector::Episode { .. }
+            | VariantSelector::Rutube { .. }
             | VariantSelector::RutubeVideo
             | VariantSelector::VkVideo
             | VariantSelector::AniTokyoVideo { .. }

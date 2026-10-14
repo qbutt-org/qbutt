@@ -255,6 +255,11 @@ The fixtures reject paid, locked, hidden, deleted and substituted publications,
 denied access, DRM, malformed quality data, unsafe redirects and oversized
 responses. They check cancellation, exact public identity after SQLite reopening,
 and unknown categories without relabeling them from the requested category.
+The AniLiberty slice resolves its nonfirst Rutube episode through the same native
+Rutube owner. It pins both episode and video IDs, rejects replacements before
+requesting the other provider, and preserves the original reference through
+sharing and a second Library process. Generated HTTPS establishes this path;
+the three sampled live AniLiberty publications contained no Rutube episodes.
 The sources scenario also initializes a newly registered source in an existing
 database while preserving other sources' saved enablement and failures.
 The live command verifies the exact free publication and selects the concrete

@@ -172,7 +172,10 @@ pub fn variant_id(reference: &VariantRef) -> String {
         VariantSelector::Episode { id, quality } => {
             format!("{publication}:episode:{id}:{}", quality.height())
         }
-        VariantSelector::Rutube { episode_id } => format!("{publication}:rutube:{episode_id}"),
+        VariantSelector::Rutube {
+            episode_id,
+            rutube_id,
+        } => format!("{publication}:rutube:{episode_id}:{rutube_id}"),
         VariantSelector::RutubeVideo | VariantSelector::VkVideo => format!("{publication}:video"),
         VariantSelector::OriginalText => format!("{publication}:original"),
         VariantSelector::LocalPages => format!("{publication}:pages"),

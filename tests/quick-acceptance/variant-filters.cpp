@@ -84,7 +84,10 @@ namespace
                 {
                     const QString id = u"generated-%1-%2"_s.arg(episode).arg(voice);
                     const QJsonObject selector = player
-                        ? QJsonObject {{u"rutube"_s, QJsonObject {{u"episode_id"_s, id}}}}
+                        ? QJsonObject {{u"rutube"_s, QJsonObject {
+                            {u"episode_id"_s, id},
+                            {u"rutube_id"_s, QString::number(episode * 10 + voice, 16).rightJustified(32, u'0')}
+                        }}}
                         : QJsonObject {{u"episode"_s, QJsonObject {{u"id"_s, id}, {u"quality"_s, u"p1080"_s}}}};
                     variants.append(QJsonObject {
                         {u"reference"_s, QJsonObject {{u"publication"_s, publication}, {u"selector"_s, selector}}},
@@ -220,6 +223,7 @@ namespace
             require(contentOperations == 0, u"Filtering started content work"_s);
             const int row = proxy->indexOfId(selected);
             require(item(u"contentDownload"_s)->isEnabled() == (row >= 0), u"Hidden exact selection stayed actionable"_s);
+            require(item(u"contentSaveVideo"_s)->isVisible(), u"Supported video lost Save"_s);
             require(item(u"contentFilteredSelectionNotice"_s)->isVisible() == (row < 0),
                 u"Filtered selection notice does not match the visible exact variant"_s);
             settled(*controller);
