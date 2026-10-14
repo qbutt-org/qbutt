@@ -111,17 +111,22 @@ impl Anime {
         Ok(())
     }
 
+    pub(super) fn publication_url(&self, origin: &Url) -> Url {
+        let mut url = origin.clone();
+        url.path_segments_mut()
+            .expect("fixed YummyAnime origin")
+            .clear()
+            .extend(["catalog", "item", &self.anime_url]);
+        url
+    }
+
     pub(super) fn into_work(self, origin: &Url, needs_inspection: bool) -> Result<Work> {
         self.validate(!needs_inspection)?;
         let reference = PublicationRef {
             source: Source::YummyAnime,
             id: self.anime_id.to_string(),
         };
-        let mut url = origin.clone();
-        url.path_segments_mut()
-            .expect("fixed YummyAnime origin")
-            .clear()
-            .extend(["catalog", "item", &self.anime_url]);
+        let url = self.publication_url(origin);
 
         let mut variants = Vec::new();
         if !needs_inspection {

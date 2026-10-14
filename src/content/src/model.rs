@@ -907,6 +907,7 @@ pub enum ResolvedContent {
         reference: VariantRef,
         title: String,
         url: Url,
+        source_url: Url,
     },
     /// One exact browser resolution. Its protected descriptor remains ephemeral.
     BrowserVideo {

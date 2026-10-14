@@ -21,6 +21,7 @@ pub async fn resolve_external_video(
     choice: BrowserChoice,
     reference: &VariantRef,
     url: Url,
+    source_url: Url,
 ) -> Result<PlaybackMedia, ExternalVideoError> {
     reference.validate()?;
     let VariantSelector::YummyAnimeVideo {
@@ -32,44 +33,118 @@ pub async fn resolve_external_video(
     else {
         return Err(Error::InvalidReference.into());
     };
-    if player != "Плеер VK" {
-        return Err(Error::UnsupportedAcquisition("This external player is not supported").into());
-    }
-    let identity = vk_identity(&url)?;
-    // YummyAnime's VK wrapper embeds exactly the `id` from its query as
-    // https://vkvideo.ru/video{id}. Keep direct VK URLs intact so list/access
-    // parameters still reach the browser resolver.
-    let browser_url = if url.host_str() == Some("ru.yummyani.me") {
-        identity.clone()
-    } else {
-        url
+    let (command, identity) = match player.as_str() {
+        "Плеер VK" => {
+            let identity = vk_identity(&url)?;
+            // The wrapper identifies one VK video; direct URLs keep access parameters.
+            let browser_url = if url.host_str() == Some("ru.yummyani.me") {
+                identity.clone()
+            } else {
+                url
+            };
+            let selection = Selection {
+                episode: Some(episode.clone()),
+                translation_id: Some(dubbing.clone()),
+                player: Some(player.clone()),
+                ..Selection::default()
+            };
+            (
+                BrowserCommand::Resolve {
+                    url: browser_url,
+                    selection,
+                    kind: ResolveKind::Video,
+                    referrer: None,
+                },
+                Some(identity),
+            )
+        }
+        "Плеер Alloha" => {
+            let selection = alloha_selection(&url, episode)?;
+            if source_url.origin().ascii_serialization() != "https://yani.tv"
+                || !source_url.path().starts_with("/catalog/item/")
+                || source_url.query().is_some()
+                || source_url.fragment().is_some()
+            {
+                return Err(Error::InvalidResponse("invalid Alloha source page").into());
+            }
+            (
+                BrowserCommand::Resolve {
+                    url,
+                    selection,
+                    kind: ResolveKind::Video,
+                    referrer: Some(source_url),
+                },
+                None,
+            )
+        }
+        _ => {
+            return Err(
+                Error::UnsupportedAcquisition("This external player is not supported").into(),
+            );
+        }
     };
-    let selection = Selection {
-        episode: Some(episode.clone()),
-        translation_id: Some(dubbing.clone()),
-        player: Some(player.clone()),
-        ..Selection::default()
-    };
-    let reply = browser
-        .request(
-            choice,
-            BrowserCommand::Resolve {
-                url: browser_url,
-                selection,
-                kind: ResolveKind::Video,
-                referrer: None,
-            },
-        )
-        .await?;
+    let reply = browser.request(choice, command).await?;
     let BrowserReply::Resolved(media) = reply else {
         return Err(BrowserError::InvalidResponse.into());
     };
     if !matches!(media.resolver, BrowserResolver::Direct)
-        || media.source_url.as_ref() != Some(&identity)
+        || identity.is_some_and(|identity| media.source_url.as_ref() != Some(&identity))
     {
         return Err(BrowserError::SelectionChanged.into());
     }
     Ok((*media).into())
+}
+
+fn alloha_selection(url: &Url, episode: &str) -> Result<Selection, Error> {
+    crate::http::validate_https_url(url)?;
+    if url.host_str() != Some("alloha.yani.tv")
+        || url.port().is_some()
+        || url.path() != "/"
+        || url.fragment().is_some()
+    {
+        return Err(Error::InvalidResponse("invalid Alloha player address"));
+    }
+    // The fresh iframe binds its movie token to numeric translation/season/episode.
+    // Dubbing labels are catalog metadata, not Alloha translation IDs.
+    for name in ["token_movie", "token"] {
+        alloha_parameter(url, name)?;
+    }
+    let translation = alloha_parameter(url, "translation")?;
+    let season = alloha_parameter(url, "season")?;
+    let selected_episode = alloha_parameter(url, "episode")?;
+    if selected_episode != episode
+        || [&translation, &season, &selected_episode]
+            .into_iter()
+            .any(|value| !crate::model::canonical_decimal(value))
+    {
+        return Err(Error::VariantUnavailable);
+    }
+    Ok(Selection {
+        episode: Some(selected_episode),
+        season: Some(season),
+        translation_id: Some(translation),
+        player: Some("alloha".into()),
+        ..Selection::default()
+    })
+}
+
+fn alloha_parameter(url: &Url, name: &str) -> Result<String, Error> {
+    let mut values = url
+        .query_pairs()
+        .filter(|(key, _)| key == name)
+        .map(|(_, value)| value.into_owned());
+    let value = values
+        .next()
+        .filter(|value| {
+            !value.is_empty() && value.len() <= 512 && !value.chars().any(char::is_control)
+        })
+        .ok_or(Error::InvalidResponse("missing Alloha selection parameter"))?;
+    if values.next().is_some() {
+        return Err(Error::InvalidResponse(
+            "duplicate Alloha selection parameter",
+        ));
+    }
+    Ok(value)
 }
 
 fn vk_identity(url: &Url) -> Result<Url, Error> {

@@ -1,5 +1,6 @@
 mod commands;
 mod connected_only;
+mod external_video;
 mod fixture;
 mod lifecycle;
 mod native_host;
@@ -77,6 +78,7 @@ pub async fn run() -> FixtureResult {
     })
     .await?;
     command_replies(&handle, &mut edge).await?;
+    external_video::dispatch(&handle, &mut edge).await?;
     let mut chrome = extension(&discovery, "chrome", "fixture chrome", false).await?;
     wait_status(&handle, |status| status.connections.len() == 2).await?;
     assert_error(

@@ -455,10 +455,15 @@ impl ffi::ContentController {
             } else if let Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
                 reference,
                 url,
+                source_url,
                 ..
             })) = &result
             {
-                if matches!(&reference.selector, VariantSelector::YummyAnimeVideo { player, .. } if player == "Плеер VK") {
+                if matches!(
+                    &reference.selector,
+                    VariantSelector::YummyAnimeVideo { player, .. }
+                        if matches!(player.as_str(), "Плеер VK" | "Плеер Alloha")
+                ) {
                     Some(async {
                         let handle = browser.handle().await.map_err(|_| ())?;
                         let media = resolve_external_video(
@@ -466,6 +471,7 @@ impl ffi::ContentController {
                             choice,
                             reference,
                             url.clone(),
+                            source_url.clone(),
                         )
                         .await
                         .map_err(|_| ())?;

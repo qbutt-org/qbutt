@@ -110,6 +110,7 @@ impl YummyAnime {
             _ => {
                 return Ok(ResolvedContent::ExternalVideo {
                     reference: selected.clone(),
+                    source_url: anime.publication_url(&self.origin),
                     title: anime.title,
                     url: public_media_url(player.as_str()).await?,
                 });
