@@ -56,6 +56,21 @@ const kdabLicenses = [
 ];
 const repositoryLicenses = [
     {
+        crates: ["asn1-rs-impl@0.2.0"],
+        repository: "rusticata/asn1-rs",
+        commit: "a20e5f7319c896737ad0f2557037817b91ad854f",
+        files: [
+            {
+                path: "LICENSE-MIT",
+                sha256: "a5c61b93b6ee1d104af9920cf020ff3c7efe818e31fe562c72261847a728f513",
+            },
+            {
+                path: "LICENSE-APACHE",
+                sha256: "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+            },
+        ],
+    },
+    {
         crates: ["clang-format@0.3.0"],
         repository: "KDAB/clang-format-rs",
         commit: "82e49611760ce781e3753dde57975ba576b286c3",
@@ -81,6 +96,17 @@ const repositoryLicenses = [
         files: [{
             path: "LICENSE",
             sha256: "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        }],
+    },
+    {
+        crates: ["selectors@0.38.0"],
+        repository: "servo/stylo",
+        commit: "572ecba2d1600e7c3d490586692a209faf703baa",
+        // Stylo source headers identify MPL 2.0 but omit the complete text.
+        files: [{
+            path: "LICENSE-MPL-2.0.txt",
+            url: "https://raw.githubusercontent.com/mozilla/bedrock/9ebd1b5a8f49f457929ddae7df5c3d6b9421380f/media/MPL/2.0/index.txt",
+            sha256: "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04",
         }],
     },
 ];
@@ -157,7 +183,8 @@ for (const item of packages) {
         const vcs = JSON.parse((await command(["tar.exe", "-xOf", archive, prefix + ".cargo_vcs_info.json"])).toString("utf8"));
         assert.equal(vcs.git.sha1, source.commit, `License source commit differs from crate: ${item.name}`);
         for (const file of source.files) {
-            const url = `https://raw.githubusercontent.com/${source.repository}/${source.commit}/${file.path}`;
+            const url = "url" in file ? file.url
+                : `https://raw.githubusercontent.com/${source.repository}/${source.commit}/${file.path}`;
             let bytes = fetchedLicenses.get(url);
             if (!bytes) {
                 const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
