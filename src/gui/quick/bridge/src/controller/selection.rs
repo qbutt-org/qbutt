@@ -1,15 +1,10 @@
 use std::collections::HashSet;
 use std::pin::Pin;
-use std::sync::Arc;
 
-use cxx_qt::{CxxQtType, Threading};
+use cxx_qt::CxxQtType;
 use cxx_qt_lib::QString;
-use qbutt_content::{
-    PublicationRef, Source, SourceOperation, VariantRef, Work, WorkAssociation, WorkGroup,
-};
-use tokio::task::JoinSet;
+use qbutt_content::{PublicationRef, Source, VariantRef, Work, WorkAssociation, WorkGroup};
 
-use super::catalog::SourceResponse;
 use super::ffi;
 use super::library::LibraryAction;
 use crate::models::{self, variant_id, work_id};
@@ -290,111 +285,13 @@ impl ffi::ContentController {
                 return;
             }
         }
-        let requests: Vec<_> = self.services.as_ref().map_or_else(Vec::new, |services| {
-            group
-                .publications
-                .iter()
-                .filter(|work| work.needs_inspection)
-                .filter_map(|work| {
-                    self.source_request(SourceOperation::Inspect {
-                        reference: work.reference.clone(),
-                        language: (work.reference.source == Source::MangaDex)
-                            .then(|| services.language.clone()),
-                    })
-                })
-                .collect()
-        });
-        let should_inspect = !requests.is_empty();
-        // Cached variants cannot become actionable during synchronous selection notifications.
-        self.as_mut().rust_mut().inspecting = should_inspect;
         if !self.as_mut().show_group(&group, generation) {
             return;
         }
         self.as_mut().set_error(None);
-        if self.inspection.generation != generation {
-            return;
-        }
-        if should_inspect {
-            self.as_mut().inspecting_changed();
-            self.as_mut().selected_variant_state_changed();
-        }
-        if self.inspection.generation != generation {
-            return;
-        }
-        if !should_inspect {
+        if self.inspection.generation == generation && !self.inspecting {
             self.as_mut().select_initial_variant();
-            return;
         }
-        if self.services.is_none() {
-            self.as_mut()
-                .set_error(Some(ffi::ContentError::ServicesUnavailable));
-            return;
-        }
-        let qt_thread = self.qt_thread();
-        let services = self.services.as_ref().unwrap();
-        let catalog = Arc::clone(&services.catalog);
-        let task = services.runtime.spawn(async move {
-            let mut requests = requests.into_iter();
-            let mut pending = JoinSet::new();
-            loop {
-                while pending.len() < 4
-                    && let Some(request) = requests.next()
-                {
-                    let catalog = Arc::clone(&catalog);
-                    pending.spawn(async move {
-                        let result = catalog.execute(&request.operation).await;
-                        (request, result)
-                    });
-                }
-                let (request, result) = match pending.join_next().await {
-                    Some(Ok(completed)) => completed,
-                    Some(Err(error)) => {
-                        let _ = qt_thread.queue(move |controller| {
-                            if controller.inspection.generation == generation {
-                                ffi::log_content_error(
-                                    &QString::from("inspect"),
-                                    &QString::from(error.to_string()),
-                                );
-                            }
-                        });
-                        continue;
-                    }
-                    None => break,
-                };
-                let _ = qt_thread.queue(move |mut controller| {
-                    if controller.inspection.generation != generation
-                        || !controller.source_request_current(&request)
-                    {
-                        return;
-                    }
-                    controller.as_mut().source_outcome(&request, &result);
-                    if controller.inspection.generation != generation
-                        || !controller.source_request_current(&request)
-                    {
-                        return;
-                    }
-                    if let Ok(SourceResponse::Inspect(work)) = result {
-                        controller.as_mut().publish_inspected_work(work, generation);
-                    }
-                });
-            }
-            let _ = qt_thread.queue(move |mut controller| {
-                if controller.inspection.generation != generation {
-                    return;
-                }
-                controller.as_mut().rust_mut().inspection.task = None;
-                controller.as_mut().set_inspecting(false);
-                if controller.inspection.generation == generation && controller.error_kind.is_none()
-                {
-                    if controller.selected_variant_id.is_empty() {
-                        controller.as_mut().select_initial_variant();
-                    } else {
-                        controller.as_mut().save_selected_preferences();
-                    }
-                }
-            });
-        });
-        self.as_mut().rust_mut().inspection.task = Some(task);
     }
 
     pub fn select_variant(mut self: Pin<&mut Self>, id: QString) {
@@ -516,6 +413,7 @@ impl ffi::ContentController {
         let (generations, inspecting_changed, resolving_changed) = {
             let mut state = self.as_mut().rust_mut();
             state.inspection.cancel();
+            state.inspection_attempted.clear();
             state.resolution.cancel();
             state.source_status.pending_variant_action = None;
             let changed = (
@@ -540,15 +438,9 @@ impl ffi::ContentController {
         generations
     }
 
-    fn set_inspecting(mut self: Pin<&mut Self>, value: bool) {
-        if self.inspecting != value {
-            self.as_mut().rust_mut().inspecting = value;
-            self.as_mut().inspecting_changed();
-            self.as_mut().selected_variant_state_changed();
-        }
-    }
-
     pub(super) fn show_group(mut self: Pin<&mut Self>, group: &WorkGroup, generation: u64) -> bool {
+        // Cached variants cannot become actionable during synchronous selection notifications.
+        let inspection_started = self.as_mut().inspect_publications(group, generation);
         if !self.as_mut().set_selection(Some(group), generation) {
             return false;
         }
@@ -563,6 +455,12 @@ impl ffi::ContentController {
             .update_group(group, language.as_deref());
         if self.inspection.generation != generation {
             return false;
+        }
+        if inspection_started {
+            self.as_mut().inspecting_changed();
+            if self.inspection.generation != generation {
+                return false;
+            }
         }
         self.as_mut().selected_variant_state_changed();
         self.inspection.generation == generation

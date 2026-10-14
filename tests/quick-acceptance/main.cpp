@@ -38,6 +38,7 @@
 #include "library.h"
 #include "local-books-ui.h"
 #include "playback.h"
+#include "progressive-selection.h"
 #include "mangalib.h"
 #include "weebcentral.h"
 #include "reader-progress.h"
@@ -531,6 +532,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"local-book-import"_s, u"Run local book import error visibility and reader preservation, then exit."_s});
     parser.addOption({u"downloads"_s, u"Inspect generated native download jobs through the Qt model."_s});
     parser.addOption({u"sharing"_s, u"Run native shared-work import and isolation scenarios and exit."_s});
+    parser.addOption({u"progressive-selection"_s, u"Run native late-publication selection and exit."_s});
     parser.addOption({u"playback"_s, u"Run direct-video launch tokens, confirmed history and SQLite faults, then exit."_s});
     parser.addOption({u"mangalib"_s, u"Run native MangaLib reading, exact progress and source recovery, then exit."_s});
     parser.addOption({u"weebcentral"_s, u"Run live Weeb Central search, nonfirst chapter, native image and History acceptance, then exit."_s});
@@ -615,6 +617,7 @@ int main(int argc, char *argv[])
         && !parser.isSet(u"video-actions"_s));
 
     if (parser.isSet(u"library"_s) || parser.isSet(u"sharing"_s) || parser.isSet(u"downloads"_s)
+        || parser.isSet(u"progressive-selection"_s)
         || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
         || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s) || parser.isSet(u"work-filter"_s)
         || parser.isSet(u"category"_s) || parser.isSet(u"sources"_s) || parser.isSet(u"playback"_s)
@@ -637,6 +640,8 @@ int main(int argc, char *argv[])
                 exerciseVariantFilters();
             else if (parser.isSet(u"sharing"_s))
                 exerciseSharing();
+            else if (parser.isSet(u"progressive-selection"_s))
+                exerciseProgressiveSelection();
             else if (parser.isSet(u"weebcentral"_s))
                 exerciseWeebCentral();
             else if (parser.isSet(u"mangalib"_s))

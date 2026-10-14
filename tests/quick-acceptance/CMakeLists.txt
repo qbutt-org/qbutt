@@ -62,6 +62,8 @@ qt_add_executable(qbutt-quick-acceptance
     local-books-ui.h
     playback.cpp
     playback.h
+    progressive-selection.cpp
+    progressive-selection.h
     mangalib.cpp
     mangalib.h
     weebcentral.cpp

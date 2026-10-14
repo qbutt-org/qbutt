@@ -58,6 +58,15 @@ sessions disable public discovery and use only explicitly added controlled peers
 
 ## Rust and Qt Quick content
 
+`bun tests/content-search/progressive-native.ts <acceptance-exe> <server-cert.pem>
+<server-key.pem> success` checks a late publication joining an already selected
+work: variants load automatically while the exact selected variant and row stay
+stable. Repeat with `failure` to verify that an unavailable source is attempted
+once and does not replace existing variants. The isolated fixture build maps
+`anilibria.top` and `api.yani.tv` to `127.0.0.1:443` and trusts the fixture CA through
+a temporary `SourceHttp::new` overlay. Restore it and rebuild production transport
+afterwards; this scenario never uses a live profile or source.
+
 `bun tests/content-reading/library.ts <acceptance-exe> <server-cert.pem>
 <server-key.pem> sharing` runs only the hidden native Share scenario. The isolated
 fixture build redirects `anilibria.top` to `127.0.0.1:443` and trusts the local CA

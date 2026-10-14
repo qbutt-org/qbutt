@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -16,6 +16,7 @@ mod browser;
 mod capture;
 mod catalog;
 mod downloads;
+mod inspection;
 mod library;
 mod local_books;
 mod playback;
@@ -1275,6 +1276,7 @@ pub struct ContentControllerRust {
     services: Option<Services>,
     search: Pending,
     inspection: Pending,
+    inspection_attempted: HashSet<PublicationRef>,
     resolution: Pending,
     shared_import: Pending,
     shared_document: Option<SharedWork>,
@@ -1381,6 +1383,7 @@ impl Default for ContentControllerRust {
             services,
             search: Pending::default(),
             inspection: Pending::default(),
+            inspection_attempted: HashSet::new(),
             resolution: Pending::default(),
             shared_import: Pending::default(),
             shared_document: None,
