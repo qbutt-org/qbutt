@@ -51,6 +51,8 @@ pub fn run() -> Result<()> {
     let mut model = String::new();
     let mut output = std::io::stdout().lock();
     let mut pending_window = None;
+    let mut submission =
+        super::submission::ProposalPeer::new(&case, &native, fixture_directory.as_deref());
     for line in std::io::stdin().lock().lines() {
         let request: Value = serde_json::from_str(&line?)?;
         let id = &request["id"];
@@ -72,7 +74,7 @@ pub fn run() -> Result<()> {
                         images[0]["imageUrl"],
                         format!("data:image/png;base64,{NEIGHBOR}")
                     );
-                    finish(&mut output, &thread, proposal(&case), Some(100))?;
+                    submission.start(&mut output, &thread, proposal(&case))?;
                 }
                 902 => {
                     assert_eq!(request["result"]["success"], true);
@@ -88,12 +90,8 @@ pub fn run() -> Result<()> {
                     let context: Value = serde_json::from_str(text)?;
                     assert_eq!(context["terms"][0]["source"], "レン");
                     assert_eq!(context["terms"][0]["evidence"]["segment_id"], "w0:r1");
-                    finish(
-                        &mut output,
-                        &thread,
-                        pending_window.take().unwrap(),
-                        Some(100),
-                    )?;
+                    let value = pending_window.take().unwrap();
+                    submission.start(&mut output, &thread, value)?;
                 }
                 call @ 910..=912 => {
                     let rejected = case == "long-context-oversized" || call == 912;
@@ -103,7 +101,7 @@ pub fn run() -> Result<()> {
                         let mut value = pending_window.take().unwrap();
                         value["unsupportedReason"] =
                             json!("Context image was rejected before attachment");
-                        finish(&mut output, &thread, value, Some(100))?;
+                        submission.start(&mut output, &thread, value)?;
                     } else {
                         send(
                             &mut output,
@@ -116,6 +114,9 @@ pub fn run() -> Result<()> {
                             }),
                         )?;
                     }
+                }
+                attempt @ 920..=923 => {
+                    submission.reply(&mut output, &thread, &mut trace, attempt, &request)?;
                 }
                 _ => return Err("unexpected tool reply".into()),
             }
@@ -191,7 +192,21 @@ pub fn run() -> Result<()> {
                 if image_phase {
                     assert!(names.is_empty());
                 } else {
-                    assert_eq!(names, ["list_chapters", "get_chapter", "read_context"]);
+                    assert_eq!(
+                        names,
+                        [
+                            "list_chapters",
+                            "get_chapter",
+                            "read_context",
+                            "submit_page"
+                        ]
+                    );
+                    let schema = &request["params"]["dynamicTools"][3]["inputSchema"];
+                    assert_eq!(
+                        schema["properties"]["regions"]["items"]["properties"]["translation"]["items"]
+                            ["required"],
+                        json!(["text", "bold", "italic"])
+                    );
                 }
                 send(
                     &mut output,
@@ -256,7 +271,7 @@ pub fn run() -> Result<()> {
                                 }),
                             )?;
                         } else if prompt["window"]["window"]["top"] == 0 {
-                            finish(&mut output, &thread, value, Some(100))?;
+                            submission.start(&mut output, &thread, value)?;
                         } else {
                             pending_window = Some(value);
                             send(
@@ -339,7 +354,7 @@ pub fn run() -> Result<()> {
                                 proposal["regions"] = json!([]);
                             }
                         }
-                        finish(&mut output, &thread, proposal, Some(100))?;
+                        submission.start(&mut output, &thread, proposal)?;
                     }
                     trace.flush()?;
                 } else if image_phase {
@@ -379,16 +394,7 @@ pub fn run() -> Result<()> {
                 } else {
                     assert_eq!(
                         request["params"]["outputSchema"]["required"],
-                        json!(["regions", "terms", "facts"])
-                    );
-                    let schema = &request["params"]["outputSchema"]["properties"]["regions"]["items"]
-                        ["properties"]["translation"];
-                    assert_eq!(schema["type"], "array");
-                    assert_eq!(schema["minItems"], 1);
-                    assert_eq!(schema["maxItems"], 32);
-                    assert_eq!(
-                        schema["items"]["required"],
-                        json!(["text", "bold", "italic"])
+                        json!(["accepted", "reason"])
                     );
                     send(
                         &mut output,
@@ -406,13 +412,22 @@ pub fn run() -> Result<()> {
                     )?;
                 }
             }
+            "turn/interrupt" => {
+                send(&mut output, json!({"id":id,"result":{}}))?;
+                send(
+                    &mut output,
+                    json!({"method":"turn/completed","params":{
+                        "threadId":thread,"turn":{"id":"fixture-turn","status":"interrupted","items":[]}
+                    }}),
+                )?;
+            }
             _ => return Err(format!("unexpected method {method}").into()),
         }
     }
     Ok(())
 }
 
-fn proposal(case: &str) -> Value {
+pub(super) fn proposal(case: &str) -> Value {
     let mut proposal = json!({
         "regions": [{
             "id": "r1",
@@ -484,6 +499,9 @@ fn long_proposal(case: &str, prompt: &Value) -> Result<Value> {
         overlap["cleanupRects"] = json!([bounds]);
         value["regions"].as_array_mut().unwrap().push(overlap);
         value["clippedRegions"] = json!([{"x":0.1,"y":0.99,"width":0.8,"height":0.01}]);
+        if matches!(case, "long-empty-last" | "long-empty-context") {
+            value["clippedRegions"] = json!([]);
+        }
         if case == "long-oversized-crossing" {
             value["clippedRegions"][0]["y"] = json!(0.8);
             value["clippedRegions"][0]["height"] = json!(0.2);
@@ -492,6 +510,14 @@ fn long_proposal(case: &str, prompt: &Value) -> Result<Value> {
             value["regions"][0]["bounds"]["height"] = json!(0.9);
         }
     } else {
+        if matches!(case, "long-empty-last" | "long-empty-context") {
+            value["regions"] = json!([]);
+            value["facts"] = json!([]);
+            if case == "long-empty-last" {
+                value["terms"] = json!([]);
+            }
+            return Ok(value);
+        }
         assert_eq!(
             prompt["window"]["pendingFragments"]
                 .as_array()
@@ -611,7 +637,12 @@ fn generate_png(output: &mut impl Write, thread: &str, encoded: &str) -> Result<
     )
 }
 
-fn finish(output: &mut impl Write, thread: &str, value: Value, usage: Option<u64>) -> Result<()> {
+pub(super) fn finish(
+    output: &mut impl Write,
+    thread: &str,
+    value: Value,
+    usage: Option<u64>,
+) -> Result<()> {
     if let Some(tokens) = usage {
         send(
             output,
@@ -656,7 +687,7 @@ fn finish(output: &mut impl Write, thread: &str, value: Value, usage: Option<u64
     )
 }
 
-fn send(output: &mut impl Write, value: Value) -> Result<()> {
+pub(super) fn send(output: &mut impl Write, value: Value) -> Result<()> {
     serde_json::to_writer(&mut *output, &value)?;
     writeln!(output)?;
     output.flush()?;

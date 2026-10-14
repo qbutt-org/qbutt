@@ -629,8 +629,15 @@ does not request translation.
 For controlled rejection, set `QBUTT_MANGA_EXPECT_FAILURE=window` with an omitted
 second-window balloon, or `orientation` with either authored orientation JPEG.
 Require `PASS reader_manga_rejection`, the concrete native/seam error in the log,
-exact Original and zero PNG/context rows. Orientation traces must contain zero
-turns and zero cleanup edits. The fixture preserves supplied encoded bytes;
+exact Original, zero PNG/context rows and `manga-reader-error.png` after leaving
+the busy state. For small authored-page proposal scenarios, put `retry-geometry`,
+`retry-context` or `retry-typography` in the peer's `submission-case.txt` to verify
+one rejected submission followed by native success. Use `invalid-geometry`,
+`invalid-context`, `invalid-typography`, `submission-limit`, `final-bypass` or
+`exhaustion-bypass` with `QBUTT_MANGA_EXPECT_FAILURE=proposal` for zero cleanup,
+zero PNG/context rows and an actual reader error-state capture. Remove
+`submission-case.txt` for ordinary and long-page regressions. Orientation traces
+must contain zero turns and zero cleanup edits. The fixture preserves supplied encoded bytes;
 it does not strip metadata by re-encoding them.
 
 The two QML translation scenarios accept `--translation-model <model>` and
@@ -671,8 +678,15 @@ italic-only and bold-italic text runs, colors, outward outline width and normali
 cleanup/layout rectangles. Cleanup receives source text and cleanup rectangles,
 without target translations or typography. The original is restored after a
 neighboring context image and custom tools stay disabled in the image phase.
-Invalid runs, styles, geometry, context and preflight results must fail before
-generation. The fixture also checks native preflight and final-render rejection,
+The structured request exposes `submit_page`, which validates the complete map,
+context, window seams and native typography before retaining one accepted proposal.
+Validation errors return to the model in that same request for at most three
+submissions. The final response is only `accepted` and `reason`; it cannot bypass
+submission, replace an accepted map or start cleanup after rejection. The fixture
+checks geometry, context and overflow feedback followed by a valid resubmission:
+one cleanup request, with no repeated accepted preflight. Repeated invalid data,
+a fourth submission and malicious final decisions must start no generation.
+The fixture also checks native preflight and final-render rejection,
 cooperative cancellation and owner abort during both native stages,
 complete/partial usage and child reaping. Its recording renderer does not
 establish Qt PNG geometry or translation quality; those require the native reader

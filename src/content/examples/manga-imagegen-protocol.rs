@@ -27,6 +27,8 @@ use serde_json::Value;
 mod host;
 #[path = "manga_imagegen/long.rs"]
 mod long;
+#[path = "manga_imagegen/submission.rs"]
+mod submission;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const ORIGINAL: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFUlEQVR4nGP89eEZAwMDEwMDA4ICADXYAtaW6UM3AAAAAElFTkSuQmCC";
@@ -127,7 +129,9 @@ impl ContractRenderer {
     fn diagnostic(&self, region: &PageRegion, stage: &str) -> RegionDiagnostic {
         RegionDiagnostic {
             id: region.id.clone(),
-            status: if self.case == format!("{stage}-incomplete") {
+            status: if self.case == format!("{stage}-incomplete")
+                || (stage == "prepare" && region.layout.width < 0.02)
+            {
                 RenderStatus::Overflow
             } else {
                 RenderStatus::Rendered
@@ -309,6 +313,18 @@ async fn exercise(native: &Path) -> Result<()> {
         "ru",
         "en",
         "partial-usage",
+        "retry-geometry",
+        "retry-third",
+        "retry-typography",
+        "retry-context",
+        "invalid-geometry",
+        "invalid-typography",
+        "invalid-context",
+        "submission-limit",
+        "final-bypass",
+        "exhaustion-bypass",
+        "final-rejected-after-acceptance",
+        "resubmit-accepted",
         "invalid-term",
         "invalid-quote",
         "invalid-runs-empty",
@@ -389,7 +405,11 @@ async fn exercise(native: &Path) -> Result<()> {
         let (result, controlled) = tokio::join!(work, control);
         controlled?;
         match (case, result) {
-            ("ru" | "en" | "partial-usage", Ok(page)) => {
+            (
+                "ru" | "en" | "partial-usage" | "retry-geometry" | "retry-third"
+                | "retry-typography" | "retry-context" | "resubmit-accepted",
+                Ok(page),
+            ) => {
                 assert_eq!(page.png, original.bytes);
                 assert_eq!(page.model, "gpt-6.1-sol");
                 assert_eq!(page.effort, "low");
@@ -427,23 +447,41 @@ async fn exercise(native: &Path) -> Result<()> {
                 if failed.starts_with("invalid-")
                     || matches!(
                         failed,
-                        "metadata-rejected" | "prepare-incomplete" | "render-incomplete"
+                        "metadata-rejected"
+                            | "prepare-incomplete"
+                            | "render-incomplete"
+                            | "prepare-rejected"
+                            | "submission-limit"
+                            | "final-bypass"
+                            | "exhaustion-bypass"
+                            | "final-rejected-after-acceptance"
                     ) => {}
-            ("prepare-rejected" | "renderer-rejected", Err(CodexError::Image))
+            ("renderer-rejected", Err(CodexError::Image))
             | ("cancel-prepare" | "cancel-compose", Err(CodexError::Cancelled)) => {}
             (_, Err(error)) => return Err(format!("{case}: unexpected {error}").into()),
             (_, Ok(_)) => return Err(format!("{case}: invalid page accepted").into()),
         }
-        let prepared = !case.starts_with("invalid-");
-        let generated = prepared
+        let prepares = match case {
+            "invalid-typography" | "prepare-rejected" | "prepare-incomplete" => 3,
+            "retry-typography" => 2,
+            value if value.starts_with("invalid-") => 0,
+            "submission-limit" | "final-bypass" | "exhaustion-bypass" => 0,
+            _ => 1,
+        };
+        let generated = prepares > 0
             && !matches!(
                 case,
-                "prepare-rejected" | "prepare-incomplete" | "cancel-prepare"
+                "prepare-rejected"
+                    | "prepare-incomplete"
+                    | "cancel-prepare"
+                    | "invalid-typography"
+                    | "final-rejected-after-acceptance"
             );
         let rendered = generated && case != "metadata-rejected";
         assert_eq!(
             renderer.prepares.load(Ordering::Acquire),
-            usize::from(prepared)
+            prepares,
+            "{case}"
         );
         assert_eq!(
             renderer.renders.load(Ordering::Acquire),
@@ -465,6 +503,39 @@ async fn exercise(native: &Path) -> Result<()> {
                 process["pid"].as_u64().ok_or("missing PID")? as u32
             ));
         }
+        let submissions: Vec<_> = trace
+            .iter()
+            .filter(|entry| entry["event"] == "page_submission")
+            .collect();
+        let expected_submissions = match case {
+            "final-bypass" | "cancel-prepare" => 0,
+            "submission-limit" => 4,
+            "retry-geometry" | "retry-typography" | "retry-context" | "resubmit-accepted" => 2,
+            "prepare-rejected" | "prepare-incomplete" | "exhaustion-bypass" | "retry-third" => 3,
+            value if value.starts_with("invalid-") => 3,
+            _ => 1,
+        };
+        assert_eq!(submissions.len(), expected_submissions, "{case}");
+        if case.starts_with("retry-") {
+            assert_eq!(submissions[0]["accepted"], false);
+            assert_eq!(submissions.last().unwrap()["accepted"], true);
+            let feedback = submissions[0]["feedback"].as_str().unwrap();
+            let expected = match case {
+                "retry-geometry" | "retry-third" => "cleanup rectangle",
+                "retry-typography" => "Overflow",
+                _ => "Context evidence",
+            };
+            assert!(feedback.contains(expected), "{case}: {feedback}");
+        }
+        if case == "submission-limit" {
+            assert_eq!(submissions[3]["accepted"], false);
+            assert!(
+                submissions[3]["feedback"]
+                    .as_str()
+                    .unwrap()
+                    .contains("three page submissions")
+            );
+        }
         let starts = trace
             .iter()
             .filter(|entry| entry["event"] == "image_generation_started")
@@ -472,7 +543,7 @@ async fn exercise(native: &Path) -> Result<()> {
         assert_eq!(starts, usize::from(generated));
         println!(
             "PASS manga_imagegen case={case} imagegen_starts={starts} native_prepares={} native_renders={} processes_reaped={}",
-            usize::from(prepared),
+            prepares,
             usize::from(rendered),
             processes.len()
         );

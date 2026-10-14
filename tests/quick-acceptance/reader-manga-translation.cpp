@@ -284,7 +284,7 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     const QString expectedFailure = qEnvironmentVariable("QBUTT_MANGA_EXPECT_FAILURE");
     if (!expectedFailure.isEmpty())
     {
-        require((expectedFailure == u"orientation" || expectedFailure == u"window")
+        require((expectedFailure == u"orientation" || expectedFailure == u"window" || expectedFailure == u"proposal")
                 && controller->property("readerTranslationError").toBool() && pageImage(controller) == original,
             u"Rejected manga translation did not preserve Original"_s);
         auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"reader-manga-rejection"_s);
@@ -300,6 +300,7 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
         require(rows.exec(u"SELECT (SELECT count(*) FROM translated_images), (SELECT count(*) FROM translation_context)"_s)
                 && rows.next() && rows.value(0).toInt() == 0 && rows.value(1).toInt() == 0,
             u"Rejected page saved a partial PNG or context"_s);
+        capture(view, profileDir + u"/manga-reader-error.png"_s, QSize(1440, 900));
         qInfo().noquote() << u"PASS reader_manga_rejection cause=%1 original=exact png_rows=0 context_rows=0"_s.arg(expectedFailure);
         return;
     }

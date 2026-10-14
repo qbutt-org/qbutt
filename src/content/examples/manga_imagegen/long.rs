@@ -33,6 +33,8 @@ pub(super) async fn exercise(
     for case in [
         "long-ru",
         "long-en",
+        "long-empty-last",
+        "long-empty-context",
         "long-oversized-crossing",
         "long-explicit-unsupported",
         "long-context-oversized",
@@ -121,24 +123,33 @@ pub(super) async fn exercise(
             assert!(restored["terms"].as_array().unwrap().is_empty());
         }
         match (case, result) {
-            ("long-ru" | "long-en", Ok(page)) => {
+            ("long-ru" | "long-en" | "long-empty-last", Ok(page)) => {
                 assert_eq!(page.png, original.bytes);
-                assert_eq!(page.evidence.len(), 3);
-                assert_eq!(page.evidence[2].id, "w1:crossing");
-                assert_eq!(page.evidence[2].text, "レンは姉です。続きも全部読みます。");
+                if case == "long-empty-last" {
+                    assert_eq!(page.evidence.len(), 2);
+                } else {
+                    assert_eq!(page.evidence.len(), 3);
+                    assert_eq!(page.evidence[2].id, "w1:crossing");
+                    assert_eq!(page.evidence[2].text, "レンは姉です。続きも全部読みます。");
+                }
                 for segment in &page.evidence {
                     assert_eq!(
                         segment.image_observation.as_ref().unwrap().original_digest,
                         key.original_digest
                     );
                 }
-                let crossing = page.evidence[2].image_observation.as_ref().unwrap();
-                assert_eq!(crossing.bounds, [100_000, 788_320, 900_000, 818_560]);
+                if case != "long-empty-last" {
+                    let crossing = page.evidence[2].image_observation.as_ref().unwrap();
+                    assert_eq!(crossing.bounds, [100_000, 788_320, 900_000, 818_560]);
+                }
                 assert_eq!(page.additions.terms[0].evidence.segment_id, "w0:r1");
                 let mut accepted = TranslationContext::default();
                 accepted.apply(&chapter.variant.publication, page.additions, &page.evidence)?;
                 assert_eq!(accepted.revision, 1);
-                assert_eq!(page.usage.unwrap().total_tokens, 600);
+                assert_eq!(
+                    page.usage.unwrap().total_tokens,
+                    if case == "long-empty-last" { 400 } else { 600 }
+                );
                 assert_eq!(renderer.crops.load(Ordering::Acquire), 2);
                 assert_eq!(renderer.compositions.load(Ordering::Acquire), 1);
             }
@@ -181,7 +192,9 @@ pub(super) async fn exercise(
             | "long-context-oversized"
             | "long-context-budget"
             | "long-edge" => 1,
-            "long-missing-crossing"
+            "long-empty-last"
+            | "long-empty-context"
+            | "long-missing-crossing"
             | "long-duplicate"
             | "long-late-overlap"
             | "long-split-crossing"
