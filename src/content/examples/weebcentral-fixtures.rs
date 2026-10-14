@@ -53,6 +53,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let chapters = provider.chapters(variant).await?;
     assert_eq!(chapters.len(), 2);
     assert_eq!(chapters[1].number.as_deref(), Some("2"));
+    assert!(chapters.iter().all(|chapter| chapter.title.is_none()));
     let selected = &chapters[1].reference;
     let pages = provider.chapter_pages(selected).await?;
     assert_eq!(pages.images.len(), 2);

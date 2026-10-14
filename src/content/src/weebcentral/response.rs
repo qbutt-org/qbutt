@@ -211,13 +211,14 @@ pub(super) fn chapter_list(
         if label.is_empty() || label.len() > 2048 {
             return Err(Error::InvalidResponse("invalid Weeb Central chapter title"));
         }
-        let number = label.split_once(' ').map(|(_, number)| number.to_owned());
+        let number = label.strip_prefix("Chapter ").map(str::to_owned);
+        let title = number.is_none().then_some(label);
         chapters.push(Chapter {
             reference: ChapterRef {
                 variant: reference.clone(),
                 id,
             },
-            title: Some(label),
+            title,
             volume: None,
             number,
             pages: 0,
