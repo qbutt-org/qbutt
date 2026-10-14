@@ -47,7 +47,9 @@ for (const [name, product] of Object.entries(products)) {
             if (await Bun.file(join(output, `${name}.exe`)).exists())
                 throw new Error("Component packaging requires a clean bundle.");
             const listing = Bun.spawn([tar, "-tf", downloaded], { stdout: "pipe", stderr: "inherit", windowsHide: true });
-            const entries = (await new Response(listing.stdout).text()).trimEnd().split(/\r?\n/);
+            const entries = (await new Response(listing.stdout).text()).trimEnd().split(/\r?\n/)
+                .filter(entry => entry !== "./")
+                .map(entry => entry.startsWith("./") ? entry.slice(2) : entry);
             if (await listing.exited !== 0 || !entries.length || entries.some(entry =>
                 !entry || entry.includes("\\") || entry.includes(":") || entry.startsWith("/")
                 || entry.split("/").some(part => part === ".." || part === ".")))
