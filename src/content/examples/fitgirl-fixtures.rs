@@ -143,15 +143,40 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         assert_eq!(reference, *selected);
         assert_eq!(torrent::magnet(magnet.as_str())?.1, paste_fixture::hash());
     }
-    for case in [
-        "hash", "auth", "work", "huge", "expanded", "type", "identity",
+    for (case, expected) in [
+        (
+            "hash",
+            Error::InvalidResponse("FitGirl torrent hash changed"),
+        ),
+        (
+            "auth",
+            Error::InvalidResponse("FitGirl torrent paste authentication failed"),
+        ),
+        (
+            "work",
+            Error::InvalidResponse("unsupported FitGirl torrent paste format"),
+        ),
+        ("huge", Error::ResponseTooLarge),
+        ("expanded", Error::ResponseTooLarge),
+        (
+            "type",
+            Error::InvalidResponse("FitGirl attachment is not a torrent"),
+        ),
+        (
+            "identity",
+            Error::InvalidResponse("FitGirl torrent paste identity changed"),
+        ),
     ] {
         let work = source
             .inspect(&publication(&format!("attachment-{case}")))
             .await?;
-        assert!(
-            source.resolve(&work.variants[0].reference).await.is_err(),
-            "accepted attachment {case}"
+        let Err(error) = source.resolve(&work.variants[0].reference).await else {
+            panic!("accepted attachment {case}");
+        };
+        assert_eq!(
+            error.to_string(),
+            expected.to_string(),
+            "wrong rejection for attachment {case}"
         );
     }
     for case in ["foreign", "key", "ambiguous"] {
