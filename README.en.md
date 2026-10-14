@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.4.0/qbutt-1.4.0-windows-x64-setup.exe">
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.0/qbutt-1.5.0-windows-x64-setup.exe">
     <img alt="Download qbutt for Windows" src="https://img.shields.io/badge/DOWNLOAD-Windows-009df7?style=for-the-badge">
   </a>
   <a href="https://github.com/qbutt-org/qbutt/releases">
@@ -29,7 +29,7 @@
 
 <p align="center">
   <a href="https://qbutt-org.github.io/qbutt/en/">Website</a> /
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.4.0/qbutt-1.4.0-windows-x64.zip">Portable</a>
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.0/qbutt-1.5.0-windows-x64.zip">Portable</a>
 </p>
 
 ## Installation
@@ -53,20 +53,20 @@ The **Sources** button opens the source catalog and settings. Some sources requi
 
 ## Watching and reading
 
-Online video streams to qplay when the source provides a direct stream. You can also watch a torrent before its download finishes: the player receives already verified parts of the file. Open local video and audio through **File → Open media file…**. The player includes upscaling and frame generation; available modes depend on your GPU.
+Online video streams to qplay when the source provides a direct stream. You can also watch a torrent before its download finishes: the player receives already verified parts of the file. Open local video and audio through **File → Open media…**. The player includes upscaling and frame generation; available modes depend on your GPU.
 
-In the player's **Subtitle** menu, select an embedded or external text track and choose **Translate into Russian**. Choose **Original subtitles** to switch back; translated segments stay cached. **Move subtitles** adjusts their height with the mouse, and **Automatic subtitle position** resets it.
+qplay settings offer audio and subtitle selection, playback speed, and text subtitle translation into Russian or English. The original remains available, and translated segments are cached. Subtitle height can be adjusted with the mouse or reset to automatic positioning.
 
-Open books and comics from search or through **File → Read file…**. Supported formats include EPUB, FB2, TXT, HTML, CBZ/ZIP archives of images, and individual images. The reader saves your position and caches chapters. Its settings include paged and continuous modes, fit to screen height or width, brightness, page spacing, and reading area width. In paged mode, click the left or right side of the page to turn it.
+Open books and comics from search or through **File → Open book…**. Supported formats include EPUB, FB2, TXT, HTML, CBZ/ZIP archives of images, and individual images. The reader saves your position and caches chapters. Its settings include paged and continuous modes, fit to screen height or width, brightness, page spacing, and reading area width. In paged mode, click the left or right side of the page to turn it.
 
-AI translation in the reader works with text and manga pages: it recognizes lettering and displays the translation in the Neucha font. The original remains available; a glossary and manual corrections help keep names and terminology consistent. The reader automatically uses **Codex** when it is installed and signed in. Choose another service, **OpenRouter** or a compatible API, in **Sources → AI translation**. Text and images submitted for translation are sent to the selected service.
+The reader translates text and manga pages into Russian and English using an installed, signed-in **Codex**. Work context helps preserve names and terminology; the original and cached translation remain available. Choose the model and reasoning effort in translation settings. OpenRouter is also available for text. Text and images are sent to the selected service. Manga translation is experimental: cleaning complex artwork and laying out lettering still need improvement.
 
 ## Connecting your browser
 
 qcatch is used for websites with login sessions and video players that require a browser session:
 
 1. Open **Search → Sources → Browser** and select your browser.
-2. Click **Install qcatch…**. qcatch will be installed, and the browser setup page and extension folder will open.
+2. Click **Install qcatch…**. qcatch will be installed, and the extension folder will open.
 3. In Edge, enable developer mode at `edge://extensions`, click **Load unpacked**, and select the folder shown.
 
 Once connected, qbutt uses the relevant website session and can obtain the selected episode and voice track stream for qplay. The browser is still needed when a site requires login, verification, or player selection. Cookies and temporary stream URLs are excluded from **Share** links.

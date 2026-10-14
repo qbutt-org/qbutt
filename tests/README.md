@@ -58,6 +58,14 @@ sessions disable public discovery and use only explicitly added controlled peers
 
 ## Rust and Qt Quick content
 
+`bun tests/content-browser/session-retry.ts <acceptance-exe> <server-cert.pem>
+<server-key.pem> <receipt.json>` exercises explicit browser-session retry through
+the native controller. It checks session refresh before a manual source check,
+exact continuation, stale results and failed retries with generated RuTracker
+responses and a private qcatch peer. The fixture build redirects `rutracker.org`
+to `127.0.0.1:443` and trusts its CA in `SourceHttp::new`; restore the overlay and
+rebuild afterwards. No real browser session or account is used.
+
 `bun tests/content-search/progressive-native.ts <acceptance-exe> <server-cert.pem>
 <server-key.pem> success` checks a late publication joining an already selected
 work: variants load automatically while the exact selected variant and row stay

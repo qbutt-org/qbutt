@@ -120,7 +120,11 @@ $DependencyRoot = [IO.Path]::GetFullPath($DependencyRoot)
 New-Item -ItemType Directory -Force $BuildRoot, $DependencyRoot, $ArtifactRoot | Out-Null
 $lockPath = Join-Path $SourceDir 'upstream-lock.json'
 $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
-Assert-Sha256 (Join-Path $SourceDir 'resources/fonts/Neucha.ttf') $lock.fonts.neucha.sha256
+foreach ($family in $lock.fonts.families) {
+    foreach ($file in ($family.files + $family.license)) {
+        Assert-Sha256 (Join-Path $SourceDir "resources/fonts/$($file.file)") $file.sha256
+    }
+}
 $pins = $lock.windows
 $qtRoot = if ($QtRootOverride) { [IO.Path]::GetFullPath($QtRootOverride) }
     else { Join-Path 'C:/Tools/Qt' "$($pins.qt.version)/$($pins.qt.directory)" }
@@ -329,7 +333,9 @@ Copy-Item -LiteralPath $qtLicensePaths -Destination $qtPortableLicenses
 Copy-Item -Path "$qtRoot/sbom/*.spdx.json" -Destination $licenses
 Copy-Item -LiteralPath (Join-Path $webviewSdk 'LICENSE.txt') -Destination "$licenses/WebView2-SDK.txt"
 Copy-Item -LiteralPath (Join-Path $webviewSdk 'NOTICE.txt') -Destination "$licenses/WebView2-NOTICE.txt"
-Copy-Item -LiteralPath (Join-Path $SourceDir 'resources/fonts/Neucha-OFL.txt') -Destination "$licenses/Neucha-OFL.txt"
+foreach ($family in $lock.fonts.families) {
+    Copy-Item -LiteralPath (Join-Path $SourceDir "resources/fonts/$($family.license.file)") -Destination $licenses
+}
 Copy-Item -LiteralPath (Join-Path $SourceDir 'src/icons/LICENSE-Tabler') -Destination "$licenses/Tabler-Icons.txt"
 Invoke-Native $bun @((Join-Path $SourceDir 'scripts/package-products.ts'), '--destination', $portable,
     '--cache', (Join-Path $DependencyRoot 'products'))
@@ -340,6 +346,15 @@ try {
     Invoke-Native $bun @('scripts/collect-notices.ts', (Join-Path $portable 'qbutt-net.exe'), $licenses, $go)
 }
 finally { Pop-Location }
+
+$fontNotices = ($lock.fonts.families | ForEach-Object {
+    @"
+$($_.name) is bundled under the SIL Open Font License 1.1.
+License: licenses/$($_.license.file). Pinned source:
+$($lock.fonts.repository -replace '\.git$', '')/tree/$($lock.fonts.commit)/$($_.path)
+"@
+}) -join "`n`n"
+
 @"
 qbutt is a fork of qBittorrent; see COPYING, COPYING.GPLv2, COPYING.GPLv3 and AUTHORS.
 Source and build instructions: https://github.com/qbutt-org/qbutt
@@ -349,9 +364,7 @@ Exact crate versions, source checksums and license files are recorded in
 licenses/rust/dependencies.json. Rust standard-library notices are included in
 licenses/rust/standard-library/.
 
-Neucha by Jovanny Lemonad is bundled under the SIL Open Font License 1.1.
-License: licenses/Neucha-OFL.txt. Pinned source:
-$($lock.fonts.neucha.repository -replace '\.git$', '')/blob/$($lock.fonts.neucha.commit)/$($lock.fonts.neucha.path)
+$fontNotices
 
 Reader interface glyphs from Tabler Icons are bundled under MIT.
 License: licenses/Tabler-Icons.txt. Pinned source:

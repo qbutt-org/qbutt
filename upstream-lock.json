@@ -3,19 +3,19 @@
   "products": {
     "qplay": {
       "repository": "https://github.com/qbutt-org/qplay.git",
-      "commit": "ef0096ba363883823921db68bf917832a73cf58a",
-      "version": "1.1.0",
+      "commit": "18cd3c63c129e4a1a2eacc2d8803e24906206284",
+      "version": "1.2.0",
       "protocolVersion": 1,
       "artifacts": {
         "setup": {
-          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.1.0/qplay-setup.exe",
-          "size": 92933091,
-          "sha256": "9dec5d7684429d027ae4c2d49e4c3b018ed747bd978a7ca40d991aab6359b80f"
+          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.2.0/qplay-setup.exe",
+          "size": 119003564,
+          "sha256": "fe22d01353945eb95a89e738d0e4e026ff011e21a14f1440a715db02e9c61fce"
         },
         "portable": {
-          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.1.0/qplay-portable.zip",
-          "size": 117087299,
-          "sha256": "e7bf31f88cda62bc56ca77da1af55cbdacb8634987ca711e1ad441284658e831"
+          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.2.0/qplay-portable.zip",
+          "size": 158614322,
+          "sha256": "1d453f969cd154ebd7ab0c903098110ba8db551f359c86d6df04a8a6931cd586"
         },
         "runtimeSources": {
           "url": "https://github.com/qbutt-org/qplay/releases/download/v1.0.0-sources/qplay-1.0.0-runtime-sources.zip",
@@ -26,24 +26,24 @@
     },
     "qcatch": {
       "repository": "https://github.com/qbutt-org/qcatch.git",
-      "commit": "8e7cdc9f8fe9fa762a4990b5c9017ed84acee4cf",
-      "version": "1.0.0",
+      "commit": "f3ad8745381ec3a9ab986532011d9bb33870ebd8",
+      "version": "1.1.0",
       "protocolVersion": 1,
       "artifacts": {
         "setup": {
-          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.0.0/qcatch-setup.exe",
-          "size": 10577927,
-          "sha256": "12a119b30f66109ae8db362c0e1442848d6d4d617933b2e072c9a9acdb34f5b2"
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.1.0/qcatch-setup.exe",
+          "size": 10577194,
+          "sha256": "88c5a7a65025bfdd324e2a4b559450cf299fc3d9ee51e953a33997ed3e1c0b5a"
         },
         "portable": {
-          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.0.0/qcatch-portable.zip",
-          "size": 13177599,
-          "sha256": "10dfc397a7f1392e109124f7fa198bc7a4fae6804612b7abded87a2b106fe6c2"
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.1.0/qcatch-portable.zip",
+          "size": 13192341,
+          "sha256": "a4c6f30f1914f23775d925a8944eb5714244a51782fced62f5b6991198e0932d"
         },
         "runtimeSources": {
-          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.0.0-sources/qcatch-1.0.0-runtime-sources.zip",
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.1.0-sources/qcatch-1.1.0-runtime-sources.zip",
           "size": 136913382,
-          "sha256": "cf0c1c7f99ca48b42d82cd02f0d4b8fdaa32a0c7f039605159ee9ba7ad58e75f"
+          "sha256": "974e8642ed997820b53344eaa8adc5c172e88577130cdbfa66d9080a8d71ccb2"
         }
       }
     }
@@ -69,12 +69,88 @@
     }
   },
   "fonts": {
-    "neucha": {
-      "repository": "https://github.com/google/fonts.git",
-      "commit": "bd8f81ddb5c74d5c8897b36ad88b440266245103",
-      "path": "ofl/neucha/Neucha-Regular.ttf",
-      "sha256": "7927bd6ce090fa032857dcbc3ad0e8b765c462d0a72a8779068132496b4e087d"
-    }
+    "repository": "https://github.com/google/fonts.git",
+    "commit": "66928797f271fed5ee428544e7229685e2d90127",
+    "families": [
+      {
+        "name": "Balsamiq Sans",
+        "path": "ofl/balsamiqsans",
+        "files": [
+          {
+            "file": "BalsamiqSans-Regular.ttf",
+            "sha256": "fcc9c00a9ad6e78673fa84653745569097241d99b5d1387a23f395858ed46b7e"
+          },
+          {
+            "file": "BalsamiqSans-Bold.ttf",
+            "sha256": "a3302bd8424e6a37704eb5e20d5c5a3a2fd80feaf57e48a19d261f8e0c583621"
+          },
+          {
+            "file": "BalsamiqSans-Italic.ttf",
+            "sha256": "0a287472035409f556acd66c1c926047ee9829a62f88b0fa273591332a8606df"
+          },
+          {
+            "file": "BalsamiqSans-BoldItalic.ttf",
+            "sha256": "4999588a66defbf39e718b3edb0b965b932157bd8d1321130de06bec0cdccc75"
+          }
+        ],
+        "license": {
+          "file": "BalsamiqSans-OFL.txt",
+          "sha256": "0e82859672e549fd39554e2bfa97b5511e81f4f89394f2e696666d36b5d52144"
+        }
+      },
+      {
+        "name": "PT Serif",
+        "path": "ofl/ptserif",
+        "files": [
+          {
+            "file": "PT_Serif-Web-Regular.ttf",
+            "sha256": "a4951fade06ff8f09b7673aa81ffb65a8cd409e24d3289a6dc670bc4dda2557a"
+          },
+          {
+            "file": "PT_Serif-Web-Bold.ttf",
+            "sha256": "038ba7336bd7ea14f12ad155bed51a4345cac5153275d521dec3ba04021c526e"
+          },
+          {
+            "file": "PT_Serif-Web-Italic.ttf",
+            "sha256": "f57e95ff9dc85691a3b2e193f2028db36f6663939a46c0fc4f286d618b80b7ce"
+          },
+          {
+            "file": "PT_Serif-Web-BoldItalic.ttf",
+            "sha256": "f003788ba08981eb0988b3557a6f224a53dab49c20e283e8b74d5af3c466f8be"
+          }
+        ],
+        "license": {
+          "file": "PT_Serif-Web-OFL.txt",
+          "sha256": "ddf311c28ddf5a5ad9747649837346b67bed9d356789c3072bb27dbce49e514d"
+        }
+      },
+      {
+        "name": "Fira Sans Condensed",
+        "path": "ofl/firasanscondensed",
+        "files": [
+          {
+            "file": "FiraSansCondensed-Regular.ttf",
+            "sha256": "c67609f14fc9d328442bfffcc31988b0f76e5575cf460fcc1f3dd8e4912fe257"
+          },
+          {
+            "file": "FiraSansCondensed-Bold.ttf",
+            "sha256": "b9371052e58ec5b709153dd0fffc60b5205b4d3435cf957c2522705b31b0dbcc"
+          },
+          {
+            "file": "FiraSansCondensed-Italic.ttf",
+            "sha256": "57f3b2cfbb07698b9699e613369d33e06b61b827586b63341deaa6c573d264e2"
+          },
+          {
+            "file": "FiraSansCondensed-BoldItalic.ttf",
+            "sha256": "aebe32d2d821890e0d66443ca2dc59b237ff34a575048696a96516d857ae0da6"
+          }
+        ],
+        "license": {
+          "file": "FiraSansCondensed-OFL.txt",
+          "sha256": "8f24842e9174beda18a556c2ae7d54f5dc444340c19a3a9ef77e23bca366adbd"
+        }
+      }
+    ]
   },
   "windows": {
     "architecture": "x64",
