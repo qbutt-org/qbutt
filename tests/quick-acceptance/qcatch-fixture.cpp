@@ -18,15 +18,18 @@ int main(int argc, char *argv[])
     }
 
     const QString fault = qEnvironmentVariable("QBUTT_QCATCH_SETUP_FIXTURE_FAIL");
+    if ((fault == QStringLiteral("hang-version")) || (fault == QStringLiteral("delay-connect")))
+    {
+        QFile pidFile(qEnvironmentVariable("QBUTT_QCATCH_SETUP_FIXTURE_PID_FILE"));
+        if (!pidFile.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            return 1;
+        pidFile.write(QByteArray::number(QCoreApplication::applicationPid()));
+    }
+
     if (arguments == QStringList {QStringLiteral("--version-json")})
     {
         if (fault == QStringLiteral("hang-version"))
         {
-            QFile pidFile(qEnvironmentVariable("QBUTT_QCATCH_SETUP_FIXTURE_PID_FILE"));
-            if (!pidFile.open(QIODevice::WriteOnly | QIODevice::Truncate))
-                return 1;
-            pidFile.write(QByteArray::number(QCoreApplication::applicationPid()));
-            pidFile.close();
             QThread::sleep(30);
             return 1;
         }

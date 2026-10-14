@@ -186,6 +186,33 @@ try {
     event("browserUiChoice", { choice: "edge" });
     await state(value => value.choice === "edge" && value.setup === 0,
         "choice change clears finished setup");
+
+    await rm(release, { force: true });
+    event("qcatchFixtureFault", { fault: "delay-connect" });
+    const hiddenStarts = (await readFile(log, "utf8")).split("--connect-browser edge").length;
+    event("browserUiSetup");
+    await waitFor(async () => (await readFile(log, "utf8"))
+        .split("--connect-browser edge").length > hiddenStarts, "setup starts before closing settings");
+    const hiddenSetupPid = Number(await readFile(pidFile, "utf8"));
+    assert(Number.isSafeInteger(hiddenSetupPid) && hiddenSetupPid > 0);
+    assert(await processExists(hiddenSetupPid), "qcatch setup must be active before closing settings");
+    event("browserUiClose");
+    await writeFile(release, "release");
+    await waitFor(async () => !await processExists(hiddenSetupPid), "hidden qcatch setup exits");
+    await state(value => value.setup === 2, "completed setup remains available while settings are closed");
+
+    const closedLog = await readFile(log, "utf8");
+    event("browserUiSetup");
+    await parent.status();
+    assert.equal(await readFile(log, "utf8"), closedLog, "setup completion does not reactivate the closed settings");
+
+    const beforeReopen = updates.length;
+    event("browserUiWatch");
+    const reopened = await state(value => updates.length > beforeReopen && value.connection === 2
+        && value.setup === 2, "completed setup keeps its extension instructions after reopening");
+    assert.equal(reopened.extensionDirectory, directory, "completed setup keeps the exact extension folder");
+
+    await rm(pidFile, { force: true });
     event("qcatchFixtureFault", { fault: "hang-version" });
     event("browserUiSetup");
     await state(value => value.setup === 1, "qcatch version probe begins");
@@ -196,7 +223,7 @@ try {
     event("browserUiClose");
     await waitFor(async () => !await processExists(probePid), "cancelled version probe exits");
     await state(value => value.setup === 0, "browser setup resets after probe cancellation");
-    console.log("Native browser settings: choice, Auto, ambiguity, CLI setup, fault, owner error, generation, delayed setup and probe cancellation passed");
+    console.log("Native browser settings: choice, Auto, ambiguity, CLI setup, fault, owner error, generation, hidden setup completion and probe cancellation passed");
 }
 finally {
     for (const socket of peers)

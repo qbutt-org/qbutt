@@ -523,10 +523,6 @@ impl ffi::ContentController {
                 if controller.browser_setup_generation != setup_generation {
                     return;
                 }
-                if !controller.browser_ui_active {
-                    controller.as_mut().rust_mut().browser_setup_state = ffi::SetupState::Idle;
-                    return;
-                }
                 if choice(&controller.browser_choice.to_string()) != selected {
                     controller.as_mut().rust_mut().browser_setup_state = ffi::SetupState::Idle;
                     controller.as_mut().browser_changed();
@@ -557,7 +553,9 @@ impl ffi::ContentController {
                     }
                 }
                 controller.as_mut().browser_changed();
-                controller.as_mut().watch_browser();
+                if controller.browser_ui_active {
+                    controller.as_mut().watch_browser();
+                }
             });
         });
         services.browser.start_setup(task, control);
