@@ -16,6 +16,8 @@ pub enum Source {
     YummyAnime,
     AnimeSpirit,
     MangaDex,
+    #[serde(rename = "weebcentral")]
+    WeebCentral,
     MangaLib,
     RanobeLib,
     RuTor,
@@ -98,6 +100,8 @@ impl PublicationRef {
             Source::Estar => self.estar_id().map(|_| ()),
             Source::MangaDex if canonical_uuid(&self.id) => Ok(()),
             Source::MangaDex => Err(crate::Error::InvalidReference),
+            Source::WeebCentral if canonical_ulid(&self.id) => Ok(()),
+            Source::WeebCentral => Err(crate::Error::InvalidReference),
         }
     }
 
@@ -479,6 +483,8 @@ pub enum VariantSelector {
         language: String,
         groups: Vec<String>,
     },
+    /// The single English edition published by Weeb Central.
+    WeebCentralPages,
     LibTranslation {
         /// None identifies the API's null branch, not whichever translation is default.
         branch: Option<u64>,
@@ -502,7 +508,11 @@ impl VariantSelector {
                         byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
                     })
             }
-            Self::RutubeVideo | Self::VkVideo | Self::OriginalText | Self::LocalPages => true,
+            Self::RutubeVideo
+            | Self::VkVideo
+            | Self::WeebCentralPages
+            | Self::OriginalText
+            | Self::LocalPages => true,
             Self::Torrent { id } => *id != 0,
             Self::TorrentHash { info_hash } => {
                 info_hash.len() == 40
@@ -646,6 +656,7 @@ impl VariantRef {
                     VariantSelector::AnimeSpiritKodik { .. }
                 )
                 | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
+                | (Source::WeebCentral, VariantSelector::WeebCentralPages)
                 | (Source::MangaLib, VariantSelector::LibTranslation { .. })
                 | (Source::RanobeLib, VariantSelector::LibTranslation { .. })
                 | (Source::RuTor, VariantSelector::TorrentHash { .. })
@@ -717,6 +728,7 @@ impl ChapterRef {
         if match self.variant.publication.source {
             Source::LocalBook => canonical_decimal(&self.id),
             Source::MangaDex => canonical_uuid(&self.id),
+            Source::WeebCentral => canonical_ulid(&self.id),
             Source::MangaLib | Source::RanobeLib | Source::RanobeHub => canonical_decimal(&self.id),
             Source::RoyalRoad => self.id.split_once('/').is_some_and(|(fiction, chapter)| {
                 fiction == self.variant.publication.id && canonical_decimal(chapter)
@@ -776,6 +788,15 @@ pub(crate) fn canonical_uuid(value: &str) -> bool {
             }
         })
         && value != "00000000-0000-0000-0000-000000000000"
+}
+
+pub(crate) fn canonical_ulid(value: &str) -> bool {
+    value.len() == 26
+        && value.as_bytes()[0] <= b'7'
+        && value
+            .bytes()
+            .all(|byte| b"0123456789ABCDEFGHJKMNPQRSTVWXYZ".contains(&byte))
+        && value != "00000000000000000000000000"
 }
 
 pub(crate) fn canonical_decimal(value: &str) -> bool {

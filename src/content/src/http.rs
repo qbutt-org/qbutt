@@ -39,7 +39,7 @@ pub(crate) fn media_client() -> Result<reqwest::Client> {
 #[derive(Clone, Copy)]
 enum ResponseKind {
     Json,
-    Html,
+    Html(usize),
     Image,
     Playlist,
     Document,
@@ -184,9 +184,20 @@ impl SourceHttp {
     }
 
     pub(crate) async fn html_page(&self, url: Url) -> Result<(Url, String)> {
+        self.html_page_with_limit(url, MAX_HTML_BYTES).await
+    }
+
+    pub(crate) async fn html_page_with_limit(
+        &self,
+        url: Url,
+        max_bytes: usize,
+    ) -> Result<(Url, String)> {
+        if max_bytes == 0 || max_bytes > MAX_RESPONSE_BYTES {
+            return Err(Error::ResponseTooLarge);
+        }
         let document = tokio::time::timeout(
             Duration::from_secs(45),
-            self.fetch(url, ResponseKind::Html, &[], None, None, None),
+            self.fetch(url, ResponseKind::Html(max_bytes), &[], None, None, None),
         )
         .await
         .map_err(|_| Error::Timeout)??;
@@ -337,7 +348,8 @@ impl SourceHttp {
         };
         let max_bytes = match kind {
             ResponseKind::Metadata => crate::TorrentMetadata::MAX_BYTES,
-            ResponseKind::Html | ResponseKind::Playlist | ResponseKind::Document => MAX_HTML_BYTES,
+            ResponseKind::Html(limit) => limit,
+            ResponseKind::Playlist | ResponseKind::Document => MAX_HTML_BYTES,
             ResponseKind::Json | ResponseKind::Image => MAX_RESPONSE_BYTES,
         };
         for redirects in 0..=MAX_REDIRECTS {
@@ -388,7 +400,7 @@ impl SourceHttp {
                     ACCEPT,
                     match kind {
                         ResponseKind::Json => "application/json",
-                        ResponseKind::Html | ResponseKind::Document => "text/html",
+                        ResponseKind::Html(_) | ResponseKind::Document => "text/html",
                         ResponseKind::Metadata => {
                             "application/x-bittorrent, application/octet-stream, text/html"
                         }
@@ -444,7 +456,7 @@ impl SourceHttp {
                 .and_then(|value| value.split(';').next())
                 .map(str::trim);
             match kind {
-                ResponseKind::Html
+                ResponseKind::Html(_)
                     if !mime.is_some_and(|value| value.eq_ignore_ascii_case("text/html")) =>
                 {
                     return Err(Error::InvalidResponse("catalog response is not HTML"));

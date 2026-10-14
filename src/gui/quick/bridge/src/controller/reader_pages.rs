@@ -8,7 +8,7 @@ use cxx_qt::CxxQtThread;
 use cxx_qt_lib::{QString, QUrl};
 use qbutt_content::{
     ChapterImage, ChapterPages, ChapterRef, LibSession, LocalBook, MangaDex, MangaLib, Source,
-    SourceOperation,
+    SourceOperation, WeebCentral,
 };
 use tempfile::{NamedTempFile, TempDir, TempPath};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
@@ -20,6 +20,7 @@ use super::sources::SourceRequest;
 
 pub(super) enum ReaderSource {
     MangaDex(Arc<MangaDex>),
+    WeebCentral(Arc<WeebCentral>),
     MangaLib(Arc<MangaLib>, Box<LibSession>),
     LocalBook(Arc<LocalBook>),
 }
@@ -31,6 +32,7 @@ impl Catalog {
     ) -> qbutt_content::Result<ReaderSource> {
         match source {
             Source::MangaDex => Ok(ReaderSource::MangaDex(Arc::clone(&self.mangadex))),
+            Source::WeebCentral => Ok(ReaderSource::WeebCentral(Arc::clone(&self.weebcentral))),
             Source::MangaLib => Ok(ReaderSource::MangaLib(
                 Arc::clone(&self.mangalib),
                 Box::new(self.lib_session(source).await?),
@@ -47,6 +49,7 @@ impl ReaderSource {
     ) -> qbutt_content::Result<ChapterPages> {
         match self {
             Self::MangaDex(source) => source.chapter_pages(reference).await,
+            Self::WeebCentral(source) => source.chapter_pages(reference).await,
             Self::MangaLib(source, session) => source.chapter_pages(reference, session).await,
             Self::LocalBook(book) => {
                 let book = Arc::clone(book);
@@ -64,6 +67,7 @@ impl ReaderSource {
     ) -> qbutt_content::Result<Vec<u8>> {
         match self {
             Self::MangaDex(source) => source.image_bytes(image).await,
+            Self::WeebCentral(source) => source.image_bytes(image).await,
             Self::MangaLib(source, session) => source.image_bytes(image, session).await,
             Self::LocalBook(_) => Err(qbutt_content::Error::InvalidReference),
         }

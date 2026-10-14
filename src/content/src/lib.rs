@@ -58,6 +58,7 @@ pub mod translation;
 mod vkvideo;
 #[cfg(windows)]
 pub mod webview;
+mod weebcentral;
 mod x1337;
 mod yummyanime;
 
@@ -112,5 +113,6 @@ pub use text::{TextBlock, TextBlockKind, TextChapter, TextChapterCache, TextImag
 pub use thelastgame::TheLastGame;
 #[cfg(windows)]
 pub use vkvideo::VkVideo;
+pub use weebcentral::WeebCentral;
 pub use x1337::X1337;
 pub use yummyanime::YummyAnime;

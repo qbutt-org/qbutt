@@ -64,6 +64,8 @@ qt_add_executable(qbutt-quick-acceptance
     playback.h
     mangalib.cpp
     mangalib.h
+    weebcentral.cpp
+    weebcentral.h
     history.cpp
     history.h
     reader.cpp

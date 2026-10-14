@@ -8,12 +8,13 @@ use crate::browser::BrowserError;
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 28] = [
         Self::AniLiberty,
         Self::AniTokyo,
         Self::YummyAnime,
         Self::AnimeSpirit,
         Self::MangaDex,
+        Self::WeebCentral,
         Self::MangaLib,
         Self::RanobeLib,
         Self::RuTor,
@@ -46,6 +47,7 @@ impl Source {
             Self::YummyAnime => "yani",
             Self::AnimeSpirit => "animespirit",
             Self::MangaDex => "mangadex",
+            Self::WeebCentral => "weebcentral",
             Self::MangaLib => "mangalib",
             Self::RanobeLib => "ranobelib",
             Self::RuTor => "rutor",
@@ -83,6 +85,7 @@ impl Source {
             Self::YummyAnime => "YummyAnime",
             Self::AnimeSpirit => "AnimeSpirit",
             Self::MangaDex => "MangaDex",
+            Self::WeebCentral => "Weeb Central",
             Self::MangaLib => "MangaLib",
             Self::RanobeLib => "RanobeLib",
             Self::RuTor => "RuTor",
@@ -123,6 +126,7 @@ impl Source {
             Self::YummyAnime => "https://yani.tv",
             Self::AnimeSpirit => "https://my.animespirit.ru",
             Self::MangaDex => "https://mangadex.org",
+            Self::WeebCentral => "https://weebcentral.com",
             Self::MangaLib => "https://mangalib.me",
             Self::RanobeLib => "https://ranobelib.me",
             Self::RuTor => "https://rutor.info",
@@ -154,7 +158,7 @@ impl Source {
             Self::AniLiberty | Self::AniTokyo | Self::YummyAnime | Self::AnimeSpirit => {
                 &[Category::Anime]
             }
-            Self::MangaDex | Self::MangaLib => &[Category::Manga],
+            Self::MangaDex | Self::MangaLib | Self::WeebCentral => &[Category::Manga],
             Self::RanobeLib => &[Category::Books],
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
             Self::VkVideo => &[Category::Video],
@@ -284,6 +288,7 @@ fn validate_reader(source: Source) -> crate::Result<()> {
     if matches!(
         source,
         Source::MangaDex
+            | Source::WeebCentral
             | Source::MangaLib
             | Source::RanobeLib
             | Source::RoyalRoad

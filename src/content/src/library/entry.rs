@@ -300,7 +300,8 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
             (Source::LocalBook, VariantSelector::LocalPages) => {
                 variant.transport == Transport::Manga
             }
-            (Source::MangaDex, VariantSelector::MangaTranslation { .. }) => {
+            (Source::MangaDex, VariantSelector::MangaTranslation { .. })
+            | (Source::WeebCentral, VariantSelector::WeebCentralPages) => {
                 variant.transport == Transport::Manga
             }
             (Source::MangaLib, VariantSelector::LibTranslation { .. }) => {
