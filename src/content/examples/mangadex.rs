@@ -13,6 +13,16 @@ use qbutt_content::{
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let query = std::env::args().nth(1).unwrap_or_else(|| "Frieren".into());
     let language = std::env::args().nth(2).unwrap_or_else(|| "ru".into());
+    let chapter_index = std::env::args()
+        .nth(3)
+        .map(|value| value.parse::<usize>())
+        .transpose()?
+        .unwrap_or(0);
+    let page_index = std::env::args()
+        .nth(4)
+        .map(|value| value.parse::<usize>())
+        .transpose()?
+        .unwrap_or(0);
     let catalog = MangaDex::new()?;
     let invalid = PublicationRef {
         source: Source::MangaDex,
@@ -73,12 +83,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .len()
     );
     let chapter = chapters
-        .first()
-        .ok_or("translation has no readable chapters")?;
+        .get(chapter_index)
+        .ok_or("selected chapter missing")?;
     let pages = catalog.chapter_pages(&chapter.reference).await?;
     assert!(pages.reference == chapter.reference);
     assert_eq!(pages.images.len(), chapter.pages as usize);
-    let bytes = catalog.image_bytes(&pages.images[0]).await?;
+    let image = pages
+        .images
+        .get(page_index)
+        .ok_or("selected page missing")?;
+    let bytes = catalog.image_bytes(image).await?;
     assert!(
         bytes.starts_with(b"\x89PNG\r\n\x1a\n")
             || bytes.starts_with(b"\xff\xd8\xff")
@@ -157,12 +171,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::remove_dir_all(&profile)?;
 
     println!(
-        "PASS mangadex search={} branches={} chapters={} pages={} verified_image_bytes={} exact_refs=ok missing_branch=rejected foreign_chapter_branch=rejected library_reopen=ok source_bound_library=ok history_absent=ok",
+        "PASS mangadex search={} branches={} chapters={} pages={} verified_image_bytes={} publication={} chapter_index={} chapter={} page_index={} exact_refs=ok missing_branch=rejected foreign_chapter_branch=rejected library_reopen=ok source_bound_library=ok history_absent=ok",
         works.len(),
         work.variants.len(),
         chapters.len(),
         pages.images.len(),
-        bytes.len()
+        bytes.len(),
+        work.reference.id,
+        chapter_index,
+        chapter.reference.id,
+        page_index
     );
     Ok(())
 }

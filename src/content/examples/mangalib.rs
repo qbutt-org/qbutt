@@ -8,13 +8,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     let (publication, query, chapter_index) = match arguments.as_slice() {
         [] => ("5432--yotsubaamp", "Yotsuba", 0),
-        [publication, query, index] => (
+        [publication, query, index] | [publication, query, index, _] => (
             publication.as_str(),
             query.as_str(),
             index.parse::<usize>()?,
         ),
-        _ => return Err("usage: mangalib [publication-id query zero-based-chapter-index]".into()),
+        _ => return Err("usage: mangalib [publication-id query zero-based-chapter-index [zero-based-page-index]]".into()),
     };
+    let page_index = arguments
+        .get(3)
+        .map(|value| value.parse::<usize>())
+        .transpose()?
+        .unwrap_or(0);
     let source = MangaLib::new()?;
     let mut session = LibSession::anonymous(Source::MangaLib)?;
     let reference = PublicationRef {
@@ -43,7 +48,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     assert_eq!(pages.reference, chapter.reference);
     assert!(!pages.images.is_empty());
-    let bytes = source.image_bytes(&pages.images[0], &session).await?;
+    let image = pages
+        .images
+        .get(page_index)
+        .ok_or("selected page missing")?;
+    let bytes = source.image_bytes(image, &session).await?;
     let image_format = if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
         "jpeg"
     } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
@@ -83,6 +92,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             "variant": variant.reference,
             "chapter": chapter.reference,
             "chapterIndex": chapter_index,
+            "pageIndex": page_index,
             "chapters": chapters.len(),
             "variants": work.variants.len(),
             "pages": pages.images.len(),

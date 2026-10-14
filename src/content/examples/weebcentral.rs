@@ -6,6 +6,11 @@ use sha2::{Digest, Sha256};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let page_index = std::env::args()
+        .nth(1)
+        .map(|value| value.parse::<usize>())
+        .transpose()?
+        .unwrap_or(0);
     let source = WeebCentral::new()?;
     let reference = PublicationRef {
         source: Source::WeebCentral,
@@ -41,8 +46,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|error| format!("chapter pages: {error}"))?;
     assert!(pages.reference == chapter.reference);
+    let image = pages
+        .images
+        .get(page_index)
+        .ok_or("selected page missing")?;
     let bytes = source
-        .image_bytes(&pages.images[0])
+        .image_bytes(image)
         .await
         .map_err(|error| format!("image: {error}"))?;
     assert!(!bytes.is_empty());
@@ -75,11 +84,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(library);
     std::fs::remove_dir_all(profile)?;
     println!(
-        "PASS WeebCentral live search={} chapters={} nonfirst={} pages={} image_bytes={} sha256={:x} empty_search=ok foreign_publication=rejected public_share=ok library_reopen=ok",
+        "PASS WeebCentral live search={} chapters={} nonfirst={} pages={} page_index={} image_bytes={} sha256={:x} empty_search=ok foreign_publication=rejected public_share=ok library_reopen=ok",
         found.len(),
         chapters.len(),
         chapter.reference.id,
         pages.images.len(),
+        page_index,
         bytes.len(),
         Sha256::digest(&bytes)
     );
