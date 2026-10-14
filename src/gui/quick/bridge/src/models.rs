@@ -260,14 +260,14 @@ fn role_names(names: &[&str]) -> ffi::QHash_i32_QByteArray {
 
 #[derive(Default)]
 pub struct WorkModelRust {
-    rows: Vec<Work>,
+    rows: Vec<WorkGroup>,
 }
 
 impl ffi::WorkModel {
     pub fn id_at(&self, row: i32) -> QString {
         self.rows
             .get(row as usize)
-            .map(|work| QString::from(work_id(&work.reference)))
+            .map(|group| QString::from(work_id(&group.anchor)))
             .unwrap_or_default()
     }
 
@@ -275,7 +275,7 @@ impl ffi::WorkModel {
         let id = id.to_string();
         self.rows
             .iter()
-            .position(|work| work_id(&work.reference) == id)
+            .position(|group| work_id(&group.anchor) == id)
             .map(|row| row as i32)
             .unwrap_or(-1)
     }
@@ -292,13 +292,25 @@ impl ffi::WorkModel {
         if !index.is_valid() || index.column() != 0 {
             return QVariant::default();
         }
-        let Some(work) = self.rows.get(index.row() as usize) else {
+        let Some(group) = self.rows.get(index.row() as usize) else {
+            return QVariant::default();
+        };
+        let Some(work) = group.anchor_work() else {
             return QVariant::default();
         };
         let text = match role - USER_ROLE {
-            0 => work_id(&work.reference),
+            0 => work_id(&group.anchor),
             1 => work.title.clone(),
-            2 => work.reference.source.name().into(),
+            2 => {
+                let mut sources = Vec::new();
+                for publication in &group.publications {
+                    let source = publication.reference.source.name();
+                    if !sources.contains(&source) {
+                        sources.push(source);
+                    }
+                }
+                sources.join(", ")
+            }
             3 => category_key(work.category).into(),
             4 => work.year.map(|year| year.to_string()).unwrap_or_default(),
             _ => return QVariant::default(),
@@ -311,14 +323,14 @@ impl ffi::WorkModel {
     }
 
     pub fn find(&self, id: &str) -> Option<&Work> {
-        self.rows.iter().find(|work| work_id(&work.reference) == id)
+        self.rows
+            .iter()
+            .find(|group| work_id(&group.anchor) == id)
+            .and_then(WorkGroup::anchor_work)
     }
 
     pub fn references(&self) -> Vec<PublicationRef> {
-        self.rows
-            .iter()
-            .map(|work| work.reference.clone())
-            .collect()
+        self.rows.iter().map(|group| group.anchor.clone()).collect()
     }
 
     pub fn clear(mut self: Pin<&mut Self>) {
@@ -332,12 +344,12 @@ impl ffi::WorkModel {
 
     /// Publish the library's confirmed order without sorting or retaining
     /// persistence metadata in the presentation model.
-    pub fn replace(mut self: Pin<&mut Self>, works: Vec<Work>) {
-        if self.rows == works {
+    pub fn replace(mut self: Pin<&mut Self>, groups: Vec<WorkGroup>) {
+        if self.rows == groups {
             return;
         }
         self.as_mut().begin_reset_model();
-        self.as_mut().rust_mut().rows = works;
+        self.as_mut().rust_mut().rows = groups;
         self.end_reset_model();
     }
 
@@ -345,7 +357,7 @@ impl ffi::WorkModel {
         if let Some(row) = self
             .rows
             .iter()
-            .position(|work| &work.reference == reference)
+            .position(|group| &group.anchor == reference)
         {
             self.as_mut()
                 .begin_remove_rows(&QModelIndex::default(), row as i32, row as i32);
@@ -354,24 +366,24 @@ impl ffi::WorkModel {
         }
     }
 
-    pub fn update(mut self: Pin<&mut Self>, work: Work) {
+    pub fn update(mut self: Pin<&mut Self>, group: WorkGroup) {
         let parent = QModelIndex::default();
         if let Some(row) = self
             .rows
             .iter()
-            .position(|item| item.reference == work.reference)
+            .position(|item| item.anchor == group.anchor)
         {
-            if self.rows[row] == work {
+            if self.rows[row] == group {
                 return;
             }
-            self.as_mut().rust_mut().rows[row] = work;
+            self.as_mut().rust_mut().rows[row] = group;
             let index = self.index(row as i32, 0, &parent);
             self.as_mut()
                 .data_changed(&index, &index, &QVector::default());
         } else {
             let row = self.rows.len() as i32;
             self.as_mut().begin_insert_rows(&parent, row, row);
-            self.as_mut().rust_mut().rows.push(work);
+            self.as_mut().rust_mut().rows.push(group);
             self.as_mut().end_insert_rows();
         }
     }

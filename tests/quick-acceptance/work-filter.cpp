@@ -107,11 +107,34 @@ namespace
         };
     }
 
-    void writeEntry(QSqlDatabase &database, const int number, const bool favorite)
+    QJsonObject withAssociatedSources(QJsonObject entry)
     {
-        const auto metadata = generatedEntry(number, favorite);
+        QJsonObject group = entry.value(u"group"_s).toObject();
+        QJsonObject work = GroupEntry::anchorWork(entry);
+        const QString id = work.value(u"reference"_s).toObject().value(u"id"_s).toString();
+        work.insert(u"identifiers"_s, QJsonObject {{u"mal"_s, id}});
+        QJsonArray publications {work};
+        QJsonArray references {work.value(u"reference"_s)};
+        int publicationId = id.toInt();
+        for (const QString &source : {u"yummy_anime"_s, u"yummy_anime"_s, u"ani_tokyo"_s, u"anime_spirit"_s})
+        {
+            QJsonObject publication = work;
+            const QJsonObject reference {{u"source"_s, source}, {u"id"_s, QString::number(++publicationId)}};
+            publication.insert(u"reference"_s, reference);
+            publication.insert(u"variants"_s, QJsonArray {});
+            publications.append(publication);
+            references.append(reference);
+        }
+        group.insert(u"publications"_s, publications);
+        group.insert(u"references"_s, references);
+        entry.insert(u"group"_s, group);
+        return entry;
+    }
+
+    void writeEntry(QSqlDatabase &database, const QJsonObject &metadata, const int number)
+    {
         QSqlQuery query(database);
-        require(query.prepare(u"INSERT INTO library VALUES (?, ?, ?)"_s), query.lastError().text());
+        require(query.prepare(u"INSERT OR REPLACE INTO library VALUES (?, ?, ?)"_s), query.lastError().text());
         const auto reference = metadata.value(u"group"_s).toObject().value(u"anchor"_s).toObject();
         query.addBindValue(u"{\"source\":\"%1\",\"id\":\"%2\"}"_s.arg(reference.value(u"source"_s).toString(),
             reference.value(u"id"_s).toString()));
@@ -155,7 +178,7 @@ void exerciseWorkFilter()
     database.setDatabaseName(profile.filePath(u"content-library.sqlite"_s));
     require(database.open(), database.lastError().text());
     for (int number = 1; number <= 5; ++number)
-        writeEntry(database, number, true);
+        writeEntry(database, generatedEntry(number, true), number);
 
     auto controller = std::make_unique<Qbutt::ContentController>();
     auto *favorites = model(*controller, "favorites");
@@ -179,6 +202,11 @@ void exerciseWorkFilter()
             property WorkModel currentSource: backend ? backend.favorites : null
             property string chosenWorkId: ""
             readonly property var proxyModel: filtered
+            Theme {
+                id: workTheme
+                background: "#f4f5f7"
+                foreground: "#1c2128"
+            }
             WorkFilterModel {
                 id: filtered
                 sourceModel: root.currentSource
@@ -188,11 +216,8 @@ void exerciseWorkFilter()
                 objectName: "filteredList"
                 anchors.fill: parent
                 model: filtered
-                delegate: Item {
-                    required property string workId
-                    required property string category
-                    width: 400
-                    height: 32
+                delegate: WorkDelegate {
+                    theme: workTheme
                 }
                 Keys.onDownPressed: incrementCurrentIndex()
                 Keys.onReturnPressed: root.chosenWorkId = filtered.idAt(currentIndex)
@@ -251,7 +276,7 @@ void exerciseWorkFilter()
     require((proxy->rowCount() == 2) && (proxy->idAt(0) == firstManga), u"History source switch changed exact filter"_s);
     int resets = 0;
     QObject::connect(proxy, &QAbstractItemModel::modelReset, view.get(), [&] { ++resets; });
-    writeEntry(database, 6, false);
+    writeEntry(database, generatedEntry(6, false), 6);
     require(controller->refreshHistory(), u"History refresh rejected"_s);
     waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"History snapshot update"_s);
     require((resets == 1) && (history->rowCount(QModelIndex()) == 6) && (proxy->rowCount() == 3)
@@ -268,8 +293,82 @@ void exerciseWorkFilter()
     require(!proxy->sourceModel() && (proxy->rowCount() == 0) && proxy->idAt(0).isEmpty(), u"Null source retained rows"_s);
     view->setProperty("currentSource", QVariant::fromValue(favorites));
     require(proxy->rowCount() == 5, u"Source restoration lost its accumulated collection"_s);
+
+    view->setProperty("currentSource", QVariant::fromValue(history));
+    view->setProperty("categoryPattern", u"^anime$"_s);
+    view->setProperty("width", 260);
+    view->setProperty("height", 600);
+    const QString anchor = u"aniliberty:900001"_s;
+    const QString groupedSources = u"AniLiberty, YummyAnime, AniTokyo, AnimeSpirit"_s;
+    const auto verifySources = [&](const QString &id, const QString &expected)
+    {
+        const int row = proxy->indexOfId(id);
+        const int role = proxy->roleNames().key("source", -1);
+        require((row >= 0) && (role >= 0) && (proxy->idAt(row) == id)
+            && (proxy->data(proxy->index(row, 0), role).toString() == expected),
+            u"Grouped sources differ or replaced the exact anchor: "_s + id);
+        require(QMetaObject::invokeMethod(list, "forceLayout"), u"Grouped work layout failed"_s);
+        QQuickItem *delegate = nullptr;
+        waitFor([&]
+        {
+            return QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, delegate), Q_ARG(int, row))
+                && delegate && (delegate->property("source").toString() == expected);
+        }, u"Grouped sources delegate"_s);
+        QObject *label = nullptr;
+        for (QObject *child : delegate->findChildren<QObject *>())
+        {
+            if (child->property("text").toString() == expected)
+                label = child;
+        }
+        require(label && (label->property("elide").toInt() == Qt::ElideRight), u"Grouped source label is missing"_s);
+        if (expected == groupedSources)
+            require(label->property("truncated").toBool(), u"Long source list did not elide"_s);
+    };
+    verifySources(anchor, u"AniLiberty"_s);
+    const QJsonObject associated = withAssociatedSources(generatedEntry(1, true));
+    writeEntry(database, associated, 1);
+    require(controller->refreshHistory(), u"Grouped source arrival refresh rejected"_s);
+    waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Grouped source arrival"_s);
+    verifySources(anchor, groupedSources);
+    require((proxy->rowCount() == 3) && (history->rowCount(QModelIndex()) == 5),
+        u"Associated sources duplicated a work or changed its category"_s);
+
+    QJsonObject single = associated;
+    single.insert(u"group"_s, GroupEntry::single(GroupEntry::anchorWork(associated)));
+    writeEntry(database, single, 1);
+    require(controller->refreshHistory(), u"Grouped source removal refresh rejected"_s);
+    waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Grouped source removal"_s);
+    verifySources(anchor, u"AniLiberty"_s);
+
+    QJsonObject separated = associated.value(u"group"_s).toObject().value(u"publications"_s).toArray().at(1).toObject();
+    separated.insert(u"year"_s, 2027);
+    const QJsonObject separatedVariant {
+        {u"publication"_s, separated.value(u"reference"_s)},
+        {u"selector"_s, QJsonObject {{u"yummy_anime_video"_s, QJsonObject {
+            {u"id"_s, 1}, {u"episode"_s, "1"}, {u"dubbing"_s, "Generated"},
+            {u"player"_s, "Kodik"}, {u"player_id"_s, 1}
+        }}}}
+    };
+    separated.insert(u"variants"_s, QJsonArray {QJsonObject {
+        {u"reference"_s, separatedVariant}, {u"transport"_s, "video"},
+        {u"languages"_s, QJsonArray {"ru"}}, {u"reported_video_ads"_s, false}
+    }});
+    QJsonObject split = generatedEntry(7, false);
+    split.insert(u"group"_s, GroupEntry::single(separated));
+    QJsonObject splitPreferences = split.value(u"preferences"_s).toObject();
+    splitPreferences.insert(u"selected"_s, separatedVariant);
+    split.insert(u"preferences"_s, splitPreferences);
+    split.insert(u"last_opened"_s, QJsonObject {{u"variant"_s, separatedVariant}, {u"at_unix_millis"_s, 7000}});
+    writeEntry(database, split, 7);
+    require(controller->refreshHistory(), u"Split group snapshot refresh rejected"_s);
+    waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Split group snapshot"_s);
+    verifySources(anchor, u"AniLiberty"_s);
+    verifySources(u"yani:900002"_s, u"YummyAnime"_s);
+    require((proxy->rowCount() == 4) && (history->rowCount(QModelIndex()) == 6),
+        u"Split groups retained stale sources or lost an exact anchor"_s);
+
     controller.reset();
     require(!proxy->sourceModel() && (proxy->rowCount() == 0), u"Destroyed source was retained by proxy"_s);
     require(warnings == 0, u"QML work filtering emitted warnings"_s);
-    qInfo("PASS work_filter production_library=qml exact_identity=ok keyboard=ok incremental=ok reset=ok source_switch=ok no_copy=ok destruction=ok");
+    qInfo("PASS work_filter production_library=qml exact_identity=ok keyboard=ok incremental=ok reset=ok source_switch=ok group_sources=arrival_removal_split deduplicated=ok elide=ok no_copy=ok destruction=ok");
 }

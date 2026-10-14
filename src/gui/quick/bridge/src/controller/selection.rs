@@ -98,13 +98,11 @@ impl ffi::ContentController {
                 .search_association
                 .update(work.clone());
         }
-        if let Some(work) = group.anchor_work() {
-            self.as_mut()
-                .rust_mut()
-                .works
-                .pin_mut()
-                .update(work.clone());
-        }
+        self.as_mut()
+            .rust_mut()
+            .works
+            .pin_mut()
+            .update(group.clone());
         self.as_mut()
             .rust_mut()
             .known_groups

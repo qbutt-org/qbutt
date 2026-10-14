@@ -11,7 +11,7 @@ use qbutt_content::{
     DownloadJob, DownloadStorage, Library, LibraryEntry, LibraryError, LibraryResult, LibraryView,
     LocalBook, OpenRouterSettings, PublicationRef, ReaderProgress, ReaderSettings, SourceSettings,
     TextChapter, TextTranslationService, TextTranslationSettings, TranslationCacheKey,
-    TranslationSelection, VariantPreferences, Work, WorkGroup,
+    TranslationSelection, VariantPreferences, WorkGroup,
 };
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{self, Sender};
@@ -88,7 +88,7 @@ pub enum LibraryUpdate {
         generation: u64,
     },
     Loaded {
-        result: LibraryResult<(Vec<LibraryEntry>, Vec<Work>, ReaderSettings)>,
+        result: LibraryResult<(Vec<LibraryEntry>, Vec<WorkGroup>, ReaderSettings)>,
         sources: Option<LibraryResult<Vec<SourceSettings>>>,
         error_generation: u64,
         reader_generation: Option<u64>,
@@ -96,7 +96,7 @@ pub enum LibraryUpdate {
     },
     Changed {
         result: LibraryResult<Option<Box<LibraryEntry>>>,
-        history: Option<LibraryResult<Vec<Work>>>,
+        history: Option<LibraryResult<Vec<WorkGroup>>>,
         error_generation: u64,
         reader_generation: Option<u64>,
         playback_token: Option<u64>,
@@ -110,7 +110,7 @@ pub enum LibraryUpdate {
         generation: u64,
     },
     History {
-        result: LibraryResult<Vec<Work>>,
+        result: LibraryResult<Vec<WorkGroup>>,
         error_generation: u64,
     },
     SourceSettings {
@@ -808,13 +808,10 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
     }
 }
 
-fn read_history(library: &Library) -> LibraryResult<Vec<Work>> {
-    library.entries(LibraryView::History).map(|entries| {
-        entries
-            .into_iter()
-            .filter_map(|entry| entry.group.anchor_work().cloned())
-            .collect()
-    })
+fn read_history(library: &Library) -> LibraryResult<Vec<WorkGroup>> {
+    library
+        .entries(LibraryView::History)
+        .map(|entries| entries.into_iter().map(|entry| entry.group).collect())
 }
 
 impl ffi::ContentController {
@@ -1031,8 +1028,8 @@ impl ffi::ContentController {
                 result,
                 error_generation,
             } => {
-                let result = result.map(|works| {
-                    self.as_mut().rust_mut().history.pin_mut().replace(works);
+                let result = result.map(|groups| {
+                    self.as_mut().rust_mut().history.pin_mut().replace(groups);
                 });
                 (false, error_generation, None, result)
             }
@@ -1060,13 +1057,11 @@ impl ffi::ContentController {
                             .insert(entry.group.anchor.clone(), entry.group.clone());
                     }
                     for entry in entries.into_iter().filter(|entry| entry.favorite) {
-                        if let Some(work) = entry.group.anchor_work() {
-                            self.as_mut()
-                                .rust_mut()
-                                .favorites
-                                .pin_mut()
-                                .update(work.clone());
-                        }
+                        self.as_mut()
+                            .rust_mut()
+                            .favorites
+                            .pin_mut()
+                            .update(entry.group);
                     }
                     self.as_mut().rust_mut().history.pin_mut().replace(history);
                 });
@@ -1094,13 +1089,11 @@ impl ffi::ContentController {
                             .known_groups
                             .insert(entry.group.anchor.clone(), entry.group.clone());
                         if entry.favorite {
-                            if let Some(work) = entry.group.anchor_work() {
-                                self.as_mut()
-                                    .rust_mut()
-                                    .favorites
-                                    .pin_mut()
-                                    .update(work.clone());
-                            }
+                            self.as_mut()
+                                .rust_mut()
+                                .favorites
+                                .pin_mut()
+                                .update(entry.group);
                         } else {
                             self.as_mut()
                                 .rust_mut()
@@ -1110,8 +1103,8 @@ impl ffi::ContentController {
                         }
                     }
                     history.transpose().map(|history| {
-                        if let Some(works) = history {
-                            self.as_mut().rust_mut().history.pin_mut().replace(works);
+                        if let Some(groups) = history {
+                            self.as_mut().rust_mut().history.pin_mut().replace(groups);
                         }
                     })
                 });

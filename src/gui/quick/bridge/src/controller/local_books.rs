@@ -99,7 +99,11 @@ impl ffi::ContentController {
         match result {
             Ok(()) => {
                 self.as_mut().set_list_mode(ffi::ListMode::Search);
-                self.as_mut().rust_mut().works.pin_mut().update(book.work());
+                self.as_mut()
+                    .rust_mut()
+                    .works
+                    .pin_mut()
+                    .update(WorkGroup::single(book.work()));
                 self.as_mut().show_local_book(book);
             }
             Err(error) => {
