@@ -44,7 +44,7 @@ Item {
         let found = false;
         let loading = false;
         for (let index = 0; index < tiles.count; ++index) {
-            const tile = tiles.itemAt(index) as Loader;
+            const tile = tiles.itemAt(index) as TileLoader;
             if (tile === null || !tile.active)
                 continue;
 
@@ -86,39 +86,40 @@ Item {
         }
     }
 
+    component TileLoader: Loader {
+        id: tile
+        required property int index
+        readonly property int sourceTop: index * root.tileHeight
+        readonly property int sourceHeight: Math.min(root.tileHeight, root.imageHeight - sourceTop)
+        readonly property url tileSource: "image://reader/tile/"
+            + encodeURIComponent(root.source.toString()) + "/" + sourceTop + "/" + sourceHeight
+
+        objectName: "readerTileLoader%1".arg(index)
+        x: root.imageLeft
+        y: root.imageTop + sourceTop * root.displayScale
+        width: root.paintedWidth
+        height: sourceHeight * root.displayScale
+        active: y + height > root.viewportTop && y < root.viewportTop + root.viewportHeight
+        onActiveChanged: root.updateStatus()
+        onStatusChanged: root.updateStatus()
+
+        sourceComponent: Image {
+            objectName: "readerTileImage%1".arg(tile.index)
+            anchors.fill: parent
+            source: tile.tileSource
+            sourceSize: Qt.size(root.imageWidth, tile.sourceHeight)
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            cache: false
+            visible: status === Image.Ready
+            Accessible.ignored: true
+            onStatusChanged: root.updateStatus()
+        }
+    }
+
     Repeater {
         id: tiles
         model: root.hasSource && root.tiled ? Math.ceil(root.imageHeight / root.tileHeight) : 0
-
-        delegate: Loader {
-            id: tile
-            required property int index
-            readonly property int sourceTop: index * root.tileHeight
-            readonly property int sourceHeight: Math.min(root.tileHeight, root.imageHeight - sourceTop)
-            readonly property url tileSource: "image://reader/tile/"
-                + encodeURIComponent(root.source.toString()) + "/" + sourceTop + "/" + sourceHeight
-
-            objectName: "readerTileLoader%1".arg(index)
-            x: root.imageLeft
-            y: root.imageTop + sourceTop * root.displayScale
-            width: root.paintedWidth
-            height: sourceHeight * root.displayScale
-            active: y + height > root.viewportTop && y < root.viewportTop + root.viewportHeight
-            onActiveChanged: root.updateStatus()
-            onStatusChanged: root.updateStatus()
-
-            sourceComponent: Image {
-                objectName: "readerTileImage%1".arg(tile.index)
-                anchors.fill: parent
-                source: tile.tileSource
-                sourceSize: Qt.size(root.imageWidth, tile.sourceHeight)
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-                cache: false
-                visible: status === Image.Ready
-                Accessible.ignored: true
-                onStatusChanged: root.updateStatus()
-            }
-        }
+        delegate: TileLoader {}
     }
 }
