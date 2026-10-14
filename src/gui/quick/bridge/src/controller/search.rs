@@ -245,7 +245,9 @@ impl ffi::ContentController {
             && let Some(group) = groups.iter().find(|group| group.anchor == selected.anchor)
         {
             let selection_generation = self.inspection.generation;
-            self.as_mut().show_group(group, selection_generation);
+            if self.as_mut().show_group(group, selection_generation) {
+                self.as_mut().select_initial_variant();
+            }
         }
     }
 

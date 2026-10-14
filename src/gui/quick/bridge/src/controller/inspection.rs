@@ -105,13 +105,11 @@ impl ffi::ContentController {
                     return;
                 }
                 controller.as_mut().selected_variant_state_changed();
-                if controller.inspection.generation == generation && controller.error_kind.is_none()
+                if controller.inspection.generation == generation
+                    && controller.error_kind.is_none()
+                    && !controller.selected_variant_id.is_empty()
                 {
-                    if controller.selected_variant_id.is_empty() {
-                        controller.as_mut().select_initial_variant();
-                    } else {
-                        controller.as_mut().save_selected_preferences();
-                    }
+                    controller.as_mut().save_selected_preferences();
                 }
             });
         });

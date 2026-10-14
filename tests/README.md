@@ -69,11 +69,21 @@ rebuild afterwards. No real browser session or account is used.
 `bun tests/content-search/progressive-native.ts <acceptance-exe> <server-cert.pem>
 <server-key.pem> success` checks a late publication joining an already selected
 work: variants load automatically while the exact selected variant and row stay
-stable. Repeat with `failure` to verify that an unavailable source is attempted
-once and does not replace existing variants. The isolated fixture build maps
+stable. A held slow inspection must not disable the ready variant or block its
+exact torrent handoff. Favorites must verify their own publication before acting.
+Repeat with `failure` for an unavailable source, `initial` for the first ready
+variant while another source is loading, and `missing` for a vanished saved
+variant that must not be silently replaced. The isolated fixture build maps
 `anilibria.top` and `api.yani.tv` to `127.0.0.1:443` and trusts the fixture CA through
 a temporary `SourceHttp::new` overlay. Restore it and rebuild production transport
 afterwards; this scenario never uses a live profile or source.
+Set `QBUTT_PROGRESSIVE_RENDER_DIR` to an absolute directory for an offscreen
+product render of the ready action while inspection is pending. This does not
+establish native pointer interaction.
+For an interactive VM pass, also set `QBUTT_PROGRESSIVE_POINTER=1`. At
+`FIXTURE click_ready_action`, click the actual Download button within ten seconds.
+The fixture requires the exact handoff while the other inspection remains held;
+it does not substitute a controller call for the pointer action.
 
 `bun tests/content-reading/library.ts <acceptance-exe> <server-cert.pem>
 <server-key.pem> sharing` runs only the hidden native Share scenario. The isolated
@@ -441,15 +451,17 @@ production-window PNGs at 1440×900 and 1280×720. These renders and programmati
 keyboard actions do not establish native pointer interaction, backdrop blur or
 application switching.
 
-Run `--video-actions --lang ru --profile <fresh-absolute-directory>` and
-`--video-actions --dark --lang en --profile <another-fresh-absolute-directory>`
-with the same offscreen environment and `QT_QPA_FONTDIR=C:/Windows/Fonts`.
-Generated stored YummyAnime variants exercise raw prefixed and unprefixed player
-names. Watch and Save must agree with supported acquisition; unsupported players
+Run `bun tests/content-search/video-actions-native.ts <acceptance-exe>
+<server-cert.pem> <server-key.pem> --lang ru`, then repeat with `--dark --lang en`.
+Use the generated TLS fixture overlay for `api.yani.tv` described above.
+The fixture holds inspection to check cached-action guards, then returns seven
+YummyAnime variants with raw prefixed and unprefixed player names. Watch and Save
+must agree with supported acquisition; unsupported players
 retain selection and show the localized next action. Direct rejected calls must
 start no resolution and create no downloads or History. Require exit zero and
-`PASS video_actions`. The profile receives product renders at 1440×900 and
-1280×720. This scenario does not prove real playback or download completion.
+`PASS video_actions`. Add `--profile <fresh-absolute-directory>` to retain product
+renders at 1440×900 and 1280×720. This scenario does not prove real playback or
+download completion.
 
 Run `--work-details` with the same offscreen environment in EN/Light and
 RU/Dark. Generated SQLite publications contain different descriptions and an

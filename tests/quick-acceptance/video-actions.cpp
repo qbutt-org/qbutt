@@ -11,6 +11,7 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -123,11 +124,16 @@ void exerciseVideoActions(const QString &requestedProfile)
     waitFor([&] { return controller->getLibraryState() == Qbutt::Library::LibraryState::Ready; }, u"Library reopen"_s);
     controller->initDownloads(profile + u"/downloads"_s);
     waitFor([&] { return controller->property("downloadsState").toString() == u"ready"; }, u"Download queue"_s);
-    require(controller->setSourceEnabled(u"yani"_s, false), u"Source disable"_s);
-    waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Source preference"_s);
+    waitFor([&]
+    {
+        return controller->property("sourceSettingsState").value<Qbutt::Sources::SettingsState>()
+            == Qbutt::Sources::SettingsState::Ready;
+    }, u"Source settings"_s);
+    int resolutions = 0;
+    QObject::connect(controller, &Qbutt::ContentController::resolvingChanged, &view,
+        [&] { resolutions += controller->property("resolving").toBool() ? 1 : 0; });
     controller->setListMode(Qbutt::Search::ListMode::Favorites);
     controller->selectWork(u"yani:900001"_s);
-    require(controller->setSourceEnabled(u"yani"_s, true), u"Source enable"_s);
     auto *variants = qobject_cast<QAbstractItemModel *>(controller->property("variants").value<QObject *>());
     require(variants && variants->rowCount() == 7, u"Stored variants lost"_s);
     auto *watch = view.rootObject()->findChild<QQuickItem *>(u"contentDownload"_s);
@@ -135,16 +141,41 @@ void exerciseVideoActions(const QString &requestedProfile)
     auto *notice = view.rootObject()->findChild<QQuickItem *>(u"contentUnavailableVariant"_s);
     auto *list = view.rootObject()->findChild<QQuickItem *>(u"contentVariants"_s);
     require(watch && save && notice && list, u"Video actions missing"_s);
-    int resolutions = 0;
-    QObject::connect(controller, &Qbutt::ContentController::resolvingChanged, &view,
-        [&] { resolutions += controller->property("resolving").toBool() ? 1 : 0; });
     const auto roles = variants->roleNames();
+    QHash<QString, QString> rawPlayers;
+    for (int row = 0; row < variants->rowCount(); ++row)
+    {
+        const auto index = variants->index(row, 0);
+        rawPlayers.insert(variants->data(index, roles.key("variantId")).toString(),
+            variants->data(index, roles.key("player")).toString());
+    }
+    const QString selected = controller->property("selectedVariantId").toString();
+    require(controller->property("inspecting").toBool()
+        && (controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
+            == Qbutt::Search::VariantSelectionState::Inspecting), u"Cached variant skipped reinspection"_s);
+    waitFor([&] { return !watch->isEnabled() && !save->isEnabled(); }, u"Cached action guards"_s);
+    require(!controller->downloadSelected(selected), u"Uninspected download accepted"_s);
+    controller->resolveVariant(selected);
+    require(resolutions == 0 && !controller->property("resolving").toBool(),
+        u"Uninspected player started resolution"_s);
+    qInfo("FIXTURE release_video_inspection");
+    waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Generated HTTPS inspection"_s);
+    require(controller->property("errorText").toString().isEmpty()
+        && (controller->property("selectedWorkDescription").toString() == u"Generated HTTPS inspection completed"_s),
+        u"Fresh publication was not inspected"_s);
+    require(controller->property("selectedVariantId").toString() == selected && variants->rowCount() == 7,
+        u"Fresh inspection replaced the exact player selection"_s);
     for (int row = 0; row < variants->rowCount(); ++row)
     {
         const auto index = variants->index(row, 0);
         const QString player = variants->data(index, roles.key("player")).toString();
         const QString id = variants->data(index, roles.key("variantId")).toString();
-        const bool supported = !player.contains(u"Alloha"_s);
+        require(rawPlayers.contains(id), u"Inspection changed a raw player identity"_s);
+        const QString rawPlayer = rawPlayers.value(id);
+        QString displayPlayer = rawPlayer;
+        displayPlayer.remove(u"Плеер "_s);
+        require(player == displayPlayer, u"Inspected player label differs: "_s + rawPlayer);
+        const bool supported = !rawPlayer.contains(u"Alloha"_s);
         controller->selectVariant(id);
         waitFor([&] { return watch->isEnabled() == supported && save->isVisible() == supported; }, player);
         require((controller->property("selectedVariantSaveable").toBool() == supported)
@@ -162,7 +193,7 @@ void exerciseVideoActions(const QString &requestedProfile)
             require(notice->property("text").toString() == QCoreApplication::translate("WorkPane",
                 "This player is not supported yet. Choose another."), u"Missing localized next action"_s);
         }
-        if (player == u"Плеер CVH" || player == u"Плеер Alloha")
+        if (rawPlayer == u"Плеер CVH" || rawPlayer == u"Плеер Alloha")
         {
             for (const QSize &size : {QSize(1440, 900), QSize(1280, 720)})
             {
@@ -182,10 +213,10 @@ void exerciseVideoActions(const QString &requestedProfile)
             require(!controller->property("resolving").toBool(), u"Unsupported player started resolution"_s);
         }
     }
-    require(resolutions == 0 && !controller->property("inspecting").toBool(), u"Fixture made a source request"_s);
+    require(resolutions == 0 && !controller->property("inspecting").toBool(), u"Rejected actions started resolution"_s);
     auto *downloads = qobject_cast<QAbstractItemModel *>(controller->property("downloads").value<QObject *>());
     auto *history = qobject_cast<QAbstractItemModel *>(controller->property("history").value<QObject *>());
     require(downloads && history && downloads->rowCount() == 0 && history->rowCount() == 0,
         u"Rejected actions created jobs or history"_s);
-    qInfo("PASS video_actions raw_player save watch unsupported_no_request no_jobs no_history");
+    qInfo("PASS video_actions native_inspection cached_guard raw_player save watch unsupported_no_request no_jobs no_history");
 }

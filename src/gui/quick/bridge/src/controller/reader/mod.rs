@@ -210,7 +210,9 @@ impl ffi::ContentController {
     }
 
     pub fn open_reader(mut self: Pin<&mut Self>) {
-        if self.reader.reference.is_some() || self.inspecting {
+        if self.reader.reference.is_some()
+            || self.variant_selection_state() != ffi::VariantSelectionState::Available
+        {
             return;
         }
         let Some(variant) = self.variants.find(&self.selected_variant_id.to_string()) else {
@@ -218,7 +220,6 @@ impl ffi::ContentController {
         };
         if !matches!(variant.transport, Transport::Manga | Transport::Text)
             || self.services.is_none()
-            || !self.source_enabled(variant.reference.publication.source)
         {
             return;
         }
@@ -227,7 +228,7 @@ impl ffi::ContentController {
         let reference = variant.reference.clone();
         self.as_mut().set_chapter_query(QString::default());
         if self.reader.reference.is_some()
-            || self.inspecting
+            || self.variant_selection_state() != ffi::VariantSelectionState::Available
             || self.selected_variant_id != selected
         {
             return;

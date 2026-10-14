@@ -1131,7 +1131,7 @@ impl ffi::ContentController {
                         && self.as_mut().set_selection(Some(&group), generation)
                     {
                         self.as_mut().selected_variant_state_changed();
-                        if self.inspection.generation == generation && !self.inspecting {
+                        if self.inspection.generation == generation {
                             if self.selected_variant_id.is_empty() {
                                 self.as_mut().select_initial_variant();
                             } else {

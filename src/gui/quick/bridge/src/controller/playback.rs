@@ -354,19 +354,23 @@ impl ffi::ContentController {
         id: QString,
         source_retry: bool,
     ) {
-        if self.resolving || self.inspecting {
+        if self.resolving {
             return;
+        }
+        match self.variant_state(&id) {
+            ffi::VariantSelectionState::Available => {}
+            ffi::VariantSelectionState::UnsupportedPlayback => {
+                self.as_mut()
+                    .set_error(Some(ffi::ContentError::ExternalPlayback));
+                return;
+            }
+            _ => return,
         }
         let Some(variant) = self.variants.find(&id.to_string()) else {
             return;
         };
         let transport = variant.transport;
         let reference = variant.reference.clone();
-        if transport == Transport::Video && !reference.supports_video_acquisition() {
-            self.as_mut()
-                .set_error(Some(ffi::ContentError::ExternalPlayback));
-            return;
-        }
         let Some(request) = self.source_request(SourceOperation::Resolve(reference.clone())) else {
             return;
         };

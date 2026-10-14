@@ -229,7 +229,9 @@ impl ffi::ContentController {
     }
 
     pub fn download_selected(mut self: Pin<&mut Self>, id: QString) -> bool {
-        if id != self.selected_variant_id {
+        if id != self.selected_variant_id
+            || self.variant_state(&id) != ffi::VariantSelectionState::Available
+        {
             return false;
         }
         let Some(variant) = self.variants.find(&id.to_string()) else {

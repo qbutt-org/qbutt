@@ -4,9 +4,13 @@ import { readFile } from "node:fs/promises";
 
 const [executable, certificate, key, scenario = "success"] = process.argv.slice(2);
 assert(executable && certificate && key, "Expected acceptance executable, certificate and key");
-assert(["success", "failure"].includes(scenario), "Expected success or failure scenario");
+assert(["success", "failure", "initial", "missing"].includes(scenario), "Unknown scenario");
 
 const releaseLate = Promise.withResolvers<void>();
+const releaseInspection = Promise.withResolvers<void>();
+const releaseCachedFast = Promise.withResolvers<void>();
+const releaseCachedLate = Promise.withResolvers<void>();
+if (scenario === "initial") releaseLate.resolve();
 let searches = 0;
 let fastInspections = 0;
 let lateInspections = 0;
@@ -27,7 +31,7 @@ const server = Bun.serve({
                     year: 2026,
                     mal: { id: 9660 },
                     episodes: [],
-                    torrents: [9660, 9662].map(id => ({
+                    torrents: (scenario === "missing" && fastInspections >= 2 ? [9660] : [9660, 9662]).map(id => ({
                         id,
                         label: `Exact variant ${id}`,
                         hash: String(id).padStart(40, "0"),
@@ -41,6 +45,7 @@ const server = Bun.serve({
                 }
                 assert.equal(url.pathname, "/api/v1/anime/releases/9660");
                 ++fastInspections;
+                if (fastInspections === 3) await releaseCachedFast.promise;
                 return Response.json(release);
             }
             assert.equal(url.hostname, "api.yani.tv");
@@ -59,6 +64,7 @@ const server = Bun.serve({
             }
             assert.equal(url.pathname, "/anime/9661");
             ++lateInspections;
+            await (lateInspections === 1 ? releaseInspection.promise : releaseCachedLate.promise);
             if (scenario === "failure") {
                 return new Response("Generated unavailable source", { status: 503 });
             }
@@ -81,14 +87,16 @@ const server = Bun.serve({
 });
 
 const child = spawn(executable, ["--progressive-selection", "--lang", "en"], {
-    windowsHide: true,
+    windowsHide: process.env.QBUTT_PROGRESSIVE_POINTER !== "1",
     env: {
         ...process.env,
-        QT_QPA_PLATFORM: "offscreen",
+        QT_QPA_PLATFORM: process.env.QBUTT_PROGRESSIVE_POINTER === "1" ? "windows" : "offscreen",
         QT_QUICK_BACKEND: "software",
         QT_FORCE_STDERR_LOGGING: "1",
         QT_QPA_FONTDIR: "C:/Windows/Fonts",
         QBUTT_PROGRESSIVE_FAILURE: scenario === "failure" ? "1" : "0",
+        QBUTT_PROGRESSIVE_INITIAL: scenario === "initial" ? "1" : "0",
+        QBUTT_PROGRESSIVE_MISSING: scenario === "missing" ? "1" : "0",
     },
 });
 const exited = new Promise<number | null>((resolve, reject) => {
@@ -97,8 +105,12 @@ const exited = new Promise<number | null>((resolve, reject) => {
 });
 let output = "";
 function capture(chunk: Buffer) {
+    if (process.env.QBUTT_PROGRESSIVE_POINTER === "1") process.stderr.write(chunk);
     output = (output + chunk.toString("utf8")).slice(-64 * 1024);
     if (output.includes("FIXTURE release_late_search")) releaseLate.resolve();
+    if (output.includes("FIXTURE release_late_inspection")) releaseInspection.resolve();
+    if (output.includes("FIXTURE release_cached_fast")) releaseCachedFast.resolve();
+    if (output.includes("FIXTURE release_cached_late")) releaseCachedLate.resolve();
 }
 child.stdout.on("data", capture);
 child.stderr.on("data", capture);
@@ -108,13 +120,16 @@ try {
     if (failure) throw failure;
     assert(output.includes("PASS progressive_selection"), output);
     assert.equal(searches, 2);
-    assert.equal(fastInspections, 1);
-    assert.equal(lateInspections, 1);
+    assert.equal(fastInspections, scenario === "missing" ? 3 : 4);
+    assert.equal(lateInspections, 2);
     console.log(output);
     console.log(JSON.stringify({ ok: true, scenario, searches, fastInspections, lateInspections }));
 } finally {
     clearTimeout(timer);
     releaseLate.resolve();
+    releaseInspection.resolve();
+    releaseCachedFast.resolve();
+    releaseCachedLate.resolve();
     if (child.exitCode === null) {
         child.kill();
         await exited;

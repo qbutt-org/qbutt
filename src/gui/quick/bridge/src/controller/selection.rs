@@ -180,17 +180,39 @@ impl ffi::ContentController {
     }
 
     pub(super) fn variant_selection_state(&self) -> ffi::VariantSelectionState {
-        if self.inspecting {
-            return ffi::VariantSelectionState::Inspecting;
-        }
-        if self.selected_variant_id.is_empty() {
+        self.variant_state(&self.selected_variant_id)
+    }
+
+    pub(super) fn variant_state(&self, id: &QString) -> ffi::VariantSelectionState {
+        if id.is_empty() {
             return ffi::VariantSelectionState::None;
         }
-        let Some(variant) = self.variants.find(&self.selected_variant_id.to_string()) else {
+        let Some(variant) = self.variants.find(&id.to_string()) else {
             return ffi::VariantSelectionState::Unavailable;
         };
         if !self.source_enabled(variant.reference.publication.source) {
             return ffi::VariantSelectionState::SourceDisabled;
+        }
+        let Some(publication) = self
+            .selected_group
+            .as_ref()
+            .and_then(|group| group.publication(&variant.reference.publication))
+        else {
+            return ffi::VariantSelectionState::Unavailable;
+        };
+        if publication.needs_inspection {
+            return if self.inspecting {
+                ffi::VariantSelectionState::Inspecting
+            } else {
+                ffi::VariantSelectionState::Unavailable
+            };
+        }
+        if !publication
+            .variants
+            .iter()
+            .any(|current| current.reference == variant.reference)
+        {
+            return ffi::VariantSelectionState::Unavailable;
         }
         if variant.transport == qbutt_content::Transport::Video
             && !variant.reference.supports_video_acquisition()
@@ -289,7 +311,7 @@ impl ffi::ContentController {
             return;
         }
         self.as_mut().set_error(None);
-        if self.inspection.generation == generation && !self.inspecting {
+        if self.inspection.generation == generation {
             self.as_mut().select_initial_variant();
         }
     }
@@ -386,12 +408,12 @@ impl ffi::ContentController {
     }
 
     pub(super) fn select_initial_variant(mut self: Pin<&mut Self>) {
-        if self.library_state == ffi::LibraryState::Ready
-            && !self.inspecting
-            && self.selected_variant_id.is_empty()
-        {
-            let id = self.variants.id_at(0);
-            if !id.is_empty() {
+        if self.library_state == ffi::LibraryState::Ready && self.selected_variant_id.is_empty() {
+            let first_ready = (0..)
+                .map(|row| self.variants.id_at(row))
+                .take_while(|id| !id.is_empty())
+                .find(|id| self.variant_state(id) == ffi::VariantSelectionState::Available);
+            if let Some(id) = first_ready {
                 self.as_mut().select_variant(id);
             }
         }
@@ -439,7 +461,7 @@ impl ffi::ContentController {
     }
 
     pub(super) fn show_group(mut self: Pin<&mut Self>, group: &WorkGroup, generation: u64) -> bool {
-        // Cached variants cannot become actionable during synchronous selection notifications.
+        // Publication readiness also guards cached variants during selection notifications.
         let inspection_started = self.as_mut().inspect_publications(group, generation);
         if !self.as_mut().set_selection(Some(group), generation) {
             return false;
@@ -492,7 +514,9 @@ impl ffi::ContentController {
                 .rust_mut()
                 .known_groups
                 .insert(group.anchor.clone(), group.clone());
-            self.as_mut().show_group(&group, generation);
+            if self.as_mut().show_group(&group, generation) {
+                self.as_mut().select_initial_variant();
+            }
         }
     }
 
