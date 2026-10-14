@@ -7,6 +7,7 @@
 #include <QColor>
 #include <QCryptographicHash>
 #include <QDebug>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
@@ -158,6 +159,32 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     const QString &inputPath, const QString &targetLanguage)
 {
     require(targetLanguage == u"ru" || targetLanguage == u"en", u"Translation target must be ru or en"_s);
+    const QByteArray peerRoot = qgetenv("QBUTT_MANGA_PEER_ROOT");
+    const QByteArray previousProgramFiles = qgetenv("ProgramFiles");
+    const QByteArray previousLocalAppData = qgetenv("LOCALAPPDATA");
+    const QByteArray previousCodexHome = qgetenv("CODEX_HOME");
+    const auto restorePeerEnvironment = qScopeGuard([&]
+    {
+        if (!peerRoot.isEmpty())
+        {
+            qputenv("ProgramFiles", previousProgramFiles);
+            qputenv("LOCALAPPDATA", previousLocalAppData);
+            qputenv("CODEX_HOME", previousCodexHome);
+        }
+    });
+    if (!peerRoot.isEmpty())
+    {
+        require(QDir::isAbsolutePath(QString::fromUtf8(peerRoot)), u"Controlled manga peer root must be absolute"_s);
+        const QString native = QString::fromUtf8(peerRoot)
+            + u"/nodejs/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin"_s;
+        QFile peerCase(native + u"/case.txt"_s);
+        require(peerCase.open(QIODevice::ReadOnly) && peerCase.readAll().trimmed() == "native"
+            && QFile::exists(native + u"/codex.exe"_s), u"Controlled manga peer is missing"_s);
+        qputenv("ProgramFiles", peerRoot);
+        qputenv("LOCALAPPDATA", peerRoot);
+        qputenv("CODEX_HOME", peerRoot);
+    }
+
     auto *controller = view->findChild<Qbutt::ContentController *>();
     require(controller, u"Manga translation controller is missing"_s);
     waitFor([&]
@@ -290,12 +317,13 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
         && publication.value(u"source"_s).toString() == u"local_book"_s
         && publication.value(u"id"_s).toString() == digest
         && key.value(u"provider"_s).toString() == u"codex-imagegen"_s
+        && key.value(u"pipeline"_s).toInt() == 3
         && cachedImage == translated,
         u"Cached manga translation has the wrong page, selection or image"_s);
     cache.finish();
 
-    // Image generation redraws the page. Geometry and cache identity are checked
-    // here; lettering and artwork preservation require reviewing the saved images.
+    // The cleanup map and native lettering must preserve the page geometry.
+    // Reading quality still requires reviewing these saved images.
     require(translated != original, u"Translated page did not change the original"_s);
 
     activate(translation, 0);

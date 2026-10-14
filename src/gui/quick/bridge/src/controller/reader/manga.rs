@@ -8,8 +8,8 @@ use qbutt_codex::{self as codex, CodexError, ModelModality};
 use qbutt_content::translation::context_tools::{
     ChapterExcerpt, WorkChapterSource, WorkContextTools,
 };
-use qbutt_content::translation::manga::{self, PageJob};
 use qbutt_content::translation::manga_imagegen;
+use qbutt_content::translation::page::{self, PageJob};
 use qbutt_content::{Chapter, ChapterRef, LibraryError, LocalBook, TranslationSelection};
 use tokio::sync::{Semaphore, watch};
 
@@ -99,7 +99,7 @@ impl WorkChapterSource for MangaChapterSource {
                         offset,
                         total_parts: pages.images.len(),
                         parts: Vec::new(),
-                        image: Some(manga::input_image(bytes)?),
+                        image: Some(page::input_image(bytes)?),
                     })
                 })
                 .await
@@ -126,7 +126,7 @@ impl WorkChapterSource for MangaChapterSource {
                 offset,
                 total_parts: pages.images.len(),
                 parts: Vec::new(),
-                image: Some(manga::input_image(bytes)?),
+                image: Some(page::input_image(bytes)?),
             })
         })
     }
@@ -152,7 +152,7 @@ async fn translate(
     if bytes.len() > codex::MAX_IMAGE_BYTES {
         return Err(TranslationFailure::UnsupportedSize);
     }
-    let input = manga::input_image(bytes).map_err(TranslationFailure::Codex)?;
+    let input = page::input_image(bytes).map_err(TranslationFailure::Codex)?;
     let saved = library
         .translation_selection(language.clone())
         .await
@@ -251,6 +251,7 @@ async fn translate(
                 result.png.clone(),
                 result.additions,
                 result.evidence,
+                cancelled.clone(),
             )
             .await
             .map_err(TranslationFailure::Library)?;

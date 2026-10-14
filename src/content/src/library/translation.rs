@@ -220,7 +220,11 @@ impl Library {
         png: &[u8],
         additions: ContextAdditions,
         evidence: &[EvidenceSegment],
+        is_current: impl Fn() -> bool,
     ) -> LibraryResult<TranslationContext> {
+        if !is_current() {
+            return Err(LibraryError::Cancelled);
+        }
         key.validate()?;
         if png.len() > MAX_CACHED_IMAGE_BYTES || !png.starts_with(PNG_SIGNATURE) {
             return Err(LibraryError::InvalidEntry(
@@ -230,6 +234,9 @@ impl Library {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if !is_current() {
+            return Err(LibraryError::Cancelled);
+        }
         let context = accept_translation_context(
             &transaction,
             &key,
@@ -242,6 +249,9 @@ impl Library {
              ON CONFLICT (key) DO UPDATE SET png = excluded.png",
             params![serde_json::to_string(&key)?, png],
         )?;
+        if !is_current() {
+            return Err(LibraryError::Cancelled);
+        }
         transaction.commit()?;
         Ok(context)
     }
@@ -296,15 +306,17 @@ fn accept_translation_context(
         )?;
     }
     match key.provider.as_str() {
-        "codex" => write_selection(
-            transaction,
-            &TranslationSelection {
-                target_language: key.target_language.clone(),
-                model: key.model.clone(),
-                effort: key.effort.clone(),
-                explicit: false,
-            },
-        )?,
+        "codex" | "codex-imagegen" if key.provider == "codex" || key.page.is_some() => {
+            write_selection(
+                transaction,
+                &TranslationSelection {
+                    target_language: key.target_language.clone(),
+                    model: key.model.clone(),
+                    effort: key.effort.clone(),
+                    explicit: false,
+                },
+            )?
+        }
         "openrouter" if key.page.is_none() => {
             let settings = super::translation_service::read_settings(transaction)?;
             if settings.service != TextTranslationService::OpenRouter

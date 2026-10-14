@@ -1,5 +1,7 @@
 //! Shared image-page identity, geometry and evidence-bearing context proposals.
 
+use std::sync::{Arc, atomic::AtomicBool};
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -15,6 +17,9 @@ use super::context::{
 const MAX_CONTEXT_ITEMS: usize = 20;
 const MAX_TEXT_RUNS: usize = 32;
 const MAX_TRANSLATION_BYTES: usize = 3000;
+
+pub(super) const MAX_REGIONS: usize = 60;
+const MAX_CLEANUP_RECTS: usize = 4096;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -49,6 +54,73 @@ pub(super) fn text_runs_schema() -> Value {
             "additionalProperties": false,
         },
     })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FontFamily {
+    Comic,
+    Serif,
+    Condensed,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PageRegion {
+    pub id: String,
+    pub source_text: String,
+    pub translation: Vec<TextRun>,
+    pub family: FontFamily,
+    pub angle: f64,
+    pub text_color: String,
+    pub outline_color: Option<String>,
+    /// Visible outward outline in original-image pixels. Zero requires no color.
+    pub outline_width: f64,
+    pub bounds: Rect,
+    pub layout: Rect,
+    pub cleanup_rects: Vec<Rect>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum RenderStatus {
+    Rendered,
+    EmptyTranslation,
+    InvalidGeometry,
+    Overflow,
+    MissingGlyph,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegionDiagnostic {
+    pub id: String,
+    pub status: RenderStatus,
+    pub font_pixels: u32,
+    pub layout_lines: u32,
+    pub cleanup_pixels: u32,
+}
+
+pub struct RenderedPage {
+    pub png: Vec<u8>,
+    pub diagnostics: Vec<RegionDiagnostic>,
+}
+
+/// Qt validates typography and composes cleaned pixels outside the GUI thread.
+pub trait PageRenderer: Send + Sync + 'static {
+    fn prepare(
+        &self,
+        original: &InputImage,
+        regions: &[PageRegion],
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<Vec<RegionDiagnostic>>;
+
+    fn render(
+        &self,
+        original: &InputImage,
+        cleaned: &[u8],
+        regions: &[PageRegion],
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<RenderedPage>;
 }
 
 pub struct PageJob {
@@ -296,5 +368,147 @@ pub(super) fn context_properties() -> Value {
     json!({
         "terms": { "type": "array", "maxItems": MAX_CONTEXT_ITEMS, "items": term },
         "facts": { "type": "array", "maxItems": MAX_CONTEXT_ITEMS, "items": fact },
+    })
+}
+
+pub fn input_image(bytes: Vec<u8>) -> codex::Result<InputImage> {
+    let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        "image/png"
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        "image/jpeg"
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        "image/webp"
+    } else {
+        return Err(CodexError::Image);
+    };
+    Ok(InputImage { mime, bytes })
+}
+
+pub(super) fn validate_regions(regions: &[PageRegion]) -> codex::Result<()> {
+    if regions.is_empty()
+        || regions.len() > MAX_REGIONS
+        || regions
+            .iter()
+            .map(|region| region.cleanup_rects.len())
+            .sum::<usize>()
+            > MAX_CLEANUP_RECTS
+    {
+        return Err(CodexError::Tool(
+            "Provide one to 60 regions with at most 4096 cleanup rectangles".into(),
+        ));
+    }
+    for (index, region) in regions.iter().enumerate() {
+        let reason = if region.id.trim().is_empty()
+            || region.id.len() > 64
+            || region.id.chars().any(char::is_control)
+            || regions[..index]
+                .iter()
+                .any(|previous| previous.id == region.id)
+        {
+            "id must be nonempty and unique on this page"
+        } else if region.source_text.trim().is_empty() || region.source_text.len() > 2000 {
+            "sourceText must contain the visible original text"
+        } else if !valid_text_runs(&region.translation) {
+            "translation must contain one to 32 styled text runs, at most 3000 bytes in total"
+        } else if !region.angle.is_finite() || !(-45.0..=45.0).contains(&region.angle) {
+            "angle must be between -45 and 45 clockwise degrees"
+        } else if !valid_color(&region.text_color) {
+            "textColor must be #RRGGBB"
+        } else if !region.outline_width.is_finite() || !(0.0..=16.0).contains(&region.outline_width)
+        {
+            "outlineWidth must be between zero and 16 original-image pixels"
+        } else if (region.outline_width > 0.0) != region.outline_color.is_some()
+            || region
+                .outline_color
+                .as_ref()
+                .is_some_and(|color| !valid_color(color))
+        {
+            "outlineColor must be #RRGGBB for a positive outlineWidth, or null for zero width"
+        } else if !region.bounds.valid() {
+            "bounds must be a positive rectangle inside the normalized page"
+        } else if !region.layout.valid() || !region.bounds.contains(&region.layout) {
+            "layout must be a positive rectangle entirely inside bounds"
+        } else if region.cleanup_rects.is_empty() || region.cleanup_rects.len() > 512 {
+            "cleanupRects must contain one to 512 source-lettering rectangles"
+        } else if region
+            .cleanup_rects
+            .iter()
+            .any(|rect| !rect.valid() || !region.bounds.contains(rect))
+        {
+            "each cleanup rectangle must be a positive rectangle entirely inside bounds"
+        } else {
+            continue;
+        };
+        return Err(CodexError::Tool(format!("Region {}: {reason}", index + 1)));
+    }
+    Ok(())
+}
+
+fn valid_color(color: &str) -> bool {
+    color.len() == 7
+        && color.starts_with('#')
+        && color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+}
+
+pub(super) fn validate_rendered_regions(
+    regions: &[PageRegion],
+    diagnostics: &[RegionDiagnostic],
+) -> codex::Result<()> {
+    if diagnostics.len() != regions.len() {
+        return Err(CodexError::Tool(
+            "Manga render region count does not match".into(),
+        ));
+    }
+    let failures: Vec<_> = regions
+        .iter()
+        .zip(diagnostics)
+        .filter(|(region, result)| {
+            region.id != result.id
+                || result.status != RenderStatus::Rendered
+                || result.font_pixels < 9
+                || result.layout_lines == 0
+                || result.cleanup_pixels == 0
+        })
+        .take(5)
+        .collect();
+    if failures.is_empty() {
+        return Ok(());
+    }
+    let details: Vec<_> = failures
+        .into_iter()
+        .map(|(region, result)| {
+            json!({
+                "id": region.id,
+                "status": result.status,
+                "fontPixels": result.font_pixels,
+                "layoutLines": result.layout_lines,
+            })
+        })
+        .collect();
+    Err(CodexError::Tool(format!(
+        "Manga typography has incomplete regions: {}",
+        json!(details)
+    )))
+}
+
+pub(super) fn region_schema() -> Value {
+    let rect = rect_schema();
+    json!({
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "minLength": 1, "maxLength": 64},
+            "sourceText": {"type": "string", "minLength": 1, "maxLength": 2000},
+            "translation": text_runs_schema(),
+            "family": {"type": "string", "enum": ["comic", "serif", "condensed"]},
+            "angle": {"type": "number", "minimum": -45, "maximum": 45},
+            "textColor": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+            "outlineColor": {"type": ["string", "null"], "pattern": "^#[0-9A-Fa-f]{6}$"},
+            "outlineWidth": {"type": "number", "minimum": 0, "maximum": 16},
+            "bounds": rect,
+            "layout": rect,
+            "cleanupRects": {"type": "array", "minItems": 1, "maxItems": 512, "items": rect},
+        },
+        "required": ["id", "sourceText", "translation", "family", "angle", "textColor", "outlineColor", "outlineWidth", "bounds", "layout", "cleanupRects"],
+        "additionalProperties": false,
     })
 }

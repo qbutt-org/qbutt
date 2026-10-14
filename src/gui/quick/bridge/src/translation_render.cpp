@@ -43,14 +43,14 @@ namespace
 
     QRectF rectangle(const Qbutt::MangaRect &rect)
     {
-        return {rect.x, rect.y, rect.width, rect.height};
+        return { rect.x, rect.y, rect.width, rect.height };
     }
 
     bool readLetteringColor(const ::rust::String &value, QColor &color)
     {
         const QString text = fromRust(value);
         color = QColor::fromString(text);
-        return text.isEmpty() || ((text.size() == 7) && text.startsWith(u'#') && color.isValid());
+        return (text.size() == 7) && text.startsWith(u'#') && color.isValid();
     }
 
     QImage readMangaPage(const ::rust::Slice<const std::uint8_t> bytes, QString &error)
@@ -58,7 +58,7 @@ namespace
         if (bytes.size() > 96 * 1024 * 1024)
         {
             error = QStringLiteral("Manga image exceeds the encoded size limit");
-            return {};
+            return { };
         }
 
         QByteArray input(reinterpret_cast<const char *>(bytes.data()), static_cast<qsizetype>(bytes.size()));
@@ -66,7 +66,7 @@ namespace
         if (!buffer.open(QIODevice::ReadOnly))
         {
             error = QStringLiteral("Manga image could not be opened");
-            return {};
+            return { };
         }
         QImageReader reader(&buffer);
         reader.setAutoTransform(true);
@@ -74,7 +74,7 @@ namespace
         if (!Content::MangaRender::supportsImageSize(size))
         {
             error = QStringLiteral("Invalid or oversized manga page");
-            return {};
+            return { };
         }
         const QImage image = reader.read();
         if (image.isNull())
@@ -82,36 +82,105 @@ namespace
         return image;
     }
 
-    ::rust::String statusName(const Content::MangaRender::Status status)
+    QList<Content::MangaRender::Region> nativeRegions(
+        const ::rust::Slice<const Qbutt::MangaRegion> regions, QString &error)
     {
-        using Status = Content::MangaRender::Status;
-        switch (status)
+        QList<Content::MangaRender::Region> result;
+        result.reserve(static_cast<qsizetype>(regions.size()));
+        for (const Qbutt::MangaRegion &value : regions)
         {
-        case Status::Rendered:
-            return "Rendered";
-        case Status::EmptyTranslation:
-            return "EmptyTranslation";
-        case Status::InvalidGeometry:
-            return "InvalidGeometry";
-        case Status::Overflow:
-            return "Overflow";
-        case Status::NoInkMask:
-            return "NoInkMask";
-        case Status::MissingGlyph:
-            return "MissingGlyph";
+            Content::MangaRender::Region region;
+            region.id = fromRust(value.id);
+            for (const Qbutt::MangaTextRun &run : value.translation)
+                region.translation.append({ fromRust(run.text), run.bold, run.italic });
+            switch (value.family)
+            {
+            case Qbutt::MangaFontFamily::Comic:
+                region.family = Content::MangaRender::FontFamily::Comic;
+                break;
+            case Qbutt::MangaFontFamily::Serif:
+                region.family = Content::MangaRender::FontFamily::Serif;
+                break;
+            case Qbutt::MangaFontFamily::Condensed:
+                region.family = Content::MangaRender::FontFamily::Condensed;
+                break;
+            default:
+                error = QStringLiteral("Invalid manga font family");
+                return { };
+            }
+            region.bounds = rectangle(value.bounds);
+            region.layout = rectangle(value.layout);
+            region.angle = value.angle;
+            region.outlineWidth = value.outline_width;
+            if (!readLetteringColor(value.text_color, region.textColor)
+                || (!value.outline_color.empty() && !readLetteringColor(value.outline_color, region.outlineColor)))
+            {
+                error = QStringLiteral("Invalid manga lettering color");
+                return { };
+            }
+            if (value.outline_color.empty())
+                region.outlineColor = QColor();
+            for (const Qbutt::MangaRect &rect : value.cleanup_rects)
+                region.cleanupRects.append(rectangle(rect));
+            result.append(std::move(region));
         }
-        return "Unknown";
+        return result;
+    }
+
+    ::rust::Vec<Qbutt::MangaDiagnostic> nativeDiagnostics(const QList<Content::MangaRender::Diagnostic> &items)
+    {
+        ::rust::Vec<Qbutt::MangaDiagnostic> result;
+        for (const Content::MangaRender::Diagnostic &item : items)
+        {
+            Qbutt::MangaDiagnostic diagnostic;
+            diagnostic.region_id = toRust(item.regionId);
+            diagnostic.status = static_cast<std::uint8_t>(item.status);
+            diagnostic.font_pixels = static_cast<std::uint32_t>(item.fontPixels);
+            diagnostic.layout_lines = static_cast<std::uint32_t>(item.layoutLines);
+            diagnostic.cleanup_pixels = static_cast<std::uint32_t>(item.cleanupPixels);
+            result.push_back(std::move(diagnostic));
+        }
+        return result;
     }
 }
 
-Qbutt::MangaImageOutput Qbutt::normalize_generated_manga_page(
-    const ::rust::Slice<const std::uint8_t> original,
-    const ::rust::Slice<const std::uint8_t> generated, const RenderCancellation &cancelled)
+Qbutt::MangaTypographyOutput Qbutt::prepare_manga_typography(const ::rust::Slice<const std::uint8_t> original,
+    const ::rust::Slice<const MangaRegion> regions, const RenderCancellation &cancelled)
 {
-    MangaImageOutput output;
+    MangaTypographyOutput output;
     if (render_cancelled(cancelled))
     {
-        output.error = "Generated manga page validation cancelled";
+        output.error = "Manga typography cancelled";
+        return output;
+    }
+    QString error;
+    const QImage image = readMangaPage(original, error);
+    if (image.isNull())
+    {
+        output.error = toRust(error);
+        return output;
+    }
+    const QList<Content::MangaRender::Region> pageRegions = nativeRegions(regions, error);
+    if (!error.isEmpty())
+    {
+        output.error = toRust(error);
+        return output;
+    }
+    const Content::MangaRender::Typography typography = Content::MangaRender::prepareTypography(
+        image.size(), pageRegions, [&cancelled] { return render_cancelled(cancelled); });
+    output.error = toRust(typography.error);
+    output.diagnostics = nativeDiagnostics(typography.diagnostics);
+    return output;
+}
+
+Qbutt::MangaRenderOutput Qbutt::render_cleaned_manga_page(const ::rust::Slice<const std::uint8_t> original,
+    const ::rust::Slice<const std::uint8_t> cleaned, const ::rust::Slice<const MangaRegion> regions,
+    const RenderCancellation &cancelled)
+{
+    MangaRenderOutput output;
+    if (render_cancelled(cancelled))
+    {
+        output.error = "Manga composition cancelled";
         return output;
     }
     QString error;
@@ -121,158 +190,31 @@ Qbutt::MangaImageOutput Qbutt::normalize_generated_manga_page(
         output.error = toRust(error);
         return output;
     }
-    const QImage generatedImage = readMangaPage(generated, error);
-    if (generatedImage.isNull())
+    const QImage cleanedImage = readMangaPage(cleaned, error);
+    if (cleanedImage.isNull())
     {
         output.error = toRust(error);
         return output;
     }
-    const Content::MangaRender::NormalizedPage normalized = Content::MangaRender::normalizeGeneratedPage(
-        originalImage.size(), generatedImage, [&cancelled] { return render_cancelled(cancelled); });
-    if (!normalized.error.isEmpty())
-    {
-        output.error = toRust(normalized.error);
-        return output;
-    }
-    output.png = png(normalized.image);
-    if (render_cancelled(cancelled))
-    {
-        output.png.clear();
-        output.error = "Generated manga page validation cancelled";
-    }
-    else if (output.png.empty())
-        output.error = "Generated manga PNG encoding failed";
-    return output;
-}
-
-Qbutt::MangaRenderOutput Qbutt::render_manga_page(
-    ::rust::Slice<const std::uint8_t> original,
-    ::rust::Slice<const MangaRegion> regions,
-    const RenderCancellation &cancelled)
-{
-    MangaRenderOutput output;
-    if (render_cancelled(cancelled))
-    {
-        output.error = "Manga render cancelled";
-        return output;
-    }
-
-    QString error;
-    const QImage image = readMangaPage(original, error);
-    if (image.isNull())
+    const QList<Content::MangaRender::Region> pageRegions = nativeRegions(regions, error);
+    if (!error.isEmpty())
     {
         output.error = toRust(error);
         return output;
     }
-
-    QList<Content::MangaRender::Region> pageRegions;
-    pageRegions.reserve(static_cast<qsizetype>(regions.size()));
-    for (const MangaRegion &value : regions)
-    {
-        Content::MangaRender::Region region;
-        region.id = fromRust(value.id);
-        for (const MangaTextRun &run : value.translation)
-            region.translation.append({fromRust(run.text), run.bold, run.italic});
-        switch (value.family)
-        {
-        case MangaFontFamily::Comic:
-            region.family = Content::MangaRender::FontFamily::Comic;
-            break;
-        case MangaFontFamily::Serif:
-            region.family = Content::MangaRender::FontFamily::Serif;
-            break;
-        case MangaFontFamily::Condensed:
-            region.family = Content::MangaRender::FontFamily::Condensed;
-            break;
-        default:
-            output.error = "Invalid manga font family";
-            return output;
-        }
-        region.bounds = rectangle(value.bounds);
-        region.layout = rectangle(value.layout);
-        region.angle = value.angle;
-        if (!readLetteringColor(value.text_color, region.textColor)
-            || !readLetteringColor(value.outline_color, region.outlineColor))
-        {
-            output.error = "Invalid manga lettering color";
-            return output;
-        }
-        region.ink = value.ink == 1 ? Content::MangaRender::Ink::Light : Content::MangaRender::Ink::Dark;
-        for (const MangaRect &box : value.ink_boxes)
-            region.inkBoxes.append(rectangle(box));
-        pageRegions.append(std::move(region));
-    }
-
-    const Content::MangaRender::Result rendered = Content::MangaRender::render(image, pageRegions,
-        [&cancelled] { return render_cancelled(cancelled); });
+    const Content::MangaRender::Result rendered = Content::MangaRender::renderCleaned(
+        originalImage, cleanedImage, pageRegions, [&cancelled] { return render_cancelled(cancelled); });
+    output.error = toRust(rendered.error);
+    output.diagnostics = nativeDiagnostics(rendered.diagnostics);
     if (!rendered.error.isEmpty())
-    {
-        output.error = toRust(rendered.error);
         return output;
-    }
-
-    output.width = static_cast<std::uint32_t>(image.width());
-    output.height = static_cast<std::uint32_t>(image.height());
-    for (const Content::MangaRender::Diagnostic &value : rendered.diagnostics)
-    {
-        MangaDiagnostic diagnostic;
-        diagnostic.region_id = toRust(value.regionId);
-        diagnostic.status = statusName(value.status);
-        diagnostic.font_pixels = static_cast<std::uint32_t>(value.fontPixels);
-        diagnostic.layout_lines = static_cast<std::uint32_t>(value.layoutLines);
-        diagnostic.masked_pixels = static_cast<std::uint32_t>(value.maskedPixels);
-        output.diagnostics.push_back(std::move(diagnostic));
-    }
-
-    output.result_png = png(rendered.rendered);
-    output.cleaned_png = png(rendered.cleaned);
-    output.mask_png = png(rendered.mask);
-    if (output.result_png.empty() || output.cleaned_png.empty() || output.mask_png.empty())
-        output.error = "Manga PNG encoding failed";
-    return output;
-}
-
-Qbutt::MangaCropOutput Qbutt::crop_manga_page(
-    const ::rust::Slice<const std::uint8_t> encoded,
-    const MangaRect &bounds, const RenderCancellation &cancelled)
-{
-    MangaCropOutput output;
-    if (render_cancelled(cancelled))
-    {
-        output.error = "Manga inspection cancelled";
-        return output;
-    }
-    QString error;
-    const QImage image = readMangaPage(encoded, error);
-    if (image.isNull())
-    {
-        output.error = toRust(error);
-        return output;
-    }
-    const Content::MangaRender::Crop crop = Content::MangaRender::cropPage(image, rectangle(bounds),
-        [&cancelled] { return render_cancelled(cancelled); });
-    if (!crop.error.isEmpty())
-    {
-        output.error = toRust(crop.error);
-        return output;
-    }
-    output.png = png(crop.image);
+    output.png = png(rendered.rendered);
     if (output.png.empty())
-    {
-        output.error = "Manga crop PNG encoding failed";
-        return output;
-    }
-    if (render_cancelled(cancelled))
+        output.error = "Manga PNG encoding failed";
+    else if (render_cancelled(cancelled))
     {
         output.png.clear();
-        output.error = "Manga inspection cancelled";
-        return output;
+        output.error = "Manga composition cancelled";
     }
-    output.bounds.x = crop.bounds.x();
-    output.bounds.y = crop.bounds.y();
-    output.bounds.width = crop.bounds.width();
-    output.bounds.height = crop.bounds.height();
-    output.width = static_cast<std::uint32_t>(crop.image.width());
-    output.height = static_cast<std::uint32_t>(crop.image.height());
     return output;
 }

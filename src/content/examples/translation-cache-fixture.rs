@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use qbutt_content::translation::context::{
     ContextAdditions, ContextEvidence, EvidenceSegment, ImageObservation, TranslationTerm,
 };
-use qbutt_content::translation::manga::{FontFamily, Ink, PageRegion, Rect, TextRun};
+use qbutt_content::translation::page::{FontFamily, PageRegion, Rect, TextRun};
 use qbutt_content::translation::text::{cache_key, restore_cached};
 use qbutt_content::{
     Category, ChapterRef, Library, LibraryError, LibraryView, PublicationRef, Source, TextChapter,
@@ -289,10 +289,10 @@ fn main() -> Result<()> {
             page: Some(0),
             target_language: "ru".into(),
             original_digest: "a".repeat(64),
-            provider: "codex".into(),
+            provider: "codex-imagegen".into(),
             model: "gpt-6.1-sol".into(),
             effort: "low".into(),
-            pipeline: 4,
+            pipeline: 3,
         };
         let regions = vec![PageRegion {
             id: evidence.id.clone(),
@@ -311,8 +311,9 @@ fn main() -> Result<()> {
             ],
             family: FontFamily::Comic,
             angle: -12.0,
-            text_color: Some("#314455".into()),
+            text_color: "#314455".into(),
             outline_color: Some("#ffffff".into()),
+            outline_width: 4.0,
             bounds: Rect {
                 x: 0.1,
                 y: 0.2,
@@ -325,8 +326,7 @@ fn main() -> Result<()> {
                 width: 0.3,
                 height: 0.3,
             },
-            ink: Ink::Dark,
-            ink_boxes: vec![Rect {
+            cleanup_rects: vec![Rect {
                 x: 0.15,
                 y: 0.25,
                 width: 0.2,
@@ -571,6 +571,7 @@ fn exercise_image_cache(
         white,
         ContextAdditions::default(),
         std::slice::from_ref(&evidence),
+        || true,
     )?;
     drop(library);
 
@@ -618,6 +619,28 @@ fn exercise_image_cache(
     ] {
         assert!(library.cached_translation_image(&different)?.is_none());
     }
+    let unsupported_provider = TranslationCacheKey {
+        provider: "another-provider".into(),
+        ..key.clone()
+    };
+    assert!(matches!(
+        library.save_image_translation(
+            unsupported_provider.clone(),
+            context.revision,
+            black,
+            ContextAdditions::default(),
+            std::slice::from_ref(&evidence),
+            || true,
+        ),
+        Err(LibraryError::InvalidEntry(_))
+    ));
+    assert!(
+        library
+            .cached_translation_image(&unsupported_provider)?
+            .is_none()
+    );
+    assert_eq!(library.translation_context(publication, "ru")?, context);
+    assert_eq!(library.translation_selection("ru")?, selection);
     let additions = ContextAdditions {
         terms: vec![TranslationTerm {
             source: "待って".into(),
@@ -632,6 +655,7 @@ fn exercise_image_cache(
         }],
         facts: vec![],
     };
+    exercise_cancelled_image_save(profile, &key, black, &additions, &evidence)?;
     let mut oversized = vec![0; 16 * 1024 * 1024 + 1];
     oversized[..white.len()].copy_from_slice(white);
     for invalid in [b"".as_slice(), b"not a PNG", oversized.as_slice()] {
@@ -642,6 +666,7 @@ fn exercise_image_cache(
                 invalid,
                 additions.clone(),
                 std::slice::from_ref(&evidence),
+                || true,
             ),
             Err(LibraryError::InvalidEntry(_))
         ));
@@ -670,6 +695,7 @@ fn exercise_image_cache(
             black,
             additions.clone(),
             std::slice::from_ref(&evidence),
+            || true,
         ),
         Err(LibraryError::Sqlite(_))
     ));
@@ -696,6 +722,7 @@ fn exercise_image_cache(
             black,
             additions.clone(),
             std::slice::from_ref(&evidence),
+            || true,
         ),
         Err(LibraryError::InvalidEntry(_))
     ));
@@ -717,6 +744,7 @@ fn exercise_image_cache(
                 black,
                 additions.clone(),
                 &[wrong_page],
+                || true,
             )
             .is_err()
     );
@@ -726,6 +754,7 @@ fn exercise_image_cache(
         black,
         additions,
         &[evidence],
+        || true,
     )?;
     assert_eq!(accepted.revision, context.revision + 1);
     assert!(
@@ -736,6 +765,7 @@ fn exercise_image_cache(
                 white,
                 ContextAdditions::default(),
                 &[],
+                || true,
             )
             .is_err()
     );
@@ -788,5 +818,98 @@ fn exercise_image_cache(
     println!(
         "PASS image_cache v10_migration blob_bytes exact_reopen key_miss invalid_png oversized_png sqlite_rollback selection_rollback stale_context corrupt_read original_history_json_independent"
     );
+    Ok(())
+}
+
+fn exercise_cancelled_image_save(
+    profile: &Path,
+    key: &TranslationCacheKey,
+    replacement: &[u8],
+    additions: &ContextAdditions,
+    evidence: &EvidenceSegment,
+) -> Result<()> {
+    use std::cell::Cell;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+    use std::time::Duration;
+
+    let mut writer = Library::open(profile)?;
+    let publication = &key.chapter.variant.publication;
+    let context = writer.translation_context(publication, "ru")?;
+    let selection = writer.translation_selection("ru")?;
+    let previous_image = writer
+        .cached_translation_image(key)?
+        .ok_or("accepted PNG missing")?;
+    let checks = Cell::new(0);
+    let result = writer.save_image_translation(
+        key.clone(),
+        context.revision,
+        replacement,
+        additions.clone(),
+        std::slice::from_ref(evidence),
+        || {
+            checks.set(checks.get() + 1);
+            checks.get() < 3
+        },
+    );
+    assert!(matches!(result, Err(LibraryError::Cancelled)));
+    assert_eq!(writer.translation_context(publication, "ru")?, context);
+    assert_eq!(writer.translation_selection("ru")?, selection);
+    assert_eq!(
+        writer.cached_translation_image(key)?.as_deref(),
+        Some(previous_image.as_slice())
+    );
+
+    let lock = rusqlite::Connection::open(profile.join("content-library.sqlite"))?;
+    lock.execute_batch("BEGIN IMMEDIATE")?;
+    let current = Arc::new(AtomicBool::new(true));
+    let job_current = current.clone();
+    let job_key = key.clone();
+    let job_png = replacement.to_vec();
+    let job_additions = additions.clone();
+    let job_evidence = evidence.clone();
+    let revision = context.revision;
+    let (entered, ready) = mpsc::sync_channel(1);
+    let (finished, outcome) = mpsc::sync_channel(1);
+    let job = std::thread::spawn(move || {
+        let announced = Cell::new(false);
+        let result = writer.save_image_translation(
+            job_key,
+            revision,
+            &job_png,
+            job_additions,
+            &[job_evidence],
+            || {
+                if !announced.replace(true) {
+                    let _ = entered.send(());
+                }
+                job_current.load(Ordering::SeqCst)
+            },
+        );
+        let _ = finished.send(result);
+    });
+    ready.recv_timeout(Duration::from_secs(2))?;
+    assert!(matches!(
+        outcome.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    current.store(false, Ordering::SeqCst);
+    lock.execute_batch("ROLLBACK")?;
+    assert!(matches!(
+        outcome.recv_timeout(Duration::from_secs(2))?,
+        Err(LibraryError::Cancelled)
+    ));
+    job.join().map_err(|_| "cancelled image writer panicked")?;
+    let library = Library::open(profile)?;
+    assert_eq!(library.translation_context(publication, "ru")?, context);
+    assert_eq!(library.translation_selection("ru")?, selection);
+    assert_eq!(
+        library.cached_translation_image(key)?.as_deref(),
+        Some(previous_image.as_slice())
+    );
+    println!("PASS image_cancel write_lock before_commit context_selection_png_rollback");
     Ok(())
 }

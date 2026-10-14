@@ -18,19 +18,12 @@
 
 namespace Content::MangaRender
 {
-    enum class Ink
-    {
-        Dark,
-        Light
-    };
-
     enum class Status
     {
         Rendered,
         EmptyTranslation,
         InvalidGeometry,
         Overflow,
-        NoInkMask,
         MissingGlyph
     };
 
@@ -56,10 +49,10 @@ namespace Content::MangaRender
         qreal angle = 0;
         QColor textColor;
         QColor outlineColor;
+        qreal outlineWidth = 0;
         QRectF bounds;
         QRectF layout;
-        QList<QRectF> inkBoxes;
-        Ink ink = Ink::Dark;
+        QList<QRectF> cleanupRects;
     };
 
     struct Diagnostic
@@ -68,7 +61,7 @@ namespace Content::MangaRender
         Status status = Status::Rendered;
         int fontPixels = 0;
         int layoutLines = 0;
-        int maskedPixels = 0;
+        int cleanupPixels = 0;
     };
 
     struct TextShape
@@ -79,19 +72,18 @@ namespace Content::MangaRender
         Status status = Status::Rendered;
     };
 
-    struct Result
+    struct Typography
     {
-        QImage mask;
-        QImage cleaned;
-        QImage rendered;
+        QList<TextShape> shapes;
         QList<Diagnostic> diagnostics;
         QString error;
     };
 
-    struct Crop
+    struct Result
     {
-        QImage image;
-        QRectF bounds;
+        QImage cleaned;
+        QImage rendered;
+        QList<Diagnostic> diagnostics;
         QString error;
     };
 
@@ -102,13 +94,13 @@ namespace Content::MangaRender
     };
 
     bool supportsImageSize(const QSize &size);
-    NormalizedPage normalizeGeneratedPage(const QSize &originalSize, const QImage &generated,
-        const std::function<bool()> &cancelled = {});
-    Crop cropPage(const QImage &image, const QRectF &bounds,
-        const std::function<bool()> &cancelled = {});
+    NormalizedPage normalizeGeneratedPage(
+        const QSize &originalSize, const QImage &generated, const std::function<bool()> &cancelled = { });
     QFont mangaFont(FontFamily family);
-    TextShape typesetText(const QList<TextRun> &runs, const QRectF &rect, QFont font,
-        int maximumPixels, qreal angle = 0);
-    Result render(const QImage &original, const QList<Region> &regions,
-        const std::function<bool()> &cancelled = {});
+    TextShape typesetText(
+        const QList<TextRun> &runs, const QRectF &rect, QFont font, int maximumPixels, qreal angle = 0);
+    Typography prepareTypography(
+        const QSize &size, const QList<Region> &regions, const std::function<bool()> &cancelled = { });
+    Result renderCleaned(const QImage &original, const QImage &generated, const QList<Region> &regions,
+        const std::function<bool()> &cancelled = { });
 }

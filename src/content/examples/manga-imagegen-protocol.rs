@@ -1,5 +1,5 @@
 //! Public two-phase orchestration through owned app-server processes; no paid AI.
-//! The validator records the typed boundary. Real PNG geometry belongs to Qt QA.
+//! The recording renderer checks the typed boundary. Real PNG geometry belongs to Qt QA.
 
 use std::future::Future;
 use std::path::Path;
@@ -14,9 +14,9 @@ use qbutt_content::translation::context::TranslationContext;
 use qbutt_content::translation::context_tools::{
     ChapterExcerpt, WorkChapterSource, WorkContextTools,
 };
-use qbutt_content::translation::manga::PageJob;
-use qbutt_content::translation::manga_imagegen::{
-    GeneratedPageValidator, cache_key, translate_page,
+use qbutt_content::translation::manga_imagegen::{cache_key, translate_page};
+use qbutt_content::translation::page::{
+    PageJob, PageRegion, PageRenderer, RegionDiagnostic, RenderStatus, RenderedPage,
 };
 use qbutt_content::{Chapter, ChapterRef, PublicationRef, Source, VariantRef, VariantSelector};
 use serde_json::Value;
@@ -86,35 +86,91 @@ impl WorkChapterSource for ImageSource {
     }
 }
 
-struct ContractValidator {
-    calls: AtomicUsize,
+struct ContractRenderer {
+    prepares: AtomicUsize,
+    renders: AtomicUsize,
     case: String,
 }
 
-impl GeneratedPageValidator for ContractValidator {
-    fn normalize(
+impl ContractRenderer {
+    fn diagnostic(&self, region: &PageRegion, stage: &str) -> RegionDiagnostic {
+        RegionDiagnostic {
+            id: region.id.clone(),
+            status: if self.case == format!("{stage}-incomplete") {
+                RenderStatus::Overflow
+            } else {
+                RenderStatus::Rendered
+            },
+            font_pixels: 24,
+            layout_lines: 2,
+            cleanup_pixels: 2,
+        }
+    }
+
+    fn wait_for_cancel(&self, cancelled: Arc<AtomicBool>) -> qbutt_codex::Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !cancelled.load(Ordering::Acquire) {
+            if Instant::now() >= deadline {
+                return Err(CodexError::Timeout);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        Err(CodexError::Cancelled)
+    }
+}
+
+impl PageRenderer for ContractRenderer {
+    fn prepare(
         &self,
         original: &InputImage,
-        png: &[u8],
+        regions: &[PageRegion],
         cancelled: Arc<AtomicBool>,
-    ) -> qbutt_codex::Result<Vec<u8>> {
+    ) -> qbutt_codex::Result<Vec<RegionDiagnostic>> {
         assert_eq!(original.bytes, image(ORIGINAL).bytes);
-        assert_eq!(png, original.bytes);
-        self.calls.fetch_add(1, Ordering::Release);
-        if self.case == "validator-rejected" {
+        assert_eq!(regions.len(), 1);
+        assert_eq!(regions[0].text_color, "#314455");
+        assert_eq!(regions[0].outline_color.as_deref(), Some("#ffffff"));
+        assert_eq!(regions[0].outline_width, 4.0);
+        assert!(regions[0].translation[1].italic);
+        assert!(!regions[0].translation[1].bold);
+        assert!(regions[0].translation[3].italic);
+        assert!(regions[0].translation[3].bold);
+        self.prepares.fetch_add(1, Ordering::Release);
+        if self.case == "prepare-rejected" {
             return Err(CodexError::Image);
         }
-        if self.case == "cancel-normalize" {
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while !cancelled.load(Ordering::Acquire) {
-                if Instant::now() >= deadline {
-                    return Err(CodexError::Timeout);
-                }
-                std::thread::sleep(Duration::from_millis(1));
-            }
-            return Err(CodexError::Cancelled);
+        if self.case == "cancel-prepare" {
+            self.wait_for_cancel(cancelled)?;
         }
-        Ok(png.to_vec())
+        Ok(regions
+            .iter()
+            .map(|region| self.diagnostic(region, "prepare"))
+            .collect())
+    }
+
+    fn render(
+        &self,
+        original: &InputImage,
+        cleaned: &[u8],
+        regions: &[PageRegion],
+        cancelled: Arc<AtomicBool>,
+    ) -> qbutt_codex::Result<RenderedPage> {
+        assert_eq!(original.bytes, image(ORIGINAL).bytes);
+        assert_eq!(cleaned, original.bytes);
+        self.renders.fetch_add(1, Ordering::Release);
+        if self.case == "renderer-rejected" {
+            return Err(CodexError::Image);
+        }
+        if self.case == "cancel-compose" {
+            self.wait_for_cancel(cancelled)?;
+        }
+        Ok(RenderedPage {
+            png: cleaned.to_vec(),
+            diagnostics: regions
+                .iter()
+                .map(|region| self.diagnostic(region, "render"))
+                .collect(),
+        })
     }
 }
 
@@ -147,18 +203,10 @@ async fn exercise(native: &Path) -> Result<()> {
     let original = image(ORIGINAL);
     let key = cache_key(chapter.clone(), 0, &original, "ru", "gpt-6.1-sol", "low");
     assert_eq!(key.provider, "codex-imagegen");
-    assert_eq!(key.pipeline, 2);
-    assert_ne!(
-        key,
-        qbutt_content::translation::manga::cache_key(
-            chapter.clone(),
-            0,
-            &original,
-            "ru",
-            "gpt-6.1-sol",
-            "low"
-        )
-    );
+    assert_eq!(key.pipeline, 3);
+    let mut previous_pipeline = key.clone();
+    previous_pipeline.pipeline = 2;
+    assert_ne!(key, previous_pipeline);
     for case in [
         "ru",
         "en",
@@ -172,8 +220,19 @@ async fn exercise(native: &Path) -> Result<()> {
         "invalid-runs-flags",
         "invalid-runs-plain",
         "metadata-rejected",
-        "validator-rejected",
-        "cancel-normalize",
+        "invalid-layout",
+        "invalid-cleanup",
+        "invalid-color",
+        "invalid-outline-negative",
+        "invalid-outline-range",
+        "invalid-outline-color",
+        "invalid-outline-zero",
+        "prepare-rejected",
+        "prepare-incomplete",
+        "cancel-prepare",
+        "renderer-rejected",
+        "render-incomplete",
+        "cancel-compose",
     ] {
         std::fs::write(native.join("case.txt"), case)?;
         std::fs::write(native.join("trace.jsonl"), "")?;
@@ -187,8 +246,9 @@ async fn exercise(native: &Path) -> Result<()> {
             base.clone(),
             cancelled.clone(),
         )?;
-        let validator = Arc::new(ContractValidator {
-            calls: AtomicUsize::new(0),
+        let renderer = Arc::new(ContractRenderer {
+            prepares: AtomicUsize::new(0),
+            renders: AtomicUsize::new(0),
             case: case.into(),
         });
         let work = translate_page(
@@ -201,16 +261,23 @@ async fn exercise(native: &Path) -> Result<()> {
                 model: Some("gpt-6.1-sol".into()),
                 effort: Some("low".into()),
             },
-            validator.clone(),
+            renderer.clone(),
             &mut context,
             cancelled,
         );
         let control = async {
-            if case == "cancel-normalize" {
+            if case == "cancel-prepare" || case == "cancel-compose" {
                 let deadline = Instant::now() + Duration::from_secs(5);
-                while validator.calls.load(Ordering::Acquire) == 0 {
+                while (if case == "cancel-prepare" {
+                    &renderer.prepares
+                } else {
+                    &renderer.renders
+                })
+                .load(Ordering::Acquire)
+                    == 0
+                {
                     if Instant::now() >= deadline {
-                        return Err("normalization did not start".into());
+                        return Err("native operation did not start".into());
                     }
                     tokio::time::sleep(Duration::from_millis(1)).await;
                 }
@@ -256,17 +323,31 @@ async fn exercise(native: &Path) -> Result<()> {
                 assert_eq!(accepted.revision, 1);
             }
             (failed, Err(CodexError::Tool(_)))
-                if failed.starts_with("invalid-") || failed == "metadata-rejected" => {}
-            ("validator-rejected", Err(CodexError::Image))
-            | ("cancel-normalize", Err(CodexError::Cancelled)) => {}
+                if failed.starts_with("invalid-")
+                    || matches!(
+                        failed,
+                        "metadata-rejected" | "prepare-incomplete" | "render-incomplete"
+                    ) => {}
+            ("prepare-rejected" | "renderer-rejected", Err(CodexError::Image))
+            | ("cancel-prepare" | "cancel-compose", Err(CodexError::Cancelled)) => {}
             (_, Err(error)) => return Err(format!("{case}: unexpected {error}").into()),
             (_, Ok(_)) => return Err(format!("{case}: invalid page accepted").into()),
         }
-        let called = matches!(
-            case,
-            "ru" | "en" | "partial-usage" | "validator-rejected" | "cancel-normalize"
+        let prepared = !case.starts_with("invalid-");
+        let generated = prepared
+            && !matches!(
+                case,
+                "prepare-rejected" | "prepare-incomplete" | "cancel-prepare"
+            );
+        let rendered = generated && case != "metadata-rejected";
+        assert_eq!(
+            renderer.prepares.load(Ordering::Acquire),
+            usize::from(prepared)
         );
-        assert_eq!(validator.calls.load(Ordering::Acquire), usize::from(called));
+        assert_eq!(
+            renderer.renders.load(Ordering::Acquire),
+            usize::from(rendered)
+        );
         let trace = std::fs::read_to_string(native.join("trace.jsonl"))?;
         let trace: Vec<Value> = trace
             .lines()
@@ -276,7 +357,6 @@ async fn exercise(native: &Path) -> Result<()> {
             .iter()
             .filter(|entry| entry.get("pid").is_some())
             .collect();
-        let generated = !case.starts_with("invalid-");
         assert_eq!(processes.len(), if generated { 2 } else { 1 });
         assert_eq!(processes[0]["phase"], "translation");
         for process in &processes {
@@ -290,8 +370,9 @@ async fn exercise(native: &Path) -> Result<()> {
             .count();
         assert_eq!(starts, usize::from(generated));
         println!(
-            "PASS manga_imagegen case={case} imagegen_starts={starts} validator_calls={} processes_reaped={}",
-            usize::from(called),
+            "PASS manga_imagegen case={case} imagegen_starts={starts} native_prepares={} native_renders={} processes_reaped={}",
+            usize::from(prepared),
+            usize::from(rendered),
             processes.len()
         );
     }

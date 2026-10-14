@@ -179,6 +179,7 @@ enum LibraryCommand {
         png: Vec<u8>,
         additions: ContextAdditions,
         evidence: Vec<EvidenceSegment>,
+        cancelled: watch::Receiver<bool>,
         reply: oneshot::Sender<LibraryResult<TranslationContext>>,
     },
     Retry {
@@ -390,6 +391,7 @@ impl LibraryWorker {
         png: Vec<u8>,
         additions: ContextAdditions,
         evidence: Vec<EvidenceSegment>,
+        cancelled: watch::Receiver<bool>,
     ) -> LibraryResult<TranslationContext> {
         let (reply, received) = oneshot::channel();
         self.sender
@@ -399,6 +401,7 @@ impl LibraryWorker {
                 png,
                 additions,
                 evidence,
+                cancelled,
                 reply,
             })
             .await
@@ -629,6 +632,7 @@ impl LibraryWorker {
                             png,
                             additions,
                             evidence,
+                            cancelled,
                             reply,
                         } => {
                             let result = library
@@ -643,6 +647,7 @@ impl LibraryWorker {
                                         &png,
                                         additions,
                                         &evidence,
+                                        || !*cancelled.borrow(),
                                     )
                                 });
                             let _ = reply.send(result);

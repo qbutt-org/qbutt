@@ -4,11 +4,9 @@ use std::sync::{
 };
 
 use qbutt_codex::{self as codex, CodexError, InputImage};
-use qbutt_content::translation::manga::{
-    self, FontFamily, Ink, PageCrop, PageRegion, Rect, RenderLayers,
+use qbutt_content::translation::page::{
+    FontFamily, PageRegion, PageRenderer, RegionDiagnostic, RenderStatus, RenderedPage,
 };
-use qbutt_content::translation::manga_imagegen::GeneratedPageValidator;
-use serde_json::json;
 
 pub struct RenderCancellation {
     flag: Arc<AtomicBool>,
@@ -31,14 +29,12 @@ mod ffi {
         bold: bool,
         italic: bool,
     }
-
     struct MangaRect {
         x: f64,
         y: f64,
         width: f64,
         height: f64,
     }
-
     struct MangaRegion {
         id: String,
         translation: Vec<MangaTextRun>,
@@ -46,190 +42,153 @@ mod ffi {
         angle: f64,
         text_color: String,
         outline_color: String,
+        outline_width: f64,
         bounds: MangaRect,
         layout: MangaRect,
-        ink: u8,
-        ink_boxes: Vec<MangaRect>,
+        cleanup_rects: Vec<MangaRect>,
     }
-
     struct MangaDiagnostic {
         region_id: String,
-        status: String,
+        status: u8,
         font_pixels: u32,
         layout_lines: u32,
-        masked_pixels: u32,
+        cleanup_pixels: u32,
     }
-
-    struct MangaRenderOutput {
-        result_png: Vec<u8>,
-        cleaned_png: Vec<u8>,
-        mask_png: Vec<u8>,
+    struct MangaTypographyOutput {
         diagnostics: Vec<MangaDiagnostic>,
-        width: u32,
-        height: u32,
         error: String,
     }
-
-    struct MangaCropOutput {
+    struct MangaRenderOutput {
         png: Vec<u8>,
-        bounds: MangaRect,
-        width: u32,
-        height: u32,
-        error: String,
-    }
-
-    struct MangaImageOutput {
-        png: Vec<u8>,
+        diagnostics: Vec<MangaDiagnostic>,
         error: String,
     }
 
     unsafe extern "C++" {
         include!("qbutt_quick/translation_render.h");
-
-        fn render_manga_page(
+        fn prepare_manga_typography(
             original: &[u8],
             regions: &[MangaRegion],
             cancelled: &RenderCancellation,
-        ) -> MangaRenderOutput;
-
-        fn crop_manga_page(
-            image: &[u8],
-            bounds: &MangaRect,
-            cancelled: &RenderCancellation,
-        ) -> MangaCropOutput;
-
-        fn normalize_generated_manga_page(
+        ) -> MangaTypographyOutput;
+        fn render_cleaned_manga_page(
             original: &[u8],
-            generated: &[u8],
+            cleaned: &[u8],
+            regions: &[MangaRegion],
             cancelled: &RenderCancellation,
-        ) -> MangaImageOutput;
+        ) -> MangaRenderOutput;
     }
-
     extern "Rust" {
         type RenderCancellation;
-
         fn render_cancelled(cancelled: &RenderCancellation) -> bool;
     }
 }
 
 pub struct QtMangaRenderer;
 
-impl GeneratedPageValidator for QtMangaRenderer {
-    fn normalize(
+impl PageRenderer for QtMangaRenderer {
+    fn prepare(
         &self,
         original: &InputImage,
-        png: &[u8],
+        regions: &[PageRegion],
         cancelled: Arc<AtomicBool>,
-    ) -> codex::Result<Vec<u8>> {
+    ) -> codex::Result<Vec<RegionDiagnostic>> {
         let cancellation = RenderCancellation { flag: cancelled };
-        let output = ffi::normalize_generated_manga_page(&original.bytes, png, &cancellation);
-        if cancellation.flag.load(Ordering::Acquire) {
-            return Err(CodexError::Cancelled);
-        }
-        if !output.error.is_empty() {
-            return Err(CodexError::Tool(output.error));
-        }
-        if output.png.len() > codex::MAX_GENERATED_IMAGE_BYTES {
-            return Err(CodexError::Image);
-        }
-        Ok(output.png)
-    }
-}
-
-impl manga::PageRenderer for QtMangaRenderer {
-    fn crop(
-        &self,
-        image: &InputImage,
-        bounds: &Rect,
-        cancelled: Arc<AtomicBool>,
-    ) -> codex::Result<PageCrop> {
-        let cancellation = RenderCancellation { flag: cancelled };
-        let output = ffi::crop_manga_page(&image.bytes, &native_rect(bounds), &cancellation);
-        if !output.error.is_empty() {
-            return Err(CodexError::Tool(output.error));
-        }
-        Ok(PageCrop {
-            image: InputImage::png(output.png),
-            bounds: Rect {
-                x: output.bounds.x,
-                y: output.bounds.y,
-                width: output.bounds.width,
-                height: output.bounds.height,
-            },
-            width: output.width,
-            height: output.height,
-        })
+        let output =
+            ffi::prepare_manga_typography(&original.bytes, &native_regions(regions), &cancellation);
+        check_error(&output.error, &cancellation)?;
+        diagnostics(output.diagnostics)
     }
 
     fn render(
         &self,
         original: &InputImage,
+        cleaned: &[u8],
         regions: &[PageRegion],
         cancelled: Arc<AtomicBool>,
-    ) -> codex::Result<RenderLayers> {
-        let native_regions = regions
-            .iter()
-            .map(|region| ffi::MangaRegion {
-                id: region.id.clone(),
-                translation: region
-                    .translation
-                    .iter()
-                    .map(|run| ffi::MangaTextRun {
-                        text: run.text.clone(),
-                        bold: run.bold,
-                        italic: run.italic,
-                    })
-                    .collect(),
-                family: match region.family {
-                    FontFamily::Comic => ffi::MangaFontFamily::Comic,
-                    FontFamily::Serif => ffi::MangaFontFamily::Serif,
-                    FontFamily::Condensed => ffi::MangaFontFamily::Condensed,
-                },
-                angle: region.angle,
-                text_color: region.text_color.clone().unwrap_or_default(),
-                outline_color: region.outline_color.clone().unwrap_or_default(),
-                bounds: native_rect(&region.bounds),
-                layout: native_rect(&region.layout),
-                ink: match region.ink {
-                    Ink::Dark => 0,
-                    Ink::Light => 1,
-                },
-                ink_boxes: region.ink_boxes.iter().map(native_rect).collect(),
-            })
-            .collect::<Vec<_>>();
+    ) -> codex::Result<RenderedPage> {
         let cancellation = RenderCancellation { flag: cancelled };
-        let output = ffi::render_manga_page(&original.bytes, &native_regions, &cancellation);
-        if !output.error.is_empty() {
-            return Err(CodexError::Tool(output.error));
+        let output = ffi::render_cleaned_manga_page(
+            &original.bytes,
+            cleaned,
+            &native_regions(regions),
+            &cancellation,
+        );
+        check_error(&output.error, &cancellation)?;
+        if output.png.len() > codex::MAX_GENERATED_IMAGE_BYTES {
+            return Err(CodexError::Image);
         }
-
-        let diagnostics = output
-            .diagnostics
-            .iter()
-            .map(|item| {
-                json!({
-                    "id": item.region_id,
-                    "status": item.status,
-                    "fontPixels": item.font_pixels,
-                    "layoutLines": item.layout_lines,
-                    "maskedPixels": item.masked_pixels,
-                })
-            })
-            .collect::<Vec<_>>();
-        Ok(RenderLayers {
-            result_png: output.result_png,
-            cleaned_png: output.cleaned_png,
-            mask_png: output.mask_png,
-            diagnostics: json!({
-                "width": output.width,
-                "height": output.height,
-                "regions": diagnostics,
-            }),
+        Ok(RenderedPage {
+            png: output.png,
+            diagnostics: diagnostics(output.diagnostics)?,
         })
     }
 }
 
-fn native_rect(rect: &Rect) -> ffi::MangaRect {
+fn check_error(error: &str, cancellation: &RenderCancellation) -> codex::Result<()> {
+    if cancellation.flag.load(Ordering::Acquire) {
+        return Err(CodexError::Cancelled);
+    }
+    if !error.is_empty() {
+        return Err(CodexError::Tool(error.into()));
+    }
+    Ok(())
+}
+
+fn diagnostics(native: Vec<ffi::MangaDiagnostic>) -> codex::Result<Vec<RegionDiagnostic>> {
+    native
+        .into_iter()
+        .map(|item| {
+            let status = match item.status {
+                0 => RenderStatus::Rendered,
+                1 => RenderStatus::EmptyTranslation,
+                2 => RenderStatus::InvalidGeometry,
+                3 => RenderStatus::Overflow,
+                4 => RenderStatus::MissingGlyph,
+                _ => return Err(CodexError::Protocol),
+            };
+            Ok(RegionDiagnostic {
+                id: item.region_id,
+                status,
+                font_pixels: item.font_pixels,
+                layout_lines: item.layout_lines,
+                cleanup_pixels: item.cleanup_pixels,
+            })
+        })
+        .collect()
+}
+
+fn native_regions(regions: &[PageRegion]) -> Vec<ffi::MangaRegion> {
+    regions
+        .iter()
+        .map(|region| ffi::MangaRegion {
+            id: region.id.clone(),
+            translation: region
+                .translation
+                .iter()
+                .map(|run| ffi::MangaTextRun {
+                    text: run.text.clone(),
+                    bold: run.bold,
+                    italic: run.italic,
+                })
+                .collect(),
+            family: match region.family {
+                FontFamily::Comic => ffi::MangaFontFamily::Comic,
+                FontFamily::Serif => ffi::MangaFontFamily::Serif,
+                FontFamily::Condensed => ffi::MangaFontFamily::Condensed,
+            },
+            angle: region.angle,
+            text_color: region.text_color.clone(),
+            outline_color: region.outline_color.clone().unwrap_or_default(),
+            outline_width: region.outline_width,
+            bounds: native_rect(&region.bounds),
+            layout: native_rect(&region.layout),
+            cleanup_rects: region.cleanup_rects.iter().map(native_rect).collect(),
+        })
+        .collect()
+}
+
+fn native_rect(rect: &qbutt_content::translation::page::Rect) -> ffi::MangaRect {
     ffi::MangaRect {
         x: rect.x,
         y: rect.y,

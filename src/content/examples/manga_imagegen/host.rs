@@ -13,6 +13,14 @@ pub fn run() -> Result<()> {
         .ok_or("host path missing")?
         .to_owned();
     let case = std::fs::read_to_string(native.join("case.txt"))?;
+    let native_fixture = case == "native";
+    let fixture_directory = if native_fixture {
+        Some(std::path::PathBuf::from(
+            std::fs::read_to_string(native.join("fixture-directory.txt"))?.trim(),
+        ))
+    } else {
+        None
+    };
     let mut trace = std::fs::OpenOptions::new()
         .append(true)
         .open(native.join("trace.jsonl"))?;
@@ -146,12 +154,10 @@ pub fn run() -> Result<()> {
                 assert_eq!(request["params"]["effort"], "low");
                 let input = request["params"]["input"].as_array().unwrap();
                 assert_eq!(input.len(), 2);
-                assert_eq!(input[1]["url"], format!("data:image/png;base64,{ORIGINAL}"));
+                if !native_fixture {
+                    assert_eq!(input[1]["url"], format!("data:image/png;base64,{ORIGINAL}"));
+                }
                 let prompt: Value = serde_json::from_str(input[0]["text"].as_str().unwrap())?;
-                assert_eq!(
-                    prompt["targetLanguage"],
-                    if case == "en" { "en" } else { "ru" }
-                );
                 send(
                     &mut output,
                     json!({
@@ -159,15 +165,40 @@ pub fn run() -> Result<()> {
                         "result": {"turn": {"id": "fixture-turn", "status": "inProgress"}},
                     }),
                 )?;
-                if image_phase {
+                if native_fixture {
+                    let directory = fixture_directory.as_ref().unwrap();
+                    if image_phase {
+                        use base64::Engine;
+                        let bytes = std::fs::read(directory.join("generated-cleanup.png"))?;
+                        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+                        generate_png(&mut output, &thread, &encoded)?;
+                        writeln!(trace, "{}", json!({"event":"image_generation_started"}))?;
+                        finish(
+                            &mut output,
+                            &thread,
+                            json!({"accepted":true,"reason":""}),
+                            Some(200),
+                        )?;
+                    } else {
+                        let proposal: Value = serde_json::from_slice(&std::fs::read(
+                            directory.join("proposal.json"),
+                        )?)?;
+                        finish(&mut output, &thread, proposal, Some(100))?;
+                    }
+                    trace.flush()?;
+                } else if image_phase {
                     assert!(!case.starts_with("invalid-"));
-                    assert_eq!(prompt["translations"][0]["translation"], translation(&case));
-                    let runs = prompt["translations"][0]["translation"].as_array().unwrap();
-                    assert_eq!(runs[1]["bold"], false);
-                    assert_eq!(runs[1]["italic"], true);
-                    assert_eq!(runs[3]["bold"], true);
-                    assert_eq!(runs[3]["italic"], true);
-                    assert_eq!(prompt["translations"][0]["sourceText"], SOURCE_TEXT);
+                    let cleanup = &prompt["cleanupRegions"][0];
+                    assert_eq!(cleanup["sourceText"], SOURCE_TEXT);
+                    assert_eq!(
+                        cleanup["cleanupRects"],
+                        json!([{"x":0.2,"y":0.2,"width":0.3,"height":0.3}])
+                    );
+                    assert!(cleanup.get("translation").is_none());
+                    assert!(cleanup.get("family").is_none());
+                    assert!(prompt.get("targetLanguage").is_none());
+                    let instructions = request["params"]["input"][0]["text"].as_str().unwrap();
+                    assert!(!instructions.contains("reader") && !instructions.contains("читатель"));
                     assert_eq!(
                         request["params"]["outputSchema"]["required"],
                         json!(["accepted", "reason"])
@@ -181,7 +212,7 @@ pub fn run() -> Result<()> {
                         &thread,
                         json!({
                             "accepted": accepted,
-                            "reason": if accepted {""} else {"Fixture lettering is incomplete"},
+                            "reason": if accepted {""} else {"Fixture cleanup is incomplete"},
                         }),
                         if case == "partial-usage" {
                             None
@@ -226,12 +257,19 @@ pub fn run() -> Result<()> {
 }
 
 fn proposal(case: &str) -> Value {
-    json!({
+    let mut proposal = json!({
         "regions": [{
             "id": "r1",
             "sourceText": SOURCE_TEXT,
             "translation": translation(case),
+            "family":"condensed",
+            "angle":12,
+            "textColor":"#314455",
+            "outlineColor":"#ffffff",
+            "outlineWidth":4,
             "bounds": {"x": 0.1, "y": 0.1, "width": 0.8, "height": 0.8},
+            "layout": {"x":0.2,"y":0.2,"width":0.6,"height":0.6},
+            "cleanupRects":[{"x":0.2,"y":0.2,"width":0.3,"height":0.3}],
         }],
         "terms": [{
             "source": if case == "invalid-term" {"ミナ"} else {"レン"},
@@ -248,7 +286,19 @@ fn proposal(case: &str) -> Value {
             "value": "female",
             "evidence": {"region_id": "r1", "quote": SOURCE_TEXT},
         }],
-    })
+    });
+    let region = &mut proposal["regions"][0];
+    match case {
+        "invalid-layout" => region["layout"]["x"] = json!(0.9),
+        "invalid-cleanup" => region["cleanupRects"] = json!([]),
+        "invalid-color" => region["textColor"] = json!("#12zz33"),
+        "invalid-outline-negative" => region["outlineWidth"] = json!(-1),
+        "invalid-outline-range" => region["outlineWidth"] = json!(17),
+        "invalid-outline-color" => region["outlineColor"] = Value::Null,
+        "invalid-outline-zero" => region["outlineWidth"] = json!(0),
+        _ => {}
+    }
+    proposal
 }
 
 fn translation(case: &str) -> Value {
@@ -282,6 +332,10 @@ fn translation(case: &str) -> Value {
 }
 
 fn generate(output: &mut impl Write, thread: &str) -> Result<()> {
+    generate_png(output, thread, ORIGINAL)
+}
+
+fn generate_png(output: &mut impl Write, thread: &str, encoded: &str) -> Result<()> {
     send(
         output,
         json!({
@@ -304,7 +358,7 @@ fn generate(output: &mut impl Write, thread: &str) -> Result<()> {
                     "type": "imageGeneration",
                     "id": "image-1",
                     "status": "completed",
-                    "result": ORIGINAL,
+                    "result": encoded,
                     "savedPath": null,
                 },
             },

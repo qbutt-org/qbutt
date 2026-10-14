@@ -541,14 +541,16 @@ Run `--reader-manga-translation --lang ru --profile <isolated-directory>` in
 the same offscreen environment with an installed, signed-in Codex. The native
 Qt fixture draws an original page with three vertical Japanese balloons and
 scene artwork, imports it through LocalBook, selects an image-capable model in
-the QML reader and requests a prepared translation through built-in Codex
-imagegen. It checks the exact source digest, page, normalized geometry and PNG
+the QML reader and requests an automatic translation/style map, one built-in
+Codex cleanup edit and native lettering. It checks the exact source digest, page,
+normalized geometry and PNG
 cache identity, Original, and pixel-identical reopening with Codex unavailable. Require exit zero
 and `PASS reader_manga_translation`; inspect the saved original, translated
 page and QQuickWidget PNGs in the isolated profile. This is a generated UI
 scenario, not a host pointer or representative artwork benchmark. The generated
-page can redraw non-text pixels: semantic accuracy, lettering and preservation
-of artwork must be reviewed separately; the PASS line does not establish them.
+cleanup may alter artwork inside its source-lettering rectangles. Semantic
+accuracy, source-style recognition and local background quality still require
+reviewing the saved images; the PASS line does not establish them.
 
 `tests/manga-render` is a standalone Qt 6.12 Gui CMake fixture. Configure it in
 the assigned build slot with `CMAKE_BUILD_TYPE=RelWithDebInfo`, then build
@@ -557,10 +559,11 @@ isolated output-directory argument and `QT_QPA_PLATFORM=offscreen`.
 Require exit zero and `PASS manga_lettering`. Inspect `original.png` and
 `result.png`: the authored page exercises all 12 bundled physical font faces,
 Russian letters including Ё/ё, mixed emphasis, rotated text and light captions.
-`colored.png` checks explicit text/outline colors while retaining identical
-mask/cleaned layers; explicit black/white colors must match the defaults.
-The fixture also checks unchanged pixels outside regions, deterministic
-rerendering, missing-glyph retention and cancellation. It does not establish
+`colored.png` checks explicit text/outline colors while retaining the same
+cleaned layer. Typography preflight returns glyph geometry without destination
+bitmaps. The fixture checks variable outward outline width, explicit unoutlined
+text, unchanged pixels outside cleanupRects/layout, deterministic rerendering,
+missing-glyph retention, malformed geometry and cancellation. It does not establish
 AI style recognition or cleanup quality on scanned artwork.
 
 The same executable accepts `--normalize <original> <generated> <output.png>`
@@ -571,13 +574,24 @@ it does not stitch segments or assess internal panel/artwork preservation.
 Require exit zero and `PASS generated_page_normalized` for valid geometry;
 an altered aspect ratio must return nonzero without writing the output.
 
+A joint no-inference reader check uses the same page fixture and owned protocol
+peer. Build `manga-imagegen-protocol`, copy it as the peer discovery tree's
+`codex.exe`, set its adjacent `case.txt` to `native`, and set
+`fixture-directory.txt` to the authored `tests/manga-render` output directory.
+Set `QBUTT_MANGA_PEER_ROOT` to that isolated discovery root before running
+`--reader-manga-translation --translation-input <authored original.png>` with
+`gpt-6.1-sol` and `low`. The fixture selects this peer inside its own process,
+then checks native composition, atomic PNG cache, exact Original and offline reuse.
+This setup uses only authored fixture maps and PNGs; it does not establish live
+model recognition.
+
 The two QML translation scenarios accept `--translation-model <model>` and
 `--translation-effort <effort>` through the QML controls. Their PASS lines report
 milliseconds from requesting translation until the reader leaves its busy state. Use a fresh profile for
 each configuration so an earlier cache cannot replace the live request.
 Set `QT_FORCE_STDERR_LOGGING=1` on Windows to retain Qt PASS/failure diagnostics.
 `--translation-target ru|en` selects the target through QML. With
-`--translation-input <file>`, the manga scenario uses an authored image; the
+`--translation-input <file>`, the manga scenario uses the supplied image; the
 text scenario expects a two-chapter FB2 with Ren's Japanese name (`レン`) and
 the later sister (`姉`) clue. It translates both chapters, preserves the model
 choice and verifies both complete originals and both offline cached chapters.
@@ -605,12 +619,16 @@ qbutt-content --example manga-imagegen-protocol` checks the public two-phase pag
 consumer with authored PNGs and an owned mock CLI. Require exit zero and every
 `PASS manga_imagegen` check. Invalid term/quote evidence must start no imagegen
 request. Valid RU/EN proposals carry exact context additions and mixed regular,
-italic-only and bold-italic text runs, restore the original after a neighboring
-context image and disable custom tools in the image phase. Invalid run shapes,
-missing flags and count/byte limits must fail before generation. The fixture also
-checks rejection, cancellation, complete/partial usage
-and child reaping. Its recording validator does not establish Qt PNG geometry or
-translation quality; those require the native reader scenario.
+italic-only and bold-italic text runs, colors, outward outline width and normalized
+cleanup/layout rectangles. Cleanup receives source text and cleanup rectangles,
+without target translations or typography. The original is restored after a
+neighboring context image and custom tools stay disabled in the image phase.
+Invalid runs, styles, geometry, context and preflight results must fail before
+generation. The fixture also checks native preflight and final-render rejection,
+cancellation,
+complete/partial usage and child reaping. Its recording renderer does not
+establish Qt PNG geometry or translation quality; those require the native reader
+scenario.
 
 Run `--reader-settings --lang ru` in the same offscreen environment for typed
 profile-wide fit persistence through the existing SQLite worker. Require exit
