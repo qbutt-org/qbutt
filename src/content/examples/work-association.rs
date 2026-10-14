@@ -1,4 +1,7 @@
-//! Generated cross-source search and SQLite reopen scenario; no live profile.
+//! Cross-source title corpus and generated SQLite reopen scenario; no live profile.
+
+#[path = "work-association/public-titles.rs"]
+mod public_titles;
 
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -12,6 +15,8 @@ use url::Url;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() -> Result<()> {
+    public_titles::run()?;
+
     let mut association = WorkAssociation::default();
     let categories = [Category::Movies, Category::Games, Category::Books];
 
