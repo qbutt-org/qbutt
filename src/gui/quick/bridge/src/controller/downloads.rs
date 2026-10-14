@@ -532,49 +532,60 @@ impl ffi::ContentController {
                     VariantSelector::YummyAnimeVideo { player, .. }
                         if matches!(player.as_str(), "Плеер VK" | "Плеер Alloha")
                 ) {
-                    Some(async {
-                        let handle = browser.handle().await.map_err(|_| ())?;
-                        let media = resolve_external_video(
-                            &handle,
-                            choice,
-                            reference,
-                            url.clone(),
-                            source_url.clone(),
-                        )
-                        .await
-                        .map_err(|_| ())?;
-                        prepare_acquisition(media).await.map_err(|_| ())
-                    }
-                    .await)
+                    Some(
+                        async {
+                            let handle = browser.handle().await.map_err(|_| ())?;
+                            let media = resolve_external_video(
+                                &handle,
+                                choice,
+                                reference,
+                                url.clone(),
+                                source_url.clone(),
+                            )
+                            .await
+                            .map_err(|_| ())?;
+                            prepare_acquisition(media).await.map_err(|_| ())
+                        }
+                        .await,
+                    )
                 } else {
                     None
                 }
             } else {
                 None
             };
-            let direct_requires_mux = if let Ok(SourceResponse::Resolve(
-                ResolvedContent::DirectVideo { url, quality, .. },
-            )) = &result
-            {
-                let media = PlaybackMedia::direct(url.clone())
-                    .with_video_height(quality.height());
-                Some(DirectDownload::requires_mux(&media).await)
-            } else {
-                None
-            };
+            let direct_requires_mux =
+                if let Ok(SourceResponse::Resolve(ResolvedContent::DirectVideo {
+                    url,
+                    quality,
+                    ..
+                })) = &result
+                {
+                    let media =
+                        PlaybackMedia::direct(url.clone()).with_video_height(quality.height());
+                    Some(DirectDownload::requires_mux(&media).await)
+                } else {
+                    None
+                };
             let _ = qt_thread.queue(move |mut controller| {
                 if !controller.source_request_current(&request) {
-                    controller.as_mut().playback_download_finished(launch_token, false);
+                    controller
+                        .as_mut()
+                        .playback_download_finished(launch_token, false);
                     return;
                 }
                 controller.as_mut().source_outcome(&request, &result);
                 if !controller.source_request_current(&request) {
-                    controller.as_mut().playback_download_finished(launch_token, false);
+                    controller
+                        .as_mut()
+                        .playback_download_finished(launch_token, false);
                     return;
                 }
 
                 let SourceOperation::Resolve(reference) = &request.operation else {
-                    controller.as_mut().playback_download_finished(launch_token, false);
+                    controller
+                        .as_mut()
+                        .playback_download_finished(launch_token, false);
                     return;
                 };
                 let download = match result {
@@ -586,8 +597,8 @@ impl ffi::ContentController {
                         ..
                     })) if &resolved == reference => match direct_requires_mux {
                         Some(Ok(true)) => {
-                            let media = PlaybackMedia::direct(url)
-                                .with_video_height(quality.height());
+                            let media =
+                                PlaybackMedia::direct(url).with_video_height(quality.height());
                             Ok((None, Some((resolved, title, media))))
                         }
                         Some(Ok(false)) => DirectDownload::new(resolved, title, url)
@@ -626,13 +637,19 @@ impl ffi::ContentController {
                         controller
                             .as_mut()
                             .set_error(Some(ffi::ContentError::Download));
-                        controller.as_mut().playback_download_finished(launch_token, false);
+                        controller
+                            .as_mut()
+                            .playback_download_finished(launch_token, false);
                         return;
                     }
                 };
-                let tools = segmented.as_ref().map(|_| controller.as_mut().request_media_tools());
+                let tools = segmented
+                    .as_ref()
+                    .map(|_| controller.as_mut().request_media_tools());
                 let Some(services) = &controller.services else {
-                    controller.as_mut().playback_download_finished(launch_token, false);
+                    controller
+                        .as_mut()
+                        .playback_download_finished(launch_token, false);
                     return;
                 };
                 let error_thread = controller.qt_thread();
@@ -648,11 +665,13 @@ impl ffi::ContentController {
                         })
                     };
                     let outcome = match download {
-                        Ok(download) => if let Some(id) = retry_id {
-                            queue.retry(&id, download).await
-                        } else {
-                            queue.enqueue(download).await.map(|_| ())
-                        },
+                        Ok(download) => {
+                            if let Some(id) = retry_id {
+                                queue.retry(&id, download).await
+                            } else {
+                                queue.enqueue(download).await.map(|_| ())
+                            }
+                        }
                         Err(error) => Err(error),
                     };
                     let queued = outcome.is_ok();
@@ -665,11 +684,15 @@ impl ffi::ContentController {
                     }
                     let _ = error_thread.queue(move |mut controller| {
                         if !queued {
-                            controller.as_mut().set_error(Some(ffi::ContentError::Download));
+                            controller
+                                .as_mut()
+                                .set_error(Some(ffi::ContentError::Download));
                         } else if fresh {
                             controller.as_mut().download_queued();
                         }
-                        controller.as_mut().playback_download_finished(launch_token, queued);
+                        controller
+                            .as_mut()
+                            .playback_download_finished(launch_token, queued);
                     });
                 });
             });

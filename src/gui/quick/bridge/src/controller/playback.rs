@@ -464,20 +464,22 @@ impl ffi::ContentController {
                     VariantSelector::YummyAnimeVideo { player, .. }
                         if matches!(player.as_str(), "Плеер VK" | "Плеер Alloha")
                 ) {
-                    Some(async {
-                        let handle = browser.handle().await.map_err(|_| ())?;
-                        let media = resolve_external_video(
-                            &handle,
-                            choice,
-                            reference,
-                            url.clone(),
-                            source_url.clone(),
-                        )
-                        .await
-                        .map_err(|_| ())?;
-                        MediaGateway::prepare(media).await.map_err(|_| ())
-                    }
-                    .await)
+                    Some(
+                        async {
+                            let handle = browser.handle().await.map_err(|_| ())?;
+                            let media = resolve_external_video(
+                                &handle,
+                                choice,
+                                reference,
+                                url.clone(),
+                                source_url.clone(),
+                            )
+                            .await
+                            .map_err(|_| ())?;
+                            MediaGateway::prepare(media).await.map_err(|_| ())
+                        }
+                        .await,
+                    )
                 } else {
                     None
                 }
@@ -494,18 +496,17 @@ impl ffi::ContentController {
                 let needs_source_check = matches!(
                     reference.publication.source,
                     Source::RuTracker | Source::NnmClub
-                )
-                    && result
-                        .as_ref()
-                        .err()
-                        .and_then(SourceFailureReason::from_error)
-                        .is_some_and(|reason| {
-                            matches!(
-                                reason,
-                                SourceFailureReason::LoginRequired
-                                    | SourceFailureReason::SourceCheckRequired
-                            )
-                        });
+                ) && result
+                    .as_ref()
+                    .err()
+                    .and_then(SourceFailureReason::from_error)
+                    .is_some_and(|reason| {
+                        matches!(
+                            reason,
+                            SourceFailureReason::LoginRequired
+                                | SourceFailureReason::SourceCheckRequired
+                        )
+                    });
                 controller.as_mut().source_outcome(&request, &result);
                 if controller.resolution.generation != generation
                     || !controller.source_request_current(&request)
@@ -513,12 +514,15 @@ impl ffi::ContentController {
                     return;
                 }
                 if needs_source_check {
-                    controller.as_mut().rust_mut().source_status.pending_variant_action =
-                        Some(PendingVariantAction {
-                            reference: reference.clone(),
-                            id: id.clone(),
-                            resolution_generation: generation,
-                        });
+                    controller
+                        .as_mut()
+                        .rust_mut()
+                        .source_status
+                        .pending_variant_action = Some(PendingVariantAction {
+                        reference: reference.clone(),
+                        id: id.clone(),
+                        resolution_generation: generation,
+                    });
                 }
                 controller.as_mut().set_resolving(false);
                 if controller.resolution.generation != generation
@@ -574,7 +578,12 @@ impl ffi::ContentController {
                         Some(Ok((gateway, prepared))) => {
                             let url = QUrl::from(&QString::from(prepared.url.as_str()));
                             controller.as_mut().accept_video(
-                                gateway, Some(save), None, url, QString::from(title), Some(prepared),
+                                gateway,
+                                Some(save),
+                                None,
+                                url,
+                                QString::from(title),
+                                Some(prepared),
                             );
                         }
                         Some(Err(())) => controller
