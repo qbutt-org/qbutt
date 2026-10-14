@@ -54,7 +54,6 @@ pub(super) struct ReaderState {
     reference: Option<VariantRef>,
     busy: bool,
     error: QString,
-    chapter_title: QString,
     chapter_id: QString,
     page_index: i32,
     scroll_offset: f64,
@@ -82,7 +81,6 @@ impl Default for ReaderState {
             reference: None,
             busy: false,
             error: QString::default(),
-            chapter_title: QString::default(),
             chapter_id: QString::default(),
             page_index: 0,
             scroll_offset: 0.0,
@@ -181,8 +179,19 @@ impl ffi::ContentController {
         &self.selected_work_title
     }
 
-    pub(super) fn reader_chapter_title(&self) -> &QString {
-        &self.reader.chapter_title
+    pub(super) fn reader_chapter_title(&self) -> QString {
+        let Some(chapter) = self
+            .reader
+            .chapters
+            .find(&self.reader.chapter_id.to_string())
+        else {
+            return QString::default();
+        };
+        ffi::chapter_title(
+            &QString::from(chapter.number.as_deref().unwrap_or_default()),
+            &QString::from(chapter.volume.as_deref().unwrap_or_default()),
+            &QString::from(chapter.title.as_deref().unwrap_or_default()),
+        )
     }
 
     pub(super) fn reader_chapter_id(&self) -> &QString {
@@ -243,7 +252,6 @@ impl ffi::ContentController {
             state.reader.text.anchor = QString::default();
             state.reader.text.offset = 0.0;
             state.reader.chapter_id = QString::default();
-            state.reader.chapter_title = QString::default();
             state.reader.page_index = 0;
             state.reader.scroll_offset = 0.0;
             state.reader.shown_position = None;

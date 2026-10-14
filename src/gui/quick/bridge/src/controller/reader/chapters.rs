@@ -210,11 +210,6 @@ impl ffi::ContentController {
         {
             let mut state = self.as_mut().rust_mut();
             state.reader.chapter_id = id;
-            state.reader.chapter_title = ffi::chapter_title(
-                &QString::from(chapter.number.as_deref().unwrap_or_default()),
-                &QString::from(chapter.volume.as_deref().unwrap_or_default()),
-                &QString::from(chapter.title.as_deref().unwrap_or_default()),
-            );
             state.reader.page_index = page as i32;
             state.reader.scroll_offset = scroll_offset;
             state.reader.shown_position = None;

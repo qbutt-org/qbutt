@@ -57,12 +57,14 @@ Pane {
                 horizontalPadding: 0
                 theme: root.theme
                 foreground: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.65)
-                text: root.backend.readerChapterCount > 0
-                    ? qsTr("Chapter %1 of %2").arg(root.backend.readerChapterIndex + 1)
-                        .arg(root.backend.readerChapterCount)
+                text: root.backend.readerChapterTitle.length > 0
+                    ? root.backend.readerChapterTitle
                     : qsTr("Chapters")
                 Accessible.name: qsTr("Choose chapter")
-                Accessible.description: root.backend.readerChapterTitle
+                Accessible.description: root.backend.readerChapterCount > 0
+                    ? qsTr("%1 (%2 of %3)").arg(chapter.text)
+                        .arg(root.backend.readerChapterIndex + 1).arg(root.backend.readerChapterCount)
+                    : chapter.text
                 enabled: root.backend.readerHasChapters && !root.backend.readerBusy
                 onClicked: root.chaptersRequested()
 
@@ -75,6 +77,16 @@ Pane {
                         color: chapter.foreground
                         font: chapter.font
                         elide: Text.ElideRight
+                        textFormat: Text.PlainText
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    Label {
+                        visible: root.backend.readerChapterCount > 0
+                        text: qsTr("%1 of %2").arg(root.backend.readerChapterIndex + 1)
+                            .arg(root.backend.readerChapterCount)
+                        color: chapter.foreground
+                        font: chapter.font
                         verticalAlignment: Text.AlignVCenter
                     }
 

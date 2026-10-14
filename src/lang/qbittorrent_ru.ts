@@ -19209,8 +19209,12 @@ Please choose a different name and try again.</source>
         <translation>Выбрать главу</translation>
     </message>
     <message>
-        <source>Chapter %1 of %2</source>
-        <translation>Глава %1 из %2</translation>
+        <source>%1 of %2</source>
+        <translation>%1 из %2</translation>
+    </message>
+    <message>
+        <source>%1 (%2 of %3)</source>
+        <translation>%1 (%2 из %3)</translation>
     </message>
     <message>
         <source>View</source>

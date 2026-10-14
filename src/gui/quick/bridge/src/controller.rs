@@ -916,7 +916,7 @@ pub mod ffi {
         fn reader_progress_error_text(&self) -> &QString;
         fn reader_progress_pending(&self) -> bool;
         fn reader_title(&self) -> &QString;
-        fn reader_chapter_title(&self) -> &QString;
+        fn reader_chapter_title(&self) -> QString;
         fn reader_chapter_id(&self) -> &QString;
         fn reader_page_url(&self) -> QUrl;
         fn reader_page_index(&self) -> &i32;
@@ -1483,6 +1483,7 @@ impl ffi::ContentController {
         self.as_mut().error_text_changed();
         self.as_mut().library_error_text_changed();
         self.as_mut().sources_changed();
+        self.as_mut().reader_changed();
     }
 
     fn error_text(&self) -> QString {
