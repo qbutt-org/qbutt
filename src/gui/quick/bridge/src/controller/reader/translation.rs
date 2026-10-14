@@ -266,7 +266,7 @@ impl ffi::ContentController {
         let request_generation = if self.reader.is_text {
             self.reader.translation.pending.generation
         } else {
-            self.reader.manga_translation.pending.generation
+            self.reader.manga_translation.generation
         };
         Some((self.reader.chapter.generation, request_generation))
     }

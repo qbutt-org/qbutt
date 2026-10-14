@@ -45,6 +45,7 @@
 #include "reader-translation-choice.h"
 #include "reader-text-translation.h"
 #include "reader-text-ahead.h"
+#include "reader-manga-ahead.h"
 #include "reader-manga-translation.h"
 #include "reader-longstrip.h"
 #include "reader.h"
@@ -549,6 +550,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"reader-openrouter"_s, u"Run explicit text service settings and exact offline cache acceptance, then exit."_s});
     parser.addOption({u"reader-translation-choice"_s, u"Run delayed reader translation choice persistence and session acceptance, then exit."_s});
     parser.addOption({u"reader-text-translation"_s, u"Run generated text through the installed Codex and production reader, then exit."_s});
+    parser.addOption({u"reader-manga-ahead"_s, u"Run bounded manga translation against a controlled Codex peer, then exit."_s});
     parser.addOption({u"reader-text-ahead"_s, u"Run bounded text translation against a controlled Codex peer, then exit."_s});
     parser.addOption({u"reader-manga-translation"_s, u"Run a generated manga page through the installed Codex and production reader, then exit."_s});
     parser.addOption({u"translation-model"_s, u"Select a Codex model for a generated reader translation."_s, u"model"_s});
@@ -604,6 +606,7 @@ int main(int argc, char *argv[])
         && !parser.isSet(u"reader-openrouter"_s)
         && !parser.isSet(u"reader-translation-choice"_s)
         && !parser.isSet(u"reader-text-translation"_s)
+        && !parser.isSet(u"reader-manga-ahead"_s)
         && !parser.isSet(u"reader-text-ahead"_s)
         && !parser.isSet(u"reader-manga-translation"_s)
         && !parser.isSet(u"reader-longstrip"_s)
@@ -715,6 +718,7 @@ int main(int argc, char *argv[])
         || parser.isSet(u"local-book-import"_s)
         || parser.isSet(u"reader-openrouter"_s)
         || parser.isSet(u"reader-translation-choice"_s) || parser.isSet(u"reader-text-translation"_s)
+        || parser.isSet(u"reader-manga-ahead"_s)
         || parser.isSet(u"reader-text-ahead"_s)
         || parser.isSet(u"reader-manga-translation"_s)
         || parser.isSet(u"worklist"_s))
@@ -739,6 +743,7 @@ int main(int argc, char *argv[])
                 runReaderOpenRouter = parser.isSet(u"reader-openrouter"_s),
                 runReaderTranslationChoice = parser.isSet(u"reader-translation-choice"_s),
                 runReaderTextTranslation = parser.isSet(u"reader-text-translation"_s),
+                runReaderMangaAhead = parser.isSet(u"reader-manga-ahead"_s),
                 runReaderTextAhead = parser.isSet(u"reader-text-ahead"_s),
                 runReaderMangaTranslation = parser.isSet(u"reader-manga-translation"_s),
                 requestedTranslationModel = parser.value(u"translation-model"_s),
@@ -760,6 +765,8 @@ int main(int argc, char *argv[])
                 else if (runReaderTextTranslation)
                     exerciseReaderTextTranslation(view, profilePath,
                         requestedTranslationModel, requestedTranslationEffort, translationInput, translationTarget);
+                else if (runReaderMangaAhead)
+                    exerciseReaderMangaAhead(view, profilePath);
                 else if (runReaderTextAhead)
                     exerciseReaderTextAhead(view, profilePath);
                 else if (runReaderMangaTranslation)

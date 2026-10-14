@@ -537,6 +537,29 @@ foreground priority, cancellation on Original/language/model/effort/book/close,
 unchanged reading/history, stale context rejection and child-process cleanup.
 Online original prefetch and native pointer interaction remain separate checks.
 
+For manga read-ahead, build `qbutt-quick-acceptance` and the
+`manga-imagegen-protocol` example. Generate the authored page fixture with
+`tests/manga-render`, then run the following with Qt's `bin` directory on `PATH`:
+
+```powershell
+bun tests/content-reading/manga-ahead.ts `
+    'C:/Tools/qbutt/agent-build/2/manga-cleanup-quick/qbutt-quick-acceptance.exe' `
+    'C:/Tools/qbutt/agent-build/2/cargo/x86_64-pc-windows-msvc/release/examples/manga-imagegen-protocol.exe' `
+    'C:/Tools/qbutt/agent-build/2/manga-cleanup-native-evidence' `
+    'C:/Tools/qbutt/agent-build/2/manga-ahead-qa-final-identity'
+```
+
+This verified command requires a fresh evidence directory. Its authored CBZ and
+owned Codex peer make no live inference calls. Require exit zero and all five
+`PASS reader_manga_ahead` lines. The 23 turns check one next page, accepted names
+and facts, promotion without duplicate inference, exact Original/offline PNG
+cache, unchanged History, current-page priority, cancellation and drain across
+Original/language/model/effort/close/book/chapter resets, stale context rejection
+and foreground retry after a background failure. Each page is prefetched once
+within the current chapter and translation-settings lifecycle; a later prefetch does not permit an earlier failed or canceled target
+to repeat automatically. Visiting that target may retry foreground work.
+Native pointer interaction and model recognition remain separate acceptance checks.
+
 Run `--reader-manga-translation --lang ru --profile <isolated-directory>` in
 the same offscreen environment with an installed, signed-in Codex. The native
 Qt fixture draws an original page with three vertical Japanese balloons and

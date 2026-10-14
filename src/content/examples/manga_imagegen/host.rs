@@ -13,7 +13,8 @@ pub fn run() -> Result<()> {
         .ok_or("host path missing")?
         .to_owned();
     let case = std::fs::read_to_string(native.join("case.txt"))?;
-    let native_fixture = case == "native";
+    let ahead_fixture = case == "ahead";
+    let native_fixture = case == "native" || ahead_fixture;
     let fixture_directory = if native_fixture {
         Some(std::path::PathBuf::from(
             std::fs::read_to_string(native.join("fixture-directory.txt"))?.trim(),
@@ -47,6 +48,7 @@ pub fn run() -> Result<()> {
             .iter()
             .all(|(name, enabled)| !enabled || name == "image_generation")
     );
+    let mut model = String::new();
     let mut output = std::io::stdout().lock();
     for line in std::io::stdin().lock().lines() {
         let request: Value = serde_json::from_str(&line?)?;
@@ -102,23 +104,33 @@ pub fn run() -> Result<()> {
                 &mut output,
                 json!({"id": id, "result": {"imageGeneration": true}}),
             )?,
-            "model/list" => send(
-                &mut output,
-                json!({
-                    "id": id,
-                    "result": {
-                        "data": [{
-                            "model": "gpt-6.1-sol",
-                            "inputModalities": ["text", "image"],
-                            "supportedReasoningEfforts": [{"reasoningEffort": "low"}],
-                            "defaultReasoningEffort": "low",
-                            "isDefault": true,
-                        }],
-                        "nextCursor": null,
-                    },
-                }),
-            )?,
+            "model/list" => {
+                let mut models = json!([{
+                    "model": "gpt-6.1-sol",
+                    "inputModalities": ["text", "image"],
+                    "supportedReasoningEfforts": [{"reasoningEffort": "low"}],
+                    "defaultReasoningEffort": "low",
+                    "isDefault": true,
+                }]);
+                if ahead_fixture {
+                    models[0]["supportedReasoningEfforts"] = json!([
+                        {"reasoningEffort": "low"}, {"reasoningEffort": "medium"},
+                    ]);
+                    let mut alternate = models[0].clone();
+                    alternate["model"] = json!("fixture-alt");
+                    alternate["isDefault"] = json!(false);
+                    models.as_array_mut().unwrap().push(alternate);
+                }
+                send(
+                    &mut output,
+                    json!({
+                        "id": id,
+                        "result": {"data": models, "nextCursor": null},
+                    }),
+                )?;
+            }
             "thread/start" => {
+                model = request["params"]["model"].as_str().unwrap().to_owned();
                 assert_eq!(request["params"]["sandbox"], "read-only");
                 assert_eq!(request["params"]["approvalPolicy"], "never");
                 assert_eq!(request["params"]["ephemeral"], true);
@@ -128,7 +140,10 @@ pub fn run() -> Result<()> {
                     .iter()
                     .map(|tool| tool["name"].as_str().unwrap())
                     .collect();
-                assert_eq!(request["params"]["model"], "gpt-6.1-sol");
+                assert!(
+                    request["params"]["model"] == "gpt-6.1-sol"
+                        || (ahead_fixture && request["params"]["model"] == "fixture-alt")
+                );
                 if image_phase {
                     assert!(names.is_empty());
                 } else {
@@ -151,7 +166,10 @@ pub fn run() -> Result<()> {
                     request["params"]["sandboxPolicy"],
                     json!({"type": "readOnly", "networkAccess": false})
                 );
-                assert_eq!(request["params"]["effort"], "low");
+                assert!(
+                    request["params"]["effort"] == "low"
+                        || (ahead_fixture && request["params"]["effort"] == "medium")
+                );
                 let input = request["params"]["input"].as_array().unwrap();
                 assert_eq!(input.len(), 2);
                 if !native_fixture {
@@ -180,9 +198,48 @@ pub fn run() -> Result<()> {
                             Some(200),
                         )?;
                     } else {
-                        let proposal: Value = serde_json::from_slice(&std::fs::read(
+                        let mut proposal: Value = serde_json::from_slice(&std::fs::read(
                             directory.join("proposal.json"),
                         )?)?;
+                        if ahead_fixture {
+                            let turn = std::fs::read_dir(&native)?
+                                .filter_map(|entry| entry.ok())
+                                .filter(|entry| {
+                                    entry.file_name().to_string_lossy().starts_with("turn-")
+                                })
+                                .count()
+                                + 1;
+                            let recorded = json!({
+                                "pid": std::process::id(),
+                                "turn": turn,
+                                "prompt": prompt,
+                                "model": model,
+                                "effort": request["params"]["effort"],
+                            });
+                            #[cfg(windows)]
+                            let recorded = {
+                                let mut recorded = recorded;
+                                recorded["createdAt"] = json!(process_creation_time()?.to_string());
+                                recorded
+                            };
+                            std::fs::write(
+                                native.join(format!("turn-{turn:03}.json")),
+                                serde_json::to_vec(&recorded)?,
+                            )?;
+                            let deadline =
+                                std::time::Instant::now() + std::time::Duration::from_secs(15);
+                            while native.join(format!("hold-{turn}")).exists() {
+                                if std::time::Instant::now() >= deadline {
+                                    return Err("read-ahead fixture gate timed out".into());
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(5));
+                            }
+                            proposal["facts"][0]["attribute"] =
+                                json!(format!("observation-{turn}"));
+                            if native.join(format!("fail-{turn}")).exists() {
+                                proposal["regions"] = json!([]);
+                            }
+                        }
                         finish(&mut output, &thread, proposal, Some(100))?;
                     }
                     trace.flush()?;
@@ -416,4 +473,31 @@ fn send(output: &mut impl Write, value: Value) -> Result<()> {
     writeln!(output)?;
     output.flush()?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn process_creation_time() -> Result<u64> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+
+    let mut creation = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut exit = creation;
+    let mut kernel = creation;
+    let mut user = creation;
+    if unsafe {
+        GetProcessTimes(
+            GetCurrentProcess(),
+            &mut creation,
+            &mut exit,
+            &mut kernel,
+            &mut user,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
 }

@@ -215,7 +215,8 @@ impl ffi::ContentController {
             .pin_mut()
             .confirm(index as usize, &url);
         if confirmed && self.reader.page_index == index {
-            self.save_reader_position();
+            self.as_mut().save_reader_position();
+            self.as_mut().start_manga_translation();
         }
     }
 

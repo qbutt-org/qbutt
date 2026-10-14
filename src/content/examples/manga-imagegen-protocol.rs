@@ -2,6 +2,7 @@
 //! The recording renderer checks the typed boundary. Real PNG geometry belongs to Qt QA.
 
 use std::future::Future;
+use std::io::Write;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -31,6 +32,30 @@ const SOURCE_TEXT: &str = "レンは姉です。";
 const NEIGHBOR_ID: &str = "33333333-3333-3333-3333-333333333333";
 
 fn main() -> Result<()> {
+    let args: Vec<_> = std::env::args().collect();
+    if args.get(1).is_some_and(|arg| arg == "--prepare-ahead") {
+        if args.len() != 4 {
+            return Err("pass an authored original PNG and isolated profile directory".into());
+        }
+        let original = std::fs::read(&args[2])?;
+        for name in ["first", "second"] {
+            let path = Path::new(&args[3]).join(format!("{name}.cbz"));
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)?;
+            let mut archive = zip::ZipWriter::new(file);
+            for page in 1..=5 {
+                archive.start_file(
+                    format!("{name}/page{page}.png"),
+                    zip::write::SimpleFileOptions::default(),
+                )?;
+                archive.write_all(&original)?;
+            }
+            archive.finish()?;
+        }
+        return Ok(());
+    }
     if std::env::args().any(|arg| arg == "app-server") {
         return host::run();
     }

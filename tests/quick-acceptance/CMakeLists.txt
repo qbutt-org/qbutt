@@ -84,6 +84,8 @@ qt_add_executable(qbutt-quick-acceptance
     reader-translation-choice.h
     reader-text-translation.cpp
     reader-text-translation.h
+    reader-manga-ahead.cpp
+    reader-manga-ahead.h
     reader-text-ahead.cpp
     reader-text-ahead.h
     reader-manga-translation.cpp

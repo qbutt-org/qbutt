@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -14,9 +15,9 @@ use qbutt_content::{Chapter, ChapterRef, LibraryError, LocalBook, TranslationSel
 use tokio::sync::{Semaphore, watch};
 
 use super::super::catalog::Catalog;
+use super::super::ffi;
 use super::super::library::LibraryWorker;
 use super::super::reader_pages::CachedPage;
-use super::super::{Pending, ffi};
 use crate::QtMangaRenderer;
 
 #[derive(Default)]
@@ -24,27 +25,32 @@ pub(super) struct MangaTranslationState {
     pub(super) requested: bool,
     pub(super) busy: bool,
     pub(super) error: Option<TranslationFailure>,
-    pub(super) pending: Pending,
-    pub(super) page: Option<usize>,
-    cancellation: Option<watch::Sender<bool>>,
+    pub(super) generation: u64,
+    job: Option<MangaJob>,
+    attempted_pages: BTreeSet<usize>,
+}
+
+struct MangaJob {
+    page: usize,
+    original_url: String,
+    cancel: watch::Sender<bool>,
 }
 
 impl MangaTranslationState {
     pub(super) fn cancel_job(&mut self) {
-        if let Some(cancel) = self.cancellation.take() {
-            let _ = cancel.send(true);
+        if let Some(job) = &self.job {
+            let _ = job.cancel.send(true);
         }
-        // Keep the job on its runtime so cancellation can drain native work.
-        // The new generation rejects its late UI reply immediately.
-        self.pending.generation = self.pending.generation.wrapping_add(1);
-        drop(self.pending.task.take());
-        self.page = None;
+        // Retain the single job until its native work has drained. Its reply
+        // releases this slot before scheduling the latest current page.
+        self.generation = self.generation.wrapping_add(1);
         self.busy = false;
     }
 
     pub(super) fn reset_chapter(&mut self) {
         self.cancel_job();
         self.error = None;
+        self.attempted_pages.clear();
     }
 
     pub(super) fn reset_reader(&mut self) {
@@ -317,31 +323,52 @@ impl ffi::ContentController {
         {
             return;
         }
-        let index = self.reader.page_index as usize;
-        if self.reader.pages.translated_ready(index) {
-            if self.reader.manga_translation.busy {
+        let current = self.reader.page_index as usize;
+        let current_ready = self.reader.pages.translated_ready(current);
+        if let Some(job) = &self.reader.manga_translation.job {
+            let original_matches = self
+                .reader
+                .pages
+                .original(job.page)
+                .is_some_and(|page| page.url == job.original_url);
+            let relevant = original_matches
+                && ((!current_ready && job.page == current)
+                    || (current_ready && job.page == current + 1));
+            if !*job.cancel.borrow() && !relevant {
                 self.as_mut()
                     .rust_mut()
                     .reader
                     .manga_translation
                     .cancel_job();
-                self.reader_changed();
+            }
+            let busy = !current_ready;
+            if self.reader.manga_translation.busy != busy {
+                self.as_mut().rust_mut().reader.manga_translation.busy = busy;
+                self.as_mut().reader_changed();
             }
             return;
         }
-        if self.reader.manga_translation.busy && self.reader.manga_translation.page == Some(index) {
-            return;
-        }
+        let ahead = current_ready;
+        let index = if ahead {
+            let next = current + 1;
+            if !self.reader.pages.shown(current)
+                || next >= self.reader.pages.count()
+                || self.reader.pages.translated_ready(next)
+                || self
+                    .reader
+                    .manga_translation
+                    .attempted_pages
+                    .contains(&next)
+            {
+                return;
+            }
+            next
+        } else {
+            current
+        };
+        // Original acquisition has its own bounded prefetch. Translation never
+        // issues a duplicate source request or reaches beyond the next page.
         let Some(original) = self.reader.pages.original(index) else {
-            let was_busy = self.reader.manga_translation.busy;
-            self.as_mut()
-                .rust_mut()
-                .reader
-                .manga_translation
-                .cancel_job();
-            if was_busy {
-                self.reader_changed();
-            }
             return;
         };
         let original_url = original.url.clone();
@@ -375,18 +402,18 @@ impl ffi::ContentController {
         let (cancel, cancelled) = watch::channel(false);
         {
             let state = &mut self.as_mut().rust_mut().reader.manga_translation;
-            state.cancel_job();
-            state.page = Some(index);
-            state.busy = true;
-            state.cancellation = Some(cancel);
+            state.generation = state.generation.wrapping_add(1);
+            state.job = Some(MangaJob {
+                page: index,
+                original_url: original_url.clone(),
+                cancel,
+            });
+            state.busy = !ahead;
+            if ahead {
+                state.attempted_pages.insert(index);
+            }
         }
-        let generation = self.reader.manga_translation.pending.generation;
-        self.as_mut().reader_changed();
-        if self.reader.chapter.generation != chapter_generation
-            || self.reader.manga_translation.pending.generation != generation
-        {
-            return;
-        }
+        let generation = self.reader.manga_translation.generation;
         let task = self.services.as_ref().unwrap().runtime.spawn(async move {
             let result = translate(
                 original, chapter, index, chapters, source, library, byte_limit, language,
@@ -394,36 +421,28 @@ impl ffi::ContentController {
             )
             .await;
             let _ = qt_thread.queue(move |mut controller| {
-                if controller.reader.chapter.generation != chapter_generation
-                    || controller.reader.manga_translation.pending.generation != generation
-                    || controller.reader.manga_translation.page != Some(index)
-                {
-                    return;
-                }
-                if controller
-                    .reader
-                    .pages
-                    .original(index)
-                    .as_ref()
-                    .is_none_or(|page| page.url != original_url)
-                {
-                    controller
-                        .as_mut()
-                        .rust_mut()
-                        .reader
-                        .manga_translation
-                        .cancel_job();
-                    controller.as_mut().reader_changed();
-                    controller.as_mut().start_manga_translation();
-                    return;
-                }
+                let was_busy = controller.reader.manga_translation.busy;
                 {
                     let state = &mut controller.as_mut().rust_mut().reader.manga_translation;
-                    state.pending.task = None;
-                    state.cancellation = None;
-                    state.page = None;
+                    state.job = None;
                     state.busy = false;
                 }
+                if controller.reader.chapter.generation != chapter_generation
+                    || controller.reader.manga_translation.generation != generation
+                    || !controller.reader.manga_translation.requested
+                    || controller
+                        .reader
+                        .pages
+                        .original(index)
+                        .is_none_or(|page| page.url != original_url)
+                {
+                    controller.as_mut().start_manga_translation();
+                    if was_busy && !controller.reader.manga_translation.busy {
+                        controller.as_mut().reader_changed();
+                    }
+                    return;
+                }
+                let current = controller.reader.page_index == index as i32;
                 match result {
                     Ok(page) => {
                         controller
@@ -439,26 +458,30 @@ impl ffi::ContentController {
                             &QString::from("manga translation"),
                             &QString::from(error.detail()),
                         );
-                        let state = &mut controller.as_mut().rust_mut().reader.manga_translation;
-                        state.requested = false;
-                        state.error = Some(error);
-                        controller
-                            .as_mut()
-                            .rust_mut()
-                            .reader
-                            .pages
-                            .pin_mut()
-                            .translation_mode(false);
+                        if current {
+                            let state =
+                                &mut controller.as_mut().rust_mut().reader.manga_translation;
+                            state.requested = false;
+                            state.error = Some(error);
+                            controller
+                                .as_mut()
+                                .rust_mut()
+                                .reader
+                                .pages
+                                .pin_mut()
+                                .translation_mode(false);
+                        }
                     }
                 }
-                controller.reader_changed();
+                if current {
+                    controller.as_mut().reader_changed();
+                }
+                controller.as_mut().start_manga_translation();
             });
         });
-        self.as_mut()
-            .rust_mut()
-            .reader
-            .manga_translation
-            .pending
-            .task = Some(task);
+        drop(task);
+        if !ahead {
+            self.reader_changed();
+        }
     }
 }
