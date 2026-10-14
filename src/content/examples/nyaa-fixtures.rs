@@ -49,6 +49,42 @@ use url::Url;
 
 const HASH: &str = "0123456789abcdef0123456789abcdef01234567";
 const OTHER: &str = "abcdef0123456789abcdef0123456789abcdef01";
+const MARKDOWN: &str = r#"# Generated instructions
+
+Keep **all** files, then *verify* them.
+
+1. Run `qbutt --check`.
+2. Read [guide](https://example.test/guide?edition=1&lang=en).
+
+> Do not overwrite unrelated files.
+
+- Preserve:
+  - video.mkv
+  - subtitles.ass
+
+- [x] Download complete
+- [ ] Verify files
+
+| Track | Language |
+| --- | --- |
+| Video | Japanese |
+
+```text
+echo "**literal** <tag>"
+```
+
+[![Map](/download/map.png)](https://example.test/map)
+
+<div>Plain <strong>HTML</strong> and <a href="/help">relative guide</a>.</div>
+
+<noscript>Fallback instructions remain visible.</noscript>
+
+<script>SHOULD_NOT_APPEAR</script>
+<style>SHOULD_NOT_APPEAR</style>
+<iframe src="/download/frame">SHOULD_NOT_APPEAR</iframe>
+
+[Unsafe](javascript:alert(1)) and [local file](file:///C:/private.txt).
+"#;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -75,6 +111,67 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         work.description.as_deref(),
         Some("Generated public-domain sample")
     );
+    let markdown_reference = PublicationRef {
+        source: Source::Nyaa,
+        id: "44".into(),
+    };
+    let before_description = fixture.hits.load(Ordering::SeqCst);
+    let described = source.inspect(&markdown_reference).await?;
+    let description = described
+        .description
+        .as_deref()
+        .ok_or("missing description")?;
+    assert!(description.starts_with("Generated instructions\n\nKeep all files, then verify them."));
+    assert!(description.contains("1. Run qbutt --check."));
+    assert!(description.contains("2. Read guide (https://example.test/guide?edition=1&lang=en)."));
+    assert!(description.contains("Do not overwrite unrelated files."));
+    assert!(description.contains("Preserve:\n  - video.mkv\n  - subtitles.ass"));
+    assert!(description.contains("✓ Download complete"));
+    assert!(description.contains("□ Verify files"));
+    assert!(description.contains("Track\tLanguage\nVideo\tJapanese"));
+    assert!(description.contains("echo \"**literal** <tag>\""));
+    assert!(!description.contains("```"));
+    assert!(description.contains(&format!(
+        "Map ({}) (https://example.test/map)",
+        fixture.origin.join("/download/map.png")?
+    )));
+    assert!(description.contains(&format!(
+        "Plain HTML and relative guide ({}).",
+        fixture.origin.join("/help")?
+    )));
+    assert!(description.contains("Fallback instructions remain visible."));
+    for unsafe_text in ["SHOULD_NOT_APPEAR", "javascript:", "file:///"] {
+        assert!(
+            !description.contains(unsafe_text),
+            "unsafe description: {unsafe_text}"
+        );
+    }
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), before_description + 1);
+    assert_eq!(fixture.payload.load(Ordering::SeqCst), 0);
+    assert!(
+        source
+            .inspect(&PublicationRef {
+                source: Source::Nyaa,
+                id: "45".into()
+            })
+            .await?
+            .description
+            .is_none()
+    );
+    for id in ["46", "47", "48", "49", "50"] {
+        assert!(
+            matches!(
+                source
+                    .inspect(&PublicationRef {
+                        source: Source::Nyaa,
+                        id: id.into()
+                    })
+                    .await,
+                Err(Error::ResponseTooLarge)
+            ),
+            "unbounded description: {id}"
+        );
+    }
     assert!(matches!(
         source.resolve(&found.variants[0].reference).await?,
         ResolvedContent::Torrent { .. }
@@ -175,7 +272,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert!(fixture.payload.load(Ordering::SeqCst) == 0);
     fixture.stop().await;
     println!(
-        "PASS nyaa_fixtures generated_https=ok categories=confirmed metadata=reported exact_id_hash=ok changed_missing=rejected empty=ok challenge=rejected bounded_response=ok timeout=ok cancel=connection_closed torrent_payload=none"
+        "PASS nyaa_fixtures generated_https=ok categories=confirmed metadata=reported \
+         exact_id_hash=ok changed_missing=rejected empty=ok challenge=rejected \
+         bounded_response=ok timeout=ok cancel=connection_closed torrent_payload=none \
+         description=paragraphs_lists_tasks_tables_code_links_html_safe \
+         no_remote_images=ok description_input_markup_output_depth=bounded"
     );
     Ok(())
 }
@@ -236,7 +337,11 @@ fn search_page(origin: &Url, query: &str, route: &str) -> String {
     }
 }
 
-fn detail_page(id: &str, hash: &str) -> String {
+fn detail_page(id: &str, hash: &str, description: &str) -> String {
+    let description = description
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
     format!(
         r#"<!doctype html><div class="container">
             <div class="panel">
@@ -257,7 +362,7 @@ fn detail_page(id: &str, hash: &str) -> String {
                     <a href="magnet:?xt=urn:btih:{hash}">Magnet</a>
                 </div>
             </div>
-            <div id="torrent-description">Generated public-domain sample</div>
+            <div id="torrent-description">{description}</div>
         </div>"#
     )
 }
@@ -369,10 +474,56 @@ impl Fixture {
                         let (status, body) = match url.path() {
                             "/view/404" => ("404 Not Found", String::new()),
                             "/view/410" => ("410 Gone", String::new()),
-                            "/view/43" => ("200 OK", detail_page("44", HASH)),
+                            "/view/43" => (
+                                "200 OK",
+                                detail_page("44", HASH, "Generated public-domain sample"),
+                            ),
+                            "/view/44" => ("200 OK", detail_page("44", HASH, MARKDOWN)),
+                            "/view/45" => (
+                                "200 OK",
+                                detail_page("45", HASH, "#### No description."),
+                            ),
+                            "/view/46" => {
+                                let markdown = format!("{}Generated", " ".repeat(32 * 1024));
+                                ("200 OK", detail_page("46", HASH, &markdown))
+                            }
+                            "/view/47" => {
+                                let markdown = format!(
+                                    "{}\n\n[long]: https://example.test/{}",
+                                    "[guide][long] ".repeat(64),
+                                    "x".repeat(2048),
+                                );
+                                ("200 OK", detail_page("47", HASH, &markdown))
+                            }
+                            "/view/48" => {
+                                let markdown = format!(
+                                    "{}Nested{}",
+                                    "<div>".repeat(80),
+                                    "</div>".repeat(80),
+                                );
+                                ("200 OK", detail_page("48", HASH, &markdown))
+                            }
+                            "/view/49" => {
+                                let markdown = format!(
+                                    "{}\n\n[long]: https://example.test/{}",
+                                    "[guide][long] ".repeat(24),
+                                    "x".repeat(1500),
+                                );
+                                ("200 OK", detail_page("49", HASH, &markdown))
+                            }
+                            "/view/50" => {
+                                let markdown = format!(
+                                    "{}<table><tr><td>{}Nested{}</td></tr></table>{}",
+                                    "<div>".repeat(60),
+                                    "<span>".repeat(80),
+                                    "</span>".repeat(80),
+                                    "</div>".repeat(60),
+                                );
+                                ("200 OK", detail_page("50", HASH, &markdown))
+                            }
                             "/view/42" => {
                                 let hash = if changed.load(Ordering::SeqCst) { OTHER } else { HASH };
-                                ("200 OK", detail_page("42", hash))
+                                ("200 OK", detail_page("42", hash, "Generated public-domain sample"))
                             }
                             _ => ("200 OK", search_page(&origin, &query, &route)),
                         };

@@ -1,4 +1,5 @@
 //! Read-only public catalog acceptance. No torrent is added or downloaded.
+//! Optional arguments: query, exact publication ID, plain-description output path.
 
 use qbutt_content::{Category, Error, Nyaa, ResolvedContent, VariantSelector};
 
@@ -6,13 +7,31 @@ use qbutt_content::{Category, Error, Nyaa, ResolvedContent, VariantSelector};
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let source = Nyaa::new()?;
     let query = std::env::args().nth(1).unwrap_or_else(|| "Frieren".into());
+    let publication = std::env::args().nth(2);
     let works = source.search(&query, Category::Anime).await?;
-    let found = works.first().ok_or("no public catalog results")?;
+    let found = works
+        .iter()
+        .find(|work| {
+            publication
+                .as_deref()
+                .is_none_or(|id| work.reference.id == id)
+        })
+        .ok_or("selected publication missing from public catalog results")?;
     let work = source.inspect(&found.reference).await?;
     assert_eq!(work.reference, found.reference);
     assert_eq!(work.category, Category::Anime);
     assert_eq!(work.variants[0].reference, found.variants[0].reference);
     assert!(!work.needs_inspection);
+    if let Some(description) = &work.description {
+        println!(
+            "description_bytes={} description_lines={}",
+            description.len(),
+            description.lines().count()
+        );
+        if let Some(path) = std::env::args_os().nth(3) {
+            std::fs::write(path, description)?;
+        }
+    }
     match source.resolve(&found.variants[0].reference).await? {
         ResolvedContent::Torrent {
             reference, magnet, ..

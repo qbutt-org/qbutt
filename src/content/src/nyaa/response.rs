@@ -250,15 +250,10 @@ pub(crate) fn release(body: &str, origin: &Url, expected: &PublicationRef) -> Re
         },
         false,
     )?;
-    let description = text(unique(document.root_element(), "#torrent-description")?);
-    if description.len() > 32 * 1024 {
-        return Err(Error::InvalidResponse(
-            "publication description exceeds its limit",
-        ));
-    }
-    if !description.is_empty() && description != "#### No description." {
-        work.description = Some(description);
-    }
+    let description = unique(document.root_element(), "#torrent-description")?
+        .text()
+        .collect::<String>();
+    work.description = super::description::plain_text(&description, &work.url)?;
     Ok(Release { work, magnet })
 }
 

@@ -3,6 +3,8 @@ use url::Url;
 use crate::http::SourceHttp;
 use crate::{Category, Error, PublicationRef, ResolvedContent, Result, VariantRef, Work};
 
+#[path = "nyaa/description.rs"]
+mod description;
 #[path = "nyaa/response.rs"]
 pub(crate) mod response;
 
