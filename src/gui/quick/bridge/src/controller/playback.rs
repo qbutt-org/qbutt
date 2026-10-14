@@ -345,7 +345,15 @@ impl ffi::ContentController {
         self.library_error_text_changed();
     }
 
-    pub fn resolve_variant(mut self: Pin<&mut Self>, id: QString) {
+    pub fn resolve_variant(self: Pin<&mut Self>, id: QString) {
+        self.resolve_variant_action(id, false);
+    }
+
+    pub(super) fn resolve_variant_action(
+        mut self: Pin<&mut Self>,
+        id: QString,
+        source_retry: bool,
+    ) {
         if self.resolving || self.inspecting {
             return;
         }
@@ -421,7 +429,11 @@ impl ffi::ContentController {
         let browser = services.browser.client();
         let choice = browser.choice();
         let task = services.runtime.spawn(async move {
-            let result = catalog.execute(&request.operation).await;
+            let result = if source_retry {
+                catalog.retry(&request.operation).await
+            } else {
+                catalog.execute(&request.operation).await
+            };
             let gateway = if matches!(
                 &result,
                 Ok(SourceResponse::Resolve(ResolvedContent::DirectVideo { .. }))

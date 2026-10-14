@@ -54,12 +54,25 @@ pub(super) struct Catalog {
 }
 
 impl Catalog {
-    pub(super) async fn complete_source_check(&self, source: Source) -> qbutt_content::Result<()> {
-        match source {
-            Source::RuTracker => self.rutracker.complete_check().await,
-            Source::NnmClub => self.nnmclub.complete_check().await,
-            _ => Err(qbutt_content::Error::InvalidReference),
+    /// An explicit retry first borrows the selected browser's current session.
+    /// Only a remaining access check may open the provider's existing WebView.
+    pub(super) async fn retry(
+        &self,
+        operation: &SourceOperation,
+    ) -> qbutt_content::Result<SourceResponse> {
+        let result = self.execute(operation).await;
+        if !matches!(
+            result,
+            Err(qbutt_content::Error::LoginRequired | qbutt_content::Error::SourceCheckRequired)
+        ) {
+            return result;
         }
+        match operation.source() {
+            Source::RuTracker => self.rutracker.complete_check().await?,
+            Source::NnmClub => self.nnmclub.complete_check().await?,
+            _ => return result,
+        }
+        self.execute(operation).await
     }
 
     pub(super) fn initialize_webview(&self, profile_dir: PathBuf, app_dir: PathBuf) {

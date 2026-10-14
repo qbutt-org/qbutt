@@ -32,6 +32,18 @@ set_target_properties(qbutt-qcatch-cli-fixture PROPERTIES
 )
 target_link_libraries(qbutt-qcatch-cli-fixture PRIVATE Qt::Core)
 
+qt_add_executable(qbutt-session-check-fixture session-check-fixture.cpp)
+set_target_properties(qbutt-session-check-fixture PROPERTIES
+    OUTPUT_NAME qbutt-webview
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+)
+target_link_libraries(qbutt-session-check-fixture
+    PRIVATE Qt::Core
+)
+if(MSVC)
+    target_compile_options(qbutt-session-check-fixture PRIVATE /utf-8)
+endif()
+
 qt_add_executable(qbutt-codex-text-peer codex-text-peer.cpp)
 set_target_properties(qbutt-codex-text-peer PROPERTIES
     OUTPUT_NAME codex
@@ -100,6 +112,8 @@ qt_add_executable(qbutt-quick-acceptance
     torrent-source.h
     sources.cpp
     sources.h
+    session-retry.cpp
+    session-retry.h
     variant-filters.cpp
     variant-filters.h
     work-details.cpp

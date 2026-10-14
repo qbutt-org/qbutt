@@ -53,6 +53,7 @@
 #include "reader-text.h"
 #include "sharing.h"
 #include "sources.h"
+#include "session-retry.h"
 #include "torrent-source.h"
 #include "variant-filters.h"
 #include "video-actions.h"
@@ -540,6 +541,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"rutor"_s, u"Run native RuTor search, exact resolution and library persistence, then exit."_s});
     parser.addOption({u"nyaa"_s, u"Run native Nyaa search, exact resolution and library persistence, then exit."_s});
     parser.addOption({u"sources"_s, u"Run persisted source choices, exact retries and SQLite faults, then exit."_s});
+    parser.addOption({u"session-retry"_s, u"Run generated browser expiry and exact action continuation, then exit."_s});
     parser.addOption({u"history"_s, u"Run confirmed reading history and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
     parser.addOption({u"reader-longstrip"_s, u"Run generated long original image reading, geometry, memory and position checks, then exit."_s});
@@ -622,7 +624,7 @@ int main(int argc, char *argv[])
         || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s) || parser.isSet(u"work-filter"_s)
         || parser.isSet(u"category"_s) || parser.isSet(u"sources"_s) || parser.isSet(u"playback"_s)
         || parser.isSet(u"nyaa"_s) || parser.isSet(u"mangalib"_s) || parser.isSet(u"weebcentral"_s)
-        || parser.isSet(u"lib-session"_s)
+        || parser.isSet(u"lib-session"_s) || parser.isSet(u"session-retry"_s)
         || parser.isSet(u"variant-filters"_s) || parser.isSet(u"work-details"_s)
         || parser.isSet(u"video-actions"_s))
     {
@@ -630,6 +632,8 @@ int main(int argc, char *argv[])
         {
             if (parser.isSet(u"lib-session"_s))
                 exerciseLibSession();
+            else if (parser.isSet(u"session-retry"_s))
+                exerciseSessionRetry();
             else if (parser.isSet(u"downloads"_s))
                 exerciseDownloads(parser.value(u"profile"_s));
             else if (parser.isSet(u"work-details"_s))
