@@ -1,4 +1,4 @@
-//! One job owns proposal feedback, accepted data and native preflight lifetime.
+//! One job owns visual feedback, the latest valid map and native preparation.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,13 +9,14 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use qbutt_codex::{
-    self as codex, CodexError, FunctionTool, ToolCall, ToolFuture, ToolHandler, ToolOutput,
+    self as codex, CodexError, FunctionTool, InputImage, ToolCall, ToolFuture, ToolHandler,
+    ToolOutput,
 };
 
 use super::{MAX_INSPECTED_PIXELS, NativeCancellation, context_tools, native_work, windows};
 use crate::translation::context::{ContextAdditions, EvidenceSegment};
 use crate::translation::page::{
-    self, CandidateFact, CandidateTerm, PageJob, PageRegion, PageRenderer, RegionDiagnostic,
+    self, CandidateFact, CandidateTerm, PageJob, PageRegion, PageRenderer, PreparedPage,
     SourceObservation,
 };
 
@@ -29,16 +30,16 @@ struct TranslationProposal {
     facts: Vec<CandidateFact>,
 }
 
-pub(super) struct AcceptedPage {
+pub(super) struct PageCandidate {
     pub(super) regions: Vec<PageRegion>,
     pub(super) clipped: Vec<page::Rect>,
     pub(super) additions: ContextAdditions,
     pub(super) evidence: Vec<EvidenceSegment>,
 }
 
-struct NativePreflight {
+struct NativePreparation {
     cancellation: NativeCancellation,
-    task: JoinHandle<codex::Result<Vec<RegionDiagnostic>>>,
+    task: JoinHandle<codex::Result<(PreparedPage, u64)>>,
 }
 
 pub(super) struct PageTools<'a, R, C> {
@@ -49,8 +50,8 @@ pub(super) struct PageTools<'a, R, C> {
     window: Option<&'a windows::Inspection>,
     inspected_pixels: &'a mut u64,
     submissions: usize,
-    preflight: Option<NativePreflight>,
-    pub(super) accepted: Option<AcceptedPage>,
+    preparation: Option<NativePreparation>,
+    pub(super) candidate: Option<PageCandidate>,
 }
 
 impl<'a, R: PageRenderer, C: ToolHandler + Send> PageTools<'a, R, C> {
@@ -70,21 +71,21 @@ impl<'a, R: PageRenderer, C: ToolHandler + Send> PageTools<'a, R, C> {
             window,
             inspected_pixels,
             submissions: 0,
-            preflight: None,
-            accepted: None,
+            preparation: None,
+            candidate: None,
         }
     }
 
     // The transport may cancel and drop a tool future while Qt is working.
     // Retain its handle here and drain it before the page request returns.
-    pub(super) async fn drain_preflight(&mut self) {
-        if let Some(preflight) = self.preflight.take() {
-            preflight.cancellation.0.store(true, Ordering::Release);
-            let _ = preflight.task.await;
+    pub(super) async fn drain_preparation(&mut self) {
+        if let Some(preparation) = self.preparation.take() {
+            preparation.cancellation.0.store(true, Ordering::Release);
+            let _ = preparation.task.await;
         }
     }
 
-    async fn submit(&mut self, mut value: Value) -> codex::Result<AcceptedPage> {
+    async fn submit(&mut self, mut value: Value) -> codex::Result<(PageCandidate, PreparedPage)> {
         let clipped = match self.window {
             Some(window) => window.validate(&mut value)?,
             None => Vec::new(),
@@ -123,54 +124,69 @@ impl<'a, R: PageRenderer, C: ToolHandler + Send> PageTools<'a, R, C> {
         if let Some(window) = self.window {
             window.validate_regions(&proposal.regions, &clipped)?;
         }
-        if !proposal.regions.is_empty() {
+        let prepared = if proposal.regions.is_empty() {
+            PreparedPage {
+                diagnostics: Vec::new(),
+                previews: Vec::new(),
+            }
+        } else {
             let original = self.job.original.clone();
             let regions = proposal.regions.clone();
             let renderer = self.renderer.clone();
             let cancellation = NativeCancellation(Arc::new(AtomicBool::new(false)));
             let flag = cancellation.0.clone();
-            self.preflight = Some(NativePreflight {
+            let preview_pixels = MAX_INSPECTED_PIXELS
+                .saturating_sub(*self.inspected_pixels)
+                .min(16_000_000);
+            self.preparation = Some(NativePreparation {
                 cancellation,
                 task: tokio::task::spawn_blocking(move || {
-                    renderer.prepare(&original, &regions, flag)
+                    let prepared =
+                        renderer.prepare(&original, &regions, preview_pixels, flag.clone())?;
+                    page::validate_rendered_regions(&regions, &prepared.diagnostics)?;
+                    if prepared.previews.is_empty() {
+                        return Err(CodexError::Tool("Native page previews are missing".into()));
+                    }
+                    let pixels = image_batch_pixels(renderer.as_ref(), &prepared.previews, flag)?;
+                    if pixels > preview_pixels {
+                        return Err(CodexError::Tool(
+                            "The page image inspection budget is exhausted".into(),
+                        ));
+                    }
+                    Ok((prepared, pixels))
                 }),
             });
-            let result = (&mut self.preflight.as_mut().unwrap().task).await;
-            self.preflight = None;
-            let diagnostics = result.map_err(|_| CodexError::Provider)??;
-            page::validate_rendered_regions(&proposal.regions, &diagnostics)?;
-        }
+            let result = (&mut self.preparation.as_mut().unwrap().task).await;
+            self.preparation = None;
+            let (prepared, pixels) = result.map_err(|_| CodexError::Provider)??;
+            *self.inspected_pixels += pixels;
+            prepared
+        };
         if *self.cancelled.borrow() {
             return Err(CodexError::Cancelled);
         }
-        Ok(AcceptedPage {
-            regions: proposal.regions,
-            clipped,
-            additions,
-            evidence,
-        })
+        Ok((
+            PageCandidate {
+                regions: proposal.regions,
+                clipped,
+                additions,
+                evidence,
+            },
+            prepared,
+        ))
     }
 
     async fn inspect_context(&mut self, call: ToolCall) -> codex::Result<ToolOutput> {
         let output = self.context.call(call).await?;
-        let mut batch_pixels = 0;
-        for image in &output.images {
-            let original = image.clone();
-            let renderer = self.renderer.clone();
-            let (width, height) = native_work(self.cancelled.clone(), move |flag| {
-                renderer.dimensions(&original, flag)
-            })
-            .await?;
-            batch_pixels += u64::from(width) * u64::from(height);
-            if !windows::size_supported(width, height)
-                || windows::needs_windows(width, height)
-                || batch_pixels > 16_000_000
-            {
-                return Err(CodexError::Tool(
-                    "Context images exceed the 16000-pixel side or 16M-pixel batch limit".into(),
-                ));
-            }
+        if output.images.is_empty() {
+            return Ok(output);
         }
+        let renderer = self.renderer.clone();
+        let (output, batch_pixels) = native_work(self.cancelled.clone(), move |flag| {
+            let pixels = image_batch_pixels(renderer.as_ref(), &output.images, flag)?;
+            Ok((output, pixels))
+        })
+        .await?;
         if self.inspected_pixels.saturating_add(batch_pixels) > MAX_INSPECTED_PIXELS {
             return Err(CodexError::Tool(
                 "The page image inspection budget is exhausted".into(),
@@ -190,27 +206,28 @@ impl<R: PageRenderer, C: ToolHandler + Send> ToolHandler for PageTools<'_, R, C>
             if call.name != "submit_page" {
                 return self.inspect_context(call).await;
             }
-            if self.accepted.is_some() {
-                return Err(CodexError::Tool(
-                    "The page proposal is already accepted".into(),
-                ));
-            }
             if self.submissions == MAX_SUBMISSIONS {
                 return Err(CodexError::Tool(
-                    "All three page submissions were rejected; finalize with accepted=false".into(),
+                    "All three page submissions were evaluated; accept the latest valid preview or decline".into(),
                 ));
             }
             self.submissions += 1;
-            let accepted = self.submit(call.arguments).await.map_err(|error| {
+            let (candidate, prepared) = self.submit(call.arguments).await.map_err(|error| {
                 CodexError::Tool(format!(
                     "Page submission {}/{MAX_SUBMISSIONS} rejected: {error}",
                     self.submissions
                 ))
             })?;
-            self.accepted = Some(accepted);
+            self.candidate = Some(candidate);
             Ok(ToolOutput {
-                text: json!({"accepted": true}).to_string(),
-                images: Vec::new(),
+                text: json!({
+                    "validated": true,
+                    "submission": self.submissions,
+                    "remainingSubmissions": MAX_SUBMISSIONS - self.submissions,
+                    "diagnostics": prepared.diagnostics,
+                })
+                .to_string(),
+                images: prepared.previews,
             })
         })
     }
@@ -251,8 +268,37 @@ pub(super) fn tool_definitions(windowed: bool) -> Vec<FunctionTool> {
     }
     tools.push(FunctionTool {
         name: "submit_page",
-        description: "Validate the complete translation map and native typography. Repair errors and resubmit at most three times; an accepted proposal is immutable.",
+        description: "Validate the complete map and inspect native source/cleanup-coverage/lettering previews. Correct and replace the latest valid map within three submissions; only final acceptance starts cleanup.",
         input_schema: schema,
     });
     tools
+}
+
+fn image_batch_pixels<R: PageRenderer>(
+    renderer: &R,
+    images: &[InputImage],
+    cancelled: Arc<AtomicBool>,
+) -> codex::Result<u64> {
+    if images.len() > codex::MAX_TOOL_IMAGES {
+        return Err(CodexError::Image);
+    }
+    let mut bytes = 0;
+    let mut pixels = 0;
+    for image in images {
+        bytes += image.bytes.len();
+        if image.bytes.is_empty() || bytes > codex::MAX_IMAGE_BYTES {
+            return Err(CodexError::Image);
+        }
+        let (width, height) = renderer.dimensions(image, cancelled.clone())?;
+        pixels += u64::from(width) * u64::from(height);
+        if !windows::size_supported(width, height)
+            || windows::needs_windows(width, height)
+            || pixels > 16_000_000
+        {
+            return Err(CodexError::Tool(
+                "Tool images exceed the 16000-pixel side or 16M-pixel batch limit".into(),
+            ));
+        }
+    }
+    Ok(pixels)
 }

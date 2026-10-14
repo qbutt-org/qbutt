@@ -152,19 +152,19 @@ async fn translate_window<R: PageRenderer, C: ToolHandler + Send>(
         cancelled.clone(),
     )
     .await;
-    page_tools.drain_preflight().await;
+    page_tools.drain_preparation().await;
     let translation = translation?;
     if *cancelled.borrow() {
         return Err(CodexError::Cancelled);
     }
     PageDecision::accept(translation.value, "Translation")?;
-    let submission::AcceptedPage {
+    let submission::PageCandidate {
         regions,
         clipped,
         additions,
         evidence,
-    } = page_tools.accepted.take().ok_or_else(|| {
-        CodexError::Tool("Translation finalized without an accepted submit_page proposal".into())
+    } = page_tools.candidate.take().ok_or_else(|| {
+        CodexError::Tool("Translation finalized without a valid submit_page preview".into())
     })?;
     if regions.is_empty() {
         return Ok(WindowResult {
@@ -347,9 +347,11 @@ const TRANSLATION_INSTRUCTIONS: &str = concat!(
     "For narrow balloons use U+00AD discretionary hyphens at natural target-language syllable boundaries when helpful. ",
     "Return at most 20 useful names/forms and 20 explicit character facts, with an exact sourceText quote from the cited region. ",
     "Gender needs the subject name and an explicit textual clue, never appearance or your own translation. Leave unsupported conventions out. ",
-    "submit_page validates geometry, context, window seams and native typography. Its errors are feedback: repair the complete map and resubmit, at most three submissions in this request. ",
-    "After acceptance do not submit again. Finalize with accepted=true and reason=\"\" only after submit_page succeeds. ",
-    "If no proposal is accepted, finalize with accepted=false and the concrete unresolved reason. Do not return the map in the final response. ",
+    "submit_page validates geometry, context, seams and native typography, then returns cropped comparisons: original, exact cyan cleanup coverage, and native target lettering on a neutral background. These previews are diagnostics, never the cleaned artwork. ",
+    "Inspect EVERY preview before finalizing. All source glyphs and outlines must be covered in cyan; fix missed strokes and avoid art or balloon borders. Compare source and native emphasis, case, size, angle, fill and outline. Preserve strong shouting and SFX weight rather than ordinary thin lettering. ",
+    "Correct the complete map and resubmit after errors or visual defects, at most three evaluated submissions in this request. A fully valid submission replaces the previous candidate; a rejected submission leaves it unchanged. ",
+    "Preview images and context share the bounded page image budget. Tighten oversized bounds; do not accept an unseen or unreadable preview. If the remaining native families cannot represent essential lettering or a defect remains, decline. ",
+    "Finalize with accepted=true and reason=\"\" only after inspecting and approving the latest valid preview. This selects that exact immutable map for one cleanup. Otherwise finalize with accepted=false and the concrete unresolved reason. Do not return the map in the final response. ",
     "Do not edit or generate an image in this phase."
 );
 

@@ -87,6 +87,13 @@ namespace Content::MangaRender
         QString error;
     };
 
+    struct Preparation
+    {
+        QList<QImage> previews;
+        QList<Diagnostic> diagnostics;
+        QString error;
+    };
+
     struct PageImage
     {
         QImage image;
@@ -106,6 +113,8 @@ namespace Content::MangaRender
         const QList<TextRun> &runs, const QRectF &rect, QFont font, int maximumPixels, qreal angle = 0);
     Typography prepareTypography(
         const QSize &size, const QList<Region> &regions, const std::function<bool()> &cancelled = { });
+    Preparation preparePage(const QImage &original, const QList<Region> &regions, quint64 previewPixels,
+        int maximumImages, const std::function<bool()> &cancelled = { });
     Result renderCleaned(const QImage &original, const QImage &generated, const QList<Region> &regions,
         const std::function<bool()> &cancelled = { });
 }

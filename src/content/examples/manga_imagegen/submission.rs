@@ -11,6 +11,7 @@ pub(super) struct ProposalPeer {
     case: String,
     fixture: Option<PathBuf>,
     proposal: Option<Value>,
+    correction: Option<Value>,
     accepted: bool,
 }
 
@@ -21,6 +22,7 @@ impl ProposalPeer {
                 .unwrap_or_else(|_| case.into()),
             fixture: fixture.map(Path::to_owned),
             proposal: None,
+            correction: None,
             accepted: false,
         }
     }
@@ -40,6 +42,20 @@ impl ProposalPeer {
             );
         }
         match self.case.as_str() {
+            "repair-preview" => {
+                self.correction = Some(proposal.clone());
+                let index = proposal["regions"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .position(|region| region["translation"][0]["bold"] == true)
+                    .ok_or("Authored preview fixture has no bold lettering")?;
+                proposal["regions"][index]["translation"][0]["bold"] = json!(false);
+                let width = proposal["regions"][index]["cleanupRects"][0]["width"]
+                    .as_f64()
+                    .unwrap();
+                proposal["regions"][index]["cleanupRects"][0]["width"] = json!(width / 2.0);
+            }
             "retry-geometry" | "retry-third" | "invalid-geometry" | "submission-limit"
             | "exhaustion-bypass" => {
                 proposal["regions"][0]["cleanupRects"][0]["x"] = json!(0.99);
@@ -70,7 +86,10 @@ impl ProposalPeer {
         request: &Value,
     ) -> Result<()> {
         let items = request["result"]["contentItems"].as_array().unwrap();
-        assert!(items.iter().all(|item| item["type"] == "inputText"));
+        let images: Vec<_> = items
+            .iter()
+            .filter(|item| item["type"] == "inputImage")
+            .collect();
         let success = request["result"]["success"] == true;
         let feedback = items[0]["text"]
             .as_str()
@@ -81,17 +100,58 @@ impl ProposalPeer {
             json!({
                 "event":"page_submission", "attempt":attempt - 919,
                 "accepted":success, "feedback":feedback,
+                "previewImages": images.len(),
             })
         )?;
         trace.flush()?;
         if success {
             let value: Value = serde_json::from_str(feedback)?;
-            assert_eq!(value, json!({"accepted":true}));
+            assert_eq!(value["validated"], true);
+            assert_eq!(value["submission"], attempt - 919);
+            assert_eq!(value["remainingSubmissions"], 922 - attempt);
+            assert_eq!(
+                images.is_empty(),
+                self.proposal.as_ref().unwrap()["regions"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
             self.accepted = true;
-            if self.case == "resubmit-accepted" {
+            if self.case == "cancel-after-preview" {
+                return Ok(());
+            }
+            if self.case == "repair-preview" && attempt == 920 {
+                let correction = self.correction.take().unwrap();
+                submit(output, thread, &correction, 1)?;
+                self.proposal = Some(correction);
+                return Ok(());
+            }
+            if self.case == "resubmit-accepted" && attempt == 920
+                || self.case == "revise-invalid-latest" && attempt == 921
+            {
                 let mut proposal = self.proposal.as_ref().unwrap().clone();
                 proposal["regions"] = json!([]);
-                return submit(output, thread, &proposal, 1);
+                return submit(output, thread, &proposal, attempt - 919);
+            }
+            if matches!(
+                self.case.as_str(),
+                "revise-preview" | "revise-invalid-latest"
+            ) && attempt == 920
+            {
+                let mut proposal = self.proposal.as_ref().unwrap().clone();
+                proposal["regions"][0]["translation"][0]["bold"] = json!(true);
+                proposal["regions"][0]["cleanupRects"][0]["width"] = json!(0.4);
+                submit(output, thread, &proposal, 1)?;
+                self.proposal = Some(proposal);
+                return Ok(());
+            }
+            if self.case == "long-preview-budget" && attempt < 922 {
+                return submit(
+                    output,
+                    thread,
+                    self.proposal.as_ref().unwrap(),
+                    attempt - 919,
+                );
             }
         } else if self.case.starts_with("retry-")
             && (attempt == 920 || (self.case == "retry-third" && attempt == 921))
@@ -132,6 +192,9 @@ impl ProposalPeer {
             );
         } else if !self.accepted && attempt == 922 && self.case == "submission-limit" {
             return submit(output, thread, &host::proposal("ru"), 3);
+        }
+        if !success {
+            assert!(images.is_empty(), "Rejected proposal leaked preview images");
         }
         let accepted = self.accepted || self.case == "exhaustion-bypass";
         host::finish(

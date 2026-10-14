@@ -361,9 +361,15 @@ pub fn run() -> Result<()> {
                     assert!(!case.starts_with("invalid-"));
                     let cleanup = &prompt["cleanupRegions"][0];
                     assert_eq!(cleanup["sourceText"], SOURCE_TEXT);
+                    let width =
+                        if matches!(case.as_str(), "revise-preview" | "revise-invalid-latest") {
+                            0.4
+                        } else {
+                            0.3
+                        };
                     assert_eq!(
                         cleanup["cleanupRects"],
-                        json!([{"x":0.2,"y":0.2,"width":0.3,"height":0.3}])
+                        json!([{"x":0.2,"y":0.2,"width":width,"height":0.3}])
                     );
                     assert!(cleanup.get("translation").is_none());
                     assert!(cleanup.get("family").is_none());
@@ -414,6 +420,15 @@ pub fn run() -> Result<()> {
             }
             "turn/interrupt" => {
                 send(&mut output, json!({"id":id,"result":{}}))?;
+                if case == "cancel-after-preview" {
+                    finish(
+                        &mut output,
+                        &thread,
+                        json!({"accepted":true,"reason":""}),
+                        Some(100),
+                    )?;
+                    continue;
+                }
                 send(
                     &mut output,
                     json!({"method":"turn/completed","params":{

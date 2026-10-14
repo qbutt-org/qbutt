@@ -105,6 +105,11 @@ pub struct RenderedPage {
     pub diagnostics: Vec<RegionDiagnostic>,
 }
 
+pub struct PreparedPage {
+    pub diagnostics: Vec<RegionDiagnostic>,
+    pub previews: Vec<InputImage>,
+}
+
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct PageWindow {
     pub top: u32,
@@ -144,8 +149,9 @@ pub trait PageRenderer: Send + Sync + 'static {
         &self,
         original: &InputImage,
         regions: &[PageRegion],
+        preview_pixels: u64,
         cancelled: Arc<AtomicBool>,
-    ) -> codex::Result<Vec<RegionDiagnostic>>;
+    ) -> codex::Result<PreparedPage>;
 
     fn render(
         &self,

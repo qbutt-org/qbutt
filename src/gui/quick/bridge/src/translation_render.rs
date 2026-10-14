@@ -5,8 +5,8 @@ use std::sync::{
 
 use qbutt_codex::{self as codex, CodexError, InputImage};
 use qbutt_content::translation::page::{
-    FontFamily, PageRegion, PageRenderer, PageWindow, RegionDiagnostic, RenderStatus, RenderedPage,
-    RenderedWindow,
+    FontFamily, PageRegion, PageRenderer, PageWindow, PreparedPage, RegionDiagnostic, RenderStatus,
+    RenderedPage, RenderedWindow,
 };
 
 pub struct RenderCancellation {
@@ -55,8 +55,9 @@ mod ffi {
         layout_lines: u32,
         cleanup_pixels: u32,
     }
-    struct MangaTypographyOutput {
+    struct MangaPreparationOutput {
         diagnostics: Vec<MangaDiagnostic>,
+        previews: Vec<MangaImageOutput>,
         error: String,
     }
     struct MangaRenderOutput {
@@ -94,11 +95,14 @@ mod ffi {
             windows: &[MangaWindow],
             cancelled: &RenderCancellation,
         ) -> MangaImageOutput;
-        fn prepare_manga_typography(
+        fn prepare_manga_page(
             original: &[u8],
             regions: &[MangaRegion],
+            preview_pixels: u64,
+            maximum_images: u32,
+            maximum_bytes: u64,
             cancelled: &RenderCancellation,
-        ) -> MangaTypographyOutput;
+        ) -> MangaPreparationOutput;
         fn render_cleaned_manga_page(
             original: &[u8],
             cleaned: &[u8],
@@ -171,13 +175,27 @@ impl PageRenderer for QtMangaRenderer {
         &self,
         original: &InputImage,
         regions: &[PageRegion],
+        preview_pixels: u64,
         cancelled: Arc<AtomicBool>,
-    ) -> codex::Result<Vec<RegionDiagnostic>> {
+    ) -> codex::Result<PreparedPage> {
         let cancellation = RenderCancellation { flag: cancelled };
-        let output =
-            ffi::prepare_manga_typography(&original.bytes, &native_regions(regions), &cancellation);
+        let output = ffi::prepare_manga_page(
+            &original.bytes,
+            &native_regions(regions),
+            preview_pixels,
+            codex::MAX_TOOL_IMAGES as u32,
+            codex::MAX_IMAGE_BYTES as u64,
+            &cancellation,
+        );
         check_error(&output.error, &cancellation)?;
-        diagnostics(output.diagnostics)
+        Ok(PreparedPage {
+            diagnostics: diagnostics(output.diagnostics)?,
+            previews: output
+                .previews
+                .into_iter()
+                .map(|image| InputImage::png(image.png))
+                .collect(),
+        })
     }
 
     fn render(

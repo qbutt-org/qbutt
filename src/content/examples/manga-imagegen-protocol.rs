@@ -17,8 +17,8 @@ use qbutt_content::translation::context_tools::{
 };
 use qbutt_content::translation::manga_imagegen::{cache_key, translate_page};
 use qbutt_content::translation::page::{
-    PageJob, PageRegion, PageRenderer, PageWindow, RegionDiagnostic, RenderStatus, RenderedPage,
-    RenderedWindow,
+    PageJob, PageRegion, PageRenderer, PageWindow, PreparedPage, RegionDiagnostic, RenderStatus,
+    RenderedPage, RenderedWindow,
 };
 use qbutt_content::{Chapter, ChapterRef, PublicationRef, Source, VariantRef, VariantSelector};
 use serde_json::Value;
@@ -33,6 +33,7 @@ mod submission;
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const ORIGINAL: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFUlEQVR4nGP89eEZAwMDEwMDA4ICADXYAtaW6UM3AAAAAElFTkSuQmCC";
 const NEIGHBOR: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFElEQVR4nGPkCtjCwMDAxMDAgKAAE7QBFLr5udsAAAAASUVORK5CYII=";
+const PREVIEW: &str = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAfElEQVR4nNXOQREAIADDsFLlk44IHlyjIGcbZRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncRIncf4OvLqiLAIAzKKwUwAAAABJRU5ErkJggg==";
 const SOURCE_TEXT: &str = "レンは姉です。";
 const NEIGHBOR_ID: &str = "33333333-3333-3333-3333-333333333333";
 
@@ -161,6 +162,13 @@ impl PageRenderer for ContractRenderer {
         _original: &InputImage,
         _cancelled: Arc<AtomicBool>,
     ) -> qbutt_codex::Result<(u32, u32)> {
+        if _original.bytes == image(PREVIEW).bytes {
+            return Ok(match self.case.as_str() {
+                "preview-oversized" => (800, 20_000),
+                "long-preview-budget" => (4_000, 4_000),
+                _ => (64, 64),
+            });
+        }
         if _original.bytes == image(NEIGHBOR).bytes {
             return Ok(match self.case.as_str() {
                 "long-context-oversized" => (800, 20_000),
@@ -218,8 +226,9 @@ impl PageRenderer for ContractRenderer {
         &self,
         original: &InputImage,
         regions: &[PageRegion],
+        preview_pixels: u64,
         cancelled: Arc<AtomicBool>,
-    ) -> qbutt_codex::Result<Vec<RegionDiagnostic>> {
+    ) -> qbutt_codex::Result<PreparedPage> {
         assert_eq!(original.bytes, image(ORIGINAL).bytes);
         assert!(regions.len() == 1 || self.case.starts_with("long-"));
         assert_eq!(regions[0].text_color, "#314455");
@@ -236,10 +245,24 @@ impl PageRenderer for ContractRenderer {
         if matches!(self.case.as_str(), "cancel-prepare" | "abort-prepare") {
             self.wait_for_cancel(cancelled)?;
         }
-        Ok(regions
-            .iter()
-            .map(|region| self.diagnostic(region, "prepare"))
-            .collect())
+        if self.case == "long-preview-budget" && preview_pixels < 16_000_000 {
+            return Err(CodexError::Tool(
+                "Preview allocation would exceed remaining inspection budget".into(),
+            ));
+        }
+        let previews = match self.case.as_str() {
+            "preview-missing" => Vec::new(),
+            "preview-count" => vec![image(PREVIEW); qbutt_codex::MAX_TOOL_IMAGES + 1],
+            "preview-bytes" => vec![InputImage::png(vec![0; qbutt_codex::MAX_IMAGE_BYTES + 1])],
+            _ => vec![image(PREVIEW)],
+        };
+        Ok(PreparedPage {
+            diagnostics: regions
+                .iter()
+                .map(|region| self.diagnostic(region, "prepare"))
+                .collect(),
+            previews,
+        })
     }
 
     fn render(
@@ -252,6 +275,25 @@ impl PageRenderer for ContractRenderer {
         assert_eq!(original.bytes, image(ORIGINAL).bytes);
         assert_eq!(cleaned, original.bytes);
         self.renders.fetch_add(1, Ordering::Release);
+        if matches!(
+            self.case.as_str(),
+            "revise-preview" | "revise-invalid-latest"
+        ) {
+            assert!(
+                regions[0].translation[0].bold,
+                "Final render lost the latest valid typography"
+            );
+            assert_eq!(
+                regions[0].cleanup_rects[0].width, 0.4,
+                "Final render lost corrected coverage"
+            );
+        }
+        if self.case == "resubmit-accepted" {
+            assert!(
+                !regions[0].translation[0].bold,
+                "Invalid replacement changed the retained candidate"
+            );
+        }
         if self.case == "renderer-rejected" {
             return Err(CodexError::Image);
         }
@@ -325,6 +367,13 @@ async fn exercise(native: &Path) -> Result<()> {
         "exhaustion-bypass",
         "final-rejected-after-acceptance",
         "resubmit-accepted",
+        "revise-preview",
+        "revise-invalid-latest",
+        "preview-missing",
+        "preview-oversized",
+        "preview-count",
+        "preview-bytes",
+        "cancel-after-preview",
         "invalid-term",
         "invalid-quote",
         "invalid-runs-empty",
@@ -383,6 +432,18 @@ async fn exercise(native: &Path) -> Result<()> {
             cancelled,
         );
         let control = async {
+            if case == "cancel-after-preview" {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while !std::fs::read_to_string(native.join("trace.jsonl"))?
+                    .contains("page_submission")
+                {
+                    if Instant::now() >= deadline {
+                        return Err("native preview was not delivered".into());
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                cancel.send(true)?;
+            }
             if case == "cancel-prepare" || case == "cancel-compose" {
                 let deadline = Instant::now() + Duration::from_secs(5);
                 while (if case == "cancel-prepare" {
@@ -406,8 +467,16 @@ async fn exercise(native: &Path) -> Result<()> {
         controlled?;
         match (case, result) {
             (
-                "ru" | "en" | "partial-usage" | "retry-geometry" | "retry-third"
-                | "retry-typography" | "retry-context" | "resubmit-accepted",
+                "ru"
+                | "en"
+                | "partial-usage"
+                | "retry-geometry"
+                | "retry-third"
+                | "retry-typography"
+                | "retry-context"
+                | "resubmit-accepted"
+                | "revise-preview"
+                | "revise-invalid-latest",
                 Ok(page),
             ) => {
                 assert_eq!(page.png, original.bytes);
@@ -455,15 +524,23 @@ async fn exercise(native: &Path) -> Result<()> {
                             | "final-bypass"
                             | "exhaustion-bypass"
                             | "final-rejected-after-acceptance"
+                            | "preview-missing"
+                            | "preview-oversized"
+                            | "preview-count"
+                            | "preview-bytes"
                     ) => {}
             ("renderer-rejected", Err(CodexError::Image))
-            | ("cancel-prepare" | "cancel-compose", Err(CodexError::Cancelled)) => {}
+            | (
+                "cancel-prepare" | "cancel-compose" | "cancel-after-preview",
+                Err(CodexError::Cancelled),
+            ) => {}
             (_, Err(error)) => return Err(format!("{case}: unexpected {error}").into()),
             (_, Ok(_)) => return Err(format!("{case}: invalid page accepted").into()),
         }
         let prepares = match case {
-            "invalid-typography" | "prepare-rejected" | "prepare-incomplete" => 3,
-            "retry-typography" => 2,
+            "invalid-typography" | "prepare-rejected" | "prepare-incomplete"
+            | "preview-missing" | "preview-oversized" | "preview-count" | "preview-bytes" => 3,
+            "retry-typography" | "revise-preview" | "revise-invalid-latest" => 2,
             value if value.starts_with("invalid-") => 0,
             "submission-limit" | "final-bypass" | "exhaustion-bypass" => 0,
             _ => 1,
@@ -476,6 +553,11 @@ async fn exercise(native: &Path) -> Result<()> {
                     | "cancel-prepare"
                     | "invalid-typography"
                     | "final-rejected-after-acceptance"
+                    | "preview-missing"
+                    | "preview-oversized"
+                    | "preview-count"
+                    | "preview-bytes"
+                    | "cancel-after-preview"
             );
         let rendered = generated && case != "metadata-rejected";
         assert_eq!(
@@ -510,8 +592,17 @@ async fn exercise(native: &Path) -> Result<()> {
         let expected_submissions = match case {
             "final-bypass" | "cancel-prepare" => 0,
             "submission-limit" => 4,
-            "retry-geometry" | "retry-typography" | "retry-context" | "resubmit-accepted" => 2,
-            "prepare-rejected" | "prepare-incomplete" | "exhaustion-bypass" | "retry-third" => 3,
+            "retry-geometry" | "retry-typography" | "retry-context" | "resubmit-accepted"
+            | "revise-preview" => 2,
+            "prepare-rejected"
+            | "prepare-incomplete"
+            | "exhaustion-bypass"
+            | "retry-third"
+            | "revise-invalid-latest"
+            | "preview-missing"
+            | "preview-oversized"
+            | "preview-count"
+            | "preview-bytes" => 3,
             value if value.starts_with("invalid-") => 3,
             _ => 1,
         };

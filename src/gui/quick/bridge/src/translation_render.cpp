@@ -252,10 +252,11 @@ Qbutt::MangaImageOutput Qbutt::compose_manga_windows(const ::rust::Slice<const s
     return output;
 }
 
-Qbutt::MangaTypographyOutput Qbutt::prepare_manga_typography(const ::rust::Slice<const std::uint8_t> original,
-    const ::rust::Slice<const MangaRegion> regions, const RenderCancellation &cancelled)
+Qbutt::MangaPreparationOutput Qbutt::prepare_manga_page(const ::rust::Slice<const std::uint8_t> original,
+    const ::rust::Slice<const MangaRegion> regions, const std::uint64_t previewPixels,
+    const std::uint32_t maximumImages, const std::uint64_t maximumBytes, const RenderCancellation &cancelled)
 {
-    MangaTypographyOutput output;
+    MangaPreparationOutput output;
     if (render_cancelled(cancelled))
     {
         output.error = "Manga typography cancelled";
@@ -274,10 +275,33 @@ Qbutt::MangaTypographyOutput Qbutt::prepare_manga_typography(const ::rust::Slice
         output.error = toRust(error);
         return output;
     }
-    const Content::MangaRender::Typography typography = Content::MangaRender::prepareTypography(
-        image.size(), pageRegions, [&cancelled] { return render_cancelled(cancelled); });
-    output.error = toRust(typography.error);
-    output.diagnostics = nativeDiagnostics(typography.diagnostics);
+    const Content::MangaRender::Preparation prepared = Content::MangaRender::preparePage(
+        image, pageRegions, previewPixels, static_cast<int>(maximumImages),
+        [&cancelled] { return render_cancelled(cancelled); });
+    output.error = toRust(prepared.error);
+    output.diagnostics = nativeDiagnostics(prepared.diagnostics);
+    if (!prepared.error.isEmpty())
+        return output;
+    std::size_t imageBytes = 0;
+    for (const QImage &preview : prepared.previews)
+    {
+        if (render_cancelled(cancelled))
+        {
+            output.previews.clear();
+            output.error = "Manga preview cancelled";
+            return output;
+        }
+        MangaImageOutput item;
+        item.png = png(preview);
+        imageBytes += item.png.size();
+        if (item.png.empty() || (imageBytes > maximumBytes))
+        {
+            output.previews.clear();
+            output.error = "Manga previews exceed the encoded image batch limit";
+            return output;
+        }
+        output.previews.push_back(std::move(item));
+    }
     return output;
 }
 

@@ -16,6 +16,7 @@
 #include <QPen>
 #include <QRawFont>
 #include <QRegion>
+#include <QStringList>
 #include <QTextLayout>
 #include <QTextOption>
 #include <QTransform>
@@ -51,6 +52,20 @@ namespace
         const int right = qBound(0, qCeil(rect.right() * size.width()), size.width());
         const int bottom = qBound(0, qCeil(rect.bottom() * size.height()), size.height());
         return { left, top, right - left, bottom - top };
+    }
+
+    void paintLettering(QPainter &painter, const Content::MangaRender::Region &region,
+        const Content::MangaRender::TextShape &shape, const QSize &size)
+    {
+        painter.save();
+        painter.setClipRect(pixelRect(region.layout, size), Qt::IntersectClip);
+        if (region.outlineWidth > 0)
+        {
+            painter.strokePath(shape.path,
+                QPen(region.outlineColor, region.outlineWidth * 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        }
+        painter.fillPath(shape.path, region.textColor);
+        painter.restore();
     }
 }
 
@@ -357,6 +372,131 @@ Content::MangaRender::Typography Content::MangaRender::prepareTypography(
     return result;
 }
 
+Content::MangaRender::Preparation Content::MangaRender::preparePage(const QImage &original,
+    const QList<Region> &regions, const quint64 previewPixels, const int maximumImages,
+    const std::function<bool()> &cancelled)
+{
+    Preparation result;
+    const Typography typography = prepareTypography(original.size(), regions, cancelled);
+    result.diagnostics = typography.diagnostics;
+    result.error = typography.error;
+    if (!result.error.isEmpty()
+        || std::any_of(result.diagnostics.cbegin(), result.diagnostics.cend(),
+            [](const Diagnostic &diagnostic) { return diagnostic.status != Status::Rendered; }))
+    {
+        return result;
+    }
+
+    constexpr int TILE_SIDE = 512;
+    constexpr int SHEET_SIDE = 2048;
+    constexpr int GAP = 8;
+    constexpr int HEADER = 24;
+    struct Sheet
+    {
+        QSize size;
+        qsizetype first;
+        qsizetype end;
+    };
+    QList<QRect> crops;
+    QList<QSize> tiles;
+    QList<Sheet> sheets;
+    quint64 totalPixels = 0;
+    for (qsizetype index = 0; index < regions.size(); ++index)
+    {
+        if (isCancelled(cancelled))
+        {
+            result.error = QStringLiteral("Manga preview cancelled");
+            return result;
+        }
+        const QRect bounds = pixelRect(regions.at(index).bounds, original.size());
+        const QRect crop = bounds.adjusted(-16, -16, 16, 16).intersected(original.rect());
+        const qreal scale = qMin(qreal(1), qreal(TILE_SIDE) / qMax(crop.width(), crop.height()));
+        if (typography.shapes.at(index).fontPixels * scale < 9)
+        {
+            result.error = QStringLiteral("Region %1 is too large for a readable preview; tighten its bounds")
+                               .arg(regions.at(index).id);
+            return result;
+        }
+        const QSize tile(qMax(1, qCeil(crop.width() * scale)), qMax(1, qCeil(crop.height() * scale)));
+        crops.append(crop);
+        tiles.append(tile);
+        const QSize row(tile.width() * 3 + GAP * 4, tile.height() + HEADER + GAP);
+        if (sheets.isEmpty() || (sheets.constLast().size.height() + row.height() > SHEET_SIDE))
+            sheets.append({ { 0, GAP }, index, index });
+        Sheet &sheet = sheets.last();
+        totalPixels -= quint64(sheet.size.width()) * sheet.size.height();
+        sheet.size = { qMax(sheet.size.width(), row.width()), sheet.size.height() + row.height() };
+        sheet.end = index + 1;
+        totalPixels += quint64(sheet.size.width()) * sheet.size.height();
+        if ((sheets.size() > maximumImages) || (totalPixels > previewPixels))
+        {
+            result.error = QStringLiteral("Manga previews exceed the remaining page image inspection budget");
+            return result;
+        }
+    }
+
+    for (const Sheet &sheet : sheets)
+    {
+        QImage image(sheet.size, QImage::Format_RGBA8888);
+        image.fill(QColor(240, 240, 240));
+        QPainter painter(&image);
+        painter.setRenderHint(QPainter::Antialiasing);
+        QFont labelFont;
+        labelFont.setPixelSize(14);
+        painter.setFont(labelFont);
+        int top = GAP;
+        for (qsizetype index = sheet.first; index < sheet.end; ++index)
+        {
+            if (isCancelled(cancelled))
+            {
+                painter.end();
+                result.previews.clear();
+                result.error = QStringLiteral("Manga preview cancelled");
+                return result;
+            }
+            const Region &region = regions.at(index);
+            const QRect &crop = crops.at(index);
+            const QSize &tile = tiles.at(index);
+            const QStringList labels { region.id + QStringLiteral(" / Original"),
+                QStringLiteral("Coverage"), QStringLiteral("Lettering") };
+            for (int column = 0; column < 3; ++column)
+            {
+                const int left = GAP + column * (tile.width() + GAP);
+                painter.setPen(Qt::black);
+                painter.drawText(QRect(left, top, tile.width(), HEADER), Qt::AlignVCenter, labels.at(column));
+                const QRect target(QPoint(left, top + HEADER), tile);
+                if (column < 2)
+                {
+                    painter.drawImage(target, original, crop);
+                }
+                else
+                {
+                    painter.fillRect(target,
+                        region.textColor.lightness() < 128 ? QColor(248, 248, 248) : QColor(32, 32, 32));
+                }
+
+                painter.save();
+                painter.setClipRect(target);
+                painter.translate(target.topLeft());
+                painter.scale(qreal(tile.width()) / crop.width(), qreal(tile.height()) / crop.height());
+                painter.translate(-crop.topLeft());
+                if (column == 1)
+                {
+                    for (const QRectF &rect : region.cleanupRects)
+                        painter.fillRect(pixelRect(rect, original.size()), QColor(0, 190, 230, 100));
+                }
+                else if (column == 2)
+                    paintLettering(painter, region, typography.shapes.at(index), original.size());
+                painter.restore();
+            }
+            top += tile.height() + HEADER + GAP;
+        }
+        painter.end();
+        result.previews.append(image);
+    }
+    return result;
+}
+
 Content::MangaRender::Result Content::MangaRender::renderCleaned(const QImage &original, const QImage &generated,
     const QList<Region> &regions, const std::function<bool()> &cancelled)
 {
@@ -415,15 +555,7 @@ Content::MangaRender::Result Content::MangaRender::renderCleaned(const QImage &o
             result.error = QStringLiteral("Manga lettering cancelled");
             return result;
         }
-        const Region &region = regions.at(index);
-        const TextShape &shape = typography.shapes.at(index);
-        painter.setClipRect(pixelRect(region.layout, source.size()));
-        if (region.outlineWidth > 0)
-        {
-            painter.strokePath(shape.path,
-                QPen(region.outlineColor, region.outlineWidth * 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        }
-        painter.fillPath(shape.path, region.textColor);
+        paintLettering(painter, regions.at(index), typography.shapes.at(index), source.size());
     }
     painter.end();
     if (isCancelled(cancelled))

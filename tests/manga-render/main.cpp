@@ -185,6 +185,98 @@ namespace
         for (const Diagnostic &diagnostic : typography.diagnostics)
             require(diagnostic.status == Status::Rendered, u"Typography preflight rejected a region"_s);
 
+        const Preparation prepared = preparePage(original, regions, 16'000'000, 24);
+        require(prepared.error.isEmpty() && !prepared.previews.isEmpty(), prepared.error);
+        quint64 previewPixels = 0;
+        for (qsizetype index = 0; index < prepared.previews.size(); ++index)
+        {
+            const QImage &preview = prepared.previews.at(index);
+            require(preview.width() <= 2048 && preview.height() <= 2048,
+                u"Preview contact sheet exceeds its readable image bounds"_s);
+            previewPixels += quint64(preview.width()) * preview.height();
+            require(preview.save(outputDir + u"/preview-%1.png"_s.arg(index)), u"Preview PNG could not be saved"_s);
+        }
+        require(previewPixels <= 16'000'000, u"Preview batch exceeded its pixel budget"_s);
+        require(!preparePage(original, regions, previewPixels - 1, 24).error.isEmpty(),
+            u"Preview allocation ignored its remaining pixel budget"_s);
+        require(!preparePage(original, regions, 16'000'000, 0).error.isEmpty(),
+            u"Preview allocation ignored its image count budget"_s);
+        int previewChecks = 0;
+        const Preparation cancelledPreview = preparePage(original, regions, 16'000'000, 24,
+            [&previewChecks, &regions] { return ++previewChecks > 2 * regions.size() + 2; });
+        require(!cancelledPreview.error.isEmpty() && cancelledPreview.previews.isEmpty(),
+            u"Cancelled preparation returned partial previews"_s);
+        qInfo() << "PASS manga_preview sheets=" << prepared.previews.size() << "pixels=" << previewPixels;
+
+        Region previewRegion = regions.at(1);
+        previewRegion.textColor = QColor(0, 0, 0);
+        previewRegion.outlineColor = QColor(255, 0, 0);
+        previewRegion.outlineWidth = 4;
+        const QRect previewCrop = pixels(previewRegion.bounds, original.size()).adjusted(-16, -16, 16, 16)
+                                      .intersected(original.rect());
+        QImage previewBackground(original.size(), QImage::Format_RGBA8888);
+        previewBackground.fill(QColor(248, 248, 248));
+        const Result previewReference = renderCleaned(previewBackground, previewBackground, { previewRegion });
+        const Preparation exactPreview = preparePage(original, { previewRegion }, 16'000'000, 24);
+        require(exactPreview.error.isEmpty() && exactPreview.previews.size() == 1, exactPreview.error);
+        const QImage sheet = exactPreview.previews.constFirst();
+        const QImage sourceTile = sheet.copy(8, 32, previewCrop.width(), previewCrop.height());
+        const QImage coverageTile = sheet.copy(16 + previewCrop.width(), 32, previewCrop.width(), previewCrop.height());
+        const QImage letteringTile = sheet.copy(24 + 2 * previewCrop.width(), 32, previewCrop.width(), previewCrop.height());
+        require(sourceTile == original.copy(previewCrop), u"Preview changed its original crop"_s);
+        require(letteringTile == previewReference.rendered.copy(previewCrop),
+            u"Preview lettering differs from final native paths, bold face or outline"_s);
+        const QRect cleanup = pixels(previewRegion.cleanupRects.constFirst(), original.size());
+        int covered = 0;
+        for (int y = 0; y < sourceTile.height(); ++y)
+        {
+            for (int x = 0; x < sourceTile.width(); ++x)
+            {
+                const bool changed = sourceTile.pixel(x, y) != coverageTile.pixel(x, y);
+                require(changed == cleanup.contains(previewCrop.topLeft() + QPoint(x, y)),
+                    u"Preview coverage does not match cleanup pixels"_s);
+                covered += changed;
+            }
+        }
+        require(covered == cleanup.width() * cleanup.height(), u"Preview missed cleanup coverage"_s);
+        Region missedCoverage = previewRegion;
+        missedCoverage.cleanupRects[0].setWidth(previewRegion.cleanupRects.constFirst().width() / 2);
+        const Preparation missedPreview = preparePage(original, { missedCoverage }, 16'000'000, 24);
+        require(missedPreview.error.isEmpty() && missedPreview.previews.constFirst() != sheet,
+            u"Preview concealed missing source-glyph coverage"_s);
+        require(missedPreview.previews.constFirst().save(outputDir + u"/preview-missed-coverage.png"_s)
+                && sheet.save(outputDir + u"/preview-corrected-coverage.png"_s),
+            u"Coverage comparison could not be saved"_s);
+        Region weakLettering = previewRegion;
+        for (TextRun &run : weakLettering.translation)
+            run.bold = false;
+        require(preparePage(original, { weakLettering }, 16'000'000, 24).previews.constFirst() != sheet,
+            u"Preview concealed lost bold emphasis"_s);
+        Region rotatedPreviewRegion = regions.at(13);
+        rotatedPreviewRegion.textColor = QColor(49, 68, 85);
+        rotatedPreviewRegion.outlineWidth = 4;
+        const QRect rotatedCrop = pixels(rotatedPreviewRegion.bounds, original.size()).adjusted(-16, -16, 16, 16)
+                                      .intersected(original.rect());
+        const Preparation rotatedPreview = preparePage(original, { rotatedPreviewRegion }, 16'000'000, 24);
+        require(rotatedPreview.error.isEmpty() && rotatedPreview.previews.size() == 1, rotatedPreview.error);
+        const QImage rotatedSheet = rotatedPreview.previews.constFirst();
+        require(rotatedSheet.copy(24 + 2 * rotatedCrop.width(), 32, rotatedCrop.width(), rotatedCrop.height())
+                == renderCleaned(previewBackground, previewBackground, { rotatedPreviewRegion }).rendered.copy(rotatedCrop),
+            u"Preview rotation, color, outline or clipping differs from final painting"_s);
+        require(rotatedSheet.save(outputDir + u"/preview-rotated-color-outline.png"_s),
+            u"Rotated preview could not be saved"_s);
+        Region unreadablePreview = previewRegion;
+        unreadablePreview.bounds = QRectF(0, 0, 1, 1);
+        unreadablePreview.layout = normalized(QRectF(20, 20, 100, 20), original.size());
+        unreadablePreview.translation = { { u"Hello"_s } };
+        unreadablePreview.outlineWidth = 0;
+        unreadablePreview.outlineColor = QColor();
+        require(prepareTypography(original.size(), { unreadablePreview }).diagnostics.constFirst().status == Status::Rendered
+                && !preparePage(original, { unreadablePreview }, 16'000'000, 24).error.isEmpty(),
+            u"Unreadable full-page preview was silently attached"_s);
+        qInfo() << "PASS manga_preview_pixels original=exact coverage=exact lettering=final bold=distinct "
+                   "rotation_color_outline_clip=exact unreadable=rejected";
+
         const Result result = renderCleaned(original, generated, regions);
         require(result.error.isEmpty() && result.diagnostics.size() == regions.size(), result.error);
         for (const Diagnostic &diagnostic : result.diagnostics)

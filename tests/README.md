@@ -679,15 +679,25 @@ cleanup/layout rectangles. Cleanup receives source text and cleanup rectangles,
 without target translations or typography. The original is restored after a
 neighboring context image and custom tools stay disabled in the image phase.
 The structured request exposes `submit_page`, which validates the complete map,
-context, window seams and native typography before retaining one accepted proposal.
-Validation errors return to the model in that same request for at most three
-submissions. The final response is only `accepted` and `reason`; it cannot bypass
-submission, replace an accepted map or start cleanup after rejection. The fixture
-checks geometry, context and overflow feedback followed by a valid resubmission:
-one cleanup request, with no repeated accepted preflight. Repeated invalid data,
-a fourth submission and malicious final decisions must start no generation.
-The fixture also checks native preflight and final-render rejection,
-cooperative cancellation and owner abort during both native stages,
+context, window seams and native typography before returning native contact sheets.
+Each region compares its original crop, exact cyan cleanup coverage and native
+target lettering on a neutral background. Tiles are at most 512 pixels per side;
+shrinking below nine font pixels rejects the proposal instead of attaching an
+unreadable preview. Sheets are at most 2048 pixels per side. Their aggregate
+16M-pixel allocation uses the remaining shared 64M inspection budget, with the
+transport's existing 24-image and 12 MiB encoded batch limits. This bounds preview
+RGBA buffers to 64 MB; original decode and encoded output have separate limits.
+The model can correct geometry, coverage and typography within three evaluated
+submissions. A fully validated preview replaces the latest candidate; a rejected
+replacement retains it. The final response is only `accepted` and `reason` and
+selects that exact latest candidate, or declines it. It cannot bypass submission
+or start cleanup after rejection. The fixture checks validation repair, visual
+replacement, invalid replacement, missing/oversized previews and shared long-page
+budget exhaustion, with one cleanup after acceptance. Repeated invalid data,
+a fourth submission without a valid candidate and malicious final decisions must
+start no generation. Existing accepted image caches retain their pipeline identity.
+The fixture also checks native preparation and final-render rejection,
+cooperative cancellation and owner abort during preparation and final rendering,
 complete/partial usage and child reaping. Its recording renderer does not
 establish Qt PNG geometry or translation quality; those require the native reader
 scenario.

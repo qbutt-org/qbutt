@@ -12,7 +12,7 @@
 namespace Qbutt
 {
     struct MangaRegion;
-    struct MangaTypographyOutput;
+    struct MangaPreparationOutput;
     struct MangaRenderOutput;
     struct RenderCancellation;
     struct MangaImageOutput;
@@ -25,8 +25,9 @@ namespace Qbutt
     MangaImageOutput compose_manga_windows(::rust::Slice<const std::uint8_t> original,
         ::rust::Slice<const MangaWindow> windows, const RenderCancellation &cancelled);
 
-    MangaTypographyOutput prepare_manga_typography(::rust::Slice<const std::uint8_t> original,
-        ::rust::Slice<const MangaRegion> regions, const RenderCancellation &cancelled);
+    MangaPreparationOutput prepare_manga_page(::rust::Slice<const std::uint8_t> original,
+        ::rust::Slice<const MangaRegion> regions, std::uint64_t previewPixels,
+        std::uint32_t maximumImages, std::uint64_t maximumBytes, const RenderCancellation &cancelled);
     MangaRenderOutput render_cleaned_manga_page(::rust::Slice<const std::uint8_t> original,
         ::rust::Slice<const std::uint8_t> cleaned, ::rust::Slice<const MangaRegion> regions,
         const RenderCancellation &cancelled);

@@ -39,6 +39,7 @@ pub(super) async fn exercise(
         "long-explicit-unsupported",
         "long-context-oversized",
         "long-context-budget",
+        "long-preview-budget",
         "long-edge",
         "long-missing-crossing",
         "long-duplicate",
@@ -199,6 +200,7 @@ pub(super) async fn exercise(
             | "long-late-overlap"
             | "long-split-crossing"
             | "long-merged-accepted" => 3,
+            "long-preview-budget" => 3,
             _ => 4,
         };
         assert_eq!(processes.len(), expected_processes);
