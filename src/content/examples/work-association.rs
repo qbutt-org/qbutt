@@ -18,7 +18,12 @@ fn main() -> Result<()> {
     for (index, category) in categories.into_iter().enumerate() {
         let hash = format!("{index:040x}");
         let title = format!("Generated work {index}");
-        association.update(torrent(Source::RuTor, 100 + index, &title, category, &hash));
+        let mut publication = torrent(Source::RuTor, 100 + index, &title, category, &hash);
+        if category == Category::Movies {
+            publication.title = "Созданный фильм".into();
+            publication.aliases = vec![title.clone(), "Sozdannyy film".into(), "---".into()];
+        }
+        association.update(publication);
         association.update(torrent(
             Source::RuTracker,
             200 + index,
@@ -50,12 +55,23 @@ fn main() -> Result<()> {
         let library = Library::open(&profile)?;
         let saved = library.get(&movie.anchor)?.ok_or("missing grouped entry")?;
         assert_eq!(saved.group.references, movie.references);
-        assert_eq!(saved.group.publications.len(), 2);
+        assert_eq!(saved.group.publications, movie.publications);
         assert_eq!(saved.preferences.selected, Some(preferred));
         Ok(())
     })();
     std::fs::remove_dir_all(&profile)?;
     result?;
+
+    let mut romaji = movie.publications[1].clone();
+    romaji.title = "SOZDANNYY-FILM".into();
+    association.update(romaji);
+    assert_eq!(association.groups().len(), 3);
+
+    let mut alias_only = movie.publications[1].clone();
+    alias_only.title = "Generated alternative title".into();
+    alias_only.aliases = vec!["Sozdannyy film".into()];
+    association.update(alias_only);
+    assert_eq!(association.groups().len(), 3);
 
     let mut remake = movie.publications[1].clone();
     remake.year = Some(2024);
@@ -69,6 +85,25 @@ fn main() -> Result<()> {
     let mut same_payload_different_work = movie.publications[1].clone();
     same_payload_different_work.title = "Generated sequel".into();
     association.update(same_payload_different_work);
+    assert_eq!(association.groups().len(), 4);
+
+    let mut same_alias_different_payload = movie.publications[1].clone();
+    same_alias_different_payload.variants[0].info_hash = Some("f".repeat(40));
+    same_alias_different_payload.variants[0].reference.selector = VariantSelector::TorrentHash {
+        info_hash: "f".repeat(40),
+    };
+    association.update(same_alias_different_payload);
+    assert_eq!(association.groups().len(), 4);
+
+    let mut empty_alias = movie.publications[1].clone();
+    empty_alias.title = "...".into();
+    empty_alias.aliases = vec!["---".into()];
+    association.update(empty_alias);
+    assert_eq!(association.groups().len(), 4);
+
+    let mut different_category = movie.publications[1].clone();
+    different_category.category = Category::Anime;
+    association.update(different_category);
     assert_eq!(association.groups().len(), 4);
 
     association.clear();
@@ -93,6 +128,9 @@ fn main() -> Result<()> {
 
     println!("categories=movie,game,book grouped=3 exact_refs=preserved reopen=ok");
     println!("year_conflict=split title_conflict=split season_conflict=split reversible=ok");
+    println!(
+        "aliases=grouped romaji_punctuation=grouped alias_payload_conflict=split empty_alias=split category_conflict=split"
+    );
     println!("language_before_quality_and_seeders=ok");
     Ok(())
 }

@@ -137,10 +137,17 @@ fn confirmed_match(left: &Work, right: &Work) -> bool {
         return true;
     }
 
-    // One torrent can contain a collection of distinct works. Require both
-    // matching payload and matching publication titles before association.
-    let left_title = normalized_title(&left.title);
-    if left_title.is_empty() || left_title != normalized_title(&right.title) {
+    // A shared payload can contain a collection. Require a matching source
+    // title or alias as well, without inferring translations from similar text.
+    let left_titles: Vec<_> = std::iter::once(&left.title)
+        .chain(&left.aliases)
+        .map(|title| normalized_title(title))
+        .filter(|title| !title.is_empty())
+        .collect();
+    let shared_title = std::iter::once(&right.title)
+        .chain(&right.aliases)
+        .any(|title| left_titles.contains(&normalized_title(title)));
+    if !shared_title {
         return false;
     }
     left.variants.iter().any(|a| {
