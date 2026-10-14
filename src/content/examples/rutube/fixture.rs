@@ -190,7 +190,31 @@ fn response(
             String::new(),
         );
     }
-    let body = if url.path().starts_with("/api/search/") {
+    let body = if url.path().starts_with("/api/v1/anime/releases/") {
+        let mut episode = json!({
+            "id": "generated-episode-2", "ordinal": 2, "rutube_id": ID
+        });
+        match case {
+            "episode-changed" => episode["id"] = json!("changed-episode"),
+            "rutube-changed" => episode["rutube_id"] = json!("a".repeat(32)),
+            "rutube-missing" => episode["rutube_id"] = Value::Null,
+            "rutube-invalid" => episode["rutube_id"] = json!("not-a-video-id"),
+            _ => {}
+        }
+        let mut episodes = vec![json!({
+            "id": "generated-episode-1", "ordinal": 1, "rutube_id": "1".repeat(32)
+        })];
+        if case != "episode-missing" {
+            episodes.push(episode);
+        }
+        json!({
+            "id": if case == "release-changed" { 2 } else { 1 },
+            "alias": "generated-release",
+            "name": {"main": "Generated AniLiberty release"},
+            "episodes": episodes
+        })
+        .to_string()
+    } else if url.path().starts_with("/api/search/") {
         if query == "challenge" {
             return (
                 "200 OK",

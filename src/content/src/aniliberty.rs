@@ -1,3 +1,4 @@
+#[path = "aniliberty/response.rs"]
 mod response;
 
 use std::collections::HashSet;
@@ -5,7 +6,10 @@ use std::collections::HashSet;
 use url::Url;
 
 use crate::http::{SourceHttp, public_media_url};
-use crate::{Error, PublicationRef, ResolvedContent, Result, VariantRef, VariantSelector, Work};
+use crate::{
+    Error, PublicationRef, ResolvedContent, Result, Rutube, Source, VariantRef, VariantSelector,
+    Work,
+};
 
 use response::Release;
 
@@ -15,6 +19,7 @@ const ORIGIN: &str = "https://anilibria.top";
 pub struct AniLiberty {
     http: SourceHttp,
     origin: Url,
+    rutube: Rutube,
 }
 
 impl AniLiberty {
@@ -23,6 +28,7 @@ impl AniLiberty {
         Ok(Self {
             http: SourceHttp::new(origin.clone(), reqwest::header::HeaderMap::new())?,
             origin,
+            rutube: Rutube::new()?,
         })
     }
 
@@ -89,22 +95,29 @@ impl AniLiberty {
                     quality: *quality,
                 })
             }
-            VariantSelector::Rutube { episode_id } => {
-                let id = release
+            VariantSelector::Rutube {
+                episode_id,
+                rutube_id,
+            } => {
+                release
                     .episodes
                     .iter()
                     .flatten()
-                    .find(|episode| episode.id == *episode_id)
-                    .and_then(|episode| episode.rutube_id.as_deref())
-                    .filter(|id| {
-                        !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                    .find(|episode| {
+                        episode.id == *episode_id
+                            && episode.rutube_id.as_deref() == Some(rutube_id.as_str())
                     })
                     .ok_or(Error::VariantUnavailable)?;
-                let url = public_media_url(&format!("https://rutube.ru/video/{id}/")).await?;
-                Ok(ResolvedContent::ExternalVideo {
+                let publication = PublicationRef {
+                    source: Source::Rutube,
+                    id: rutube_id.clone(),
+                };
+                let (_, url, quality) = self.rutube.resolve_publication(&publication).await?;
+                Ok(ResolvedContent::DirectVideo {
                     reference: selected.clone(),
                     title: release.name.main,
                     url,
+                    quality,
                 })
             }
             _ => Err(Error::InvalidReference),

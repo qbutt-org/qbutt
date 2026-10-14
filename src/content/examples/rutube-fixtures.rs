@@ -7,6 +7,9 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
+#[allow(dead_code)]
+#[path = "../src/torrent.rs"]
+mod torrent;
 #[cfg(windows)]
 pub use qbutt_content::webview;
 
@@ -32,7 +35,23 @@ mod rutube {
         Rutube { http, origin }
     }
 }
+pub use rutube::Rutube;
 
+#[allow(dead_code)]
+mod aniliberty {
+    include!("../src/aniliberty.rs");
+
+    pub(super) fn fixture(http: SourceHttp, origin: Url, rutube: Rutube) -> AniLiberty {
+        AniLiberty {
+            http,
+            origin,
+            rutube,
+        }
+    }
+}
+
+#[path = "rutube/aniliberty.rs"]
+mod aniliberty_checks;
 #[path = "rutube/fixture.rs"]
 mod fixture;
 
@@ -46,11 +65,20 @@ type CheckResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[tokio::main]
 async fn main() -> CheckResult<()> {
     let mut args = std::env::args_os().skip(1);
-    if args.next().as_deref() == Some(std::ffi::OsStr::new("--reopen")) {
-        verify_library(std::path::Path::new(
-            &args.next().ok_or("missing fixture profile")?,
-        ))?;
-        return Ok(());
+    match args.next().as_deref().and_then(std::ffi::OsStr::to_str) {
+        Some("--reopen") => {
+            verify_library(std::path::Path::new(
+                &args.next().ok_or("missing fixture profile")?,
+            ))?;
+            return Ok(());
+        }
+        Some("--reopen-aniliberty") => {
+            aniliberty_checks::verify_library(std::path::Path::new(
+                &args.next().ok_or("missing fixture profile")?,
+            ))?;
+            return Ok(());
+        }
+        _ => {}
     }
     let fixture = Fixture::start().await?;
     let source = rutube::fixture(
@@ -215,6 +243,7 @@ async fn main() -> CheckResult<()> {
         assert_eq!(exact[0].reference, found.reference);
         assert_eq!(exact[0].variants[0].reference, found.variants[0].reference);
     }
+    aniliberty_checks::verify(&fixture).await?;
     assert_eq!(fixture.payload.load(Ordering::SeqCst), 0);
     fixture.stop().await?;
     println!(

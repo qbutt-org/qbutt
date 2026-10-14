@@ -446,6 +446,7 @@ pub enum VariantSelector {
     },
     Rutube {
         episode_id: String,
+        rutube_id: String,
     },
     /// The single video identified by the containing Rutube publication.
     RutubeVideo,
@@ -515,8 +516,19 @@ impl VariantSelector {
                         .bytes()
                         .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
             }
-            Self::Episode { id, .. } | Self::Rutube { episode_id: id } => {
-                !id.is_empty() && id.len() <= 128
+            Self::Episode { id, .. } => !id.is_empty() && id.len() <= 128,
+            Self::Rutube {
+                episode_id,
+                rutube_id,
+            } => {
+                !episode_id.is_empty()
+                    && episode_id.len() <= 128
+                    && PublicationRef {
+                        source: Source::Rutube,
+                        id: rutube_id.clone(),
+                    }
+                    .rutube_id()
+                    .is_ok()
             }
             Self::YummyAnimeVideo {
                 id,

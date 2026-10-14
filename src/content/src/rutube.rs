@@ -3,7 +3,9 @@ use std::collections::HashSet;
 use url::Url;
 
 use crate::http::SourceHttp;
-use crate::{Category, Error, PublicationRef, ResolvedContent, Result, VariantRef, Work};
+use crate::{
+    Category, Error, PublicationRef, ResolvedContent, Result, VariantRef, VideoQuality, Work,
+};
 
 #[path = "rutube/response.rs"]
 mod response;
@@ -83,14 +85,22 @@ impl Rutube {
     /// exist only in this fresh descriptor, never in the publication or library.
     pub async fn resolve(&self, selected: &VariantRef) -> Result<ResolvedContent> {
         selected.validate()?;
-        let video = self.video(&selected.publication).await?;
-        let (url, quality) = self.stream(&selected.publication).await?;
+        let (title, url, quality) = self.resolve_publication(&selected.publication).await?;
         Ok(ResolvedContent::DirectVideo {
             reference: selected.clone(),
-            title: video.title,
+            title,
             url,
             quality,
         })
+    }
+
+    pub(crate) async fn resolve_publication(
+        &self,
+        publication: &PublicationRef,
+    ) -> Result<(String, Url, VideoQuality)> {
+        let video = self.video(publication).await?;
+        let (url, quality) = self.stream(publication).await?;
+        Ok((video.title, url, quality))
     }
 
     async fn video(&self, publication: &PublicationRef) -> Result<response::Video> {

@@ -437,6 +437,7 @@ fn fixture() -> Work {
         VariantSelector::Torrent { id: 42 },
         VariantSelector::Rutube {
             episode_id: "generated-episode".into(),
+            rutube_id: "0123456789abcdef0123456789abcdef".into(),
         },
     ];
     let variants = selectors

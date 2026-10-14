@@ -222,12 +222,19 @@ impl Episode {
                 }),
             });
         }
-        if self.rutube_id.as_ref().is_some_and(|id| !id.is_empty()) {
+        if let Some(id) = self.rutube_id.as_ref().filter(|id| !id.is_empty()) {
+            PublicationRef {
+                source: Source::Rutube,
+                id: id.clone(),
+            }
+            .validate()
+            .map_err(|_| Error::InvalidResponse("invalid Rutube episode identity"))?;
             variants.push(Variant {
                 reference: VariantRef {
                     publication: reference.clone(),
                     selector: VariantSelector::Rutube {
                         episode_id: self.id.clone(),
+                        rutube_id: id.clone(),
                     },
                 },
                 title: None,
