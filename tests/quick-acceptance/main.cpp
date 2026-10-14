@@ -51,6 +51,7 @@
 #include "sources.h"
 #include "torrent-source.h"
 #include "variant-filters.h"
+#include "video-actions.h"
 #include "work-details.h"
 #include "work-filter.h"
 #include "worklist.h"
@@ -557,6 +558,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"category"_s, u"Run production category filtering and exact selection scenarios, then exit."_s});
     parser.addOption({u"variant-filters"_s, u"Run generated variant filters, exact selection and persisted preferences, then exit."_s});
     parser.addOption({u"work-details"_s, u"Run generated publication descriptions and the production details modal, then exit."_s});
+    parser.addOption({u"video-actions"_s, u"Check supported video actions using a fresh isolated profile, then exit."_s});
     parser.addOption({u"profile"_s, u"Use an explicit isolated profile for restart acceptance."_s, u"directory"_s});
     parser.addOption({u"dark"_s, u"Use the dark system color scheme for visual inspection."_s});
     parser.addOption({u"lang"_s, u"Set the locale for this process."_s, u"locale"_s, u"en"_s});
@@ -599,14 +601,16 @@ int main(int argc, char *argv[])
         && !parser.isSet(u"reader-text-ahead"_s)
         && !parser.isSet(u"reader-manga-translation"_s)
         && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s)
-        && !parser.isSet(u"variant-filters"_s) && !parser.isSet(u"work-details"_s));
+        && !parser.isSet(u"variant-filters"_s) && !parser.isSet(u"work-details"_s)
+        && !parser.isSet(u"video-actions"_s));
 
     if (parser.isSet(u"library"_s) || parser.isSet(u"sharing"_s) || parser.isSet(u"downloads"_s)
         || parser.isSet(u"reader-progress"_s) || parser.isSet(u"history"_s)
         || parser.isSet(u"reader-settings"_s) || parser.isSet(u"rutor"_s) || parser.isSet(u"work-filter"_s)
         || parser.isSet(u"category"_s) || parser.isSet(u"sources"_s) || parser.isSet(u"playback"_s)
         || parser.isSet(u"nyaa"_s) || parser.isSet(u"mangalib"_s) || parser.isSet(u"lib-session"_s)
-        || parser.isSet(u"variant-filters"_s) || parser.isSet(u"work-details"_s))
+        || parser.isSet(u"variant-filters"_s) || parser.isSet(u"work-details"_s)
+        || parser.isSet(u"video-actions"_s))
     {
         try
         {
@@ -616,6 +620,8 @@ int main(int argc, char *argv[])
                 exerciseDownloads(parser.value(u"profile"_s));
             else if (parser.isSet(u"work-details"_s))
                 exerciseWorkDetails();
+            else if (parser.isSet(u"video-actions"_s))
+                exerciseVideoActions(parser.value(u"profile"_s));
             else if (parser.isSet(u"variant-filters"_s))
                 exerciseVariantFilters();
             else if (parser.isSet(u"sharing"_s))

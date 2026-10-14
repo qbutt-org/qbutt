@@ -180,7 +180,7 @@ impl ffi::ContentController {
             .find(&self.selected_variant_id.to_string())
             .is_some_and(|variant| {
                 variant.transport == qbutt_content::Transport::Video
-                    && super::downloads::downloadable_video(&variant.reference)
+                    && variant.reference.supports_video_acquisition()
             })
     }
 
@@ -194,11 +194,15 @@ impl ffi::ContentController {
         let Some(variant) = self.variants.find(&self.selected_variant_id.to_string()) else {
             return ffi::VariantSelectionState::Unavailable;
         };
-        if self.source_enabled(variant.reference.publication.source) {
-            ffi::VariantSelectionState::Available
-        } else {
-            ffi::VariantSelectionState::SourceDisabled
+        if !self.source_enabled(variant.reference.publication.source) {
+            return ffi::VariantSelectionState::SourceDisabled;
         }
+        if variant.transport == qbutt_content::Transport::Video
+            && !variant.reference.supports_video_acquisition()
+        {
+            return ffi::VariantSelectionState::UnsupportedPlayback;
+        }
+        ffi::VariantSelectionState::Available
     }
 
     pub fn set_list_mode(mut self: Pin<&mut Self>, mode: ffi::ListMode) {

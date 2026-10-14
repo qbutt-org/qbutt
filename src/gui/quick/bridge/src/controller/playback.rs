@@ -354,6 +354,11 @@ impl ffi::ContentController {
         };
         let transport = variant.transport;
         let reference = variant.reference.clone();
+        if transport == Transport::Video && !reference.supports_video_acquisition() {
+            self.as_mut()
+                .set_error(Some(ffi::ContentError::ExternalPlayback));
+            return;
+        }
         let Some(request) = self.source_request(SourceOperation::Resolve(reference.clone())) else {
             return;
         };

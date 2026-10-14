@@ -18647,6 +18647,10 @@ Please choose a different name and try again.</source>
         <translation>Сохранённый вариант недоступен. Выберите другой.</translation>
     </message>
     <message>
+        <source>This player is not supported yet. Choose another.</source>
+        <translation>Этот плеер пока не поддерживается. Выберите другой.</translation>
+    </message>
+    <message>
         <source>Enable this source in Sources.</source>
         <translation>Включите источник в «Источниках».</translation>
     </message>

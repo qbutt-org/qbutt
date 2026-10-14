@@ -96,6 +96,8 @@ qt_add_executable(qbutt-quick-acceptance
     variant-filters.h
     work-details.cpp
     work-details.h
+    video-actions.cpp
+    video-actions.h
     work-filter.cpp
     work-filter.h
     worklist.cpp

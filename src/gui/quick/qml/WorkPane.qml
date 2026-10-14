@@ -164,8 +164,12 @@ Pane {
             Layout.fillWidth: true
             visible: root.backend.selectedVariantState === Search.Unavailable
                 || root.backend.selectedVariantState === Search.SourceDisabled
+                || root.backend.selectedVariantState === Search.UnsupportedPlayback
             text: root.backend.selectedVariantState === Search.SourceDisabled
-                ? qsTr("Enable this source in Sources.") : qsTr("Saved variant is unavailable. Choose another.")
+                ? qsTr("Enable this source in Sources.")
+                : root.backend.selectedVariantState === Search.UnsupportedPlayback
+                    ? qsTr("This player is not supported yet. Choose another.")
+                    : qsTr("Saved variant is unavailable. Choose another.")
             wrapMode: Text.Wrap
             textFormat: Text.PlainText
         }
@@ -297,7 +301,7 @@ Pane {
                 sizeWidth: root.sizeWidth
                 seedersWidth: root.seedersWidth
                 showTorrentColumns: root.showTorrentColumns
-                highlighted: root.backend.selectedVariantState === Search.Available && root.backend.selectedVariantId === variant.variantId
+                highlighted: root.backend.selectedVariantId === variant.variantId
                 onClicked: {
                     variants.forceActiveFocus();
                     root.backend.selectVariant(variant.variantId);

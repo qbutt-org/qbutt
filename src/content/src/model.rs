@@ -600,6 +600,24 @@ pub struct VariantRef {
 }
 
 impl VariantRef {
+    pub fn supports_video_acquisition(&self) -> bool {
+        match &self.selector {
+            VariantSelector::Episode { .. }
+            | VariantSelector::RutubeVideo
+            | VariantSelector::VkVideo
+            | VariantSelector::AniTokyoVideo { .. }
+            | VariantSelector::AnimeSpiritKodik { .. } => true,
+            VariantSelector::YummyAnimeVideo { player, .. } => {
+                player == "Плеер VK"
+                    || matches!(
+                        player.strip_prefix("Плеер ").unwrap_or(player),
+                        "Aksor" | "CVH" | "Kodik"
+                    )
+            }
+            _ => false,
+        }
+    }
+
     pub fn validate(&self) -> crate::Result<()> {
         self.publication.validate()?;
         self.selector.validate()?;

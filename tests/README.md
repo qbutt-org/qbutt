@@ -419,6 +419,16 @@ production-window PNGs at 1440×900 and 1280×720. These renders and programmati
 keyboard actions do not establish native pointer interaction, backdrop blur or
 application switching.
 
+Run `--video-actions --lang ru --profile <fresh-absolute-directory>` and
+`--video-actions --dark --lang en --profile <another-fresh-absolute-directory>`
+with the same offscreen environment and `QT_QPA_FONTDIR=C:/Windows/Fonts`.
+Generated stored YummyAnime variants exercise raw prefixed and unprefixed player
+names. Watch and Save must agree with supported acquisition; unsupported players
+retain selection and show the localized next action. Direct rejected calls must
+start no resolution and create no downloads or History. Require exit zero and
+`PASS video_actions`. The profile receives product renders at 1440×900 and
+1280×720. This scenario does not prove real playback or download completion.
+
 Run `--work-details` with the same offscreen environment in EN/Light and
 RU/Dark. Generated SQLite publications contain different descriptions and an
 exact saved variant. The production view must retain its three-line summary,

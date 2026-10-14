@@ -9,8 +9,8 @@ use cxx_qt_lib::QString;
 use qbutt_content::browser::{BrowserCommand, BrowserError, ResolveKind, Selection};
 use qbutt_content::{
     CapturedVideoError, DirectDownload, DownloadError, DownloadQueue, MediaGateway, MediaTools,
-    PlaybackMedia, PreparedPlayback, ResolvedContent, SourceOperation, Transport, VariantRef,
-    VariantSelector, resolve_captured_video, resolve_external_video,
+    PlaybackMedia, PreparedPlayback, ResolvedContent, SourceOperation, Transport, VariantSelector,
+    resolve_captured_video, resolve_external_video,
 };
 use url::Url;
 
@@ -49,20 +49,6 @@ impl Drop for MediaToolRequest {
         let _ = self.qt_thread.queue(move |controller| {
             controller.cancel_media_tools(id);
         });
-    }
-}
-
-pub(super) fn downloadable_video(reference: &VariantRef) -> bool {
-    match &reference.selector {
-        VariantSelector::Episode { .. }
-        | VariantSelector::RutubeVideo
-        | VariantSelector::VkVideo
-        | VariantSelector::AniTokyoVideo { .. }
-        | VariantSelector::AnimeSpiritKodik { .. } => true,
-        VariantSelector::YummyAnimeVideo { player, .. } => {
-            matches!(player.as_str(), "Aksor" | "CVH" | "Kodik" | "Плеер VK")
-        }
-        _ => false,
     }
 }
 
@@ -271,14 +257,14 @@ impl ffi::ContentController {
             && self
                 .playback
                 .reference_for(launch_token)
-                .is_some_and(|reference| downloadable_video(&reference))
+                .is_some_and(|reference| reference.supports_video_acquisition())
     }
 
     pub fn download_playback(mut self: Pin<&mut Self>, launch_token: u64) -> bool {
         let Some(reference) = self.playback.reference_for(launch_token) else {
             return false;
         };
-        if !downloadable_video(&reference) {
+        if !reference.supports_video_acquisition() {
             return false;
         }
         let Some(queue) = self.download_queue.as_ref().map(Arc::clone) else {

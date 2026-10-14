@@ -215,6 +215,7 @@ pub mod ffi {
         Available,
         Unavailable,
         SourceDisabled,
+        UnsupportedPlayback,
     }
 
     #[namespace = ""]
