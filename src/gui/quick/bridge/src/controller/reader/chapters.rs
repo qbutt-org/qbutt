@@ -199,6 +199,7 @@ impl ffi::ContentController {
             .translation
             .select_chapter(&chapter.reference);
         let generation = self.reader.chapter.generation;
+        self.as_mut().reader_assets_cleared(generation);
         let (page, scroll_offset) = match &resume {
             ReaderPosition::Page {
                 page,

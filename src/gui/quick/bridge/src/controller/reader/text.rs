@@ -177,7 +177,6 @@ impl ffi::ContentController {
                 return;
             }
         };
-        self.as_mut().reader_assets_cleared(generation);
         for asset in &chapter.assets {
             self.as_mut().reader_asset(
                 generation,

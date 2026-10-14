@@ -268,6 +268,8 @@ pub mod ffi {
         fn chapterTitle(number: &QString, volume: &QString, title: &QString) -> QString;
         #[rust_name = "validated_image_size"]
         fn validatedImageSize(path: &QString) -> QSize;
+        #[rust_name = "manga_translation_size_supported"]
+        fn mangaTranslationSizeSupported(width: i32, height: i32) -> bool;
         #[rust_name = "retire_reader_cache"]
         fn retireReaderCache(cache: Box<RetiredReaderCache>);
         #[rust_name = "retire_content_services"]
@@ -369,6 +371,7 @@ pub mod ffi {
         #[qproperty(bool, reader_translation_busy, cxx_name = "readerTranslationBusy", READ = reader_translation_busy, NOTIFY = reader_changed)]
         #[qproperty(bool, reader_translation_error, cxx_name = "readerTranslationError", READ = reader_translation_error, NOTIFY = reader_changed)]
         #[qproperty(bool, reader_translation_needs_codex, cxx_name = "readerTranslationNeedsCodex", READ = reader_translation_needs_codex, NOTIFY = reader_changed)]
+        #[qproperty(bool, reader_translation_image_size_error, cxx_name = "readerTranslationImageSizeError", READ = reader_translation_image_size_error, NOTIFY = reader_changed)]
         #[qproperty(i32, reader_chapter_index, cxx_name = "readerChapterIndex", READ = reader_chapter_index, NOTIFY = reader_changed)]
         #[qproperty(i32, reader_chapter_count, cxx_name = "readerChapterCount", READ = reader_chapter_count, NOTIFY = reader_changed)]
         #[qproperty(ReaderMode, reader_mode, cxx_name = "readerMode", READ = reader_mode, NOTIFY = reader_changed)]
@@ -899,6 +902,7 @@ pub mod ffi {
         fn reader_translation_busy(&self) -> bool;
         fn reader_translation_error(&self) -> bool;
         fn reader_translation_needs_codex(&self) -> bool;
+        fn reader_translation_image_size_error(&self) -> bool;
         fn reader_chapter_index(&self) -> i32;
         fn reader_chapter_count(&self) -> i32;
         fn reader_mode(&self) -> ReaderMode;

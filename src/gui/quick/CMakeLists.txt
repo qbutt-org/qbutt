@@ -38,6 +38,8 @@ endif()
 qt_add_library(qbt_quick STATIC
     contentview.cpp
     contentview.h
+    readerimageprovider.cpp
+    readerimageprovider.h
 )
 target_link_libraries(qbt_quick
     PRIVATE qbutt_quick qbt_content_plugin

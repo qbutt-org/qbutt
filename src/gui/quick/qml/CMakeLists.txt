@@ -26,6 +26,7 @@ qt_add_qml_module(qbt_quick_ui STATIC
         ReaderColorSwatch.qml
         ReaderContinuousCanvas.qml
         ReaderFontPicker.qml
+        ReaderImage.qml
         ReaderPage.qml
         ReaderStripPage.qml
         ReaderToolbar.qml

@@ -4,8 +4,9 @@
 #include <cstdint>
 #include <memory>
 
-#include <QString>
+#include <QImage>
 #include <QSize>
+#include <QString>
 
 #include "rust/cxx.h"
 
@@ -41,7 +42,9 @@ namespace Qbutt
         const QString &player, const QString &source, const QString &title);
     QString readerError(ReaderError error);
     QString chapterTitle(const QString &number, const QString &volume, const QString &title);
+    QImage readReaderImage(const QString &path);
     QSize validatedImageSize(const QString &path);
+    bool mangaTranslationSizeSupported(std::int32_t width, std::int32_t height);
     void retireReaderCache(::rust::Box<RetiredReaderCache> cache);
     void retireContentServices(::rust::Box<Services> services);
     ::rust::Vec<BrowserInstallation> browserInstallations();

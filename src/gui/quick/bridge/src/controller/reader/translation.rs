@@ -283,7 +283,7 @@ impl ffi::ContentController {
         if self.reader.is_text {
             self.reader.translation.error
         } else {
-            self.reader.manga_translation.error
+            self.reader.manga_translation.error.is_some()
         }
     }
 
@@ -291,7 +291,11 @@ impl ffi::ContentController {
         if self.reader.is_text {
             self.reader.translation.needs_codex
         } else {
-            self.reader.manga_translation.needs_codex
+            self.reader
+                .manga_translation
+                .error
+                .as_ref()
+                .is_some_and(|error| error.needs_codex())
         }
     }
 

@@ -17,6 +17,7 @@ FocusScope {
     readonly property bool isText: backend.readerIsText
     readonly property bool continuous: backend.readerMode === Reader.Continuous
     readonly property string errorText: backend.readerErrorText
+    property bool restorePending: true
     readonly property real readingProgress: {
         if (isText)
             return textCanvas.status === Loader.Ready
@@ -67,6 +68,7 @@ FocusScope {
 
         viewport.contentY = Math.min(offset * page.height,
             Math.max(0, viewport.contentHeight - viewport.height));
+        restorePending = false;
     }
 
     Connections {
@@ -115,7 +117,7 @@ FocusScope {
             onContentHeightChanged: root.restoreScroll(root.backend.readerScrollOffset)
             onHeightChanged: root.restoreScroll(root.backend.readerScrollOffset)
 
-            Image {
+            ReaderImage {
                 id: page
                 objectName: "readerPageImage"
                 width: viewport.width
@@ -125,17 +127,20 @@ FocusScope {
                         : 0
                 source: !root.isText && !root.continuous && viewport.width > 0 && viewport.height > 0
                     ? root.backend.readerPageUrl : ""
+                imageWidth: root.backend.readerImageWidth
+                imageHeight: root.backend.readerImageHeight
+                viewportTop: viewport.contentY
+                viewportHeight: viewport.height
+                tilingEnabled: root.fit === Reader.Width
                 onSourceChanged: {
                     viewport.cancelFlick();
                     viewport.contentY = 0;
+                    root.restorePending = true;
                 }
                 sourceSize: root.fit === Reader.Height
                     ? Qt.size(0, Math.min(root.backend.readerImageHeight, Math.ceil(viewport.height)))
                     : Qt.size(Math.min(root.backend.readerImageWidth, Math.ceil(viewport.width)), 0)
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-                cache: false
-                visible: status === Image.Ready && !root.backend.readerBusy
+                visible: source.toString() !== "" && !root.backend.readerBusy
                 Accessible.role: Accessible.Graphic
                 Accessible.name: qsTr("Page %1").arg(root.backend.readerPageIndex + 1)
                 onStatusChanged: Qt.callLater(confirmPage)
@@ -149,7 +154,10 @@ FocusScope {
 
                     if (visible && status === Image.Ready) {
                         root.backend.readerPageShown(root.backend.readerPageIndex, source);
-                        root.restoreScroll(root.backend.readerScrollOffset);
+                        if (root.restorePending)
+                            root.restoreScroll(root.backend.readerScrollOffset);
+                        else
+                            root.saveScroll();
                     }
                 }
 

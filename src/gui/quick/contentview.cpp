@@ -2,83 +2,14 @@
 #include "contentview.h"
 
 #include <QEvent>
-#include <QBuffer>
 #include <QDesktopServices>
-#include <QHash>
-#include <QImageReader>
 #include <QFileInfo>
 #include <QQmlEngine>
-#include <QQuickImageProvider>
 #include <QQuickItem>
-#include <QReadWriteLock>
 
 #include "base/media/runtime.h"
+#include "readerimageprovider.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
-
-namespace Content
-{
-class ReaderImageProvider final : public QQuickImageProvider
-{
-public:
-    ReaderImageProvider()
-        : QQuickImageProvider(QQuickImageProvider::Image, QQuickImageProvider::ForceAsynchronousImageLoading)
-    {
-    }
-
-    void clear(const quint64 generation)
-    {
-        QWriteLocker guard(&m_lock);
-        m_generation = generation;
-        m_assets.clear();
-    }
-
-    void add(const quint64 generation, const QString &id, const QByteArray &bytes)
-    {
-        QWriteLocker guard(&m_lock);
-        if (generation == m_generation && id.size() == 64 && bytes.size() <= 8 * 1024 * 1024)
-            m_assets.insert(id, bytes);
-    }
-
-    QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override
-    {
-        QByteArray data;
-        const auto separator = id.indexOf(QLatin1Char('/'));
-        if (separator < 0)
-            return {};
-        {
-            QReadLocker guard(&m_lock);
-            if (id.left(separator).toULongLong() != m_generation)
-                return {};
-            data = m_assets.value(id.mid(separator + 1));
-        }
-        if (data.isEmpty())
-            return {};
-
-        QBuffer buffer(&data);
-        buffer.open(QIODevice::ReadOnly);
-        QImageReader reader(&buffer);
-        const QSize original = reader.size();
-        if (!original.isValid())
-            return {};
-        if (size)
-            *size = original;
-        QSize bounds(4096, 4096);
-        if (requestedSize.isValid())
-            bounds = QSize(qMin(bounds.width(), requestedSize.width()),
-                qMin(bounds.height(), requestedSize.height()));
-        const QSize decoded = original.width() > bounds.width() || original.height() > bounds.height()
-            ? original.scaled(bounds, Qt::KeepAspectRatio) : original;
-        if (decoded != original)
-            reader.setScaledSize(decoded);
-        return reader.read();
-    }
-
-private:
-    QReadWriteLock m_lock;
-    quint64 m_generation = 0;
-    QHash<QString, QByteArray> m_assets;
-};
-}
 
 Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     : QQuickWidget(parent)

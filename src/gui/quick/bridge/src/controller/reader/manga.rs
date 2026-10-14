@@ -23,8 +23,7 @@ use crate::QtMangaRenderer;
 pub(super) struct MangaTranslationState {
     pub(super) requested: bool,
     pub(super) busy: bool,
-    pub(super) error: bool,
-    pub(super) needs_codex: bool,
+    pub(super) error: Option<TranslationFailure>,
     pub(super) pending: Pending,
     pub(super) page: Option<usize>,
     cancellation: Option<watch::Sender<bool>>,
@@ -42,8 +41,7 @@ impl MangaTranslationState {
 
     pub(super) fn reset_chapter(&mut self) {
         self.cancel_job();
-        self.error = false;
-        self.needs_codex = false;
+        self.error = None;
     }
 
     pub(super) fn reset_reader(&mut self) {
@@ -52,14 +50,15 @@ impl MangaTranslationState {
     }
 }
 
-enum TranslationFailure {
+pub(super) enum TranslationFailure {
+    UnsupportedSize,
     Codex(CodexError),
     Library(LibraryError),
     Cache(String),
 }
 
 impl TranslationFailure {
-    fn needs_codex(&self) -> bool {
+    pub(super) fn needs_codex(&self) -> bool {
         matches!(
             self,
             Self::Codex(CodexError::Authentication | CodexError::Unavailable)
@@ -68,6 +67,7 @@ impl TranslationFailure {
 
     fn detail(&self) -> String {
         match self {
+            Self::UnsupportedSize => "This page is too large to translate".into(),
             Self::Codex(error) => error.to_string(),
             Self::Library(error) => error.to_string(),
             Self::Cache(error) => error.clone(),
@@ -143,9 +143,15 @@ async fn translate(
     language: String,
     cancelled: watch::Receiver<bool>,
 ) -> Result<Arc<CachedPage>, TranslationFailure> {
+    if !ffi::manga_translation_size_supported(original.width, original.height) {
+        return Err(TranslationFailure::UnsupportedSize);
+    }
     let bytes = CachedPage::original_bytes(Arc::clone(&original))
         .await
         .map_err(TranslationFailure::Cache)?;
+    if bytes.len() > codex::MAX_IMAGE_BYTES {
+        return Err(TranslationFailure::UnsupportedSize);
+    }
     let input = manga::input_image(bytes).map_err(TranslationFailure::Codex)?;
     let saved = library
         .translation_selection(language.clone())
@@ -260,6 +266,14 @@ async fn translate(
 }
 
 impl ffi::ContentController {
+    pub(in crate::controller) fn reader_translation_image_size_error(&self) -> bool {
+        !self.reader.is_text
+            && matches!(
+                self.reader.manga_translation.error,
+                Some(TranslationFailure::UnsupportedSize)
+            )
+    }
+
     pub fn set_reader_manga_translation(mut self: Pin<&mut Self>, translated: bool) -> bool {
         if self.reader.is_text || self.reader.reference.is_none() {
             return false;
@@ -278,8 +292,7 @@ impl ffi::ContentController {
         }
         let state = &mut self.as_mut().rust_mut().reader.manga_translation;
         state.requested = true;
-        state.error = false;
-        state.needs_codex = false;
+        state.error = None;
         self.as_mut()
             .rust_mut()
             .reader
@@ -424,8 +437,7 @@ impl ffi::ContentController {
                         );
                         let state = &mut controller.as_mut().rust_mut().reader.manga_translation;
                         state.requested = false;
-                        state.error = true;
-                        state.needs_codex = error.needs_codex();
+                        state.error = Some(error);
                         controller
                             .as_mut()
                             .rust_mut()

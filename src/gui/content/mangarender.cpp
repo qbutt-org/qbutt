@@ -302,6 +302,13 @@ namespace
     }
 }
 
+bool Content::MangaRender::supportsImageSize(const QSize &size)
+{
+    constexpr int MAX_DIMENSION = 16'000;
+    return !size.isEmpty() && (size.width() <= MAX_DIMENSION) && (size.height() <= MAX_DIMENSION)
+        && (qint64(size.width()) * size.height() <= MAX_PIXELS);
+}
+
 Content::MangaRender::NormalizedPage Content::MangaRender::normalizeGeneratedPage(
     const QSize &originalSize, const QImage &generated, const std::function<bool()> &cancelled)
 {
@@ -311,9 +318,7 @@ Content::MangaRender::NormalizedPage Content::MangaRender::normalizeGeneratedPag
         result.error = QStringLiteral("Generated manga page validation cancelled");
         return result;
     }
-    if (originalSize.isEmpty() || generated.isNull()
-        || (qint64(originalSize.width()) * originalSize.height() > MAX_PIXELS)
-        || (qint64(generated.width()) * generated.height() > MAX_PIXELS))
+    if (!supportsImageSize(originalSize) || !supportsImageSize(generated.size()))
     {
         result.error = QStringLiteral("Invalid or oversized generated manga page");
         return result;
@@ -349,7 +354,7 @@ Content::MangaRender::Crop Content::MangaRender::cropPage(
         crop.error = QStringLiteral("Manga inspection cancelled");
         return crop;
     }
-    if (image.isNull() || (qint64(image.width()) * image.height() > MAX_PIXELS))
+    if (!supportsImageSize(image.size()))
     {
         crop.error = QStringLiteral("Invalid or oversized manga page");
         return crop;
@@ -482,9 +487,7 @@ Content::MangaRender::Result Content::MangaRender::render(const QImage &original
     const QList<Region> &regions, const std::function<bool()> &cancelled)
 {
     Result result;
-    if (original.isNull() || (original.width() <= 0) || (original.height() <= 0)
-        || (qint64(original.width()) * original.height() > MAX_PIXELS)
-        || (regions.size() > MAX_REGIONS))
+    if (!supportsImageSize(original.size()) || (regions.size() > MAX_REGIONS))
     {
         result.error = QStringLiteral("Invalid or oversized manga page");
         return result;

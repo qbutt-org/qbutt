@@ -81,8 +81,8 @@ ScrollView {
         const bottomIndex = pageList.indexAt(pageList.width / 2, pageList.contentY + pageList.height - 0.5);
         const last = bottomIndex < 0 ? pageList.count - 1 : bottomIndex;
         const offset = Math.max(0, Math.min(1, (pageList.contentY - first.y) / first.height));
-        const userMoved = userScrolling;
-        if (!pageList.moving && !root.ScrollBar.vertical.pressed && !wheelObserver.active)
+        const userMoved = userScrolling && first.imageReady;
+        if (first.imageReady && !pageList.moving && !root.ScrollBar.vertical.pressed && !wheelObserver.active)
             userScrolling = false;
         backend.setReaderViewport(backend.readerPages.generation,
             first.pageIndex, last, first.pageIndex, offset, userMoved);
@@ -165,6 +165,10 @@ ScrollView {
             theme: root.theme
             viewport: pageList
             onGeometryChanged: root.retainPosition()
+            onImageReadyChanged: {
+                if (imageReady)
+                    Qt.callLater(root.saveScroll);
+            }
         }
 
         WheelHandler {

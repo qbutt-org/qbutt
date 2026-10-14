@@ -30,6 +30,8 @@ Item {
     readonly property real visibleTop: Math.max(0, viewport.contentY - y)
     readonly property real visibleHeight: Math.max(0,
         Math.min(height, viewport.contentY + viewport.height - y) - visibleTop)
+    readonly property bool imageReady: imageLoader.status === Loader.Ready
+        && imageLoader.item !== null && (imageLoader.item as ReaderImage).status === Image.Ready
 
     objectName: "readerStripPage%1".arg(pageIndex)
     width: viewport.width
@@ -37,12 +39,11 @@ Item {
     onHeightChanged: geometryChanged()
 
     function confirmPage(): void {
-        if (!inViewport || imageLoader.status !== Loader.Ready || imageLoader.item === null)
+        if (!inViewport || !imageReady)
             return;
 
-        const page = imageLoader.item as Image;
-        if (page.visible && page.status === Image.Ready)
-            backend.readerPageShown(pageIndex, page.source);
+        const page = imageLoader.item as ReaderImage;
+        backend.readerPageShown(pageIndex, page.source);
     }
 
     Loader {
@@ -52,19 +53,20 @@ Item {
         height: root.height
         active: root.inViewport && root.pageState === Reader.PageReady
 
-        sourceComponent: Image {
+        sourceComponent: ReaderImage {
             id: page
             objectName: "readerStripImage%1".arg(root.pageIndex)
             width: imageLoader.width
             height: imageLoader.height
             source: root.pageUrl
+            imageWidth: root.imageWidth
+            imageHeight: root.imageHeight
+            viewportTop: root.visibleTop
+            viewportHeight: root.visibleHeight
+            tilingEnabled: root.backend.readerFit === Reader.Width
             sourceSize: Qt.size(
                 Math.min(root.imageWidth, Math.ceil(width)),
                 Math.min(root.imageHeight, Math.ceil(height)))
-            fillMode: Image.PreserveAspectFit
-            asynchronous: true
-            cache: false
-            visible: status === Image.Ready
             Accessible.role: Accessible.Graphic
             Accessible.name: qsTranslate("ReaderCanvas", "Page %1").arg(root.pageIndex + 1)
             onStatusChanged: {
@@ -80,9 +82,7 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         y: root.visibleTop + (root.visibleHeight - height) / 2
         running: root.inViewport && root.pageState !== Reader.PageFailed
-            && (imageLoader.status !== Loader.Ready
-                || imageLoader.item === null
-                || (imageLoader.item as Image).status !== Image.Ready)
+            && !root.imageReady
         visible: running
     }
 

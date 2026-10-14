@@ -19,6 +19,7 @@
 #include "qbutt_quick/src/source_model.cxxqt.h"
 #include "qbutt_quick/src/download_model.cxxqt.h"
 #include "qbutt_quick/src/page_model.cxxqt.h"
+#include "../../../content/mangarender.h"
 
 Q_LOGGING_CATEGORY(contentLog, "qbutt.content")
 
@@ -183,15 +184,16 @@ QString Qbutt::chapterTitle(const QString &number, const QString &volume, const 
     return label.isEmpty() ? QCoreApplication::translate("ContentController", "Chapter") : label;
 }
 
-QSize Qbutt::validatedImageSize(const QString &path)
+QImage Qbutt::readReaderImage(const QString &path)
 {
     QImageReader reader {path};
     reader.setDecideFormatFromContent(true);
     const QSize size = reader.size();
-    constexpr int dimensionLimit = 16000;
+    constexpr int widthLimit = 16000;
+    constexpr int heightLimit = 65536;
     constexpr qint64 pixelLimit = 40000000;
     const QByteArray format = reader.format();
-    if (!size.isValid() || (size.width() > dimensionLimit) || (size.height() > dimensionLimit)
+    if (!size.isValid() || (size.width() > widthLimit) || (size.height() > heightLimit)
         || ((static_cast<qint64>(size.width()) * size.height()) > pixelLimit)
         || ((format != "jpeg") && (format != "jpg") && (format != "png")
             && (format != "webp") && (format != "gif") && (format != "bmp")))
@@ -201,7 +203,17 @@ QSize Qbutt::validatedImageSize(const QString &path)
     const QImage image = reader.read();
     if (image.isNull() || (image.size() != size))
         return {};
-    return size;
+    return image;
+}
+
+QSize Qbutt::validatedImageSize(const QString &path)
+{
+    return readReaderImage(path).size();
+}
+
+bool Qbutt::mangaTranslationSizeSupported(const std::int32_t width, const std::int32_t height)
+{
+    return Content::MangaRender::supportsImageSize({width, height});
 }
 
 QString Qbutt::contentError(const ContentError error)

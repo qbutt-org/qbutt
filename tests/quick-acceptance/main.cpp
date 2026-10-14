@@ -45,6 +45,7 @@
 #include "reader-text-translation.h"
 #include "reader-text-ahead.h"
 #include "reader-manga-translation.h"
+#include "reader-longstrip.h"
 #include "reader.h"
 #include "reader-text.h"
 #include "sharing.h"
@@ -536,6 +537,7 @@ int main(int argc, char *argv[])
     parser.addOption({u"sources"_s, u"Run persisted source choices, exact retries and SQLite faults, then exit."_s});
     parser.addOption({u"history"_s, u"Run confirmed reading history and SQLite fault scenarios, then exit."_s});
     parser.addOption({u"reader"_s, u"Run live manga search and reading acceptance, then exit."_s});
+    parser.addOption({u"reader-longstrip"_s, u"Run generated long original image reading, geometry, memory and position checks, then exit."_s});
     parser.addOption({u"syosetu"_s, u"Run native Syosetu text, table of contents, images and history acceptance, then exit."_s});
     parser.addOption({u"syosetu-image"_s, u"Run the native Syosetu illustration and history acceptance, then exit."_s});
     parser.addOption({u"estar"_s, u"Run native Estar original text, table of contents and history acceptance, then exit."_s});
@@ -602,6 +604,7 @@ int main(int argc, char *argv[])
         && !parser.isSet(u"reader-text-translation"_s)
         && !parser.isSet(u"reader-text-ahead"_s)
         && !parser.isSet(u"reader-manga-translation"_s)
+        && !parser.isSet(u"reader-longstrip"_s)
         && !parser.isSet(u"worklist"_s) && !parser.isSet(u"category"_s)
         && !parser.isSet(u"variant-filters"_s) && !parser.isSet(u"work-details"_s)
         && !parser.isSet(u"video-actions"_s));
@@ -684,6 +687,22 @@ int main(int argc, char *argv[])
         qInfo().noquote() << u"TORRENT_HANDOFF"_s << QUrlQuery(QUrl(magnet)).queryItemValue(u"xt"_s);
     });
     window->show();
+
+    if (parser.isSet(u"reader-longstrip"_s))
+    {
+        int result = 0;
+        try
+        {
+            exerciseReaderLongstrip(view, profilePath);
+        }
+        catch (const std::exception &error)
+        {
+            qCritical().noquote() << "FAIL" << error.what();
+            result = 1;
+        }
+        delete window.data();
+        return result;
+    }
 
     if (parser.isSet(u"exercise"_s) || parser.isSet(u"reader"_s) || parser.isSet(u"syosetu"_s)
         || parser.isSet(u"syosetu-image"_s) || parser.isSet(u"estar"_s)

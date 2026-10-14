@@ -19138,6 +19138,10 @@ Please choose a different name and try again.</source>
 <context>
     <name>ReaderPage</name>
     <message>
+        <source>This page is too large to translate.</source>
+        <translation>Размер страницы не поддерживается для перевода.</translation>
+    </message>
+    <message>
         <source>Install or sign in to Codex to translate.</source>
         <translation>Для перевода установите Codex или войдите в аккаунт.</translation>
     </message>

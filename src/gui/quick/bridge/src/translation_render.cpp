@@ -71,7 +71,7 @@ namespace
         QImageReader reader(&buffer);
         reader.setAutoTransform(true);
         const QSize size = reader.size();
-        if (!size.isValid() || (qint64(size.width()) * size.height() > 16'000'000))
+        if (!Content::MangaRender::supportsImageSize(size))
         {
             error = QStringLiteral("Invalid or oversized manga page");
             return {};

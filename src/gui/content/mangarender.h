@@ -13,6 +13,7 @@
 #include <QList>
 #include <QPainterPath>
 #include <QRectF>
+#include <QSize>
 #include <QString>
 
 namespace Content::MangaRender
@@ -100,6 +101,7 @@ namespace Content::MangaRender
         QString error;
     };
 
+    bool supportsImageSize(const QSize &size);
     NormalizedPage normalizeGeneratedPage(const QSize &originalSize, const QImage &generated,
         const std::function<bool()> &cancelled = {});
     Crop cropPage(const QImage &image, const QRectF &bounds,

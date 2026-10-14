@@ -117,14 +117,17 @@ Page {
                 Label {
                     objectName: "readerTranslationError"
                     Layout.fillWidth: true
-                    text: root.backend.readerTranslationNeedsCodex
-                        ? qsTr("Install or sign in to Codex to translate.")
-                        : qsTr("Translation failed.")
+                    text: root.backend.readerTranslationImageSizeError
+                        ? qsTr("This page is too large to translate.")
+                        : root.backend.readerTranslationNeedsCodex
+                            ? qsTr("Install or sign in to Codex to translate.")
+                            : qsTr("Translation failed.")
                     textFormat: Text.PlainText
                 }
 
                 ActionButton {
                     objectName: "readerTranslationRetry"
+                    visible: !root.backend.readerTranslationImageSizeError
                     theme: root.theme
                     text: qsTr("Try again")
                     onClicked: {
