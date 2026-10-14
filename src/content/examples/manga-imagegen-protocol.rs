@@ -89,6 +89,7 @@ impl WorkChapterSource for ImageSource {
 struct ContractRenderer {
     prepares: AtomicUsize,
     renders: AtomicUsize,
+    cancellation_observed: AtomicBool,
     case: String,
 }
 
@@ -115,6 +116,7 @@ impl ContractRenderer {
             }
             std::thread::sleep(Duration::from_millis(1));
         }
+        self.cancellation_observed.store(true, Ordering::Release);
         Err(CodexError::Cancelled)
     }
 }
@@ -139,7 +141,7 @@ impl PageRenderer for ContractRenderer {
         if self.case == "prepare-rejected" {
             return Err(CodexError::Image);
         }
-        if self.case == "cancel-prepare" {
+        if matches!(self.case.as_str(), "cancel-prepare" | "abort-prepare") {
             self.wait_for_cancel(cancelled)?;
         }
         Ok(regions
@@ -161,7 +163,7 @@ impl PageRenderer for ContractRenderer {
         if self.case == "renderer-rejected" {
             return Err(CodexError::Image);
         }
-        if self.case == "cancel-compose" {
+        if matches!(self.case.as_str(), "cancel-compose" | "abort-compose") {
             self.wait_for_cancel(cancelled)?;
         }
         Ok(RenderedPage {
@@ -249,6 +251,7 @@ async fn exercise(native: &Path) -> Result<()> {
         let renderer = Arc::new(ContractRenderer {
             prepares: AtomicUsize::new(0),
             renders: AtomicUsize::new(0),
+            cancellation_observed: AtomicBool::new(false),
             case: case.into(),
         });
         let work = translate_page(
@@ -376,6 +379,89 @@ async fn exercise(native: &Path) -> Result<()> {
             processes.len()
         );
     }
+    for case in ["abort-prepare", "abort-compose"] {
+        exercise_abort(native, &chapter, &chapters, case).await?;
+    }
+    Ok(())
+}
+
+async fn exercise_abort(
+    native: &Path,
+    chapter: &ChapterRef,
+    chapters: &[Chapter],
+    case: &str,
+) -> Result<()> {
+    std::fs::write(native.join("case.txt"), case)?;
+    std::fs::write(native.join("trace.jsonl"), "")?;
+    let renderer = Arc::new(ContractRenderer {
+        prepares: AtomicUsize::new(0),
+        renders: AtomicUsize::new(0),
+        cancellation_observed: AtomicBool::new(false),
+        case: case.into(),
+    });
+    let chapter = chapter.clone();
+    let chapters = chapters.to_vec();
+    let native_renderer = renderer.clone();
+    let (cancel, cancelled) = tokio::sync::watch::channel(false);
+    let task = tokio::spawn(async move {
+        let base = TranslationContext::default();
+        let source = ImageSource;
+        let mut context = WorkContextTools::new(
+            &chapter,
+            &chapters,
+            &source,
+            base.clone(),
+            cancelled.clone(),
+        )?;
+        translate_page(
+            PageJob {
+                chapter,
+                page: 0,
+                original: image(ORIGINAL),
+                target_language: "ru".into(),
+                work_context: base,
+                model: Some("gpt-6.1-sol".into()),
+                effort: Some("low".into()),
+            },
+            native_renderer,
+            &mut context,
+            cancelled,
+        )
+        .await
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let started = if case == "abort-prepare" {
+        &renderer.prepares
+    } else {
+        &renderer.renders
+    };
+    while started.load(Ordering::Acquire) == 0 {
+        if Instant::now() >= deadline {
+            task.abort();
+            return Err("abort fixture native operation did not start".into());
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    // Match the old controller race: watch is set, then its owner aborts before
+    // native_work can poll the changed receiver on this current-thread runtime.
+    cancel.send(true)?;
+    task.abort();
+    assert!(task.await.is_err_and(|error| error.is_cancelled()));
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while !renderer.cancellation_observed.load(Ordering::Acquire) {
+        if Instant::now() >= deadline {
+            return Err(format!("{case}: native work ignored owner abort").into());
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let trace = std::fs::read_to_string(native.join("trace.jsonl"))?;
+    for line in trace.lines() {
+        let entry: Value = serde_json::from_str(line)?;
+        if let Some(pid) = entry["pid"].as_u64() {
+            assert!(process_exited(pid as u32));
+        }
+    }
+    println!("PASS manga_imagegen case={case} native_cancel_observed=true processes_reaped=true");
     Ok(())
 }
 

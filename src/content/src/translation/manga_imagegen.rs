@@ -235,6 +235,14 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     })
 }
 
+struct NativeCancellation(Arc<AtomicBool>);
+
+impl Drop for NativeCancellation {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
 /// A cancellation request drains the accepted native task before returning.
 async fn native_work<T: Send + 'static>(
     mut cancelled: watch::Receiver<bool>,
@@ -243,8 +251,9 @@ async fn native_work<T: Send + 'static>(
     if *cancelled.borrow() {
         return Err(CodexError::Cancelled);
     }
-    let flag = Arc::new(AtomicBool::new(false));
-    let native_flag = flag.clone();
+    // Runtime shutdown can drop this future before its watch branch is polled.
+    let cancellation = NativeCancellation(Arc::new(AtomicBool::new(false)));
+    let native_flag = cancellation.0.clone();
     let mut task = tokio::task::spawn_blocking(move || work(native_flag));
     loop {
         tokio::select! {
@@ -254,7 +263,7 @@ async fn native_work<T: Send + 'static>(
                     return task.await.map_err(|_| CodexError::Provider)?;
                 }
                 if *cancelled.borrow_and_update() {
-                    flag.store(true, Ordering::Release);
+                    cancellation.0.store(true, Ordering::Release);
                     let _ = task.await;
                     return Err(CodexError::Cancelled);
                 }

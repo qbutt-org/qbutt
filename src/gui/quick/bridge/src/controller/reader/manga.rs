@@ -34,7 +34,10 @@ impl MangaTranslationState {
         if let Some(cancel) = self.cancellation.take() {
             let _ = cancel.send(true);
         }
-        self.pending.cancel();
+        // Keep the job on its runtime so cancellation can drain native work.
+        // The new generation rejects its late UI reply immediately.
+        self.pending.generation = self.pending.generation.wrapping_add(1);
+        drop(self.pending.task.take());
         self.page = None;
         self.busy = false;
     }

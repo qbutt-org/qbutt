@@ -625,7 +625,7 @@ without target translations or typography. The original is restored after a
 neighboring context image and custom tools stay disabled in the image phase.
 Invalid runs, styles, geometry, context and preflight results must fail before
 generation. The fixture also checks native preflight and final-render rejection,
-cancellation,
+cooperative cancellation and owner abort during both native stages,
 complete/partial usage and child reaping. Its recording renderer does not
 establish Qt PNG geometry or translation quality; those require the native reader
 scenario.
