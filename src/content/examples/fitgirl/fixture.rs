@@ -61,6 +61,48 @@ fn detail_page(origin: &Url, slug: &str, changed: bool) -> String {
     let page = format!(
         r#"<!doctype html><head><link rel="canonical" href="{origin}{canonical}/"></head><body><div id="content"><article class="category-lossless-repack"><h1 class="entry-title">Generated &amp; Legal: Complete Edition – v2.0</h1><div class="entry-content"><h3>Download Mirrors (Direct Links)</h3><a href="{origin}payload.zip">Direct file</a><h3>Download Mirrors (Torrent)</h3>{current}{current}{old}</div></article></div></body>"#
     );
+    if let Some(case) = slug.strip_prefix("attachment-") {
+        let id = match case {
+            "normal" | "mirror" | "foreign" | "key" | "ambiguous" => "0000000000000001",
+            "hash" => "0000000000000002",
+            "auth" => "0000000000000003",
+            "work" => "0000000000000004",
+            "huge" => "0000000000000005",
+            "expanded" => "0000000000000006",
+            "type" => "0000000000000007",
+            "expired" => "0000000000000008",
+            "unavailable" => "0000000000000009",
+            "identity" => "000000000000000a",
+            "delay" => "000000000000000b",
+            "challenge" => "000000000000000c",
+            _ => panic!("unknown torrent attachment fixture"),
+        };
+        let host = if case == "mirror" {
+            "pastefg.hermietkreeft.site"
+        } else {
+            "paste.fitgirl-repacks.site"
+        };
+        let host = if case == "foreign" {
+            "clone.example"
+        } else {
+            host
+        };
+        let key = if case == "key" {
+            "bad-key"
+        } else {
+            super::paste_fixture::KEY
+        };
+        let link = format!(r#"<a href="https://{host}/?{id}#{key}">.torrent file only</a>"#);
+        let links = if case == "ambiguous" {
+            link.repeat(2)
+        } else {
+            link
+        };
+        let attachment = format!("<li>{current}{links}</li>");
+        return page
+            .replace(&format!("{current}{current}{old}"), &attachment)
+            .replace(hash, &super::paste_fixture::hash());
+    }
     match slug {
         "direct-only" => page.replace(&current, "").replace(&old, ""),
         "announcement" => page.replace("category-lossless-repack", "category-uncategorized"),
@@ -87,7 +129,11 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub(super) async fn start() -> std::result::Result<Self, Box<dyn std::error::Error>> {
-        let certificate = rcgen::generate_simple_self_signed(vec!["fixture.example".into()])?;
+        let certificate = rcgen::generate_simple_self_signed(vec![
+            "fixture.example".into(),
+            "paste.fitgirl-repacks.site".into(),
+            "pastefg.hermietkreeft.site".into(),
+        ])?;
         let config = ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(
@@ -104,7 +150,9 @@ impl Fixture {
             .redirect(reqwest::redirect::Policy::none())
             .add_root_certificate(reqwest::Certificate::from_der(certificate.cert.der())?)
             .resolve("fixture.example", address)
-            .timeout(Duration::from_millis(300))
+            .resolve("paste.fitgirl-repacks.site", address)
+            .resolve("pastefg.hermietkreeft.site", address)
+            .timeout(Duration::from_secs(2))
             .build()?;
         let changed = Arc::new(AtomicBool::new(false));
         let hits = Arc::new(AtomicUsize::new(0));
@@ -158,20 +206,39 @@ impl Fixture {
                             .find(|(name, _)| name == "s")
                             .map(|(_, value)| value.into_owned())
                             .unwrap_or_default();
+                        let paste_id = url.query().filter(|query| {
+                            query.len() == 16
+                                && query.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        });
 
-                        if matches!(query.as_str(), "delay" | "cancel") {
-                            if query == "cancel" {
+                        if matches!(query.as_str(), "delay" | "cancel")
+                            || paste_id == Some("000000000000000b")
+                        {
+                            if query == "cancel" || paste_id.is_some() {
                                 cancelled.store(1, Ordering::SeqCst);
                             }
                             let mut byte = [0];
                             let _ = stream.read(&mut byte).await;
-                            if query == "cancel" {
+                            if query == "cancel" || paste_id.is_some() {
                                 cancelled.store(2, Ordering::SeqCst);
                             }
                             return;
                         }
                         if url.path().contains("payload") {
                             payload.fetch_add(1, Ordering::SeqCst);
+                        }
+
+                        if let Some(id) = paste_id {
+                            let (status, location, body) = super::paste_fixture::response(id);
+                            let location = location
+                                .map(|value| format!("Location: {value}\r\n"))
+                                .unwrap_or_default();
+                            let mime = if id.ends_with("0c") { "text/html" } else { "application/json" };
+                            let header = format!("HTTP/1.1 {status}\r\n{location}Content-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                            let _ = stream.write_all(header.as_bytes()).await;
+                            let _ = stream.write_all(&body).await;
+                            let _ = stream.shutdown().await;
+                            return;
                         }
 
                         let (status, location, body) = match (url.path(), query.as_str()) {

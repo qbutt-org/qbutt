@@ -819,7 +819,7 @@ selects a non-default variant, opens the normal Add Torrent dialog and cancels
 it. `--source rutor` checks a live Software publication and its full-hash selector.
 `--source dodi --main`, `--source byrut --main`, `--source freetp --main`
 and `--source onlinefix --main` check exact torrent bytes. `--source fitgirl --main`
-selects the older of two Cyberpunk magnet variants. `--source igruha --main`
+selects the older Cyberpunk variant. `--source igruha --main`
 uses the connected browser session for OpenTTD metadata. These paths verify the
 native dialog's hash, select through the production QML category projection,
 freshly resolve the exact variant and check one handoff, the isolated
@@ -838,6 +838,25 @@ bun tests/qt-acceptance/quick-handoff.ts --source onlinefix --main
 bun tests/qt-acceptance/quick-handoff.ts --source fitgirl --main
 bun tests/qt-acceptance/quick-handoff.ts --source igruha --main
 ```
+
+FitGirl has separate native metadata checks:
+
+```powershell
+cargo run --locked --offline -p qbutt-content --example fitgirl-fixtures
+cargo run --locked --offline -p qbutt-content --example fitgirl
+```
+
+The live check fetches only catalog pages and
+public `.torrent` attachments, verifies the selected publication and v1 hash,
+and requires at least one successful attachment. It never starts a torrent.
+The HTTPS fixture checks both published paste hosts, exact hash binding, SQLite
+identity, cancelled requests, unavailable-attachment recovery to the same magnet,
+and rejection of changed identity, authentication failures, excessive work factor
+and encrypted/expanded data. Optional attachment acquisition has a 10-second
+deadline before recovery to the exact magnet. Encrypted responses use the transport's 2 MiB bound;
+PBKDF2 is capped at 2,000,000 iterations and acquired metadata at 10 MiB. Expanded
+JSON is bounded to that metadata's base64 size plus 64 KiB framing. These
+checks do not establish AddDialog interaction or game payload completion.
 
 Deploy the current executable and its Qt Quick runtime together using
 `windeployqt --quickwidgets --qmldir src/gui/quick/qml`, including `qoffscreen`

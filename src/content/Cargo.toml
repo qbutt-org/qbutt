@@ -18,9 +18,11 @@ required-features = ["download-fixture"]
 
 [dependencies]
 qbutt-codex = { path = "../../crates/codex-client" }
+aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes", "alloc"] }
 base64 = "=0.22.1"
 cookie_store = { version = "=0.22.1", default-features = false }
 encoding_rs = "=0.8.35"
+flate2 = { version = "=1.1.10", default-features = false, features = ["zlib-rs"] }
 roxmltree = "=0.21.1"
 rbook = { version = "=0.7.12", default-features = false }
 zip = { version = "=9.0.1", default-features = false, features = ["deflate"] }

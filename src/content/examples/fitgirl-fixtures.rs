@@ -31,13 +31,28 @@ mod http {
 mod fitgirl {
     include!("../src/fitgirl.rs");
 
-    pub(super) fn fixture(http: SourceHttp, origin: Url) -> FitGirl {
-        FitGirl { http, origin }
+    pub(super) fn fixture(http: SourceHttp, origin: Url, client: reqwest::Client) -> FitGirl {
+        let torrent_pastes = privatebin::HOSTS
+            .iter()
+            .map(|host| {
+                super::http::fixture(
+                    client.clone(),
+                    Url::parse(&format!("https://{host}")).unwrap(),
+                )
+            })
+            .collect();
+        FitGirl {
+            http,
+            origin,
+            torrent_pastes,
+        }
     }
 }
 
 #[path = "fitgirl/fixture.rs"]
 mod fixture;
+#[path = "fitgirl/paste.rs"]
+mod paste_fixture;
 
 use fixture::Fixture;
 use std::sync::atomic::Ordering;
@@ -49,6 +64,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let source = fitgirl::fixture(
         http::fixture(fixture.client.clone(), fixture.origin.clone()),
         fixture.origin.clone(),
+        fixture.client.clone(),
     );
     let results = source.search("generated & legal", Category::Games).await?;
     assert_eq!(results.len(), 1);
@@ -81,6 +97,72 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         assert_eq!(reference, variant.reference);
         assert!(magnet.query_pairs().any(|(key, value)| key == "xt"
             && value == format!("urn:btih:{}", variant.info_hash.as_ref().unwrap())));
+    }
+    for case in ["normal", "mirror"] {
+        let work = source
+            .inspect(&publication(&format!("attachment-{case}")))
+            .await?;
+        assert_eq!(work.variants.len(), 1);
+        let selected = &work.variants[0].reference;
+        let ResolvedContent::TorrentFile {
+            reference,
+            metadata,
+        } = source.resolve(selected).await?
+        else {
+            panic!("published attachment did not produce torrent metadata");
+        };
+        assert_eq!(reference, *selected);
+        assert_eq!(metadata.bytes(), paste_fixture::metadata(false));
+        assert_eq!(torrent::info_hash(metadata.bytes())?, paste_fixture::hash());
+        let serialized = serde_json::to_string(&work)?;
+        assert!(!serialized.contains("paste.fitgirl") && !serialized.contains(paste_fixture::KEY));
+        check_library(&work)?;
+
+        let mut missing = selected.clone();
+        missing.selector = VariantSelector::TorrentHash {
+            info_hash: "0".repeat(40),
+        };
+        let before = fixture.hits.load(Ordering::SeqCst);
+        assert!(matches!(
+            source.resolve(&missing).await,
+            Err(Error::VariantUnavailable)
+        ));
+        assert_eq!(fixture.hits.load(Ordering::SeqCst), before + 1);
+    }
+    for case in ["expired", "unavailable", "delay", "challenge"] {
+        let work = source
+            .inspect(&publication(&format!("attachment-{case}")))
+            .await?;
+        let selected = &work.variants[0].reference;
+        let ResolvedContent::Torrent {
+            reference, magnet, ..
+        } = source.resolve(selected).await?
+        else {
+            panic!("unavailable attachment disabled the exact published magnet");
+        };
+        assert_eq!(reference, *selected);
+        assert_eq!(torrent::magnet(magnet.as_str())?.1, paste_fixture::hash());
+    }
+    for case in [
+        "hash", "auth", "work", "huge", "expanded", "type", "identity",
+    ] {
+        let work = source
+            .inspect(&publication(&format!("attachment-{case}")))
+            .await?;
+        assert!(
+            source.resolve(&work.variants[0].reference).await.is_err(),
+            "accepted attachment {case}"
+        );
+    }
+    for case in ["foreign", "key", "ambiguous"] {
+        let before = fixture.hits.load(Ordering::SeqCst);
+        assert!(
+            source
+                .inspect(&publication(&format!("attachment-{case}")))
+                .await
+                .is_err()
+        );
+        assert_eq!(fixture.hits.load(Ordering::SeqCst), before + 1);
     }
     fixture.changed.store(true, Ordering::SeqCst);
     assert!(matches!(
@@ -203,10 +285,26 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
     check_library(&work)?;
+    fixture.cancelled.store(0, Ordering::SeqCst);
+    let work = source.inspect(&publication("attachment-delay")).await?;
+    let mut request = Box::pin(source.resolve(&work.variants[0].reference));
+    tokio::select! {
+        started = tokio::time::timeout(Duration::from_secs(2), async {
+            while fixture.cancelled.load(Ordering::SeqCst) != 1 { tokio::task::yield_now().await; }
+        }) => started?,
+        _ = &mut request => panic!("attachment cancellation completed early"),
+    }
+    drop(request);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while fixture.cancelled.load(Ordering::SeqCst) != 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
     assert_eq!(fixture.payload.load(Ordering::SeqCst), 0);
     fixture.stop().await;
     println!(
-        "PASS fitgirl_fixtures generated_https=ok lazy_inspection=ok all_hashes=ok old_title=preserved duplicate_mirrors=deduped changed_missing=rejected identity_challenge=rejected redirects=bounded timeout_cancel=ok sqlite=ok game_payload=none direct_mirrors=unsupported"
+        "PASS fitgirl_fixtures generated_https=ok lazy_inspection=ok all_hashes=ok old_title=preserved duplicate_mirrors=deduped torrent_attachments=exact same_hash_magnet_recovery=ok integrity_identity_mismatch=rejected work_factor_compressed_expanded_bounds=ok changed_missing=rejected identity_challenge=rejected redirects=bounded timeout_cancel=ok sqlite=ok game_payload=none direct_game_archives=unsupported"
     );
     Ok(())
 }

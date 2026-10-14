@@ -6,36 +6,14 @@ use url::Url;
 use crate::http::validate_https_url;
 use crate::torrent::magnet;
 use crate::{
-    Category, Error, PublicationRef, ResolvedContent, Result, Source, Transport, Variant,
-    VariantRef, VariantSelector, Work,
+    Category, Error, PublicationRef, Result, Source, Transport, Variant, VariantRef,
+    VariantSelector, Work,
 };
 
 pub(crate) struct Release {
     pub(crate) work: Work,
-    magnets: BTreeMap<String, Url>,
-}
-
-impl Release {
-    pub(crate) fn resolve(mut self, selected: &VariantRef) -> Result<ResolvedContent> {
-        let variant = self
-            .work
-            .variants
-            .iter()
-            .find(|variant| variant.reference == *selected)
-            .ok_or(Error::VariantUnavailable)?;
-        let VariantSelector::TorrentHash { info_hash } = &selected.selector else {
-            return Err(Error::InvalidReference);
-        };
-        let magnet = self
-            .magnets
-            .remove(info_hash)
-            .ok_or(Error::VariantUnavailable)?;
-        Ok(ResolvedContent::Torrent {
-            reference: selected.clone(),
-            title: variant.title.clone().unwrap_or(self.work.title),
-            magnet,
-        })
-    }
+    pub(crate) magnets: BTreeMap<String, Url>,
+    pub(crate) torrent_files: BTreeMap<String, Url>,
 }
 
 pub(crate) fn search(body: &str, origin: &Url, url: &Url, query: &str) -> Result<Vec<Work>> {
@@ -146,12 +124,33 @@ pub(crate) fn release(
     }
 
     let links = Selector::parse("a[href^='magnet:']").expect("fixed torrent selector");
+    let attachments = Selector::parse("a[href]").expect("fixed attachment selector");
     let mut magnets = BTreeMap::new();
+    let mut torrent_files = BTreeMap::new();
     for (index, link) in content.select(&links).enumerate() {
         if index >= 100 {
             return Err(Error::InvalidResponse("excessive game torrents"));
         }
         let (url, hash) = magnet(link.attr("href").unwrap())?;
+        if let Some(row) = link
+            .ancestors()
+            .filter_map(ElementRef::wrap)
+            .find(|element| element.value().name() == "li")
+        {
+            let files = row
+                .select(&attachments)
+                .filter(|element| text(*element).eq_ignore_ascii_case(".torrent file only"))
+                .collect::<Vec<_>>();
+            if files.len() > 1 || (!files.is_empty() && row.select(&links).count() != 1) {
+                return Err(Error::InvalidResponse(
+                    "ambiguous FitGirl torrent attachment",
+                ));
+            }
+            if let Some(file) = files.first() {
+                let address = super::privatebin::torrent_paste(file.attr("href").unwrap())?;
+                torrent_files.entry(hash.clone()).or_insert(address);
+            }
+        }
         if magnets.contains_key(&hash) {
             continue;
         }
@@ -187,10 +186,14 @@ pub(crate) fn release(
     }
     if work.variants.is_empty() {
         return Err(Error::UnsupportedAcquisition(
-            "FitGirl direct mirrors and torrent-file mirrors are not supported",
+            "FitGirl direct game archives are not supported",
         ));
     }
-    Ok(Release { work, magnets })
+    Ok(Release {
+        work,
+        magnets,
+        torrent_files,
+    })
 }
 
 fn publication(input: &str, origin: &Url) -> Result<(PublicationRef, Url)> {

@@ -1,26 +1,44 @@
+use std::time::Duration;
+
 use url::Url;
 
 use crate::http::SourceHttp;
 use crate::{Category, Error, PublicationRef, ResolvedContent, Result, VariantRef, Work};
 
+#[path = "fitgirl/privatebin.rs"]
+mod privatebin;
 #[path = "fitgirl/response.rs"]
 pub(crate) mod response;
 
 const ORIGIN: &str = "https://fitgirl-repacks.site";
 
-/// FitGirl's official public catalog. Direct and torrent-file mirrors require
-/// separate acquisition support; this provider resolves published magnets only.
+/// FitGirl's official public catalog and exact torrent metadata attachments.
 pub struct FitGirl {
     http: SourceHttp,
     origin: Url,
+    torrent_pastes: Vec<SourceHttp>,
 }
 
 impl FitGirl {
     pub fn new() -> Result<Self> {
         let origin = Url::parse(ORIGIN).expect("fixed FitGirl origin");
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "X-Requested-With",
+            reqwest::header::HeaderValue::from_static("JSONHttpRequest"),
+        );
+        let torrent_pastes = privatebin::HOSTS
+            .iter()
+            .map(|host| {
+                let origin = Url::parse(&format!("https://{host}"))
+                    .expect("fixed public torrent paste origin");
+                SourceHttp::new(origin, headers.clone())
+            })
+            .collect::<Result<_>>()?;
         Ok(Self {
             http: SourceHttp::new(origin.clone(), reqwest::header::HeaderMap::new())?,
             origin,
+            torrent_pastes,
         })
     }
 
@@ -46,7 +64,60 @@ impl FitGirl {
     /// Re-fetch the exact publication and selected hash, including old repacks.
     pub async fn resolve(&self, selected: &VariantRef) -> Result<ResolvedContent> {
         selected.validate()?;
-        self.release(&selected.publication).await?.resolve(selected)
+        let release = self.release(&selected.publication).await?;
+        let variant = release
+            .work
+            .variants
+            .iter()
+            .find(|variant| variant.reference == *selected)
+            .ok_or(Error::VariantUnavailable)?;
+        let crate::VariantSelector::TorrentHash { info_hash } = &selected.selector else {
+            return Err(Error::InvalidReference);
+        };
+        let magnet = release
+            .magnets
+            .get(info_hash)
+            .ok_or(Error::VariantUnavailable)?;
+
+        if let Some(paste) = release.torrent_files.get(info_hash) {
+            let host = privatebin::HOSTS
+                .iter()
+                .position(|host| Some(*host) == paste.host_str())
+                .expect("validated public torrent paste host");
+            let attachment = tokio::time::timeout(
+                Duration::from_secs(10),
+                privatebin::download(&self.torrent_pastes[host], paste),
+            )
+            .await
+            .unwrap_or(Err(Error::Timeout));
+            match attachment {
+                Ok(metadata) => {
+                    if crate::torrent::info_hash(metadata.bytes())? != *info_hash {
+                        return Err(Error::InvalidResponse("FitGirl torrent hash changed"));
+                    }
+                    return Ok(ResolvedContent::TorrentFile {
+                        reference: selected.clone(),
+                        metadata,
+                    });
+                }
+                // The already published magnet identifies the same payload.
+                // An unavailable attachment must not disable that working path.
+                Err(
+                    Error::Timeout
+                    | Error::Network(_)
+                    | Error::Challenge
+                    | Error::VariantUnavailable,
+                )
+                | Err(Error::HttpStatus(403 | 404 | 410 | 429 | 500..=599)) => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        Ok(ResolvedContent::Torrent {
+            reference: selected.clone(),
+            title: variant.title.clone().unwrap_or(release.work.title),
+            magnet: magnet.clone(),
+        })
     }
 
     async fn release(&self, publication: &PublicationRef) -> Result<response::Release> {
