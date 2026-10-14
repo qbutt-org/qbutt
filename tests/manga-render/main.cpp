@@ -17,6 +17,7 @@
 #include <limits>
 
 #include "gui/content/mangarender.h"
+#include "longstrip.h"
 
 using namespace Content::MangaRender;
 using namespace Qt::Literals::StringLiterals;
@@ -333,7 +334,7 @@ int main(int argc, char **argv)
                 originalSize = { original.width(), originalSize.height() + original.height() };
             }
             const QImage generated(arguments.at(arguments.size() - 2));
-            const NormalizedPage normalized = normalizeGeneratedPage(originalSize, generated);
+            const PageImage normalized = normalizeGeneratedPage(originalSize, generated);
             require(normalized.error.isEmpty(), normalized.error);
             require(normalized.image.save(arguments.constLast()), u"Normalized page could not be saved"_s);
             qInfo() << "PASS generated_page_normalized" << generated.size() << "to" << normalized.image.size();
@@ -343,6 +344,7 @@ int main(int argc, char **argv)
         const QString outputDir = application.arguments().at(1);
         require(QDir().mkpath(outputDir), u"Output directory could not be created"_s);
         exercise(outputDir);
+        exerciseLongStrip(outputDir + u"/longstrip"_s);
         return 0;
     }
     catch (const std::exception &error)

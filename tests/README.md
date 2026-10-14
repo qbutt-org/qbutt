@@ -589,6 +589,14 @@ text, unchanged pixels outside cleanupRects/layout, deterministic rerendering,
 missing-glyph retention, malformed geometry and cancellation. It does not establish
 AI style recognition or cleanup quality on scanned artwork.
 
+The same fixture creates `longstrip/` with an authored 800×20000 color page,
+two overlapping windows, a complete overlap balloon and a balloon crossing the
+first window's lower edge. Require `PASS manga_long_native`. It checks full-page
+geometry, colored text and outlines, exact pixels outside cleanup/layout,
+ignored noise outside declared regions, invalid crop bounds and cancellation.
+Inspect `seam-original.png` and `seam-result.png` at reading size.
+It also authors JPEG rotation and mirror metadata for the reader rejection checks.
+
 The same executable accepts `--normalize <original> <generated> <output.png>`
 to replay a saved imagegen result without inference. Multiple original arguments
 describe the geometry of consecutive equal-width vertical segments. This mode
@@ -607,6 +615,23 @@ Set `QBUTT_MANGA_PEER_ROOT` to that isolated discovery root before running
 then checks native composition, atomic PNG cache, exact Original and offline reuse.
 This setup uses only authored fixture maps and PNGs; it does not establish live
 model recognition.
+
+Point the peer's `fixture-directory.txt` at the authored `longstrip/` directory
+and pass its `original.png` as `--translation-input` to exercise the long-page
+path through the same hidden native reader. The controlled peer serves each
+window's map and cleanup without inference. Require the same reader PASS: it
+compares every full-page result pixel with the native expected PNG, verifies one
+context revision against the full original digest, pipeline 4, Original and
+offline cache reuse. Ordinary pages retain pipeline 3. `--reader-longstrip`
+separately checks original tiling, source-relative position and cleanup; it
+does not request translation.
+
+For controlled rejection, set `QBUTT_MANGA_EXPECT_FAILURE=window` with an omitted
+second-window balloon, or `orientation` with either authored orientation JPEG.
+Require `PASS reader_manga_rejection`, the concrete native/seam error in the log,
+exact Original and zero PNG/context rows. Orientation traces must contain zero
+turns and zero cleanup edits. The fixture preserves supplied encoded bytes;
+it does not strip metadata by re-encoding them.
 
 The two QML translation scenarios accept `--translation-model <model>` and
 `--translation-effort <effort>` through the QML controls. Their PASS lines report
@@ -652,6 +677,17 @@ cooperative cancellation and owner abort during both native stages,
 complete/partial usage and child reaping. Its recording renderer does not
 establish Qt PNG geometry or translation quality; those require the native reader
 scenario.
+
+Require every `PASS manga_long` line and the two long owner-abort PASS lines as
+well. The owned process peer checks sequential accepted context, full-original
+evidence coordinates, complete seam dialogue, rejection of omitted/split/merged
+or repeated balloons, explicit unsupported crossings, final output limits,
+second-window cancellation, native crop/composition drain and child reaping.
+No partial PNG/context leaves the page job. The small-page cases remain separate.
+Context images pass the same native geometry gate: each tool batch fits 16M
+pixels and 16000 per side; all primary windows and accepted tool images share
+the 64M inspection budget. Oversized context and exhausted-budget process cases
+must reject the image before attachment.
 
 Run `--reader-settings --lang ru` in the same offscreen environment for typed
 profile-wide fit persistence through the existing SQLite worker. Require exit

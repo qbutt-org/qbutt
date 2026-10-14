@@ -9,6 +9,7 @@
 
 #include <QBuffer>
 #include <QColor>
+#include <QImageIOHandler>
 #include <QImageReader>
 #include <QRectF>
 
@@ -53,7 +54,7 @@ namespace
         return (text.size() == 7) && text.startsWith(u'#') && color.isValid();
     }
 
-    QImage readMangaPage(const ::rust::Slice<const std::uint8_t> bytes, QString &error)
+    QImage readMangaPage(const ::rust::Slice<const std::uint8_t> bytes, QString &error, const bool original = false)
     {
         if (bytes.size() > 96 * 1024 * 1024)
         {
@@ -69,16 +70,25 @@ namespace
             return { };
         }
         QImageReader reader(&buffer);
-        reader.setAutoTransform(true);
         const QSize size = reader.size();
-        if (!Content::MangaRender::supportsImageSize(size))
+        if (!(original ? Content::MangaRender::supportsOriginalSize(size) : Content::MangaRender::supportsImageSize(size)))
         {
             error = QStringLiteral("Invalid or oversized manga page");
             return { };
         }
+        // The reader uses untransformed source coordinates. Metadata must not
+        // change the canvas seen by Qt or the model.
+        if (reader.transformation() != QImageIOHandler::TransformationNone)
+        {
+            error = QStringLiteral("Manga image orientation metadata is not supported for translation");
+            return { };
+        }
         const QImage image = reader.read();
-        if (image.isNull())
+        if (image.isNull() || (image.size() != size))
+        {
             error = QStringLiteral("Manga image could not be decoded");
+            return { };
+        }
         return image;
     }
 
@@ -142,6 +152,104 @@ namespace
         }
         return result;
     }
+}
+
+Qbutt::MangaImageOutput Qbutt::manga_image_geometry(const ::rust::Slice<const std::uint8_t> original,
+    const RenderCancellation &cancelled)
+{
+    MangaImageOutput output;
+    if (render_cancelled(cancelled))
+    {
+        output.error = "Manga geometry cancelled";
+        return output;
+    }
+    QString error;
+    const QImage image = readMangaPage(original, error, true);
+    output.error = toRust(error);
+    output.width = static_cast<std::uint32_t>(image.width());
+    output.height = static_cast<std::uint32_t>(image.height());
+    return output;
+}
+
+Qbutt::MangaImageOutput Qbutt::crop_manga_window(const ::rust::Slice<const std::uint8_t> original,
+    const std::uint32_t top, const std::uint32_t height, const RenderCancellation &cancelled)
+{
+    MangaImageOutput output;
+    if (render_cancelled(cancelled))
+    {
+        output.error = "Manga crop cancelled";
+        return output;
+    }
+    QString error;
+    const QImage image = readMangaPage(original, error, true);
+    if (image.isNull())
+    {
+        output.error = toRust(error);
+        return output;
+    }
+    const Content::MangaRender::PageImage crop = Content::MangaRender::cropWindow(image,
+        static_cast<int>(top), static_cast<int>(height), [&cancelled] { return render_cancelled(cancelled); });
+    output.error = toRust(crop.error);
+    if (!crop.error.isEmpty())
+        return output;
+    output.width = static_cast<std::uint32_t>(crop.image.width());
+    output.height = static_cast<std::uint32_t>(crop.image.height());
+    output.png = png(crop.image);
+    if (output.png.empty())
+        output.error = "Manga crop PNG encoding failed";
+    return output;
+}
+
+Qbutt::MangaImageOutput Qbutt::compose_manga_windows(const ::rust::Slice<const std::uint8_t> original,
+    const ::rust::Slice<const MangaWindow> windows, const RenderCancellation &cancelled)
+{
+    MangaImageOutput output;
+    if (render_cancelled(cancelled) || (windows.size() > 8))
+    {
+        output.error = "Manga composition cancelled or window count exceeded";
+        return output;
+    }
+    QString error;
+    QImage page = readMangaPage(original, error, true).convertToFormat(QImage::Format_RGBA8888);
+    if (page.isNull())
+    {
+        output.error = toRust(error);
+        return output;
+    }
+    for (const MangaWindow &window : windows)
+    {
+        if (render_cancelled(cancelled))
+        {
+            output.error = "Manga composition cancelled";
+            return output;
+        }
+        const QImage image = readMangaPage({window.png.data(), window.png.size()}, error)
+            .convertToFormat(QImage::Format_RGBA8888);
+        if (image.isNull() || (image.height() != static_cast<int>(window.height)))
+        {
+            output.error = "Invalid manga window image";
+            return output;
+        }
+        const QList<Content::MangaRender::Region> regions = nativeRegions({window.regions.data(), window.regions.size()}, error);
+        if (!error.isEmpty())
+        {
+            output.error = toRust(error);
+            return output;
+        }
+        error = Content::MangaRender::composeWindow(page, image, static_cast<int>(window.top), regions,
+            [&cancelled] { return render_cancelled(cancelled); });
+        if (!error.isEmpty())
+        {
+            output.error = toRust(error);
+            return output;
+        }
+    }
+    output.width = static_cast<std::uint32_t>(page.width());
+    output.height = static_cast<std::uint32_t>(page.height());
+    output.png = png(page);
+    if (output.png.empty())
+        output.error = "Manga full-page PNG encoding failed";
+    return output;
 }
 
 Qbutt::MangaTypographyOutput Qbutt::prepare_manga_typography(const ::rust::Slice<const std::uint8_t> original,

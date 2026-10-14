@@ -158,7 +158,8 @@ async fn translate(
     let bytes = CachedPage::original_bytes(Arc::clone(&original))
         .await
         .map_err(TranslationFailure::Cache)?;
-    if bytes.len() > codex::MAX_IMAGE_BYTES {
+    let windowed = manga_imagegen::needs_windows(original.width as u32, original.height as u32);
+    if !windowed && bytes.len() > codex::MAX_IMAGE_BYTES {
         return Err(TranslationFailure::UnsupportedSize);
     }
     let input = page::input_image(bytes).map_err(TranslationFailure::Codex)?;
@@ -174,6 +175,7 @@ async fn translate(
             &language,
             &selection.model,
             &selection.effort,
+            windowed,
         );
         let lookup = library
             .manga_lookup(key)
@@ -205,6 +207,7 @@ async fn translate(
         &language,
         &model,
         &effort,
+        windowed,
     );
     let lookup = library
         .manga_lookup(key)

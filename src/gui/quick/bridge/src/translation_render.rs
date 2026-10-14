@@ -5,7 +5,8 @@ use std::sync::{
 
 use qbutt_codex::{self as codex, CodexError, InputImage};
 use qbutt_content::translation::page::{
-    FontFamily, PageRegion, PageRenderer, RegionDiagnostic, RenderStatus, RenderedPage,
+    FontFamily, PageRegion, PageRenderer, PageWindow, RegionDiagnostic, RenderStatus, RenderedPage,
+    RenderedWindow,
 };
 
 pub struct RenderCancellation {
@@ -63,9 +64,36 @@ mod ffi {
         diagnostics: Vec<MangaDiagnostic>,
         error: String,
     }
+    struct MangaImageOutput {
+        png: Vec<u8>,
+        width: u32,
+        height: u32,
+        error: String,
+    }
+    struct MangaWindow {
+        top: u32,
+        height: u32,
+        png: Vec<u8>,
+        regions: Vec<MangaRegion>,
+    }
 
     unsafe extern "C++" {
         include!("qbutt_quick/translation_render.h");
+        fn manga_image_geometry(
+            original: &[u8],
+            cancelled: &RenderCancellation,
+        ) -> MangaImageOutput;
+        fn crop_manga_window(
+            original: &[u8],
+            top: u32,
+            height: u32,
+            cancelled: &RenderCancellation,
+        ) -> MangaImageOutput;
+        fn compose_manga_windows(
+            original: &[u8],
+            windows: &[MangaWindow],
+            cancelled: &RenderCancellation,
+        ) -> MangaImageOutput;
         fn prepare_manga_typography(
             original: &[u8],
             regions: &[MangaRegion],
@@ -87,6 +115,58 @@ mod ffi {
 pub struct QtMangaRenderer;
 
 impl PageRenderer for QtMangaRenderer {
+    fn dimensions(
+        &self,
+        original: &InputImage,
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<(u32, u32)> {
+        let cancellation = RenderCancellation { flag: cancelled };
+        let output = ffi::manga_image_geometry(&original.bytes, &cancellation);
+        check_error(&output.error, &cancellation)?;
+        Ok((output.width, output.height))
+    }
+
+    fn crop(
+        &self,
+        original: &InputImage,
+        window: PageWindow,
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<InputImage> {
+        let cancellation = RenderCancellation { flag: cancelled };
+        let output =
+            ffi::crop_manga_window(&original.bytes, window.top, window.height, &cancellation);
+        check_error(&output.error, &cancellation)?;
+        if output.width != window.width
+            || output.height != window.height
+            || output.png.is_empty()
+            || output.png.len() > codex::MAX_IMAGE_BYTES
+        {
+            return Err(CodexError::Image);
+        }
+        Ok(InputImage::png(output.png))
+    }
+
+    fn compose(
+        &self,
+        original: &InputImage,
+        windows: &[RenderedWindow],
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<Vec<u8>> {
+        let cancellation = RenderCancellation { flag: cancelled };
+        let windows: Vec<_> = windows
+            .iter()
+            .map(|window| ffi::MangaWindow {
+                top: window.window.top,
+                height: window.window.height,
+                png: window.png.clone(),
+                regions: native_regions(&window.regions),
+            })
+            .collect();
+        let output = ffi::compose_manga_windows(&original.bytes, &windows, &cancellation);
+        check_error(&output.error, &cancellation)?;
+        Ok(output.png)
+    }
+
     fn prepare(
         &self,
         original: &InputImage,

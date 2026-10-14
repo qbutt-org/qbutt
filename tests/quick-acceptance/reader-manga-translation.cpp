@@ -11,8 +11,10 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QFileInfo>
 #include <QFont>
 #include <QImage>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLinearGradient>
@@ -196,8 +198,10 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     const QImage generated = inputPath.isEmpty() ? originalPage()
         : QImage(inputPath).convertToFormat(QImage::Format_RGB32);
     require(!generated.isNull(), u"Authored manga page could not be decoded"_s);
-    const QString originalPath = profileDir + u"/manga-original.png"_s;
-    require(generated.save(originalPath), u"Generated manga page could not be saved"_s);
+    const QString originalPath = profileDir + u"/manga-original."_s
+        + (inputPath.isEmpty() ? u"png"_s : QFileInfo(inputPath).suffix());
+    require(inputPath.isEmpty() ? generated.save(originalPath) : QFile::copy(inputPath, originalPath),
+        u"Original manga page could not be saved"_s);
     controller->importLocalBook(QUrl::fromLocalFile(originalPath));
     waitFor([&]
     {
@@ -277,12 +281,44 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     const qint64 translationMs = translationTimer.elapsed();
     qInfo().noquote() << u"LIVE reader_manga_translation model=%1 effort=%2 target=%3 translation_ms=%4"_s
         .arg(model, effort, targetLanguage).arg(translationMs);
+    const QString expectedFailure = qEnvironmentVariable("QBUTT_MANGA_EXPECT_FAILURE");
+    if (!expectedFailure.isEmpty())
+    {
+        require((expectedFailure == u"orientation" || expectedFailure == u"window")
+                && controller->property("readerTranslationError").toBool() && pageImage(controller) == original,
+            u"Rejected manga translation did not preserve Original"_s);
+        auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"reader-manga-rejection"_s);
+        const auto closeDatabase = qScopeGuard([&]
+        {
+            database.close();
+            database = {};
+            QSqlDatabase::removeDatabase(u"reader-manga-rejection"_s);
+        });
+        database.setDatabaseName(profileDir + u"/content-library.sqlite"_s);
+        require(database.open(), database.lastError().text());
+        QSqlQuery rows(database);
+        require(rows.exec(u"SELECT (SELECT count(*) FROM translated_images), (SELECT count(*) FROM translation_context)"_s)
+                && rows.next() && rows.value(0).toInt() == 0 && rows.value(1).toInt() == 0,
+            u"Rejected page saved a partial PNG or context"_s);
+        qInfo().noquote() << u"PASS reader_manga_rejection cause=%1 original=exact png_rows=0 context_rows=0"_s.arg(expectedFailure);
+        return;
+    }
     require(controller->property("readerTranslationRequested").toBool()
         && !controller->property("readerTranslationError").toBool()
         && controller->property("readerPageIndex").toInt() == 0,
         u"Live manga translation did not reach exact page zero"_s);
     const QImage translated = pageImage(controller);
     require(translated.size() == original.size(), u"Translated manga dimensions changed"_s);
+    if (!peerRoot.isEmpty())
+    {
+        QFile fixtureFile(QString::fromUtf8(peerRoot)
+            + u"/nodejs/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/fixture-directory.txt"_s);
+        require(fixtureFile.open(QIODevice::ReadOnly), u"Controlled manga fixture path is missing"_s);
+        const QString fixtureDirectory = QString::fromUtf8(fixtureFile.readAll().trimmed());
+        const QImage expected(fixtureDirectory + u"/result.png"_s);
+        require(!expected.isNull() && translated == expected.convertToFormat(QImage::Format_ARGB32),
+            u"Controlled native manga result differs from expected full-page pixels"_s);
+    }
     require(translated.save(profileDir + u"/manga-translated.png"_s),
         u"Translated manga page could not be saved"_s);
     capture(view, profileDir + u"/manga-reader-translated.png"_s, QSize(1440, 900));
@@ -317,10 +353,25 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
         && publication.value(u"source"_s).toString() == u"local_book"_s
         && publication.value(u"id"_s).toString() == digest
         && key.value(u"provider"_s).toString() == u"codex-imagegen"_s
-        && key.value(u"pipeline"_s).toInt() == 3
+        && key.value(u"pipeline"_s).toInt() == ((original.height() > 16'000
+            || qint64(original.width()) * original.height() > 16'000'000) ? 4 : 3)
         && cachedImage == translated,
         u"Cached manga translation has the wrong page, selection or image"_s);
     cache.finish();
+    if (key.value(u"pipeline"_s).toInt() == 4)
+    {
+        QSqlQuery context(database);
+        require(context.exec(u"SELECT revision, context FROM translation_context"_s) && context.next()
+                && context.value(0).toInt() == 1,
+            u"Long manga windows did not commit one context revision"_s);
+        const QJsonObject accepted = QJsonDocument::fromJson(context.value(1).toByteArray()).object();
+        const QJsonObject evidence = accepted.value(u"terms"_s).toArray().first().toObject()
+            .value(u"evidence"_s).toObject();
+        require(evidence.value(u"segment_id"_s).toString() == u"w0:t0-0"_s
+                && evidence.value(u"image_observation"_s).toObject().value(u"original_digest"_s).toString() == digest
+                && !context.next(),
+            u"Long manga context retained a crop identity or extra row"_s);
+    }
 
     // The cleanup map and native lettering must preserve the page geometry.
     // Reading quality still requires reviewing these saved images.

@@ -17,10 +17,15 @@ use crate::ChapterRef;
 use crate::library::TranslationCacheKey;
 use qbutt_codex::{
     self as codex, CodexError, CodexRequest, InputImage, ModelModality, NoTools, TokenUsage,
-    ToolHandler,
+    ToolCall, ToolFuture, ToolHandler,
 };
 
 const PIPELINE_VERSION: u32 = 3;
+const MAX_INSPECTED_PIXELS: u64 = 64_000_000;
+
+mod windows;
+
+pub use windows::needs_windows;
 
 pub struct GeneratedPage {
     pub png: Vec<u8>,
@@ -31,6 +36,12 @@ pub struct GeneratedPage {
     pub usage: Option<TokenUsage>,
 }
 
+struct WindowResult {
+    page: GeneratedPage,
+    regions: Vec<PageRegion>,
+    clipped: Vec<page::Rect>,
+}
+
 pub fn cache_key(
     chapter: ChapterRef,
     page: u32,
@@ -38,6 +49,7 @@ pub fn cache_key(
     target_language: &str,
     model: &str,
     effort: &str,
+    windowed: bool,
 ) -> TranslationCacheKey {
     let digest = Sha256::digest(&original.bytes);
     TranslationCacheKey {
@@ -48,7 +60,7 @@ pub fn cache_key(
         provider: "codex-imagegen".into(),
         model: model.to_owned(),
         effort: effort.to_owned(),
-        pipeline: PIPELINE_VERSION,
+        pipeline: if windowed { 4 } else { PIPELINE_VERSION },
     }
 }
 
@@ -94,27 +106,76 @@ struct PageDecision {
 
 /// Image generation is disabled during translation. Only a strictly validated
 /// proposal can start the second request, with its own original and no tools.
-pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
+pub async fn translate_page<R: PageRenderer, S: context_tools::WorkChapterSource + ?Sized>(
     job: PageJob,
     renderer: Arc<R>,
-    context: &mut C,
+    context: &mut context_tools::WorkContextTools<'_, S>,
     cancelled: watch::Receiver<bool>,
 ) -> codex::Result<GeneratedPage> {
     job.validate()?;
     if !matches!(job.target_language.as_str(), "ru" | "en") {
         return Err(CodexError::Protocol);
     }
+    let original = job.original.clone();
+    let geometry_renderer = renderer.clone();
+    let (width, height) = native_work(cancelled.clone(), move |flag| {
+        geometry_renderer.dimensions(&original, flag)
+    })
+    .await?;
+    if !windows::size_supported(width, height) {
+        return Err(CodexError::Image);
+    }
+    if windows::needs_windows(width, height) {
+        let initial_context = job.work_context.clone();
+        let result = windows::translate(job, renderer, context, cancelled, width, height).await;
+        context.set_context(initial_context);
+        return result;
+    }
+    let mut inspected_pixels = u64::from(width) * u64::from(height);
+    Ok(translate_window(
+        job,
+        renderer,
+        context,
+        cancelled,
+        None,
+        &mut inspected_pixels,
+    )
+    .await?
+    .page)
+}
+
+async fn translate_window<R: PageRenderer, C: ToolHandler + Send>(
+    job: PageJob,
+    renderer: Arc<R>,
+    context: &mut C,
+    cancelled: watch::Receiver<bool>,
+    window: Option<windows::Inspection>,
+    inspected_pixels: &mut u64,
+) -> codex::Result<WindowResult> {
+    let mut prompt = json!({
+        "targetLanguage": job.target_language,
+        "workContext": job.work_context.search("", 80),
+    });
+    if let Some(inspection) = &window {
+        prompt["window"] = json!(inspection);
+    }
+    let mut bounded_context = ContextImages {
+        context,
+        renderer: renderer.clone(),
+        cancelled: cancelled.clone(),
+        inspected_pixels,
+    };
     let translation = codex::complete(
         CodexRequest {
-            instructions: TRANSLATION_INSTRUCTIONS.into(),
-            prompt: json!({
-                "targetLanguage": job.target_language,
-                "workContext": job.work_context.search("", 80),
-            })
-            .to_string(),
+            instructions: if window.is_some() {
+                format!("{TRANSLATION_INSTRUCTIONS}{}", windows::INSTRUCTIONS)
+            } else {
+                TRANSLATION_INSTRUCTIONS.into()
+            },
+            prompt: prompt.to_string(),
             modality: ModelModality::Image,
             image: Some(job.original.clone()),
-            output_schema: proposal_schema(),
+            output_schema: proposal_schema(window.is_some()),
             model: job.model.clone(),
             effort: job.effort.clone(),
             tools: context_tools::tool_definitions()
@@ -122,16 +183,48 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
                 .filter(|tool| tool.name != "search_work_text")
                 .collect(),
         },
-        context,
+        &mut bounded_context,
         cancelled.clone(),
     )
     .await?;
     if *cancelled.borrow() {
         return Err(CodexError::Cancelled);
     }
-    let proposal: TranslationProposal = serde_json::from_value(translation.value)
+    let mut value = translation.value;
+    let clipped = if let Some(inspection) = &window {
+        inspection.validate(&mut value)?
+    } else {
+        Vec::new()
+    };
+    let proposal: TranslationProposal = serde_json::from_value(value)
         .map_err(|_| CodexError::Tool("Invalid translation proposal".into()))?;
-    let (additions, evidence) = proposal.validate(&job)?;
+    let (additions, evidence) = if window.is_some() && proposal.regions.is_empty() {
+        if !proposal.terms.is_empty() || !proposal.facts.is_empty() {
+            return Err(CodexError::Tool(
+                "An empty window cannot add context".into(),
+            ));
+        }
+        (ContextAdditions::default(), Vec::new())
+    } else {
+        proposal.validate(&job)?
+    };
+    if let Some(inspection) = &window {
+        inspection.validate_regions(&proposal.regions, &clipped)?;
+    }
+    if proposal.regions.is_empty() {
+        return Ok(WindowResult {
+            page: GeneratedPage {
+                png: job.original.bytes,
+                additions,
+                evidence,
+                model: translation.model,
+                effort: translation.effort,
+                usage: translation.usage,
+            },
+            regions: proposal.regions,
+            clipped,
+        });
+    }
     let original = job.original.clone();
     let regions = proposal.regions.clone();
     let typography_renderer = renderer.clone();
@@ -208,7 +301,66 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
     if *cancelled.borrow() {
         return Err(CodexError::Cancelled);
     }
-    let usage = match (translation.usage, completion.usage) {
+    let usage = combine_usage(translation.usage, completion.usage);
+    Ok(WindowResult {
+        page: GeneratedPage {
+            png: rendered.png,
+            additions,
+            evidence,
+            model: completion.model,
+            effort: completion.effort,
+            usage,
+        },
+        regions,
+        clipped,
+    })
+}
+
+/// The context owner remains unchanged. Validate its image output before the
+/// transport can attach it, sharing the primary page's inspection budget.
+struct ContextImages<'a, R, C> {
+    context: &'a mut C,
+    renderer: Arc<R>,
+    cancelled: watch::Receiver<bool>,
+    inspected_pixels: &'a mut u64,
+}
+
+impl<R: PageRenderer, C: ToolHandler + Send> ToolHandler for ContextImages<'_, R, C> {
+    fn call(&mut self, call: ToolCall) -> ToolFuture<'_> {
+        Box::pin(async move {
+            let output = self.context.call(call).await?;
+            let mut batch_pixels = 0;
+            for image in &output.images {
+                let original = image.clone();
+                let renderer = self.renderer.clone();
+                let (width, height) = native_work(self.cancelled.clone(), move |flag| {
+                    renderer.dimensions(&original, flag)
+                })
+                .await?;
+                batch_pixels += u64::from(width) * u64::from(height);
+                if !windows::size_supported(width, height)
+                    || needs_windows(width, height)
+                    || batch_pixels > 16_000_000
+                {
+                    return Err(CodexError::Tool(
+                        "Context images exceed the 16000-pixel side or 16M-pixel batch limit"
+                            .into(),
+                    ));
+                }
+            }
+            if self.inspected_pixels.saturating_add(batch_pixels) > MAX_INSPECTED_PIXELS {
+                return Err(CodexError::Tool(
+                    "The page image inspection budget is exhausted".into(),
+                ));
+            }
+            *self.inspected_pixels += batch_pixels;
+            Ok(output)
+        })
+    }
+}
+
+fn combine_usage(left: Option<TokenUsage>, right: Option<TokenUsage>) -> Option<TokenUsage> {
+    match (left, right) {
         (Some(left), Some(right)) => Some(TokenUsage {
             total_tokens: left.total_tokens.saturating_add(right.total_tokens),
             input_tokens: left.input_tokens.saturating_add(right.input_tokens),
@@ -224,15 +376,7 @@ pub async fn translate_page<R: PageRenderer, C: ToolHandler + Send>(
                 .saturating_add(right.reasoning_output_tokens),
         }),
         _ => None,
-    };
-    Ok(GeneratedPage {
-        png: rendered.png,
-        additions,
-        evidence,
-        model: completion.model,
-        effort: completion.effort,
-        usage,
-    })
+    }
 }
 
 struct NativeCancellation(Arc<AtomicBool>);
@@ -272,20 +416,36 @@ async fn native_work<T: Send + 'static>(
     }
 }
 
-fn proposal_schema() -> Value {
+fn proposal_schema(windowed: bool) -> Value {
     let mut properties = page::context_properties();
     properties["regions"] = json!({
         "type": "array",
-        "minItems": 1,
+        "minItems": if windowed { 0 } else { 1 },
         "maxItems": page::MAX_REGIONS,
         "items": page::region_schema(),
     });
-    json!({
+    let mut schema = json!({
         "type": "object",
         "properties": properties,
         "required": ["regions", "terms", "facts"],
         "additionalProperties": false,
-    })
+    });
+    if windowed {
+        schema["properties"]["clippedRegions"] = windows::clipped_schema();
+        schema["properties"]["unsupportedReason"] = json!({
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 500,
+        });
+        schema["required"] = json!([
+            "regions",
+            "terms",
+            "facts",
+            "clippedRegions",
+            "unsupportedReason"
+        ]);
+    }
+    schema
 }
 
 const TRANSLATION_INSTRUCTIONS: &str = concat!(

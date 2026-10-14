@@ -50,6 +50,7 @@ pub fn run() -> Result<()> {
     );
     let mut model = String::new();
     let mut output = std::io::stdout().lock();
+    let mut pending_window = None;
     for line in std::io::stdin().lock().lines() {
         let request: Value = serde_json::from_str(&line?)?;
         let id = &request["id"];
@@ -72,6 +73,49 @@ pub fn run() -> Result<()> {
                         format!("data:image/png;base64,{NEIGHBOR}")
                     );
                     finish(&mut output, &thread, proposal(&case), Some(100))?;
+                }
+                902 => {
+                    assert_eq!(request["result"]["success"], true);
+                    assert!(images.is_empty());
+                    let text = items
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|item| item["type"] == "inputText")
+                        .unwrap()["text"]
+                        .as_str()
+                        .unwrap();
+                    let context: Value = serde_json::from_str(text)?;
+                    assert_eq!(context["terms"][0]["source"], "レン");
+                    assert_eq!(context["terms"][0]["evidence"]["segment_id"], "w0:r1");
+                    finish(
+                        &mut output,
+                        &thread,
+                        pending_window.take().unwrap(),
+                        Some(100),
+                    )?;
+                }
+                call @ 910..=912 => {
+                    let rejected = case == "long-context-oversized" || call == 912;
+                    assert_eq!(request["result"]["success"], !rejected);
+                    assert_eq!(images.len(), usize::from(!rejected));
+                    if rejected {
+                        let mut value = pending_window.take().unwrap();
+                        value["unsupportedReason"] =
+                            json!("Context image was rejected before attachment");
+                        finish(&mut output, &thread, value, Some(100))?;
+                    } else {
+                        send(
+                            &mut output,
+                            json!({
+                                "id": call + 1, "method": "item/tool/call",
+                                "params": {
+                                    "threadId": thread, "turnId": "fixture-turn", "namespace": null,
+                                    "tool": "get_chapter", "arguments": {"chapter_id": NEIGHBOR_ID, "offset": 0},
+                                },
+                            }),
+                        )?;
+                    }
                 }
                 _ => return Err("unexpected tool reply".into()),
             }
@@ -183,11 +227,61 @@ pub fn run() -> Result<()> {
                         "result": {"turn": {"id": "fixture-turn", "status": "inProgress"}},
                     }),
                 )?;
-                if native_fixture {
+                if case.starts_with("long-") {
+                    if image_phase {
+                        generate(&mut output, &thread)?;
+                        writeln!(trace, "{}", json!({"event":"image_generation_started"}))?;
+                        finish(
+                            &mut output,
+                            &thread,
+                            json!({"accepted":true,"reason":""}),
+                            Some(200),
+                        )?;
+                    } else {
+                        let value = long_proposal(&case, &prompt)?;
+                        writeln!(trace, "{}", json!({"window":prompt["window"]["window"]}))?;
+                        if matches!(
+                            case.as_str(),
+                            "long-context-oversized" | "long-context-budget"
+                        ) {
+                            pending_window = Some(value);
+                            send(
+                                &mut output,
+                                json!({
+                                    "id": 910, "method": "item/tool/call",
+                                    "params": {
+                                        "threadId": thread, "turnId": "fixture-turn", "namespace": null,
+                                        "tool": "get_chapter", "arguments": {"chapter_id": NEIGHBOR_ID, "offset": 0},
+                                    },
+                                }),
+                            )?;
+                        } else if prompt["window"]["window"]["top"] == 0 {
+                            finish(&mut output, &thread, value, Some(100))?;
+                        } else {
+                            pending_window = Some(value);
+                            send(
+                                &mut output,
+                                json!({"id":902,"method":"item/tool/call","params":{
+                                    "threadId":thread,"turnId":"fixture-turn","namespace":null,"tool":"read_context","arguments":{"query":"レン"}
+                                }}),
+                            )?;
+                        }
+                    }
+                    trace.flush()?;
+                } else if native_fixture {
                     let directory = fixture_directory.as_ref().unwrap();
                     if image_phase {
                         use base64::Engine;
-                        let bytes = std::fs::read(directory.join("generated-cleanup.png"))?;
+                        let id = prompt["cleanupRegions"][0]["id"].as_str().unwrap_or("");
+                        let cleanup = if let Some((prefix, _)) = id.split_once('-')
+                            && prefix.starts_with('t')
+                            && prefix[1..].parse::<u32>().is_ok()
+                        {
+                            format!("{prefix}-cleanup.png")
+                        } else {
+                            "generated-cleanup.png".into()
+                        };
+                        let bytes = std::fs::read(directory.join(cleanup))?;
                         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
                         generate_png(&mut output, &thread, &encoded)?;
                         writeln!(trace, "{}", json!({"event":"image_generation_started"}))?;
@@ -198,9 +292,14 @@ pub fn run() -> Result<()> {
                             Some(200),
                         )?;
                     } else {
-                        let mut proposal: Value = serde_json::from_slice(&std::fs::read(
-                            directory.join("proposal.json"),
-                        )?)?;
+                        let proposal_file =
+                            if let Some(top) = prompt["window"]["window"]["top"].as_u64() {
+                                format!("window-{top}-proposal.json")
+                            } else {
+                                "proposal.json".into()
+                            };
+                        let mut proposal: Value =
+                            serde_json::from_slice(&std::fs::read(directory.join(proposal_file))?)?;
                         if ahead_fixture {
                             let turn = std::fs::read_dir(&native)?
                                 .filter_map(|entry| entry.ok())
@@ -356,6 +455,95 @@ fn proposal(case: &str) -> Value {
         _ => {}
     }
     proposal
+}
+
+fn long_proposal(case: &str, prompt: &Value) -> Result<Value> {
+    let first = prompt["window"]["window"]["top"] == 0;
+    let mut value = proposal(if case == "long-en" { "en" } else { "ru" });
+    let region = &mut value["regions"][0];
+    let bounds = if first {
+        json!({"x":0.1,"y":0.1,"width":0.8,"height":0.04})
+    } else {
+        json!({"x":0.1,"y":0.3,"width":0.8,"height":0.1})
+    };
+    region["bounds"] = bounds.clone();
+    region["layout"] = bounds.clone();
+    region["cleanupRects"] = json!([bounds]);
+    value["clippedRegions"] = json!([]);
+    value["unsupportedReason"] = Value::Null;
+    if first {
+        if case == "long-explicit-unsupported" {
+            value["unsupportedReason"] =
+                json!("The source balloon is larger than the seam overlap");
+        }
+        let mut overlap = value["regions"][0].clone();
+        overlap["id"] = json!("overlap");
+        let bounds = json!({"x":0.1,"y":0.9,"width":0.8,"height":0.02});
+        overlap["bounds"] = bounds.clone();
+        overlap["layout"] = bounds.clone();
+        overlap["cleanupRects"] = json!([bounds]);
+        value["regions"].as_array_mut().unwrap().push(overlap);
+        value["clippedRegions"] = json!([{"x":0.1,"y":0.99,"width":0.8,"height":0.01}]);
+        if case == "long-oversized-crossing" {
+            value["clippedRegions"][0]["y"] = json!(0.8);
+            value["clippedRegions"][0]["height"] = json!(0.2);
+        }
+        if case == "long-edge" {
+            value["regions"][0]["bounds"]["height"] = json!(0.9);
+        }
+    } else {
+        assert_eq!(
+            prompt["window"]["pendingFragments"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            prompt["window"]["acceptedRegions"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            prompt["workContext"]
+                .to_string()
+                .contains(if case == "long-en" { "Ren" } else { "Рен" })
+        );
+        value["regions"][0]["id"] = json!("crossing");
+        value["regions"][0]["sourceText"] = json!("レンは姉です。続きも全部読みます。");
+        value["terms"] = json!([]);
+        value["facts"] = json!([]);
+        if case == "long-missing-crossing" {
+            value["regions"] = json!([]);
+        }
+        if case == "long-duplicate" || case == "long-late-overlap" {
+            let mut duplicate = value["regions"][0].clone();
+            duplicate["id"] = json!("duplicate");
+            let bounds = if case == "long-duplicate" {
+                prompt["window"]["acceptedRegions"][0]["bounds"].clone()
+            } else {
+                json!({"x":0.01,"y":0.05,"width":0.02,"height":0.02})
+            };
+            duplicate["bounds"] = bounds.clone();
+            duplicate["layout"] = bounds.clone();
+            duplicate["cleanupRects"] = json!([bounds]);
+            value["regions"].as_array_mut().unwrap().push(duplicate);
+        }
+        if case == "long-split-crossing" {
+            value["regions"][0]["bounds"]["height"] = json!(0.02);
+            value["regions"][0]["layout"] = value["regions"][0]["bounds"].clone();
+            value["regions"][0]["cleanupRects"] = json!([value["regions"][0]["bounds"]]);
+        }
+        if case == "long-merged-accepted" {
+            let bounds = json!({"x":0.1,"y":0.05,"width":0.8,"height":0.4});
+            value["regions"][0]["bounds"] = bounds.clone();
+            value["regions"][0]["layout"] = bounds.clone();
+            value["regions"][0]["cleanupRects"] = json!([bounds]);
+        }
+    }
+    Ok(value)
 }
 
 fn translation(case: &str) -> Value {

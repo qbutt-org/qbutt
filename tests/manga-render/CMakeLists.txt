@@ -11,6 +11,8 @@ qt_standard_project_setup(REQUIRES 6.12)
 
 qt_add_executable(qbutt-manga-render-acceptance
     main.cpp
+    longstrip.cpp
+    longstrip.h
     ../../src/gui/content/mangarender.cpp
     ../../src/gui/content/mangarender.h
     ../../src/gui/content/reader.qrc

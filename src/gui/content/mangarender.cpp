@@ -15,6 +15,7 @@
 #include <QPainter>
 #include <QPen>
 #include <QRawFont>
+#include <QRegion>
 #include <QTextLayout>
 #include <QTextOption>
 #include <QTransform>
@@ -60,10 +61,76 @@ bool Content::MangaRender::supportsImageSize(const QSize &size)
         && (qint64(size.width()) * size.height() <= MAX_PIXELS);
 }
 
-Content::MangaRender::NormalizedPage Content::MangaRender::normalizeGeneratedPage(
+bool Content::MangaRender::supportsOriginalSize(const QSize &size)
+{
+    return !size.isEmpty() && (size.width() <= 16'000) && (size.height() <= 65'536)
+        && (qint64(size.width()) * size.height() <= 40'000'000);
+}
+
+Content::MangaRender::PageImage Content::MangaRender::cropWindow(const QImage &original,
+    const int top, const int height, const std::function<bool()> &cancelled)
+{
+    PageImage result;
+    if (isCancelled(cancelled))
+        result.error = QStringLiteral("Manga window crop cancelled");
+    else if (!supportsOriginalSize(original.size()) || (top < 0) || (height <= 0)
+        || (qint64(top) + height > original.height()) || !supportsImageSize({original.width(), height}))
+    {
+        result.error = QStringLiteral("Invalid manga window geometry");
+    }
+    else
+    {
+        result.image = original.copy(0, top, original.width(), height);
+        if (isCancelled(cancelled))
+        {
+            result.image = { };
+            result.error = QStringLiteral("Manga window crop cancelled");
+        }
+        else if (result.image.isNull())
+            result.error = QStringLiteral("Manga window could not be copied");
+    }
+    return result;
+}
+
+QString Content::MangaRender::composeWindow(QImage &page, const QImage &window, const int top,
+    const QList<Region> &regions, const std::function<bool()> &cancelled)
+{
+    if (!supportsOriginalSize(page.size()) || !supportsImageSize(window.size())
+        || (page.width() != window.width()) || (top < 0) || (qint64(top) + window.height() > page.height())
+        || (page.format() != QImage::Format_RGBA8888) || (window.format() != QImage::Format_RGBA8888))
+    {
+        return QStringLiteral("Invalid manga window composition geometry");
+    }
+    QRegion allowed;
+    for (const Region &region : regions)
+    {
+        if (!validRect(region.layout))
+            return QStringLiteral("Invalid manga window layout");
+        allowed += pixelRect(region.layout, window.size());
+        for (const QRectF &rect : region.cleanupRects)
+        {
+            if (!validRect(rect))
+                return QStringLiteral("Invalid manga window cleanup rectangle");
+            allowed += pixelRect(rect, window.size());
+        }
+    }
+    for (const QRect &rect : allowed)
+    {
+        for (int row = rect.top(); row <= rect.bottom(); ++row)
+        {
+            if (isCancelled(cancelled))
+                return QStringLiteral("Manga window composition cancelled");
+            std::memcpy(page.scanLine(top + row) + rect.left() * 4,
+                window.constScanLine(row) + rect.left() * 4, static_cast<std::size_t>(rect.width()) * 4);
+        }
+    }
+    return { };
+}
+
+Content::MangaRender::PageImage Content::MangaRender::normalizeGeneratedPage(
     const QSize &originalSize, const QImage &generated, const std::function<bool()> &cancelled)
 {
-    NormalizedPage result;
+    PageImage result;
     if (cancelled && cancelled())
     {
         result.error = QStringLiteral("Generated manga page validation cancelled");
@@ -308,7 +375,7 @@ Content::MangaRender::Result Content::MangaRender::renderCleaned(const QImage &o
         result.rendered = source;
         return result;
     }
-    const NormalizedPage normalized = normalizeGeneratedPage(source.size(), generated, cancelled);
+    const PageImage normalized = normalizeGeneratedPage(source.size(), generated, cancelled);
     if (!normalized.error.isEmpty())
     {
         result.error = normalized.error;

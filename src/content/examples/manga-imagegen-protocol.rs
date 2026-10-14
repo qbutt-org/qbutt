@@ -17,13 +17,16 @@ use qbutt_content::translation::context_tools::{
 };
 use qbutt_content::translation::manga_imagegen::{cache_key, translate_page};
 use qbutt_content::translation::page::{
-    PageJob, PageRegion, PageRenderer, RegionDiagnostic, RenderStatus, RenderedPage,
+    PageJob, PageRegion, PageRenderer, PageWindow, RegionDiagnostic, RenderStatus, RenderedPage,
+    RenderedWindow,
 };
 use qbutt_content::{Chapter, ChapterRef, PublicationRef, Source, VariantRef, VariantSelector};
 use serde_json::Value;
 
 #[path = "manga_imagegen/host.rs"]
 mod host;
+#[path = "manga_imagegen/long.rs"]
+mod long;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const ORIGINAL: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFUlEQVR4nGP89eEZAwMDEwMDA4ICADXYAtaW6UM3AAAAAElFTkSuQmCC";
@@ -112,6 +115,8 @@ impl WorkChapterSource for ImageSource {
 }
 
 struct ContractRenderer {
+    crops: AtomicUsize,
+    compositions: AtomicUsize,
     prepares: AtomicUsize,
     renders: AtomicUsize,
     cancellation_observed: AtomicBool,
@@ -147,6 +152,64 @@ impl ContractRenderer {
 }
 
 impl PageRenderer for ContractRenderer {
+    fn dimensions(
+        &self,
+        _original: &InputImage,
+        _cancelled: Arc<AtomicBool>,
+    ) -> qbutt_codex::Result<(u32, u32)> {
+        if _original.bytes == image(NEIGHBOR).bytes {
+            return Ok(match self.case.as_str() {
+                "long-context-oversized" => (800, 20_000),
+                "long-context-budget" => (4_000, 4_000),
+                _ => (2, 3),
+            });
+        }
+        Ok(if self.case.starts_with("long-") {
+            (800, 20_000)
+        } else {
+            (2, 3)
+        })
+    }
+    fn crop(
+        &self,
+        _original: &InputImage,
+        _window: PageWindow,
+        _cancelled: Arc<AtomicBool>,
+    ) -> qbutt_codex::Result<InputImage> {
+        assert!(self.case.starts_with("long-"));
+        self.crops.fetch_add(1, Ordering::Release);
+        assert_eq!(_window.width, 800);
+        assert!(matches!(
+            (_window.top, _window.height),
+            (0, 16000) | (13952, 6048)
+        ));
+        if matches!(self.case.as_str(), "long-cancel-crop" | "long-abort-crop")
+            || (self.case == "long-cancel-second-crop" && _window.top > 0)
+        {
+            self.wait_for_cancel(_cancelled)?;
+        }
+        Ok(_original.clone())
+    }
+    fn compose(
+        &self,
+        _original: &InputImage,
+        _windows: &[RenderedWindow],
+        _cancelled: Arc<AtomicBool>,
+    ) -> qbutt_codex::Result<Vec<u8>> {
+        assert!(self.case.starts_with("long-"));
+        self.compositions.fetch_add(1, Ordering::Release);
+        if matches!(self.case.as_str(), "long-cancel-final" | "long-abort-final") {
+            self.wait_for_cancel(_cancelled)?;
+        }
+        if self.case == "long-final-rejected" {
+            return Err(CodexError::Image);
+        }
+        if self.case == "long-final-oversized" {
+            return Ok(vec![0; qbutt_codex::MAX_GENERATED_IMAGE_BYTES + 1]);
+        }
+        assert!(!_windows.is_empty());
+        Ok(_original.bytes.clone())
+    }
     fn prepare(
         &self,
         original: &InputImage,
@@ -154,7 +217,7 @@ impl PageRenderer for ContractRenderer {
         cancelled: Arc<AtomicBool>,
     ) -> qbutt_codex::Result<Vec<RegionDiagnostic>> {
         assert_eq!(original.bytes, image(ORIGINAL).bytes);
-        assert_eq!(regions.len(), 1);
+        assert!(regions.len() == 1 || self.case.starts_with("long-"));
         assert_eq!(regions[0].text_color, "#314455");
         assert_eq!(regions[0].outline_color.as_deref(), Some("#ffffff"));
         assert_eq!(regions[0].outline_width, 4.0);
@@ -228,7 +291,15 @@ async fn exercise(native: &Path) -> Result<()> {
         })
         .collect();
     let original = image(ORIGINAL);
-    let key = cache_key(chapter.clone(), 0, &original, "ru", "gpt-6.1-sol", "low");
+    let key = cache_key(
+        chapter.clone(),
+        0,
+        &original,
+        "ru",
+        "gpt-6.1-sol",
+        "low",
+        false,
+    );
     assert_eq!(key.provider, "codex-imagegen");
     assert_eq!(key.pipeline, 3);
     let mut previous_pipeline = key.clone();
@@ -274,6 +345,8 @@ async fn exercise(native: &Path) -> Result<()> {
             cancelled.clone(),
         )?;
         let renderer = Arc::new(ContractRenderer {
+            crops: AtomicUsize::new(0),
+            compositions: AtomicUsize::new(0),
             prepares: AtomicUsize::new(0),
             renders: AtomicUsize::new(0),
             cancellation_observed: AtomicBool::new(false),
@@ -407,6 +480,7 @@ async fn exercise(native: &Path) -> Result<()> {
     for case in ["abort-prepare", "abort-compose"] {
         exercise_abort(native, &chapter, &chapters, case).await?;
     }
+    long::exercise(native, &chapter, &chapters).await?;
     Ok(())
 }
 
@@ -419,6 +493,8 @@ async fn exercise_abort(
     std::fs::write(native.join("case.txt"), case)?;
     std::fs::write(native.join("trace.jsonl"), "")?;
     let renderer = Arc::new(ContractRenderer {
+        crops: AtomicUsize::new(0),
+        compositions: AtomicUsize::new(0),
         prepares: AtomicUsize::new(0),
         renders: AtomicUsize::new(0),
         cancellation_observed: AtomicBool::new(false),
@@ -455,10 +531,11 @@ async fn exercise_abort(
         .await
     });
     let deadline = Instant::now() + Duration::from_secs(5);
-    let started = if case == "abort-prepare" {
-        &renderer.prepares
-    } else {
-        &renderer.renders
+    let started = match case {
+        "abort-prepare" => &renderer.prepares,
+        "long-abort-crop" => &renderer.crops,
+        "long-abort-final" => &renderer.compositions,
+        _ => &renderer.renders,
     };
     while started.load(Ordering::Acquire) == 0 {
         if Instant::now() >= deadline {

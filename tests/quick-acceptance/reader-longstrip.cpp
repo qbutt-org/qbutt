@@ -18,7 +18,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLinearGradient>
-#include <QLocale>
 #include <QMetaObject>
 #include <QPainter>
 #include <QQuickItem>
@@ -315,20 +314,6 @@ void exerciseReaderLongstrip(Content::ContentView *view, const QString &profileD
     }
     capture(view, profileDir + u"/longstrip-bottom.png"_s);
 
-    controller->setReaderMangaTranslation(true);
-    waitFor([&] { return controller->property("readerTranslationImageSizeError").toBool(); }, u"Pre-Codex translation size rejection"_s);
-    require(!controller->property("readerTranslationBusy").toBool()
-        && !controller->property("readerTranslationNeedsCodex").toBool()
-        && !controller->property("readerTranslationRequested").toBool()
-        && controller->property("readerPageUrl").toUrl() == originalUrl,
-        u"Unsupported translation damaged original reading or requested Codex"_s);
-    require(item(view, u"readerTranslationError"_s)->property("text").toString()
-        == (QLocale().language() == QLocale::Russian
-            ? u"Размер страницы не поддерживается для перевода."_s
-            : u"This page is too large to translate."_s), u"Translation size error was not explained"_s);
-    require(!item(view, u"readerTranslationRetry"_s)->isVisible(), u"Unsupported size offered an ineffective retry"_s);
-    controller->setReaderMangaTranslation(false);
-
     viewport->setProperty("contentY", image->height() * 0.41);
     waitFor([&] { return image->property("status").toInt() == 1; }, u"Confirmed restore anchor"_s);
     QMetaObject::invokeMethod(canvas, "saveScroll");
@@ -417,23 +402,14 @@ void exerciseReaderLongstrip(Content::ContentView *view, const QString &profileD
                 && controller->property("readerPageCount").toInt() == 2
                 && controller->property("readerImageHeight").toInt() == 20'000;
         }, u"Mixed long and ordinary originals"_s);
-        controller->setReaderMangaTranslation(true);
-        waitFor([&] { return controller->property("readerTranslationImageSizeError").toBool(); },
-            u"Mixed chapter long-page translation rejection"_s);
         controller->selectReaderPage(1);
         waitFor([&]
         {
             return !controller->property("readerBusy").toBool()
                 && controller->property("readerImageHeight").toInt() == 1280;
         }, u"Ordinary page in the same chapter"_s);
-        require(!controller->property("readerTranslationError").toBool()
-            && !controller->property("readerTranslationImageSizeError").toBool(),
-            u"Long-page translation failure leaked onto another page"_s);
         controller->selectReaderPage(0);
         waitFor([&] { return !controller->property("readerBusy").toBool(); }, u"Return to long original"_s);
-        controller->setReaderMangaTranslation(true);
-        waitFor([&] { return controller->property("readerTranslationImageSizeError").toBool(); },
-            u"Long-page translation rejection before Continuous"_s);
         controller->setReaderFit(Qbutt::Reader::ReaderFit::Width);
         controller->setReaderMode(Qbutt::Reader::ReaderMode::Continuous);
         waitFor([&]
@@ -446,8 +422,6 @@ void exerciseReaderLongstrip(Content::ContentView *view, const QString &profileD
             item(view, u"readerStripImage0"_s)->height());
         waitFor([&] { return controller->property("readerPageIndex").toInt() == 1; },
             u"Continuous confirmed ordinary-page anchor"_s);
-        require(!controller->property("readerTranslationError").toBool(),
-            u"Long-page translation failure leaked onto a Continuous ordinary page"_s);
     }
     const QString transitionArchive = qEnvironmentVariable("QBUTT_LONGSTRIP_TRANSITION_ARCHIVE");
     const QJsonObject transition = transitionArchive.isEmpty() ? QJsonObject()
@@ -491,13 +465,13 @@ void exerciseReaderLongstrip(Content::ContentView *view, const QString &profileD
         {u"privateBaselineBytes"_s, qint64(memory.baseline)},
         {u"privatePeakBytes"_s, qint64(peak)}, {u"privateGrowthBytes"_s, qint64(peak - memory.baseline)},
         {u"sourceRgbaBytes"_s, 800 * 20'000 * 4},
-        {u"position"_s, offset}, {u"translation"_s, u"unsupported_before_codex"_s},
+        {u"position"_s, offset},
         {u"adjacentPages"_s, transition},
         {u"mixedChapter"_s, !mixedArchive.isEmpty()},
     };
     QFile receiptFile(profileDir + u"/reader-longstrip-receipt.json"_s);
     require(receiptFile.open(QIODevice::WriteOnly)
         && receiptFile.write(QJsonDocument(receipt).toJson()) > 0, u"Longstrip receipt write failed"_s);
-    qInfo().noquote() << u"PASS reader_longstrip original=800x20000 logical_pages=1 tiles_max=%1 scroll_max_ms=%2 private_growth_bytes=%3 position=exact cancel=ok translate=pre_codex_reject"_s
+    qInfo().noquote() << u"PASS reader_longstrip original=800x20000 logical_pages=1 tiles_max=%1 scroll_max_ms=%2 private_growth_bytes=%3 position=exact cancel=ok"_s
         .arg(maximumTiles).arg(maximumScrollMs).arg(peak - memory.baseline);
 }

@@ -87,14 +87,19 @@ namespace Content::MangaRender
         QString error;
     };
 
-    struct NormalizedPage
+    struct PageImage
     {
         QImage image;
         QString error;
     };
 
     bool supportsImageSize(const QSize &size);
-    NormalizedPage normalizeGeneratedPage(
+    bool supportsOriginalSize(const QSize &size);
+    PageImage cropWindow(const QImage &original, int top, int height,
+        const std::function<bool()> &cancelled = { });
+    QString composeWindow(QImage &page, const QImage &window, int top, const QList<Region> &regions,
+        const std::function<bool()> &cancelled = { });
+    PageImage normalizeGeneratedPage(
         const QSize &originalSize, const QImage &generated, const std::function<bool()> &cancelled = { });
     QFont mangaFont(FontFamily family);
     TextShape typesetText(

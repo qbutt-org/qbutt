@@ -105,8 +105,41 @@ pub struct RenderedPage {
     pub diagnostics: Vec<RegionDiagnostic>,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct PageWindow {
+    pub top: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+pub struct RenderedWindow {
+    pub window: PageWindow,
+    pub png: Vec<u8>,
+    pub regions: Vec<PageRegion>,
+}
+
 /// Qt validates typography and composes cleaned pixels outside the GUI thread.
 pub trait PageRenderer: Send + Sync + 'static {
+    fn dimensions(
+        &self,
+        original: &InputImage,
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<(u32, u32)>;
+
+    fn crop(
+        &self,
+        original: &InputImage,
+        window: PageWindow,
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<InputImage>;
+
+    fn compose(
+        &self,
+        original: &InputImage,
+        windows: &[RenderedWindow],
+        cancelled: Arc<AtomicBool>,
+    ) -> codex::Result<Vec<u8>>;
+
     fn prepare(
         &self,
         original: &InputImage,

@@ -189,12 +189,8 @@ QImage Qbutt::readReaderImage(const QString &path)
     QImageReader reader {path};
     reader.setDecideFormatFromContent(true);
     const QSize size = reader.size();
-    constexpr int widthLimit = 16000;
-    constexpr int heightLimit = 65536;
-    constexpr qint64 pixelLimit = 40000000;
     const QByteArray format = reader.format();
-    if (!size.isValid() || (size.width() > widthLimit) || (size.height() > heightLimit)
-        || ((static_cast<qint64>(size.width()) * size.height()) > pixelLimit)
+    if (!Content::MangaRender::supportsOriginalSize(size)
         || ((format != "jpeg") && (format != "jpg") && (format != "png")
             && (format != "webp") && (format != "gif") && (format != "bmp")))
     {
@@ -213,7 +209,7 @@ QSize Qbutt::validatedImageSize(const QString &path)
 
 bool Qbutt::mangaTranslationSizeSupported(const std::int32_t width, const std::int32_t height)
 {
-    return Content::MangaRender::supportsImageSize({width, height});
+    return Content::MangaRender::supportsOriginalSize({width, height});
 }
 
 QString Qbutt::contentError(const ContentError error)
