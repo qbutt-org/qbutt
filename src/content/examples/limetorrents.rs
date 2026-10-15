@@ -69,11 +69,44 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     assert_eq!(game.title, source.inspect(&game.reference).await?.title);
 
+    let ready_or_not = source.search("ready or not", Category::Games).await?;
+    assert!(
+        ready_or_not.len() >= 2,
+        "expected first and nonfirst game releases"
+    );
+    for found in ready_or_not.iter().take(2) {
+        assert_eq!(found.category, Category::Games);
+        assert!(found.needs_inspection && found.variants.is_empty());
+
+        let release = source.inspect(&found.reference).await?;
+        assert_eq!(release.reference, found.reference);
+        assert_eq!(release.category, Category::Games);
+        assert!(!release.needs_inspection);
+        assert_eq!(release.variants.len(), 1);
+        let selected = &release.variants[0];
+
+        let ResolvedContent::Torrent {
+            reference, magnet, ..
+        } = source.resolve(&selected.reference).await?
+        else {
+            return Err("unexpected transport".into());
+        };
+        assert_eq!(reference, selected.reference);
+        assert!(magnet.query_pairs().any(|(name, value)| {
+            name == "xt"
+                && value.eq_ignore_ascii_case(&format!(
+                    "urn:btih:{}",
+                    selected.info_hash.as_ref().unwrap()
+                ))
+        }));
+    }
+
     println!(
-        "PASS limetorrents_live search={} publication={} hash={} exact_resolve=ok changed_hash=rejected missing=404 empty=ok encoded_title=ok payload=none",
+        "PASS limetorrents_live search={} publication={} hash={} exact_resolve=ok changed_hash=rejected missing=404 empty=ok encoded_title=ok ready_or_not={} ready_or_not_nonfirst=ok payload=none",
         results.len(),
         release.reference.id,
-        variant.info_hash.as_deref().unwrap()
+        variant.info_hash.as_deref().unwrap(),
+        ready_or_not.len()
     );
     Ok(())
 }
