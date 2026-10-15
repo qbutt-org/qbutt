@@ -260,7 +260,15 @@ async fn serve(
             "/gone/" => status = "410 Gone",
             _ => {}
         }
-        detail_page(&origin, changed).into_bytes()
+        let detail = detail_page(&origin, changed);
+        if url.path() == "/generated-%ce%b4/" {
+            detail
+                .replace("post-42", "post-43")
+                .replace("/generated-game/", "/generated-%ce%b4/")
+                .into_bytes()
+        } else {
+            detail.into_bytes()
+        }
     };
     match query.as_str() {
         "json" => mime = "application/json",

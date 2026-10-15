@@ -85,6 +85,13 @@ async fn main() -> AcceptanceResult<()> {
     );
     assert_eq!(works[0].category, Category::Games);
     assert!(works[0].needs_inspection && works[0].variants.is_empty());
+    let unicode = provider.search("unicode").await?;
+    assert_eq!(unicode.len(), 2);
+    assert_eq!(unicode[0].reference, works[0].reference);
+    assert_eq!(unicode[1].reference.id, "43--generated-%ce%b4");
+    let inspected_unicode = provider.inspect(&unicode[1].reference).await?;
+    assert_eq!(inspected_unicode.reference, unicode[1].reference);
+    assert_eq!(inspected_unicode.variants.len(), 2);
     let publication = &works[0].reference;
     assert_eq!(publication.id, "42--generated-game");
     let work = provider.inspect(publication).await?;
@@ -215,6 +222,18 @@ fn parser_faults(origin: &Url, publication: &PublicationRef) -> AcceptanceResult
         "42--../game",
         "42--game?token=private",
         "42--Game",
+        "42--game%2fprivate",
+        "42--game%2Fprivate",
+        "42--game%5cprivate",
+        "42--%2e%2e",
+        "42--game%00",
+        "42--game%1f",
+        "42--game%ce%ff",
+        "42--game%zz",
+        "42--game%",
+        "42--game%252fprivate",
+        "42--%47ame",
+        "42--game-δ",
         "18446744073709551616--game",
     ] {
         assert!(
@@ -236,12 +255,20 @@ fn parser_faults(origin: &Url, publication: &PublicationRef) -> AcceptanceResult
         .unwrap();
     for body in [
         search.replace("body class='search'", "body"),
-        search.replace("post-42", "post-0"),
         search.replace("value='legal'", "value='other'"),
         search.replace("</main>", &format!("{row}</main>")),
         search.replace("class='entry-title'", "class='changed'"),
     ] {
         assert!(response::search(&body, origin, "legal").is_err());
+    }
+    for body in [
+        search.replace("post-42", "post-0"),
+        search.replace("/generated-game/", "/game%2fprivate/"),
+    ] {
+        assert!(matches!(
+            response::search(&body, origin, "legal"),
+            Err(Error::InvalidResponse("invalid DODI publication address"))
+        ));
     }
     let news = "
         <article class='post' id='post-99'>
@@ -407,6 +434,17 @@ fn search_page(origin: &Url, query: &str) -> String {
             </body>"
         );
     }
+    let unicode = if query == "unicode" {
+        format!(
+            "<article id='post-43' class='post'>
+                <h2 class='entry-title'>
+                    <a rel='bookmark' href='{origin}generated-%ce%b4/'>43- Generated Δ [DODI Repack]</a>
+                </h2>
+            </article>"
+        )
+    } else {
+        String::new()
+    };
     format!(
         "<body class='search'>
             <main id='main'>
@@ -415,6 +453,7 @@ fn search_page(origin: &Url, query: &str) -> String {
                         <a rel='bookmark' href='{origin}generated-game/'>{TITLE}</a>
                     </h2>
                 </article>
+                {unicode}
             </main>
             <input name='s' value='{query}'>
         </body>"

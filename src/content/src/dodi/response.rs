@@ -186,7 +186,7 @@ fn publication_url(input: &str, origin: &Url) -> Result<Url> {
         .strip_prefix('/')
         .and_then(|path| path.strip_suffix('/'));
     if !slug.is_some_and(|slug| !slug.is_empty() && !slug.contains('/')) {
-        return Err(Error::InvalidReference);
+        return Err(Error::InvalidResponse("invalid DODI publication address"));
     }
     Ok(url)
 }
@@ -200,7 +200,9 @@ fn publication(article: ElementRef<'_>, url: &Url) -> Result<PublicationRef> {
         source: Source::Dodi,
         id: format!("{id}--{}", url.path().trim_matches('/')),
     };
-    reference.validate()?;
+    reference
+        .validate()
+        .map_err(|_| Error::InvalidResponse("invalid DODI publication address"))?;
     Ok(reference)
 }
 

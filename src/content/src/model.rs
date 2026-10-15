@@ -373,10 +373,19 @@ impl PublicationRef {
             || !canonical_decimal(id)
             || slug.is_empty()
             || slug.len() > 240
-            || !slug
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            || !slug.is_ascii()
         {
+            return Err(crate::Error::InvalidReference);
+        }
+        let decoded = percent_encoding::percent_decode_str(slug)
+            .decode_utf8()
+            .map_err(|_| crate::Error::InvalidReference)?;
+        if !decoded.chars().all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || character == '-'
+                || (!character.is_ascii() && character.is_alphanumeric())
+        }) {
             return Err(crate::Error::InvalidReference);
         }
         let id = id.parse().map_err(|_| crate::Error::InvalidReference)?;
