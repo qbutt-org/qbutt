@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQuickItem>
@@ -60,6 +61,21 @@ namespace
         require(id >= 0, u"Production role is missing"_s);
         return model->data(model->index(row, 0), id).toString();
     }
+
+    QJsonArray savedEntries(const QString &profile)
+    {
+        const QString connection = u"progressive-split-fixture"_s;
+        const auto removeConnection = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
+        auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, connection);
+        database.setDatabaseName(QDir(profile).filePath(u"content-library.sqlite"_s));
+        require(database.open(), database.lastError().text());
+        QSqlQuery query(database);
+        require(query.exec(u"SELECT entry FROM library"_s), query.lastError().text());
+        QJsonArray entries;
+        while (query.next())
+            entries.append(QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object());
+        return entries;
+    }
 }
 
 void exerciseProgressiveSelection()
@@ -68,6 +84,7 @@ void exerciseProgressiveSelection()
     const bool initial = qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_INITIAL") == 1;
     const bool missing = qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_MISSING") == 1;
     const bool split = qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_SPLIT") == 1;
+    const bool splitAnchor = qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_SPLIT_ANCHOR") == 1;
     const bool pointer = qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_POINTER") == 1;
     QTemporaryDir profile;
     require(profile.isValid(), u"Progressive profile failed"_s);
@@ -189,10 +206,15 @@ void exerciseProgressiveSelection()
     if (split)
     {
         const QString lateVariant = value(variants, 2, "variantId");
-        controller->selectVariant(lateVariant);
-        controller->setVariantProviderFilter(u"yani"_s, u"Kodik"_s);
-        controller->setVariantEpisodeFilter(u"1"_s);
-        controller->setVariantQuery(u"720"_s);
+        const QString exactVariant = splitAnchor ? selected : lateVariant;
+        const QString source = splitAnchor ? u"aniliberty"_s : u"yani"_s;
+        const QString player = splitAnchor ? QString() : u"Kodik"_s;
+        const QString episode = splitAnchor ? QString() : u"1"_s;
+        const QString variantQuery = splitAnchor ? u"9662"_s : u"720"_s;
+        controller->selectVariant(exactVariant);
+        controller->setVariantProviderFilter(source, player);
+        controller->setVariantEpisodeFilter(episode);
+        controller->setVariantQuery(variantQuery);
         controller->setSelectedFavorite(true);
         waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Split preferences and favorite"_s);
         QJsonObject opened;
@@ -206,7 +228,17 @@ void exerciseProgressiveSelection()
             require(query.exec(u"SELECT entry FROM library"_s) && query.next(), u"Saved split work is missing"_s);
             QJsonObject entry = QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object();
             require(entry.value(u"favorite"_s).toBool(), u"Split fixture favorite was not saved"_s);
-            const QJsonObject exact = entry.value(u"preferences"_s).toObject().value(u"selected"_s).toObject();
+            QJsonObject exact;
+            for (const QJsonValue &work : entry.value(u"group"_s).toObject().value(u"publications"_s).toArray())
+            {
+                const QJsonObject publication = work.toObject();
+                if (publication.value(u"reference"_s).toObject().value(u"source"_s) != u"yummy_anime"_s)
+                    continue;
+                const QJsonArray knownVariants = publication.value(u"variants"_s).toArray();
+                require(!knownVariants.isEmpty(), u"Generated history publication has no variants"_s);
+                exact = knownVariants.first().toObject().value(u"reference"_s).toObject();
+                break;
+            }
             require(exact.value(u"publication"_s).toObject() == QJsonObject {
                 {u"source"_s, u"yummy_anime"_s}, {u"id"_s, u"9661"_s}},
                 u"Generated history must use the exact selected late publication"_s);
@@ -226,43 +258,65 @@ void exerciseProgressiveSelection()
         {
             return !controller->property("inspecting").toBool() && !controller->property("libraryPending").toBool();
         }, u"Conflicting publication inspection"_s);
-        require(controller->property("selectedWorkId").toString() == u"yani:9661"_s
-            && controller->property("selectedVariantId").toString() == lateVariant
+        require(controller->property("selectedWorkId").toString() == (splitAnchor ? work : u"yani:9661"_s)
+            && controller->property("selectedVariantId").toString() == exactVariant
             && controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
                 == Qbutt::Search::VariantSelectionState::Available,
             u"Split did not follow the exact selected publication"_s);
-        require(variants->rowCount() == 1 && value(variants, 0, "variantId") == lateVariant,
+        require(variants->rowCount() == (splitAnchor ? 2 : 1)
+            && (splitAnchor || value(variants, 0, "variantId") == exactVariant),
             u"Split retained unrelated variants"_s);
-        require(controller->property("variantSourceFilter").toString() == u"yani"_s
-            && controller->property("variantPlayerFilter").toString() == u"Kodik"_s
-            && controller->property("variantEpisodeFilter").toString() == u"1"_s
-            && controller->property("variantQuery").toString() == u"720"_s,
+        require(controller->property("variantSourceFilter").toString() == source
+            && controller->property("variantPlayerFilter").toString() == player
+            && controller->property("variantEpisodeFilter").toString() == episode
+            && controller->property("variantQuery").toString() == variantQuery,
             u"Split lost the selected publication's filters"_s);
 
-        const QString connection = u"progressive-split-fixture"_s;
-        {
-            const auto removeConnection = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
-            auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, connection);
-            database.setDatabaseName(profile.filePath(u"content-library.sqlite"_s));
-            require(database.open(), database.lastError().text());
-            QSqlQuery query(database);
-            require(query.exec(u"SELECT count(*) FROM library"_s) && query.next()
-                && query.value(0).toInt() == 1, u"Split refresh duplicated the saved library identity"_s);
-            require(query.exec(u"SELECT entry FROM library"_s) && query.next(), u"Saved split work disappeared"_s);
-            const QJsonObject entry = QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object();
-            require(entry.value(u"favorite"_s).toBool() && entry.value(u"last_opened"_s).toObject() == opened,
-                u"Split inspection changed the favorite or exact confirmed history"_s);
-        }
+        const QJsonArray automatic = savedEntries(profile.path());
+        require(automatic.size() == 1, u"Split refresh duplicated the saved library identity"_s);
+        const QJsonObject original = automatic.first().toObject();
+        require(original.value(u"favorite"_s).toBool() && original.value(u"last_opened"_s).toObject() == opened,
+            u"Split inspection changed the favorite or exact confirmed history"_s);
 
-        controller->setListMode(Qbutt::Search::ListMode::Search);
-        controller->selectWork(work);
-        require(variants->rowCount() == 2 && value(variants, 0, "sourceId") == u"aniliberty"_s
-            && value(variants, 1, "sourceId") == u"aniliberty"_s,
-            u"Selecting the other split row restored a stale cached association"_s);
-        require(controller->property("selectedVariantId").toString() != lateVariant,
-            u"The other split row kept another publication's exact choice"_s);
-        waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Other split row preferences"_s);
-        qInfo("PASS progressive_selection split=exact filters=retained library_identity=stable favorite_history=retained cached_association=rejected");
+        if (!splitAnchor)
+        {
+            controller->setListMode(Qbutt::Search::ListMode::Search);
+            controller->selectWork(work);
+            require(variants->rowCount() == 2 && value(variants, 0, "sourceId") == u"aniliberty"_s
+                && value(variants, 1, "sourceId") == u"aniliberty"_s,
+                u"Selecting the other split row restored a stale cached association"_s);
+            require(controller->property("selectedVariantId").toString() != lateVariant,
+                u"The other split row kept another publication's exact choice"_s);
+        }
+        controller->setVariantQuery(u"After split"_s);
+        waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Explicit split preferences"_s);
+        require(controller->property("libraryErrorText").toString().isEmpty(),
+            u"Explicit split preferences failed"_s);
+        const QJsonArray committed = savedEntries(profile.path());
+        require(committed.size() == 2, u"Explicit split did not preserve separate confirmed history"_s);
+        for (const QJsonValue &value : committed)
+        {
+            const QJsonObject entry = value.toObject();
+            const QJsonObject group = entry.value(u"group"_s).toObject();
+            const QString owner = group.value(u"anchor"_s).toObject().value(u"source"_s).toString();
+            require(group.value(u"publications"_s).toArray().size() == 1,
+                u"Explicit split retained a stale publication union"_s);
+            if (owner == u"ani_liberty"_s)
+                require(entry.value(u"favorite"_s).toBool() && entry.value(u"last_opened"_s).isNull(),
+                    u"Explicit split changed the original favorite or substituted history"_s);
+            else
+                require(owner == u"yummy_anime"_s && !entry.value(u"favorite"_s).toBool()
+                    && entry.value(u"last_opened"_s).toObject() == opened,
+                    u"Detached exact history was not retained"_s);
+        }
+        controller->setListMode(Qbutt::Search::ListMode::History);
+        controller->selectWork(u"yani:9661"_s);
+        require(controller->property("selectedVariantId").toString() == lateVariant,
+            u"History did not restore the detached exact publication"_s);
+        waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Detached history inspection"_s);
+        require(variants->rowCount() == 1 && controller->property("selectedVariantId").toString() == lateVariant,
+            u"Detached history lost its full publication or changed exact selection"_s);
+        qInfo("PASS progressive_selection split=exact filters=retained automatic_writes=none explicit_split=atomic favorite_history=retained history_reopen=exact");
         return;
     }
 

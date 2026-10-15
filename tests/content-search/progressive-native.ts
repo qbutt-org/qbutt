@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const [executable, certificate, key, scenario = "success"] = process.argv.slice(2);
 assert(executable && certificate && key, "Expected acceptance executable, certificate and key");
-assert(["success", "failure", "initial", "missing", "split"].includes(scenario), "Unknown scenario");
+assert(["success", "failure", "initial", "missing", "split", "split-anchor"].includes(scenario), "Unknown scenario");
 
 const releaseLate = Promise.withResolvers<void>();
 const releaseInspection = Promise.withResolvers<void>();
@@ -28,7 +28,7 @@ const server = Bun.serve({
                     id: 9660,
                     alias: "generated-progressive",
                     name: { main: "Generated progressive" },
-                    year: 2026,
+                    year: scenario === "split-anchor" && fastInspections >= 2 ? 2027 : 2026,
                     mal: { id: 9660 },
                     episodes: [],
                     torrents: (scenario === "missing" && fastInspections >= 2 ? [9660] : [9660, 9662]).map(id => ({
@@ -98,7 +98,8 @@ const child = spawn(executable, ["--progressive-selection", "--lang", "en"], {
         QBUTT_PROGRESSIVE_FAILURE: scenario === "failure" ? "1" : "0",
         QBUTT_PROGRESSIVE_INITIAL: scenario === "initial" ? "1" : "0",
         QBUTT_PROGRESSIVE_MISSING: scenario === "missing" ? "1" : "0",
-        QBUTT_PROGRESSIVE_SPLIT: scenario === "split" ? "1" : "0",
+        QBUTT_PROGRESSIVE_SPLIT: scenario.startsWith("split") ? "1" : "0",
+        QBUTT_PROGRESSIVE_SPLIT_ANCHOR: scenario === "split-anchor" ? "1" : "0",
     },
 });
 const exited = new Promise<number | null>((resolve, reject) => {
@@ -122,8 +123,8 @@ try {
     if (failure) throw failure;
     assert(output.includes("PASS progressive_selection"), output);
     assert.equal(searches, 2);
-    assert.equal(fastInspections, ["missing", "split"].includes(scenario) ? 3 : 4);
-    assert.equal(lateInspections, 2);
+    assert.equal(fastInspections, ["missing", "split", "split-anchor"].includes(scenario) ? 3 : 4);
+    assert.equal(lateInspections, scenario.startsWith("split") ? 3 : 2);
     console.log(output);
     console.log(JSON.stringify({ ok: true, scenario, searches, fastInspections, lateInspections }));
 } finally {

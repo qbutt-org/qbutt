@@ -73,7 +73,11 @@ stable. A held slow inspection must not disable the ready variant or block its
 exact torrent handoff. Favorites must verify their own publication before acting.
 Repeat with `failure` for an unavailable source, `initial` for the first ready
 variant while another source is loading, and `missing` for a vanished saved
-variant that must not be silently replaced. The isolated fixture build maps
+variant that must not be silently replaced. `split` and `split-anchor` give the
+late publication or the original anchor a conflicting year. Exact selection and
+filters must survive without implicit library writes. An explicit change then
+separates the saved work and its former member's confirmed History atomically;
+opening that History row must restore the exact variant. The isolated fixture build maps
 `anilibria.top` and `api.yani.tv` to `127.0.0.1:443` and trusts the fixture CA through
 a temporary `SourceHttp::new` overlay. Restore it and rebuild production transport
 afterwards; this scenario never uses a live profile or source.
@@ -163,9 +167,11 @@ Command template, verified with the copied script and built helper in the VM:
 bun tests/content-browser/webview-helper.ts <absolute-path-to-qbutt-webview.exe>
 ```
 
-Require exit zero and all eight `PASS hidden_helper` outcomes. Each helper first
+Require exit zero and all eleven `PASS webview_helper` outcomes. Each helper first
 authenticates its fresh proxy through one private bootstrap page, then opens the
 source. The repeated normal page keeps the same profile across helper restarts.
+Delayed HTTP 403 checks recover in both silent and interactive modes; a persistent
+refusal waits for the bounded deadline instead of closing the interactive window.
 This checks classification and cleanup; it does not establish live source clearance.
 
 The HTTPS proxy fixture verifies CONNECT after that bootstrap and preserves an
@@ -342,7 +348,11 @@ cargo run --locked --offline -p qbutt-content --example vkvideo-fixtures
 It checks native search, exact selected-video resolution, stale identity rejection,
 browser choice, challenges, cancellation, public Share references and reopened
 Favorites/History. Browser thumbnail query URLs and playback credentials do not
-enter stored works. `vkvideo-live` is an explicit acceptance executable using
+enter stored works. Mixed catalogue/upload scenarios check both arrival orders,
+film/sequel/year/season ambiguity, stable anchors and the catalogue category in
+SQLite. Qualifiers before and after a bilingual title separator must not turn
+clips into full-film aliases, including explicit clip searches.
+`vkvideo-live` is an explicit acceptance executable using
 `QBUTT_BROWSER_BRIDGE_DISCOVERY` and the already connected Edge session. Its query
 is the first argument; optional `QBUTT_VKVIDEO_PUBLICATION` selects one returned
 public ID for guarded MP4 range checks. It prints public metadata only. These
