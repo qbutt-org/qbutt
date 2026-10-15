@@ -935,6 +935,17 @@ bun tests/qt-acceptance/quick-handoff.ts --source fitgirl --main
 bun tests/qt-acceptance/quick-handoff.ts --source igruha --main
 ```
 
+`bun tests/qt-acceptance/quick-handoff.ts --source rutor --main --download`
+continues through the normal Start/OK controls for the pinned 7-Zip 26.04
+publication `rutor:564460`, hash `c45a60c66afa71936c6c1ee6ce9bf46960b99e0a`.
+This isolated profile enables public DHT/PeX and checks metadata before starting:
+the expected payload is 4,619,456 bytes and the hard cap is 128 MiB. Metadata
+has 120 seconds, download 300 seconds, with a 90-second progress limit.
+Completion requires native recheck, an independent torrent piece SHA-1 and
+all three file SHA-256 hashes pinned from official 7-Zip HTTPS downloads.
+The installers are never executed. The runner removes its profile and payload
+after shutdown, retaining JSON, exported metadata, logs and product captures.
+
 FitGirl has separate native metadata checks:
 
 ```powershell

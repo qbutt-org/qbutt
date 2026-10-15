@@ -33,6 +33,7 @@
 #include "app/application.h"
 #include "base/bittorrent/addtorrenterror.h"
 #include "base/bittorrent/session.h"
+#include "base/bittorrent/torrent.h"
 #include "base/bittorrent/torrentdescriptor.h"
 #include "base/net/portforwarder.h"
 #include "base/preferences.h"
@@ -103,12 +104,14 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     auto *session = BitTorrent::Session::instance();
     auto *manager = static_cast<IGUIApplication &>(application).addTorrentManager();
     const bool mainContent = spec.value(u"mode"_s).toString() == u"main-content";
+    const bool completeDownload = spec.value(u"download"_s).toBool();
     require(session && manager, u"Application did not initialize its torrent services"_s);
     require(Preferences::instance()->isSearchEnabled() == mainContent, u"Unexpected search tab configuration"_s);
     require(session->torrents().isEmpty(), u"Fixture profile contains torrents"_s);
-    require(session->networkInterfaceAddress() == u"127.0.0.1", u"Torrent traffic is not bound to loopback"_s);
-    require(!session->isDHTEnabled() && !session->isLSDEnabled() && !session->isPeXEnabled(),
-        u"Peer discovery is enabled in the fixture"_s);
+    require(session->networkInterfaceAddress() == (completeDownload ? QString() : u"127.0.0.1"_s),
+        u"Unexpected torrent interface binding"_s);
+    require((session->isDHTEnabled() == completeDownload) && !session->isLSDEnabled()
+            && (session->isPeXEnabled() == completeDownload), u"Unexpected fixture peer discovery"_s);
     require(!Net::PortForwarder::instance()->isEnabled(), u"Port forwarding is enabled in the fixture"_s);
 
     const QString source = spec.value(u"source"_s).toString();
@@ -118,6 +121,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
             || (source == u"onlinefix") || (source == u"igruha"),
         u"Unsupported handoff source"_s);
     const bool ruTor = source == u"rutor";
+    require(!completeDownload || (ruTor && mainContent), u"Full download requires the controlled RuTor MainWindow scenario"_s);
     const bool limeTorrents = source == u"limetorrents";
     const bool nnmClub = source == u"nnmclub";
     const bool ruTracker = source == u"rutracker";
@@ -136,7 +140,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     {
         sourceLabel = u"RuTor"_s;
         category = u"software"_s;
-        queryText = u"Blender"_s;
+        queryText = completeDownload ? u"7-Zip"_s : u"Blender"_s;
     }
     else if (limeTorrents)
     {
@@ -375,7 +379,9 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     }
 
     QString expectedWorkId = u"aniliberty:9542"_s;
-    if (limeTorrents)
+    if (completeDownload)
+        expectedWorkId = u"rutor:564460"_s;
+    else if (limeTorrents)
         expectedWorkId = u"limetorrents:Big-Buck-Bunny-4K-UHD-HFR-60fps-FLAC-WEBDL-2160p-X264-mkv-torrent-9616433.html"_s;
     else if (nnmClub)
         expectedWorkId = u"nnmclub:906013"_s;
@@ -398,8 +404,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     {
         const QString id = value(works, row, "workId");
         if ((value(works, row, "source") == sourceLabel) && (value(works, row, "category") == category)
-            && (!ruTor || value(works, row, "title").contains(u"Blender"_s, Qt::CaseInsensitive))
-            && (ruTor || (id == expectedWorkId)))
+            && (!ruTor || value(works, row, "title").contains(queryText, Qt::CaseInsensitive))
+            && ((ruTor && !completeDownload) || (id == expectedWorkId)))
         {
             workId = id;
             break;
@@ -429,7 +435,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     waitFor([&] { return !controller->property("inspecting").toBool(); }, 50'000, u"Publication inspection"_s);
     require(controller->property("errorText").toString().isEmpty(), u"Publication inspection failed"_s);
     require(controller->property("selectedWorkCategory").toString() == category, u"Fresh category differs from the source route"_s);
-    require(!ruTor || controller->property("selectedWorkTitle").toString().contains(u"Blender"_s, Qt::CaseInsensitive),
+    require(!ruTor || controller->property("selectedWorkTitle").toString().contains(queryText, Qt::CaseInsensitive),
         u"RuTor inspection returned an unrelated software title"_s);
     require(singleTorrent ? variants->rowCount() == 1 : variants->rowCount() >= 2,
         u"Source did not return the required exact torrent variants"_s);
@@ -462,6 +468,8 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(value(variants, selectedRow, "source") == sourceLabel, u"Selected variant belongs to another source"_s);
     require(QRegularExpression(u"^[0-9a-f]{40}$"_s).match(infoHash).hasMatch(),
         u"Selected torrent has no verifiable SHA-1 metadata"_s);
+    require(!completeDownload || (infoHash == u"c45a60c66afa71936c6c1ee6ce9bf46960b99e0a"),
+        u"Controlled 7-Zip publication changed its torrent hash"_s);
     const QString defaultInfoHash = value(variants, torrentRows.constFirst(), "infoHash").toLower();
     if (dodi)
         require(value(variants, selectedRow, "infoHash").isEmpty()
@@ -528,6 +536,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     bool guiThread = true;
     bool managerAccepted = false;
     BitTorrent::InfoHash cancelledHash;
+    BitTorrent::TorrentInfo receivedMetadata;
     QObject observation;
     BitTorrent::AddTorrentParams params;
     params.savePath = Path(payload.absolutePath());
@@ -536,6 +545,12 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     params.addStopped = true;
 
     QObject::connect(manager, &AddTorrentManager::torrentAdded, &observation, [&] { ++added; });
+    QObject::connect(session, &BitTorrent::Session::metadataDownloaded, &observation,
+        [&](const BitTorrent::TorrentInfo &metadata)
+    {
+        if (metadata.infoHash().v1().toString() == infoHash)
+            receivedMetadata = metadata;
+    });
     QObject::connect(manager, &AddTorrentManager::addTorrentFailed, &observation, [&] { ++failures; });
     QObject::connect(manager, &GUIAddTorrentManager::addTorrentCancelled, &observation,
         [&](const BitTorrent::InfoHash &hash)
@@ -598,6 +613,81 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     require(start && !start->isChecked(), u"Native dialog is not configured to add a stopped torrent"_s);
     require(buttons && buttons->button(QDialogButtonBox::Cancel), u"Native Cancel button is missing"_s);
     require(dialog->grab().save(screenshots.filePath(u"quick-add-torrent.png"_s)), u"Could not capture the native torrent dialog"_s);
+
+    if (completeDownload)
+    {
+        QElapsedTimer metadataElapsed;
+        metadataElapsed.start();
+        waitFor([&] { return receivedMetadata.isValid(); }, 120'000, u"Public magnet metadata"_s);
+        require((receivedMetadata.totalSize() > 0) && (receivedMetadata.totalSize() <= 128 * 1024 * 1024)
+                && (receivedMetadata.totalSize() == 4'619'456),
+            u"Controlled torrent exceeds its verified size or the 128 MiB payload cap"_s);
+        require(payload.entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty(),
+            u"Metadata retrieval wrote payload before size approval"_s);
+        const qint64 metadataMs = metadataElapsed.elapsed();
+        require(buttons->button(QDialogButtonBox::Ok), u"Native Add button is missing"_s);
+        require(dialog->grab().save(screenshots.filePath(u"quick-add-metadata.png"_s)),
+            u"Could not capture received native metadata"_s);
+        start->click();
+        require(start->isChecked(), u"Native Start torrent checkbox did not enable download"_s);
+        QTimer::singleShot(0, buttons->button(QDialogButtonBox::Ok), &QPushButton::click);
+        waitFor([&] { return dialog.isNull() && (added == 1) && (session->torrents().size() == 1); },
+            10'000, u"Accepted native torrent"_s);
+        auto *torrent = session->torrents().constFirst();
+        require(torrent->infoHash() == receivedMetadata.infoHash(), u"Native Add substituted another torrent"_s);
+
+        QElapsedTimer downloadElapsed;
+        QElapsedTimer progressElapsed;
+        downloadElapsed.start();
+        progressElapsed.start();
+        qlonglong lastCompleted = 0;
+        waitFor([&]
+        {
+            if (torrent->completedSize() != lastCompleted)
+            {
+                lastCompleted = torrent->completedSize();
+                progressElapsed.restart();
+            }
+            return torrent->isCompleted() || torrent->hasError() || (progressElapsed.elapsed() >= 90'000);
+        }, 300'000, u"Public torrent download"_s);
+        require(torrent->isCompleted() && (torrent->completedSize() == receivedMetadata.totalSize()),
+            u"Public torrent did not complete: %1 bytes, %2 peers, %3"_s.arg(
+                torrent->completedSize()).arg(torrent->peersCount()).arg(torrent->error()));
+        const qint64 downloadMs = downloadElapsed.elapsed();
+        torrent->stop();
+        waitFor([&] { return torrent->isStopped(); }, 5000, u"Stopped completed torrent"_s);
+        bool checked = false;
+        QObject::connect(session, &BitTorrent::Session::torrentFinishedChecking, &observation,
+            [&](BitTorrent::Torrent *checkedTorrent) { checked = checkedTorrent == torrent; });
+        torrent->forceRecheck();
+        waitFor([&] { return checked && !torrent->isChecking(); }, 30'000, u"Native full payload recheck"_s);
+        require(torrent->isCompleted() && (torrent->piecesHave() == torrent->piecesCount()) && (failures == 0),
+            u"Completed torrent failed its native recheck"_s);
+        const auto exported = torrent->exportToFile(Path(spec.value(u"metadataPath"_s).toString()));
+        require(exported.has_value(), u"Could not export verified native torrent metadata"_s);
+        require(application.mainWindow()->grab().save(screenshots.filePath(u"main-content-completed.png"_s)),
+            u"Could not capture completed native search download"_s);
+        QJsonArray checks = evidence.value(u"checks"_s).toArray();
+        checks.append(QJsonObject {
+            {u"name"_s, u"quick-handoff-download"_s},
+            {u"source"_s, source},
+            {u"workId"_s, workId},
+            {u"variantId"_s, variantId},
+            {u"infoHash"_s, infoHash},
+            {u"handoffs"_s, handoffs},
+            {u"added"_s, added},
+            {u"cancellations"_s, cancellations},
+            {u"completedBytes"_s, torrent->completedSize()},
+            {u"peerDownloadBytes"_s, torrent->totalDownload()},
+            {u"piecesHave"_s, torrent->piecesHave()},
+            {u"piecesCount"_s, torrent->piecesCount()},
+            {u"nativeRecheck"_s, checked},
+            {u"metadataMs"_s, metadataMs},
+            {u"downloadMs"_s, downloadMs}
+        });
+        evidence.insert(u"checks"_s, checks);
+        return;
+    }
 
     BitTorrent::InfoHash rejectedHash;
     QObject::connect(dialog, &AddNewTorrentDialog::torrentRejected, &observation,

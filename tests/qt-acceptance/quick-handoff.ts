@@ -5,21 +5,28 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { labAppearanceSettings } from "../appearance";
+import { freePeerPort } from "../lab";
+import { decode, encode, type Value } from "../network-lab/bencode";
 import { assertQtRuntime } from "../qt-runtime";
+import { allowLabNetwork } from "../windows-firewall";
 
 const source = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 assert(source, "Set QBUTT_QT_ACCEPTANCE_EXE to the combined Qt acceptance build");
 assert(process.platform === "win32", "Native torrent handoff acceptance currently requires Windows");
 const input = process.argv.slice(2);
 const mainContent = input.includes("--main");
+const completeDownload = input.includes("--download");
 assert(input.filter(arg => arg === "--main").length <= 1, "Repeated --main option");
-const args = input.filter(arg => arg !== "--main");
+assert(input.filter(arg => arg === "--download").length <= 1, "Repeated --download option");
+const args = input.filter(arg => arg !== "--main" && arg !== "--download");
 assert(args.length === 0 || (args.length === 2 && args[0] === "--source"),
-    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|rutracker|dodi|byrut|freetp|fitgirl|onlinefix|igruha] [--main]");
+    "Usage: bun tests/qt-acceptance/quick-handoff.ts [--source aniliberty|rutor|limetorrents|nnmclub|rutracker|dodi|byrut|freetp|fitgirl|onlinefix|igruha] [--main] [--download]");
 const selectedSource = args[1] ?? "aniliberty";
 assert(["aniliberty", "rutor", "limetorrents", "nnmclub", "rutracker", "dodi", "byrut", "freetp", "fitgirl", "onlinefix", "igruha"].includes(selectedSource), "Unsupported handoff source");
 assert(selectedSource !== "igruha" || mainContent,
     "Igruha handoff requires --main to use MainWindow's browser connection");
+assert(!completeDownload || (selectedSource === "rutor" && mainContent),
+    "Full download requires --source rutor --main and uses only the pinned 7-Zip publication");
 
 const root = await mkdtemp(join(tmpdir(), "qbutt-quick-handoff-"));
 const executable = resolve(source);
@@ -30,6 +37,52 @@ const temporary = join(root, "temp");
 const native = process.env.QBUTT_QT_ACCEPTANCE_NATIVE === "1";
 let application: ReturnType<typeof Bun.spawn> | undefined;
 
+async function verifyDownload(metadataPath: string) {
+    const metadata = decode(await readFile(metadataPath));
+    const info = metadata.info as Record<string, Value>;
+    const infoHash = createHash("sha1").update(encode(info)).digest("hex");
+    assert.equal(infoHash, "c45a60c66afa71936c6c1ee6ce9bf46960b99e0a");
+    assert(Buffer.isBuffer(info.name) && info.name.toString() === "7-Zip 26.04");
+    assert(Array.isArray(info.files) && info.files.length === 3);
+    assert.equal(info["piece length"], 16_777_216);
+    assert(Buffer.isBuffer(info.pieces));
+
+    // SHA-256 pins were independently obtained from these official HTTPS files.
+    // The downloaded installers are read as data and are never executed.
+    const officialHashes: Record<string, string> = {
+        "7z2604.exe": "39bf65045153fc26c42fa9fe47afd8cd1b11671c7f11d031e738c9a13960c009",
+        "7z2604-arm64.exe": "d4117b95495b0e925334ae7b5bddf2853513274603de15dee6acf03999fbc09c",
+        "7z2604-x64.exe": "d54bf805f9f3704d1e8db2fa3498ae7ef2df0312b40b558e7c71c734430a665d",
+    };
+    const files: { path: string; bytes: number; sha256: string; officialUrl: string }[] = [];
+    const pieceHash = createHash("sha1");
+    for (const entry of info.files) {
+        assert(entry && !Array.isArray(entry) && !Buffer.isBuffer(entry) && typeof entry === "object");
+        assert(Array.isArray(entry.path) && entry.path.length === 1 && Buffer.isBuffer(entry.path[0]));
+        const filename = entry.path[0].toString();
+        assert(Object.hasOwn(officialHashes, filename), "Unexpected file in the controlled publication");
+        const relative = join(info.name.toString(), filename);
+        const contents = await readFile(join(payload, relative));
+        assert.equal(contents.length, entry.length, `Wrong size: ${relative}`);
+        const sha256 = createHash("sha256").update(contents).digest("hex");
+        assert.equal(sha256, officialHashes[filename], `Official file hash differs: ${relative}`);
+        pieceHash.update(contents);
+        files.push({
+            path: relative,
+            bytes: contents.length,
+            sha256,
+            officialUrl: `https://www.7-zip.org/a/${filename}`,
+        });
+    }
+    assert.equal(new Set(files.map(file => file.path)).size, 3);
+    const verifiedBytes = files.reduce((sum, file) => sum + file.bytes, 0);
+    assert.equal(verifiedBytes, 4_619_456);
+    assert.equal(info.pieces.length, 20);
+    assert.deepEqual(pieceHash.digest(), info.pieces,
+        "Downloaded bytes differ from the full torrent piece hash");
+    return { infoHash, verifiedBytes, verifiedPieces: 1, files };
+}
+
 try {
     assertQtRuntime(bundle);
     for (const library of ["Qt6Quick.dll", "Qt6Qml.dll", "Qt6QuickWidgets.dll"])
@@ -38,12 +91,14 @@ try {
     await mkdir(join(profile, "qbutt", "config"), { recursive: true });
     await mkdir(payload);
     await mkdir(temporary);
+    const peerPort = await freePeerPort();
     await writeFile(join(profile, "qbutt", "config", "qbutt.ini"), [
         "[BitTorrent]",
-        "Session\\DHTEnabled=false",
+        `Session\\Port=${peerPort}`,
+        `Session\\DHTEnabled=${completeDownload}`,
         "Session\\LSDEnabled=false",
-        "Session\\PeXEnabled=false",
-        "Session\\InterfaceAddress=127.0.0.1",
+        `Session\\PeXEnabled=${completeDownload}`,
+        `Session\\InterfaceAddress=${completeDownload ? "" : "127.0.0.1"}`,
         "Session\\AddTorrentStopped=true",
         `Session\\DefaultSavePath=${payload.replaceAll("\\", "/")}`,
         "Session\\UseAutoTMM=false",
@@ -68,28 +123,35 @@ try {
     ].join("\n"));
 
     const evidencePath = join(root, "evidence.json");
+    const metadataPath = join(root, "downloaded.torrent");
     const spec = join(root, "spec.json");
     await writeFile(spec, JSON.stringify({
         schema: 1,
         mode: mainContent ? "main-content" : "quick-handoff",
         source: selectedSource,
+        download: completeDownload,
+        metadataPath,
         evidencePath,
         profile,
         payload,
         screenshots: root,
     }));
+    if (completeDownload)
+        await allowLabNetwork([executable]);
     const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") ?? "PATH";
     application = Bun.spawn([executable, `--profile=${profile}`], {
         cwd: bundle,
         windowsHide: !native,
-        timeout: 300_000,
+        timeout: completeDownload ? 660_000 : 300_000,
         env: {
             ...process.env,
             [pathKey]: `${bundle};${process.env[pathKey] ?? ""}`,
             QBUTT_QT_ACCEPTANCE_SPEC: spec,
+            QBUTT_BROWSER_BRIDGE_DISCOVERY: join(root, "browser-bridge.json"),
             QBUTT_QT_ACCEPTANCE_NATIVE: native ? "1" : undefined,
             QT_QPA_PLATFORM: native ? "windows" : "offscreen",
             QT_PLUGIN_PATH: bundle,
+            QML_IMPORT_PATH: join(bundle, "qml"),
             QT_QUICK_BACKEND: native ? undefined : "software",
             QT_SCALE_FACTOR: "1",
             TEMP: temporary,
@@ -101,129 +163,154 @@ try {
     assert.equal(await application.exited, 0, `Native torrent handoff failed; inspect ${root}`);
     const evidence = JSON.parse(await readFile(evidencePath, "utf8"));
     assert.equal(evidence.status, "passed");
-    const check = evidence.checks.find((item: { name: string }) => item.name === "quick-handoff");
-    assert(check, "Native handoff evidence is missing");
-    assert.equal(check.handoffs, 1);
-    assert.equal(check.cancellations, 1);
-    assert.equal(check.exactDialogHash, true);
-    assert.equal(check.torrentCount, 0);
-    assert.equal(check.payloadEmpty, true);
-    assert.equal(check.metadataPayloadEmpty, true);
-    assert.equal(check.source, selectedSource);
-    const category = selectedSource === "rutor" ? "software"
-        : ["dodi", "byrut", "freetp", "fitgirl", "onlinefix", "igruha"].includes(selectedSource) ? "games"
-        : selectedSource === "aniliberty" ? "anime" : "movies";
-    assert.equal(check.category, category);
-    assert.equal(check.mainContent, mainContent);
-    if (mainContent) {
-        assert.equal(check.favoriteWritePendingAtExit, true);
-        const libraryPath = resolve(check.libraryPath);
-        assert(libraryPath.startsWith(resolve(profile) + sep), "Library escaped the selected profile");
-        const database = new Database(join(libraryPath, "content-library.sqlite"), { readonly: true });
-        try {
-            assert.equal((database.query("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check, "ok");
-            const records = database.query("SELECT entry FROM library").all() as { entry: string }[];
-            assert.equal(records.length, 1, "Unexpected persisted content entries");
-            const entry = JSON.parse(records[0].entry);
-            assert.equal(entry.favorite, true, "Accepted favorite write was lost at MainWindow shutdown");
-            const group = entry.group;
-            const anchor = group.publications.find((publication: { reference: unknown }) =>
-                JSON.stringify(publication.reference) === JSON.stringify(group.anchor));
-            assert(anchor?.title.length > 0, "Favorite lost its anchor publication");
-            assert(group.references.some((reference: unknown) =>
-                JSON.stringify(reference) === JSON.stringify(entry.preferences.selected.publication)),
-                "Favorite lost the selected publication reference");
-            const variants = group.publications.flatMap((publication: { variants: unknown[] }) => publication.variants);
-            assert(variants.length >= check.variantCount, "Favorite lost known variants");
-            const selected = variants.find((variant: { reference: unknown }) =>
-                JSON.stringify(variant.reference) === JSON.stringify(entry.preferences.selected));
-            assert(selected, "Favorite did not retain its exact selected variant");
-            assert.equal(selected.info_hash, selectedSource === "dodi" ? null : check.infoHash);
-        }
-        finally {
-            database.close();
-        }
-    }
-    assert(check.projectedRow >= 0, "Scenario did not select a projected category row");
-    if (selectedSource === "dodi") {
-        assert.equal(check.variantCount, 1);
-        assert.equal(check.selectedRow, 0);
-        assert.equal(check.workId, "dodi:2643--devil-may-cry-5");
-        assert.equal(check.variantId, `${check.workId}:torrent:vpe2b0x0a9zw`);
-        assert.equal(check.infoHash, "b34fa7dfc9c95baf8509f6bd90a4ce5e1fde22e1");
-        assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
-    }
-    else if (selectedSource === "byrut") {
-        assert.equal(check.variantCount, 4);
-        assert(check.selectedRow > 0);
-        assert.equal(check.workId, "byrut:2799-stardew-valley");
-        assert.equal(check.infoHash, "acfd3488d67097059db8aeaf27a0f75625c864a2");
-        assert.notEqual(check.defaultInfoHash, check.infoHash);
+    if (completeDownload) {
+        const check = evidence.checks.find((item: { name: string }) => item.name === "quick-handoff-download");
+        assert(check, "Native completed-download evidence is missing");
+        assert.equal(check.source, "rutor");
+        assert.equal(check.workId, "rutor:564460");
+        assert.equal(check.infoHash, "c45a60c66afa71936c6c1ee6ce9bf46960b99e0a");
         assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
-        assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
-    }
-    else if (selectedSource === "freetp") {
-        assert.equal(check.workId, "freetp:6327");
-        assert.equal(check.infoHash, "e54e92ed62a49401fc224642e65f8ca03709c95e");
-        assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
-        assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
-    }
-    else if (selectedSource === "onlinefix") {
-        assert.equal(check.workId, "onlinefix:games/sandbox/16274-stardew-valley-po-seti.html");
-        assert.equal(check.infoHash, "063043892eac8f94c5eb249669548a3f93b7c3a5");
-        assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
-    }
-    else if (selectedSource === "fitgirl") {
-        assert.equal(check.workId, "fitgirl:cyberpunk-2077");
-        assert(check.variantCount >= 2 && check.selectedRow > 0);
-        assert.equal(check.infoHash, "f081eec38f08f5d663db807b39c5c33bb1049e2f");
-        assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
-        assert.notEqual(check.defaultInfoHash, check.infoHash);
-    }
-    else if (selectedSource === "igruha") {
-        assert.equal(check.variantCount, 1);
-        assert.equal(check.selectedRow, 0);
-        assert.equal(check.workId, "igruha:7861-open-transport-tycoon-deluxe");
-        assert.equal(check.infoHash, "1ea103b38144f9bd91cb8e979949de4341010484");
-        assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
-        assert(check.metadataBytes > 0, "Igruha did not hand off torrent metadata");
-    }
-    else if (["rutor", "limetorrents", "nnmclub", "rutracker"].includes(selectedSource)) {
-        assert.equal(check.variantCount, 1);
-        assert.equal(check.selectedRow, 0);
-        if (selectedSource === "rutor")
-            assert.match(check.workId, /^rutor:[1-9][0-9]*$/);
-        else if (selectedSource === "nnmclub") {
-            assert.equal(check.workId, "nnmclub:906013");
-            assert.equal(check.infoHash, "eeddbd381bc734373bccf170a17d3bba23fa33a3");
-        }
-        else if (selectedSource === "rutracker") {
-            assert.equal(check.workId, "rutracker:5026149");
-            assert.equal(check.infoHash, "cfcdab5d3c5efb529590160ea84fc419977fbd67");
-        }
-        else {
-            assert.equal(check.workId,
-                "limetorrents:Big-Buck-Bunny-4K-UHD-HFR-60fps-FLAC-WEBDL-2160p-X264-mkv-torrent-9616433.html");
-        }
-        assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+        assert.equal(check.handoffs, 1);
+        assert.equal(check.added, 1);
+        assert.equal(check.cancellations, 0);
+        assert.equal(check.completedBytes, 4_619_456);
+        assert.equal(check.piecesHave, check.piecesCount);
+        assert.equal(check.nativeRecheck, true);
+        const verification = await verifyDownload(metadataPath);
+        await writeFile(join(root, "result.json"), JSON.stringify({
+            status: "passed",
+            evidencePath,
+            source: selectedSource,
+            verification,
+            executableSha256: createHash("sha256").update(await readFile(executable)).digest("hex"),
+        }, null, 2));
+        console.log(JSON.stringify({ status: "passed", root }));
     }
     else {
-        assert.equal(check.workId, "aniliberty:9542");
-        assert(check.variantCount >= 2 && check.selectedRow > 0, "Scenario did not select a non-default variant");
-        assert.notEqual(check.infoHash, check.defaultInfoHash, "Scenario resolved the default variant");
-    }
-    assert.match(check.infoHash, /^[0-9a-f]{40}$/);
-    assert.deepEqual(await readdir(payload), [], "Cancelled handoff left payload files after application shutdown");
+        const check = evidence.checks.find((item: { name: string }) => item.name === "quick-handoff");
+        assert(check, "Native handoff evidence is missing");
+        assert.equal(check.handoffs, 1);
+        assert.equal(check.cancellations, 1);
+        assert.equal(check.exactDialogHash, true);
+        assert.equal(check.torrentCount, 0);
+        assert.equal(check.payloadEmpty, true);
+        assert.equal(check.metadataPayloadEmpty, true);
+        assert.equal(check.source, selectedSource);
+        const category = selectedSource === "rutor" ? "software"
+            : ["dodi", "byrut", "freetp", "fitgirl", "onlinefix", "igruha"].includes(selectedSource) ? "games"
+            : selectedSource === "aniliberty" ? "anime" : "movies";
+        assert.equal(check.category, category);
+        assert.equal(check.mainContent, mainContent);
+        if (mainContent) {
+            assert.equal(check.favoriteWritePendingAtExit, true);
+            const libraryPath = resolve(check.libraryPath);
+            assert(libraryPath.startsWith(resolve(profile) + sep), "Library escaped the selected profile");
+            const database = new Database(join(libraryPath, "content-library.sqlite"), { readonly: true });
+            try {
+                assert.equal((database.query("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check, "ok");
+                const records = database.query("SELECT entry FROM library").all() as { entry: string }[];
+                assert.equal(records.length, 1, "Unexpected persisted content entries");
+                const entry = JSON.parse(records[0].entry);
+                assert.equal(entry.favorite, true, "Accepted favorite write was lost at MainWindow shutdown");
+                const group = entry.group;
+                const anchor = group.publications.find((publication: { reference: unknown }) =>
+                    JSON.stringify(publication.reference) === JSON.stringify(group.anchor));
+                assert(anchor?.title.length > 0, "Favorite lost its anchor publication");
+                assert(group.references.some((reference: unknown) =>
+                    JSON.stringify(reference) === JSON.stringify(entry.preferences.selected.publication)),
+                    "Favorite lost the selected publication reference");
+                const variants = group.publications.flatMap((publication: { variants: unknown[] }) => publication.variants);
+                assert(variants.length >= check.variantCount, "Favorite lost known variants");
+                const selected = variants.find((variant: { reference: unknown }) =>
+                    JSON.stringify(variant.reference) === JSON.stringify(entry.preferences.selected));
+                assert(selected, "Favorite did not retain its exact selected variant");
+                assert.equal(selected.info_hash, selectedSource === "dodi" ? null : check.infoHash);
+            }
+            finally {
+                database.close();
+            }
+        }
+        assert(check.projectedRow >= 0, "Scenario did not select a projected category row");
+        if (selectedSource === "dodi") {
+            assert.equal(check.variantCount, 1);
+            assert.equal(check.selectedRow, 0);
+            assert.equal(check.workId, "dodi:2643--devil-may-cry-5");
+            assert.equal(check.variantId, `${check.workId}:torrent:vpe2b0x0a9zw`);
+            assert.equal(check.infoHash, "b34fa7dfc9c95baf8509f6bd90a4ce5e1fde22e1");
+            assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
+        }
+        else if (selectedSource === "byrut") {
+            assert.equal(check.variantCount, 4);
+            assert(check.selectedRow > 0);
+            assert.equal(check.workId, "byrut:2799-stardew-valley");
+            assert.equal(check.infoHash, "acfd3488d67097059db8aeaf27a0f75625c864a2");
+            assert.notEqual(check.defaultInfoHash, check.infoHash);
+            assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+            assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
+        }
+        else if (selectedSource === "freetp") {
+            assert.equal(check.workId, "freetp:6327");
+            assert.equal(check.infoHash, "e54e92ed62a49401fc224642e65f8ca03709c95e");
+            assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+            assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
+        }
+        else if (selectedSource === "onlinefix") {
+            assert.equal(check.workId, "onlinefix:games/sandbox/16274-stardew-valley-po-seti.html");
+            assert.equal(check.infoHash, "063043892eac8f94c5eb249669548a3f93b7c3a5");
+            assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+        }
+        else if (selectedSource === "fitgirl") {
+            assert.equal(check.workId, "fitgirl:cyberpunk-2077");
+            assert(check.variantCount >= 2 && check.selectedRow > 0);
+            assert.equal(check.infoHash, "f081eec38f08f5d663db807b39c5c33bb1049e2f");
+            assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+            assert.notEqual(check.defaultInfoHash, check.infoHash);
+        }
+        else if (selectedSource === "igruha") {
+            assert.equal(check.variantCount, 1);
+            assert.equal(check.selectedRow, 0);
+            assert.equal(check.workId, "igruha:7861-open-transport-tycoon-deluxe");
+            assert.equal(check.infoHash, "1ea103b38144f9bd91cb8e979949de4341010484");
+            assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+            assert(check.metadataBytes > 0, "Igruha did not hand off torrent metadata");
+        }
+        else if (["rutor", "limetorrents", "nnmclub", "rutracker"].includes(selectedSource)) {
+            assert.equal(check.variantCount, 1);
+            assert.equal(check.selectedRow, 0);
+            if (selectedSource === "rutor")
+                assert.match(check.workId, /^rutor:[1-9][0-9]*$/);
+            else if (selectedSource === "nnmclub") {
+                assert.equal(check.workId, "nnmclub:906013");
+                assert.equal(check.infoHash, "eeddbd381bc734373bccf170a17d3bba23fa33a3");
+            }
+            else if (selectedSource === "rutracker") {
+                assert.equal(check.workId, "rutracker:5026149");
+                assert.equal(check.infoHash, "cfcdab5d3c5efb529590160ea84fc419977fbd67");
+            }
+            else {
+                assert.equal(check.workId,
+                    "limetorrents:Big-Buck-Bunny-4K-UHD-HFR-60fps-FLAC-WEBDL-2160p-X264-mkv-torrent-9616433.html");
+            }
+            assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
+        }
+        else {
+            assert.equal(check.workId, "aniliberty:9542");
+            assert(check.variantCount >= 2 && check.selectedRow > 0, "Scenario did not select a non-default variant");
+            assert.notEqual(check.infoHash, check.defaultInfoHash, "Scenario resolved the default variant");
+        }
+        assert.match(check.infoHash, /^[0-9a-f]{40}$/);
+        assert.deepEqual(await readdir(payload), [], "Cancelled handoff left payload files after application shutdown");
 
-    await writeFile(join(root, "result.json"), JSON.stringify({
-        status: "passed",
-        evidencePath,
-        source: selectedSource,
-        infoHash: check.infoHash,
-        payloadEmptyAfterShutdown: true,
-        executableSha256: createHash("sha256").update(await readFile(executable)).digest("hex"),
-    }, null, 2));
-    console.log(JSON.stringify({ status: "passed", root }));
+        await writeFile(join(root, "result.json"), JSON.stringify({
+            status: "passed",
+            evidencePath,
+            source: selectedSource,
+            infoHash: check.infoHash,
+            payloadEmptyAfterShutdown: true,
+            executableSha256: createHash("sha256").update(await readFile(executable)).digest("hex"),
+        }, null, 2));
+        console.log(JSON.stringify({ status: "passed", root }));
+    }
 }
 finally {
     if (application && application.exitCode === null) {
