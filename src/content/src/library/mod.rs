@@ -177,25 +177,101 @@ impl Library {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut entry = match read_entry(&transaction, &group.anchor)? {
+        let (mut entry, detached) = match read_entry(&transaction, &group.anchor)? {
             Some(mut entry) => {
-                entry.refresh(group);
-                entry
+                let detached = entry.reconcile(group);
+                (entry, detached)
             }
-            None => LibraryEntry {
-                group: group.clone(),
-                preferences: VariantPreferences::default(),
-                favorite: false,
-                last_opened: None,
-                reader_progress: None,
-            },
+            None => (
+                LibraryEntry {
+                    group: group.clone(),
+                    preferences: VariantPreferences::default(),
+                    favorite: false,
+                    last_opened: None,
+                    reader_progress: None,
+                },
+                Vec::new(),
+            ),
         };
         let timestamp = now_millis()?;
         change(&mut entry, timestamp);
+        for detached in detached {
+            preserve_detached_entry(&transaction, detached, timestamp)?;
+        }
         write_entry(&transaction, &entry, timestamp)?;
         transaction.commit()?;
         Ok(entry)
     }
+}
+
+fn preserve_detached_entry(
+    connection: &Connection,
+    detached: LibraryEntry,
+    timestamp: i64,
+) -> LibraryResult<()> {
+    let Some(mut saved) = read_entry(connection, &detached.group.anchor)? else {
+        return write_entry(connection, &detached, timestamp);
+    };
+    let opened = detached.last_opened.filter(|opened| {
+        saved
+            .last_opened
+            .as_ref()
+            .is_none_or(|saved| saved.at_unix_millis < opened.at_unix_millis)
+    });
+    let progress = detached
+        .reader_progress
+        .filter(|_| saved.reader_progress.is_none());
+    if opened.is_none() && progress.is_none() {
+        return Ok(());
+    }
+    if let Some(opened) = opened {
+        retain_opened_variant(&mut saved.group, &detached.group, &opened.variant)?;
+        saved.last_opened = Some(opened);
+    }
+    if let Some(progress) = progress {
+        retain_opened_variant(&mut saved.group, &detached.group, &progress.chapter.variant)?;
+        saved.reader_progress = Some(progress);
+    }
+    write_entry(connection, &saved, timestamp)
+}
+
+fn retain_opened_variant(
+    current: &mut WorkGroup,
+    previous: &WorkGroup,
+    reference: &VariantRef,
+) -> LibraryResult<()> {
+    let publication =
+        previous
+            .publication(&reference.publication)
+            .ok_or(LibraryError::InvalidEntry(
+                "the detached opened publication is missing",
+            ))?;
+    if let Some(current) = current
+        .publications
+        .iter_mut()
+        .find(|work| work.reference == reference.publication)
+    {
+        if !current
+            .variants
+            .iter()
+            .any(|variant| &variant.reference == reference)
+        {
+            let variant = publication
+                .variants
+                .iter()
+                .find(|variant| &variant.reference == reference)
+                .ok_or(LibraryError::InvalidEntry(
+                    "the detached opened variant is missing",
+                ))?;
+            current.variants.push(variant.clone());
+        }
+    } else {
+        if !current.references.contains(&publication.reference) {
+            current.references.push(publication.reference.clone());
+        }
+        current.publications.push(publication.clone());
+    }
+    Ok(())
 }
 
 fn read_entry(

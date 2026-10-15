@@ -321,6 +321,90 @@ fn exercise(root: &Path) -> Result<()> {
 
     assert_eq!(std::fs::read(unrelated)?, b"generated unrelated data");
     assert_eq!(std::fs::read(legacy)?, b"generated legacy placeholder");
+    verify_group_split(root)?;
+    Ok(())
+}
+
+fn verify_group_split(root: &Path) -> Result<()> {
+    let first = fixture();
+    let mut second = first.clone();
+    second.reference.id = "2".into();
+    for variant in &mut second.variants {
+        variant.reference.publication = second.reference.clone();
+    }
+    let group = qbutt_content::WorkGroup {
+        anchor: first.reference.clone(),
+        references: vec![first.reference.clone(), second.reference.clone()],
+        publications: vec![first.clone(), second.clone()],
+    };
+    let mut changed = first.clone();
+    changed.year = Some(first.year.unwrap() + 1);
+    let current = qbutt_content::WorkGroup::single(changed.clone());
+
+    for existing_second in [false, true] {
+        let profile = root.join(format!("group-split-{existing_second}"));
+        let mut library = Library::open(&profile)?;
+        library.set_favorite(&group, true)?;
+        library.record_opened(
+            &group,
+            second.variants[0].reference.clone(),
+            preferences(&second, 0),
+        )?;
+        library.save_preferences(&group, preferences(&first, 1))?;
+        let previous = library.get(&first.reference)?.unwrap();
+
+        let existing = if existing_second {
+            let mut newer = second.clone();
+            newer.description = Some("Newer independent saved metadata".into());
+            let newer = qbutt_content::WorkGroup::single(newer);
+            library.set_favorite(&newer, true)?;
+            library.record_opened(
+                &newer,
+                second.variants[2].reference.clone(),
+                preferences(&second, 2),
+            )?;
+            library.save_preferences(&newer, preferences(&second, 1))?;
+            library.get(&second.reference)?
+        } else {
+            None
+        };
+
+        let before = library.entries(LibraryView::All)?;
+        let mut invalid = preferences(&changed, 1);
+        invalid.selected.as_mut().unwrap().publication.id = "9".into();
+        assert!(matches!(
+            library.save_preferences(&current, invalid),
+            Err(LibraryError::InvalidEntry(_))
+        ));
+        assert_eq!(library.entries(LibraryView::All)?, before);
+
+        let saved = library.save_preferences(&current, preferences(&changed, 1))?;
+        assert!(saved.favorite);
+        assert!(saved.last_opened.is_none());
+        assert_eq!(saved.group.references, vec![first.reference.clone()]);
+        assert_eq!(saved.group.anchor_work().unwrap().year, changed.year);
+        let detached = library
+            .get(&second.reference)?
+            .ok_or("detached history is missing")?;
+        if let Some(existing) = existing {
+            assert_eq!(detached, existing);
+        } else {
+            assert!(!detached.favorite);
+            assert_eq!(detached.last_opened, previous.last_opened);
+            assert_eq!(
+                detached.preferences.selected,
+                Some(second.variants[0].reference.clone())
+            );
+            assert_eq!(detached.group.publications, vec![second.clone()]);
+        }
+        assert_eq!(library.entries(LibraryView::All)?.len(), 2);
+        drop(library);
+        let reopened = Library::open(&profile)?;
+        assert_eq!(reopened.get(&second.reference)?, Some(detached));
+    }
+    println!(
+        "explicit_split=atomic membership=current detached_history=exact existing_intents=retained reopen=ok"
+    );
     Ok(())
 }
 

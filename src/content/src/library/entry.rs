@@ -3,7 +3,9 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{ChapterRef, Source, Transport, VariantRef, VariantSelector, Work, WorkGroup};
+use crate::{
+    ChapterRef, Source, Transport, VariantRef, VariantSelector, Work, WorkAssociation, WorkGroup,
+};
 
 /// Raw provider labels are retained so reopening a work restores its dropdowns.
 /// Filters never replace the identity of an explicitly selected variant.
@@ -166,7 +168,29 @@ impl LibraryEntry {
         Ok(())
     }
 
-    pub(super) fn refresh(&mut self, group: &WorkGroup) {
+    /// An explicit work snapshot owns membership; provider metadata can still
+    /// be partial. Preserve detached saved intents before replacing that set.
+    pub(super) fn reconcile(&mut self, group: &WorkGroup) -> Vec<Self> {
+        let detached = self.detached_entries(group);
+        self.group
+            .publications
+            .retain(|work| group.references.contains(&work.reference));
+        self.group.references.clone_from(&group.references);
+        self.preferences.selected = self
+            .preferences
+            .selected
+            .take()
+            .filter(|selected| group.references.contains(&selected.publication));
+        self.last_opened = self
+            .last_opened
+            .take()
+            .filter(|opened| group.references.contains(&opened.variant.publication));
+        self.reader_progress = self.reader_progress.take().filter(|progress| {
+            group
+                .references
+                .contains(&progress.chapter.variant.publication)
+        });
+
         for work in &group.publications {
             if let Some(previous) = self
                 .group
@@ -179,11 +203,65 @@ impl LibraryEntry {
                 self.group.publications.push(work.clone());
             }
         }
-        for reference in &group.references {
-            if !self.group.references.contains(reference) {
-                self.group.references.push(reference.clone());
+        detached
+    }
+
+    fn detached_entries(&self, current: &WorkGroup) -> Vec<Self> {
+        let mut association = WorkAssociation::default();
+        for work in &self.group.publications {
+            if !current.references.contains(&work.reference) {
+                association.update(work.clone());
             }
         }
+        let mut entries = Vec::new();
+        for mut group in association.groups() {
+            let selected = self
+                .preferences
+                .selected
+                .clone()
+                .filter(|selected| group.references.contains(&selected.publication));
+            let last_opened = self
+                .last_opened
+                .clone()
+                .filter(|opened| group.references.contains(&opened.variant.publication));
+            let reader_progress = self.reader_progress.clone().filter(|progress| {
+                group
+                    .references
+                    .contains(&progress.chapter.variant.publication)
+            });
+            let exact = last_opened
+                .as_ref()
+                .map(|opened| &opened.variant)
+                .or_else(|| {
+                    reader_progress
+                        .as_ref()
+                        .map(|progress| &progress.chapter.variant)
+                })
+                .or(selected.as_ref())
+                .cloned();
+            let Some(exact) = exact else {
+                continue;
+            };
+            group.anchor = exact.publication.clone();
+            let preferences = match selected {
+                Some(selected) => VariantPreferences {
+                    selected: Some(selected),
+                    filters: self.preferences.filters.clone(),
+                },
+                None => VariantPreferences {
+                    selected: Some(exact),
+                    ..Default::default()
+                },
+            };
+            entries.push(Self {
+                group,
+                preferences,
+                favorite: false,
+                last_opened,
+                reader_progress,
+            });
+        }
+        entries
     }
 }
 

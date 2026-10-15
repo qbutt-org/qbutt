@@ -88,7 +88,7 @@ pub enum LibraryUpdate {
         generation: u64,
     },
     Loaded {
-        result: LibraryResult<(Vec<LibraryEntry>, Vec<WorkGroup>, ReaderSettings)>,
+        result: LibraryResult<(Vec<LibraryEntry>, Vec<LibraryEntry>, ReaderSettings)>,
         sources: Option<LibraryResult<Vec<SourceSettings>>>,
         error_generation: u64,
         reader_generation: Option<u64>,
@@ -96,7 +96,7 @@ pub enum LibraryUpdate {
     },
     Changed {
         result: LibraryResult<Option<Box<LibraryEntry>>>,
-        history: Option<LibraryResult<Vec<WorkGroup>>>,
+        history: Option<LibraryResult<Vec<LibraryEntry>>>,
         error_generation: u64,
         reader_generation: Option<u64>,
         playback_token: Option<u64>,
@@ -110,7 +110,7 @@ pub enum LibraryUpdate {
         generation: u64,
     },
     History {
-        result: LibraryResult<Vec<WorkGroup>>,
+        result: LibraryResult<Vec<LibraryEntry>>,
         error_generation: u64,
     },
     SourceSettings {
@@ -438,7 +438,11 @@ impl LibraryWorker {
                 let (mut library, result, sources) = match Library::open(&profile) {
                     Ok(library) => {
                         let result = library.entries(LibraryView::All).and_then(|entries| {
-                            Ok((entries, read_history(&library)?, library.reader_settings()?))
+                            Ok((
+                                entries,
+                                library.entries(LibraryView::History)?,
+                                library.reader_settings()?,
+                            ))
                         });
                         let sources = library.source_settings();
                         (Some(library), result, Some(sources))
@@ -793,7 +797,7 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
         }
         LibraryAction::History => {
             return LibraryUpdate::History {
-                result: read_history(library),
+                result: library.entries(LibraryView::History),
                 error_generation: request.error_generation,
             };
         }
@@ -801,7 +805,10 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
             (library.remove_history(&reference), None, None)
         }
     };
-    let history = result.as_ref().ok().map(|_| read_history(library));
+    let history = result
+        .as_ref()
+        .ok()
+        .map(|_| library.entries(LibraryView::History));
     LibraryUpdate::Changed {
         result: result.map(|entry| entry.map(Box::new)),
         history,
@@ -809,12 +816,6 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
         reader_generation,
         playback_token,
     }
-}
-
-fn read_history(library: &Library) -> LibraryResult<Vec<WorkGroup>> {
-    library
-        .entries(LibraryView::History)
-        .map(|entries| entries.into_iter().map(|entry| entry.group).collect())
 }
 
 impl ffi::ContentController {
@@ -1031,8 +1032,8 @@ impl ffi::ContentController {
                 result,
                 error_generation,
             } => {
-                let result = result.map(|groups| {
-                    self.as_mut().rust_mut().history.pin_mut().replace(groups);
+                let result = result.map(|entries| {
+                    self.as_mut().publish_history(entries);
                 });
                 (false, error_generation, None, result)
             }
@@ -1049,15 +1050,7 @@ impl ffi::ContentController {
                 let result = result.map(|(entries, history, settings)| {
                     self.as_mut().load_reader_settings(settings);
                     for entry in &entries {
-                        self.as_mut()
-                            .rust_mut()
-                            .work_preferences
-                            .entry(entry.group.anchor.clone())
-                            .or_insert_with(|| entry.preferences.clone());
-                        self.as_mut()
-                            .rust_mut()
-                            .known_groups
-                            .insert(entry.group.anchor.clone(), entry.group.clone());
+                        self.as_mut().remember_library_entry(entry);
                     }
                     for entry in entries.into_iter().filter(|entry| entry.favorite) {
                         self.as_mut()
@@ -1066,7 +1059,7 @@ impl ffi::ContentController {
                             .pin_mut()
                             .update(entry.group);
                     }
-                    self.as_mut().rust_mut().history.pin_mut().replace(history);
+                    self.as_mut().publish_history(history);
                 });
                 (true, error_generation, reader_generation, result)
             }
@@ -1087,10 +1080,7 @@ impl ffi::ContentController {
                 }
                 let result = result.and_then(|entry| {
                     if let Some(entry) = entry {
-                        self.as_mut()
-                            .rust_mut()
-                            .known_groups
-                            .insert(entry.group.anchor.clone(), entry.group.clone());
+                        self.as_mut().remember_library_entry(&entry);
                         if entry.favorite {
                             self.as_mut()
                                 .rust_mut()
@@ -1106,8 +1096,8 @@ impl ffi::ContentController {
                         }
                     }
                     history.transpose().map(|history| {
-                        if let Some(groups) = history {
-                            self.as_mut().rust_mut().history.pin_mut().replace(groups);
+                        if let Some(entries) = history {
+                            self.as_mut().publish_history(entries);
                         }
                     })
                 });
@@ -1183,6 +1173,28 @@ impl ffi::ContentController {
                 }
             }
         }
+    }
+
+    fn remember_library_entry(mut self: Pin<&mut Self>, entry: &LibraryEntry) {
+        let mut state = self.as_mut().rust_mut();
+        state
+            .work_preferences
+            .entry(entry.group.anchor.clone())
+            .or_insert_with(|| entry.preferences.clone());
+        state
+            .known_groups
+            .insert(entry.group.anchor.clone(), entry.group.clone());
+    }
+
+    fn publish_history(mut self: Pin<&mut Self>, entries: Vec<LibraryEntry>) {
+        for entry in &entries {
+            self.as_mut().remember_library_entry(entry);
+        }
+        self.as_mut()
+            .rust_mut()
+            .history
+            .pin_mut()
+            .replace(entries.into_iter().map(|entry| entry.group).collect());
     }
 
     pub(super) fn submit_library(mut self: Pin<&mut Self>, mut action: LibraryAction) -> bool {
