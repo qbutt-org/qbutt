@@ -450,6 +450,15 @@ fn image_url(input: &str, origin: &Url) -> Result<Url> {
 }
 
 fn work(reference: PublicationRef, url: Url, title: String, needs_inspection: bool) -> Work {
+    let aliases = if reference.id.contains("-po-seti-") {
+        title
+            .strip_suffix(" по сети")
+            .filter(|name| !name.is_empty())
+            .map(|name| vec![name.to_owned()])
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     Work {
         reference,
         title,
@@ -458,7 +467,7 @@ fn work(reference: PublicationRef, url: Url, title: String, needs_inspection: bo
         cover: None,
         description: None,
         year: None,
-        aliases: Vec::new(),
+        aliases,
         identifiers: BTreeMap::new(),
         variants: Vec::new(),
         needs_inspection,

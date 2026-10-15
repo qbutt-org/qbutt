@@ -92,12 +92,15 @@ pub(super) fn product_titles(publications: &[Work]) -> HashMap<PublicationRef, P
 }
 
 fn game_release(work: &Work) -> GameRelease<'_> {
-    // A provider can report a canonical alias after its catalogue decoration,
+    // A provider can report a canonical alias beside its page decoration,
     // while retaining the complete source label on the exact publication.
     let source_title = work
         .aliases
         .iter()
-        .find(|alias| !alias.is_empty() && work.title.ends_with(alias.as_str()))
+        .find(|alias| {
+            !alias.is_empty()
+                && (work.title.starts_with(alias.as_str()) || work.title.ends_with(alias.as_str()))
+        })
         .unwrap_or(&work.title);
     let title = release_title(source_title, work.category);
     let builds = version_metadata(source_title)
@@ -172,11 +175,18 @@ fn edition_base(title: &str) -> &str {
 }
 
 pub(super) fn year_labels(title: &str) -> impl Iterator<Item = (usize, &str, u16)> {
-    title.match_indices('(').filter_map(move |(start, _)| {
+    let parenthesized = title.match_indices('(').filter_map(move |(start, _)| {
         let (number, suffix) = title[start + 1..].split_once(')')?;
         let year = number.parse::<u16>().ok()?;
         (number.len() == 4 && (1900..=2099).contains(&year)).then_some((start, suffix, year))
-    })
+    });
+    let release_year = title.match_indices(' ').filter_map(move |(start, _)| {
+        let (number, suffix) = title[start + 1..].split_once(' ')?;
+        let year = number.parse::<u16>().ok()?;
+        (number.len() == 4 && (1900..=2099).contains(&year) && video_metadata(suffix))
+            .then_some((start, suffix, year))
+    });
+    parenthesized.chain(release_year)
 }
 
 /// Recognized metadata bounds a release tail. Unknown suffixes remain part of
@@ -185,19 +195,13 @@ fn release_title(title: &str, category: Category) -> &str {
     let mut product = title;
     for (start, suffix, _) in year_labels(title) {
         let suffix = suffix.trim();
-        let metadata = suffix.strip_prefix('[').unwrap_or(suffix);
-        let first = metadata
-            .split_whitespace()
-            .next()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
+        let first = suffix.split_whitespace().next().unwrap_or_default();
         if suffix.is_empty()
-            || matches!(
-                first.as_str(),
-                "bdrip" | "bdrip-avc" | "web-dl" | "web-dlrip"
-            )
-            || first.starts_with("uhd.bd.")
-            || (category == Category::Games && matches!(first.as_str(), "pc" | "mac" | "linux"))
+            || video_metadata(suffix)
+            || (category == Category::Games
+                && ["pc", "mac", "linux"]
+                    .iter()
+                    .any(|platform| first.eq_ignore_ascii_case(platform)))
         {
             product = title[..start].trim_end();
             break;
@@ -209,6 +213,41 @@ fn release_title(title: &str, category: Category) -> &str {
         return product[..start].trim_end();
     }
     product
+}
+
+fn video_metadata(suffix: &str) -> bool {
+    let suffix = suffix.trim_start_matches('[');
+    let mut words = suffix.split_whitespace();
+    let first = words.next().unwrap_or_default();
+    let first = if first.eq_ignore_ascii_case("uhd") {
+        words.next().unwrap_or_default()
+    } else {
+        first
+    };
+    let first = first.to_ascii_lowercase();
+    if matches!(
+        first.as_str(),
+        "480p" | "576p" | "720p" | "1080p" | "1080i" | "1440p" | "2160p" | "4320p"
+    ) {
+        return true;
+    }
+    [
+        "bdrip",
+        "bdremux",
+        "hdrip",
+        "web-dl",
+        "web-dlrip",
+        "webrip",
+        "bluray",
+        "blu-ray",
+        "uhd.bd",
+    ]
+    .iter()
+    .any(|tag| {
+        first
+            .strip_prefix(tag)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['-', '.']))
+    })
 }
 
 fn version_metadata(title: &str) -> Option<(usize, &str)> {

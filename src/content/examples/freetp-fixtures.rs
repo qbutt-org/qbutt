@@ -78,7 +78,7 @@ fn page(
             );
         }
         let result = if story == "generated" {
-            r#"<div class="base"><div class="heading"><a href="/po-seti/42-generated-game.html">Generated Legal Game играть по сети</a></div></div>"#
+            r#"<div class="base"><div class="heading"><a href="/po-seti/42-generated-game.html">Generated Legal Game играть по сети и интернету Онлайн</a></div></div>"#
         } else {
             ""
         };
@@ -89,7 +89,7 @@ fn page(
         return ("200 OK", "text/html; charset=cp1251", bytes.into_owned());
     }
     if path == "/po-seti/42-generated-game.html" {
-        let body = r#"<div id="dle-content"><div class="base fullstory"><h1>Generated Legal Game играть по сети</h1><div id="news-id-42"><p>Legal game and setup instructions.</p><p>Скачать игру</p><p><a href="/getfile-10">Скачать Generated_Game_v2.torrent</a><a href="/getfile-12"> </a></p><p>Скачать патч</p><p><a href="/getfile-13">Generated_Patch_v2.torrent</a></p><p>Скачать онлайн фикс</p><p><a href="/getfile-11">Online Fix.exe</a></p></div></div></div>"#;
+        let body = r#"<div id="dle-content"><div class="base fullstory"><h1>Generated Legal Game играть по сети и интернету Онлайн</h1><div id="news-id-42"><p>Legal game and setup instructions.</p><p>Скачать игру</p><p><a href="/getfile-10">Скачать Generated_Game_v2.torrent</a><a href="/getfile-12"> </a></p><p>Скачать патч</p><p><a href="/getfile-13">Generated_Patch_v2.torrent</a></p><p>Скачать онлайн фикс</p><p><a href="/getfile-11">Online Fix.exe</a></p></div></div></div>"#;
         let (bytes, _, _) = encoding_rs::WINDOWS_1251.encode(body);
         return ("200 OK", "text/html; charset=cp1251", bytes.into_owned());
     }
@@ -255,6 +255,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     .await??;
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].reference.id, "42");
+    assert_eq!(found[0].aliases, ["Generated Legal Game"]);
     assert!(found[0].needs_inspection && found[0].variants.is_empty());
     let publication = found[0].reference.clone();
     let work = tokio::spawn({
@@ -263,6 +264,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     })
     .await??;
     assert_eq!(work.variants.len(), 2);
+    assert_eq!(work.aliases, found[0].aliases);
+    assert_eq!(work.title, found[0].title);
     assert!(
         work.variants[0]
             .title

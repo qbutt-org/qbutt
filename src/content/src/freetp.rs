@@ -310,13 +310,13 @@ fn parse_search(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>> {
         }
         works.push(Work {
             reference,
+            aliases: game_aliases(&title),
             title,
             category: Category::Games,
             url,
             cover: None,
             description: None,
             year: None,
-            aliases: Vec::new(),
             identifiers: BTreeMap::new(),
             variants: Vec::new(),
             needs_inspection: true,
@@ -356,19 +356,27 @@ fn parse_release(
     Ok(Release {
         work: Work {
             reference: expected.clone(),
+            aliases: game_aliases(&title),
             title,
             category: Category::Games,
             url: canonical,
             cover: None,
             description,
             year: None,
-            aliases: Vec::new(),
             identifiers: BTreeMap::new(),
             variants: Vec::new(),
             needs_inspection: false,
         },
         torrents: BTreeMap::new(),
     })
+}
+
+fn game_aliases(title: &str) -> Vec<String> {
+    title
+        .strip_suffix(" играть по сети и интернету Онлайн")
+        .filter(|name| !name.is_empty())
+        .map(|name| vec![name.to_owned()])
+        .unwrap_or_default()
 }
 
 fn publication(input: &str, origin: &Url) -> Option<(PublicationRef, Url)> {

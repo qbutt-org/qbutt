@@ -27,6 +27,12 @@ pub(super) fn run(rutor: &[Work]) {
         publication(103, Source::OnlineFix, "Ready or Not"),
         publication(104, Source::LimeTorrents, LIME),
         publication(105, Source::LimeTorrents, LIME_FITGIRL),
+        publication(
+            106,
+            Source::FreeTP,
+            "Ready Or Not играть по сети и интернету Онлайн",
+        ),
+        publication(107, Source::ByRut, "Ready or Not по сети"),
     ]);
 
     let mut orderings = 0;
@@ -47,7 +53,9 @@ pub(super) fn run(rutor: &[Work]) {
             assert!(
                 group
                     .display_title()
-                    .eq_ignore_ascii_case("Ready or Not (2023)")
+                    .eq_ignore_ascii_case("Ready or Not (2023)"),
+                "unexpected canonical title: {}",
+                group.display_title()
             );
             assert!(group.is_confirmed());
             assert_eq!(group.variants(None).len(), publications.len());
@@ -57,19 +65,20 @@ pub(super) fn run(rutor: &[Work]) {
                 .iter()
                 .map(|work| work.reference.source)
                 .collect();
-            assert_eq!(sources.len(), 6);
+            assert_eq!(sources.len(), 7);
             for publication in &publications {
                 assert_eq!(group.publication(&publication.reference), Some(publication));
             }
             orderings += 1;
         }
     }
-    assert_eq!(orderings, 22);
+    assert_eq!(orderings, 26);
 
     for title in [
         "Ready or Not 2 v133804 REPACK-KaOs",
         "Ready or Not: New Story – Deluxe Edition, v112610",
         "Ready or Not Boiling Point Update v117216-RUNE",
+        "Ready or Not - The Deadline is coming!",
     ] {
         let mut association = WorkAssociation::default();
         for publication in &publications {
@@ -83,7 +92,7 @@ pub(super) fn run(rutor: &[Work]) {
     association.update(publication(201, Source::Dodi, DODI));
     assert_eq!(association.groups()[0].display_title(), "Ready or Not");
     println!(
-        "cross_source_game_corpus=RuTor,FitGirl,DODI,ByRut,OnlineFix,LimeTorrents publications=11 arrival_orders=22 raw_labels_and_exact_variants=preserved unknown_subtitles=split"
+        "cross_source_game_corpus=RuTor,FitGirl,DODI,ByRut,OnlineFix,LimeTorrents,FreeTP publications=13 arrival_orders=26 raw_labels_and_exact_variants=preserved unknown_subtitles=split"
     );
 }
 
@@ -95,6 +104,7 @@ fn publication(id: usize, source: Source, title: &str) -> Work {
         Source::FitGirl => format!("ready-or-not-{id}"),
         Source::ByRut => format!("{id}-ready-or-not"),
         Source::OnlineFix => format!("games/shooter/{id}-ready-or-not.html"),
+        Source::FreeTP => id.to_string(),
         Source::LimeTorrents => format!("/Ready-Or-Not-torrent-{id}.html"),
         _ => unreachable!(),
     };
@@ -106,6 +116,11 @@ fn publication(id: usize, source: Source, title: &str) -> Work {
         work.variants[0].reference.selector = VariantSelector::DodiTorrent {
             id: "aaaaaaaabbbb".into(),
         };
+    }
+    if source == Source::FreeTP {
+        work.aliases = vec!["Ready Or Not".into()];
+    } else if source == Source::ByRut && title.ends_with(" по сети") {
+        work.aliases = vec!["Ready or Not".into()];
     }
     work
 }

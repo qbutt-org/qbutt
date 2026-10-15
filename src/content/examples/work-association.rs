@@ -2,6 +2,8 @@
 
 #[path = "work-association/cross-source-games.rs"]
 mod cross_source_games;
+#[path = "work-association/movies.rs"]
+mod movies;
 #[path = "work-association/product-releases.rs"]
 mod product_releases;
 #[path = "work-association/public-titles.rs"]
@@ -21,6 +23,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn main() -> Result<()> {
     public_titles::run()?;
     product_releases::run()?;
+    movies::run();
 
     let mut association = WorkAssociation::default();
     let categories = [Category::Movies, Category::Games, Category::Books];

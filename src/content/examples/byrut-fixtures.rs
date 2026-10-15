@@ -74,6 +74,19 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .inspect(&found[0].reference, None, browser::BrowserChoice::Auto)
         .await?;
     assert_eq!(work.variants.len(), 1);
+    assert!(work.aliases.is_empty());
+    let coop = provider
+        .inspect(
+            &PublicationRef {
+                source: Source::ByRut,
+                id: "49-generated-legal-po-seti-na-piratke".into(),
+            },
+            None,
+            browser::BrowserChoice::Auto,
+        )
+        .await?;
+    assert_eq!(coop.title, "Generated Legal по сети");
+    assert_eq!(coop.aliases, ["Generated Legal"]);
     assert_eq!(
         work.variants[0].info_hash.as_deref(),
         Some("8aa48ccd171ff9e64325b54367e9aedcc2ce6af6")
@@ -494,12 +507,17 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
         } else {
             ""
         };
+        let title = if slug.contains("-po-seti-") {
+            "Generated Legal по сети"
+        } else {
+            "Generated Legal"
+        };
         let body = format!(
             r#"<html>
                 <head><link rel="canonical" href="{origin}{slug}.html"></head>
                 <body>
                     <article class="main_content" data-news-id="{number}">
-                        <div class="game_details"><h1>Generated Legal</h1></div>
+                        <div class="game_details"><h1>{title}</h1></div>
                         <div class="main-release-block">{main}</div>
                         {notice}
                     </article>
