@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.2/qbutt-1.5.2-windows-x64-setup.exe">
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.3/qbutt-1.5.3-windows-x64-setup.exe">
     <img alt="Download qbutt for Windows" src="https://img.shields.io/badge/DOWNLOAD-Windows-009df7?style=for-the-badge">
   </a>
   <a href="https://github.com/qbutt-org/qbutt/releases">
@@ -29,7 +29,7 @@
 
 <p align="center">
   <a href="https://qbutt-org.github.io/qbutt/en/">Website</a> /
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.2/qbutt-1.5.2-windows-x64.zip">Portable</a>
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.3/qbutt-1.5.3-windows-x64.zip">Portable</a>
 </p>
 
 ## Installation
