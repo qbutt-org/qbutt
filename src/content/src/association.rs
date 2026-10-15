@@ -116,6 +116,39 @@ impl WorkAssociation {
 
     pub fn groups(&self) -> Vec<WorkGroup> {
         let titles = product_titles(&self.publications);
+        self.groups_with_titles(&titles)
+    }
+
+    /// Exact product names and confirmed aliases precede partial matches.
+    /// Ties depend on identity, never provider timing or a source preference.
+    pub fn search_groups(&self, query: &str) -> Vec<WorkGroup> {
+        let query = identity::normalized_title(query);
+        let titles = product_titles(&self.publications);
+        let mut groups = self.groups_with_titles(&titles);
+        groups.sort_by_cached_key(|group| {
+            let names = group
+                .references
+                .iter()
+                .flat_map(|reference| &titles[reference].normalized);
+            let exact = names.clone().any(|name| name == &query);
+            let name = names.min().cloned().unwrap_or_default();
+            let reference = group
+                .references
+                .iter()
+                .map(|reference| (reference.source.id(), reference.id.as_str()))
+                .min()
+                .unwrap();
+            (
+                !exact,
+                name,
+                group.publications[0].category as u8,
+                (reference.0, reference.1.to_owned()),
+            )
+        });
+        groups
+    }
+
+    fn groups_with_titles(&self, titles: &HashMap<PublicationRef, ProductTitle>) -> Vec<WorkGroup> {
         // A generic publication can match two conflicting remakes or seasons.
         // Check every current candidate before assigning it to an earlier row.
         let ambiguous: HashSet<_> = self
@@ -125,7 +158,7 @@ impl WorkAssociation {
                 conflicting_identity(
                     self.publications
                         .iter()
-                        .filter(|candidate| confirmed_match(publication, candidate, &titles)),
+                        .filter(|candidate| confirmed_match(publication, candidate, titles)),
                 )
             })
             .map(|publication| publication.reference.clone())
@@ -146,7 +179,7 @@ impl WorkAssociation {
                         && group
                             .publications
                             .iter()
-                            .all(|member| confirmed_match(member, publication, &titles))
+                            .all(|member| confirmed_match(member, publication, titles))
                 })
                 .map(|(index, _)| index)
                 .collect();

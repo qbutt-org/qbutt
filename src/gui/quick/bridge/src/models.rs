@@ -67,6 +67,19 @@ pub mod ffi {
         #[rust_name = "end_remove_rows"]
         fn endRemoveRows(self: Pin<&mut Self>);
         #[inherit]
+        #[rust_name = "begin_move_rows"]
+        fn beginMoveRows(
+            self: Pin<&mut Self>,
+            source: &QModelIndex,
+            first: i32,
+            last: i32,
+            destination: &QModelIndex,
+            row: i32,
+        ) -> bool;
+        #[inherit]
+        #[rust_name = "end_move_rows"]
+        fn endMoveRows(self: Pin<&mut Self>);
+        #[inherit]
         fn index(&self, row: i32, column: i32, parent: &QModelIndex) -> QModelIndex;
         #[inherit]
         #[qsignal]
@@ -392,6 +405,33 @@ impl ffi::WorkModel {
             self.as_mut().rust_mut().rows.push(group);
             self.as_mut().end_insert_rows();
         }
+    }
+
+    pub fn move_to(mut self: Pin<&mut Self>, reference: &PublicationRef, row: usize) {
+        let Some(previous) = self
+            .rows
+            .iter()
+            .position(|group| &group.anchor == reference)
+        else {
+            return;
+        };
+        if previous == row {
+            return;
+        }
+        let parent = QModelIndex::default();
+        let destination = if previous < row { row + 1 } else { row };
+        if !self.as_mut().begin_move_rows(
+            &parent,
+            previous as i32,
+            previous as i32,
+            &parent,
+            destination as i32,
+        ) {
+            return;
+        }
+        let group = self.as_mut().rust_mut().rows.remove(previous);
+        self.as_mut().rust_mut().rows.insert(row, group);
+        self.as_mut().end_move_rows();
     }
 }
 

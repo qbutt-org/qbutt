@@ -10,6 +10,8 @@ mod movies;
 mod product_releases;
 #[path = "work-association/public-titles.rs"]
 mod public_titles;
+#[path = "work-association/search-order.rs"]
+mod search_order;
 
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -26,6 +28,7 @@ fn main() -> Result<()> {
     public_titles::run()?;
     product_releases::run()?;
     movies::run();
+    search_order::run();
 
     let mut association = WorkAssociation::default();
     let categories = [Category::Movies, Category::Games, Category::Books];

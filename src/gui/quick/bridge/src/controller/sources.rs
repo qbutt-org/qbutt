@@ -114,7 +114,7 @@ pub struct SourceState {
     statuses: Vec<SourceStatus>,
     load: LoadState,
     generation: u64,
-    active_query: Option<String>,
+    pub(super) active_query: Option<String>,
     deferred_query: Option<String>,
     retry_writes_after_load: bool,
     pub(super) pending_variant_action: Option<PendingVariantAction>,

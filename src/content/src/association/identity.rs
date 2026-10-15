@@ -366,7 +366,7 @@ fn version_metadata(title: &str) -> Option<(usize, &str)> {
     None
 }
 
-fn normalized_title(title: &str) -> String {
+pub(super) fn normalized_title(title: &str) -> String {
     title
         .chars()
         .filter(|character| character.is_alphanumeric())

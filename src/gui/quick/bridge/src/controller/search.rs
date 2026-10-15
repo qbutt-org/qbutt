@@ -206,7 +206,12 @@ impl ffi::ContentController {
         if self.search.generation != generation {
             return;
         }
-        let mut groups = self.search_association.groups();
+        let mut groups = self.search_association.search_groups(
+            self.source_status
+                .active_query
+                .as_deref()
+                .unwrap_or_default(),
+        );
         for group in &mut groups {
             if let Some(saved) = group
                 .references
@@ -250,12 +255,20 @@ impl ffi::ContentController {
                 }
             }
         }
-        for group in &groups {
+        for (row, group) in groups.iter().enumerate() {
             self.as_mut()
                 .rust_mut()
                 .works
                 .pin_mut()
                 .update(group.clone());
+            if self.search.generation != generation {
+                return;
+            }
+            self.as_mut()
+                .rust_mut()
+                .works
+                .pin_mut()
+                .move_to(&group.anchor, row);
             if self.search.generation != generation {
                 return;
             }
