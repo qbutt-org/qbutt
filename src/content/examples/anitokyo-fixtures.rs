@@ -15,15 +15,23 @@ pub use qbutt_content::webview;
 mod browser;
 
 #[allow(dead_code)]
-#[path = "../src/http.rs"]
-mod http;
+mod http {
+    include!("../src/http.rs");
 
+    pub(super) fn fixture(client: reqwest::Client, origin: Url) -> SourceHttp {
+        SourceHttp { client, origin }
+    }
+}
+
+#[path = "anitokyo/fixture.rs"]
+mod fixture;
 #[path = "../src/anitokyo/response.rs"]
 mod response;
 
 use url::Url;
 
-fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let origin = Url::parse("https://anitokyo.tv/")?;
     let canonical = origin.join("anime/42-generated-commons.html")?;
     let reference = PublicationRef {
@@ -112,6 +120,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(publication.work.variants.len(), 2);
     assert_eq!(publication.videos.len(), 2);
     assert_eq!(publication.videos[0].url.path(), "/video.php");
+    assert_eq!(publication.videos[0].episode, "1");
+    assert_eq!(
+        publication.videos[0].selector,
+        publication.work.variants[0].reference.selector
+    );
     assert_eq!(publication.videos[1].kodik_voice, "Open");
     assert!(publication.videos[1].subtitled);
     assert_eq!(publication.work.variants[1].languages, ["ja", "ru"]);
@@ -133,6 +146,15 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let wrong = origin.join("anime/43-other-work.html")?;
     assert!(response::publication(&page(&groups), &origin, &wrong, &reference).is_err());
 
+    let original = origin.join("ONA/42-generated-commons.html")?;
+    let original_page = page(&groups).replace(canonical.as_str(), original.as_str());
+    assert_eq!(
+        response::publication(&original_page, &origin, &original, &reference)?
+            .work
+            .url,
+        original
+    );
+
     let player = response::player(
         "<html><body><iframe class='vdd-element' src='//kodikplayer.com/seria/10/0123456789abcdef0123456789abcdef/720p'></iframe></body></html>",
         &origin,
@@ -144,8 +166,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     )
     .is_err());
 
+    fixture::run().await?;
+
     println!(
-        "PASS anitokyo-fixtures search=exact inspect=exact voice_episode=exact upcoming=empty player=guarded"
+        "PASS anitokyo-fixtures search=exact uppercase_ona=preserved inspect=exact voice_episode=exact upcoming=empty player=guarded https=positive_empty_faults"
     );
     Ok(())
 }

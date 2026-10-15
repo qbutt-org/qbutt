@@ -350,7 +350,10 @@ fn publication_ref(url: &Url) -> Result<PublicationRef> {
     let (section, name) = path
         .split_once('/')
         .ok_or(Error::InvalidResponse("invalid AniTokyo publication path"))?;
-    if !matches!(section, "anime" | "movie" | "ova" | "ona" | "special") || !name.ends_with(".html")
+    if !matches!(
+        section,
+        "anime" | "movie" | "ova" | "ona" | "ONA" | "special"
+    ) || !name.ends_with(".html")
     {
         return Err(Error::InvalidResponse("unsupported AniTokyo publication"));
     }

@@ -158,6 +158,18 @@ cancellation require separate acceptance; generated browser replies do not prove
 that a live source's challenge will pass. The `x1337` live example requires an
 explicit isolated discovery path for an already configured qcatch native host.
 
+AniTokyo's generated HTTPS search fixture covers its `/ONA/` publication paths,
+positive and empty results, query identity, duplicate and foreign publications,
+challenge pages and HTTP failures. It also retains exact episode/voice parsing,
+canonical publication checks and guarded player URLs:
+
+```powershell
+cargo run --locked --offline --release --target x86_64-pc-windows-msvc -p qbutt-content --example anitokyo-fixtures --jobs 2
+```
+
+Require exit zero and `PASS anitokyo-fixtures`. It does not acquire episode bytes;
+live playback requires the separate native scenario below.
+
 The native WebView helper has a generated HTML integration fixture. It serves
 only authored pages through a closed loopback proxy and runs the real helper in
 silent mode. A normal HTTP 200 page loads Cloudflare's background JSD script and
