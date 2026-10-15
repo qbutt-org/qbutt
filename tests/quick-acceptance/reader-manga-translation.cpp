@@ -304,10 +304,15 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
         qInfo().noquote() << u"PASS reader_manga_rejection cause=%1 original=exact png_rows=0 context_rows=0"_s.arg(expectedFailure);
         return;
     }
-    require(controller->property("readerTranslationRequested").toBool()
-        && !controller->property("readerTranslationError").toBool()
-        && controller->property("readerPageIndex").toInt() == 0,
-        u"Live manga translation did not reach exact page zero"_s);
+    if (!controller->property("readerTranslationRequested").toBool()
+        || controller->property("readerTranslationError").toBool()
+        || controller->property("readerPageIndex").toInt() != 0)
+    {
+        capture(view, profileDir + u"/manga-reader-error.png"_s, QSize(1440, 900));
+        require(pageImage(controller) == original,
+            u"Failed manga translation did not preserve Original"_s);
+        throw std::runtime_error("Live manga translation did not reach exact page zero");
+    }
     const QImage translated = pageImage(controller);
     require(translated.size() == original.size(), u"Translated manga dimensions changed"_s);
     if (!peerRoot.isEmpty())
