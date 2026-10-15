@@ -63,8 +63,15 @@ pub mod ffi {
     #[derive(PartialEq)]
     #[repr(u8)]
     enum ContentError {
+        None,
         ServicesUnavailable,
         Download,
+        MediaRuntimeMissing,
+        MediaRuntimeCouldNotStart,
+        MediaRuntimeInvalidResponse,
+        MediaRuntimeIncompatibleVersion,
+        MediaRuntimeIncompleteInstallation,
+        MediaRuntimeTimeout,
         LibraryOpen,
         LibraryWrite,
         HistoryRead,
@@ -792,7 +799,7 @@ pub mod ffi {
             request_id: u64,
             ffmpeg: QString,
             ffprobe: QString,
-            error: QString,
+            error: ContentError,
         );
         #[qinvokable]
         #[cxx_name = "cancelDownload"]
@@ -1244,7 +1251,8 @@ pub struct ContentControllerRust {
     downloads_state: QString,
     download_queue: Option<Arc<qbutt_content::DownloadQueue<DownloadStore>>>,
     download_task: Option<JoinHandle<()>>,
-    media_tool_requests: HashMap<u64, tokio::sync::oneshot::Sender<Result<MediaTools, String>>>,
+    media_tool_requests:
+        HashMap<u64, tokio::sync::oneshot::Sender<Result<MediaTools, ffi::ContentError>>>,
     captured_media_tool_request: Option<u64>,
     captured_download: Pending,
     captured_watch: Pending,
@@ -1257,6 +1265,7 @@ pub struct ContentControllerRust {
     inspecting: bool,
     resolving: bool,
     error_kind: Option<ffi::ContentError>,
+    download_notice_generation: u64,
     selected_work_id: QString,
     selected_work_title: QString,
     selected_work_description: QString,
@@ -1365,6 +1374,7 @@ impl Default for ContentControllerRust {
             inspecting: false,
             resolving: false,
             error_kind,
+            download_notice_generation: 0,
             selected_work_id: QString::default(),
             selected_work_title: QString::default(),
             selected_work_description: QString::default(),
@@ -1495,6 +1505,9 @@ impl ffi::ContentController {
     }
 
     fn set_error(mut self: Pin<&mut Self>, value: Option<ffi::ContentError>) {
+        // A new notice retires errors from older download attempts.
+        let generation = self.download_notice_generation.wrapping_add(1);
+        self.as_mut().rust_mut().download_notice_generation = generation;
         if self.error_kind != value {
             self.as_mut().rust_mut().error_kind = value;
             self.as_mut().error_text_changed();

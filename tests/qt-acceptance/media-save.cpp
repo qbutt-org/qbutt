@@ -12,9 +12,12 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLocalSocket>
+#include <QMouseEvent>
+#include <QQuickItem>
 #include <QTimer>
 
 #include "base/media/player.h"
+#include "base/media/runtime.h"
 #include "gui/quick/contentview.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
 
@@ -47,6 +50,67 @@ namespace
         QTimer::singleShot(200, &loop, &QEventLoop::quit);
         loop.exec();
     }
+}
+
+void exerciseMediaRuntimeFailure(Content::ContentView &view, const QString &variantId,
+    const QJsonObject &spec, QJsonObject &evidence)
+{
+    auto *controller = view.findChild<Qbutt::ContentController *>();
+    require(controller && view.rootObject(), u"Runtime Save controller is missing"_s);
+    waitFor([&] { return controller->property("downloadsState").toString() == u"ready"_s; }, u"Runtime Save queue"_s);
+    auto *save = view.rootObject()->findChild<QQuickItem *>(u"contentSaveVideo"_s);
+    auto *downloads = qobject_cast<QAbstractItemModel *>(controller->property("downloads").value<QObject *>());
+    const QString expected = spec.value(u"saveRuntimeError"_s).toString();
+    require(save && save->isEnabled() && downloads && downloads->rowCount() == 0 && !expected.isEmpty(),
+        u"Runtime Save fixture needs an enabled exact video and an empty queue"_s);
+    QList<quint64> requests;
+    int rejected = 0;
+    QObject observations;
+    QObject::connect(controller, &Qbutt::ContentController::mediaToolsRequested, &observations,
+        [&](const quint64 id) { requests.append(id); });
+    QObject::connect(&view, &Content::ContentView::playbackDownloadFinished, &observations,
+        [&](const quint64 token, const bool queued)
+    {
+        require(token == 0 && !queued, u"Runtime failure confirmed a download"_s);
+        ++rejected;
+    });
+    const QPointF point = save->mapToScene(QPointF(save->width() / 2, save->height() / 2));
+    const QPointF global = view.mapToGlobal(point.toPoint());
+    QMouseEvent press(QEvent::MouseButtonPress, point, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(&view, &press);
+    QMouseEvent release(QEvent::MouseButtonRelease, point, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QCoreApplication::sendEvent(&view, &release);
+    waitFor([&] { return rejected == 1; }, u"Actual runtime Save refusal"_s);
+    require(requests.size() == 1 && controller->property("errorText").toString() == expected,
+        u"Save lost the specific localized runtime reason"_s);
+    const QString screenshots = spec.value(u"screenshots"_s).toString();
+    if (!screenshots.isEmpty())
+    {
+        settle();
+        require(view.grabFramebuffer().save(screenshots + u"/native-save-runtime-error.png"_s),
+            u"Runtime Save render failed"_s);
+    }
+
+    // Control completion order after proving the real Runtime -> Rust -> UI path.
+    QObject::disconnect(controller, &Qbutt::ContentController::mediaToolsRequested, &view, nullptr);
+    require(controller->downloadSelected(variantId) && controller->property("errorText").toString().isEmpty(),
+        u"New Save did not clear the previous runtime error"_s);
+    waitFor([&] { return requests.size() == 2; }, u"Older Save tools request"_s);
+    require(controller->downloadSelected(variantId), u"Concurrent Save was rejected"_s);
+    waitFor([&] { return requests.size() == 3; }, u"Newer Save tools request"_s);
+    controller->mediaToolsReady(requests.at(2), {}, {}, Qbutt::ContentError::MediaRuntimeTimeout);
+    waitFor([&] { return rejected == 2; }, u"Newer Save failure"_s);
+    const QString timeout = Media::Runtime::errorMessage(Media::Runtime::Error::Timeout, Media::Runtime::Purpose::Download);
+    require(controller->property("errorText").toString() == timeout, u"Typed timeout reason was lost"_s);
+    controller->mediaToolsReady(requests.at(1), {}, {}, Qbutt::ContentError::MediaRuntimeInvalidResponse);
+    waitFor([&] { return rejected == 3; }, u"Older Save failure"_s);
+    require(controller->property("errorText").toString() == timeout && downloads->rowCount() == 0,
+        u"Late Save failure replaced the current error or queued a payload"_s);
+    evidence[u"checks"_s] = QJsonArray {QJsonObject {
+        {u"name"_s, u"native-save-runtime-error"_s}, {u"error"_s, expected},
+        {u"reset"_s, true}, {u"staleIgnored"_s, true},
+        {u"requests"_s, requests.size()}, {u"rejected"_s, rejected}, {u"jobs"_s, downloads->rowCount()}
+    }};
 }
 
 void exerciseMediaSave(Content::ContentView &view, Media::Player &player, const quint64 token,

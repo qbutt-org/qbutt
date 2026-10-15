@@ -32,7 +32,12 @@ set_target_properties(qbutt-qcatch-cli-fixture PROPERTIES
 )
 target_link_libraries(qbutt-qcatch-cli-fixture PRIVATE Qt::Core)
 
-qt_add_executable(qbutt-reader-decode-fixture reader-decode.cpp)
+qt_add_executable(qbutt-reader-decode-fixture
+    reader-decode.cpp
+    ../../src/base/media/runtime.cpp
+    ../../src/base/media/runtime.h
+)
+target_include_directories(qbutt-reader-decode-fixture PRIVATE "../../src")
 target_link_libraries(qbutt-reader-decode-fixture
     PRIVATE
         qbutt_quick

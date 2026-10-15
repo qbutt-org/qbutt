@@ -11,6 +11,31 @@
 #include "readerimageprovider.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
 
+namespace
+{
+    Qbutt::ContentError downloadRuntimeError(const Media::Runtime::Error error)
+    {
+        switch (error)
+        {
+        case Media::Runtime::Error::None:
+            return Qbutt::ContentError::None;
+        case Media::Runtime::Error::Missing:
+            return Qbutt::ContentError::MediaRuntimeMissing;
+        case Media::Runtime::Error::CouldNotStart:
+            return Qbutt::ContentError::MediaRuntimeCouldNotStart;
+        case Media::Runtime::Error::InvalidResponse:
+            return Qbutt::ContentError::MediaRuntimeInvalidResponse;
+        case Media::Runtime::Error::IncompatibleVersion:
+            return Qbutt::ContentError::MediaRuntimeIncompatibleVersion;
+        case Media::Runtime::Error::IncompleteInstallation:
+            return Qbutt::ContentError::MediaRuntimeIncompleteInstallation;
+        case Media::Runtime::Error::Timeout:
+            return Qbutt::ContentError::MediaRuntimeTimeout;
+        }
+        Q_UNREACHABLE();
+    }
+}
+
 Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
     : QQuickWidget(parent)
     , m_controller {new Qbutt::ContentController}
@@ -37,7 +62,7 @@ Content::ContentView::ContentView(const QString &profileDir, QWidget *parent)
             if (!m_mediaRequests.remove(requestId))
                 return;
 
-            const QString error = Media::Runtime::errorMessage(result.error, Media::Runtime::Purpose::Download);
+            const Qbutt::ContentError error = downloadRuntimeError(result.error);
             m_controller->mediaToolsReady(requestId, result.info.ffmpeg, result.info.ffprobe, error);
         });
         m_mediaRequests.insert(requestId, runtimeId);

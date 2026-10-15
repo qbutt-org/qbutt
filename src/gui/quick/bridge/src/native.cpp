@@ -12,6 +12,7 @@
 #include <QStringList>
 #include <QThreadPool>
 
+#include "../../../../base/media/runtime.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
 #include "qbutt_quick/src/models.cxxqt.h"
 #include "qbutt_quick/src/reader_models.cxxqt.h"
@@ -216,6 +217,20 @@ QString Qbutt::contentError(const ContentError error)
 {
     switch (error)
     {
+    case ContentError::None:
+        return {};
+    case ContentError::MediaRuntimeMissing:
+        return Media::Runtime::errorMessage(Media::Runtime::Error::Missing, Media::Runtime::Purpose::Download);
+    case ContentError::MediaRuntimeCouldNotStart:
+        return Media::Runtime::errorMessage(Media::Runtime::Error::CouldNotStart, Media::Runtime::Purpose::Download);
+    case ContentError::MediaRuntimeInvalidResponse:
+        return Media::Runtime::errorMessage(Media::Runtime::Error::InvalidResponse, Media::Runtime::Purpose::Download);
+    case ContentError::MediaRuntimeIncompatibleVersion:
+        return Media::Runtime::errorMessage(Media::Runtime::Error::IncompatibleVersion, Media::Runtime::Purpose::Download);
+    case ContentError::MediaRuntimeIncompleteInstallation:
+        return Media::Runtime::errorMessage(Media::Runtime::Error::IncompleteInstallation, Media::Runtime::Purpose::Download);
+    case ContentError::MediaRuntimeTimeout:
+        return Media::Runtime::errorMessage(Media::Runtime::Error::Timeout, Media::Runtime::Purpose::Download);
     case ContentError::ServicesUnavailable:
         return QCoreApplication::translate("ContentController", "Could not start content services.");
     case ContentError::Download:

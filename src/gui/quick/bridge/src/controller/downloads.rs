@@ -29,17 +29,17 @@ static NEXT_MEDIA_TOOL_REQUEST: AtomicU64 = AtomicU64::new(1);
 
 struct MediaToolRequest {
     id: u64,
-    receiver: tokio::sync::oneshot::Receiver<Result<MediaTools, String>>,
+    receiver: tokio::sync::oneshot::Receiver<Result<MediaTools, ffi::ContentError>>,
     qt_thread: CxxQtThread<ffi::ContentController>,
 }
 
 impl MediaToolRequest {
-    async fn receive(mut self) -> Result<MediaTools, qbutt_content::DownloadError> {
+    async fn receive(mut self) -> Result<MediaTools, Option<ffi::ContentError>> {
         tokio::time::timeout(Duration::from_secs(35), &mut self.receiver)
             .await
-            .map_err(|_| qbutt_content::DownloadError::MediaTools)?
-            .map_err(|_| qbutt_content::DownloadError::MediaTools)?
-            .map_err(|_| qbutt_content::DownloadError::MediaTools)
+            .map_err(|_| Some(ffi::ContentError::MediaRuntimeTimeout))?
+            .map_err(|_| None)?
+            .map_err(Some)
     }
 }
 
@@ -67,7 +67,18 @@ async fn prepare_acquisition(media: PlaybackMedia) -> Result<PreparedAcquisition
     Ok(PreparedAcquisition::Direct(gateway, prepared))
 }
 
+fn download_failure(operation: &str, error: DownloadError) -> Option<ffi::ContentError> {
+    ffi::log_content_error(&QString::from(operation), &QString::from(error.to_string()));
+    Some(ffi::ContentError::Download)
+}
+
 impl ffi::ContentController {
+    fn begin_download_notice(mut self: Pin<&mut Self>) -> Option<u64> {
+        let generation = self.download_notice_generation.wrapping_add(1);
+        self.as_mut().set_error(None);
+        (self.download_notice_generation == generation).then_some(generation)
+    }
+
     fn request_media_tools(mut self: Pin<&mut Self>) -> MediaToolRequest {
         let id = NEXT_MEDIA_TOOL_REQUEST.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -103,7 +114,7 @@ impl ffi::ContentController {
         request_id: u64,
         ffmpeg: QString,
         ffprobe: QString,
-        error: QString,
+        error: ffi::ContentError,
     ) {
         let Some(sender) = self
             .as_mut()
@@ -113,13 +124,13 @@ impl ffi::ContentController {
         else {
             return;
         };
-        let result = if error.is_empty() {
+        let result = if error == ffi::ContentError::None {
             Ok(MediaTools {
                 ffmpeg: PathBuf::from(ffmpeg.to_string()),
                 ffprobe: PathBuf::from(ffprobe.to_string()),
             })
         } else {
-            Err(error.to_string())
+            Err(error)
         };
         let _ = sender.send(result);
         if self.captured_media_tool_request == Some(request_id) {
@@ -330,6 +341,9 @@ impl ffi::ContentController {
             Some(services) => services.browser.client(),
             None => return false,
         };
+        let Some(notice_generation) = self.as_mut().begin_download_notice() else {
+            return false;
+        };
         let qt_thread = self.qt_thread();
         let choice = browser.choice();
         let generation = self.captured_download.generation;
@@ -402,7 +416,10 @@ impl ffi::ContentController {
                 let ack_thread = controller.qt_thread();
                 services.runtime.spawn(async move {
                     let outcome = if let Some(download) = direct {
-                        queue.enqueue(download).await
+                        queue
+                            .enqueue(download)
+                            .await
+                            .map_err(|error| download_failure("capture download", error))
                     } else {
                         let tools = segmented.unwrap().receive().await;
                         match tools.and_then(|tools| {
@@ -412,8 +429,12 @@ impl ffi::ContentController {
                                 media_for_segmented.unwrap(),
                                 tools,
                             )
+                            .map_err(|error| download_failure("capture download", error))
                         }) {
-                            Ok(download) => queue.enqueue(download).await,
+                            Ok(download) => queue
+                                .enqueue(download)
+                                .await
+                                .map_err(|error| download_failure("capture download", error)),
                             Err(error) => Err(error),
                         }
                     };
@@ -429,10 +450,11 @@ impl ffi::ContentController {
                             return;
                         }
                         let reason = if let Err(error) = &outcome {
-                            ffi::log_content_error(
-                                &QString::from("capture download"),
-                                &QString::from(error.to_string()),
-                            );
+                            if controller.download_notice_generation == notice_generation
+                                && let Some(error) = error
+                            {
+                                controller.as_mut().set_error(Some(*error));
+                            }
                             "failed"
                         } else {
                             ""
@@ -503,6 +525,9 @@ impl ffi::ContentController {
         retry_id: Option<String>,
         launch_token: u64,
     ) -> bool {
+        let Some(notice_generation) = self.as_mut().begin_download_notice() else {
+            return false;
+        };
         let Some(services) = &self.services else {
             self.as_mut()
                 .set_error(Some(ffi::ContentError::ServicesUnavailable));
@@ -634,9 +659,11 @@ impl ffi::ContentController {
                             &QString::from("download descriptor"),
                             &QString::from(error.to_string()),
                         );
-                        controller
-                            .as_mut()
-                            .set_error(Some(ffi::ContentError::Download));
+                        if controller.download_notice_generation == notice_generation {
+                            controller
+                                .as_mut()
+                                .set_error(Some(ffi::ContentError::Download));
+                        }
                         controller
                             .as_mut()
                             .playback_download_finished(launch_token, false);
@@ -662,32 +689,36 @@ impl ffi::ContentController {
                         tools.and_then(|tools| {
                             let (reference, title, media) = segmented.unwrap();
                             DirectDownload::segmented_catalog(reference, title, media, tools)
+                                .map_err(|error| download_failure("download preparation", error))
                         })
                     };
                     let outcome = match download {
                         Ok(download) => {
                             if let Some(id) = retry_id {
-                                queue.retry(&id, download).await
+                                queue
+                                    .retry(&id, download)
+                                    .await
+                                    .map_err(|error| download_failure("download queue", error))
                             } else {
-                                queue.enqueue(download).await.map(|_| ())
+                                queue
+                                    .enqueue(download)
+                                    .await
+                                    .map(|_| ())
+                                    .map_err(|error| download_failure("download queue", error))
                             }
                         }
                         Err(error) => Err(error),
                     };
                     let queued = outcome.is_ok();
-                    if let Err(error) = outcome {
-                        let detail = error.to_string();
-                        ffi::log_content_error(
-                            &QString::from("download queue"),
-                            &QString::from(&detail),
-                        );
-                    }
+                    let error = outcome.err().flatten();
                     let _ = error_thread.queue(move |mut controller| {
-                        if !queued {
-                            controller
-                                .as_mut()
-                                .set_error(Some(ffi::ContentError::Download));
-                        } else if fresh {
+                        if controller.download_notice_generation == notice_generation
+                            && controller.source_request_current(&request)
+                            && let Some(error) = error
+                        {
+                            controller.as_mut().set_error(Some(error));
+                        }
+                        if queued && fresh {
                             controller.as_mut().download_queued();
                         }
                         controller

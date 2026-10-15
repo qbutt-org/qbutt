@@ -202,6 +202,11 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
                 u"Native Watch product render failed"_s);
         }
     }
+    if (spec.contains(u"saveRuntimeError"_s))
+    {
+        exerciseMediaRuntimeFailure(*view, variantId, spec, evidence);
+        return;
+    }
 
     QObject observations;
     auto *player = Media::Player::instance();
