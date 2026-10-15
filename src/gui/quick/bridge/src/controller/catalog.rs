@@ -71,6 +71,7 @@ impl Catalog {
         match operation.source() {
             Source::RuTracker => self.rutracker.complete_check().await?,
             Source::NnmClub => self.nnmclub.complete_check().await?,
+            Source::X1337 => self.x1337.complete_check().await?,
             _ => return result,
         }
         self.execute(operation).await
@@ -79,12 +80,15 @@ impl Catalog {
     pub(super) fn initialize_webview(&self, profile_dir: PathBuf, app_dir: PathBuf) {
         self.rutracker
             .initialize_webview(profile_dir.clone(), app_dir.clone());
-        self.nnmclub.initialize_webview(profile_dir, app_dir);
+        self.nnmclub
+            .initialize_webview(profile_dir.clone(), app_dir.clone());
+        self.x1337.initialize_webview(profile_dir, app_dir);
     }
 
     pub(super) fn close(&self) {
         self.rutracker.close();
         self.nnmclub.close();
+        self.x1337.close();
     }
 
     pub(super) fn new(browser: BrowserClient) -> qbutt_content::Result<Self> {

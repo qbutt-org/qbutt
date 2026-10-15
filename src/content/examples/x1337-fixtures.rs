@@ -35,7 +35,12 @@ mod x1337 {
     include!("../src/x1337.rs");
 
     pub(super) fn fixture(http: SourceHttp, origin: Url) -> X1337 {
-        X1337 { http, origin }
+        X1337 {
+            http,
+            origin,
+            webview: std::sync::OnceLock::new(),
+            clearance: std::sync::Mutex::new(None),
+        }
     }
 }
 
@@ -44,6 +49,8 @@ mod browser_checks;
 #[allow(dead_code)]
 #[path = "browser/fixture.rs"]
 mod browser_fixture;
+#[path = "x1337/check.rs"]
+mod check;
 #[path = "x1337/fixture.rs"]
 mod fixture;
 
@@ -56,6 +63,9 @@ use url::Url;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--stdio") {
+        return check::helper();
+    }
     let fixture = Fixture::start().await?;
     let source = x1337::fixture(
         http::fixture(fixture.client.clone(), fixture.origin.clone()),
@@ -168,7 +178,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         source
             .search("challenge", Category::Movies, None, BrowserChoice::Auto)
             .await,
-        Err(Error::Challenge)
+        Err(Error::SourceCheck(webview::WebViewError::Unavailable))
     ));
     assert_eq!(
         fixture.cookie_faults.load(Ordering::SeqCst),
@@ -245,6 +255,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
     }
     browser_checks::run(&source, &fixture.origin).await?;
+    check::run(&fixture).await?;
 
     let mut pending =
         Box::pin(source.search("cancel", Category::Movies, None, BrowserChoice::Auto));

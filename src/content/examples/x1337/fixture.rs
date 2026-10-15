@@ -211,7 +211,20 @@ impl Fixture {
                         }
                         let mut headers = String::new();
                         let mut mime = "text/html; charset=utf-8";
-                        let (status, body) = if url.path() == "/srch" {
+                        let lower = request.to_ascii_lowercase();
+                        let cleared = lower.contains("user-agent: fixture-webview\r\n")
+                            && lower.lines().any(|line| {
+                                line.starts_with("cookie:") && line.contains("clearance=fixture-pass")
+                            });
+                        let needs_clearance = (query.starts_with("webview")
+                            && (query != "webview category"
+                                || url.path().starts_with("/category-search/")))
+                            || url.path().starts_with("/torrent/57/");
+                        let (status, body) = if needs_clearance
+                            && (!cleared || query == "webview persistent")
+                        {
+                            ("403 Forbidden", "<div id='cf-challenge'>Complete check</div>".into())
+                        } else if url.path() == "/srch" {
                             let redirected = if query == "wrong redirect" {
                                 "another"
                             } else {
@@ -250,7 +263,9 @@ impl Fixture {
                                         .replace("<span>HD</span>", &format!("<span>{kind}</span>")))
                                 },
                             }
-                        } else if !request.to_ascii_lowercase().contains("cookie: search_ready=1") {
+                        } else if !lower.lines().any(|line| {
+                            line.starts_with("cookie:") && line.contains("search_ready=1")
+                        }) {
                             cookie_faults.fetch_add(1, Ordering::SeqCst);
                             ("200 OK", "Bad search request".into())
                         } else if query == "challenge" || query == "browser" {

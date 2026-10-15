@@ -1,23 +1,35 @@
 use std::collections::{BTreeMap, HashSet};
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use scraper::{ElementRef, Html, Selector};
 use url::Url;
 
-use crate::browser::{BrowserChoice, BrowserHandle, FetchInit};
+use crate::browser::{BrowserChoice, BrowserError, BrowserHandle, FetchInit};
 use crate::http::{SourceDocument, SourceHttp, SourceSession, browser_document};
 use crate::torrent::magnet;
+use crate::webview::{WebViewCheck, WebViewError, WebViewSessions};
 use crate::{
     Category, Error, PublicationRef, ResolvedContent, Result, Source, Transport, Variant,
     VariantRef, VariantSelector, Work,
 };
 
 const ORIGIN: &str = "https://1337x.to/";
+const SESSION_LIFETIME: Duration = Duration::from_secs(30 * 60);
+
+struct Clearance {
+    received: Instant,
+    session: SourceSession,
+}
 
 /// Public 1337x metadata. The source's own magnet is the only acquisition;
 /// advertised players, installers and external torrent mirrors are ignored.
 pub struct X1337 {
     http: SourceHttp,
     origin: Url,
+    webview: OnceLock<WebViewSessions>,
+    clearance: Mutex<Option<Clearance>>,
 }
 
 struct OperationSession {
@@ -36,7 +48,26 @@ impl X1337 {
         Ok(Self {
             http: SourceHttp::new(origin.clone(), reqwest::header::HeaderMap::new())?,
             origin,
+            webview: OnceLock::new(),
+            clearance: Mutex::new(None),
         })
+    }
+
+    pub fn initialize_webview(&self, profile_dir: PathBuf, app_dir: PathBuf) {
+        let _ = self.webview.set(WebViewSessions::new(profile_dir, app_dir));
+    }
+
+    pub fn close(&self) {
+        self.clearance.lock().expect("1337x clearance lock").take();
+        if let Some(webview) = self.webview.get() {
+            webview.close();
+        }
+    }
+
+    /// Only an explicit source retry may show the profile used for silent checks.
+    pub async fn complete_check(&self) -> Result<()> {
+        self.checked_session(self.origin.clone(), true).await?;
+        Ok(())
     }
 
     pub async fn search(
@@ -50,6 +81,54 @@ impl X1337 {
         if query.is_empty() || query.chars().count() > 500 || query.chars().any(char::is_control) {
             return Err(Error::InvalidQuery);
         }
+        let query = query
+            .split(|character: char| !character.is_alphanumeric())
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if query.is_empty() {
+            return Err(Error::InvalidQuery);
+        }
+        // /srch is the site's form action. It establishes the search session;
+        // directly opening /search with a fresh session can return Bad search request.
+        let mut entry = self.origin.join("srch").expect("fixed search form path");
+        entry.query_pairs_mut().append_pair("search", &query);
+        let mut session = self.source_session()?;
+        let result = self
+            .search_request(
+                &query,
+                category,
+                entry.clone(),
+                &mut session,
+                browser,
+                choice,
+            )
+            .await;
+        if !matches!(result, Err(Error::Challenge)) {
+            return result;
+        }
+        session = self.checked_session(entry.clone(), false).await?;
+        match self
+            .search_request(&query, category, entry, &mut session, None, choice)
+            .await
+        {
+            Err(Error::Challenge) => {
+                self.clearance.lock().expect("1337x clearance lock").take();
+                Err(Error::SourceCheckRequired)
+            }
+            result => result,
+        }
+    }
+
+    async fn search_request(
+        &self,
+        query: &str,
+        category: Category,
+        entry: Url,
+        session: &mut OperationSession,
+        browser: Option<&BrowserHandle>,
+        choice: BrowserChoice,
+    ) -> Result<Vec<Work>> {
         let category_name = match category {
             Category::Movies => "Movies",
             Category::Tv => "TV",
@@ -59,41 +138,22 @@ impl X1337 {
             Category::Books => "Other",
             Category::Manga | Category::Video => return Ok(Vec::new()),
         };
-        let query = query
-            .split(|character: char| !character.is_alphanumeric())
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ");
-        if query.is_empty() {
-            return Err(Error::InvalidQuery);
-        }
-        let mut session = OperationSession {
-            http: SourceSession::anonymous(self.origin.clone())?,
-            use_browser: false,
-        };
-
-        // /srch is the site's form action. It establishes the search session;
-        // directly opening /search with a fresh session can return Bad search request.
-        let mut entry = self.origin.join("srch").expect("fixed search form path");
-        entry.query_pairs_mut().append_pair("search", &query);
-        let (arrived, body) = self.document(entry, &mut session, browser, choice).await?;
-        if search_is_empty(&arrived, &body, &self.origin, &query)? {
+        let (arrived, body) = self.document(entry, session, browser, choice).await?;
+        if search_is_empty(&arrived, &body, &self.origin, query)? {
             return Ok(Vec::new());
         }
 
         let mut url = self.origin.clone();
         url.path_segments_mut()
             .expect("fixed HTTPS origin")
-            .extend(["category-search", &query, category_name, "1", ""]);
-        let (arrived, body) = self
-            .document(url.clone(), &mut session, browser, choice)
-            .await?;
+            .extend(["category-search", query, category_name, "1", ""]);
+        let (arrived, body) = self.document(url.clone(), session, browser, choice).await?;
         if arrived != url {
             return Err(Error::InvalidResponse(
                 "1337x category search identity changed",
             ));
         }
-        search_results(&body, &self.origin, &query, category)
+        search_results(&body, &self.origin, query, category)
     }
 
     pub async fn inspect(
@@ -134,14 +194,19 @@ impl X1337 {
             .origin
             .join(&format!("torrent/{}/", publication.id))
             .expect("validated 1337x publication path");
-        let mut session = OperationSession {
-            http: SourceSession::anonymous(self.origin.clone())?,
-            use_browser: false,
-        };
-        let (arrived, body) = match self
+        let mut session = self.source_session()?;
+        let mut result = self
             .document(url.clone(), &mut session, browser, choice)
-            .await
-        {
+            .await;
+        if matches!(result, Err(Error::Challenge)) {
+            session = self.checked_session(url.clone(), false).await?;
+            result = self.document(url.clone(), &mut session, None, choice).await;
+        }
+        let (arrived, body) = match result {
+            Err(Error::Challenge) => {
+                self.clearance.lock().expect("1337x clearance lock").take();
+                return Err(Error::SourceCheckRequired);
+            }
             Err(Error::HttpStatus(404 | 410)) => return Err(Error::VariantUnavailable),
             result => result?,
         };
@@ -149,6 +214,56 @@ impl X1337 {
             return Err(Error::VariantUnavailable);
         }
         release(&body, url, publication)
+    }
+
+    fn source_session(&self) -> Result<OperationSession> {
+        let mut clearance = self.clearance.lock().expect("1337x clearance lock");
+        if clearance.as_ref().is_some_and(|cached| {
+            cached.received.elapsed() >= SESSION_LIFETIME || cached.session.has_expired_cookie()
+        }) {
+            clearance.take();
+        }
+        let http = match clearance.as_ref() {
+            Some(cached) => cached.session.clone(),
+            None => SourceSession::anonymous(self.origin.clone())?,
+        };
+        Ok(OperationSession {
+            http,
+            use_browser: false,
+        })
+    }
+
+    async fn checked_session(&self, url: Url, interactive: bool) -> Result<OperationSession> {
+        self.clearance.lock().expect("1337x clearance lock").take();
+        let webview = self
+            .webview
+            .get()
+            .ok_or(Error::SourceCheck(WebViewError::Unavailable))?;
+        let checked = webview
+            .check(
+                url,
+                WebViewCheck {
+                    interactive,
+                    ..WebViewCheck::default()
+                },
+            )
+            .await
+            .map_err(|error| match error {
+                WebViewError::CheckRequired => Error::SourceCheckRequired,
+                WebViewError::Canceled | WebViewError::Timeout if interactive => {
+                    Error::SourceCheckRequired
+                }
+                error => Error::SourceCheck(error),
+            })?;
+        let session = SourceSession::from_webview(self.origin.clone(), checked)?;
+        *self.clearance.lock().expect("1337x clearance lock") = Some(Clearance {
+            received: Instant::now(),
+            session: session.clone(),
+        });
+        Ok(OperationSession {
+            http: session,
+            use_browser: false,
+        })
     }
 
     async fn document(
@@ -169,7 +284,21 @@ impl X1337 {
             }
         }
         let browser = browser.ok_or(Error::Challenge)?;
-        document(browser_document(browser, choice, url, FetchInit::default()).await?)
+        match browser_document(browser, choice, url, FetchInit::default()).await {
+            Ok(response) => document(response),
+            Err(
+                Error::BrowserChoiceRequired
+                | Error::BrowserSession(
+                    BrowserError::BrowserRequired
+                    | BrowserError::Disconnected
+                    | BrowserError::Stopped
+                    | BrowserError::VerificationRequired
+                    | BrowserError::BrowserCheckRequired
+                    | BrowserError::LoginRequired,
+                ),
+            ) => Err(Error::Challenge),
+            Err(error) => Err(error),
+        }
     }
 }
 

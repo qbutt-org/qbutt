@@ -95,7 +95,12 @@ pub(super) async fn run(
         match fault {
             "none" => assert_eq!(result?.len(), 2),
             "anime_empty" | "books_empty" => assert!(result?.is_empty()),
-            "challenge" => assert!(matches!(result, Err(Error::Challenge))),
+            "challenge" => assert!(matches!(
+                result,
+                Err(Error::SourceCheck(
+                    super::webview::WebViewError::Unavailable
+                ))
+            )),
             "status" => assert!(matches!(result, Err(Error::HttpStatus(502)))),
             _ => assert!(matches!(result, Err(Error::InvalidResponse(_)))),
         }
@@ -134,7 +139,9 @@ pub(super) async fn run(
                 BrowserChoice::Auto
             )
             .await,
-        Err(Error::BrowserChoiceRequired)
+        Err(Error::SourceCheck(
+            super::webview::WebViewError::Unavailable
+        ))
     ));
     broker.shutdown().await?;
     browser_fixture::closed(&mut edge).await?;
