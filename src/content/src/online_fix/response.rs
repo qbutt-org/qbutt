@@ -143,10 +143,9 @@ pub(super) fn search(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>>
         works.push(work(reference, url, game_title(heading)?, true));
     }
     if works.is_empty()
-        && !content
-            .text()
-            .collect::<String>()
-            .contains("поиск по сайту не дал никаких результатов")
+        && !root
+            .select(&selector(".content > noindex > .errors > .description"))
+            .any(|notice| text(notice).contains("поиск по сайту не дал никаких результатов"))
     {
         return Err(Error::InvalidResponse(
             "Online-Fix search result is missing",

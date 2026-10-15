@@ -181,12 +181,24 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         Err(Error::VariantUnavailable)
     ));
     fixture.changed.store(false, Ordering::SeqCst);
-    assert!(
-        source
-            .search("Unlikely Result", Category::Games)
-            .await?
-            .is_empty()
-    );
+    for query in ["Unlikely Result", "Re:Zero"] {
+        assert!(source.search(query, Category::Games).await?.is_empty());
+    }
+    for query in [
+        "Changed Query",
+        "Missing Results",
+        "Unscoped Notice",
+        "Challenge Page",
+    ] {
+        assert!(matches!(
+            source.search(query, Category::Games).await,
+            Err(Error::InvalidResponse(_))
+        ));
+    }
+    assert!(matches!(
+        source.search("Denied Search", Category::Games).await,
+        Err(Error::HttpStatus(403))
+    ));
     assert!(source.search("AI", Category::Games).await?.is_empty());
     assert!(
         tokio::time::timeout(
@@ -240,7 +252,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert!(empty.description.is_none() && !empty.variants.is_empty());
 
     println!(
-        "PASS onlinefix search inspect instructions_version_coop_links safe_plain_text description_bounds publication_comments authors published_permalink absent_permalink foreign_permalink serialization exact_torrent stale_selection empty missing cancel no_archive"
+        "PASS onlinefix search inspect instructions_version_coop_links safe_plain_text description_bounds publication_comments authors published_permalink absent_permalink foreign_permalink serialization exact_torrent stale_selection empty_notice query_identity malformed_search challenge http_status missing cancel no_archive"
     );
     fixture.stop().await;
     Ok(())
@@ -408,18 +420,47 @@ fn route(
             "Online-Fix search must request matching titles"
         );
         let query = query.unwrap_or_default();
-        let results = if query == "Unlikely Result" {
-            "К сожалению, поиск по сайту не дал никаких результатов.".to_owned()
+        let empty_notice = r#"
+            <noindex><div class="errors"><div class="title">Информация</div>
+                <div class="description">К сожалению, поиск по сайту не дал никаких результатов.
+                    Попробуйте изменить или сократить Ваш запрос.</div>
+            </div></noindex>
+        "#;
+        let (notice, results) = match query.as_str() {
+            "Unlikely Result" | "Re:Zero" | "Changed Query" | "Denied Search" => {
+                (empty_notice, String::new())
+            }
+            "Missing Results" => (
+                "",
+                "К сожалению, поиск по сайту не дал никаких результатов.".into(),
+            ),
+            "Unscoped Notice" => ("", empty_notice.into()),
+            "Challenge Page" => (
+                "",
+                "<form id=\"challenge-form\"><div class=\"g-recaptcha\"></div></form>".into(),
+            ),
+            _ => (
+                "",
+                format!(
+                    "<div class=\"news news-search\"><a href=\"{site}games/horror/18094-generated-game.html\"><h2 class=\"title\">Generated Game по сети</h2></a></div>"
+                ),
+            ),
+        };
+        let echoed_query = if query == "Changed Query" {
+            "Re:Zero"
         } else {
-            format!(
-                "<div class=\"news news-search\"><a href=\"{site}games/horror/18094-generated-game.html\"><h2 class=\"title\">Generated Game по сети</h2></a></div>"
-            )
+            &query
+        };
+        let status = if query == "Denied Search" {
+            "403 Forbidden"
+        } else {
+            "200 OK"
         };
         return (
-            "200 OK",
+            status,
             "text/html; charset=windows-1251",
             cp1251(&format!(
-                "<div id=\"dle-content\"><input id=\"searchinput\" name=\"story\" value=\"{query}\">{results}</div>"
+                "<div class=\"content\">{notice}<div id=\"dle-content\"><input id=\"searchinput\" name=\"story\" value=\"{echoed_query}\">{results}</div></div>"
             )),
         );
     }
