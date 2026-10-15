@@ -129,6 +129,27 @@ impl Catalog {
         })
     }
 
+    pub(super) async fn search_with_updates(
+        &self,
+        operation: &SourceOperation,
+        publish: impl FnMut(&[Work]),
+    ) -> qbutt_content::Result<SourceResponse> {
+        operation.validate()?;
+        if let SourceOperation::Search {
+            source: Source::YummyAnime,
+            query,
+            ..
+        } = operation
+        {
+            return self
+                .yummyanime
+                .search_with_updates(query, publish)
+                .await
+                .map(SourceResponse::Search);
+        }
+        self.execute(operation).await
+    }
+
     pub(super) async fn execute(
         &self,
         operation: &SourceOperation,

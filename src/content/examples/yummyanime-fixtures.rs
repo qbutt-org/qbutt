@@ -6,6 +6,8 @@ mod model;
 pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
+#[path = "../src/query.rs"]
+mod query;
 pub use error::{Error, Result};
 #[cfg(windows)]
 pub use qbutt_content::webview;
@@ -99,6 +101,9 @@ mod yummyanime {
 #[path = "../src/kodik.rs"]
 mod kodik;
 
+#[path = "yummyanime/search_aliases.rs"]
+mod search_aliases;
+
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -139,6 +144,7 @@ async fn main() -> CheckResult<()> {
 }
 
 async fn exercise(catalog: &yummyanime::YummyAnime, fixture: &Fixture) -> CheckResult<()> {
+    search_aliases::exercise(catalog, &fixture.aliases).await?;
     let search = catalog.search("legal").await?;
     assert_eq!(search.len(), 1);
     assert!(search[0].needs_inspection && search[0].variants.is_empty());
@@ -441,6 +447,7 @@ struct Fixture {
     client: reqwest::Client,
     cancel_started: Arc<Notify>,
     cancel_closed: Arc<Notify>,
+    aliases: Arc<search_aliases::State>,
     stop: oneshot::Sender<()>,
     server: tokio::task::JoinHandle<()>,
 }
@@ -475,6 +482,8 @@ impl Fixture {
         let cancel_closed = Arc::new(Notify::new());
         let started = cancel_started.clone();
         let closed = cancel_closed.clone();
+        let aliases = Arc::new(search_aliases::State::default());
+        let alias_requests = aliases.clone();
         let server = tokio::spawn(async move {
             let mut connections = JoinSet::new();
             loop {
@@ -486,9 +495,10 @@ impl Fixture {
                         let acceptor = acceptor.clone();
                         let started = started.clone();
                         let closed = closed.clone();
+                        let aliases = alias_requests.clone();
                         connections.spawn(async move {
                             let stream = acceptor.accept(socket).await.unwrap();
-                            serve(stream, started, closed).await;
+                            serve(stream, started, closed, aliases).await;
                         });
                     }
                 }
@@ -500,6 +510,7 @@ impl Fixture {
             client,
             cancel_started,
             cancel_closed,
+            aliases,
             stop,
             server,
         })
@@ -510,6 +521,7 @@ async fn serve(
     mut stream: tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
     started: Arc<Notify>,
     closed: Arc<Notify>,
+    aliases: Arc<search_aliases::State>,
 ) {
     let mut request = Vec::new();
     while !request.ends_with(b"\r\n\r\n") && request.len() < 8192 {
@@ -535,7 +547,9 @@ async fn serve(
         }
         return;
     }
-    let body = if let Some(id) = url.path().strip_prefix("/anime/") {
+    let body = if let Some(body) = search_aliases::response(&aliases, &url, &mut stream).await {
+        body
+    } else if let Some(id) = url.path().strip_prefix("/anime/") {
         assert_eq!(url.query(), Some("need_videos=true"));
         json!({"response": anime(id.parse().unwrap())})
     } else if url.path() == "/api/v1/player/sv/playlist" {

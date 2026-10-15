@@ -2,6 +2,8 @@
 
 #[path = "../src/model.rs"]
 mod model;
+#[path = "../src/query.rs"]
+mod query;
 pub use model::*;
 #[path = "../src/error.rs"]
 mod error;

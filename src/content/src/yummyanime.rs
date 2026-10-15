@@ -6,7 +6,9 @@ mod cvh;
 mod response;
 
 use std::collections::HashSet;
+use std::time::Duration;
 
+use tokio::time::{Instant, timeout_at};
 use url::Url;
 
 use crate::http::{SourceHttp, public_media_url};
@@ -17,6 +19,8 @@ use response::{Anime, Envelope};
 
 const ORIGIN: &str = "https://yani.tv";
 const API_ORIGIN: &str = "https://api.yani.tv";
+const SEARCH_ALIAS_LIMIT: usize = 4;
+const SEARCH_ALIAS_BUDGET: Duration = Duration::from_secs(3);
 
 /// Anonymous public catalog access. Account-specific content is not requested.
 pub struct YummyAnime {
@@ -36,6 +40,17 @@ impl YummyAnime {
     }
 
     pub async fn search(&self, query: &str) -> Result<Vec<Work>> {
+        self.search_with_updates(query, |_| {}).await
+    }
+
+    /// Publish search rows before bounded, optional catalogue alias requests.
+    /// Metadata failure preserves successful rows; variants still need inspection.
+    /// The caller owns this future, its cancellation and publication generation.
+    pub async fn search_with_updates(
+        &self,
+        query: &str,
+        mut publish: impl FnMut(&[Work]),
+    ) -> Result<Vec<Work>> {
         let query = query.trim();
         if query.is_empty() || query.chars().count() > 500 || query.chars().any(char::is_control) {
             return Err(Error::InvalidQuery);
@@ -49,16 +64,51 @@ impl YummyAnime {
             return Err(Error::InvalidResponse("too many search results"));
         }
         let mut seen = HashSet::new();
-        response
+        let mut works: Vec<Work> = response
             .response
             .into_iter()
             .filter(|anime| seen.insert(anime.anime_id))
             .map(|anime| anime.into_work(&self.origin, true))
-            .collect()
+            .collect::<Result<_>>()?;
+        publish(&works);
+
+        let deadline = Instant::now() + SEARCH_ALIAS_BUDGET;
+        for work in works
+            .iter_mut()
+            .filter(|work| work.aliases.is_empty() && crate::query::matches(query, work))
+            .take(SEARCH_ALIAS_LIMIT)
+        {
+            if Instant::now() >= deadline {
+                break;
+            }
+            let metadata = timeout_at(deadline, self.anime(&work.reference, false)).await;
+            let Ok(metadata) = metadata else {
+                break;
+            };
+            let Ok(metadata) = metadata.and_then(|anime| anime.into_work(&self.origin, true))
+            else {
+                continue;
+            };
+            if metadata.aliases.is_empty()
+                || metadata.title != work.title
+                || matches!((work.year, metadata.year), (Some(a), Some(b)) if a != b)
+                || work.identifiers.iter().any(|(name, value)| {
+                    metadata
+                        .identifiers
+                        .get(name)
+                        .is_some_and(|other| other != value)
+                })
+            {
+                continue;
+            }
+            work.aliases = metadata.aliases;
+            publish(std::slice::from_ref(work));
+        }
+        Ok(works)
     }
 
     pub async fn inspect(&self, publication: &PublicationRef) -> Result<Work> {
-        self.anime(publication)
+        self.anime(publication, true)
             .await?
             .into_work(&self.origin, false)
     }
@@ -70,7 +120,7 @@ impl YummyAnime {
         let VariantSelector::YummyAnimeVideo { id, .. } = &selected.selector else {
             return Err(Error::InvalidReference);
         };
-        let anime = self.anime(&selected.publication).await?;
+        let anime = self.anime(&selected.publication, true).await?;
         anime.validate(true)?;
         let video = anime
             .videos
@@ -124,13 +174,14 @@ impl YummyAnime {
         })
     }
 
-    async fn anime(&self, publication: &PublicationRef) -> Result<Anime> {
+    async fn anime(&self, publication: &PublicationRef, need_videos: bool) -> Result<Anime> {
         let id = publication.yummyanime_id()?;
         let mut url = self
             .api_origin
             .join(&format!("anime/{id}"))
             .expect("numeric API path");
-        url.query_pairs_mut().append_pair("need_videos", "true");
+        url.query_pairs_mut()
+            .append_pair("need_videos", if need_videos { "true" } else { "false" });
         let response: Envelope<Anime> = self.http.json(url).await?;
         if response.response.anime_id != id {
             return Err(Error::InvalidResponse("publication identity changed"));

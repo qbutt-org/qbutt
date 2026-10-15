@@ -4,11 +4,12 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{Source, SourceOperation};
+use qbutt_content::{Source, SourceOperation, Work};
 use tokio::task::JoinSet;
 
 use super::catalog::SourceResponse;
 use super::ffi;
+use super::sources::SourceRequest;
 
 const MAX_SEARCH_SOURCES: usize = 4;
 
@@ -119,8 +120,19 @@ impl ffi::ContentController {
                 {
                     let catalog = Arc::clone(&catalog);
                     let request = categories.pop_front().expect("nonempty source requests");
+                    let progress_thread = qt_thread.clone();
                     pending.spawn(async move {
-                        let result = catalog.execute(&request.operation).await;
+                        let result = catalog
+                            .search_with_updates(&request.operation, |works| {
+                                let works = works.to_vec();
+                                let request = request.clone();
+                                let _ = progress_thread.queue(move |mut controller| {
+                                    controller
+                                        .as_mut()
+                                        .publish_search_works(&request, works, generation);
+                                });
+                            })
+                            .await;
                         (request, result, categories)
                     });
                 }
@@ -161,27 +173,10 @@ impl ffi::ContentController {
                     {
                         return;
                     }
-                    if let (
-                        SourceOperation::Search { query, .. },
-                        Ok(SourceResponse::Search(works)),
-                    ) = (&request.operation, result)
-                    {
-                        for work in works
-                            .into_iter()
-                            .filter(|work| qbutt_content::query::matches(query, work))
-                        {
-                            if controller.search.generation != generation
-                                || !controller.source_request_current(&request)
-                            {
-                                return;
-                            }
-                            controller
-                                .as_mut()
-                                .rust_mut()
-                                .search_association
-                                .update(work);
-                        }
-                        controller.as_mut().refresh_search_groups(generation);
+                    if let Ok(SourceResponse::Search(works)) = result {
+                        controller
+                            .as_mut()
+                            .publish_search_works(&request, works, generation);
                     }
                 });
             }
@@ -200,6 +195,30 @@ impl ffi::ContentController {
             });
         });
         self.as_mut().rust_mut().search.task = Some(task);
+    }
+
+    pub(super) fn publish_search_works(
+        mut self: Pin<&mut Self>,
+        request: &SourceRequest,
+        works: Vec<Work>,
+        generation: u64,
+    ) {
+        if self.search.generation != generation || !self.source_request_current(request) {
+            return;
+        }
+        let SourceOperation::Search { query, .. } = &request.operation else {
+            return;
+        };
+        for work in works
+            .into_iter()
+            .filter(|work| qbutt_content::query::matches(query, work))
+        {
+            self.as_mut()
+                .rust_mut()
+                .search_association
+                .update_search(work);
+        }
+        self.as_mut().refresh_search_groups(generation);
     }
 
     pub(super) fn refresh_search_groups(mut self: Pin<&mut Self>, generation: u64) {

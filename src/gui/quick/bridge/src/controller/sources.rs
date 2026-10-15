@@ -917,22 +917,11 @@ impl ffi::ContentController {
                         ) if controller.search.generation == search_generation
                             && controller.source_status.active_query.as_ref() == Some(query) =>
                         {
-                            for work in works
-                                .into_iter()
-                                .filter(|work| qbutt_content::query::matches(query, work))
-                            {
-                                if !controller.source_request_current(&request)
-                                    || controller.search.generation != search_generation
-                                {
-                                    break;
-                                }
-                                controller
-                                    .as_mut()
-                                    .rust_mut()
-                                    .search_association
-                                    .update(work);
-                            }
-                            controller.as_mut().refresh_search_groups(search_generation);
+                            controller.as_mut().publish_search_works(
+                                &request,
+                                works,
+                                search_generation,
+                            );
                         }
                         (
                             SourceOperation::Inspect { reference, .. },

@@ -131,6 +131,21 @@ impl WorkAssociation {
         }
     }
 
+    /// A late search snapshot cannot discard an exact publication's inspected
+    /// variants. Fresh inspection still replaces metadata through `update`.
+    /// A new search generation clears the collection before accepting raw rows.
+    pub fn update_search(&mut self, work: Work) {
+        if work.needs_inspection
+            && self
+                .publications
+                .iter()
+                .any(|previous| previous.reference == work.reference && !previous.needs_inspection)
+        {
+            return;
+        }
+        self.update(work);
+    }
+
     pub fn groups(&self) -> Vec<WorkGroup> {
         let titles = product_titles(&self.publications);
         self.groups_with_titles(&titles)
