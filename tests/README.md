@@ -163,8 +163,22 @@ Command template, verified with the copied script and built helper in the VM:
 bun tests/content-browser/webview-helper.ts <absolute-path-to-qbutt-webview.exe>
 ```
 
-Require exit zero and all seven `PASS hidden_helper` outcomes. This checks
-classification and cleanup; it does not establish live source clearance.
+Require exit zero and all eight `PASS hidden_helper` outcomes. Each helper first
+authenticates its fresh proxy through one private bootstrap page, then opens the
+source. The repeated normal page keeps the same profile across helper restarts.
+This checks classification and cleanup; it does not establish live source clearance.
+
+The HTTPS proxy fixture verifies CONNECT after that bootstrap and preserves an
+authored cookie across two helper processes with fresh proxy ports/passwords:
+
+```powershell
+pwsh -NoProfile -File tests/content-browser/webview-proxy-auth.ps1 -Helper <absolute-path-to-qbutt-webview.exe>
+```
+
+Run this PowerShell 7 fixture only in the isolated VM. Confirm Windows trust
+dialogs for its generated `fixture.example` certificate, including removal.
+The wrapper removes the certificate and temporary files in `finally`. Require
+two `PASS hidden_helper https_proxy_auth` outcomes and wrapper exit zero.
 
 The protected playback transport has a generated HTTP/HTTPS integration scenario:
 

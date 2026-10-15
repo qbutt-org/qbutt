@@ -29,7 +29,8 @@ private:
     void prepareSession(const QJsonArray &cookies, const QString &fingerprint, const QString &profile,
         bool authoritative, const QSet<QString> &retained);
     bool seedCookies(ICoreWebView2CookieManager *manager, const QJsonArray &cookies);
-    void navigate();
+    void authenticateProxy();
+    void navigateSource();
     void pollDocument();
     void collectSession(const QUrl &url);
     void finish(const QJsonObject &result);
@@ -56,6 +57,7 @@ private:
     bool m_polling = false;
     bool m_sawChallenge = false;
     bool m_interactive = false;
+    bool m_proxyAuthenticated = false;
     int m_cleanPolls = 0;
     int m_httpStatus = 0;
     quint64 m_navigationGeneration = 0;

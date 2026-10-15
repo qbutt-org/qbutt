@@ -32,6 +32,7 @@ namespace
 {
     constexpr qsizetype maxResponseBytes = 256 * 1024 - 1; // reserve the JSON-lines newline
     constexpr wchar_t windowClass[] = L"qbuttWebSession";
+    const QUrl proxyCheckUrl {QStringLiteral("http://qbutt-webview.invalid/")};
     constexpr wchar_t documentState[] = LR"JS((() => {
         const has = selector => document.querySelector(selector) !== null;
         const anubis = has('script#anubis_challenge[type="application/json"]')
@@ -271,7 +272,7 @@ void WebSession::prepareSession(const QJsonArray &cookies, const QString &finger
 {
     if (fingerprint.isEmpty())
     {
-        navigate();
+        authenticateProxy();
         return;
     }
     const QString markerPath = profile + "/qbutt-configured-session";
@@ -361,7 +362,7 @@ void WebSession::prepareSession(const QJsonArray &cookies, const QString &finger
             if (!seedCookies(manager.Get(), seeds))
                 fail(QStringLiteral("webview_failed"));
             else
-                navigate();
+                authenticateProxy();
             return S_OK;
         }).Get());
         if (FAILED(queried))
@@ -396,7 +397,7 @@ void WebSession::prepareSession(const QJsonArray &cookies, const QString &finger
         if (!marker.open(QIODevice::WriteOnly) || marker.write(contents) != contents.size() || !marker.commit())
             fail(QStringLiteral("webview_failed"));
         else
-            navigate();
+            authenticateProxy();
         return S_OK;
     }).Get());
     if (FAILED(cleared))
@@ -423,7 +424,15 @@ bool WebSession::seedCookies(ICoreWebView2CookieManager *manager, const QJsonArr
     return true;
 }
 
-void WebSession::navigate()
+void WebSession::authenticateProxy()
+{
+    // Authenticate the owned proxy before navigating to a source. The gateway
+    // serves this empty page without forwarding it or resolving its hostname.
+    if (FAILED(m_view->Navigate(reinterpret_cast<LPCWSTR>(proxyCheckUrl.toString().utf16()))))
+        fail(QStringLiteral("webview_failed"));
+}
+
+void WebSession::navigateSource()
 {
     if (m_interactive)
     {
@@ -485,7 +494,11 @@ bool WebSession::configure()
         if (SUCCEEDED(args->get_Request(&request)))
             request->get_Uri(&uri);
         const QUrl address {consumeString(uri), QUrl::StrictMode};
-        if (!publicUrl(address))
+        COREWEBVIEW2_WEB_RESOURCE_CONTEXT context = COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL;
+        args->get_ResourceContext(&context);
+        const bool proxyCheck = !m_proxyAuthenticated && address == proxyCheckUrl
+            && context == COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT;
+        if (!proxyCheck && !publicUrl(address))
         {
             ComPtr<ICoreWebView2WebResourceResponse> response;
             if (SUCCEEDED(m_environment->CreateWebResourceResponse(nullptr, 403, L"Blocked", L"Content-Length: 0", &response)))
@@ -542,7 +555,8 @@ bool WebSession::configure()
         LPWSTR uri = nullptr;
         args->get_Uri(&uri);
         const QUrl address {consumeString(uri), QUrl::StrictMode};
-        if (!publicUrl(address))
+        if ((!m_proxyAuthenticated && address != proxyCheckUrl)
+            || (m_proxyAuthenticated && !publicUrl(address)))
         {
             args->put_Cancel(TRUE);
             fail(QStringLiteral("webview_failed"));
@@ -578,6 +592,25 @@ bool WebSession::configure()
             details->get_HttpStatusCode(&m_httpStatus);
         COREWEBVIEW2_WEB_ERROR_STATUS error = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
         args->get_WebErrorStatus(&error);
+        if (!m_proxyAuthenticated)
+        {
+            // WebView reports the challenged navigation before requesting
+            // credentials and starting its authenticated navigation.
+            if (m_httpStatus == 407 || error == COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED)
+                return S_OK;
+            if (!success || m_httpStatus != 200)
+                fail(QStringLiteral("webview_failed"));
+            else
+            {
+                m_proxyAuthenticated = true;
+                QTimer::singleShot(0, this, [this]
+                {
+                    if (!m_finished)
+                        navigateSource();
+                });
+            }
+            return S_OK;
+        }
         if (!success && m_httpStatus < 400 && error != COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED)
             fail(QStringLiteral("webview_failed"));
         else if (success || m_httpStatus >= 400)
@@ -801,7 +834,8 @@ void WebSession::close()
 bool WebSession::publicUrl(const QUrl &url)
 {
     if (!url.isValid() || (url.scheme() != "https" && url.scheme() != "http")
-        || url.host().isEmpty() || !url.userInfo().isEmpty() || url.port(443) <= 0)
+        || url.host().isEmpty() || url.host() == proxyCheckUrl.host()
+        || !url.userInfo().isEmpty() || url.port(443) <= 0)
         return false;
     const QHostAddress address {url.host()};
     if (address.isNull())

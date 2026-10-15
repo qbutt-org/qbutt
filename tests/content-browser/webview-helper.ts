@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { lstat, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 // Run in an isolated Windows VM. The actual helper uses its silent mode and
 // this closed proxy serves generated HTML only; it never forwards requests.
@@ -11,10 +11,10 @@ assert(executable && isAbsolute(executable), "Pass the absolute qbutt-webview.ex
 const directory = await mkdtemp(join(tmpdir(), "qbutt-webview-html-"));
 const origin = "http://fixture.example";
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
-const password = randomBytes(32).toString("hex");
 const jsdPath = "/cdn-cgi/challenge-platform/scripts/jsd/main.js";
 const scenarios = [
     { id: "normal-jsd", status: 200, body: `<script src="${jsdPath}"></script><main>Generated legal catalog</main>` },
+    { id: "normal-jsd-restart", status: 200, body: `<script src="${jsdPath}"></script><main>Generated legal catalog after restart</main>` },
     { id: "challenge-form", status: 200, body: '<form id="challenge-form"></form>', error: "browser_check_required" },
     { id: "challenge-stage", status: 200, body: '<div id="challenge-stage"></div>', error: "browser_check_required" },
     { id: "turnstile", status: 200, body: '<div class="cf-turnstile"></div>', error: "browser_check_required" },
@@ -23,26 +23,42 @@ const scenarios = [
     { id: "unavailable", status: 503, body: "Temporarily unavailable", error: "webview_failed" },
 ];
 let scripts = 0;
-const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
-    const url = new URL(request.url);
-    if (url.origin !== origin)
-        return new Response(null, { status: 403 });
-    if (url.pathname === jsdPath) {
-        scripts++;
-        return new Response("", { headers: { "Content-Type": "application/javascript" } });
-    }
-    const scenario = scenarios.find(scenario => url.pathname === `/${scenario.id}`);
-    if (!scenario)
-        return new Response(null, { status: 404 });
-    return new Response(`<!doctype html><html><head><title>Generated fixture</title></head><body>${scenario.body}</body></html>`, {
-        status: scenario.status,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
-} });
-
 let failure: unknown;
 try {
     for (const scenario of scenarios) {
+        const password = randomBytes(32).toString("hex");
+        const authorization = `Basic ${Buffer.from(`qbutt:${password}`).toString("base64")}`;
+        let challenges = 0;
+        let authenticated = 0;
+        let bootstraps = 0;
+        const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(incoming) {
+            if (incoming.headers.get("proxy-authorization") !== authorization) {
+                challenges++;
+                return new Response(null, { status: 407, headers: {
+                    "Proxy-Authenticate": 'Basic realm="qbutt"',
+                    "Connection": "close",
+                    "Content-Length": "0",
+                } });
+            }
+            authenticated++;
+            const address = new URL(incoming.url);
+            if (incoming.method === "GET" && incoming.url === "http://qbutt-webview.invalid/") {
+                bootstraps++;
+                return new Response("", { headers: { "Content-Type": "text/html", "Cache-Control": "no-store" } });
+            }
+            if (address.origin !== origin)
+                return new Response(null, { status: 403 });
+            if (address.pathname === jsdPath) {
+                scripts++;
+                return new Response("", { headers: { "Content-Type": "application/javascript" } });
+            }
+            if (address.pathname !== `/${scenario.id}`)
+                return new Response(null, { status: 404 });
+            return new Response(`<!doctype html><html><head><title>Generated fixture</title></head><body>${scenario.body}</body></html>`, {
+                status: scenario.status,
+                headers: { "Content-Type": "text/html; charset=utf-8" },
+            });
+        } });
         const url = `${origin}/${scenario.id}`;
         const request = {
             id: scenario.id,
@@ -67,6 +83,9 @@ try {
             assert.equal(await child.exited, 0, `Helper exit for ${scenario.id}`);
             const response = JSON.parse(output);
             assert.equal(response.id, scenario.id);
+            assert(challenges > 0, `Proxy challenge for ${scenario.id}`);
+            assert(authenticated > 0, `Proxy authenticated for ${scenario.id}`);
+            assert.equal(bootstraps, 1, `Single proxy bootstrap for ${scenario.id}`);
             if (scenario.error) {
                 assert.equal(response.error?.code, scenario.error, scenario.id);
                 assert.equal(response.session, undefined, `No session for ${scenario.id}`);
@@ -84,6 +103,7 @@ try {
             if (child.exitCode === null)
                 child.kill();
             await child.exited;
+            server.stop(true);
         }
     }
     assert(scripts > 0, "The normal page really loaded its JSD script");
@@ -93,7 +113,10 @@ catch (error) {
     throw error;
 }
 finally {
-    server.stop(true);
+    assert(!(await lstat(directory)).isSymbolicLink(), "Fixture cleanup rejects reparse links");
+    const resolved = await realpath(directory);
+    const temporaryRoot = await realpath(tmpdir());
+    assert.equal(dirname(resolved).toLowerCase(), temporaryRoot.toLowerCase(), "Fixture cleanup stays within Temp");
     let cleanup: unknown;
     for (let attempt = 0; attempt < 50; attempt++) {
         try {

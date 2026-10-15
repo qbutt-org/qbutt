@@ -121,6 +121,22 @@ async fn main() -> AcceptanceResult<()> {
     .await?;
     assert!(wrong.starts_with(b"HTTP/1.1 407"));
 
+    let proxy_check = "http://qbutt-webview.invalid/";
+    let unauthorized = request(&proxy, &format!("GET {proxy_check} HTTP/1.1\r\n\r\n")).await?;
+    assert!(unauthorized.starts_with(b"HTTP/1.1 407"));
+    let checked = request(
+        &proxy,
+        &format!("GET {proxy_check} HTTP/1.1\r\nProxy-Authorization: {auth}\r\n\r\n"),
+    )
+    .await?;
+    assert!(checked.starts_with(b"HTTP/1.1 200"));
+    assert!(
+        checked
+            .windows(b"Cache-Control: no-store".len())
+            .any(|part| part == b"Cache-Control: no-store")
+    );
+    assert!(checked.ends_with(b"Content-Length: 0\r\n\r\n"));
+
     let forwarded = request(&proxy, &format!(
         "GET {origin}/legal HTTP/1.1\r\nProxy-Authorization: {auth}\r\nHost: wrong\r\nConnection: keep-alive, X-Remove\r\nX-Remove: removed\r\nKeep-Alive: timeout=5\r\nTE: trailers\r\nUpgrade: websocket\r\nRange: bytes=1-3\r\n\r\n"
     )).await?;
@@ -158,6 +174,19 @@ async fn main() -> AcceptanceResult<()> {
     assert!(matches!(blocked_redirect.status().as_u16(), 403 | 407));
 
     for (method, target, extra, status) in [
+        ("HEAD", proxy_check.into(), "", 403),
+        ("GET", format!("{proxy_check}?query"), "", 403),
+        ("GET", format!("{proxy_check}other"), "", 403),
+        ("GET", "http://qbutt-webview.invalid:80/".into(), "", 403),
+        ("GET", "https://qbutt-webview.invalid/".into(), "", 403),
+        ("CONNECT", "qbutt-webview.invalid:443".into(), "", 403),
+        (
+            "GET",
+            "http://qbutt-webview.invalid@127.0.0.1/".into(),
+            "",
+            403,
+        ),
+        ("GET", "/".into(), "", 400),
         ("POST", format!("{origin}/legal"), "", 405),
         (
             "GET",

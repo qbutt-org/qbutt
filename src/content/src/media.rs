@@ -27,6 +27,7 @@ const MAX_HEAD_BYTES: usize = 16 * 1024;
 const HEAD_TIMEOUT: Duration = Duration::from_secs(10);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const PROXY_CHECK_URL: &str = "http://qbutt-webview.invalid/";
 
 #[derive(Debug, thiserror::Error)]
 pub enum MediaGatewayError {
@@ -159,10 +160,13 @@ async fn serve(
     connections.shutdown().await;
 }
 
-struct Request {
-    target: Url,
-    tunnel: bool,
-    upstream_head: Vec<u8>,
+enum Request {
+    ProxyCheck,
+    Forward {
+        target: Url,
+        tunnel: bool,
+        upstream_head: Vec<u8>,
+    },
 }
 
 async fn handle(
@@ -177,11 +181,27 @@ async fn handle(
     if let Some(resources) = resources {
         return resources.handle(client, &head[..end], &head[end..]).await;
     }
-    let request = match parse_request(&head[..end], authorization, &head[end..]) {
-        Ok(request) => request,
+    let (target, tunnel, upstream_head) = match parse_request(
+        &head[..end],
+        authorization,
+        &head[end..],
+    ) {
+        Ok(Request::ProxyCheck) => {
+            tokio::time::timeout(
+                HEAD_TIMEOUT,
+                client.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"),
+            )
+            .await??;
+            return client.shutdown().await;
+        }
+        Ok(Request::Forward {
+            target,
+            tunnel,
+            upstream_head,
+        }) => (target, tunnel, upstream_head),
         Err(status) => return reject(&mut client, status).await,
     };
-    let mut upstream = match tokio::time::timeout(CONNECT_TIMEOUT, connect(&request.target)).await {
+    let mut upstream = match tokio::time::timeout(CONNECT_TIMEOUT, connect(&target)).await {
         Ok(Ok(socket)) => socket,
         Ok(Err(error)) if error.kind() == io::ErrorKind::PermissionDenied => {
             return reject(&mut client, 403).await;
@@ -191,7 +211,7 @@ async fn handle(
 
     let (activity, mut observed) = watch::channel(());
     let transfer = async {
-        if request.tunnel {
+        if tunnel {
             tokio::time::timeout(
                 HEAD_TIMEOUT,
                 client.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n"),
@@ -205,8 +225,7 @@ async fn handle(
                 relay(&mut upstream_read, &mut client_write, &activity)
             )?;
         } else {
-            tokio::time::timeout(HEAD_TIMEOUT, upstream.write_all(&request.upstream_head))
-                .await??;
+            tokio::time::timeout(HEAD_TIMEOUT, upstream.write_all(&upstream_head)).await??;
             let (response, end) =
                 match tokio::time::timeout(HEAD_TIMEOUT, read_head(&mut upstream)).await {
                     Ok(Ok(response)) => response,
@@ -279,6 +298,11 @@ fn parse_request(head: &[u8], authorization: &str, remainder: &[u8]) -> Result<R
     if !tunnel && !remainder.is_empty() {
         return Err(400);
     }
+    // The owned WebView authenticates here before navigating to a source.
+    // Never resolve or forward this exact private URL.
+    if target == PROXY_CHECK_URL && method == "GET" {
+        return Ok(Request::ProxyCheck);
+    }
     let target = if tunnel {
         let (_, port) = target.rsplit_once(':').ok_or(400u16)?;
         if port.is_empty()
@@ -295,6 +319,9 @@ fn parse_request(head: &[u8], authorization: &str, remainder: &[u8]) -> Result<R
         Url::parse(target).map_err(|_| 400u16)?
     };
     validate_media_url(&target).map_err(|_| 403u16)?;
+    if target.host_str() == Some("qbutt-webview.invalid") {
+        return Err(403);
+    }
     if !tunnel && target.scheme() != "http" {
         return Err(403);
     }
@@ -333,7 +360,7 @@ fn parse_request(head: &[u8], authorization: &str, remainder: &[u8]) -> Result<R
         }
         upstream_head.extend_from_slice(b"\r\n");
     }
-    Ok(Request {
+    Ok(Request::Forward {
         target,
         tunnel,
         upstream_head,
