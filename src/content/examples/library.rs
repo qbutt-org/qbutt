@@ -48,6 +48,12 @@ fn exercise(root: &Path) -> Result<()> {
     let work = fixture();
     let mut library = Library::open(&profile)?;
     assert!(library.entries(LibraryView::All)?.is_empty());
+    assert!(
+        library
+            .refresh_work(&qbutt_content::WorkGroup::single(work.clone()))?
+            .is_none()
+    );
+    assert!(library.entries(LibraryView::All)?.is_empty());
     library.set_favorite(&qbutt_content::WorkGroup::single(work.clone()), true)?;
     library.save_preferences(
         &qbutt_content::WorkGroup::single(work.clone()),
@@ -84,6 +90,14 @@ fn exercise(root: &Path) -> Result<()> {
     partial.aliases = vec!["New generated alias".into()];
     partial.identifiers = BTreeMap::from([("new".into(), "2".into())]);
     partial.variants.truncate(1);
+    let before_refresh = library.get(&work.reference)?.ok_or("missing saved work")?;
+    let refreshed = library
+        .refresh_work(&qbutt_content::WorkGroup::single(partial.clone()))?
+        .ok_or("inspection lost the saved work")?;
+    assert_eq!(refreshed.group.anchor_work().unwrap().title, partial.title);
+    assert_eq!(refreshed.preferences, before_refresh.preferences);
+    assert_eq!(refreshed.favorite, before_refresh.favorite);
+    assert_eq!(refreshed.last_opened, before_refresh.last_opened);
     library.set_favorite(&qbutt_content::WorkGroup::single(partial.clone()), false)?;
     let entry = library.get(&work.reference)?.ok_or("missing saved work")?;
     assert!(!entry.favorite);

@@ -115,6 +115,21 @@ impl Library {
         self.update(group, |entry, _| entry.preferences = preferences)
     }
 
+    /// Inspection refreshes known metadata without creating a saved work or
+    /// changing its explicit selection, favorite or confirmed action history.
+    pub fn refresh_work(&mut self, group: &WorkGroup) -> LibraryResult<Option<LibraryEntry>> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let Some(mut entry) = read_entry(&transaction, &group.anchor)? else {
+            return Ok(None);
+        };
+        entry.refresh(group);
+        write_entry(&transaction, &entry, now_millis()?)?;
+        transaction.commit()?;
+        Ok(Some(entry))
+    }
+
     /// Call only after the actual content action succeeds, never on selection
     /// or resolution alone. The exact opened variant and current choices are
     /// committed atomically with the full known work.

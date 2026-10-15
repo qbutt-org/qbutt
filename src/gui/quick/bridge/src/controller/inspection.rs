@@ -8,6 +8,7 @@ use tokio::task::JoinSet;
 
 use super::catalog::SourceResponse;
 use super::ffi;
+use super::library::LibraryAction;
 
 const MAX_INSPECTION_REQUESTS: usize = 4;
 
@@ -107,9 +108,11 @@ impl ffi::ContentController {
                 controller.as_mut().selected_variant_state_changed();
                 if controller.inspection.generation == generation
                     && controller.error_kind.is_none()
-                    && !controller.selected_variant_id.is_empty()
+                    && let Some(group) = controller.selected_group.clone()
                 {
-                    controller.as_mut().save_selected_preferences();
+                    controller
+                        .as_mut()
+                        .submit_library(LibraryAction::Refresh { group });
                 }
             });
         });

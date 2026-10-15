@@ -10,6 +10,8 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QQuickItem>
 #include <QScopeGuard>
 #include <QSqlDatabase>
@@ -193,6 +195,29 @@ void exerciseProgressiveSelection()
         controller->setVariantQuery(u"720"_s);
         controller->setSelectedFavorite(true);
         waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Split preferences and favorite"_s);
+        QJsonObject opened;
+        {
+            const QString connection = u"progressive-history-fixture"_s;
+            const auto removeConnection = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
+            auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, connection);
+            database.setDatabaseName(profile.filePath(u"content-library.sqlite"_s));
+            require(database.open(), database.lastError().text());
+            QSqlQuery query(database);
+            require(query.exec(u"SELECT entry FROM library"_s) && query.next(), u"Saved split work is missing"_s);
+            QJsonObject entry = QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object();
+            require(entry.value(u"favorite"_s).toBool(), u"Split fixture favorite was not saved"_s);
+            const QJsonObject exact = entry.value(u"preferences"_s).toObject().value(u"selected"_s).toObject();
+            require(exact.value(u"publication"_s).toObject() == QJsonObject {
+                {u"source"_s, u"yummy_anime"_s}, {u"id"_s, u"9661"_s}},
+                u"Generated history must use the exact selected late publication"_s);
+            opened = {{u"variant"_s, exact},
+                {u"at_unix_millis"_s, 123456}};
+            entry.insert(u"last_opened"_s, opened);
+            query.finish();
+            require(query.prepare(u"UPDATE library SET entry = ?"_s), query.lastError().text());
+            query.addBindValue(QString::fromUtf8(QJsonDocument(entry).toJson(QJsonDocument::Compact)));
+            require(query.exec() && query.numRowsAffected() == 1, u"Generated exact history was not saved"_s);
+        }
         controller->setListMode(Qbutt::Search::ListMode::Favorites);
         controller->selectWork(work);
         qInfo("FIXTURE release_cached_fast");
@@ -216,14 +241,18 @@ void exerciseProgressiveSelection()
 
         const QString connection = u"progressive-split-fixture"_s;
         {
+            const auto removeConnection = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
             auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, connection);
             database.setDatabaseName(profile.filePath(u"content-library.sqlite"_s));
             require(database.open(), database.lastError().text());
             QSqlQuery query(database);
             require(query.exec(u"SELECT count(*) FROM library"_s) && query.next()
                 && query.value(0).toInt() == 1, u"Split refresh duplicated the saved library identity"_s);
+            require(query.exec(u"SELECT entry FROM library"_s) && query.next(), u"Saved split work disappeared"_s);
+            const QJsonObject entry = QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object();
+            require(entry.value(u"favorite"_s).toBool() && entry.value(u"last_opened"_s).toObject() == opened,
+                u"Split inspection changed the favorite or exact confirmed history"_s);
         }
-        QSqlDatabase::removeDatabase(connection);
 
         controller->setListMode(Qbutt::Search::ListMode::Search);
         controller->selectWork(work);
@@ -233,7 +262,7 @@ void exerciseProgressiveSelection()
         require(controller->property("selectedVariantId").toString() != lateVariant,
             u"The other split row kept another publication's exact choice"_s);
         waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Other split row preferences"_s);
-        qInfo("PASS progressive_selection split=exact filters=retained library_identity=stable cached_association=rejected");
+        qInfo("PASS progressive_selection split=exact filters=retained library_identity=stable favorite_history=retained cached_association=rejected");
         return;
     }
 
