@@ -7,6 +7,8 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
+#[path = "../src/query.rs"]
+mod query;
 #[cfg(windows)]
 pub use qbutt_content::webview;
 
@@ -66,12 +68,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         fixture.origin.clone(),
         fixture.client.clone(),
     );
-    let results = source.search("generated & legal", Category::Games).await?;
+    let mut results = source.search("generated & legal", Category::Games).await?;
+    assert_eq!(results.len(), 2);
+    results.retain(|work| query::matches("generated & legal", work));
     assert_eq!(results.len(), 1);
     let found = &results[0];
     assert_eq!(found.reference.id, "generated-legal-game");
     assert_eq!(found.title, "Generated & Legal: Complete Edition – v2.0");
     assert!(found.needs_inspection && found.variants.is_empty());
+    check_search_relevance(found);
     let work = source.inspect(&found.reference).await?;
     assert_eq!(work.reference, found.reference);
     assert_eq!(work.variants.len(), 2);
@@ -339,6 +344,47 @@ fn publication(slug: &str) -> PublicationRef {
         source: Source::FitGirl,
         id: slug.into(),
     }
+}
+
+fn check_search_relevance(found: &Work) {
+    let cases = [
+        (
+            "ready or not",
+            "Ready or Not: Digital Deluxe Edition, v112610 (v1.4.1)",
+            true,
+        ),
+        ("ready or not", "MEMORIAPOLIS – v1.6.8", false),
+        ("ready or not", "Don't Give Up: Not Ready to Die", false),
+        ("ready or not", "Ready, Steady, Ship!", false),
+        ("ready or not", "Just Die Already", false),
+        ("READY—OR: NOT", "Ready or Not", true),
+        ("ready or n", "Ready or Not", true),
+        ("ready", "Already There", false),
+        ("resident evil", "Resident Evil 4 Remake", true),
+        ("resident evil 4", "Resident Evil 40", false),
+        ("86", "86: Eighty-Six, Season 2", true),
+        ("86", "868: Generated Work", false),
+        ("86", "1986: Generated Work", false),
+        ("stalker", "S.T.A.L.K.E.R. 2: Heart of Chornobyl", true),
+        ("baldurs gate", "Baldur’s Gate 3", true),
+        ("синий ар", "Синий архив", true),
+        (" \t ", "Ready or Not", false),
+        ("— / .", "Ready or Not", false),
+    ];
+    for (query, title, expected) in cases {
+        let mut work = found.clone();
+        work.title = title.into();
+        assert_eq!(query::matches(query, &work), expected, "{query:?}: {title}");
+        assert!(work.needs_inspection && work.variants.is_empty());
+    }
+
+    let mut aliased = found.clone();
+    aliased.title = "Blue Archive".into();
+    aliased.aliases = vec!["Синий архив".into(), "ブルーアーカイブ".into()];
+    assert!(query::matches("синий архив", &aliased));
+    assert!(query::matches("Blue Arch", &aliased));
+    assert!(query::matches("ブルー", &aliased));
+    assert!(!query::matches("синий Blue", &aliased));
 }
 
 fn check_library(work: &Work) -> std::result::Result<(), Box<dyn std::error::Error>> {

@@ -1,6 +1,6 @@
 //! Official catalog and .torrent metadata acceptance. No game payload is fetched.
 
-use qbutt_content::{Category, Error, FitGirl, ResolvedContent, Result, VariantSelector};
+use qbutt_content::{Category, Error, FitGirl, ResolvedContent, Result, VariantSelector, query};
 
 #[path = "../src/torrent.rs"]
 mod torrent;
@@ -11,7 +11,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let query = std::env::args()
         .nth(1)
         .unwrap_or_else(|| "Cyberpunk".into());
-    let found = source.search(&query, Category::Games).await?;
+    let mut found = source.search(&query, Category::Games).await?;
+    let raw_results = found.len();
+    found.retain(|work| query::matches(&query, work));
     let publication = found.first().ok_or("no official game results")?;
     assert!(publication.needs_inspection && publication.variants.is_empty());
     let work = source.inspect(&publication.reference).await?;
@@ -65,7 +67,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .is_empty()
     );
     println!(
-        "PASS fitgirl_live search={} publication={} variants={} torrent_files={} metadata_bytes={} exact_hash=ok missing_hash=rejected empty=ok game_payload=none direct_game_archives=unsupported",
+        "PASS fitgirl_live raw_search={raw_results} matching_titles={} publication={} variants={} torrent_files={} metadata_bytes={} exact_hash=ok missing_hash=rejected empty=ok game_payload=none direct_game_archives=unsupported",
         found.len(),
         work.reference.id,
         work.variants.len(),

@@ -40,6 +40,7 @@ mod nhentai;
 mod nnmclub;
 mod nyaa;
 mod online_fix;
+pub mod query;
 mod ranobehub;
 mod ranobelib;
 mod royalroad;

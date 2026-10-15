@@ -26,6 +26,11 @@ fn search_page(origin: &Url, query: &str) -> String {
             "search-no-results",
             "<h1 class=\"page-title\">Nothing Found</h1>".into(),
         )
+    } else if query == "generated & legal" {
+        let unrelated = format!(
+            r#"<article class="category-lossless-repack"><h1 class="entry-title"><a rel="bookmark" href="{origin}unrelated-game/">Unrelated Game – v1.0</a></h1><div class="entry-content">Generated &amp; Legal appears only in this article body.</div></article>"#
+        );
+        ("search-results", format!("{article}{unrelated}"))
     } else {
         ("search-results", article.clone())
     };
