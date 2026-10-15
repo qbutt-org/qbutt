@@ -12,6 +12,8 @@ mod product_releases;
 mod public_titles;
 #[path = "work-association/search-order.rs"]
 mod search_order;
+#[path = "work-association/search-visibility.rs"]
+mod search_visibility;
 #[path = "work-association/series-seasons.rs"]
 mod series_seasons;
 
@@ -31,6 +33,7 @@ fn main() -> Result<()> {
     product_releases::run()?;
     movies::run();
     search_order::run();
+    search_visibility::run();
     series_seasons::run();
 
     let mut association = WorkAssociation::default();

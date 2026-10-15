@@ -128,6 +128,40 @@ void exerciseProgressiveSelection()
         waitFor([&] { return !controller->property("busy").toBool(); }, u"Both search publications"_s);
     const QString work = value(works, 0, "workId");
     controller->selectWork(work);
+    if (qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_EMPTY") == 1)
+    {
+        waitFor([&]
+        {
+            return !controller->property("inspecting").toBool() && (works->rowCount() == 0);
+        }, u"Confirmed empty publication removal"_s);
+        require(controller->property("selectedWorkId").toString().isEmpty()
+            && (variants->rowCount() == 0), u"Removed empty work retained a dead selection"_s);
+        qInfo("FIXTURE release_late_search");
+        waitFor([&] { return works->rowCount() == 1; }, u"Late pending publication restores the work"_s);
+        controller->selectWork(value(works, 0, "workId"));
+        qInfo("FIXTURE release_late_inspection");
+        waitFor([&]
+        {
+            return !controller->property("inspecting").toBool() && (variants->rowCount() == 1);
+        }, u"Working publication beside confirmed empty source"_s);
+        require((works->rowCount() == 1)
+            && (controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
+                == Qbutt::Search::VariantSelectionState::Available),
+            u"Empty source hid the working alternative"_s);
+        require(controller->setSelectedFavorite(true), u"Mixed work favorite rejected"_s);
+        waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Mixed work favorite save"_s);
+        const auto before = savedEntries(profile.path());
+        controller->setListMode(Qbutt::Search::ListMode::Favorites);
+        controller->selectWork(value(model(*controller, "favorites"), 0, "workId"));
+        qInfo("FIXTURE release_cached_late");
+        waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Favorite fresh inspection"_s);
+        require((model(*controller, "favorites")->rowCount() == 1)
+            && (savedEntries(profile.path()) == before), u"Empty source changed the saved library"_s);
+        controller->setListMode(Qbutt::Search::ListMode::Search);
+        require(works->rowCount() == 1, u"Search return lost the working alternative"_s);
+        qInfo("PASS progressive_selection confirmed_empty=hidden dead_selection=cleared late_pending=visible mixed_group=retained favorites_and_library=unchanged");
+        return;
+    }
     waitFor([&]
     {
         return (controller->property("inspecting").toBool() == initial) && (variants->rowCount() == 2);

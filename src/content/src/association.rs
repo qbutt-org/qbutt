@@ -148,6 +148,21 @@ impl WorkAssociation {
         self.update(work);
     }
 
+    /// Unsupported acquisition completes inspection without verifying a variant.
+    /// Keep the publication snapshot so a late search row cannot resurrect it.
+    pub fn confirm_empty_inspection(&mut self, reference: &PublicationRef) -> bool {
+        let Some(work) = self
+            .publications
+            .iter_mut()
+            .find(|work| &work.reference == reference)
+        else {
+            return false;
+        };
+        work.needs_inspection = false;
+        work.variants.clear();
+        true
+    }
+
     pub fn groups(&self) -> Vec<WorkGroup> {
         let titles = product_titles(&self.publications);
         self.groups_with_titles(&titles)
@@ -159,6 +174,12 @@ impl WorkAssociation {
         let query = identity::normalized_title(query);
         let titles = product_titles(&self.publications);
         let mut groups = self.groups_with_titles(&titles);
+        groups.retain(|group| {
+            group
+                .publications
+                .iter()
+                .any(|work| work.needs_inspection || !work.variants.is_empty())
+        });
         groups.sort_by_cached_key(|group| {
             let names = group
                 .references

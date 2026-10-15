@@ -313,6 +313,14 @@ impl ffi::ContentController {
                 .iter()
                 .find(|group| group.references.contains(&reference))
             else {
+                let (selection_generation, resolution_generation) = self.as_mut().cancel_detail();
+                if self.search.generation == generation
+                    && self.inspection.generation == selection_generation
+                    && self.resolution.generation == resolution_generation
+                {
+                    self.as_mut().rust_mut().variants.pin_mut().clear();
+                    self.as_mut().set_selection(None, selection_generation);
+                }
                 return;
             };
             let selection_generation = self.inspection.generation;

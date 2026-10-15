@@ -940,18 +940,18 @@ impl ffi::ContentController {
                                 controller.as_mut().complete_shared_import();
                             }
                         }
-                        (
-                            SourceOperation::Inspect { reference, .. },
-                            Ok(SourceResponse::Inspect(work)),
-                        ) if controller.inspection.generation == inspection_generation
-                            && controller
-                                .selected_group
-                                .as_ref()
-                                .is_some_and(|group| group.references.contains(reference)) =>
+                        (SourceOperation::Inspect { reference, .. }, result)
+                            if controller.inspection.generation == inspection_generation
+                                && controller
+                                    .selected_group
+                                    .as_ref()
+                                    .is_some_and(|group| group.references.contains(reference)) =>
                         {
-                            controller
-                                .as_mut()
-                                .publish_inspected_work(work, inspection_generation);
+                            controller.as_mut().publish_inspection_result(
+                                reference,
+                                result,
+                                inspection_generation,
+                            );
                         }
                         // A persisted Resolve failure only probes availability. The transient
                         // action above is required before opening the selected variant again.

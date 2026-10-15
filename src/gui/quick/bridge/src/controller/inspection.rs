@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{Source, SourceOperation, WorkGroup};
+use qbutt_content::{Error, PublicationRef, Source, SourceOperation, WorkGroup};
 use tokio::task::JoinSet;
 
 use super::catalog::SourceResponse;
@@ -12,6 +12,33 @@ use super::ffi;
 const MAX_INSPECTION_REQUESTS: usize = 4;
 
 impl ffi::ContentController {
+    pub(super) fn publish_inspection_result(
+        mut self: Pin<&mut Self>,
+        reference: &PublicationRef,
+        result: qbutt_content::Result<SourceResponse>,
+        generation: u64,
+    ) {
+        if self.inspection.generation != generation {
+            return;
+        }
+        match result {
+            Ok(SourceResponse::Inspect(work)) => self.publish_inspected_work(work, generation),
+            Err(Error::UnsupportedAcquisition(_)) => {
+                if self
+                    .as_mut()
+                    .rust_mut()
+                    .search_association
+                    .confirm_empty_inspection(reference)
+                    && self.list_mode == ffi::ListMode::Search
+                {
+                    let search_generation = self.search.generation;
+                    self.refresh_search_groups(search_generation);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub(super) fn inspect_publications(
         mut self: Pin<&mut Self>,
         group: &WorkGroup,
@@ -83,8 +110,10 @@ impl ffi::ContentController {
                     {
                         return;
                     }
-                    if let Ok(SourceResponse::Inspect(work)) = result {
-                        controller.as_mut().publish_inspected_work(work, generation);
+                    if let SourceOperation::Inspect { reference, .. } = &request.operation {
+                        controller
+                            .as_mut()
+                            .publish_inspection_result(reference, result, generation);
                     }
                 });
             }

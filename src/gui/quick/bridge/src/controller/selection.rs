@@ -275,6 +275,10 @@ impl ffi::ContentController {
             self.as_mut().cancel_shared_import();
             self.as_mut().rust_mut().list_mode = mode;
             self.as_mut().list_mode_changed();
+            if self.list_mode == ffi::ListMode::Search {
+                let generation = self.search.generation;
+                self.refresh_search_groups(generation);
+            }
         }
     }
 
