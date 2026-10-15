@@ -19,10 +19,19 @@ pub(super) fn run() {
         "Я иду искать 2 / Ready or Not 2: Here I Come (2026) HDRip-AVC | КПК | D | MovieDalen",
         "Я иду искать 2 / Ready or Not 2: Here I Come (2026) WEBRip-AVC от ExKinoRay | D",
         "Ready Or Not 2 Here I Come 2026 1080p DUAL WEB-DL x264 EAC3 5 1 Atmos - HdT",
+        "Ready or Not 2 Here I Come 2026 PL 1080p BDRp XviD AC3-MAXX",
+        "Ready or Not 2 Here I Come [2026] Dual YG",
+        "Ready or Not 2 Here I Come (2026) [Samara Weaving] BluRay H264 DD 5 1 nickarad",
+        "Ready or Not 2 - Here I Come (2026) (1080p BluRay x265 SDR DDP Atmos 7 1 En",
+    ];
+    let unnumbered = [
+        "Ready Or Not Here I Come (2026)",
+        "Ready or Not Here I Come 2026 m1080p BluRay x264-GeneMige",
     ];
     let publications: Vec<_> = originals
         .into_iter()
         .chain(sequels)
+        .chain(unnumbered)
         .enumerate()
         .map(|(index, title)| {
             let source = if title.starts_with("Я иду искать") {
@@ -58,15 +67,25 @@ pub(super) fn run() {
                 association.update(work.clone());
             }
             let groups = association.groups();
-            assert_eq!(groups.len(), 2, "original and sequel stay separate");
+            assert_eq!(
+                groups.len(),
+                3,
+                "original, sequel and unnumbered name stay separate"
+            );
             for group in &groups {
                 assert!(group.is_confirmed());
                 let title = group.display_title();
                 if title.ends_with("(2019)") {
                     assert_eq!(group.variants(None).len(), originals.len());
-                } else {
+                } else if group
+                    .publication(&publications[originals.len()].reference)
+                    .is_some()
+                {
                     assert!(title.ends_with("(2026)"));
                     assert_eq!(group.variants(None).len(), sequels.len());
+                } else {
+                    assert!(title.ends_with("(2026)"));
+                    assert_eq!(group.variants(None).len(), unnumbered.len());
                 }
             }
             for work in &publications {
@@ -80,6 +99,6 @@ pub(super) fn run() {
         }
     }
     println!(
-        "movie_release_corpus=RuTor+LimeTorrents original2019=7 sequel2026=3 arrival_orders=20 exact_variants=preserved"
+        "movie_release_corpus=RuTor+LimeTorrents original2019=7 sequel2026=7 unnumbered2026=2 arrival_orders=32 exact_variants=preserved"
     );
 }

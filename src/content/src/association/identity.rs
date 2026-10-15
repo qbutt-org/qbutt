@@ -175,18 +175,21 @@ fn edition_base(title: &str) -> &str {
 }
 
 pub(super) fn year_labels(title: &str) -> impl Iterator<Item = (usize, &str, u16)> {
-    let parenthesized = title.match_indices('(').filter_map(move |(start, _)| {
-        let (number, suffix) = title[start + 1..].split_once(')')?;
-        let year = number.parse::<u16>().ok()?;
-        (number.len() == 4 && (1900..=2099).contains(&year)).then_some((start, suffix, year))
-    });
+    let bracketed = title
+        .match_indices(['(', '['])
+        .filter_map(move |(start, opening)| {
+            let closing = if opening == "(" { ')' } else { ']' };
+            let (number, suffix) = title[start + 1..].split_once(closing)?;
+            let year = number.parse::<u16>().ok()?;
+            (number.len() == 4 && (1900..=2099).contains(&year)).then_some((start, suffix, year))
+        });
     let release_year = title.match_indices(' ').filter_map(move |(start, _)| {
         let (number, suffix) = title[start + 1..].split_once(' ')?;
         let year = number.parse::<u16>().ok()?;
         (number.len() == 4 && (1900..=2099).contains(&year) && video_metadata(suffix))
             .then_some((start, suffix, year))
     });
-    parenthesized.chain(release_year)
+    bracketed.chain(release_year)
 }
 
 /// Recognized metadata bounds a release tail. Unknown suffixes remain part of
@@ -216,38 +219,52 @@ fn release_title(title: &str, category: Category) -> &str {
 }
 
 fn video_metadata(suffix: &str) -> bool {
-    let suffix = suffix.trim_start_matches('[');
-    let mut words = suffix.split_whitespace();
-    let first = words.next().unwrap_or_default();
-    let first = if first.eq_ignore_ascii_case("uhd") {
-        words.next().unwrap_or_default()
-    } else {
-        first
-    };
-    let first = first.to_ascii_lowercase();
-    if matches!(
-        first.as_str(),
-        "480p" | "576p" | "720p" | "1080p" | "1080i" | "1440p" | "2160p" | "4320p"
-    ) {
-        return true;
+    let mut remaining = suffix.trim_start();
+    loop {
+        let metadata = remaining.trim_start_matches(['[', '(']);
+        let mut words = metadata.split_whitespace();
+        let first = words
+            .find(|word| !word.eq_ignore_ascii_case("uhd") && !word.eq_ignore_ascii_case("pl"))
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let quality = first.strip_prefix('m').unwrap_or(&first);
+        if matches!(
+            quality,
+            "480p" | "576p" | "720p" | "1080p" | "1080i" | "1440p" | "2160p" | "4320p"
+        ) || (first == "dual" && words.next().is_some())
+        {
+            return true;
+        }
+        if [
+            "bdrip",
+            "bdremux",
+            "hdrip",
+            "web-dl",
+            "web-dlrip",
+            "webrip",
+            "bluray",
+            "blu-ray",
+            "uhd.bd",
+        ]
+        .iter()
+        .any(|tag| {
+            first
+                .strip_prefix(tag)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(['-', '.']))
+        }) {
+            return true;
+        }
+
+        // An annotation after the year is metadata only when a recognized
+        // technical tail follows it. An unknown bracket alone stays significant.
+        let Some((_, suffix)) = remaining
+            .strip_prefix('[')
+            .and_then(|annotation| annotation.split_once(']'))
+        else {
+            return false;
+        };
+        remaining = suffix.trim_start();
     }
-    [
-        "bdrip",
-        "bdremux",
-        "hdrip",
-        "web-dl",
-        "web-dlrip",
-        "webrip",
-        "bluray",
-        "blu-ray",
-        "uhd.bd",
-    ]
-    .iter()
-    .any(|tag| {
-        first
-            .strip_prefix(tag)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['-', '.']))
-    })
 }
 
 fn version_metadata(title: &str) -> Option<(usize, &str)> {
