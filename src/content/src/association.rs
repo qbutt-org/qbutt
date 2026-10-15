@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{PublicationRef, Transport, Variant, Work};
+use crate::{Category, PublicationRef, Transport, Variant, Work};
 
 mod identity;
 use identity::{ProductTitle, product_titles, year_labels};
@@ -34,6 +34,20 @@ impl WorkGroup {
             .find(|publication| publication.reference == self.anchor)
     }
 
+    /// A generic upload keeps its stable identity while a confirmed catalogue
+    /// publication supplies the product's title and category.
+    pub fn catalog_work(&self) -> Option<&Work> {
+        let anchor = self.anchor_work()?;
+        if anchor.category == Category::Video {
+            self.publications
+                .iter()
+                .find(|work| matches!(work.category, Category::Movies | Category::Tv))
+                .or(Some(anchor))
+        } else {
+            Some(anchor)
+        }
+    }
+
     pub fn publication(&self, reference: &PublicationRef) -> Option<&Work> {
         self.publications
             .iter()
@@ -53,8 +67,11 @@ impl WorkGroup {
     }
 
     pub fn display_title(&self) -> String {
+        let Some(work) = self.catalog_work() else {
+            return String::new();
+        };
         let title = product_titles(&self.publications)
-            .remove(&self.anchor)
+            .remove(&work.reference)
             .map(|title| title.display)
             .unwrap_or_default();
         let year = self.publications.iter().find_map(|work| {
@@ -141,7 +158,7 @@ impl WorkAssociation {
             (
                 !exact,
                 name,
-                group.publications[0].category as u8,
+                group.catalog_work().unwrap().category as u8,
                 (reference.0, reference.1.to_owned()),
             )
         });
@@ -206,20 +223,47 @@ fn confirmed_match(
     if left.reference == right.reference {
         return true;
     }
-    if left.category != right.category {
-        return false;
+    let same_category = left.category == right.category;
+    if !same_category {
+        if !matches!(
+            (left.category, right.category),
+            (Category::Video, Category::Movies | Category::Tv)
+                | (Category::Movies | Category::Tv, Category::Video)
+        ) {
+            return false;
+        }
+        let year = |work: &Work| {
+            work.year
+                .or_else(|| year_labels(&work.title).next().map(|(_, _, year)| year))
+        };
+        if year(left).is_none() || year(left) != year(right) {
+            return false;
+        }
+        let seasons = |work: &Work| {
+            let mut seasons: Vec<_> = std::iter::once(&work.title)
+                .chain(&work.aliases)
+                .flat_map(|title| explicit_seasons(title))
+                .collect();
+            seasons.sort();
+            seasons.dedup();
+            seasons
+        };
+        if seasons(left) != seasons(right) || explicit_episodes(left) != explicit_episodes(right) {
+            return false;
+        }
     }
 
-    let shared_catalog_id = CATALOG_IDENTIFIERS.into_iter().any(|namespace| {
-        left.identifiers
-            .get(namespace)
-            .zip(right.identifiers.get(namespace))
-            .is_some_and(|(a, b)| a == b)
-    });
     if conflicting_identity([left, right]) {
         return false;
     }
-    if shared_catalog_id {
+    if same_category
+        && CATALOG_IDENTIFIERS.into_iter().any(|namespace| {
+            left.identifiers
+                .get(namespace)
+                .zip(right.identifiers.get(namespace))
+                .is_some_and(|(a, b)| a == b)
+        })
+    {
         return true;
     }
 
@@ -236,8 +280,12 @@ fn conflicting_identity<'a>(publications: impl IntoIterator<Item = &'a Work>) ->
     let mut years = Vec::new();
     let mut seasons = Vec::new();
     let mut identifiers = [None; CATALOG_IDENTIFIERS.len()];
+    let mut categories = Vec::new();
 
     for work in publications {
+        if work.category != Category::Video {
+            categories.push(work.category);
+        }
         years.extend(work.year);
         for title in std::iter::once(&work.title).chain(&work.aliases) {
             years.extend(year_labels(title).map(|(_, _, year)| year));
@@ -256,6 +304,47 @@ fn conflicting_identity<'a>(publications: impl IntoIterator<Item = &'a Work>) ->
 
     years.windows(2).any(|pair| pair[0] != pair[1])
         || seasons.windows(2).any(|pair| pair[0] != pair[1])
+        || categories.windows(2).any(|pair| pair[0] != pair[1])
+}
+
+fn explicit_episodes(work: &Work) -> Vec<String> {
+    let mut episodes: Vec<_> = work
+        .variants
+        .iter()
+        .filter_map(|variant| variant.episode.as_ref())
+        .map(|episode| episode.to_lowercase())
+        .collect();
+    for title in std::iter::once(&work.title).chain(&work.aliases) {
+        let title = title.to_lowercase();
+        let words: Vec<_> = title
+            .split(|character: char| !character.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect();
+        for pair in words.windows(2) {
+            let number = if matches!(pair[0], "episode" | "эпизод" | "серия") {
+                pair[1].parse::<u32>()
+            } else if matches!(pair[1], "episode" | "эпизод" | "серия") {
+                pair[0].parse::<u32>()
+            } else {
+                continue;
+            };
+            if let Ok(number) = number {
+                episodes.push(number.to_string());
+            }
+        }
+        for word in words {
+            if let Some((season, episode)) =
+                word.strip_prefix('s').and_then(|word| word.split_once('e'))
+                && season.parse::<u16>().is_ok()
+                && let Ok(episode) = episode.parse::<u32>()
+            {
+                episodes.push(episode.to_string());
+            }
+        }
+    }
+    episodes.sort();
+    episodes.dedup();
+    episodes
 }
 
 fn explicit_seasons(title: &str) -> Vec<u16> {

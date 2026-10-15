@@ -135,7 +135,7 @@ fn work(reference: PublicationRef, title: String) -> Work {
             publication: reference.clone(),
             selector: VariantSelector::VkVideo,
         },
-        title: None,
+        title: Some(title.clone()),
         transport: Transport::Video,
         episode: None,
         quality: None,
@@ -148,6 +148,13 @@ fn work(reference: PublicationRef, title: String) -> Work {
         reported_video_ads: false,
     };
     let url = video_url(&reference.id);
+    // VK upload labels put the reported original name after the localized
+    // name. Keep that entire alias: qualifiers such as Trailer or Episode 2
+    // must not turn into an alias of the main film or series.
+    let aliases = title
+        .split_once(" | ")
+        .map(|(_, original)| vec![original.to_owned()])
+        .unwrap_or_default();
     Work {
         reference,
         title,
@@ -156,7 +163,7 @@ fn work(reference: PublicationRef, title: String) -> Work {
         cover: None,
         description: None,
         year: None,
-        aliases: Vec::new(),
+        aliases,
         identifiers: BTreeMap::new(),
         variants: vec![variant],
         needs_inspection: false,

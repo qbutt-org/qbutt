@@ -1,5 +1,7 @@
 #![cfg(windows)]
 
+#[path = "vkvideo/association.rs"]
+mod association;
 #[path = "browser/fixture.rs"]
 mod fixture;
 
@@ -85,6 +87,7 @@ async fn main() -> FixtureResult {
         association.update(work.clone());
     }
     assert_eq!(association.groups().len(), 2);
+    association::run(&browser, &mut edge, &directory).await?;
 
     let publication = PublicationRef {
         source: Source::VkVideo,

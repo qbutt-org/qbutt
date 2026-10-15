@@ -64,9 +64,9 @@ impl LibraryEntry {
         if self.group.references.is_empty() || !self.group.references.contains(&self.group.anchor) {
             return Err("the work group has no resolved anchor publication");
         }
-        let anchor = self
+        let catalog = self
             .group
-            .anchor_work()
+            .catalog_work()
             .ok_or("the work group has no resolved anchor publication")?;
         if !self.group.is_confirmed() {
             return Err("the resolved publications lack a confirmed association");
@@ -76,7 +76,9 @@ impl LibraryEntry {
             reference
                 .validate()
                 .map_err(|_| "an associated publication reference is invalid")?;
-            if !reference.source.categories().contains(&anchor.category) {
+            if self.group.publication(reference).is_none()
+                && !reference.source.categories().contains(&catalog.category)
+            {
                 return Err("an associated source does not support the work category");
             }
             if !references.insert(reference) {
@@ -88,9 +90,6 @@ impl LibraryEntry {
             validate_work(work)?;
             if !references.contains(&work.reference) || !publications.insert(&work.reference) {
                 return Err("an associated publication is missing or repeated");
-            }
-            if work.category != anchor.category {
-                return Err("associated publications have different categories");
             }
         }
 
