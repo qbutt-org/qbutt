@@ -245,9 +245,22 @@ namespace
                     u"Long details layout"_s);
             }
             const QVariantList notes = controller->property("selectedPublicationNotes").toList();
-            require(object(u"contentPublicationNoteText"_s)->property("text").toString()
+            QQuickItem *noteText = nullptr;
+            QList<QQuickItem *> candidates {document()};
+            for (qsizetype index = 0; index < candidates.size(); ++index)
+            {
+                auto *candidate = candidates[index];
+                if (candidate->objectName() == u"contentPublicationNoteText"_s)
+                {
+                    noteText = candidate;
+                    break;
+                }
+                candidates.append(candidate->childItems());
+            }
+            require(noteText, u"Comment visual item is missing"_s);
+            require(noteText->property("text").toString()
                     == notes.first().toMap().value(u"text"_s).toString()
-                && object(u"contentPublicationNoteText"_s)->property("textFormat").toInt() == 0,
+                && noteText->property("textFormat").toInt() == 0,
                 u"Comment body was missing or interpreted as markup"_s);
         }
 
