@@ -4,7 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
-use reqwest::header::{ACCEPT, ACCEPT_ENCODING, CONTENT_TYPE, HeaderMap, LOCATION, REFERER};
+use reqwest::header::{
+    ACCEPT, ACCEPT_ENCODING, CONTENT_TYPE, HeaderMap, LOCATION, REFERER, RETRY_AFTER,
+};
 use serde::de::DeserializeOwned;
 use url::{Host, Url};
 
@@ -352,6 +354,7 @@ impl SourceHttp {
             ResponseKind::Playlist | ResponseKind::Document => MAX_HTML_BYTES,
             ResponseKind::Json | ResponseKind::Image => MAX_RESPONSE_BYTES,
         };
+        let mut retried = false;
         for redirects in 0..=MAX_REDIRECTS {
             validate_https_url(&url)?;
             // Catalog redirects stay on the fixed origin. Metadata may use its
@@ -371,53 +374,74 @@ impl SourceHttp {
                 return Err(Error::UnsafeAddress);
             }
 
-            let request = if let Some(form) = form {
-                let request = self
-                    .client
-                    .post(url.clone())
-                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
-                    .body(form.to_owned());
-                if matches!(kind, ResponseKind::Json) {
-                    request.header("X-Requested-With", "XMLHttpRequest")
+            let mut response = loop {
+                let request = if let Some(form) = form {
+                    let request = self
+                        .client
+                        .post(url.clone())
+                        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                        .body(form.to_owned());
+                    if matches!(kind, ResponseKind::Json) {
+                        request.header("X-Requested-With", "XMLHttpRequest")
+                    } else {
+                        request
+                    }
+                } else {
+                    self.client.get(url.clone())
+                };
+                let request = if let Some(session) = session.as_ref() {
+                    session.apply(request, &url)?
                 } else {
                     request
-                }
-            } else {
-                self.client.get(url.clone())
-            };
-            let request = if let Some(session) = session.as_ref() {
-                session.apply(request, &url)?
-            } else {
-                request
-            };
-            let request = if let Some(referer) = referer {
-                request.header(REFERER, referer.as_str())
-            } else {
-                request
-            };
-            let mut response = request
-                .header(
-                    ACCEPT,
-                    match kind {
-                        ResponseKind::Json => "application/json",
-                        ResponseKind::Html(_) | ResponseKind::Document => "text/html",
-                        ResponseKind::Metadata => {
-                            "application/x-bittorrent, application/octet-stream, text/html"
-                        }
-                        ResponseKind::Image => "image/*",
-                        ResponseKind::Playlist => {
-                            "application/vnd.apple.mpegurl, application/x-mpegURL, text/plain"
-                        }
-                    },
-                )
-                .header(ACCEPT_ENCODING, "identity")
-                .send()
-                .await
-                .map_err(network_error)?;
+                };
+                let request = if let Some(referer) = referer {
+                    request.header(REFERER, referer.as_str())
+                } else {
+                    request
+                };
+                let response = request
+                    .header(
+                        ACCEPT,
+                        match kind {
+                            ResponseKind::Json => "application/json",
+                            ResponseKind::Html(_) | ResponseKind::Document => "text/html",
+                            ResponseKind::Metadata => {
+                                "application/x-bittorrent, application/octet-stream, text/html"
+                            }
+                            ResponseKind::Image => "image/*",
+                            ResponseKind::Playlist => {
+                                "application/vnd.apple.mpegurl, application/x-mpegURL, text/plain"
+                            }
+                        },
+                    )
+                    .header(ACCEPT_ENCODING, "identity")
+                    .send()
+                    .await
+                    .map_err(network_error)?;
 
-            if let Some(session) = session.as_mut() {
-                session.receive(response.headers(), &url)?;
-            }
+                if let Some(session) = session.as_mut() {
+                    session.receive(response.headers(), &url)?;
+                }
+
+                if response.status() == 503 && form.is_none() && !retried {
+                    let delay = match response.headers().get(RETRY_AFTER) {
+                        None => Some(Duration::from_millis(500)),
+                        Some(value) => value
+                            .to_str()
+                            .ok()
+                            .and_then(|value| value.parse::<u64>().ok())
+                            .filter(|seconds| *seconds <= 2)
+                            .map(Duration::from_secs),
+                    };
+                    if let Some(delay) = delay {
+                        retried = true;
+                        drop(response);
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                }
+                break response;
+            };
 
             if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
                 if redirects == MAX_REDIRECTS {

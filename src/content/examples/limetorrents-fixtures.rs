@@ -176,10 +176,110 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
     assert_eq!(fixture.payload.load(Ordering::SeqCst), 0);
+    http_retries(&fixture).await?;
 
     fixture.stop().await;
     println!(
         "PASS limetorrents_fixtures generated_https=ok exact_hash=ok stale=rejected foreign=rejected malformed=rejected empty=ok cancel=connection_closed external_payload=none"
+    );
+    Ok(())
+}
+
+async fn http_retries(fixture: &Fixture) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let http = http::fixture(fixture.client.clone(), fixture.origin.clone());
+
+    let hits = fixture.hits.load(Ordering::SeqCst);
+    let (_, body) = http
+        .html_page(fixture.origin.join("/retry/transient")?)
+        .await?;
+    assert_eq!(body, "generated legal response");
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), hits + 2);
+
+    let hits = fixture.hits.load(Ordering::SeqCst);
+    assert!(matches!(
+        http.html_page(fixture.origin.join("/retry/persistent")?)
+            .await,
+        Err(Error::HttpStatus(503))
+    ));
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), hits + 2);
+
+    let hits = fixture.hits.load(Ordering::SeqCst);
+    let mut session = http::SourceSession::anonymous(fixture.origin.clone())?;
+    let raw = http
+        .session_document(fixture.origin.join("/retry/persistent")?, &mut session)
+        .await?;
+    assert_eq!(raw.status, 503);
+    assert_eq!(raw.body, b"generated legal response");
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), hits + 2);
+
+    for path in ["/retry/long-backoff", "/retry/date-backoff"] {
+        let hits = fixture.hits.load(Ordering::SeqCst);
+        assert!(matches!(
+            http.html_page(fixture.origin.join(path)?).await,
+            Err(Error::HttpStatus(503))
+        ));
+        assert_eq!(fixture.hits.load(Ordering::SeqCst), hits + 1);
+    }
+
+    for status in [403, 429] {
+        let hits = fixture.hits.load(Ordering::SeqCst);
+        assert!(matches!(
+            http.html_page(fixture.origin.join(&format!("/retry/status/{status}"))?)
+                .await,
+            Err(Error::HttpStatus(actual)) if actual == status
+        ));
+        assert_eq!(fixture.hits.load(Ordering::SeqCst), hits + 1);
+    }
+
+    let hits = fixture.hits.load(Ordering::SeqCst);
+    let raw = http
+        .session_form_document(
+            fixture.origin.join("/retry/post")?,
+            "legal=fixture",
+            &mut session,
+        )
+        .await?;
+    assert_eq!(raw.status, 503);
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), hits + 1);
+
+    fixture.transient.store(true, Ordering::SeqCst);
+    let hits = fixture.hits.load(Ordering::SeqCst);
+    let (arrived, _) = http
+        .html_page(fixture.origin.join("/retry/redirect/0")?)
+        .await?;
+    assert_eq!(arrived.path(), "/retry/redirect/5");
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), hits + 7);
+
+    fixture.transient.store(true, Ordering::SeqCst);
+    let hits = fixture.hits.load(Ordering::SeqCst);
+    let raw = http
+        .session_document(
+            fixture.origin.join("/retry/redirect/0?persistent=1")?,
+            &mut session,
+        )
+        .await?;
+    assert_eq!(raw.status, 503);
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), hits + 7);
+
+    let hits = fixture.hits.load(Ordering::SeqCst);
+    let mut pending = Box::pin(http.html_page(fixture.origin.join("/retry/cancel")?));
+    tokio::select! {
+        started = tokio::time::timeout(Duration::from_secs(2), async {
+            while fixture.hits.load(Ordering::SeqCst) == hits {
+                tokio::task::yield_now().await;
+            }
+        }) => started?,
+        _ = &mut pending => panic!("retry cancellation completed before its first request"),
+    }
+    tokio::select! {
+        _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+        _ = &mut pending => panic!("retry cancellation did not wait for Retry-After"),
+    }
+    drop(pending);
+    tokio::time::sleep(Duration::from_millis(2100)).await;
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), hits + 1);
+    println!(
+        "PASS source_http_retry transient503=requests2 persistent503=requests2 raw503=preserved post503=request1 backoff=honored redirects=preserved cancel_delay=request1 statuses403429=unchanged"
     );
     Ok(())
 }
@@ -241,6 +341,7 @@ struct Fixture {
     origin: Url,
     client: reqwest::Client,
     changed: Arc<AtomicBool>,
+    transient: Arc<AtomicBool>,
     hits: Arc<AtomicUsize>,
     cancelled: Arc<AtomicUsize>,
     payload: Arc<AtomicUsize>,
@@ -270,6 +371,7 @@ impl Fixture {
             .timeout(Duration::from_secs(5))
             .build()?;
         let changed = Arc::new(AtomicBool::new(false));
+        let transient = Arc::new(AtomicBool::new(true));
         let hits = Arc::new(AtomicUsize::new(0));
         let cancelled = Arc::new(AtomicUsize::new(0));
         let payload = Arc::new(AtomicUsize::new(0));
@@ -277,6 +379,7 @@ impl Fixture {
         let server = tokio::spawn({
             let origin = origin.clone();
             let changed = Arc::clone(&changed);
+            let transient = Arc::clone(&transient);
             let hits = Arc::clone(&hits);
             let cancelled = Arc::clone(&cancelled);
             let payload = Arc::clone(&payload);
@@ -293,6 +396,7 @@ impl Fixture {
                     let acceptor = acceptor.clone();
                     let origin = origin.clone();
                     let changed = Arc::clone(&changed);
+                    let transient = Arc::clone(&transient);
                     let hits = Arc::clone(&hits);
                     let cancelled = Arc::clone(&cancelled);
                     let payload = Arc::clone(&payload);
@@ -312,6 +416,53 @@ impl Fixture {
                             .to_owned();
                         let Ok(url) = origin.join(&target) else { return };
                         let path = url.path();
+                        if path.starts_with("/retry/") {
+                            let mut headers = String::new();
+                            let status = match path {
+                                "/retry/transient" => {
+                                    if transient.swap(false, Ordering::SeqCst) { 503 } else { 200 }
+                                }
+                                "/retry/long-backoff" => {
+                                    headers = "Retry-After: 30\r\n".into();
+                                    503
+                                }
+                                "/retry/date-backoff" => {
+                                    headers = "Retry-After: Thu, 15 Oct 2026 15:00:00 GMT\r\n".into();
+                                    503
+                                }
+                                "/retry/cancel" => {
+                                    headers = "Retry-After: 2\r\n".into();
+                                    503
+                                }
+                                "/retry/status/403" => 403,
+                                "/retry/status/429" => 429,
+                                p if p.starts_with("/retry/redirect/") => {
+                                    let hop: usize = p.rsplit('/').next().unwrap().parse().unwrap();
+                                    if hop == 0 && transient.swap(false, Ordering::SeqCst) {
+                                        503
+                                    } else if hop < 5 {
+                                        let mut next = url.clone();
+                                        next.set_path(&format!("/retry/redirect/{}", hop + 1));
+                                        headers = format!("Location: {next}\r\n");
+                                        302
+                                    } else if url.query() == Some("persistent=1") {
+                                        503
+                                    } else {
+                                        200
+                                    }
+                                }
+                                _ => 503,
+                            };
+                            let body = b"generated legal response";
+                            let header = format!(
+                                "HTTP/1.1 {status} Fixture\r\n{headers}Content-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                body.len()
+                            );
+                            let _ = stream.write_all(header.as_bytes()).await;
+                            let _ = stream.write_all(body).await;
+                            let _ = stream.shutdown().await;
+                            return;
+                        }
                         let query = path.split('/').nth(3).unwrap_or("");
                         let query = percent_encoding::percent_decode_str(query)
                             .decode_utf8_lossy()
@@ -354,6 +505,7 @@ impl Fixture {
             origin,
             client,
             changed,
+            transient,
             hits,
             cancelled,
             payload,
