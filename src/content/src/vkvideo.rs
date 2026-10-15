@@ -148,11 +148,11 @@ fn work(reference: PublicationRef, title: String) -> Work {
         reported_video_ads: false,
     };
     let url = video_url(&reference.id);
-    // VK upload labels put the reported original name after the localized
-    // name. Keep that entire alias: qualifiers such as Trailer or Episode 2
-    // must not turn into an alias of the main film or series.
+    // A qualifier anywhere in the upload label applies to the whole
+    // publication, including a plain original name after the pipe.
     let aliases = title
         .split_once(" | ")
+        .filter(|_| !is_promotional(&title.to_lowercase()))
         .map(|(_, original)| vec![original.to_owned()])
         .unwrap_or_default();
     Work {
@@ -199,6 +199,10 @@ fn is_promotional(value: &str) -> bool {
         "highlights",
         "promo",
         "preview",
+        "clip",
+        "clips",
+        "excerpt",
+        "excerpts",
     ];
     const RUSSIAN: &[&str] = &[
         "трейлер",
@@ -208,6 +212,9 @@ fn is_promotional(value: &str) -> bool {
         "нарезк",
         "промо",
         "превью",
+        "отрывок",
+        "отрывк",
+        "фрагмент",
     ];
     value
         .split(|character: char| !character.is_alphanumeric())

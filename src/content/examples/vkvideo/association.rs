@@ -42,13 +42,17 @@ pub(super) async fn run(
                 video("-910001_1002", "Я иду искать 2 | Ready or Not 2: Here I Come (2026)"),
                 video("-910001_1003", "Я иду искать | Ready or Not (2019) clip"),
                 video("-910001_1004", "Я иду искать | Ready or Not: Extra Story (2019)"),
-                video("-910001_1005", "Я иду искать | Ready or Not (2019) Review")
+                video("-910001_1005", "Я иду искать | Ready or Not (2019) Review"),
+                video("-910001_1006", "Я иду искать (2019) clip | Ready or Not (2019)"),
+                video("-910001_1007", "Отрывок из фильма Я иду искать | Ready or Not (2019)"),
+                video("-910001_1008", "Фрагмент фильма Я иду искать | Ready or Not (2019)"),
+                video("-910001_1009", "Я иду искать excerpt | Ready or Not (2019)")
             ]
         }),
     )
     .await?;
     let uploads = pending.await??;
-    assert_eq!(uploads.len(), 4);
+    assert_eq!(uploads.len(), 3);
     assert_eq!(uploads[0].aliases, ["Ready or Not (2019)"]);
     assert!(uploads.iter().all(|work| work.category == Category::Video));
     for work in &uploads {
@@ -60,6 +64,7 @@ pub(super) async fn run(
         "Я иду искать / Ready or Not (2019)",
         Category::Movies,
     );
+    promotional_aliases(browser, edge, &original).await?;
     let sequel = catalogue(
         &uploads[1],
         910002,
@@ -98,7 +103,7 @@ pub(super) async fn run(
                 association.update(work.clone());
             }
             let groups = association.groups();
-            assert_eq!(groups.len(), 4, "clip and unknown subtitle stay separate");
+            assert_eq!(groups.len(), 3, "unknown subtitle stays separate");
             for group in &groups {
                 assert!(group.is_confirmed());
                 assert_eq!(
@@ -247,7 +252,87 @@ pub(super) async fn run(
         "one known season cannot identify a whole series"
     );
     println!(
-        "PASS vkvideo_association actual_titles=VK+RuTor+Lime2019,2026 arrival_orders=14 stable_upload_anchor=ok catalog_representative=Movies exact_upload_variant=preserved SQLite_favorite_history_reopen=ok clip_subtitle_year_sequel_season_episode_ambiguity=guarded unresolved_source_category=guarded"
+        "PASS vkvideo_association actual_titles=VK+RuTor+Lime2019,2026 arrival_orders=12 stable_upload_anchor=ok catalog_representative=Movies exact_upload_variant=preserved SQLite_favorite_history_reopen=ok clip_subtitle_year_sequel_season_episode_ambiguity=guarded unresolved_source_category=guarded"
+    );
+    Ok(())
+}
+
+async fn promotional_aliases(
+    browser: &BrowserHandle,
+    edge: &mut NamedPipeClient,
+    original: &Work,
+) -> FixtureResult {
+    for (query, before, after) in [
+        (
+            "clip",
+            "Я иду искать (2019) CLIPS | Ready or Not (2019)",
+            "Я иду искать | Ready or Not (2019) clip",
+        ),
+        (
+            "excerpt",
+            "Я иду искать excerpts | Ready or Not (2019)",
+            "Я иду искать | Ready or Not (2019) excerpt",
+        ),
+        (
+            "отрывок",
+            "Отрывок из фильма Я иду искать | Ready or Not (2019)",
+            "Я иду искать | Ready or Not (2019) отрывок",
+        ),
+        (
+            "фрагмент",
+            "Фрагмент фильма Я иду искать | Ready or Not (2019)",
+            "Я иду искать | Ready or Not (2019) фрагмент",
+        ),
+    ] {
+        let pending = tokio::spawn({
+            let browser = browser.clone();
+            async move {
+                VkVideo
+                    .search(query, Category::Video, &browser, BrowserChoice::Edge)
+                    .await
+            }
+        });
+        let command = read(edge).await?;
+        respond(
+            edge,
+            &command,
+            json!({
+                "query": query,
+                "videos": [video("-910002_1001", before), video("-910002_1002", after)]
+            }),
+        )
+        .await?;
+        let uploads = pending.await??;
+        assert_eq!(uploads.len(), 2, "explicit qualifier query retains uploads");
+        for work in &uploads {
+            assert!(
+                work.aliases.is_empty(),
+                "qualified upload must not acquire a film alias: {}",
+                work.title
+            );
+            assert_eq!(work.variants[0].title.as_deref(), Some(work.title.as_str()));
+        }
+        for reverse in [false, true] {
+            for offset in 0..3 {
+                let mut association = WorkAssociation::default();
+                let mut publications = [original.clone(), uploads[0].clone(), uploads[1].clone()];
+                if reverse {
+                    publications.reverse();
+                }
+                publications.rotate_left(offset);
+                for work in publications {
+                    association.update(work);
+                }
+                assert_eq!(
+                    association.groups().len(),
+                    3,
+                    "qualifier before or after pipe cannot identify the film"
+                );
+            }
+        }
+    }
+    println!(
+        "PASS vkvideo_qualified_alias whole_publication=guarded before_after_pipe=ok explicit_qualifier_queries=preserved film_association=blocked arrival_orders=24"
     );
     Ok(())
 }
