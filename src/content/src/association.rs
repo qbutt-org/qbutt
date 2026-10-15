@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use crate::{Category, PublicationRef, Source, Transport, Variant, Work};
 
 mod identity;
+mod series;
 use identity::{ProductTitle, product_titles, year_labels};
+use series::explicit_seasons;
 
 const CATALOG_IDENTIFIERS: [&str; 3] = ["mal", "shikimori", "kinopoisk"];
 
@@ -279,6 +281,14 @@ fn confirmed_match(
     if conflicting_identity([left, right]) {
         return false;
     }
+    // A shared base alias cannot erase a reported part, cour or director's cut.
+    if [left, right]
+        .into_iter()
+        .any(|work| matches!(work.category, Category::Anime | Category::Tv))
+        && series::qualifiers(left) != series::qualifiers(right)
+    {
+        return false;
+    }
     if same_category
         && CATALOG_IDENTIFIERS.into_iter().any(|namespace| {
             left.identifiers
@@ -368,45 +378,6 @@ fn explicit_episodes(work: &Work) -> Vec<String> {
     episodes.sort();
     episodes.dedup();
     episodes
-}
-
-fn explicit_seasons(title: &str) -> Vec<u16> {
-    let normalized = title.to_lowercase();
-    let words = normalized
-        .split(|character: char| !character.is_alphanumeric())
-        .filter(|word| !word.is_empty());
-    let mut seasons = Vec::new();
-    let mut previous = "";
-    for word in words {
-        if matches!(previous, "season" | "сезон") {
-            if let Ok(season) = word.parse() {
-                seasons.push(season);
-            }
-        }
-        if matches!(word, "season" | "сезон") {
-            let number = ["st", "nd", "rd", "th"]
-                .into_iter()
-                .find_map(|suffix| previous.strip_suffix(suffix))
-                .unwrap_or(previous);
-            if let Ok(season) = number.parse() {
-                seasons.push(season);
-            }
-        }
-        if let Some(season) = word.strip_prefix('s') {
-            if let Ok(season) = season.parse() {
-                seasons.push(season);
-            }
-            if let Some((season, episode)) = season.split_once('e')
-                && !episode.is_empty()
-                && episode.bytes().all(|byte| byte.is_ascii_digit())
-                && let Ok(season) = season.parse()
-            {
-                seasons.push(season);
-            }
-        }
-        previous = word;
-    }
-    seasons
 }
 
 pub fn rank_variants(mut variants: Vec<Variant>, preferred_language: Option<&str>) -> Vec<Variant> {

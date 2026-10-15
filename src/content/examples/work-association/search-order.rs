@@ -109,13 +109,15 @@ pub(super) fn run() {
     }
     assert_eq!(
         identities(&association.search_groups("generated-work")),
-        [510, 512, 511]
+        // Season 2 and the literal 2 now share a normalized name. Category
+        // breaks their tie, after the exact reported Books alias.
+        [510, 511, 512]
     );
     alias.aliases.clear();
     association.update(alias);
     assert_eq!(
         identities(&association.search_groups("generated-work")),
-        [512, 511, 510]
+        [511, 512, 510]
     );
 
     let mut association = WorkAssociation::default();

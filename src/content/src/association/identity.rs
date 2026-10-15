@@ -76,9 +76,14 @@ pub(super) fn product_titles(publications: &[Work]) -> HashMap<PublicationRef, P
             // Tracker labels explicitly report localized/original names with
             // spaced slashes. A slash within Fate/stay night remains literal.
             for alias in title.split(" / ") {
-                let alias = normalized_title(alias);
-                if !alias.is_empty() && !normalized.contains(&alias) {
-                    normalized.push(alias);
+                let season = match work.category {
+                    Category::Anime | Category::Tv => super::series::normalized_season_title(alias),
+                    _ => None,
+                };
+                for name in std::iter::once(normalized_title(alias)).chain(season) {
+                    if !name.is_empty() && !normalized.contains(&name) {
+                        normalized.push(name);
+                    }
                 }
             }
         }
