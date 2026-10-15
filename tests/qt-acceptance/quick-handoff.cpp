@@ -128,7 +128,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     const bool onlineFix = source == u"onlinefix";
     const bool igruha = source == u"igruha";
     const bool torrentFile = dodi || byRut || freeTP || onlineFix || igruha;
-    const bool singleTorrent = ruTor || limeTorrents || nnmClub || ruTracker || torrentFile;
+    const bool singleTorrent = ruTor || limeTorrents || nnmClub || ruTracker || (torrentFile && !byRut);
     QString sourceLabel = u"AniLiberty"_s;
     QString category = u"anime"_s;
     QString queryText = u"Frieren"_s;
@@ -441,7 +441,20 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
             torrentRows.append(row);
     }
     require(singleTorrent ? torrentRows.size() == 1 : torrentRows.size() >= 2, u"Exact torrent variants are missing"_s);
-    const int selectedRow = torrentRows.constLast();
+    int selectedRow = torrentRows.constLast();
+    if (byRut)
+    {
+        selectedRow = -1;
+        for (const int row : torrentRows)
+        {
+            if (value(variants, row, "infoHash") == u"acfd3488d67097059db8aeaf27a0f75625c864a2")
+            {
+                selectedRow = row;
+                break;
+            }
+        }
+        require(selectedRow >= 0, u"Known Stardew Valley alternate torrent is missing"_s);
+    }
     const QString variantId = value(variants, selectedRow, "variantId");
     const QString infoHash = dodi ? u"b34fa7dfc9c95baf8509f6bd90a4ce5e1fde22e1"_s
         : value(variants, selectedRow, "infoHash").toLower();
@@ -465,7 +478,9 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     if (ruTracker)
         require(infoHash == u"cfcdab5d3c5efb529590160ea84fc419977fbd67", u"Known RuTracker Sintel torrent hash changed"_s);
     if (byRut)
-        require(infoHash == u"942e9eeace33f7cfefa4fbcc129a1a9f12097638", u"Known Stardew Valley torrent hash changed"_s);
+        require((infoHash == u"acfd3488d67097059db8aeaf27a0f75625c864a2")
+            && value(variants, selectedRow, "label").contains(u"RePack от Pioneer — v 1.6.14"_s),
+            u"Known Stardew Valley alternate version or hash changed"_s);
     if (freeTP)
         require(infoHash == u"e54e92ed62a49401fc224642e65f8ca03709c95e", u"Known KLETKA torrent hash changed"_s);
     if (fitGirl)

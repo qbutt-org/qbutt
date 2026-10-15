@@ -45,6 +45,7 @@ enum ResponseKind {
     Image,
     Playlist,
     Document,
+    AjaxDocument,
     Metadata,
 }
 
@@ -254,6 +255,27 @@ impl SourceHttp {
         .map_err(|_| Error::Timeout)?
     }
 
+    pub(crate) async fn session_ajax_document(
+        &self,
+        url: Url,
+        form: &str,
+        session: &mut SourceSession,
+    ) -> Result<SourceDocument> {
+        tokio::time::timeout(
+            Duration::from_secs(45),
+            self.fetch(
+                url,
+                ResponseKind::AjaxDocument,
+                &[],
+                Some(form),
+                Some(session),
+                None,
+            ),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
+    }
+
     /// Raw acquisition bytes retain HTTP/HTML gates for the provider to classify.
     /// The native torrent handoff remains responsible for parsing the metadata.
     pub(crate) async fn session_metadata(
@@ -342,7 +364,10 @@ impl SourceHttp {
                 return Err(Error::UnsafeAddress);
             }
         }
-        let raw = matches!(kind, ResponseKind::Document | ResponseKind::Metadata);
+        let raw = matches!(
+            kind,
+            ResponseKind::Document | ResponseKind::AjaxDocument | ResponseKind::Metadata
+        );
         let same_origin = match kind {
             ResponseKind::Image | ResponseKind::Playlist => false,
             ResponseKind::Metadata => allowed_hosts.is_empty(),
@@ -351,7 +376,9 @@ impl SourceHttp {
         let max_bytes = match kind {
             ResponseKind::Metadata => crate::TorrentMetadata::MAX_BYTES,
             ResponseKind::Html(limit) => limit,
-            ResponseKind::Playlist | ResponseKind::Document => MAX_HTML_BYTES,
+            ResponseKind::Playlist | ResponseKind::Document | ResponseKind::AjaxDocument => {
+                MAX_HTML_BYTES
+            }
             ResponseKind::Json | ResponseKind::Image => MAX_RESPONSE_BYTES,
         };
         let mut retried = false;
@@ -381,7 +408,7 @@ impl SourceHttp {
                         .post(url.clone())
                         .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
                         .body(form.to_owned());
-                    if matches!(kind, ResponseKind::Json) {
+                    if matches!(kind, ResponseKind::Json | ResponseKind::AjaxDocument) {
                         request.header("X-Requested-With", "XMLHttpRequest")
                     } else {
                         request
@@ -404,7 +431,9 @@ impl SourceHttp {
                         ACCEPT,
                         match kind {
                             ResponseKind::Json => "application/json",
-                            ResponseKind::Html(_) | ResponseKind::Document => "text/html",
+                            ResponseKind::Html(_)
+                            | ResponseKind::Document
+                            | ResponseKind::AjaxDocument => "text/html",
                             ResponseKind::Metadata => {
                                 "application/x-bittorrent, application/octet-stream, text/html"
                             }

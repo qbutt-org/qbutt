@@ -24,11 +24,6 @@ pub struct ByRut {
     origin: Url,
 }
 
-struct Release {
-    work: Work,
-    metadata: TorrentMetadata,
-}
-
 impl ByRut {
     pub fn new() -> Result<Self> {
         let origin = Url::parse(ORIGIN).expect("fixed ByRut origin");
@@ -72,10 +67,43 @@ impl ByRut {
         choice: BrowserChoice,
     ) -> Result<Work> {
         let mut session = SourceSession::anonymous(self.origin.clone())?;
-        Ok(self
-            .release(publication, &mut session, browser, choice)
-            .await?
-            .work)
+        let mut release = self
+            .article(publication, &mut session, browser, choice)
+            .await?;
+        for torrent in &release.torrents {
+            let metadata = self
+                .torrent(&release.work, torrent, &mut session, browser, choice)
+                .await?;
+            let hash = info_hash(metadata.bytes())?;
+            if release
+                .work
+                .variants
+                .iter()
+                .any(|variant| variant.info_hash.as_deref() == Some(hash.as_str()))
+            {
+                continue;
+            }
+            release.work.variants.push(Variant {
+                reference: VariantRef {
+                    publication: release.work.reference.clone(),
+                    selector: VariantSelector::TorrentHash {
+                        info_hash: hash.clone(),
+                    },
+                },
+                title: torrent.label.clone(),
+                transport: Transport::Torrent,
+                episode: None,
+                quality: None,
+                translation: None,
+                languages: Vec::new(),
+                player: None,
+                size: None,
+                seeders: None,
+                info_hash: Some(hash),
+                reported_video_ads: false,
+            });
+        }
+        Ok(release.work)
     }
 
     /// A replacement torrent on the same article cannot silently replace the
@@ -87,27 +115,37 @@ impl ByRut {
         choice: BrowserChoice,
     ) -> Result<ResolvedContent> {
         selected.validate()?;
+        let VariantSelector::TorrentHash {
+            info_hash: expected,
+        } = &selected.selector
+        else {
+            return Err(Error::InvalidReference);
+        };
         let mut session = SourceSession::anonymous(self.origin.clone())?;
         let release = self
-            .release(&selected.publication, &mut session, browser, choice)
+            .article(&selected.publication, &mut session, browser, choice)
             .await?;
-        if release.work.variants[0].reference != *selected {
-            return Err(Error::VariantUnavailable);
+        for torrent in &release.torrents {
+            let metadata = self
+                .torrent(&release.work, torrent, &mut session, browser, choice)
+                .await?;
+            if info_hash(metadata.bytes())? == *expected {
+                return Ok(ResolvedContent::TorrentFile {
+                    reference: selected.clone(),
+                    metadata,
+                });
+            }
         }
-
-        Ok(ResolvedContent::TorrentFile {
-            reference: selected.clone(),
-            metadata: release.metadata,
-        })
+        Err(Error::VariantUnavailable)
     }
 
-    async fn release(
+    async fn article(
         &self,
         publication: &PublicationRef,
         session: &mut SourceSession,
         browser: Option<&BrowserHandle>,
         choice: BrowserChoice,
-    ) -> Result<Release> {
+    ) -> Result<ParsedRelease> {
         let slug = publication.byrut_slug()?;
         let url = self
             .origin
@@ -117,47 +155,74 @@ impl ByRut {
             Err(Error::HttpStatus(404 | 410)) => return Err(Error::VariantUnavailable),
             result => result?,
         };
-        let mut release = release(&body, &self.origin, publication)?;
+        release(&body, &self.origin, publication)
+    }
+
+    async fn torrent(
+        &self,
+        work: &Work,
+        torrent: &TorrentRelease,
+        session: &mut SourceSession,
+        browser: Option<&BrowserHandle>,
+        choice: BrowserChoice,
+    ) -> Result<TorrentMetadata> {
+        let download = match &torrent.link {
+            TorrentLink::Direct(url) => url.clone(),
+            TorrentLink::Ajax(block) => {
+                let url = self
+                    .origin
+                    .join("/engine/ajax/controller.php?mod=ajaxsp")
+                    .expect("fixed ByRut AJAX path");
+                let (id, _) = work
+                    .reference
+                    .id
+                    .split_once('-')
+                    .ok_or(Error::InvalidReference)?;
+                let form = url::form_urlencoded::Serializer::new(String::new())
+                    .append_pair("block", block)
+                    .append_pair("id", id)
+                    .finish();
+                let response = self
+                    .http
+                    .session_ajax_document(url.clone(), &form, session)
+                    .await?;
+                let body = match html_response(response, &url) {
+                    Err(Error::Challenge) => {
+                        self.borrow_browser(session, browser, choice, work.url.clone())
+                            .await?;
+                        html_response(
+                            self.http
+                                .session_ajax_document(url.clone(), &form, session)
+                                .await?,
+                            &url,
+                        )?
+                    }
+                    result => result?,
+                };
+                let document = Html::parse_fragment(&body);
+                let link = unique(
+                    document.root_element(),
+                    "a.packagedownld-spoiler__action[href]",
+                )?;
+                torrent_link(required(link, "href")?, &self.origin)?.1
+            }
+        };
         let response = self
             .http
-            .session_metadata(release.download.clone(), session, None)
+            .session_metadata(download.clone(), session, None)
             .await?;
-        let metadata = match torrent_response(response, &release.download) {
+        match torrent_response(response, &download) {
             Err(Error::Challenge) => {
-                self.borrow_browser(session, browser, choice, release.work.url.clone())
+                self.borrow_browser(session, browser, choice, work.url.clone())
                     .await?;
                 let response = self
                     .http
-                    .session_metadata(release.download.clone(), session, None)
+                    .session_metadata(download.clone(), session, None)
                     .await?;
-                torrent_response(response, &release.download)?
+                torrent_response(response, &download)
             }
-            result => result?,
-        };
-        let hash = info_hash(metadata.bytes())?;
-        release.work.variants.push(Variant {
-            reference: VariantRef {
-                publication: release.work.reference.clone(),
-                selector: VariantSelector::TorrentHash {
-                    info_hash: hash.clone(),
-                },
-            },
-            title: release.label,
-            transport: Transport::Torrent,
-            episode: None,
-            quality: None,
-            translation: None,
-            languages: Vec::new(),
-            player: None,
-            size: None,
-            seeders: None,
-            info_hash: Some(hash),
-            reported_video_ads: false,
-        });
-        Ok(Release {
-            work: release.work,
-            metadata,
-        })
+            result => result,
+        }
     }
 
     async fn document(
@@ -301,8 +366,17 @@ fn search(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>> {
 
 struct ParsedRelease {
     work: Work,
-    download: Url,
+    torrents: Vec<TorrentRelease>,
+}
+
+struct TorrentRelease {
+    link: TorrentLink,
     label: Option<String>,
+}
+
+enum TorrentLink {
+    Direct(Url),
+    Ajax(String),
 }
 
 fn release(body: &str, origin: &Url, expected: &PublicationRef) -> Result<ParsedRelease> {
@@ -341,41 +415,68 @@ fn release(body: &str, origin: &Url, expected: &PublicationRef) -> Result<Parsed
     )?
     .map(checked_text)
     .transpose()?;
-    let Some(link) = optional(main, "a.itemdown_games[href]")? else {
+    let mut torrents = Vec::new();
+    if let Some(link) = optional(main, "a.itemdown_games[href]")? {
+        let (id, download) = torrent_link(required(link, "href")?, origin)?;
+        if let Some(top) = optional(article, "a.itemtop_games[href]")?
+            && torrent_link(required(top, "href")?, origin)?.0 != id
+        {
+            return Err(Error::InvalidResponse("ByRut download IDs differ"));
+        }
+        let label = [
+            release_type.as_deref(),
+            version.as_deref(),
+            status.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" — ");
+        torrents.push(TorrentRelease {
+            link: TorrentLink::Direct(download),
+            label: (!label.is_empty()).then_some(label),
+        });
+    } else {
         let notice = optional(article, ".tupd-text")?
             .map(checked_text)
             .transpose()?;
-        if notice.as_deref() == Some("Торрента пока нет")
-            || status.as_deref() == Some("Раздача из файлового хранилища (без торрента).")
+        if notice.as_deref() != Some("Торрента пока нет")
+            && status.as_deref() != Some("Раздача из файлового хранилища (без торрента).")
         {
-            return Err(Error::UnsupportedAcquisition(
-                "ByRut publication has no available torrent file",
-            ));
+            return Err(Error::InvalidResponse("missing ByRut torrent link"));
         }
-        return Err(Error::InvalidResponse("missing ByRut torrent link"));
-    };
-    let (id, download) = torrent_link(required(link, "href")?, origin)?;
-    if let Some(top) = optional(article, "a.itemtop_games[href]")?
-        && torrent_link(required(top, "href")?, origin)?.0 != id
-    {
-        return Err(Error::InvalidResponse("ByRut download IDs differ"));
     }
 
-    let label = [
-        release_type.as_deref(),
-        version.as_deref(),
-        status.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .filter(|value| !value.is_empty())
-    .collect::<Vec<_>>()
-    .join(" — ");
-    Ok(ParsedRelease {
-        work,
-        download,
-        label: (!label.is_empty()).then_some(label),
-    })
+    let mut blocks = HashSet::new();
+    for block in article.select(&selector("#other_repacks .ajax-block[data-ajax]")) {
+        if optional(block, ".showtitle[data-storage]")?.is_some() {
+            continue;
+        }
+        let name = required(block, "data-ajax")?;
+        if !name.strip_prefix("features").is_some_and(canonical_decimal)
+            || !blocks.insert(name)
+            || blocks.len() > 16
+        {
+            return Err(Error::InvalidResponse("invalid ByRut alternate block"));
+        }
+        let content = unique(block, ".ajax-content[id]")?;
+        if content.attr("id") != Some(format!("ajaxsp-{name}-{number}").as_str()) {
+            return Err(Error::InvalidResponse("ByRut alternate identity changed"));
+        }
+        let title = checked_text(unique(block, ".showtitle")?)?;
+        let version = checked_text(unique(block, ".show_ver.torrent")?)?;
+        torrents.push(TorrentRelease {
+            link: TorrentLink::Ajax(name.to_owned()),
+            label: Some(format!("{title} — {version}")),
+        });
+    }
+    if torrents.is_empty() {
+        return Err(Error::UnsupportedAcquisition(
+            "ByRut publication has no available torrent file",
+        ));
+    }
+    Ok(ParsedRelease { work, torrents })
 }
 
 fn publication(input: &str, origin: &Url) -> Result<(PublicationRef, Url)> {

@@ -154,9 +154,11 @@ try {
         assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
     }
     else if (selectedSource === "byrut") {
-        assert.equal(check.variantCount, 1);
+        assert.equal(check.variantCount, 4);
+        assert(check.selectedRow > 0);
         assert.equal(check.workId, "byrut:2799-stardew-valley");
-        assert.equal(check.infoHash, "942e9eeace33f7cfefa4fbcc129a1a9f12097638");
+        assert.equal(check.infoHash, "acfd3488d67097059db8aeaf27a0f75625c864a2");
+        assert.notEqual(check.defaultInfoHash, check.infoHash);
         assert.equal(check.variantId, `${check.workId}:torrent:${check.infoHash}`);
         assert(check.metadataBytes > 0 && check.metadataBytes <= 10 * 1024 * 1024);
     }

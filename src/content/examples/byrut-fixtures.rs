@@ -36,15 +36,13 @@ mod byrut {
     }
 }
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[path = "byrut/fixture.rs"]
+mod fixture;
+
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::oneshot;
-use tokio_rustls::TlsAcceptor;
-use tokio_rustls::rustls::{ServerConfig, pki_types::PrivatePkcs8KeyDer};
-use url::Url;
+use fixture::{Fixture, alternate_torrent, changed_torrent, legal_torrent};
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -73,7 +71,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let work = provider
         .inspect(&found[0].reference, None, browser::BrowserChoice::Auto)
         .await?;
-    assert_eq!(work.variants.len(), 1);
+    assert_eq!(work.variants.len(), 3);
     assert!(work.aliases.is_empty());
     let coop = provider
         .inspect(
@@ -118,6 +116,58 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(reference, *selected);
     assert_eq!(metadata.bytes(), legal_torrent());
 
+    for (variant, expected, label) in [
+        (
+            &work.variants[1],
+            changed_torrent(),
+            "Generated RePack — v 1.1",
+        ),
+        (
+            &work.variants[2],
+            alternate_torrent(),
+            "Generated Portable — v 1.0",
+        ),
+    ] {
+        assert_eq!(variant.title.as_deref(), Some(label));
+        assert_eq!(variant.transport, Transport::Torrent);
+        assert_eq!(variant.reference.publication, work.reference);
+        let resolved = provider
+            .resolve(&variant.reference, None, browser::BrowserChoice::Auto)
+            .await?;
+        let ResolvedContent::TorrentFile {
+            reference,
+            metadata,
+        } = resolved
+        else {
+            panic!("alternate ByRut torrent did not resolve");
+        };
+        assert_eq!(reference, variant.reference);
+        assert_eq!(metadata.bytes(), expected);
+    }
+
+    for mode in [1, 2] {
+        fixture.alternate_mode.store(mode, Ordering::SeqCst);
+        assert!(matches!(
+            provider
+                .resolve(
+                    &work.variants[1].reference,
+                    None,
+                    browser::BrowserChoice::Auto
+                )
+                .await,
+            Err(Error::VariantUnavailable)
+        ));
+    }
+    fixture.alternate_mode.store(0, Ordering::SeqCst);
+
+    fixture.alternate_mode.store(3, Ordering::SeqCst);
+    let repeated = provider
+        .inspect(&work.reference, None, browser::BrowserChoice::Auto)
+        .await?;
+    assert_eq!(repeated.variants.len(), 2);
+    assert_eq!(repeated.variants[0].reference, work.variants[0].reference);
+    fixture.alternate_mode.store(0, Ordering::SeqCst);
+
     fixture.changed.store(true, Ordering::SeqCst);
     let downloads = fixture.downloads.load(Ordering::SeqCst);
     assert!(matches!(
@@ -126,7 +176,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .await,
         Err(Error::VariantUnavailable)
     ));
-    assert_eq!(fixture.downloads.load(Ordering::SeqCst), downloads + 1);
+    assert_eq!(fixture.downloads.load(Ordering::SeqCst), downloads + 3);
     fixture.changed.store(false, Ordering::SeqCst);
 
     for query in ["empty", "unreleased"] {
@@ -198,6 +248,75 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .await,
         Err(Error::InvalidResponse("missing ByRut torrent link"))
     ));
+    let storage_main = provider
+        .inspect(
+            &PublicationRef {
+                source: Source::ByRut,
+                id: "50-storage-with-alternate".into(),
+            },
+            None,
+            browser::BrowserChoice::Auto,
+        )
+        .await?;
+    assert_eq!(storage_main.variants.len(), 1);
+    assert_eq!(
+        storage_main.variants[0].title.as_deref(),
+        Some("Generated RePack — v 1.1")
+    );
+    for id in [
+        "51-invalid-block",
+        "52-alternate-identity",
+        "53-duplicate-block",
+        "54-foreign-alternate",
+        "55-alternate-challenge",
+        "56-alternate-mime",
+        "57-alternate-missing-link",
+        "58-alternate-oversize",
+        "59-alternate-bad-torrent",
+        "60-excessive-alternates",
+    ] {
+        let error = provider
+            .inspect(
+                &PublicationRef {
+                    source: Source::ByRut,
+                    id: id.into(),
+                },
+                None,
+                browser::BrowserChoice::Auto,
+            )
+            .await
+            .err()
+            .expect("invalid alternate was accepted");
+        assert!(
+            matches!(
+                (id, error),
+                (
+                    "51-invalid-block" | "53-duplicate-block" | "60-excessive-alternates",
+                    Error::InvalidResponse("invalid ByRut alternate block")
+                ) | (
+                    "52-alternate-identity",
+                    Error::InvalidResponse("ByRut alternate identity changed")
+                ) | (
+                    "54-foreign-alternate",
+                    Error::InvalidResponse("foreign ByRut URL")
+                ) | ("55-alternate-challenge", Error::Challenge)
+                    | (
+                        "56-alternate-mime",
+                        Error::InvalidResponse("ByRut document is not HTML")
+                    )
+                    | (
+                        "57-alternate-missing-link",
+                        Error::InvalidResponse("missing ByRut metadata")
+                    )
+                    | ("58-alternate-oversize", Error::ResponseTooLarge)
+                    | (
+                        "59-alternate-bad-torrent",
+                        Error::InvalidResponse("invalid torrent metadata")
+                    )
+            ),
+            "unexpected failure category for {id}"
+        );
+    }
     for id in ["../private", "42-Mixed", "42-", "0-game", "42-game?query"] {
         let reference = PublicationRef {
             source: Source::ByRut,
@@ -231,9 +350,23 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .await?
             .is_empty()
     );
+    let transport = http::fixture(fixture.client.clone(), fixture.origin.clone());
+    let mut session = http::SourceSession::anonymous(fixture.origin.clone())?;
+    let mut cancelled = Box::pin(transport.session_ajax_document(
+        fixture.origin.join("/cancel-ajax")?,
+        "block=features2&id=42",
+        &mut session,
+    ));
+    tokio::select! {
+        _ = fixture.ajax_started.notified() => {},
+        result = &mut cancelled => panic!("AJAX completed before cancellation: {:?}", result.err()),
+        _ = tokio::time::sleep(Duration::from_secs(3)) => panic!("AJAX cancellation request did not start"),
+    }
+    drop(cancelled);
+    tokio::time::timeout(Duration::from_secs(3), fixture.ajax_closed.notified()).await?;
     fixture.stop().await;
     println!(
-        "PASS byrut_fixtures generated_https search unavailable_rows_omitted inspect no_torrent_classified exact_torrent replaced_metadata_rejected faults_rejected game_payload=none"
+        "PASS byrut_fixtures generated_https search unavailable_rows_omitted main_and_alternates exact_versions exact_torrents changed_and_removed_alternate_rejected storage_not_requested ajax_cancel_drained faults_rejected game_payload=none"
     );
     Ok(())
 }
@@ -260,28 +393,32 @@ async fn live() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let work = provider
             .inspect(&publication.reference, None, browser::BrowserChoice::Auto)
             .await?;
-        let selected = work
-            .variants
-            .first()
-            .ok_or("live ByRut article has no torrent")?;
-        let resolved = provider
-            .resolve(&selected.reference, None, browser::BrowserChoice::Auto)
-            .await?;
-        let ResolvedContent::TorrentFile {
-            reference,
-            metadata,
-        } = resolved
-        else {
-            return Err("live ByRut resolve did not return torrent metadata".into());
-        };
-        assert_eq!(reference, selected.reference);
-        let hash = torrent::info_hash(metadata.bytes())?;
-        assert_eq!(selected.info_hash.as_deref(), Some(hash.as_str()));
-        println!(
-            "PASS byrut_live {} infohash={hash} metadata_bytes={} game_payload=none",
-            work.reference.id,
-            metadata.bytes().len()
+        assert_eq!(
+            work.variants.len(),
+            4,
+            "live article alternate torrents were omitted"
         );
+        for selected in &work.variants {
+            let resolved = provider
+                .resolve(&selected.reference, None, browser::BrowserChoice::Auto)
+                .await?;
+            let ResolvedContent::TorrentFile {
+                reference,
+                metadata,
+            } = resolved
+            else {
+                return Err("live ByRut resolve did not return torrent metadata".into());
+            };
+            assert_eq!(reference, selected.reference);
+            let hash = torrent::info_hash(metadata.bytes())?;
+            assert_eq!(selected.info_hash.as_deref(), Some(hash.as_str()));
+            println!(
+                "PASS byrut_live {} label={} infohash={hash} metadata_bytes={} game_payload=none",
+                work.reference.id,
+                selected.title.as_deref().unwrap_or(""),
+                metadata.bytes().len()
+            );
+        }
     }
     for id in [
         "17354-dont-give-up-not-ready-to-die",
@@ -300,242 +437,4 @@ async fn live() -> std::result::Result<(), Box<dyn std::error::Error>> {
         println!("PASS byrut_live {id} unsupported_acquisition game_payload=none");
     }
     Ok(())
-}
-
-fn legal_torrent() -> &'static [u8] {
-    b"d8:announce32:https://fixture.example/announce4:infod6:lengthi4e4:name9:legal.txt12:piece lengthi4e6:pieces20:\xa9J\x8f\xe5\xcc\xb1\x9b\xa6\x1cL\x08s\xd3\x91\xe9\x87\x98/\xbb\xd3ee"
-}
-
-fn changed_torrent() -> &'static [u8] {
-    b"d8:announce32:https://fixture.example/announce4:infod6:lengthi4e4:name9:other.txt12:piece lengthi4e6:pieces20:\xa9J\x8f\xe5\xcc\xb1\x9b\xa6\x1cL\x08s\xd3\x91\xe9\x87\x98/\xbb\xd3ee"
-}
-
-struct Fixture {
-    origin: Url,
-    client: reqwest::Client,
-    changed: Arc<AtomicBool>,
-    downloads: Arc<AtomicUsize>,
-    stop: oneshot::Sender<()>,
-    server: tokio::task::JoinHandle<()>,
-}
-
-impl Fixture {
-    async fn start() -> std::result::Result<Self, Box<dyn std::error::Error>> {
-        let certificate = rcgen::generate_simple_self_signed(vec!["fixture.example".into()])?;
-        let config = ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(
-                vec![certificate.cert.der().clone()],
-                PrivatePkcs8KeyDer::from(certificate.signing_key.serialize_der()).into(),
-            )?;
-        let acceptor = TlsAcceptor::from(Arc::new(config));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        let address = listener.local_addr()?;
-        let origin = Url::parse(&format!("https://fixture.example:{}/", address.port()))?;
-        let client = reqwest::Client::builder()
-            .https_only(true)
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .add_root_certificate(reqwest::Certificate::from_der(certificate.cert.der())?)
-            .resolve("fixture.example", address)
-            .timeout(Duration::from_secs(5))
-            .build()?;
-        let changed = Arc::new(AtomicBool::new(false));
-        let downloads = Arc::new(AtomicUsize::new(0));
-        let (stop, mut stopped) = oneshot::channel();
-        let server = tokio::spawn({
-            let origin = origin.clone();
-            let changed = Arc::clone(&changed);
-            let downloads = Arc::clone(&downloads);
-            async move {
-                loop {
-                    let socket = tokio::select! {
-                        _ = &mut stopped => break,
-                        result = listener.accept() => match result {
-                            Ok((socket, _)) => socket,
-                            Err(_) => break,
-                        },
-                    };
-                    let acceptor = acceptor.clone();
-                    let origin = origin.clone();
-                    let changed = Arc::clone(&changed);
-                    let downloads = Arc::clone(&downloads);
-                    tokio::spawn(async move {
-                        let Ok(mut stream) = acceptor.accept(socket).await else {
-                            return;
-                        };
-                        let mut request = Vec::new();
-                        while !request.ends_with(b"\r\n\r\n") && request.len() < 8192 {
-                            let mut byte = [0];
-                            if stream.read_exact(&mut byte).await.is_err() {
-                                return;
-                            }
-                            request.push(byte[0]);
-                        }
-                        let target = String::from_utf8_lossy(&request)
-                            .split_whitespace()
-                            .nth(1)
-                            .unwrap_or("")
-                            .to_owned();
-                        let Ok(url) = origin.join(&target) else {
-                            return;
-                        };
-                        let (status, mime, bytes) =
-                            response(&origin, &url, changed.load(Ordering::SeqCst));
-                        if url
-                            .query_pairs()
-                            .any(|(name, value)| name == "do" && value == "download")
-                        {
-                            downloads.fetch_add(1, Ordering::SeqCst);
-                        }
-                        let head = format!(
-                            "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                            bytes.len()
-                        );
-                        let _ = stream.write_all(head.as_bytes()).await;
-                        let _ = stream.write_all(&bytes).await;
-                        let _ = stream.shutdown().await;
-                    });
-                }
-            }
-        });
-        Ok(Self {
-            origin,
-            client,
-            changed,
-            downloads,
-            stop,
-            server,
-        })
-    }
-
-    async fn stop(self) {
-        let _ = self.stop.send(());
-        self.server.await.expect("TLS fixture stopped");
-    }
-}
-
-fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static str, Vec<u8>) {
-    let query = url
-        .query_pairs()
-        .find(|(name, _)| name == "story")
-        .map(|(_, value)| value.into_owned());
-    if url.path() == "/index.php" && query.is_some() {
-        let query = query.unwrap();
-        if query == "challenge" {
-            return ("403 Forbidden", "text/html", b"error".to_vec());
-        }
-        let shown = if query == "mismatch" { "other" } else { &query };
-        let link = if query == "foreign" {
-            "https://clone.example/42-generated-legal.html".into()
-        } else {
-            format!("{origin}42-generated-legal.html")
-        };
-        let row = format!(
-            "<a class=\"search_res\" href=\"{link}\"><span class=\"search_res_title\">Generated Legal</span><div class=\"search_res_sub\"><span class=\"js-ver\">v 1.2</span></div></a>"
-        );
-        let unreleased = format!(
-            r#"<a class="search_res" href="{origin}46-unreleased.html">
-                <span class="search_res_title">Unreleased legal fixture</span>
-                <span class="status-badge status-badge--ann">Нет раздачи</span>
-            </a>"#
-        );
-        let result = match query.as_str() {
-            "empty" | "source-error" | "missing-results" => String::new(),
-            "unreleased" => unreleased,
-            "mixed" => format!("{row}{unreleased}"),
-            "duplicate" => row.repeat(2),
-            _ => row,
-        };
-        let feedback = match query.as_str() {
-            "empty" => {
-                r#"<div class="search-page__feedback"><div class="berrors_text">По вашему запросу ничего не найдено. Попробуйте изменить или сократить запрос.</div></div>"#
-            }
-            "source-error" => {
-                r#"<div class="search-page__feedback"><div class="berrors_text">Поиск временно недоступен.</div></div>"#
-            }
-            _ => "",
-        };
-        let body = format!(
-            r#"<html><main>
-                <div id="dle-content">
-                    <form id="fullsearch"><input name="story" value="{shown}"></form>
-                    {result}
-                </div>
-                {feedback}
-            </main></html>"#
-        );
-        return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
-    }
-    if url.path().ends_with(".html") {
-        if url.path().contains("missing") {
-            return ("404 Not Found", "text/html", Vec::new());
-        }
-        if url.path().contains("challenge") {
-            return ("403 Forbidden", "text/html", b"error".to_vec());
-        }
-        let slug = if url.path().contains("identity") {
-            "42-generated-legal"
-        } else {
-            url.path().trim_start_matches('/').trim_end_matches(".html")
-        };
-        let (number, _) = slug.split_once('-').expect("fixture publication slug");
-        let main = match slug {
-            "46-unreleased" | "48-malformed" => String::new(),
-            "47-storage-only" => {
-                r#"<div class="info-basictor__item--status info-basictor__item--altnav">
-                    <strong class="info-basictor__value">Раздача из файлового хранилища (без торрента).</strong>
-                </div>"#.into()
-            }
-            _ => format!(
-                r#"<div class="info-basictor__row">
-                    <div class="info-basictor__item">
-                        <strong class="info-basictor__value">Open fixture</strong>
-                    </div>
-                    <div class="info-basictor__item info-basictor__item--version">
-                        <strong class="info-basictor__value">v 1.2</strong>
-                    </div>
-                </div>
-                <div class="info-basictor__item--status">
-                    <strong class="info-basictor__value">Полная версия</strong>
-                </div>
-                <a class="itemdown_games" href="{origin}index.php?do=download&amp;id=91">Скачать .torrent</a>"#
-            ),
-        };
-        let notice = if slug == "46-unreleased" {
-            r#"<div class="tupd"><span class="tupd-text">Торрента пока нет</span></div>"#
-        } else {
-            ""
-        };
-        let title = if slug.contains("-po-seti-") {
-            "Generated Legal по сети"
-        } else {
-            "Generated Legal"
-        };
-        let body = format!(
-            r#"<html>
-                <head><link rel="canonical" href="{origin}{slug}.html"></head>
-                <body>
-                    <article class="main_content" data-news-id="{number}">
-                        <div class="game_details"><h1>{title}</h1></div>
-                        <div class="main-release-block">{main}</div>
-                        {notice}
-                    </article>
-                </body>
-            </html>"#
-        );
-        return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
-    }
-    if url
-        .query_pairs()
-        .any(|(name, value)| name == "do" && value == "download")
-    {
-        let body = if changed {
-            changed_torrent()
-        } else {
-            legal_torrent()
-        };
-        return ("200 OK", "application/x-bittorrent", body.to_vec());
-    }
-    ("404 Not Found", "text/html", Vec::new())
 }
