@@ -45,6 +45,13 @@ impl FreeTP {
             return Ok(Vec::new());
         }
 
+        // FreeTP removes colons before echoing its confirmed search query.
+        let query = query.replace(':', "");
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(Error::InvalidQuery);
+        }
+
         let (bytes, _, invalid) = WINDOWS_1251.encode(query);
         if invalid {
             return Err(Error::InvalidQuery);

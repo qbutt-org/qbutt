@@ -5,6 +5,8 @@ use qbutt_content::{Category, Error, FreeTP, ResolvedContent, VariantSelector};
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let source = FreeTP::new()?;
+    assert!(source.search("Re:Zero", Category::Games).await?.is_empty());
+    println!("PASS freetp_live query=Re:Zero results=0 game_payload=none");
     let query = std::env::args().nth(1).unwrap_or_else(|| "КЛЕТЬ".into());
     let found = source.search(&query, Category::Games).await?;
     let publication = found.first().ok_or("no FreeTP game results")?;
@@ -34,13 +36,6 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         source.resolve(&missing).await,
         Err(Error::VariantUnavailable)
     ));
-    assert!(
-        source
-            .search("qbuttgeneratedunlikelyemptyresult20261012", Category::Games)
-            .await?
-            .is_empty()
-    );
-
     println!(
         "PASS freetp_live search={} publication={} variants={} exact_hash=ok missing_hash=rejected empty=ok game_payload=none",
         found.len(),

@@ -69,7 +69,21 @@ fn page(
         return ("302 Found", "text/html; charset=cp1251", Vec::new());
     }
     if path == "/index.php" && params.contains_key("story") {
-        let story = params.get("story").unwrap();
+        let story = params.get("story").unwrap().replace(':', "");
+        if story == "forbidden" {
+            return (
+                "403 Forbidden",
+                "text/html; charset=cp1251",
+                b"error".to_vec(),
+            );
+        }
+        if story == "server-error" {
+            return (
+                "503 Service Unavailable",
+                "text/html; charset=cp1251",
+                b"error".to_vec(),
+            );
+        }
         if story == "challenge" {
             return (
                 "200 OK",
@@ -77,13 +91,23 @@ fn page(
                 b"<h1>Checking your browser</h1>".to_vec(),
             );
         }
-        let result = if story == "generated" {
+        let result = if matches!(story.as_str(), "generated" | "generatedlegal") {
             r#"<div class="base"><div class="heading"><a href="/po-seti/42-generated-game.html">Generated Legal Game играть по сети и интернету Онлайн</a></div></div>"#
         } else {
             ""
         };
+        let shown = if story == "mismatch" {
+            "unrelated"
+        } else {
+            story.as_str()
+        };
+        let notice = if story == "limited" {
+            "Вы сможете воспользоваться поиском через 10 секунд"
+        } else {
+            ""
+        };
         let body = format!(
-            r#"<div id="dle-content"><h1 class="heading3">Поиск по сайту</h1><form id="fullsearch"><input name="story" value="{story}"><input name="search_start" value="1"></form>{result}</div>"#
+            r#"<div id="dle-content"><h1 class="heading3">Поиск по сайту</h1><form id="fullsearch"><input name="story" value="{shown}"><input name="search_start" value="1"></form>{result}{notice}</div>"#
         );
         let (bytes, _, _) = encoding_rs::WINDOWS_1251.encode(&body);
         return ("200 OK", "text/html; charset=cp1251", bytes.into_owned());
@@ -305,7 +329,36 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         Err(Error::VariantUnavailable)
     ));
     assert!(source.resolve(&work.variants[1].reference).await.is_ok());
-    assert!(source.search("absent", Category::Games).await?.is_empty());
+    for query in ["absent", "Re:Zero"] {
+        assert!(source.search(query, Category::Games).await?.is_empty());
+    }
+    let normalized = source.search("generated:legal", Category::Games).await?;
+    assert_eq!(normalized.len(), 1);
+    assert_eq!(normalized[0].reference, found[0].reference);
+    for query in [":", ": :"] {
+        assert!(matches!(
+            source.search(query, Category::Games).await,
+            Err(Error::InvalidQuery)
+        ));
+    }
+    assert!(matches!(
+        source.search("mismatch", Category::Games).await,
+        Err(Error::InvalidResponse("FreeTP search was not confirmed"))
+    ));
+    assert!(matches!(
+        source.search("forbidden", Category::Games).await,
+        Err(Error::Challenge)
+    ));
+    assert!(matches!(
+        source.search("server-error", Category::Games).await,
+        Err(Error::HttpStatus(503))
+    ));
+    assert!(matches!(
+        source.search("limited", Category::Games).await,
+        Err(Error::InvalidResponse(
+            "FreeTP search is temporarily limited"
+        ))
+    ));
     assert!(source.search("challenge", Category::Games).await.is_err());
     assert!(
         tokio::time::timeout(
@@ -317,7 +370,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     fixture.stop().await;
     println!(
-        "PASS freetp_fixture search inspect game patch exact_resolve changed_hash empty challenge cancel"
+        "PASS freetp_fixture search colon_normalized positive empty_rezero mismatch_rejected http_challenge_preserved inspect game patch exact_resolve changed_hash limited cancel"
     );
     Ok(())
 }
