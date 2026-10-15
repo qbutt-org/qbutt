@@ -9,6 +9,7 @@ use tokio::task::JoinSet;
 
 use super::catalog::SourceResponse;
 use super::ffi;
+use super::selection::confirmed_shared_group;
 
 impl ffi::ContentController {
     fn selected_share_document(&self) -> Result<SharedWork, ShareError> {
@@ -106,7 +107,7 @@ impl ffi::ContentController {
             state.shared_import.cancel();
             state.shared_document = None;
             state.shared_works.clear();
-            state.shared_association_failed = false;
+            state.shared_reference_mismatch = false;
         }
         self.as_mut().set_shared_importing(false);
     }
@@ -121,7 +122,7 @@ impl ffi::ContentController {
     pub(super) fn begin_shared_import(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().shared_import.cancel();
         self.as_mut().rust_mut().shared_works.clear();
-        self.as_mut().rust_mut().shared_association_failed = false;
+        self.as_mut().rust_mut().shared_reference_mismatch = false;
         let Some(document) = self.shared_document.clone() else {
             return;
         };
@@ -236,7 +237,7 @@ impl ffi::ContentController {
             return;
         };
         if &work.reference != reference {
-            self.as_mut().rust_mut().shared_association_failed = true;
+            self.as_mut().rust_mut().shared_reference_mismatch = true;
             return;
         }
         if self.selected_group.is_none() && document.preferred().is_some() {
@@ -267,17 +268,15 @@ impl ffi::ContentController {
             .filter(|variant| publications.contains(&variant.publication))
             .cloned();
         let generation = self.shared_import.generation;
-        let accepted =
-            self.as_mut()
-                .show_shared_publications(publications, works.clone(), preferred);
+        if let Some(group) = confirmed_shared_group(&publications, &works, preferred.as_ref()) {
+            self.as_mut().show_shared_group(group, preferred);
+        }
         if self.shared_import.generation != generation {
             return;
         }
-        if accepted {
-            self.as_mut().rust_mut().shared_works = works;
-        } else {
-            self.as_mut().rust_mut().shared_association_failed = true;
-        }
+        // A later publication can supply the edition/build witness needed to
+        // confirm an earlier result. Keep candidates private until that succeeds.
+        self.as_mut().rust_mut().shared_works = works;
     }
 
     pub(super) fn complete_shared_import(mut self: Pin<&mut Self>) {
@@ -289,8 +288,17 @@ impl ffi::ContentController {
         let Some(document) = &self.shared_document else {
             return;
         };
-        let unavailable = self.shared_works.is_empty()
-            || self.shared_association_failed
+        let references: Vec<_> = self
+            .shared_works
+            .iter()
+            .map(|work| work.reference.clone())
+            .collect();
+        let preferred = document
+            .preferred()
+            .filter(|variant| references.contains(&variant.publication));
+        let unavailable = confirmed_shared_group(&references, &self.shared_works, preferred)
+            .is_none()
+            || self.shared_reference_mismatch
             || document.preferred().is_some_and(|preferred| {
                 !self
                     .shared_works

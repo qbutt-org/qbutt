@@ -76,6 +76,11 @@ namespace
         };
     }
 
+    QJsonObject gamePublication(const int id)
+    {
+        return {{u"source"_s, u"ru_tor"_s}, {u"id"_s, QString::number(id)}};
+    }
+
     QJsonObject storedJson(const QString &profile, const QString &sql)
     {
         const QString connection = u"sharing-fixture"_s;
@@ -89,7 +94,8 @@ namespace
         return QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object();
     }
 
-    QVariant sourceValue(Qbutt::ContentController &controller, const QByteArray &role)
+    QVariant sourceValue(Qbutt::ContentController &controller, const QByteArray &role,
+        const QString &source = u"aniliberty"_s)
     {
         auto *sources = qobject_cast<QAbstractItemModel *>(controller.property("sources").value<QObject *>());
         require(sources, u"Native source settings are missing"_s);
@@ -98,7 +104,7 @@ namespace
         require(sourceRole >= 0 && valueRole >= 0, u"Source status role is missing"_s);
         for (int row = 0; row < sources->rowCount(); ++row)
         {
-            if (sources->data(sources->index(row, 0), sourceRole).toString() == u"aniliberty"_s)
+            if (sources->data(sources->index(row, 0), sourceRole).toString() == source)
                 return sources->data(sources->index(row, 0), valueRole);
         }
         throw std::runtime_error("The shared fixture source is missing");
@@ -287,7 +293,33 @@ void exerciseSharing()
     require(unavailableSignals == previousUnavailable + 1 && variants->rowCount() == 0
         && controller->property("selectedWorkId").toString().isEmpty(), u"Full shared failure was hidden"_s);
 
+    require(controller->setSourceEnabled(u"rutor"_s, true), u"Could not enable the generated game source"_s);
+    waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Game source setting"_s);
+    const QString gameHash = QString::number(9560, 16).rightJustified(40, QChar(u'0'));
+    const QJsonObject gamePreferred {
+        {u"publication"_s, gamePublication(9560)},
+        {u"selector"_s, QJsonObject {{u"torrent_hash"_s, QJsonObject {{u"info_hash"_s, gameHash}}}}},
+    };
+    controller->openSharedLink(link({gamePublication(9560), gamePublication(9561), gamePublication(9562),
+        gamePublication(9563), gamePublication(9564)}, gamePreferred));
+    const QString gameVariant = u"rutor:9560:torrent:"_s + gameHash;
+    waitFor([&] { return variants->rowCount() == 1; }, u"Shared game before its edition witness"_s);
+    require(controller->property("sharedImporting").toBool()
+        && controller->property("selectedVariantId").toString() == gameVariant
+        && controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
+            == Qbutt::Search::VariantSelectionState::Available,
+        u"Pending association blocked the confirmed shared game"_s);
+    waitFor([&]
+    {
+        return !controller->property("sharedImporting").toBool() && !controller->property("libraryPending").toBool();
+    }, u"Late shared edition and update witnesses"_s);
+    require(variants->rowCount() == 4 && unavailableSignals == previousUnavailable + 1
+        && controller->property("selectedVariantId").toString() == gameVariant,
+        u"Late witness lost a valid shared publication or reported a permanent association failure"_s);
+    require(sourceValue(*controller, "failed", u"rutor"_s).toBool(),
+        u"Late-witness import hid its failed alternate source"_s);
+
     controller.reset();
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Shared receiver owner did not drain"_s);
-    qInfo("PASS share exact=unavailable unrelated=isolated missing=unselected public=accepted private=rejected malformed=rejected late=preserved partial=usable source_failure=exact retry=joined cancelled_retry=ignored full_failure=visible");
+    qInfo("PASS share exact=unavailable unrelated=isolated missing=unselected public=accepted private=rejected malformed=rejected late=preserved partial=usable source_failure=exact retry=joined cancelled_retry=ignored full_failure=visible late_witness=joined");
 }

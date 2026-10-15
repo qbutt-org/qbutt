@@ -19,6 +19,41 @@ fn selected_publication<'a>(
     }
 }
 
+pub(super) fn confirmed_shared_group(
+    references: &[PublicationRef],
+    publications: &[Work],
+    preferred: Option<&VariantRef>,
+) -> Option<WorkGroup> {
+    if publications.is_empty()
+        || references.len() != publications.len()
+        || references.iter().collect::<HashSet<_>>().len() != references.len()
+        || publications
+            .iter()
+            .map(|work| &work.reference)
+            .collect::<HashSet<_>>()
+            .len()
+            != publications.len()
+        || references
+            .iter()
+            .any(|reference| reference.validate().is_err())
+        || publications.iter().any(|work| {
+            !references.contains(&work.reference)
+                || !work.reference.source.categories().contains(&work.category)
+        })
+        || preferred.is_some_and(|variant| {
+            variant.validate().is_err() || !references.contains(&variant.publication)
+        })
+    {
+        return None;
+    }
+    let mut association = WorkAssociation::default();
+    for publication in publications {
+        association.update(publication.clone());
+    }
+    let mut groups = association.groups();
+    (groups.len() == 1).then(|| groups.pop().unwrap())
+}
+
 impl ffi::ContentController {
     pub(super) fn selected_work_publications(&self) -> Vec<PublicationRef> {
         self.selected_group
@@ -33,43 +68,11 @@ impl ffi::ContentController {
             .and_then(|preferences| preferences.selected.clone())
     }
 
-    pub(super) fn show_shared_publications(
+    pub(super) fn show_shared_group(
         mut self: Pin<&mut Self>,
-        references: Vec<PublicationRef>,
-        publications: Vec<Work>,
+        group: WorkGroup,
         preferred: Option<VariantRef>,
-    ) -> bool {
-        if publications.is_empty()
-            || references.len() != publications.len()
-            || references.iter().collect::<HashSet<_>>().len() != references.len()
-            || publications
-                .iter()
-                .map(|work| &work.reference)
-                .collect::<HashSet<_>>()
-                .len()
-                != publications.len()
-            || references
-                .iter()
-                .any(|reference| reference.validate().is_err())
-            || publications.iter().any(|work| {
-                !references.contains(&work.reference)
-                    || !work.reference.source.categories().contains(&work.category)
-            })
-            || preferred.as_ref().is_some_and(|variant| {
-                variant.validate().is_err() || !references.contains(&variant.publication)
-            })
-        {
-            return false;
-        }
-        let mut association = WorkAssociation::default();
-        for publication in &publications {
-            association.update(publication.clone());
-        }
-        let mut groups = association.groups();
-        if groups.len() != 1 {
-            return false;
-        }
-        let group = groups.pop().unwrap();
+    ) {
         let anchor = group.anchor.clone();
         let same_anchor = self
             .selected_group
@@ -110,7 +113,7 @@ impl ffi::ContentController {
                 preferences.selected = Some(preferred);
             }
         }
-        self.as_mut().show_group(&group, generation)
+        self.as_mut().show_group(&group, generation);
     }
 
     fn current_publication(&self) -> Option<&Work> {

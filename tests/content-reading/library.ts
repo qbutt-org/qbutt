@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 
-// The acceptance build redirects only this public HTTPS origin to local TLS.
+// The acceptance build redirects AniLiberty and RuTor HTTPS origins to local TLS.
 // Search, inspection, resolution and SQLite still run through native code.
 const [executable, certificate, key, scenario = "all"] = process.argv.slice(2);
 assert(executable && certificate && key, "Expected acceptance executable, certificate and key");
@@ -36,6 +36,8 @@ const releases = [release(9542), release(9543)];
 const sharedReleases = [9550, 9551].map(id => ({ ...release(id), mal: { id: 52991 } }));
 const resolutionStarted = Promise.withResolvers<void>();
 const cancelledSharedRetry = Promise.withResolvers<void>();
+const lateGameReplies = Promise.withResolvers<void>();
+const gameInspections = new Set<number>();
 let sharedAnchorRequests = 0;
 let partialAlternateRequests = 0;
 let cancelledAlternateRequests = 0;
@@ -51,6 +53,34 @@ const server = Bun.serve({
     async fetch(request) {
         try {
             const url = new URL(request.url);
+            if (url.hostname === "rutor.info") {
+                const match = /^\/torrent\/(9560|9561|9562|9563|9564)$/.exec(url.pathname);
+                assert(match && !url.search, `Unexpected RuTor path: ${url.pathname}`);
+                const id = Number(match[1]);
+                assert(!gameInspections.has(id), "Shared game import repeated an inspection");
+                gameInspections.add(id);
+                ++inspections;
+                if (id === 9564)
+                    return new Response("Generated unavailable alternate", { status: 404 });
+                if (id === 9563) {
+                    await lateGameReplies.promise;
+                    await Bun.sleep(600);
+                }
+                if (id === 9562) lateGameReplies.resolve();
+                const titles: Record<number, string> = {
+                    9560: "Generated Game [v 123456] (2023) PC",
+                    9561: "Generated Game New Story [v 123456] (2023) PC",
+                    9562: "Generated Game New Story Update v654321-RUNE",
+                    9563: "Generated Game: Deluxe Edition [v 123456] (2023) PC",
+                };
+                const hash = id.toString(16).padStart(40, "0");
+                return new Response(`<!doctype html><h1>${titles[id]}</h1>
+                    <div id="download"><a href="magnet:?xt=urn:btih:${hash}">Magnet</a>
+                    <a href="//d.rutor.info/download/${id}">Download</a></div>
+                    <table id="details"><tr><td class="header">Категория</td><td>Игры</td></tr>
+                    <tr><td class="header">Размер</td><td>1 MB (1048576 Bytes)</td></tr></table>`,
+                    { headers: { "Content-Type": "text/html; charset=utf-8" } });
+            }
             assert.equal(url.hostname, "anilibria.top");
             if (url.pathname === "/api/v1/app/search/releases") {
                 assert.equal(url.searchParams.get("query"), "Frieren");
@@ -133,6 +163,7 @@ try {
         assert.equal(cancelledAlternateRequests, 2, "Cancelled shared retry must still complete its exact source probe");
         if (scenario === "sharing")
             assert.equal(preferredPublicationRequests, 5, "Alternate retries restarted the shared preferred publication");
+        assert.equal(gameInspections.size, 5, "Late-witness shared game publications were not inspected exactly once");
     }
     if (failure) throw failure;
     if (scenario !== "sharing")
@@ -141,5 +172,6 @@ try {
     console.log(JSON.stringify({ ok: true, scenario, searches, inspections }));
 } finally {
     cancelledSharedRetry.resolve();
+    lateGameReplies.resolve();
     server.stop(true);
 }
