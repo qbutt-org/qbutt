@@ -19,6 +19,7 @@ pub(super) fn run() -> Result<()> {
         .enumerate()
         .map(|(index, title)| release(index + 1, title, Category::Games))
         .collect();
+    super::cross_source_games::run(&games);
     let movies = [
         release(
             20,

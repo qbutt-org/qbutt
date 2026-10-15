@@ -213,6 +213,15 @@ fn work(
     if title.is_empty() || title.len() > 2048 {
         return Err(Error::InvalidResponse("invalid DODI publication title"));
     }
+    let aliases = title
+        .split_once("- ")
+        .filter(|(number, name)| {
+            !number.is_empty()
+                && number.bytes().all(|byte| byte.is_ascii_digit())
+                && !name.is_empty()
+        })
+        .map(|(_, name)| vec![name.to_owned()])
+        .unwrap_or_default();
     Ok(Work {
         reference,
         title,
@@ -221,7 +230,7 @@ fn work(
         cover: None,
         description: None,
         year: None,
-        aliases: Vec::new(),
+        aliases,
         identifiers: BTreeMap::new(),
         variants: Vec::new(),
         needs_inspection,

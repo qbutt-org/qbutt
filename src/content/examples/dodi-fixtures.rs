@@ -79,6 +79,10 @@ async fn main() -> AcceptanceResult<()> {
     let works = provider.search("generated & legal").await?;
     assert_eq!(works.len(), 1);
     assert_eq!(works[0].title, TITLE);
+    assert_eq!(
+        works[0].aliases,
+        ["Generated Game: Deluxe Edition (v1.2.3 + MULTi2) [DODI Repack]"]
+    );
     assert_eq!(works[0].category, Category::Games);
     assert!(works[0].needs_inspection && works[0].variants.is_empty());
     let publication = &works[0].reference;

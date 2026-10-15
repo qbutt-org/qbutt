@@ -1,5 +1,7 @@
 //! Cross-source title corpus and generated SQLite reopen scenario; no live profile.
 
+#[path = "work-association/cross-source-games.rs"]
+mod cross_source_games;
 #[path = "work-association/product-releases.rs"]
 mod product_releases;
 #[path = "work-association/public-titles.rs"]

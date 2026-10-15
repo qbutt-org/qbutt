@@ -62,11 +62,14 @@ pub(super) fn product_titles(publications: &[Work]) -> HashMap<PublicationRef, P
         }
 
         let mut normalized = Vec::new();
-        for title in std::iter::once(display).chain(
-            work.aliases
-                .iter()
-                .map(|alias| release_title(alias, work.category)),
-        ) {
+        for title in std::iter::once(display).chain(work.aliases.iter().map(|alias| {
+            let title = release_title(alias, work.category);
+            if work.category == Category::Games {
+                edition_base(title)
+            } else {
+                title
+            }
+        })) {
             // Tracker labels explicitly report localized/original names with
             // spaced slashes. A slash within Fate/stay night remains literal.
             for alias in title.split(" / ") {
@@ -89,29 +92,23 @@ pub(super) fn product_titles(publications: &[Work]) -> HashMap<PublicationRef, P
 }
 
 fn game_release(work: &Work) -> GameRelease<'_> {
-    let title = release_title(&work.title, work.category);
-    let version = title.match_indices('[').find_map(|(start, _)| {
-        let (content, _) = title[start + 1..].split_once(']')?;
-        let content = content.strip_prefix('v')?;
-        content
-            .trim_start()
-            .starts_with(|character: char| character.is_ascii_digit())
-            .then_some((start, content))
-    });
-    let (title, builds) = match version {
-        Some((start, content)) => {
-            let builds = content
-                .split('+')
-                .next()
-                .unwrap_or_default()
-                .split('/')
-                .map(|build| build.trim().trim_start_matches('v').trim())
+    // A provider can report a canonical alias after its catalogue decoration,
+    // while retaining the complete source label on the exact publication.
+    let source_title = work
+        .aliases
+        .iter()
+        .find(|alias| !alias.is_empty() && work.title.ends_with(alias.as_str()))
+        .unwrap_or(&work.title);
+    let title = release_title(source_title, work.category);
+    let builds = version_metadata(source_title)
+        .map(|(_, content)| {
+            content
+                .split(|character: char| !character.is_ascii_alphanumeric() && character != '.')
+                .map(|build| build.trim_start_matches('v'))
                 .filter(|build| build.len() >= 5 && build.bytes().all(|byte| byte.is_ascii_digit()))
-                .collect();
-            (title[..start].trim_end(), builds)
-        }
-        None => (title, Vec::new()),
-    };
+                .collect()
+        })
+        .unwrap_or_default();
     let base = edition_base(title);
 
     GameRelease {
@@ -126,7 +123,12 @@ fn game_release(work: &Work) -> GameRelease<'_> {
 }
 
 fn edition_base(title: &str) -> &str {
-    for (start, separator) in title.match_indices(": ").chain(title.match_indices(" - ")) {
+    for (start, separator) in title
+        .match_indices(": ")
+        .chain(title.match_indices(" - "))
+        .chain(title.match_indices(" – "))
+        .chain(title.match_indices(" — "))
+    {
         let suffix = &title[start + separator.len()..];
         let label = suffix.split(" - ").next().unwrap_or_default();
         let words: Vec<_> = label.split_whitespace().collect();
@@ -180,6 +182,7 @@ pub(super) fn year_labels(title: &str) -> impl Iterator<Item = (usize, &str, u16
 /// Recognized metadata bounds a release tail. Unknown suffixes remain part of
 /// the product title, and every reported year remains conflict evidence.
 fn release_title(title: &str, category: Category) -> &str {
+    let mut product = title;
     for (start, suffix, _) in year_labels(title) {
         let suffix = suffix.trim();
         let metadata = suffix.strip_prefix('[').unwrap_or(suffix);
@@ -196,10 +199,37 @@ fn release_title(title: &str, category: Category) -> &str {
             || first.starts_with("uhd.bd.")
             || (category == Category::Games && matches!(first.as_str(), "pc" | "mac" | "linux"))
         {
-            return title[..start].trim_end();
+            product = title[..start].trim_end();
+            break;
         }
     }
-    title
+    if category == Category::Games
+        && let Some((start, _)) = version_metadata(product)
+    {
+        return product[..start].trim_end();
+    }
+    product
+}
+
+fn version_metadata(title: &str) -> Option<(usize, &str)> {
+    for (start, _) in title.match_indices('v') {
+        let previous = title[..start].chars().next_back();
+        if previous
+            .is_some_and(|character| !character.is_whitespace() && !matches!(character, '[' | '('))
+        {
+            continue;
+        }
+        let content = title[start + 1..].trim_start();
+        if !content.starts_with(|character: char| character.is_ascii_digit()) {
+            continue;
+        }
+        let prefix = title[..start]
+            .trim_end()
+            .trim_end_matches([',', '-', '–', '—', '[', '('])
+            .trim_end();
+        return Some((prefix.len(), content));
+    }
+    None
 }
 
 fn normalized_title(title: &str) -> String {
