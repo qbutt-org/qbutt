@@ -175,7 +175,7 @@ void exerciseVideoActions(const QString &requestedProfile)
         QString displayPlayer = rawPlayer;
         displayPlayer.remove(u"Плеер "_s);
         require(player == displayPlayer, u"Inspected player label differs: "_s + rawPlayer);
-        const bool supported = !rawPlayer.contains(u"Alloha"_s);
+        const bool supported = rawPlayer != u"Alloha";
         controller->selectVariant(id);
         waitFor([&] { return watch->isEnabled() == supported && save->isVisible() == supported; }, player);
         require((controller->property("selectedVariantSaveable").toBool() == supported)
@@ -193,7 +193,7 @@ void exerciseVideoActions(const QString &requestedProfile)
             require(notice->property("text").toString() == QCoreApplication::translate("WorkPane",
                 "This player is not supported yet. Choose another."), u"Missing localized next action"_s);
         }
-        if (rawPlayer == u"Плеер CVH" || rawPlayer == u"Плеер Alloha")
+        if (rawPlayer == u"Плеер Alloha" || rawPlayer == u"Alloha")
         {
             for (const QSize &size : {QSize(1440, 900), QSize(1280, 720)})
             {

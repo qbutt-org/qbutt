@@ -636,7 +636,7 @@ impl VariantRef {
             | VariantSelector::AniTokyoVideo { .. }
             | VariantSelector::AnimeSpiritKodik { .. } => true,
             VariantSelector::YummyAnimeVideo { player, .. } => {
-                player == "Плеер VK"
+                matches!(player.as_str(), "Плеер VK" | "Плеер Alloha")
                     || matches!(
                         player.strip_prefix("Плеер ").unwrap_or(player),
                         "Aksor" | "CVH" | "Kodik"
