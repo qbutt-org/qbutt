@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -10,7 +10,7 @@ use tokio::task::JoinSet;
 use super::catalog::SourceResponse;
 use super::ffi;
 
-const MAX_SEARCH_REQUESTS: usize = 4;
+const MAX_SEARCH_SOURCES: usize = 4;
 
 impl ffi::ContentController {
     pub fn search(mut self: Pin<&mut Self>, query: QString) {
@@ -22,6 +22,10 @@ impl ffi::ContentController {
         self.as_mut().cancel_deferred_search();
         self.as_mut().rust_mut().search.cancel();
         let generation = self.search.generation;
+        self.as_mut().cancel_source_searches();
+        if self.search.generation != generation {
+            return;
+        }
         let previous_selection_generation = self.inspection.generation;
         let previous_resolution_generation = self.resolution.generation;
         self.as_mut().set_search_state(ffi::SearchState::Idle);
@@ -88,8 +92,9 @@ impl ffi::ContentController {
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let catalog = Arc::clone(&services.catalog);
-        let mut requests = Vec::new();
+        let mut requests = VecDeque::new();
         for source in Source::ALL {
+            let mut categories = VecDeque::new();
             for category in source.categories() {
                 if let Some(request) = self.source_request(SourceOperation::Search {
                     source,
@@ -97,29 +102,32 @@ impl ffi::ContentController {
                     category: *category,
                     language: (source == Source::MangaDex).then(|| services.language.clone()),
                 }) {
-                    requests.push(request);
+                    categories.push_back(request);
                 }
+            }
+            if !categories.is_empty() {
+                requests.push_back(categories);
             }
         }
         let task = services.runtime.spawn(async move {
             let had_requests = !requests.is_empty();
-            let mut requests = requests.into_iter();
             let mut pending = JoinSet::new();
             let mut any_succeeded = false;
             loop {
-                while pending.len() < MAX_SEARCH_REQUESTS
-                    && let Some(request) = requests.next()
+                while pending.len() < MAX_SEARCH_SOURCES
+                    && let Some(mut categories) = requests.pop_front()
                 {
                     let catalog = Arc::clone(&catalog);
+                    let request = categories.pop_front().expect("nonempty source requests");
                     pending.spawn(async move {
                         let result = catalog.execute(&request.operation).await;
-                        (request, result)
+                        (request, result, categories)
                     });
                 }
                 let Some(completed) = pending.join_next().await else {
                     break;
                 };
-                let (request, result) = match completed {
+                let (request, result, categories) = match completed {
                     Ok(completed) => completed,
                     Err(error) => {
                         let _ = qt_thread.queue(move |controller| {
@@ -133,6 +141,13 @@ impl ffi::ContentController {
                         continue;
                     }
                 };
+                // One request per source at a time. Its next category goes
+                // behind waiting sources so large catalogs do not starve them.
+                if !categories.is_empty()
+                    && !matches!(&result, Err(qbutt_content::Error::SourceCheckRequired))
+                {
+                    requests.push_back(categories);
+                }
                 any_succeeded |= result.is_ok();
                 let _ = qt_thread.queue(move |mut controller| {
                     if controller.search.generation != generation
@@ -146,8 +161,15 @@ impl ffi::ContentController {
                     {
                         return;
                     }
-                    if let Ok(SourceResponse::Search(works)) = result {
-                        for work in works {
+                    if let (
+                        SourceOperation::Search { query, .. },
+                        Ok(SourceResponse::Search(works)),
+                    ) = (&request.operation, result)
+                    {
+                        for work in works
+                            .into_iter()
+                            .filter(|work| qbutt_content::query::matches(query, work))
+                        {
                             if controller.search.generation != generation
                                 || !controller.source_request_current(&request)
                             {
@@ -251,6 +273,11 @@ impl ffi::ContentController {
 
     pub fn cancel_search(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().search.cancel();
+        let generation = self.search.generation;
+        self.as_mut().cancel_source_searches();
+        if self.search.generation != generation {
+            return;
+        }
         self.as_mut().cancel_deferred_search();
         if self.is_searching() {
             self.as_mut().set_search_state(ffi::SearchState::Cancelled);

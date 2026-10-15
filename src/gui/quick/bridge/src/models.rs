@@ -311,7 +311,11 @@ impl ffi::WorkModel {
                         sources.push(source);
                     }
                 }
-                sources.join(", ")
+                if sources.len() > 2 {
+                    format!("{} +{}", sources[..2].join(", "), sources.len() - 2)
+                } else {
+                    sources.join(", ")
+                }
             }
             3 => category_key(work.category).into(),
             4 => work.year.map(|year| year.to_string()).unwrap_or_default(),

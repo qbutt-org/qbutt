@@ -166,9 +166,10 @@ void exerciseSources()
         && !sourceIds.isEmpty(), u"Ephemeral source catalog is not ready"_s);
     for (const QString &id : sourceIds)
     {
-        const bool hasAccount = (id == u"rutracker"_s) || (id == u"mangalib"_s) || (id == u"ranobelib"_s);
+        const bool hasAccount = (id == u"rutracker"_s) || (id == u"1337x"_s)
+            || (id == u"mangalib"_s) || (id == u"ranobelib"_s);
         require(value(catalog, id, "accountSource").toBool() == hasAccount,
-            u"Source advertised an unsupported account action"_s);
+            u"Source advertised an unsupported account action: "_s + id);
     }
     require(!controller->openSourceAccount(u"aniliberty"_s),
         u"Anonymous source unexpectedly opened an account action"_s);
@@ -308,7 +309,13 @@ void exerciseSources()
     controller->initLibrary(profile.path());
     loaded(*controller);
     require(controller->retrySource(u"aniliberty"_s), u"Previous search retry rejected"_s);
+    controller->cancelSearch();
+    require(!value(model(*controller, "sources"), u"aniliberty"_s, "retrying").toBool(),
+        u"Stop retained a source search retry"_s);
+    require(controller->retrySource(u"aniliberty"_s), u"Stopped source retry could not restart"_s);
     controller->search(u"Frieren"_s);
+    require(!value(model(*controller, "sources"), u"aniliberty"_s, "retrying").toBool(),
+        u"New search retained a source search retry"_s);
     waitFor([&]
     {
         return !controller->property("busy").toBool()

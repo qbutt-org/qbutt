@@ -299,7 +299,7 @@ void exerciseWorkFilter()
     view->setProperty("width", 260);
     view->setProperty("height", 600);
     const QString anchor = u"aniliberty:900001"_s;
-    const QString groupedSources = u"AniLiberty, YummyAnime, AniTokyo, AnimeSpirit"_s;
+    const QString groupedSources = u"AniLiberty, YummyAnime +2"_s;
     const auto verifySources = [&](const QString &id, const QString &expected)
     {
         const int row = proxy->indexOfId(id);
@@ -322,7 +322,7 @@ void exerciseWorkFilter()
         }
         require(label && (label->property("elide").toInt() == Qt::ElideRight), u"Grouped source label is missing"_s);
         if (expected == groupedSources)
-            require(label->property("truncated").toBool(), u"Long source list did not elide"_s);
+            require(!label->property("truncated").toBool(), u"Compact source count was truncated"_s);
     };
     verifySources(anchor, u"AniLiberty"_s);
     const QJsonObject associated = withAssociatedSources(generatedEntry(1, true));
@@ -370,5 +370,5 @@ void exerciseWorkFilter()
     controller.reset();
     require(!proxy->sourceModel() && (proxy->rowCount() == 0), u"Destroyed source was retained by proxy"_s);
     require(warnings == 0, u"QML work filtering emitted warnings"_s);
-    qInfo("PASS work_filter production_library=qml exact_identity=ok keyboard=ok incremental=ok reset=ok source_switch=ok group_sources=arrival_removal_split deduplicated=ok elide=ok no_copy=ok destruction=ok");
+    qInfo("PASS work_filter production_library=qml exact_identity=ok keyboard=ok incremental=ok reset=ok source_switch=ok group_sources=arrival_removal_split deduplicated=ok compact_count=ok no_copy=ok destruction=ok");
 }

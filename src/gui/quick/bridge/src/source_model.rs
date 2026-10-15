@@ -137,14 +137,16 @@ impl ffi::SourceModel {
             5 => QVariant::from(&row.pending),
             6 => QVariant::from(&row.retrying),
             7 => QVariant::from(
-                &(matches!(row.source, Source::RuTracker | Source::NnmClub)
-                    && matches!(
-                        row.failure,
-                        Some(
-                            SourceFailureReason::LoginRequired
-                                | SourceFailureReason::SourceCheckRequired
-                        )
-                    )),
+                &(matches!(
+                    row.source,
+                    Source::RuTracker | Source::NnmClub | Source::X1337 | Source::Igruha
+                ) && matches!(
+                    row.failure,
+                    Some(
+                        SourceFailureReason::LoginRequired
+                            | SourceFailureReason::SourceCheckRequired
+                    )
+                )),
             ),
             8 => QVariant::from(&row.source.account_url().is_some()),
             9 => {

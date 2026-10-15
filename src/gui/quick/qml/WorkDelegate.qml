@@ -10,7 +10,6 @@ ItemDelegate {
     required property string title
     required property string source
     required property string category
-    required property string year
     required property Theme theme
 
     readonly property string categoryText: {
@@ -56,7 +55,7 @@ ItemDelegate {
         Label {
             Layout.fillWidth: true
             color: root.theme.muted
-            text: root.year.length > 0 ? qsTr("%1, %2").arg(root.categoryText).arg(root.year) : root.categoryText
+            text: root.categoryText
             elide: Text.ElideRight
             textFormat: Text.PlainText
         }

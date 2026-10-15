@@ -58,6 +58,7 @@ struct SourceStatus {
     health_intent: Option<SourceIntent>,
     pending: usize,
     retry: Pending,
+    retry_is_search: bool,
 }
 
 /// An in-memory continuation of the user's Open action, never a persisted retry instruction.
@@ -136,6 +137,7 @@ impl Default for SourceState {
                     health_intent: None,
                     pending: 0,
                     retry: Pending::default(),
+                    retry_is_search: false,
                 })
                 .collect(),
             load: LoadState::Ready,
@@ -428,6 +430,24 @@ impl ffi::ContentController {
 
     pub(super) fn cancel_deferred_search(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().source_status.deferred_query = None;
+    }
+
+    pub(super) fn cancel_source_searches(mut self: Pin<&mut Self>) {
+        let generation = self.search.generation;
+        let mut cancelled = Vec::new();
+        for status in &mut self.as_mut().rust_mut().source_status.statuses {
+            if status.retry_is_search && status.retry.task.is_some() {
+                status.retry.cancel();
+                status.retry_is_search = false;
+                cancelled.push(status.settings.source);
+            }
+        }
+        for source in cancelled {
+            if self.search.generation != generation {
+                break;
+            }
+            self.as_mut().publish_source(source);
+        }
     }
 
     pub(super) fn source_settings_loading(mut self: Pin<&mut Self>) {
@@ -791,11 +811,13 @@ impl ffi::ContentController {
         let Some(failure) = status.settings.failure.clone() else {
             return false;
         };
-        let manual_check = matches!(source, Source::RuTracker | Source::NnmClub)
-            && matches!(
-                failure.reason,
-                SourceFailureReason::LoginRequired | SourceFailureReason::SourceCheckRequired
-            );
+        let manual_check = matches!(
+            source,
+            Source::RuTracker | Source::NnmClub | Source::X1337 | Source::Igruha
+        ) && matches!(
+            failure.reason,
+            SourceFailureReason::LoginRequired | SourceFailureReason::SourceCheckRequired
+        );
         if manual_check && self.resolving {
             return false;
         }
@@ -821,6 +843,29 @@ impl ffi::ContentController {
             self.as_mut().resolve_variant_action(id, true);
             return self.resolving;
         }
+        let mut remaining = Vec::new();
+        if manual_check
+            && let SourceOperation::Search {
+                query,
+                category,
+                language,
+                ..
+            } = &request.operation
+            && self.source_status.active_query.as_ref() == Some(query)
+        {
+            for next_category in source.categories() {
+                if next_category != category
+                    && let Some(next) = self.source_request(SourceOperation::Search {
+                        source,
+                        query: query.clone(),
+                        category: *next_category,
+                        language: language.clone(),
+                    })
+                {
+                    remaining.push(next);
+                }
+            }
+        }
         let Some(services) = self.services.as_ref() else {
             return false;
         };
@@ -829,72 +874,91 @@ impl ffi::ContentController {
         let search_generation = self.search.generation;
         let inspection_generation = self.inspection.generation;
         let retry_generation = status.retry.generation;
+        let retry_is_search = matches!(&request.operation, SourceOperation::Search { .. });
         let task = services.runtime.spawn(async move {
-            let result = catalog.retry(&request.operation).await;
-            let _ = thread.queue(move |mut controller| {
-                if controller.source_status.status(source).retry.generation != retry_generation {
-                    return;
-                }
-                controller
-                    .as_mut()
-                    .rust_mut()
-                    .source_status
-                    .status_mut(source)
-                    .retry
-                    .task = None;
-                if !controller.source_request_current(&request) {
-                    controller.publish_source(source);
-                    return;
-                }
-                controller.as_mut().source_outcome(&request, &result);
-                if !controller.source_request_current(&request) {
-                    return;
-                }
-                match (&request.operation, result) {
-                    (SourceOperation::Search { query, .. }, Ok(SourceResponse::Search(works)))
-                        if controller.search.generation == search_generation
-                            && controller.source_status.active_query.as_ref() == Some(query) =>
+            let count = remaining.len() + 1;
+            for (index, request) in std::iter::once(request).chain(remaining).enumerate() {
+                let result = if index == 0 {
+                    catalog.retry(&request.operation).await
+                } else {
+                    catalog.execute(&request.operation).await
+                };
+                let stop = (index == 0 && result.is_err())
+                    || matches!(&result, Err(qbutt_content::Error::SourceCheckRequired));
+                let finished = stop || index + 1 == count;
+                let _ = thread.queue(move |mut controller| {
+                    if controller.source_status.status(source).retry.generation != retry_generation
                     {
-                        for work in works {
-                            if !controller.source_request_current(&request)
-                                || controller.search.generation != search_generation
+                        return;
+                    }
+                    if finished {
+                        let mut state = controller.as_mut().rust_mut();
+                        let status = state.source_status.status_mut(source);
+                        status.retry.task = None;
+                        status.retry_is_search = false;
+                    }
+                    if !controller.source_request_current(&request) {
+                        controller.publish_source(source);
+                        return;
+                    }
+                    controller.as_mut().source_outcome(&request, &result);
+                    if !controller.source_request_current(&request) {
+                        return;
+                    }
+                    match (&request.operation, result) {
+                        (
+                            SourceOperation::Search { query, .. },
+                            Ok(SourceResponse::Search(works)),
+                        ) if controller.search.generation == search_generation
+                            && controller.source_status.active_query.as_ref() == Some(query) =>
+                        {
+                            for work in works
+                                .into_iter()
+                                .filter(|work| qbutt_content::query::matches(query, work))
                             {
-                                break;
+                                if !controller.source_request_current(&request)
+                                    || controller.search.generation != search_generation
+                                {
+                                    break;
+                                }
+                                controller
+                                    .as_mut()
+                                    .rust_mut()
+                                    .search_association
+                                    .update(work);
                             }
+                            controller.as_mut().refresh_search_groups(search_generation);
+                        }
+                        (
+                            SourceOperation::Inspect { reference, .. },
+                            Ok(SourceResponse::Inspect(work)),
+                        ) if controller.inspection.generation == inspection_generation
+                            && controller
+                                .selected_group
+                                .as_ref()
+                                .is_some_and(|group| group.references.contains(reference)) =>
+                        {
                             controller
                                 .as_mut()
-                                .rust_mut()
-                                .search_association
-                                .update(work);
+                                .publish_inspected_work(work, inspection_generation);
                         }
-                        controller.as_mut().refresh_search_groups(search_generation);
+                        // A persisted Resolve failure only probes availability. The transient
+                        // action above is required before opening the selected variant again.
+                        _ => {}
                     }
-                    (
-                        SourceOperation::Inspect { reference, .. },
-                        Ok(SourceResponse::Inspect(work)),
-                    ) if controller.inspection.generation == inspection_generation
-                        && controller
-                            .selected_group
-                            .as_ref()
-                            .is_some_and(|group| group.references.contains(reference)) =>
-                    {
-                        controller
-                            .as_mut()
-                            .publish_inspected_work(work, inspection_generation);
-                    }
-                    // A persisted Resolve failure only probes availability. The transient
-                    // action above is required before opening the selected variant again.
-                    _ => {}
+                    controller.publish_source(source);
+                });
+                if stop {
+                    break;
                 }
-                controller.publish_source(source);
-            });
+            }
         });
-        self.as_mut()
-            .rust_mut()
-            .source_status
-            .status_mut(source)
-            .retry
-            .task = Some(task);
+        {
+            let mut state = self.as_mut().rust_mut();
+            let status = state.source_status.status_mut(source);
+            status.retry.task = Some(task);
+            status.retry_is_search = retry_is_search;
+        }
         self.publish_source(source);
         true
     }
