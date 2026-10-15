@@ -553,15 +553,17 @@ renders at 1440×900 and 1280×720. This scenario does not prove real playback o
 download completion.
 
 Run `--work-details` with the same offscreen environment in EN/Light and
-RU/Dark. Generated SQLite publications contain different descriptions and an
-exact saved variant. The production view must retain its three-line summary,
-offer Details only for truncated text and show complete selectable plain text
-with the selected source in the existing modal. The scenario checks scrolling,
+RU/Dark. Generated SQLite publications contain different descriptions, comments
+and an exact saved variant. The production view retains its three-line summary,
+offers Details for truncated text or available comments and shows complete
+selectable plain text with the selected source in the existing modal. The scenario checks scrolling,
 fast wheel bounds, Escape/Close and reopen with the same scroll position, and
 publication changes that close and reset the modal. Another variant of the same
 publication preserves its position. It also checks refresh and restart at
 1280×720 and 1440×900.
-An unavailable selected publication must leave its description empty. Require
+Comments retain their own author and source link across exact variant changes;
+invalid publication IDs and comment indices cannot open links. An unavailable
+selected publication must leave its description and comments empty. Require
 exit zero and `PASS work_details`. Native pointer, blur and focus acceptance
 remains separate.
 
@@ -938,11 +940,16 @@ FitGirl has separate native metadata checks:
 ```powershell
 cargo run --locked --offline -p qbutt-content --example fitgirl-fixtures
 cargo run --locked --offline -p qbutt-content --example fitgirl
+cargo run --locked --offline --release --target x86_64-pc-windows-msvc -p qbutt-content --example publication-notes
 ```
 
 The live check fetches only catalog pages and
 public `.torrent` attachments, verifies the selected publication and v1 hash,
 and requires at least one successful attachment. It never starts a torrent.
+The `publication-notes` check inspects exact Online-Fix and FitGirl publications.
+Online-Fix comments retain published authors and paginated permalinks. FitGirl
+recommendations remain in its description; its external comment widget is not
+acquired.
 The HTTPS fixture checks both published paste hosts, exact hash binding, SQLite
 identity, cancelled requests, unavailable-attachment recovery to the same magnet,
 and rejection of changed identity, authentication failures, excessive work factor

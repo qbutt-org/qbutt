@@ -226,6 +226,7 @@ fn base_work(id: u64, title: String, origin: &Url) -> Result<Work> {
         aliases: Vec::new(),
         identifiers: BTreeMap::from([("nhentai".into(), id)]),
         variants: Vec::new(),
+        notes: Vec::new(),
         needs_inspection: true,
     })
 }

@@ -324,6 +324,7 @@ fn work(reference: PublicationRef, title: String, needs_inspection: bool) -> Wor
         aliases: Vec::new(),
         identifiers: BTreeMap::new(),
         variants: vec![variant],
+        notes: Vec::new(),
         needs_inspection,
     }
 }

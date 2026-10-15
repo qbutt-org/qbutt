@@ -269,6 +269,7 @@ fn refresh_publication(previous: &mut Work, work: &Work) {
     let mut refreshed = work.clone();
     // Search metadata is partial; an inspected publication is authoritative.
     if work.needs_inspection {
+        refreshed.notes = previous.notes.clone();
         refreshed.description = refreshed
             .description
             .or_else(|| previous.description.clone());
@@ -339,6 +340,20 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
     };
     if !valid_publication_url || work.cover.as_ref().is_some_and(|url| !public_url(url)) {
         return Err("the work contains a nonpublic URL");
+    }
+    if work.notes.len() > 100
+        || work.notes.iter().any(|note| {
+            note.text.trim().is_empty()
+                || note.text.len() > 32 * 1024
+                || note.author.as_ref().is_some_and(|author| {
+                    author.trim().is_empty()
+                        || author.len() > 512
+                        || author.chars().any(char::is_control)
+                })
+                || note.url.is_some() && note.source_url(&work.url).is_none()
+        })
+    {
+        return Err("the publication contains invalid source notes");
     }
 
     let mut known = HashSet::new();

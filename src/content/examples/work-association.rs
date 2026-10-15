@@ -191,6 +191,7 @@ fn torrent(source: Source, id: usize, title: &str, category: Category, hash: &st
             info_hash: Some(hash.into()),
             reported_video_ads: false,
         }],
+        notes: Vec::new(),
         needs_inspection: false,
     }
 }
@@ -210,6 +211,7 @@ fn anime(source: Source, id: usize, title: &str, mal: &str) -> Work {
         aliases: Vec::new(),
         identifiers: BTreeMap::from([("mal".into(), mal.into())]),
         variants: Vec::new(),
+        notes: Vec::new(),
         needs_inspection: true,
     }
 }

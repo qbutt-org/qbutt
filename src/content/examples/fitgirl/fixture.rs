@@ -66,6 +66,15 @@ fn detail_page(origin: &Url, slug: &str, changed: bool) -> String {
     let page = format!(
         r#"<!doctype html><head><link rel="canonical" href="{origin}{canonical}/"></head><body><div id="content"><article class="category-lossless-repack"><h1 class="entry-title">Generated &amp; Legal: Complete Edition – v2.0</h1><div class="entry-content"><h3>Download Mirrors (Direct Links)</h3><a href="{origin}payload.zip">Direct file</a><h3>Download Mirrors (Torrent)</h3>{current}{current}{old}</div></article></div></body>"#
     );
+    let detail = r#"
+        <h3>Repack Features</h3><ul><li>Generated installation needs 4 GB of RAM.</li></ul>
+        <div class="su-spoiler"><div class="su-spoiler-title">Game Description</div>
+            <div class="su-spoiler-content"><p>Generated legal game description.</p><script>DESCRIPTION_POISON</script></div>
+        </div>
+        <p><b>Backwards Compatibility</b></p><p>Reuse the unchanged generated files.</p>
+        <h3>Download Mirrors</h3><p>MIRROR_POISON</p>
+    "#;
+    let page = page.replace("</div></article>", &format!("{detail}</div></article>"));
     if let Some(case) = slug.strip_prefix("attachment-") {
         let id = match case {
             "normal" | "mirror" | "foreign" | "key" | "ambiguous" => "0000000000000001",

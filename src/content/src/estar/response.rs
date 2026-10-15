@@ -410,6 +410,7 @@ fn work(id: &str, title: &str, needs_inspection: bool) -> Result<Work> {
         aliases: Vec::new(),
         identifiers: BTreeMap::new(),
         variants: vec![variant],
+        notes: Vec::new(),
         needs_inspection,
     })
 }

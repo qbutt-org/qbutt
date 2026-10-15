@@ -6,8 +6,8 @@ use crate::{
     Category, Error, PublicationRef, ResolvedContent, Result, TorrentMetadata, VariantRef, Work,
 };
 
-#[path = "online_fix/description.rs"]
-mod description;
+#[path = "online_fix/notes.rs"]
+mod notes;
 #[path = "online_fix/response.rs"]
 mod response;
 

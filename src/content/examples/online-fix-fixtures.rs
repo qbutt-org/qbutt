@@ -6,6 +6,8 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
+#[path = "../src/html_text.rs"]
+mod html_text;
 #[cfg(windows)]
 pub use qbutt_content::webview;
 
@@ -71,6 +73,29 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert!(results[0].needs_inspection && results[0].variants.is_empty());
     let work = source.inspect(&results[0].reference).await?;
     assert_eq!(work.title, "Generated Game");
+    assert_eq!(work.notes.len(), 4);
+    assert_eq!(work.notes[0].author.as_deref(), Some("Generated Author"));
+    assert!(
+        work.notes[0]
+            .text
+            .contains("Restart the authored client.\nThen invite a friend.")
+    );
+    assert!(!work.notes[0].text.contains("COMMENT_SCRIPT_POISON"));
+    let permalink = work.notes[0]
+        .source_url(&work.url)
+        .expect("published comment permalink");
+    assert!(
+        permalink
+            .path()
+            .ends_with("page,1,2,18094-generated-game.html")
+    );
+    assert_eq!(permalink.fragment(), Some("comment-id-100"));
+    assert_eq!(work.notes[1].author, None);
+    assert_eq!(work.notes[1].url, None);
+    assert_eq!(work.notes[2].url, None);
+    assert_eq!(work.notes[3].url, None);
+    let stored: Work = serde_json::from_str(&serde_json::to_string(&work)?)?;
+    assert_eq!(stored.notes, work.notes);
     let description = work
         .description
         .as_deref()
@@ -215,7 +240,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert!(empty.description.is_none() && !empty.variants.is_empty());
 
     println!(
-        "PASS onlinefix search inspect instructions_version_coop_links safe_plain_text description_bounds exact_torrent stale_selection empty missing cancel no_archive"
+        "PASS onlinefix search inspect instructions_version_coop_links safe_plain_text description_bounds publication_comments authors published_permalink absent_permalink foreign_permalink serialization exact_torrent stale_selection empty missing cancel no_archive"
     );
     fixture.stop().await;
     Ok(())
@@ -431,6 +456,22 @@ fn route(
         "#
             ),
         );
+        let comments = format!(
+            r#"
+            <div id="comment-id-100"><div class="group author"><a>Generated Author</a></div>
+                <div class="comment-link"><a href="{site}games/horror/page,1,2,18094-generated-game.html#comment-id-100">#100</a></div>
+                <div id="comm-id-100"><p>Restart the authored client.<br>Then invite a friend.</p><script>COMMENT_SCRIPT_POISON</script></div>
+            </div>
+            <div id="comment-id-101"><div id="comm-id-101">No author or permalink was published.</div></div>
+            <div id="comment-id-102"><div class="comment-link"><a href="https://foreign.example/game/#comment-id-102">#102</a></div>
+                <div id="comm-id-102">Foreign permalink must remain unavailable.</div>
+            </div>
+            <div id="comment-id-103"><div class="comment-link"><a href="{site}games/horror/page,1,2,18095-other-game.html#comment-id-103">#103</a></div>
+                <div id="comm-id-103">Another publication's permalink must remain unavailable.</div>
+            </div>
+        "#
+        );
+        let body = body.replace("COMMENT_POISON", &comments);
         return ("200 OK", "text/html; charset=windows-1251", cp1251(&body));
     }
     if matches!(

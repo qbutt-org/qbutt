@@ -571,6 +571,7 @@ fn work(reference: PublicationRef, url: Url, title: String, needs_inspection: bo
         aliases,
         identifiers: BTreeMap::new(),
         variants: Vec::new(),
+        notes: Vec::new(),
         needs_inspection,
     }
 }

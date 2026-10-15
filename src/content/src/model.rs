@@ -860,6 +860,28 @@ pub struct Variant {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PublicationNote {
+    pub text: String,
+    pub author: Option<String>,
+    pub url: Option<Url>,
+}
+
+impl PublicationNote {
+    /// Notes belong to the containing Work. Only its source can supply a link.
+    pub fn source_url<'a>(&'a self, publication_url: &Url) -> Option<&'a Url> {
+        self.url.as_ref().filter(|url| {
+            url.scheme() == "https"
+                && url.origin() == publication_url.origin()
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.as_str().len() <= 4096
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Work {
     pub reference: PublicationRef,
     pub title: String,
@@ -867,6 +889,9 @@ pub struct Work {
     pub url: Url,
     pub cover: Option<Url>,
     pub description: Option<String>,
+    /// Plain source comments, scoped to this exact publication.
+    #[serde(default)]
+    pub notes: Vec<PublicationNote>,
     pub year: Option<u16>,
     pub aliases: Vec<String>,
     pub identifiers: BTreeMap<String, String>,

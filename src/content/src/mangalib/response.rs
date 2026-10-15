@@ -91,6 +91,7 @@ impl MangaRecord {
             year: None,
             aliases,
             variants: Vec::new(),
+            notes: Vec::new(),
             needs_inspection,
         })
     }

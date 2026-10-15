@@ -6,9 +6,8 @@ use crate::{Error, Result};
 const MAX_BYTES: usize = 32 * 1024;
 const MAX_DEPTH: usize = 64;
 
-/// Only the selected article body becomes plain text. Instructions and public
-/// link destinations remain readable without displaying executable markup.
-pub(super) fn extract(content: ElementRef<'_>, publication_url: &Url) -> Result<Option<String>> {
+/// Convert a selected source document fragment to bounded, inert plain text.
+pub(crate) fn extract(content: ElementRef<'_>, publication_url: &Url) -> Result<Option<String>> {
     let mut description = Description {
         text: String::new(),
         list_numbers: Vec::new(),

@@ -542,6 +542,7 @@ fn exercise_image_cache(
             info_hash: None,
             reported_video_ads: false,
         }],
+        notes: Vec::new(),
         needs_inspection: false,
     });
     let history = library.record_opened(

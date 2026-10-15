@@ -161,6 +161,7 @@ impl Release {
             aliases,
             identifiers,
             variants,
+            notes: Vec::new(),
             needs_inspection,
         })
     }

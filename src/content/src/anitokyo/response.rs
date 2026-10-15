@@ -294,6 +294,7 @@ fn work(article: ElementRef<'_>, origin: &Url, canonical: Option<&Url>) -> Resul
         aliases,
         identifiers: BTreeMap::new(),
         variants: Vec::new(),
+        notes: Vec::new(),
         needs_inspection,
     })
 }

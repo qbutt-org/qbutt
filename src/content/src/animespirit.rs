@@ -263,6 +263,7 @@ impl AnimeSpirit {
             aliases: alias.into_iter().collect(),
             identifiers: BTreeMap::new(),
             variants: Vec::new(),
+            notes: Vec::new(),
             needs_inspection,
         }))
     }

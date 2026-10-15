@@ -191,7 +191,7 @@ Pane {
             id: detailsButton
             objectName: "contentWorkDetails"
             theme: root.theme
-            visible: description.truncated
+            visible: description.truncated || root.backend.selectedPublicationNotes.length > 0
             text: qsTr("Details")
             onClicked: details.open()
         }

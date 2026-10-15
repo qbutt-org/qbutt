@@ -22,6 +22,7 @@
 #include <QTemporaryDir>
 #include <QThreadPool>
 #include <QTimer>
+#include <QVariant>
 #include <QWheelEvent>
 
 #include "gui/quick/contentview.h"
@@ -96,9 +97,15 @@ namespace
             QJsonArray variants {variant(publication, hash)};
             if (publication == primary)
                 variants.append(variant(publication, QString(40, u'b')));
+            const QString author = (publication == primary) ? u"First reader"_s : u"Second reader"_s;
+            const QJsonArray notes {QJsonObject {
+                {"text", u"Comment from %1: <plain text>"_s.arg(author)}, {"author", author},
+                {"url", "https://example.com/generated/#comment-1"}
+            }};
             return QJsonObject {
                 {"reference", publication}, {"title", "Generated legal work"}, {"category", "games"},
                 {"url", "https://example.com/generated/"}, {"description", description},
+                {"notes", notes},
                 {"aliases", QJsonArray()}, {"identifiers", QJsonObject()},
                 {"needs_inspection", false}, {"variants", variants}
             };
@@ -145,16 +152,31 @@ namespace
 
         void description(const QString &expected, const QString &source, const bool truncated)
         {
+            const QVariantList notes = controller->property("selectedPublicationNotes").toList();
             waitFor([&]
             {
                 return object(u"contentWorkDescription"_s)->property("truncated").toBool() == truncated
-                    && object(u"contentWorkDetails"_s)->property("visible").toBool() == truncated;
+                    && object(u"contentWorkDetails"_s)->property("visible").toBool() == (truncated || !notes.isEmpty());
             }, u"Details summary layout"_s);
             require(controller->property("selectedWorkDescription").toString() == expected
                 && controller->property("selectedPublicationSource").toString() == source
                 && object(u"contentWorkDescription"_s)->property("text").toString() == expected
                 && object(u"contentWorkDescription"_s)->property("maximumLineCount").toInt() == 3,
                 u"Description substituted another publication or expanded the summary"_s);
+            if (source.isEmpty())
+                require(notes.isEmpty(), u"Missing publication retained another source's comments"_s);
+            else
+            {
+                const QString author = (source == u"TheLastGame"_s) ? u"First reader"_s : u"Second reader"_s;
+                require((notes.size() == 1) && (notes.first().toMap().value(u"author"_s).toString() == author)
+                    && (notes.first().toMap().value(u"text"_s).toString() == u"Comment from %1: <plain text>"_s.arg(author))
+                    && notes.first().toMap().value(u"hasSourceLink"_s).toBool(),
+                    u"Selected publication comments or authors were mixed"_s);
+                require(!controller->openPublicationNote(u"another-publication"_s, 0)
+                    && !controller->openPublicationNote(controller->property("selectedPublicationId").toString(), -1)
+                    && !controller->openPublicationNote(controller->property("selectedPublicationId").toString(), 1),
+                    u"Invalid comment selection opened a source link"_s);
+            }
         }
 
         QQuickItem *document() const
@@ -203,8 +225,10 @@ namespace
                 modal = view.rootObject()->findChild<QObject *>(u"contentWorkDetailsModal"_s);
                 return modal && modal->property("opened").toBool();
             }, u"Details modal entry"_s);
-            require(object(u"contentWorkDetailsSource"_s)->property("text").toString() == u"TheLastGame"_s
-                && object(u"contentWorkDetailsText"_s)->property("text").toString() == longDescription()
+            require(object(u"contentWorkDetailsSource"_s)->property("text").toString()
+                    == controller->property("selectedPublicationSource").toString()
+                && object(u"contentWorkDetailsText"_s)->property("text").toString()
+                    == controller->property("selectedWorkDescription").toString()
                 && object(u"contentWorkDetailsText"_s)->property("textFormat").toInt() == 0
                 && object(u"contentWorkDetailsText"_s)->property("readOnly").toBool()
                 && object(u"contentWorkDetailsText"_s)->property("selectByMouse").toBool()
@@ -215,8 +239,16 @@ namespace
             require(content && view.rootObject()->boundingRect().contains(content->mapRectToScene(content->boundingRect())),
                 u"Details content extends outside the product window"_s);
             auto *flickable = document();
-            waitFor([&] { return flickable->property("contentHeight").toReal() > flickable->height(); },
-                u"Long details layout"_s);
+            if (object(u"contentWorkDescription"_s)->property("truncated").toBool())
+            {
+                waitFor([&] { return flickable->property("contentHeight").toReal() > flickable->height(); },
+                    u"Long details layout"_s);
+            }
+            const QVariantList notes = controller->property("selectedPublicationNotes").toList();
+            require(object(u"contentPublicationNoteText"_s)->property("text").toString()
+                    == notes.first().toMap().value(u"text"_s).toString()
+                && object(u"contentPublicationNoteText"_s)->property("textFormat").toInt() == 0,
+                u"Comment body was missing or interpreted as markup"_s);
         }
 
         void closed()
@@ -330,6 +362,8 @@ void exerciseWorkDetails()
             require(qAbs(screen.document()->property("contentY").toReal()) < 1,
                 u"Another publication retained the previous scroll position"_s);
             screen.description(shortDescription, u"FitGirl"_s, false);
+            screen.openDetails();
+            screen.escape();
             settled(*screen.controller);
             screen.select(u"generated-details"_s);
             screen.description(shortDescription, u"FitGirl"_s, false);
@@ -367,5 +401,5 @@ void exerciseWorkDetails()
             u"Reopening replaced the exact publication preference"_s);
     }
     require(warnings == 0, u"Details production QML emitted warnings"_s);
-    qInfo("PASS work_details selected_publication=exact missing_publication=empty summary=three_lines details=truncated_only plain_text=complete wheel_bounds=ok escape_reopen=position_preserved variant_same_publication=position_preserved publication_change=closed_reset refresh=preserved reopen=exact sizes=1280x720,1440x900");
+    qInfo("PASS work_details selected_publication=exact publication_comments=exact comment_links=guarded missing_publication=empty summary=three_lines details=truncated_or_comments plain_text=complete wheel_bounds=ok escape_reopen=position_preserved variant_same_publication=position_preserved publication_change=closed_reset refresh=preserved reopen=exact sizes=1280x720,1440x900");
 }

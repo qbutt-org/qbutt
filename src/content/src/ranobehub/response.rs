@@ -64,6 +64,7 @@ impl Book {
             aliases,
             identifiers: BTreeMap::new(),
             variants: Vec::new(),
+            notes: Vec::new(),
             needs_inspection: true,
         })
     }
@@ -130,6 +131,7 @@ pub(super) fn work_page(reference: &PublicationRef, origin: &Url, page: &str) ->
         aliases: alias.into_iter().collect(),
         identifiers: BTreeMap::new(),
         variants: Vec::new(),
+        notes: Vec::new(),
         needs_inspection: false,
     })
 }

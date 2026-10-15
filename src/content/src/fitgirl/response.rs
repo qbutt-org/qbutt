@@ -110,6 +110,7 @@ pub(crate) fn release(
         false,
     );
     let content = unique(article, ".entry-content")?;
+    work.description = super::details::description(content, &work.url)?;
     let cover =
         Selector::parse("meta[property='og:image'][content]").expect("fixed cover selector");
     if let Some(image) = document.select(&cover).next() {
@@ -227,6 +228,7 @@ fn work(reference: PublicationRef, url: Url, title: String, needs_inspection: bo
         aliases: Vec::new(),
         identifiers: BTreeMap::new(),
         variants: Vec::new(),
+        notes: Vec::new(),
         needs_inspection,
     }
 }

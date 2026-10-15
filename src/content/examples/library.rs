@@ -7,8 +7,9 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use qbutt_content::{
-    Category, Library, LibraryError, LibraryView, PublicationRef, Source, Transport, Variant,
-    VariantFilters, VariantPreferences, VariantRef, VariantSelector, VideoQuality, Work,
+    Category, Library, LibraryError, LibraryView, PublicationNote, PublicationRef, Source,
+    Transport, Variant, VariantFilters, VariantPreferences, VariantRef, VariantSelector,
+    VideoQuality, Work,
 };
 use rusqlite::Connection;
 use url::Url;
@@ -79,6 +80,7 @@ fn exercise(root: &Path) -> Result<()> {
     partial.title = "Refreshed generated title".into();
     partial.needs_inspection = true;
     partial.description = None;
+    partial.notes.clear();
     partial.cover = None;
     partial.year = None;
     partial.aliases = vec!["New generated alias".into()];
@@ -89,6 +91,7 @@ fn exercise(root: &Path) -> Result<()> {
     assert!(!entry.favorite);
     assert_eq!(entry.group.anchor_work().unwrap().title, partial.title);
     assert_eq!(entry.group.anchor_work().unwrap().variants, work.variants);
+    assert_eq!(entry.group.anchor_work().unwrap().notes, work.notes);
     assert_eq!(entry.preferences, preferences(&work, 1));
     assert_eq!(
         entry.last_opened.as_ref().unwrap().variant,
@@ -117,6 +120,7 @@ fn exercise(root: &Path) -> Result<()> {
         false,
     )?;
     assert!(replaced.group.anchor_work().unwrap().description.is_none());
+    assert!(replaced.group.anchor_work().unwrap().notes.is_empty());
     assert!(replaced.group.anchor_work().unwrap().cover.is_none());
     assert!(replaced.group.anchor_work().unwrap().year.is_none());
     assert!(replaced.group.anchor_work().unwrap().aliases.is_empty());
@@ -134,6 +138,14 @@ fn exercise(root: &Path) -> Result<()> {
     assert_eq!(library.entries(LibraryView::Favorites)?.len(), 1);
 
     let before = library.get(&work.reference)?.unwrap();
+    let mut invalid_note = work.clone();
+    invalid_note.notes[0].url = Some(Url::parse("https://foreign.example/comment-1")?);
+    assert!(
+        library
+            .set_favorite(&qbutt_content::WorkGroup::single(invalid_note), true)
+            .is_err()
+    );
+    assert_eq!(library.get(&work.reference)?.unwrap(), before);
     let mut invalid = preferences(&work, 0);
     invalid.selected.as_mut().unwrap().publication.id = "another-publication".into();
     assert!(matches!(
@@ -562,6 +574,16 @@ fn fixture() -> Work {
         aliases: vec!["Generated alias".into()],
         identifiers: BTreeMap::from([("generated".into(), "1".into())]),
         variants,
+        notes: vec![PublicationNote {
+            text: "Generated comment with\nplain text.".into(),
+            author: Some("Generated Reader".into()),
+            url: Some(
+                Url::parse(
+                    "https://anilibria.top/anime/releases/release/generated-fixture#comment-1",
+                )
+                .unwrap(),
+            ),
+        }],
         needs_inspection: false,
     }
 }

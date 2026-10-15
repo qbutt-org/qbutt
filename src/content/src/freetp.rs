@@ -319,6 +319,7 @@ fn parse_search(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>> {
             year: None,
             identifiers: BTreeMap::new(),
             variants: Vec::new(),
+            notes: Vec::new(),
             needs_inspection: true,
         });
     }
@@ -365,6 +366,7 @@ fn parse_release(
             year: None,
             identifiers: BTreeMap::new(),
             variants: Vec::new(),
+            notes: Vec::new(),
             needs_inspection: false,
         },
         torrents: BTreeMap::new(),

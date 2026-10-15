@@ -18658,6 +18658,14 @@ Please choose a different name and try again.</source>
 <context>
     <name>WorkDetailsModal</name>
     <message>
+        <source>Comments</source>
+        <translation>Комментарии</translation>
+    </message>
+    <message>
+        <source>Open comment</source>
+        <translation>Открыть комментарий</translation>
+    </message>
+    <message>
         <source>Close</source>
         <translation>Закрыть</translation>
     </message>

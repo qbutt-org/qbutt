@@ -7,6 +7,8 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
+#[path = "../src/html_text.rs"]
+mod html_text;
 #[path = "../src/query.rs"]
 mod query;
 #[cfg(windows)]
@@ -81,6 +83,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(work.reference, found.reference);
     assert_eq!(work.variants.len(), 2);
     assert!(!work.needs_inspection);
+    let description = work.description.as_deref().expect("published description");
+    assert!(description.contains("Repack Features\n- Generated installation needs 4 GB of RAM."));
+    assert!(description.contains("Generated legal game description."));
+    assert!(description.contains("Backwards Compatibility\nReuse the unchanged generated files."));
+    assert!(!description.contains("POISON"));
+    assert!(work.notes.is_empty());
     assert!(
         work.variants[0]
             .title

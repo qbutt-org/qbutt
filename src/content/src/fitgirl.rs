@@ -5,6 +5,8 @@ use url::Url;
 use crate::http::SourceHttp;
 use crate::{Category, Error, PublicationRef, ResolvedContent, Result, VariantRef, Work};
 
+#[path = "fitgirl/details.rs"]
+mod details;
 #[path = "fitgirl/privatebin.rs"]
 mod privatebin;
 #[path = "fitgirl/response.rs"]

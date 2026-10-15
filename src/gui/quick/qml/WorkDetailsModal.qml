@@ -11,6 +11,7 @@ ModalPicker {
 
     required property ContentController backend
     readonly property string publicationId: backend.selectedPublicationId
+    readonly property var notes: backend.selectedPublicationNotes
 
     onPublicationIdChanged: {
         close();
@@ -63,23 +64,84 @@ ModalPicker {
                 id: document
                 objectName: "contentWorkDetailsDocument"
                 contentWidth: width
-                contentHeight: instructions.implicitHeight
+                contentHeight: publication.implicitHeight
                 boundsBehavior: Flickable.StopAtBounds
                 acceptedButtons: Qt.NoButton
                 clip: true
 
-                TextArea {
-                    id: instructions
-                    objectName: "contentWorkDetailsText"
+                Column {
+                    id: publication
                     width: document.width
-                    text: root.backend.selectedWorkDescription
-                    color: root.theme.foreground
-                    wrapMode: TextEdit.Wrap
-                    textFormat: TextEdit.PlainText
-                    readOnly: true
-                    selectByMouse: true
-                    padding: 0
-                    background: null
+                    spacing: 24
+
+                    TextArea {
+                        objectName: "contentWorkDetailsText"
+                        width: publication.width
+                        visible: text.length > 0
+                        text: root.backend.selectedWorkDescription
+                        color: root.theme.foreground
+                        wrapMode: TextEdit.Wrap
+                        textFormat: TextEdit.PlainText
+                        readOnly: true
+                        selectByMouse: true
+                        padding: 0
+                        background: null
+                    }
+
+                    Label {
+                        visible: root.notes.length > 0
+                        text: qsTr("Comments")
+                        font.pixelSize: 20
+                        font.weight: Font.DemiBold
+                    }
+
+                    Repeater {
+                        model: root.notes
+
+                        delegate: ColumnLayout {
+                            id: comment
+                            required property var modelData
+                            required property int index
+
+                            width: publication.width
+                            spacing: 4
+
+                            RowLayout {
+                                Layout.fillWidth: true
+
+                                Label {
+                                    objectName: "contentPublicationNoteAuthor"
+                                    Layout.fillWidth: true
+                                    visible: text.length > 0
+                                    text: comment.modelData.author
+                                    font.weight: Font.DemiBold
+                                    wrapMode: Text.Wrap
+                                    textFormat: Text.PlainText
+                                }
+
+                                ToolButton {
+                                    objectName: "contentPublicationNoteOpen"
+                                    visible: comment.modelData.hasSourceLink
+                                    text: qsTr("Open comment")
+                                    palette.buttonText: root.theme.accent
+                                    onClicked: root.backend.openPublicationNote(root.publicationId, comment.index)
+                                }
+                            }
+
+                            TextArea {
+                                objectName: "contentPublicationNoteText"
+                                Layout.fillWidth: true
+                                text: comment.modelData.text
+                                color: root.theme.foreground
+                                wrapMode: TextEdit.Wrap
+                                textFormat: TextEdit.PlainText
+                                readOnly: true
+                                selectByMouse: true
+                                padding: 0
+                                background: null
+                            }
+                        }
+                    }
                 }
             }
         }

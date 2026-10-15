@@ -23,6 +23,7 @@ mod estar;
 mod external_video;
 mod fitgirl;
 mod freetp;
+mod html_text;
 mod http;
 mod igruha;
 mod kakuyomu;

@@ -166,6 +166,7 @@ fn work(reference: PublicationRef, title: String) -> Work {
         aliases,
         identifiers: BTreeMap::new(),
         variants: vec![variant],
+        notes: Vec::new(),
         needs_inspection: false,
     }
 }

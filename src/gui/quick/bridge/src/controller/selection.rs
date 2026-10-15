@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::pin::Pin;
 
 use cxx_qt::CxxQtType;
-use cxx_qt_lib::QString;
+use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QVariant};
 use qbutt_content::{PublicationRef, Source, VariantRef, Work, WorkAssociation, WorkGroup};
 
 use super::ffi;
@@ -137,6 +137,61 @@ impl ffi::ContentController {
             self.current_publication()
                 .map_or("", |work| work.reference.source.name()),
         )
+    }
+
+    pub(super) fn selected_publication_notes(&self) -> QVariant {
+        let Some(work) = self.current_publication() else {
+            return QVariant::from(&QList::<QVariant>::default());
+        };
+        let notes: QList<QVariant> = work
+            .notes
+            .iter()
+            .map(|note| {
+                let fields: QMap<QMapPair_QString_QVariant> = [
+                    (
+                        QString::from("text"),
+                        QVariant::from(&QString::from(&note.text)),
+                    ),
+                    (
+                        QString::from("author"),
+                        QVariant::from(&QString::from(note.author.as_deref().unwrap_or_default())),
+                    ),
+                    (
+                        QString::from("hasSourceLink"),
+                        QVariant::from(&note.source_url(&work.url).is_some()),
+                    ),
+                ]
+                .into_iter()
+                .collect();
+                QVariant::from(&fields)
+            })
+            .collect();
+        QVariant::from(&notes)
+    }
+
+    pub fn open_publication_note(&self, publication_id: QString, row: i32) -> bool {
+        let Some(work) = self.current_publication() else {
+            return false;
+        };
+        if publication_id.to_string() != work_id(&work.reference) {
+            return false;
+        }
+        let Some(url) = usize::try_from(row)
+            .ok()
+            .and_then(|row| work.notes.get(row))
+            .and_then(|note| note.source_url(&work.url))
+        else {
+            return false;
+        };
+        let Some(services) = self.services.as_ref() else {
+            return false;
+        };
+        let choice = match services.browser.client().choice() {
+            qbutt_content::browser::BrowserChoice::Auto => "auto",
+            qbutt_content::browser::BrowserChoice::Edge => "edge",
+            qbutt_content::browser::BrowserChoice::Chrome => "chrome",
+        };
+        ffi::open_browser_url(&QString::from(url.as_str()), &QString::from(choice))
     }
 
     pub(super) fn selected_work_category(&self) -> QString {
@@ -594,6 +649,8 @@ impl ffi::ContentController {
         );
         let publication_changed = self.current_publication().map(|work| &work.reference)
             != publication.map(|work| &work.reference);
+        let notes_changed = self.current_publication().map(|work| &work.notes)
+            != publication.map(|work| &work.notes);
         let variant_id = selected
             .map(variant_id)
             .map(QString::from)
@@ -609,7 +666,9 @@ impl ffi::ContentController {
                     .map(|work| work.category)
                     != category,
                 state.selected_work_title != title,
-                state.selected_work_description != description || publication_changed,
+                state.selected_work_description != description
+                    || publication_changed
+                    || notes_changed,
                 state.selected_variant_id != variant_id,
             );
             state.selected_work_id = id;

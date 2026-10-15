@@ -288,6 +288,7 @@ fn fixture() -> Work {
         aliases: vec!["Generated alias".into()],
         identifiers: BTreeMap::from([("generated".into(), "reader".into())]),
         variants,
+        notes: Vec::new(),
         needs_inspection: false,
     }
 }

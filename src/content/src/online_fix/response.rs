@@ -11,7 +11,7 @@ use crate::{
     Variant, VariantRef, VariantSelector, Work,
 };
 
-use super::description;
+use super::notes;
 
 pub(super) struct Article {
     pub work: Work,
@@ -194,9 +194,11 @@ pub(super) fn article(
             "No Online-Fix game torrent directory is available",
         ));
     }
-    let description = description::extract(content, &canonical_url)?;
+    let description = crate::html_text::extract(content, &canonical_url)?;
+    let notes = notes::extract(&document, &canonical_url)?;
     let mut work = work(reference, canonical_url, title, false);
     work.description = description;
+    work.notes = notes;
     Ok(Article {
         work,
         torrent_directories: directories,
@@ -308,6 +310,7 @@ fn work(reference: PublicationRef, url: Url, title: String, needs_inspection: bo
         aliases: Vec::new(),
         identifiers: BTreeMap::new(),
         variants: Vec::new(),
+        notes: Vec::new(),
         needs_inspection,
     }
 }

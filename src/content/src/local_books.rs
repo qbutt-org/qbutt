@@ -199,6 +199,7 @@ impl LocalBook {
                 info_hash: None,
                 reported_video_ads: false,
             }],
+            notes: Vec::new(),
             needs_inspection: false,
         }
     }

@@ -247,6 +247,8 @@ pub mod ffi {
         type QSize = cxx_qt_lib::QSize;
         include!("cxx-qt-lib/qbytearray.h");
         type QByteArray = cxx_qt_lib::QByteArray;
+        include!("cxx-qt-lib/qvariant.h");
+        type QVariant = cxx_qt_lib::QVariant;
     }
 
     unsafe extern "C++" {
@@ -712,6 +714,13 @@ pub mod ffi {
             NOTIFY = selected_work_description_changed
         )]
         #[qproperty(
+            QVariant,
+            selected_publication_notes,
+            cxx_name = "selectedPublicationNotes",
+            READ = selected_publication_notes,
+            NOTIFY = selected_work_description_changed
+        )]
+        #[qproperty(
             QString,
             selected_work_category,
             cxx_name = "selectedWorkCategory",
@@ -866,6 +875,10 @@ pub mod ffi {
         fn selected_work_category(&self) -> QString;
         fn selected_publication_id(&self) -> QString;
         fn selected_publication_source(&self) -> QString;
+        fn selected_publication_notes(&self) -> QVariant;
+        #[qinvokable]
+        #[cxx_name = "openPublicationNote"]
+        fn open_publication_note(&self, publication_id: QString, row: i32) -> bool;
         fn selected_variant_kind(&self) -> QString;
         fn can_share_selected(&self) -> bool;
         #[qsignal]

@@ -235,6 +235,7 @@ fn work(
         aliases,
         identifiers: BTreeMap::new(),
         variants: Vec::new(),
+        notes: Vec::new(),
         needs_inspection,
     })
 }

@@ -246,6 +246,7 @@ fn fixture() -> Result<(Work, TextChapter, ReaderProgress)> {
             info_hash: None,
             reported_video_ads: false,
         }],
+        notes: Vec::new(),
         needs_inspection: false,
     };
     Ok((work, chapter, progress))

@@ -60,6 +60,7 @@ fn base_work(reference: PublicationRef, title: String, origin: &Url) -> Result<W
         aliases: Vec::new(),
         identifiers: BTreeMap::new(),
         variants: Vec::new(),
+        notes: Vec::new(),
         needs_inspection: true,
     })
 }

@@ -203,6 +203,7 @@ fn fixture(id: u64, category: Category) -> Work {
             info_hash: Some(HASH.into()),
             reported_video_ads: false,
         }],
+        notes: Vec::new(),
         needs_inspection: false,
     }
 }

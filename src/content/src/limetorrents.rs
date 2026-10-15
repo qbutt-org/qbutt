@@ -333,6 +333,7 @@ fn work(
         aliases: Vec::new(),
         identifiers: BTreeMap::new(),
         variants: Vec::new(),
+        notes: Vec::new(),
         needs_inspection,
     }
 }

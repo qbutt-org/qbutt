@@ -247,6 +247,7 @@ fn work(
         year: None,
         aliases: Vec::new(),
         identifiers: BTreeMap::new(),
+        notes: Vec::new(),
         needs_inspection: variants.is_empty(),
         variants,
     })

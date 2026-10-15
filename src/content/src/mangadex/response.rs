@@ -179,6 +179,7 @@ impl MangaRecord {
             aliases,
             identifiers: BTreeMap::from([("mangadex".into(), self.id)]),
             variants: Vec::new(),
+            notes: Vec::new(),
             needs_inspection,
         })
     }
