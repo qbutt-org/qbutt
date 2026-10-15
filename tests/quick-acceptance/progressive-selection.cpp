@@ -12,6 +12,9 @@
 #include <QEventLoop>
 #include <QQuickItem>
 #include <QScopeGuard>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QThreadPool>
 #include <QTimer>
@@ -62,6 +65,7 @@ void exerciseProgressiveSelection()
     const bool failure = qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_FAILURE") == 1;
     const bool initial = qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_INITIAL") == 1;
     const bool missing = qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_MISSING") == 1;
+    const bool split = qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_SPLIT") == 1;
     const bool pointer = qEnvironmentVariableIntValue("QBUTT_PROGRESSIVE_POINTER") == 1;
     QTemporaryDir profile;
     require(profile.isValid(), u"Progressive profile failed"_s);
@@ -179,6 +183,59 @@ void exerciseProgressiveSelection()
         require(variants->rowCount() == 2, u"Failed source replaced existing variants"_s);
     else
         require(value(variants, 2, "sourceId") == u"yani"_s, u"Late source variants are missing"_s);
+
+    if (split)
+    {
+        const QString lateVariant = value(variants, 2, "variantId");
+        controller->selectVariant(lateVariant);
+        controller->setVariantProviderFilter(u"yani"_s, u"Kodik"_s);
+        controller->setVariantEpisodeFilter(u"1"_s);
+        controller->setVariantQuery(u"720"_s);
+        controller->setSelectedFavorite(true);
+        waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Split preferences and favorite"_s);
+        controller->setListMode(Qbutt::Search::ListMode::Favorites);
+        controller->selectWork(work);
+        qInfo("FIXTURE release_cached_fast");
+        qInfo("FIXTURE release_cached_late");
+        waitFor([&]
+        {
+            return !controller->property("inspecting").toBool() && !controller->property("libraryPending").toBool();
+        }, u"Conflicting publication inspection"_s);
+        require(controller->property("selectedWorkId").toString() == u"yani:9661"_s
+            && controller->property("selectedVariantId").toString() == lateVariant
+            && controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
+                == Qbutt::Search::VariantSelectionState::Available,
+            u"Split did not follow the exact selected publication"_s);
+        require(variants->rowCount() == 1 && value(variants, 0, "variantId") == lateVariant,
+            u"Split retained unrelated variants"_s);
+        require(controller->property("variantSourceFilter").toString() == u"yani"_s
+            && controller->property("variantPlayerFilter").toString() == u"Kodik"_s
+            && controller->property("variantEpisodeFilter").toString() == u"1"_s
+            && controller->property("variantQuery").toString() == u"720"_s,
+            u"Split lost the selected publication's filters"_s);
+
+        const QString connection = u"progressive-split-fixture"_s;
+        {
+            auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, connection);
+            database.setDatabaseName(profile.filePath(u"content-library.sqlite"_s));
+            require(database.open(), database.lastError().text());
+            QSqlQuery query(database);
+            require(query.exec(u"SELECT count(*) FROM library"_s) && query.next()
+                && query.value(0).toInt() == 1, u"Split refresh duplicated the saved library identity"_s);
+        }
+        QSqlDatabase::removeDatabase(connection);
+
+        controller->setListMode(Qbutt::Search::ListMode::Search);
+        controller->selectWork(work);
+        require(variants->rowCount() == 2 && value(variants, 0, "sourceId") == u"aniliberty"_s
+            && value(variants, 1, "sourceId") == u"aniliberty"_s,
+            u"Selecting the other split row restored a stale cached association"_s);
+        require(controller->property("selectedVariantId").toString() != lateVariant,
+            u"The other split row kept another publication's exact choice"_s);
+        waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Other split row preferences"_s);
+        qInfo("PASS progressive_selection split=exact filters=retained library_identity=stable cached_association=rejected");
+        return;
+    }
 
     controller->setSelectedFavorite(true);
     waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Favorite write"_s);

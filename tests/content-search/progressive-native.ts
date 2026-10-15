@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const [executable, certificate, key, scenario = "success"] = process.argv.slice(2);
 assert(executable && certificate && key, "Expected acceptance executable, certificate and key");
-assert(["success", "failure", "initial", "missing"].includes(scenario), "Unknown scenario");
+assert(["success", "failure", "initial", "missing", "split"].includes(scenario), "Unknown scenario");
 
 const releaseLate = Promise.withResolvers<void>();
 const releaseInspection = Promise.withResolvers<void>();
@@ -71,6 +71,7 @@ const server = Bun.serve({
             return Response.json({
                 response: {
                     ...publication,
+                    year: scenario === "split" && lateInspections > 1 ? 2027 : 2026,
                     videos: [{
                         video_id: 9661,
                         number: "1",
@@ -97,6 +98,7 @@ const child = spawn(executable, ["--progressive-selection", "--lang", "en"], {
         QBUTT_PROGRESSIVE_FAILURE: scenario === "failure" ? "1" : "0",
         QBUTT_PROGRESSIVE_INITIAL: scenario === "initial" ? "1" : "0",
         QBUTT_PROGRESSIVE_MISSING: scenario === "missing" ? "1" : "0",
+        QBUTT_PROGRESSIVE_SPLIT: scenario === "split" ? "1" : "0",
     },
 });
 const exited = new Promise<number | null>((resolve, reject) => {
@@ -120,7 +122,7 @@ try {
     if (failure) throw failure;
     assert(output.includes("PASS progressive_selection"), output);
     assert.equal(searches, 2);
-    assert.equal(fastInspections, scenario === "missing" ? 3 : 4);
+    assert.equal(fastInspections, ["missing", "split"].includes(scenario) ? 3 : 4);
     assert.equal(lateInspections, 2);
     console.log(output);
     console.log(JSON.stringify({ ok: true, scenario, searches, fastInspections, lateInspections }));

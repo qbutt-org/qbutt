@@ -224,11 +224,17 @@ impl ffi::ContentController {
         if self.list_mode == ffi::ListMode::Search
             && let Some(selected) = &self.selected_group
         {
+            let reference = self
+                .selected_share_preference()
+                .map(|variant| variant.publication)
+                .unwrap_or_else(|| selected.anchor.clone());
             if let Some(group) = groups
                 .iter_mut()
-                .find(|group| group.references.contains(&selected.anchor))
+                .find(|group| group.references.contains(&reference))
             {
-                group.anchor = selected.anchor.clone();
+                if group.references.contains(&selected.anchor) {
+                    group.anchor = selected.anchor.clone();
+                }
                 for publication in &mut group.publications {
                     if publication.needs_inspection
                         && let Some(inspected) = selected.publication(&publication.reference)
@@ -240,10 +246,14 @@ impl ffi::ContentController {
                 for reference in &selected.references {
                     if selected.publication(reference).is_none()
                         && !group.references.contains(reference)
+                        && group.catalog_work().is_some_and(|work| {
+                            reference.source.categories().contains(&work.category)
+                        })
                     {
                         group.references.push(reference.clone());
                     }
                 }
+                self.as_mut().retain_selection_preferences(group);
             }
         }
         let visible: HashSet<_> = groups.iter().map(|group| group.anchor.clone()).collect();
@@ -275,8 +285,17 @@ impl ffi::ContentController {
         }
         if self.list_mode == ffi::ListMode::Search
             && let Some(selected) = &self.selected_group
-            && let Some(group) = groups.iter().find(|group| group.anchor == selected.anchor)
         {
+            let reference = self
+                .selected_share_preference()
+                .map(|variant| variant.publication)
+                .unwrap_or_else(|| selected.anchor.clone());
+            let Some(group) = groups
+                .iter()
+                .find(|group| group.references.contains(&reference))
+            else {
+                return;
+            };
             let selection_generation = self.inspection.generation;
             if self.as_mut().show_group(group, selection_generation) {
                 self.as_mut().select_initial_variant();

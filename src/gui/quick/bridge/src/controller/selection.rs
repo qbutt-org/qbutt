@@ -15,7 +15,7 @@ fn selected_publication<'a>(
 ) -> Option<&'a Work> {
     match selected {
         Some(selected) => group.publication(&selected.publication),
-        None => group.anchor_work(),
+        None => group.catalog_work(),
     }
 }
 
@@ -51,15 +51,10 @@ impl ffi::ContentController {
             || references
                 .iter()
                 .any(|reference| reference.validate().is_err())
-            || references.iter().any(|reference| {
-                !reference
-                    .source
-                    .categories()
-                    .contains(&publications[0].category)
+            || publications.iter().any(|work| {
+                !references.contains(&work.reference)
+                    || !work.reference.source.categories().contains(&work.category)
             })
-            || publications
-                .iter()
-                .any(|work| !references.contains(&work.reference))
             || preferred.as_ref().is_some_and(|variant| {
                 variant.validate().is_err() || !references.contains(&variant.publication)
             })
@@ -70,15 +65,12 @@ impl ffi::ContentController {
         for publication in &publications {
             association.update(publication.clone());
         }
-        if association.groups().len() != 1 {
+        let mut groups = association.groups();
+        if groups.len() != 1 {
             return false;
         }
-        let anchor = publications[0].reference.clone();
-        let group = WorkGroup {
-            anchor: anchor.clone(),
-            references,
-            publications,
-        };
+        let group = groups.pop().unwrap();
+        let anchor = group.anchor.clone();
         let same_anchor = self
             .selected_group
             .as_ref()
@@ -148,7 +140,7 @@ impl ffi::ContentController {
         let category = self
             .selected_group
             .as_ref()
-            .and_then(WorkGroup::anchor_work)
+            .and_then(WorkGroup::catalog_work)
             .map(|work| models::category_key(work.category))
             .unwrap_or_default();
         QString::from(category)
@@ -247,11 +239,13 @@ impl ffi::ContentController {
             self.as_mut().load_local_book_from_library(work.reference);
             return;
         }
-        let mut group = if self.list_mode == ffi::ListMode::Search {
-            self.search_association
-                .groups()
-                .into_iter()
+        let search_groups =
+            (self.list_mode == ffi::ListMode::Search).then(|| self.search_association.groups());
+        let mut group = if let Some(groups) = &search_groups {
+            groups
+                .iter()
                 .find(|group| group.references.contains(&work.reference))
+                .cloned()
                 .map(|mut group| {
                     group.anchor = work.reference.clone();
                     group
@@ -266,13 +260,24 @@ impl ffi::ContentController {
         if let Some(saved) = self.known_groups.get(&group.anchor) {
             let mut restored = group.clone();
             for known in &saved.publications {
-                if restored.publication(&known.reference).is_none() {
+                let present_in_search = search_groups.as_ref().is_some_and(|groups| {
+                    groups
+                        .iter()
+                        .any(|group| group.references.contains(&known.reference))
+                });
+                if restored.publication(&known.reference).is_none() && !present_in_search {
                     restored.publications.push(known.clone());
                 }
             }
             if restored.is_confirmed() {
                 for reference in &saved.references {
-                    if !restored.references.contains(reference) {
+                    if !restored.references.contains(reference)
+                        && (restored.publication(reference).is_some()
+                            || (saved.publication(reference).is_none()
+                                && restored.catalog_work().is_some_and(|work| {
+                                    reference.source.categories().contains(&work.category)
+                                })))
+                    {
                         restored.references.push(reference.clone());
                     }
                 }
@@ -283,6 +288,19 @@ impl ffi::ContentController {
             for publication in &mut group.publications {
                 publication.needs_inspection = true;
             }
+        } else if let Some(preferences) = self
+            .as_mut()
+            .rust_mut()
+            .work_preferences
+            .get_mut(&group.anchor)
+            && preferences
+                .selected
+                .as_ref()
+                .is_some_and(|selected| !group.references.contains(&selected.publication))
+        {
+            // Explicitly selecting another row after a split starts that row's
+            // choice; the previous exact choice remains with its publication.
+            preferences.selected = None;
         }
         if self.selected_work_id == id
             && (self.inspecting || group.publications.iter().all(|work| !work.needs_inspection))
@@ -429,6 +447,28 @@ impl ffi::ContentController {
         }
     }
 
+    pub(super) fn retain_selection_preferences(mut self: Pin<&mut Self>, group: &WorkGroup) {
+        let Some(previous) = &self.selected_group else {
+            return;
+        };
+        if previous.anchor == group.anchor {
+            return;
+        }
+        let Some(preferences) = self.work_preferences.get(&previous.anchor).cloned() else {
+            return;
+        };
+        if preferences
+            .selected
+            .as_ref()
+            .is_some_and(|selected| group.references.contains(&selected.publication))
+        {
+            self.as_mut()
+                .rust_mut()
+                .work_preferences
+                .insert(group.anchor.clone(), preferences);
+        }
+    }
+
     pub(super) fn cancel_detail(mut self: Pin<&mut Self>) -> (u64, u64) {
         let (generations, inspecting_changed, resolving_changed) = {
             let mut state = self.as_mut().rust_mut();
@@ -506,8 +546,14 @@ impl ffi::ContentController {
                 *previous = work;
             }
             if !group.is_confirmed() {
-                group = confirmed_anchor_group(&group);
+                let reference = self
+                    .selected_share_preference()
+                    .map(|variant| variant.publication)
+                    .filter(|reference| group.publication(reference).is_some())
+                    .unwrap_or_else(|| group.anchor.clone());
+                group = confirmed_selection_group(&group, &reference);
             }
+            self.as_mut().retain_selection_preferences(&group);
             self.as_mut()
                 .rust_mut()
                 .known_groups
@@ -527,6 +573,9 @@ impl ffi::ContentController {
             return false;
         }
         let work = group.and_then(WorkGroup::anchor_work);
+        let category = group
+            .and_then(WorkGroup::catalog_work)
+            .map(|work| work.category);
         let id = work
             .map(|work| QString::from(work_id(&work.reference)))
             .unwrap_or_default();
@@ -553,9 +602,9 @@ impl ffi::ContentController {
                 state
                     .selected_group
                     .as_ref()
-                    .and_then(WorkGroup::anchor_work)
+                    .and_then(WorkGroup::catalog_work)
                     .map(|work| work.category)
-                    != work.map(|work| work.category),
+                    != category,
                 state.selected_work_title != title,
                 state.selected_work_description != description || publication_changed,
                 state.selected_variant_id != variant_id,
@@ -622,23 +671,26 @@ impl ffi::ContentController {
     }
 }
 
-fn confirmed_anchor_group(group: &WorkGroup) -> WorkGroup {
+fn confirmed_selection_group(group: &WorkGroup, reference: &PublicationRef) -> WorkGroup {
     let mut association = WorkAssociation::default();
-    if let Some(anchor) = group.anchor_work() {
-        association.update(anchor.clone());
-    }
     for publication in &group.publications {
-        if publication.reference != group.anchor {
-            association.update(publication.clone());
-        }
+        association.update(publication.clone());
     }
     let mut confirmed = association
         .groups()
         .into_iter()
-        .find(|candidate| candidate.anchor == group.anchor)
-        .expect("the selected group has a resolved anchor");
+        .find(|candidate| candidate.references.contains(reference))
+        .expect("the selected group has a resolved publication");
+    if confirmed.references.contains(&group.anchor) {
+        confirmed.anchor = group.anchor.clone();
+    }
     for reference in &group.references {
-        if group.publication(reference).is_none() && !confirmed.references.contains(reference) {
+        if group.publication(reference).is_none()
+            && !confirmed.references.contains(reference)
+            && confirmed
+                .catalog_work()
+                .is_some_and(|work| reference.source.categories().contains(&work.category))
+        {
             confirmed.references.push(reference.clone());
         }
     }

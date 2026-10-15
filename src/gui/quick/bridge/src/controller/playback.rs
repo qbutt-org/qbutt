@@ -121,7 +121,7 @@ impl ffi::ContentController {
             _ => return false,
         };
         let content_kind = QString::from(match &save {
-            Some(save) => match save.group.anchor_work().map(|work| work.category).unwrap() {
+            Some(save) => match save.group.catalog_work().map(|work| work.category).unwrap() {
                 Category::Movies => "movie",
                 category => models::category_key(category),
             },

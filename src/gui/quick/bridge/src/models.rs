@@ -310,7 +310,7 @@ impl ffi::WorkModel {
         let Some(group) = self.rows.get(index.row() as usize) else {
             return QVariant::default();
         };
-        let Some(work) = group.anchor_work() else {
+        let Some(work) = group.catalog_work() else {
             return QVariant::default();
         };
         let text = match role - USER_ROLE {
@@ -577,7 +577,7 @@ impl ffi::VariantModel {
     }
 
     pub fn update_group(mut self: Pin<&mut Self>, group: &WorkGroup, language: Option<&str>) {
-        let Some(work) = group.anchor_work() else {
+        let Some(work) = group.catalog_work() else {
             return;
         };
         let variants = group.variants(language);
