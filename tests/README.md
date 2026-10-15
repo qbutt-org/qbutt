@@ -345,6 +345,10 @@ denied access, DRM, malformed quality data, unsafe redirects and oversized
 responses. Ordinary search excludes labelled openings, endings, AMVs, edits,
 clips, recaps and slowed music; explicit searches for those labels retain them.
 This includes textual recap labels such as `за 10 минут` and `in 8 minutes`.
+Descriptions beginning with `Выпустили трейлер` identify a promotional upload
+even with a generic title; trailer links and later references in a full work's
+description do not. Late promotional metadata splits that publication from its work
+group, while direct links, explicit clip searches and Share retain its identity.
 The search corpus also preserves complete works, episodes and extended editions.
 The fixtures check cancellation, exact public identity after SQLite reopening,
 and unknown categories without relabeling them from the requested category.

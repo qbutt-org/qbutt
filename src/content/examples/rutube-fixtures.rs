@@ -54,6 +54,8 @@ mod aniliberty {
 mod aniliberty_checks;
 #[path = "rutube/fixture.rs"]
 mod fixture;
+#[path = "rutube/relevance.rs"]
+mod relevance;
 
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -118,35 +120,7 @@ async fn main() -> CheckResult<()> {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].category, category);
     }
-    fixture.case("search-relevance");
-    for (query, expected) in [
-        ("generated story", vec![0, 1, 2, 3, 4, 17, 28, 29]),
-        ("generated story opening", vec![5, 6]),
-        ("generated story опенинг", vec![7]),
-        ("generated story amv", vec![8, 9]),
-        ("generated story edit", vec![4, 8, 10]),
-        ("generated story ending", vec![11]),
-        ("generated story эндинг", vec![12]),
-        ("generated story амв", vec![13]),
-        ("generated story эдит", vec![14]),
-        ("generated story trailer", vec![15]),
-        ("generated story обзор", vec![16]),
-        ("generated story clip", vec![17, 18, 19]),
-        ("generated story клип", vec![20]),
-        ("generated story recap", vec![21]),
-        ("generated story пересказ", vec![22]),
-        ("generated story slowed", vec![23]),
-        ("generated story за 48 минут", vec![24]),
-        ("generated story за 10 минут", vec![25]),
-        ("generated story за 11 минут", vec![26]),
-        ("generated story in 8 minutes", vec![27]),
-    ] {
-        let rows = source.search(query, Category::Anime).await?;
-        let ids: Vec<_> = rows.iter().map(|work| work.reference.id.clone()).collect();
-        let expected: Vec<_> = expected.iter().map(|id| format!("{id:032x}")).collect();
-        assert_eq!(ids, expected, "search relevance changed for {query}");
-    }
-    fixture.case("normal");
+    relevance::verify(&fixture, &source).await?;
     for fault in [
         "paid",
         "locked",

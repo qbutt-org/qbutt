@@ -65,6 +65,21 @@ impl Video {
         !self.is_deleted && !self.is_hidden && !self.is_paid && self.is_locked != Some(true)
     }
 
+    pub(super) fn matches_query(&self, query: &str) -> bool {
+        if is_supplementary(&self.title, self.description.as_deref())
+            && !is_supplementary(query, None)
+        {
+            return false;
+        }
+
+        let title = self.title.to_lowercase().replace('ё', "е");
+        let query = query.to_lowercase().replace('ё', "е");
+        query
+            .split(|character: char| !character.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .all(|word| title.contains(word))
+    }
+
     pub(super) fn category(&self) -> Option<Category> {
         // Confirmed by Rutube's public /api/video/category/ catalog. Generic
         // entertainment, cartoons and game videos do not establish a work type.
@@ -205,69 +220,70 @@ pub(super) fn publication_query(query: &str) -> Result<Option<PublicationRef>> {
     Ok(Some(reference))
 }
 
-pub(super) fn matches_query(title: &str, query: &str) -> bool {
-    let title = title.to_lowercase().replace('ё', "е");
-    let query = query.to_lowercase().replace('ё', "е");
-
-    let supplementary = |text: &str| {
-        let words: Vec<_> = text
-            .split(|character: char| !character.is_alphanumeric())
-            .filter(|word| !word.is_empty())
-            .collect();
-        words.windows(3).any(|phrase| {
-            matches!(
-                phrase,
-                ["за", count, "минут" | "минуту" | "минуты"]
-                    | ["in", count, "minute" | "minutes"]
-                    if count.chars().all(|character| character.is_ascii_digit())
-            )
-        }) || words.into_iter().any(|word| {
-            matches!(
-                word,
-                "trailer"
-                    | "teaser"
-                    | "reaction"
-                    | "review"
-                    | "highlights"
-                    | "promo"
-                    | "preview"
-                    | "opening"
-                    | "ending"
-                    | "amv"
-                    | "edit"
-                    | "edits"
-                    | "clip"
-                    | "clips"
-                    | "recap"
-                    | "slowed"
-            ) || [
-                "трейлер",
-                "тизер",
-                "реакци",
-                "обзор",
-                "нарезк",
-                "промо",
-                "превью",
-                "опенинг",
-                "эндинг",
-                "амв",
-                "эдит",
-                "клип",
-                "пересказ",
-            ]
-            .iter()
-            .any(|prefix| word.starts_with(prefix))
-        })
-    };
-
-    if supplementary(&title) && !supplementary(&query) {
-        return false;
+pub(crate) fn is_supplementary(title: &str, description: Option<&str>) -> bool {
+    let mut introduction = description
+        .unwrap_or_default()
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|word| !word.is_empty());
+    if introduction
+        .next()
+        .is_some_and(|word| word.to_lowercase() == "выпустили")
+        && introduction
+            .next()
+            .is_some_and(|word| word.to_lowercase() == "трейлер")
+    {
+        return true;
     }
 
-    query
+    let title = title.to_lowercase().replace('ё', "е");
+    let words: Vec<_> = title
         .split(|character: char| !character.is_alphanumeric())
         .filter(|word| !word.is_empty())
-        .all(|word| title.contains(word))
+        .collect();
+    words.windows(3).any(|phrase| {
+        matches!(
+            phrase,
+            ["за", count, "минут" | "минуту" | "минуты"]
+                | ["in", count, "minute" | "minutes"]
+                if count.chars().all(|character| character.is_ascii_digit())
+        )
+    }) || words.into_iter().any(|word| {
+        matches!(
+            word,
+            "trailer"
+                | "teaser"
+                | "reaction"
+                | "review"
+                | "highlights"
+                | "promo"
+                | "preview"
+                | "opening"
+                | "ending"
+                | "amv"
+                | "edit"
+                | "edits"
+                | "clip"
+                | "clips"
+                | "recap"
+                | "slowed"
+        ) || [
+            "трейлер",
+            "тизер",
+            "реакци",
+            "обзор",
+            "нарезк",
+            "промо",
+            "превью",
+            "опенинг",
+            "эндинг",
+            "амв",
+            "эдит",
+            "клип",
+            "пересказ",
+        ]
+        .iter()
+        .any(|prefix| word.starts_with(prefix))
+    })
 }
 
 pub(super) fn select_stream(manifest: &str, base: &Url) -> Result<(Url, VideoQuality)> {

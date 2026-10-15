@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[path = "rutube/response.rs"]
-mod response;
+pub(crate) mod response;
 
 const ORIGIN: &str = "https://rutube.ru";
 
@@ -65,7 +65,7 @@ impl Rutube {
             if video.available()
                 && video.is_locked == Some(false)
                 && video.category() == Some(category)
-                && response::matches_query(&video.title, query)
+                && video.matches_query(query)
             {
                 works.push(video.into_work(&self.origin, true)?);
             }

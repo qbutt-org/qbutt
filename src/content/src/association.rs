@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Category, PublicationRef, Transport, Variant, Work};
+use crate::{Category, PublicationRef, Source, Transport, Variant, Work};
 
 mod identity;
 use identity::{ProductTitle, product_titles, year_labels};
@@ -224,6 +224,12 @@ fn confirmed_match(
 ) -> bool {
     if left.reference == right.reference {
         return true;
+    }
+    if [left, right].into_iter().any(|work| {
+        work.reference.source == Source::Rutube
+            && crate::rutube::response::is_supplementary(&work.title, work.description.as_deref())
+    }) {
+        return false;
     }
     let same_category = left.category == right.category;
     if !same_category {

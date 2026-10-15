@@ -177,6 +177,18 @@ fn response(
     query: &str,
     case: &str,
 ) -> (&'static str, &'static str, String, String) {
+    let description = match case {
+        "trailer-announcement" => Some(
+            "Выпустили трейлер третьего сезона аниме Generated legal sample.\n\nПродолжение шоу начнётся с 90-минутного эпизода.",
+        ),
+        "trailer-link" => {
+            Some("Трейлер: https://example.com/trailer\n\nПолный фильм Generated legal sample.")
+        }
+        "trailer-reference" => Some(
+            "Полный фильм Generated legal sample.\n\nВыпустили трейлер этой истории: https://example.com/trailer",
+        ),
+        _ => None,
+    };
     if query.starts_with("redirect-") {
         let address = if query == "redirect-private" {
             "https://127.0.0.1/private"
@@ -270,6 +282,9 @@ fn response(
         }
         let title = format!("Generated {query}");
         let mut first = video(ID, &title, 4);
+        if let Some(description) = description {
+            first["description"] = json!(description);
+        }
         let mut rows = vec![
             first.clone(),
             video(&"1".repeat(32), &title, 5),
@@ -285,6 +300,9 @@ fn response(
             rows.push(excluded);
         }
         rows.push(video(&"4".repeat(32), &format!("{title} trailer"), 4));
+        if description.is_some() {
+            rows = vec![first.clone()];
+        }
         match query {
             "empty" => rows.clear(),
             "unwanted" => rows = vec![video(ID, "Generated unwanted trailer", 4)],
@@ -331,6 +349,9 @@ fn response(
             4,
         );
         video.as_object_mut().unwrap().remove("is_locked");
+        if let Some(description) = description {
+            video["description"] = json!(description);
+        }
         match case {
             "paid" => video["is_paid"] = json!(true),
             "locked" => video["is_locked"] = json!(true),
