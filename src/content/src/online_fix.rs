@@ -49,6 +49,7 @@ impl OnlineFix {
         url.query_pairs_mut().extend_pairs([
             ("do", "search"),
             ("subaction", "search"),
+            ("titleonly", "3"),
             ("story", query),
         ]);
         let body = self.site_document(url).await?;

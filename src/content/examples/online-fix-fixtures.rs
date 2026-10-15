@@ -308,6 +308,11 @@ fn route(
         .find(|(name, _)| name == "story")
         .map(|(_, value)| value.into_owned());
     if url.path() == "/index.php" {
+        assert!(
+            url.query_pairs()
+                .any(|(name, value)| name == "titleonly" && value == "3"),
+            "Online-Fix search must request matching titles"
+        );
         let query = query.unwrap_or_default();
         let results = if query == "Unlikely Result" {
             "К сожалению, поиск по сайту не дал никаких результатов.".to_owned()
