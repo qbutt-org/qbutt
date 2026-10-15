@@ -205,6 +205,17 @@ socket/header limits, retirement, a 67-second single HTTPS GET and closure after
 full GET, private headers, manifest rejection and retirement. This does not
 establish controller, qplay or History UI.
 
+The prepared-resource subset also accepts `--prepared <generated-HLS-directory>
+<ffmpeg.exe>`. Its directory contains `playlist.m3u8` with `segment*.ts`, plus
+`fragmented.m3u8`, `init.mp4` and `fragmented*.m4s`, all generated legal media.
+It decodes video and audio before and after a seek through session-scoped local
+capabilities, checks segment and playlist Range, scoped headers across redirects,
+and cancellation during manifest preparation and segment transfer. Require exit
+zero and `PASS media-gateway-hls`. Master, live, encrypted, byte-ranged, private,
+oversized and malformed playlists are rejected without acquiring their payload.
+The browser must already select the exact clear VOD media playlist; this native
+subset neither selects a lower variant nor proves live qbutt → qplay acceptance.
+
 Native downloads have generated MP4, HLS and DASH scenarios. Set
 `QBUTT_LAB_QPLAY` to the verified bundle's absolute `qplay.exe` path. Generate
 media below a fresh temporary directory; FFmpeg's DASH segments are relative to

@@ -16,6 +16,8 @@ use url::Url;
 
 use crate::http::{resolve_public_url, validate_media_url};
 
+#[path = "media/hls.rs"]
+pub(crate) mod hls;
 #[path = "media/resource.rs"]
 mod resource;
 pub(crate) use resource::Resources as MediaResources;

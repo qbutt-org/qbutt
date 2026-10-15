@@ -1,6 +1,4 @@
-//! Byte resources for the observed browser MP4, external audio and subtitles.
-//! This mode cannot forward a manifest: its children would need a separate,
-//! proven rewrite implementation before they could retain these guards.
+//! Session-scoped byte resources and rewritten, immutable clear HLS playlists.
 
 use std::io;
 use std::time::Duration;
@@ -27,7 +25,10 @@ impl PreparedPlayback {
     /// A direct download can save this exact file when no separate audio is
     /// required. The URL remains valid only while its gateway is owned.
     pub fn muxed_mp4_url(&self) -> Option<Url> {
-        (self.audio_url.is_none() && self.audio_track.is_none()).then(|| self.url.clone())
+        (self.url.path().ends_with(".mp4")
+            && self.audio_url.is_none()
+            && self.audio_track.is_none())
+        .then(|| self.url.clone())
     }
 }
 
@@ -47,6 +48,12 @@ pub(crate) struct Resources {
 struct Resource {
     target: Url,
     path: String,
+    payload: Payload,
+}
+
+enum Payload {
+    Remote { mp4: bool },
+    Playlist(Vec<u8>),
 }
 
 impl Resources {
@@ -80,38 +87,42 @@ impl Resources {
         proxy: &Url,
     ) -> Result<(Self, PreparedPlayback), MediaGatewayError> {
         let mut resources = Self::for_media(&media)?;
-        let url = resources.add(media.url, proxy)?;
-        let audio_url = media
-            .audio_url
-            .map(|url| resources.add(url, proxy))
-            .transpose()?;
+        let muxed_mp4 = !hls_url(&media.url);
+        let url = resources.add_media(media.url, proxy, muxed_mp4).await?;
+        let audio_url = if let Some(url) = media.audio_url {
+            Some(resources.add_media(url, proxy, false).await?)
+        } else {
+            None
+        };
         let mut subtitles = Vec::new();
         for subtitle in media.subtitles {
             subtitles.push(PreparedSubtitle {
                 title: subtitle.title,
-                url: resources.add(subtitle.url, proxy)?,
+                url: resources.add(subtitle.url, proxy, false)?,
                 language: subtitle.language,
             });
         }
-        // A small range proves the main resource is a seekable MP4 before the
-        // caller launches a player or offers a direct download.
-        let (mut response, _) = tokio::time::timeout(
-            Duration::from_secs(45),
-            resources.fetch(
-                resources.entries[0].target.clone(),
-                Method::GET,
-                Some("bytes=0-1023"),
-            ),
-        )
-        .await
-        .map_err(|_| MediaGatewayError::Source)??;
-        if !valid_range_response(&response, Some("bytes=0-1023")) {
-            return Err(MediaGatewayError::InvalidDescriptor);
-        }
-        let prefix = response_prefix(&mut response).await?;
-        validate_bytes(&response, &prefix)?;
-        if prefix.get(4..8) != Some(b"ftyp") || !mp4_content_type(&response) {
-            return Err(MediaGatewayError::InvalidDescriptor);
+        if muxed_mp4 {
+            // A small range proves an ordinary file is a seekable MP4 before
+            // the caller launches a player or offers a direct download.
+            let (mut response, _) = tokio::time::timeout(
+                Duration::from_secs(45),
+                resources.fetch(
+                    resources.entries[0].target.clone(),
+                    Method::GET,
+                    Some("bytes=0-1023"),
+                ),
+            )
+            .await
+            .map_err(|_| MediaGatewayError::Source)??;
+            if !valid_range_response(&response, Some("bytes=0-1023")) {
+                return Err(MediaGatewayError::InvalidDescriptor);
+            }
+            let prefix = response_prefix(&mut response).await?;
+            validate_bytes(&response, &prefix)?;
+            if prefix.get(4..8) != Some(b"ftyp") || !mp4_content_type(&response) {
+                return Err(MediaGatewayError::InvalidDescriptor);
+            }
         }
         Ok((
             resources,
@@ -124,8 +135,95 @@ impl Resources {
         ))
     }
 
-    fn add(&mut self, target: Url, proxy: &Url) -> Result<Url, MediaGatewayError> {
-        validate_media_url(&target).map_err(|_| MediaGatewayError::InvalidDescriptor)?;
+    async fn add_media(
+        &mut self,
+        target: Url,
+        proxy: &Url,
+        mp4: bool,
+    ) -> Result<Url, MediaGatewayError> {
+        if hls_url(&target) {
+            self.add_hls(target, proxy).await
+        } else {
+            self.add(target, proxy, mp4)
+        }
+    }
+
+    async fn add_hls(&mut self, target: Url, proxy: &Url) -> Result<Url, MediaGatewayError> {
+        const MAX_MANIFEST: usize = 512 * 1024;
+        let (mut response, base) = tokio::time::timeout(Duration::from_secs(15), self.get(target))
+            .await
+            .map_err(|_| MediaGatewayError::Source)??;
+        if response.status() != StatusCode::OK
+            || response
+                .content_length()
+                .is_some_and(|size| size > MAX_MANIFEST as u64)
+        {
+            return Err(MediaGatewayError::InvalidDescriptor);
+        }
+        let body = tokio::time::timeout(Duration::from_secs(15), async {
+            let mut body = Vec::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|_| MediaGatewayError::Source)?
+            {
+                if chunk.len() > MAX_MANIFEST - body.len() {
+                    return Err(MediaGatewayError::InvalidDescriptor);
+                }
+                body.extend_from_slice(&chunk);
+            }
+            String::from_utf8(body).map_err(|_| MediaGatewayError::InvalidDescriptor)
+        })
+        .await
+        .map_err(|_| MediaGatewayError::Source)??;
+        let lines = super::hls::lines(&body)
+            .and_then(super::hls::media)
+            .map_err(|error| match error {
+                super::hls::Error::Format => MediaGatewayError::InvalidDescriptor,
+                super::hls::Error::Unsupported => MediaGatewayError::UnsupportedManifest,
+            })?;
+        let fragmented = lines.iter().any(
+            |line| matches!(line, super::hls::Line::Resource { prefix, .. } if !prefix.is_empty()),
+        );
+        let mut rewritten = String::new();
+        for line in lines {
+            match line {
+                super::hls::Line::Tag(line) => rewritten.push_str(line),
+                super::hls::Line::Resource {
+                    prefix,
+                    uri,
+                    suffix,
+                } => {
+                    let target = base
+                        .join(uri)
+                        .map_err(|_| MediaGatewayError::InvalidDescriptor)?;
+                    // Local capability names describe the HLS role; CDN URLs
+                    // often have no media extension or use an opaque suffix.
+                    let extension = if !prefix.is_empty() {
+                        "mp4"
+                    } else if fragmented {
+                        "m4s"
+                    } else {
+                        "ts"
+                    };
+                    let local =
+                        self.insert(target, proxy, extension, Payload::Remote { mp4: false })?;
+                    rewritten.push_str(prefix);
+                    rewritten.push_str(local.as_str());
+                    rewritten.push_str(suffix);
+                }
+            }
+            rewritten.push('\n');
+        }
+        self.insert(
+            base,
+            proxy,
+            "m3u8",
+            Payload::Playlist(rewritten.into_bytes()),
+        )
+    }
+
+    fn add(&mut self, target: Url, proxy: &Url, mp4: bool) -> Result<Url, MediaGatewayError> {
         if matches!(
             target
                 .path()
@@ -137,7 +235,7 @@ impl Resources {
         ) {
             return Err(MediaGatewayError::UnsupportedManifest);
         }
-        let suffix = if self.entries.is_empty() {
+        let suffix = if mp4 {
             "mp4"
         } else {
             target
@@ -149,6 +247,21 @@ impl Resources {
                 })
                 .unwrap_or("bin")
         };
+        let suffix = suffix.to_owned();
+        self.insert(target, proxy, &suffix, Payload::Remote { mp4 })
+    }
+
+    fn insert(
+        &mut self,
+        target: Url,
+        proxy: &Url,
+        suffix: &str,
+        payload: Payload,
+    ) -> Result<Url, MediaGatewayError> {
+        validate_media_url(&target).map_err(|_| MediaGatewayError::InvalidDescriptor)?;
+        if self.entries.len() >= super::hls::MAX_RESOURCES + 64 {
+            return Err(MediaGatewayError::InvalidDescriptor);
+        }
         let path = format!(
             "/media/{}/{}/resource.{suffix}",
             proxy.password().expect("gateway password"),
@@ -158,7 +271,11 @@ impl Resources {
         local.set_username("").expect("local HTTP URL");
         local.set_password(None).expect("local HTTP URL");
         local.set_path(&path);
-        self.entries.push(Resource { target, path });
+        self.entries.push(Resource {
+            target,
+            path,
+            payload,
+        });
         Ok(local)
     }
 
@@ -254,6 +371,57 @@ impl Resources {
             },
             _ => return reject(&mut client, 400).await,
         };
+        let mp4 = match &self.entries[index].payload {
+            Payload::Remote { mp4 } => *mp4,
+            Payload::Playlist(body) => {
+                let (status, content_range, bytes) = if let Some(range) = range {
+                    let (first, last) = range
+                        .strip_prefix("bytes=")
+                        .unwrap()
+                        .split_once('-')
+                        .unwrap();
+                    let (start, end) = if first.is_empty() {
+                        (
+                            body.len()
+                                .saturating_sub(last.parse::<usize>().unwrap_or(usize::MAX)),
+                            body.len() - 1,
+                        )
+                    } else {
+                        (
+                            first.parse::<usize>().unwrap_or(usize::MAX),
+                            last.parse::<usize>()
+                                .unwrap_or(usize::MAX)
+                                .min(body.len() - 1),
+                        )
+                    };
+                    if start >= body.len() {
+                        let outgoing = format!(
+                            "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        tokio::time::timeout(HEAD_TIMEOUT, client.write_all(outgoing.as_bytes()))
+                            .await??;
+                        return client.shutdown().await;
+                    }
+                    (
+                        "206 Partial Content",
+                        format!("Content-Range: bytes {start}-{end}/{}\r\n", body.len()),
+                        &body[start..=end],
+                    )
+                } else {
+                    ("200 OK", String::new(), body.as_slice())
+                };
+                let outgoing = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: {}\r\n{content_range}Cache-Control: no-store\r\nConnection: close\r\n\r\n",
+                    bytes.len()
+                );
+                tokio::time::timeout(HEAD_TIMEOUT, client.write_all(outgoing.as_bytes())).await??;
+                if method == Method::GET {
+                    tokio::time::timeout(IDLE_TIMEOUT, client.write_all(bytes)).await??;
+                }
+                return client.shutdown().await;
+            }
+        };
         let mut response = match tokio::time::timeout(
             Duration::from_secs(45),
             self.fetch(self.entries[index].target.clone(), method.clone(), range),
@@ -297,8 +465,8 @@ impl Resources {
             }
         };
         if validate_bytes(&response, &prefix).is_err()
-            || index == 0 && !mp4_content_type(&response)
-            || index == 0
+            || mp4 && !mp4_content_type(&response)
+            || mp4
                 && method != Method::HEAD
                 && (range.is_none() || range.is_some_and(|range| range.starts_with("bytes=0-")))
                 && prefix.get(4..8) != Some(b"ftyp")
@@ -318,7 +486,7 @@ impl Resources {
             "etag",
             "last-modified",
         ] {
-            if index == 0 && name == "content-type" {
+            if mp4 && name == "content-type" {
                 outgoing.push_str("content-type: video/mp4\r\n");
                 continue;
             }
@@ -341,6 +509,12 @@ impl Resources {
         }
         client.shutdown().await
     }
+}
+
+fn hls_url(url: &Url) -> bool {
+    url.path().rsplit('.').next().is_some_and(|suffix| {
+        suffix.eq_ignore_ascii_case("m3u8") || suffix.eq_ignore_ascii_case("m3u")
+    })
 }
 
 fn playback_headers(

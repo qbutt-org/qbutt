@@ -97,9 +97,24 @@ use url::Url;
 
 type AcceptanceResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+#[path = "media-gateway/hls.rs"]
+mod hls_fixture;
+
 #[tokio::main]
 async fn main() -> AcceptanceResult<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args
+        .first()
+        .is_some_and(|argument| argument == "--prepared")
+    {
+        let directory = PathBuf::from(args.get(1).ok_or("Expected generated HLS directory")?);
+        let ffmpeg = PathBuf::from(args.get(2).ok_or("Expected FFmpeg executable")?);
+        let fixture = Fixture::start(false, None).await?;
+        exercise_prepared_mp4(&fixture.origin).await?;
+        fixture.stop().await;
+        hls_fixture::run(&directory, &ffmpeg).await?;
+        return Ok(());
+    }
     let media_dir = args.first().map(PathBuf::from);
     let mpv = args.get(1).map(PathBuf::from);
     let plain = Fixture::start(false, media_dir.clone()).await?;

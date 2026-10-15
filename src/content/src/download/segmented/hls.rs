@@ -6,6 +6,18 @@ use url::Url;
 
 use super::{DownloadError, Materializer, audio_title_matches};
 use crate::PlaybackAudioTrack;
+use crate::media::hls::{Line, attribute as hls_attribute};
+
+pub(super) use crate::media::hls::lines as hls_lines;
+
+impl From<crate::media::hls::Error> for DownloadError {
+    fn from(error: crate::media::hls::Error) -> Self {
+        match error {
+            crate::media::hls::Error::Format => Self::Format,
+            crate::media::hls::Error::Unsupported => Self::UnsupportedMedia,
+        }
+    }
+}
 
 impl Materializer<'_> {
     pub(super) async fn hls(
@@ -109,43 +121,20 @@ impl Materializer<'_> {
         lines: Vec<&str>,
         base: &Url,
     ) -> Result<PathBuf, DownloadError> {
-        if !lines.iter().any(|line| *line == "#EXT-X-ENDLIST")
-            || lines
-                .iter()
-                .any(|line| line.contains("BYTERANGE") || line.starts_with("#EXT-X-PART"))
-        {
-            return Err(DownloadError::UnsupportedMedia);
-        }
         let mut rewritten = Vec::with_capacity(lines.len());
-        for line in lines {
-            if line.starts_with("#EXT-X-KEY:") {
-                if !line.contains("METHOD=NONE") || line.contains("URI=") {
-                    return Err(DownloadError::UnsupportedMedia);
+        for line in crate::media::hls::media(lines)? {
+            match line {
+                Line::Tag(line) => rewritten.push(line.to_owned()),
+                Line::Resource {
+                    prefix,
+                    uri,
+                    suffix,
+                } => {
+                    let target = base.join(uri).map_err(|_| DownloadError::Format)?;
+                    let (response, target) = self.get(target).await?;
+                    let path = self.save(response, &target).await?;
+                    rewritten.push(format!("{prefix}{}{suffix}", local_name(&path)?));
                 }
-            } else if line.starts_with("#EXT-X-SESSION-KEY:") {
-                return Err(DownloadError::UnsupportedMedia);
-            }
-            if !line.starts_with('#') {
-                let target = base.join(line).map_err(|_| DownloadError::Format)?;
-                let (response, target) = self.get(target).await?;
-                let path = self.save(response, &target).await?;
-                rewritten.push(local_name(&path)?);
-            } else if line.contains("URI=\"") {
-                let start = line.find("URI=\"").ok_or(DownloadError::Format)? + 5;
-                let end = line[start..].find('"').ok_or(DownloadError::Format)? + start;
-                let target = base
-                    .join(&line[start..end])
-                    .map_err(|_| DownloadError::Format)?;
-                let (response, target) = self.get(target).await?;
-                let path = self.save(response, &target).await?;
-                rewritten.push(format!(
-                    "{}{}{}",
-                    &line[..start],
-                    local_name(&path)?,
-                    &line[end..]
-                ));
-            } else {
-                rewritten.push(line.to_owned());
             }
         }
         let path = self.directory.join(format!("playlist-{}.m3u8", self.next));
@@ -153,40 +142,6 @@ impl Materializer<'_> {
         fs::write(&path, format!("{}\n", rewritten.join("\n"))).await?;
         Ok(path)
     }
-}
-
-pub(super) fn hls_lines(body: &str) -> Result<Vec<&str>, DownloadError> {
-    let lines = body
-        .trim_start_matches('\u{feff}')
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
-    if lines.first() != Some(&"#EXTM3U") {
-        return Err(DownloadError::Format);
-    }
-    Ok(lines)
-}
-
-fn hls_attribute<'a>(attributes: &'a str, name: &str) -> Option<&'a str> {
-    let mut quoted = false;
-    let mut start = 0;
-    for (index, byte) in attributes.bytes().enumerate() {
-        if byte == b'"' {
-            quoted = !quoted;
-        }
-        if byte != b',' || quoted {
-            continue;
-        }
-        let field = &attributes[start..index];
-        let (key, value) = field.split_once('=')?;
-        if key == name {
-            return Some(value.trim_matches('"'));
-        }
-        start = index + 1;
-    }
-    let (key, value) = attributes[start..].split_once('=')?;
-    (key == name).then(|| value.trim_matches('"'))
 }
 
 fn local_name(path: &Path) -> Result<String, DownloadError> {
