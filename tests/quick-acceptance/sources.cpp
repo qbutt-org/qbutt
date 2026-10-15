@@ -119,10 +119,10 @@ namespace
             {u"language"_s, QJsonValue::Null}}}};
     }
 
-    QJsonObject searchOperation()
+    QJsonObject searchOperation(const QString &query = u"Frieren"_s)
     {
         return {{u"search"_s, QJsonObject {{u"source"_s, u"ani_liberty"_s},
-            {u"query"_s, u"Frieren"_s}, {u"category"_s, u"anime"_s}, {u"language"_s, QJsonValue::Null}}}};
+            {u"query"_s, query}, {u"category"_s, u"anime"_s}, {u"language"_s, QJsonValue::Null}}}};
     }
 
     void failure(QSqlDatabase &database, const QJsonObject &operation, const QString &reason = u"timeout"_s)
@@ -303,6 +303,24 @@ void exerciseSources()
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Snapshot retry connection did not drain"_s);
 
     exec(database, u"UPDATE source_settings SET enabled = (source = 'aniliberty')"_s);
+    failure(database, searchOperation(u"rezero"_s));
+    controller = std::make_unique<Qbutt::ContentController>();
+    controller->initLibrary(profile.path());
+    loaded(*controller);
+    require(controller->retrySource(u"aniliberty"_s), u"Previous search retry rejected"_s);
+    controller->search(u"Frieren"_s);
+    waitFor([&]
+    {
+        return !controller->property("busy").toBool()
+            && !value(model(*controller, "sources"), u"aniliberty"_s, "retrying").toBool();
+    }, u"New search and superseded retry"_s, 50'000);
+    saved(*controller);
+    require(!value(model(*controller, "sources"), u"aniliberty"_s, "failed").toBool()
+        && persistedFailure(database).isEmpty() && (model(*controller, "works")->rowCount() > 0),
+        u"New search retained a previous query failure or its late retry"_s);
+    controller.reset();
+    require(QThreadPool::globalInstance()->waitForDone(100'000), u"Retired search connection did not drain"_s);
+
     failure(database, inspection(u"9542"_s), u"challenge"_s);
     controller = std::make_unique<Qbutt::ContentController>();
     controller->initLibrary(profile.path());
@@ -380,6 +398,8 @@ void exerciseSources()
     require(view.status() == QQuickWidget::Ready, u"Sources QML did not load"_s);
     uiController->search(u"Frieren"_s);
     waitFor([&] { return !uiController->property("busy").toBool(); }, u"Source UI search context"_s, 50'000);
+    require(persistedFailure(database).value(u"operation"_s).toObject() == inspection(u"18446744073709551615"_s),
+        u"Unrelated search retired an inspection failure"_s);
     uiController->selectWork(u"aniliberty:9542"_s);
     waitFor([&] { return !uiController->property("inspecting").toBool(); }, u"Source UI exact selection"_s, 50'000);
     saved(*uiController);
@@ -569,5 +589,5 @@ void exerciseSources()
         == value(model(*uiController, "sources"), u"aniliberty"_s, "failureText").toString(),
         u"Old browser-open failure hid the current source failure after Retry"_s);
 
-    qInfo("PASS sources=typed persisted_choices=restart loading_search=gated sqlite_write_retry=exact reentrant_choice=latest corrupt_source=isolated late_success=retained actual_inspect_search_retry=cleared actual_missing_publication=recorded source_handoff=none account_actions=exact challenge_site=exact selected_browser=required website_open=not_recovery production_overlay=close_reopen source_switch=keyboard source_SQL_retry=QML");
+    qInfo("PASS sources=typed persisted_choices=restart loading_search=gated sqlite_write_retry=exact reentrant_choice=latest corrupt_source=isolated late_success=retained new_search_failure=retired superseded_search_retry=ignored unrelated_inspect=retained actual_inspect_search_retry=cleared actual_missing_publication=recorded source_handoff=none account_actions=exact challenge_site=exact selected_browser=required website_open=not_recovery production_overlay=close_reopen source_switch=keyboard source_SQL_retry=QML");
 }

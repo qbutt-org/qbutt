@@ -746,6 +746,9 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
                     operation,
                     observed_revision,
                 } => library.clear_source_failure(operation, *observed_revision),
+                SourceWrite::RetireSearch { source } => {
+                    library.retire_source_search_failure(*source)
+                }
             };
             return LibraryUpdate::SourceWrite {
                 write,

@@ -24,12 +24,15 @@ pub enum SourceWrite {
         operation: SourceOperation,
         observed_revision: i64,
     },
+    RetireSearch {
+        source: Source,
+    },
 }
 
 impl SourceWrite {
     pub fn source(&self) -> Source {
         match self {
-            Self::Enabled { source, .. } => *source,
+            Self::Enabled { source, .. } | Self::RetireSearch { source } => *source,
             Self::Failure(failure) => failure.operation.source(),
             Self::Clear { operation, .. } => operation.source(),
         }
@@ -171,13 +174,15 @@ impl SourceState {
     }
 }
 
-/// Policy generation rejects an outcome even after disable/enable ABA.
+/// Policy generation rejects an outcome even after disable/enable ABA;
+/// search generation also rejects a previous query's late retry.
 /// The persisted revision independently protects the exact failure being cleared.
 #[derive(Clone)]
 pub struct SourceRequest {
     pub operation: SourceOperation,
     epoch: u64,
     observed_revision: i64,
+    search_generation: Option<u64>,
 }
 
 impl ffi::ContentController {
@@ -350,10 +355,13 @@ impl ffi::ContentController {
                 operation,
                 epoch: 0,
                 observed_revision: 0,
+                search_generation: None,
             });
         }
         let status = self.source_status.status(source);
         Some(SourceRequest {
+            search_generation: matches!(&operation, SourceOperation::Search { .. })
+                .then_some(self.search.generation),
             operation,
             epoch: status.epoch,
             observed_revision: status.settings.revision,
@@ -361,6 +369,12 @@ impl ffi::ContentController {
     }
 
     pub(super) fn source_request_current(&self, request: &SourceRequest) -> bool {
+        if request
+            .search_generation
+            .is_some_and(|generation| generation != self.search.generation)
+        {
+            return false;
+        }
         let source = request.operation.source();
         if source == Source::LocalBook {
             return self
@@ -385,7 +399,31 @@ impl ffi::ContentController {
             self.as_mut().rust_mut().source_status.deferred_query = Some(query.to_owned());
             return false;
         }
-        self.source_status.load == LoadState::Ready
+        if self.source_status.load != LoadState::Ready {
+            return false;
+        }
+
+        let generation = self.search.generation;
+        for source in Source::ALL {
+            if self.search.generation != generation {
+                return false;
+            }
+            let status = self.source_status.status(source);
+            if !status.enabled()
+                || !status.failure().is_some_and(|failure| {
+                    matches!(&failure.operation, SourceOperation::Search { .. })
+                })
+            {
+                continue;
+            }
+            if !self
+                .as_mut()
+                .submit_source_write(SourceWrite::RetireSearch { source })
+            {
+                return false;
+            }
+        }
+        self.search.generation == generation
     }
 
     pub(super) fn cancel_deferred_search(mut self: Pin<&mut Self>) {
@@ -560,6 +598,14 @@ impl ffi::ContentController {
                     } if settings.revision == *observed_revision
                         && settings.failure.as_ref().map(|failure| &failure.operation)
                             == Some(operation) =>
+                    {
+                        settings.failure = None;
+                        settings.revision += 1;
+                    }
+                    SourceWrite::RetireSearch { .. }
+                        if settings.failure.as_ref().is_some_and(|failure| {
+                            matches!(&failure.operation, SourceOperation::Search { .. })
+                        }) =>
                     {
                         settings.failure = None;
                         settings.revision += 1;
@@ -786,9 +832,7 @@ impl ffi::ContentController {
         let task = services.runtime.spawn(async move {
             let result = catalog.retry(&request.operation).await;
             let _ = thread.queue(move |mut controller| {
-                if !controller.source_request_current(&request)
-                    || controller.source_status.status(source).retry.generation != retry_generation
-                {
+                if controller.source_status.status(source).retry.generation != retry_generation {
                     return;
                 }
                 controller
@@ -798,6 +842,10 @@ impl ffi::ContentController {
                     .status_mut(source)
                     .retry
                     .task = None;
+                if !controller.source_request_current(&request) {
+                    controller.publish_source(source);
+                    return;
+                }
                 controller.as_mut().source_outcome(&request, &result);
                 if !controller.source_request_current(&request) {
                     return;

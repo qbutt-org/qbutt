@@ -45,6 +45,8 @@ fn main() -> Result<()> {
     println!("PASS source_preferences=restart exact_failed_operation=restart");
     println!("unrelated_success=retained stale_success=retained same_operation_aba=retained");
     println!("exact_success=cleared invalid_write=unchanged sqlite_abort=unchanged");
+    println!("search_retirement=ordered idempotent=ok other_category_success=retained");
+    println!("search_retirement_inspect_resolve=retained search_retirement_sqlite_abort=unchanged");
     println!("new_source=initialized existing_source_settings=preserved");
     println!("corrupt_source=isolated reader_settings=preserved unrelated_payload=preserved");
     Ok(())
@@ -124,11 +126,16 @@ fn exercise(profile: &Path) -> Result<()> {
         operation: unrelated,
         reason: SourceFailureReason::Timeout,
     })?;
+    assert_eq!(library.retire_source_search_failure(Source::RuTor)?, newer);
     assert_eq!(
         library.clear_source_failure(&operation, failed.revision)?,
         newer
     );
     let repeated = library.record_source_failure(failure.clone())?;
+    assert_eq!(
+        library.retire_source_search_failure(Source::RuTor)?,
+        repeated
+    );
     assert_eq!(
         library.clear_source_failure(&operation, failed.revision)?,
         repeated
@@ -148,6 +155,7 @@ fn exercise(profile: &Path) -> Result<()> {
         enabled
     );
     assert_eq!(library.set_source_enabled(Source::RuTor, true)?, enabled);
+    let search_failed = exercise_search_lifecycle(&mut library)?;
     let invalid = SourceFailure {
         operation: SourceOperation::Search {
             source: Source::MangaDex,
@@ -180,6 +188,11 @@ fn exercise(profile: &Path) -> Result<()> {
         library.clear_source_failure(&operation, enabled.revision),
         Err(LibraryError::Sqlite(_))
     ));
+    assert!(matches!(
+        library.retire_source_search_failure(Source::LimeTorrents),
+        Err(LibraryError::Sqlite(_))
+    ));
+    assert_eq!(row(&library, Source::LimeTorrents)?, search_failed);
     assert_eq!(row(&library, Source::RuTor)?, enabled);
     raw.execute_batch("DROP TRIGGER reject_source_write;")?;
 
@@ -227,6 +240,63 @@ fn exercise(profile: &Path) -> Result<()> {
     drop(library);
     drop(raw);
     Ok(())
+}
+
+fn exercise_search_lifecycle(library: &mut Library) -> Result<SourceSettings> {
+    let previous = SourceOperation::Search {
+        source: Source::LimeTorrents,
+        query: "rezero".into(),
+        category: Category::Games,
+        language: None,
+    };
+    let current = SourceOperation::Search {
+        source: Source::LimeTorrents,
+        query: "ready or not".into(),
+        category: Category::Games,
+        language: None,
+    };
+    let another_category = SourceOperation::Search {
+        source: Source::LimeTorrents,
+        query: "ready or not".into(),
+        category: Category::Movies,
+        language: None,
+    };
+
+    // This is the FIFO order when the old failure was still pending at search start.
+    let old_failure = library.record_source_failure(SourceFailure {
+        operation: previous.clone(),
+        reason: SourceFailureReason::Timeout,
+    })?;
+    let retired = library.retire_source_search_failure(Source::LimeTorrents)?;
+    assert!(retired.enabled && retired.failure.is_none());
+    assert_eq!(retired.revision, old_failure.revision + 1);
+    assert_eq!(
+        library.retire_source_search_failure(Source::LimeTorrents)?,
+        retired
+    );
+    assert_eq!(
+        library.clear_source_failure(&current, retired.revision)?,
+        retired
+    );
+
+    let current_failure = library.record_source_failure(SourceFailure {
+        operation: current,
+        reason: SourceFailureReason::Http(503),
+    })?;
+    assert_eq!(current_failure.revision, retired.revision + 1);
+    assert_eq!(
+        library.clear_source_failure(&another_category, retired.revision)?,
+        current_failure
+    );
+    assert_eq!(
+        library.clear_source_failure(&another_category, current_failure.revision)?,
+        current_failure
+    );
+    assert_eq!(
+        library.clear_source_failure(&previous, old_failure.revision)?,
+        current_failure
+    );
+    Ok(current_failure)
 }
 
 fn row(library: &Library, source: Source) -> Result<SourceSettings> {

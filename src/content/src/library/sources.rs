@@ -98,6 +98,31 @@ impl Library {
         transaction.commit()?;
         Ok(settings)
     }
+
+    /// A new search retires the preceding search's failure in FIFO order,
+    /// including a failure write that was still pending when the search began.
+    pub fn retire_source_search_failure(
+        &mut self,
+        source: Source,
+    ) -> LibraryResult<SourceSettings> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut settings = read(&transaction, source)?;
+        if settings
+            .failure
+            .as_ref()
+            .is_some_and(|failure| matches!(&failure.operation, SourceOperation::Search { .. }))
+        {
+            transaction.execute(
+                "UPDATE source_settings SET failure = NULL, revision = revision + 1 WHERE source = ?1",
+                [source.id()],
+            )?;
+            settings = read(&transaction, source)?;
+        }
+        transaction.commit()?;
+        Ok(settings)
+    }
 }
 
 fn read(connection: &Connection, source: Source) -> LibraryResult<SourceSettings> {
