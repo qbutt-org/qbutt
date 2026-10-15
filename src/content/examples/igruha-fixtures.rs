@@ -6,6 +6,7 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
+pub use qbutt_content::webview;
 
 #[allow(dead_code)]
 #[path = "../src/torrent.rs"]
@@ -18,32 +19,6 @@ mod limetorrents;
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;
-
-#[allow(dead_code)]
-mod webview {
-    use url::Url;
-
-    #[derive(Debug, thiserror::Error)]
-    #[error("WebView is unused in this generated fixture")]
-    pub struct WebViewError;
-
-    pub struct WebViewSession {
-        pub url: Url,
-        pub user_agent: String,
-        pub cookies: Vec<WebViewCookie>,
-    }
-
-    pub struct WebViewCookie {
-        pub name: String,
-        pub value: String,
-        pub domain: String,
-        pub path: String,
-        pub expires: Option<f64>,
-        pub secure: bool,
-        pub http_only: bool,
-        pub host_only: bool,
-    }
-}
 
 #[allow(dead_code)]
 mod http {
@@ -59,9 +34,20 @@ mod igruha {
     include!("../src/igruha.rs");
 
     pub(super) fn fixture(http: SourceHttp, origin: Url) -> Igruha {
-        Igruha { http, origin }
+        Igruha {
+            http,
+            origin,
+            webview: std::sync::OnceLock::new(),
+            clearance: std::sync::Mutex::new(None),
+        }
     }
 }
+
+#[allow(dead_code)]
+#[path = "browser/fixture.rs"]
+mod browser_fixture;
+#[path = "igruha/check.rs"]
+mod check;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -75,6 +61,9 @@ use url::Url;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--stdio") {
+        return check::helper();
+    }
     let fixture = Fixture::start().await?;
     let provider = igruha::fixture(
         http::fixture(fixture.client.clone(), fixture.origin.clone()),
@@ -178,6 +167,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     slow.abort();
     assert!(slow.await.unwrap_err().is_cancelled());
 
+    check::run(&fixture).await?;
     fixture.stop().await;
     println!(
         "PASS igruha_fixtures generated_https search inspect second_exact_torrent stale empty fault cancel game_payload=none"
@@ -198,6 +188,7 @@ struct Fixture {
     client: reqwest::Client,
     changed: Arc<AtomicBool>,
     slow_started: Arc<AtomicUsize>,
+    hits: Arc<AtomicUsize>,
     stop: oneshot::Sender<()>,
     server: tokio::task::JoinHandle<()>,
 }
@@ -225,11 +216,13 @@ impl Fixture {
             .build()?;
         let changed = Arc::new(AtomicBool::new(false));
         let slow_started = Arc::new(AtomicUsize::new(0));
+        let hits = Arc::new(AtomicUsize::new(0));
         let (stop, mut stopped) = oneshot::channel();
         let server = tokio::spawn({
             let origin = origin.clone();
             let changed = Arc::clone(&changed);
             let slow_started = Arc::clone(&slow_started);
+            let hits = Arc::clone(&hits);
             async move {
                 loop {
                     let socket = tokio::select! {
@@ -243,6 +236,7 @@ impl Fixture {
                     let origin = origin.clone();
                     let changed = Arc::clone(&changed);
                     let slow_started = Arc::clone(&slow_started);
+                    let hits = Arc::clone(&hits);
                     tokio::spawn(async move {
                         let Ok(mut stream) = acceptor.accept(socket).await else {
                             return;
@@ -263,8 +257,16 @@ impl Fixture {
                         let Ok(url) = origin.join(&target) else {
                             return;
                         };
-                        let (status, mime, bytes) =
-                            response(&origin, &url, changed.load(Ordering::SeqCst));
+                        hits.fetch_add(1, Ordering::SeqCst);
+                        let request = String::from_utf8_lossy(&request).to_ascii_lowercase();
+                        let cleared = request.contains("cookie: clearance=fixture-pass\r\n")
+                            && (request.contains("user-agent: fixture-webview\r\n")
+                                || request.contains("user-agent: fixture-browser\r\n"));
+                        let (status, mime, bytes) = if needs_clearance(&url, cleared) {
+                            ("403 Forbidden", "text/html", b"DDoS-Guard".to_vec())
+                        } else {
+                            response(&origin, &url, changed.load(Ordering::SeqCst))
+                        };
                         if url
                             .query_pairs()
                             .any(|(name, value)| name == "story" && value == "slow")
@@ -288,6 +290,7 @@ impl Fixture {
             client,
             changed,
             slow_started,
+            hits,
             stop,
             server,
         })
@@ -297,6 +300,18 @@ impl Fixture {
         let _ = self.stop.send(());
         self.server.await.expect("TLS fixture stopped");
     }
+}
+
+fn needs_clearance(url: &Url, cleared: bool) -> bool {
+    let query = url.query_pairs().find(|(name, _)| name == "story");
+    if let Some((_, query)) = query {
+        return query.starts_with("webview") && (!cleared || query == "webview persistent");
+    }
+    let id = url.query_pairs().find(|(name, _)| name == "id");
+    let protected = url.path() == "/45-webview-article.html"
+        || (url.path() == "/" && id.as_ref().is_some_and(|(_, id)| id == "95"))
+        || (url.path() == "/engine/download.php" && id.as_ref().is_some_and(|(_, id)| id == "96"));
+    protected && !cleared
 }
 
 fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static str, Vec<u8>) {
@@ -337,7 +352,16 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
         } else {
             url.path().trim_start_matches('/').trim_end_matches(".html")
         };
-        let releases = if slug == "42-wrong-landing" {
+        let releases = if let Some(id) = match slug {
+            "45-webview-article" => Some(94),
+            "46-webview-landing" => Some(95),
+            "47-webview-metadata" => Some(96),
+            _ => None,
+        } {
+            format!(
+                "<div class='is-centered'><span class='size-line'>Размер: 4 MB v1.2 | Legal</span></div><div class='dl-bar'><a class='torrent' href='{origin}?do=download&amp;id={id}'>Скачать торрент</a></div>"
+            )
+        } else if slug == "42-wrong-landing" {
             format!(
                 "<div class='is-centered'><span class='size-line'>Размер: 4 MB v1.2 | Legal</span></div><div class='dl-bar'><a class='torrent' href='{origin}?do=download&amp;id=93'>Скачать торрент</a></div>"
             )
@@ -360,10 +384,12 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             .query_pairs()
             .find(|(name, _)| name == "id")
             .map(|(_, value)| value.into_owned());
-        let article = if id.as_deref() == Some("93") {
-            "43-other"
-        } else {
-            "42-generated-legal"
+        let article = match id.as_deref() {
+            Some("93") => "43-other",
+            Some("94") => "45-webview-article",
+            Some("95") => "46-webview-landing",
+            Some("96") => "47-webview-metadata",
+            _ => "42-generated-legal",
         };
         let body = format!(
             "<html><div id='dle-content'><div class='dl-back'><a href='{origin}{article}.html'>Вернуться к игре</a></div><a id='btn-download' href='{origin}engine/download.php?id={}'>Скачать торрент</a></div></html>",
@@ -377,7 +403,7 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             .find(|(name, _)| name == "id")
             .map(|(_, value)| value.into_owned());
         let bytes = match (id.as_deref(), changed) {
-            (Some("91"), _) => first_torrent(),
+            (Some("91" | "94" | "95" | "96"), _) => first_torrent(),
             (Some("92"), false) => second_torrent(),
             (Some("92"), true) => first_torrent(),
             _ => return ("404 Not Found", "text/html", Vec::new()),

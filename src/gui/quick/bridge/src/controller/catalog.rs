@@ -71,6 +71,7 @@ impl Catalog {
         match operation.source() {
             Source::RuTracker => self.rutracker.complete_check().await?,
             Source::NnmClub => self.nnmclub.complete_check().await?,
+            Source::Igruha => self.igruha.complete_check().await?,
             Source::X1337 => self.x1337.complete_check().await?,
             _ => return result,
         }
@@ -82,12 +83,15 @@ impl Catalog {
             .initialize_webview(profile_dir.clone(), app_dir.clone());
         self.nnmclub
             .initialize_webview(profile_dir.clone(), app_dir.clone());
+        self.igruha
+            .initialize_webview(profile_dir.clone(), app_dir.clone());
         self.x1337.initialize_webview(profile_dir, app_dir);
     }
 
     pub(super) fn close(&self) {
         self.rutracker.close();
         self.nnmclub.close();
+        self.igruha.close();
         self.x1337.close();
     }
 

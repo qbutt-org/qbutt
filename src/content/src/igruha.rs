@@ -1,4 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use encoding_rs::WINDOWS_1251;
 use scraper::{ElementRef, Html, Selector};
@@ -8,18 +11,27 @@ use crate::browser::{BrowserChoice, BrowserError, BrowserHandle};
 use crate::http::{SourceDocument, SourceHttp, SourceSession};
 use crate::model::canonical_decimal;
 use crate::torrent::info_hash;
+use crate::webview::{WebViewCheck, WebViewError, WebViewSessions};
 use crate::{
     Category, Error, PublicationRef, ResolvedContent, Result, Source, TorrentMetadata, Transport,
     Variant, VariantRef, VariantSelector, Work,
 };
 
 const ORIGIN: &str = "https://itorrents-igruha.org";
+const SESSION_LIFETIME: Duration = Duration::from_secs(30 * 60);
 
-/// The public DLE catalog can challenge anonymous HTTP. Borrow an already
-/// connected browser session only after a failed quiet request.
+struct Clearance {
+    received: Instant,
+    session: SourceSession,
+}
+
+/// The public DLE catalog first borrows a connected browser's session after a
+/// challenge, then checks its own WebView profile before requesting manual input.
 pub struct Igruha {
     http: SourceHttp,
     origin: Url,
+    webview: OnceLock<WebViewSessions>,
+    clearance: Mutex<Option<Clearance>>,
 }
 
 struct Release {
@@ -44,7 +56,26 @@ impl Igruha {
         Ok(Self {
             http: SourceHttp::new(origin.clone(), reqwest::header::HeaderMap::new())?,
             origin,
+            webview: OnceLock::new(),
+            clearance: Mutex::new(None),
         })
+    }
+
+    pub fn initialize_webview(&self, profile_dir: PathBuf, app_dir: PathBuf) {
+        let _ = self.webview.set(WebViewSessions::new(profile_dir, app_dir));
+    }
+
+    pub fn close(&self) {
+        self.clearance.lock().expect("Igruha clearance lock").take();
+        if let Some(webview) = self.webview.get() {
+            webview.close();
+        }
+    }
+
+    /// Only an explicit source retry may show the profile used for silent checks.
+    pub async fn complete_check(&self) -> Result<()> {
+        self.checked_session(self.origin.clone(), true).await?;
+        Ok(())
     }
 
     pub async fn search(
@@ -67,8 +98,21 @@ impl Igruha {
             .append_pair("do", "search")
             .append_pair("subaction", "search")
             .append_pair("story", query);
-        let mut session = SourceSession::anonymous(self.origin.clone())?;
-        let body = self.document(url, &mut session, browser, choice).await?;
+        let mut session = self.source_session()?;
+        let mut result = self
+            .document(url.clone(), &mut session, browser, choice)
+            .await;
+        if matches!(result, Err(Error::Challenge)) {
+            session = self.checked_session(url.clone(), false).await?;
+            result = self.document(url, &mut session, None, choice).await;
+        }
+        let body = match result {
+            Err(Error::Challenge) => {
+                self.clearance.lock().expect("Igruha clearance lock").take();
+                return Err(Error::SourceCheckRequired);
+            }
+            result => result?,
+        };
         search_results(&body, &self.origin, query)
     }
 
@@ -78,11 +122,7 @@ impl Igruha {
         browser: Option<&BrowserHandle>,
         choice: BrowserChoice,
     ) -> Result<Work> {
-        let mut session = SourceSession::anonymous(self.origin.clone())?;
-        Ok(self
-            .release(publication, &mut session, browser, choice)
-            .await?
-            .work)
+        Ok(self.release(publication, browser, choice).await?.work)
     }
 
     /// Re-fetch the article and the selected torrent. A replaced download on
@@ -94,10 +134,7 @@ impl Igruha {
         choice: BrowserChoice,
     ) -> Result<ResolvedContent> {
         selected.validate()?;
-        let mut session = SourceSession::anonymous(self.origin.clone())?;
-        let release = self
-            .release(&selected.publication, &mut session, browser, choice)
-            .await?;
+        let release = self.release(&selected.publication, browser, choice).await?;
         let metadata = release
             .work
             .variants
@@ -114,7 +151,6 @@ impl Igruha {
     async fn release(
         &self,
         publication: &PublicationRef,
-        session: &mut SourceSession,
         browser: Option<&BrowserHandle>,
         choice: BrowserChoice,
     ) -> Result<Release> {
@@ -123,6 +159,34 @@ impl Igruha {
             .origin
             .join(&format!("/{slug}.html"))
             .expect("validated Igruha slug");
+        let mut session = self.source_session()?;
+        let result = self
+            .release_request(publication, url.clone(), &mut session, browser, choice)
+            .await;
+        if !matches!(result, Err(Error::Challenge)) {
+            return result;
+        }
+        session = self.checked_session(url.clone(), false).await?;
+        match self
+            .release_request(publication, url, &mut session, None, choice)
+            .await
+        {
+            Err(Error::Challenge) => {
+                self.clearance.lock().expect("Igruha clearance lock").take();
+                Err(Error::SourceCheckRequired)
+            }
+            result => result,
+        }
+    }
+
+    async fn release_request(
+        &self,
+        publication: &PublicationRef,
+        url: Url,
+        session: &mut SourceSession,
+        browser: Option<&BrowserHandle>,
+        choice: BrowserChoice,
+    ) -> Result<Release> {
         let body = match self.document(url.clone(), session, browser, choice).await {
             Err(Error::HttpStatus(404 | 410)) => return Err(Error::VariantUnavailable),
             result => result?,
@@ -193,6 +257,50 @@ impl Igruha {
         })
     }
 
+    fn source_session(&self) -> Result<SourceSession> {
+        let mut clearance = self.clearance.lock().expect("Igruha clearance lock");
+        if clearance
+            .as_ref()
+            .is_some_and(|cached| cached.received.elapsed() >= SESSION_LIFETIME)
+        {
+            clearance.take();
+        }
+        match clearance.as_ref() {
+            Some(cached) => Ok(cached.session.clone()),
+            None => SourceSession::anonymous(self.origin.clone()),
+        }
+    }
+
+    async fn checked_session(&self, url: Url, interactive: bool) -> Result<SourceSession> {
+        self.clearance.lock().expect("Igruha clearance lock").take();
+        let webview = self
+            .webview
+            .get()
+            .ok_or(Error::SourceCheck(WebViewError::Unavailable))?;
+        let checked = webview
+            .check(
+                url,
+                WebViewCheck {
+                    interactive,
+                    ..WebViewCheck::default()
+                },
+            )
+            .await
+            .map_err(|error| match error {
+                WebViewError::CheckRequired => Error::SourceCheckRequired,
+                WebViewError::Canceled | WebViewError::Timeout if interactive => {
+                    Error::SourceCheckRequired
+                }
+                error => Error::SourceCheck(error),
+            })?;
+        let session = SourceSession::from_webview(self.origin.clone(), checked)?;
+        *self.clearance.lock().expect("Igruha clearance lock") = Some(Clearance {
+            received: Instant::now(),
+            session: session.clone(),
+        });
+        Ok(session)
+    }
+
     async fn document(
         &self,
         url: Url,
@@ -227,9 +335,14 @@ impl Igruha {
         let borrowed = match browser.session_connected(choice, scope).await {
             Ok(session) => session,
             Err(
-                BrowserError::BrowserRequired | BrowserError::Disconnected | BrowserError::Stopped,
+                BrowserError::BrowserRequired
+                | BrowserError::Disconnected
+                | BrowserError::Stopped
+                | BrowserError::ChoiceRequired
+                | BrowserError::VerificationRequired
+                | BrowserError::BrowserCheckRequired
+                | BrowserError::LoginRequired,
             ) => return Err(Error::Challenge),
-            Err(BrowserError::ChoiceRequired) => return Err(Error::BrowserChoiceRequired),
             Err(error) => return Err(Error::BrowserSession(error)),
         };
         *session = SourceSession::from_browser(self.origin.clone(), borrowed)?;
