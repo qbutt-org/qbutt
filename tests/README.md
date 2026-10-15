@@ -342,7 +342,10 @@ downloads media segments or proves native playback, seeking or History resume.
 
 The fixtures reject paid, locked, hidden, deleted and substituted publications,
 denied access, DRM, malformed quality data, unsafe redirects and oversized
-responses. They check cancellation, exact public identity after SQLite reopening,
+responses. Ordinary search excludes labelled openings, endings, AMVs, edits,
+clips, recaps and slowed music; explicit searches for those labels retain them.
+The search corpus also preserves complete works, episodes and extended editions.
+The fixtures check cancellation, exact public identity after SQLite reopening,
 and unknown categories without relabeling them from the requested category.
 The AniLiberty slice resolves its nonfirst Rutube episode through the same native
 Rutube owner. It pins both episode and video IDs, rejects replacements before

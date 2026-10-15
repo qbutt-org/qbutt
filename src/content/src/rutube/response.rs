@@ -208,7 +208,7 @@ pub(super) fn publication_query(query: &str) -> Result<Option<PublicationRef>> {
 pub(super) fn matches_query(title: &str, query: &str) -> bool {
     let title = title.to_lowercase().replace('ё', "е");
     let query = query.to_lowercase().replace('ё', "е");
-    let promotional = |text: &str| {
+    let supplementary = |text: &str| {
         text.split(|character: char| !character.is_alphanumeric())
             .any(|word| {
                 matches!(
@@ -220,6 +220,15 @@ pub(super) fn matches_query(title: &str, query: &str) -> bool {
                         | "highlights"
                         | "promo"
                         | "preview"
+                        | "opening"
+                        | "ending"
+                        | "amv"
+                        | "edit"
+                        | "edits"
+                        | "clip"
+                        | "clips"
+                        | "recap"
+                        | "slowed"
                 ) || [
                     "трейлер",
                     "тизер",
@@ -228,12 +237,18 @@ pub(super) fn matches_query(title: &str, query: &str) -> bool {
                     "нарезк",
                     "промо",
                     "превью",
+                    "опенинг",
+                    "эндинг",
+                    "амв",
+                    "эдит",
+                    "клип",
+                    "пересказ",
                 ]
                 .iter()
                 .any(|prefix| word.starts_with(prefix))
             })
     };
-    if promotional(&title) && !promotional(&query) {
+    if supplementary(&title) && !supplementary(&query) {
         return false;
     }
     query

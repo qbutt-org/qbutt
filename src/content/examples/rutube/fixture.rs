@@ -215,6 +215,45 @@ fn response(
         })
         .to_string()
     } else if url.path().starts_with("/api/search/") {
+        if case == "search-relevance" {
+            let titles = [
+                "Generated Story",
+                "Generated Story: Episode 1",
+                "Generated Story: 2 серия",
+                "Generated Story (полный фильм)",
+                "Generated Story: Extended Edition",
+                "Generated Story: #1 Opening",
+                "Generated Story: #2 Opening",
+                "Generated Story 4 сезон. Опенинг",
+                "Generated Story - AMV/Edit",
+                "Generated Story - Extended [amv]",
+                "Generated Story edits compilation",
+                "Generated Story - Ending 1",
+                "Generated Story - Эндинг 1",
+                "Generated Story - АМВ",
+                "Generated Story - Эдит",
+                "Generated Story trailer",
+                "Generated Story обзор",
+                "Generated Story: Clipboard",
+                "Generated Story music clip",
+                "Generated Story clips compilation",
+                "Generated Story - Клип",
+                "Generated Story recap",
+                "Generated Story ПЕРЕСКАЗ АНИМЕ",
+                "Generated Story (slowed)",
+            ];
+            let rows: Vec<_> = titles
+                .iter()
+                .enumerate()
+                .map(|(index, title)| video(&format!("{index:032x}"), title, 41))
+                .collect();
+            return (
+                "200 OK",
+                "application/json",
+                String::new(),
+                json!({"current_page": 1, "results": rows}).to_string(),
+            );
+        }
         if query == "challenge" {
             return (
                 "200 OK",

@@ -118,6 +118,31 @@ async fn main() -> CheckResult<()> {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].category, category);
     }
+    fixture.case("search-relevance");
+    for (query, expected) in [
+        ("generated story", vec![0, 1, 2, 3, 4, 17]),
+        ("generated story opening", vec![5, 6]),
+        ("generated story опенинг", vec![7]),
+        ("generated story amv", vec![8, 9]),
+        ("generated story edit", vec![4, 8, 10]),
+        ("generated story ending", vec![11]),
+        ("generated story эндинг", vec![12]),
+        ("generated story амв", vec![13]),
+        ("generated story эдит", vec![14]),
+        ("generated story trailer", vec![15]),
+        ("generated story обзор", vec![16]),
+        ("generated story clip", vec![17, 18, 19]),
+        ("generated story клип", vec![20]),
+        ("generated story recap", vec![21]),
+        ("generated story пересказ", vec![22]),
+        ("generated story slowed", vec![23]),
+    ] {
+        let rows = source.search(query, Category::Anime).await?;
+        let ids: Vec<_> = rows.iter().map(|work| work.reference.id.clone()).collect();
+        let expected: Vec<_> = expected.iter().map(|id| format!("{id:032x}")).collect();
+        assert_eq!(ids, expected, "search relevance changed for {query}");
+    }
+    fixture.case("normal");
     for fault in [
         "paid",
         "locked",
@@ -247,7 +272,7 @@ async fn main() -> CheckResult<()> {
     assert_eq!(fixture.payload.load(Ordering::SeqCst), 0);
     fixture.stop().await?;
     println!(
-        "PASS rutube_fixtures generated_https=ok exact_id=ok category=source_reported paid_locked=rejected changed_missing=rejected quality=exact_child maximum_ambiguity=rejected identical_mirrors=first_uri redirects=guarded challenge=rejected bounds=ok timeout=ok cancel=connection_closed persistent_urls=public media_payload=none"
+        "PASS rutube_fixtures generated_https=ok search_relevance=works_and_explicit_clips exact_id=ok category=source_reported paid_locked=rejected changed_missing=rejected quality=exact_child maximum_ambiguity=rejected identical_mirrors=first_uri redirects=guarded challenge=rejected bounds=ok timeout=ok cancel=connection_closed persistent_urls=public media_payload=none"
     );
     Ok(())
 }
