@@ -1,5 +1,7 @@
 //! Cross-source title corpus and generated SQLite reopen scenario; no live profile.
 
+#[path = "work-association/product-releases.rs"]
+mod product_releases;
 #[path = "work-association/public-titles.rs"]
 mod public_titles;
 
@@ -16,6 +18,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() -> Result<()> {
     public_titles::run()?;
+    product_releases::run()?;
 
     let mut association = WorkAssociation::default();
     let categories = [Category::Movies, Category::Games, Category::Books];
@@ -98,7 +101,7 @@ fn main() -> Result<()> {
         info_hash: "f".repeat(40),
     };
     association.update(same_alias_different_payload);
-    assert_eq!(association.groups().len(), 4);
+    assert_eq!(association.groups().len(), 3);
 
     let mut empty_alias = movie.publications[1].clone();
     empty_alias.title = "...".into();
@@ -134,7 +137,7 @@ fn main() -> Result<()> {
     println!("categories=movie,game,book grouped=3 exact_refs=preserved reopen=ok");
     println!("year_conflict=split title_conflict=split season_conflict=split reversible=ok");
     println!(
-        "aliases=grouped romaji_punctuation=grouped alias_payload_conflict=split empty_alias=split category_conflict=split"
+        "aliases=grouped romaji_punctuation=grouped independent_payloads=grouped empty_alias=split category_conflict=split"
     );
     println!("language_before_quality_and_seeders=ok");
     Ok(())

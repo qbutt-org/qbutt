@@ -1,8 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{PublicationRef, Transport, Variant, Work};
+
+mod identity;
+use identity::{ProductTitle, product_titles, year_labels};
 
 const CATALOG_IDENTIFIERS: [&str; 3] = ["mal", "shikimori", "kinopoisk"];
 
@@ -38,14 +41,32 @@ impl WorkGroup {
     }
 
     pub fn is_confirmed(&self) -> bool {
+        let titles = product_titles(&self.publications);
         self.publications
             .iter()
             .enumerate()
             .all(|(index, publication)| {
                 self.publications[..index]
                     .iter()
-                    .all(|previous| confirmed_match(previous, publication))
+                    .all(|previous| confirmed_match(previous, publication, &titles))
             })
+    }
+
+    pub fn display_title(&self) -> String {
+        let title = product_titles(&self.publications)
+            .remove(&self.anchor)
+            .map(|title| title.display)
+            .unwrap_or_default();
+        let year = self.publications.iter().find_map(|work| {
+            work.year
+                .or_else(|| year_labels(&work.title).next().map(|(_, _, year)| year))
+        });
+        match year {
+            Some(year) if !title.is_empty() && year_labels(&title).next().is_none() => {
+                format!("{title} ({year})")
+            }
+            _ => title,
+        }
     }
 
     pub fn variants(&self, preferred_language: Option<&str>) -> Vec<Variant> {
@@ -83,6 +104,7 @@ impl WorkAssociation {
     }
 
     pub fn groups(&self) -> Vec<WorkGroup> {
+        let titles = product_titles(&self.publications);
         // A generic publication can match two conflicting remakes or seasons.
         // Check every current candidate before assigning it to an earlier row.
         let ambiguous: HashSet<_> = self
@@ -92,7 +114,7 @@ impl WorkAssociation {
                 conflicting_identity(
                     self.publications
                         .iter()
-                        .filter(|candidate| confirmed_match(publication, candidate)),
+                        .filter(|candidate| confirmed_match(publication, candidate, &titles)),
                 )
             })
             .map(|publication| publication.reference.clone())
@@ -113,7 +135,7 @@ impl WorkAssociation {
                         && group
                             .publications
                             .iter()
-                            .all(|member| confirmed_match(member, publication))
+                            .all(|member| confirmed_match(member, publication, &titles))
                 })
                 .map(|(index, _)| index)
                 .collect();
@@ -132,7 +154,11 @@ impl WorkAssociation {
     }
 }
 
-fn confirmed_match(left: &Work, right: &Work) -> bool {
+fn confirmed_match(
+    left: &Work,
+    right: &Work,
+    titles: &HashMap<PublicationRef, ProductTitle>,
+) -> bool {
     if left.reference == right.reference {
         return true;
     }
@@ -146,33 +172,20 @@ fn confirmed_match(left: &Work, right: &Work) -> bool {
             .zip(right.identifiers.get(namespace))
             .is_some_and(|(a, b)| a == b)
     });
-    let shared_payload = left.variants.iter().any(|a| {
-        a.transport == Transport::Torrent
-            && a.info_hash.as_deref().is_some_and(|hash| {
-                hash.len() == 40
-                    && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-                    && right.variants.iter().any(|b| {
-                        b.transport == Transport::Torrent && b.info_hash.as_deref() == Some(hash)
-                    })
-            })
-    });
-    if (!shared_catalog_id && !shared_payload) || conflicting_identity([left, right]) {
+    if conflicting_identity([left, right]) {
         return false;
     }
     if shared_catalog_id {
         return true;
     }
 
-    // A shared payload can contain a collection. Require a matching source
-    // title or alias as well, without inferring translations from similar text.
-    let left_titles: Vec<_> = std::iter::once(&left.title)
-        .chain(&left.aliases)
-        .map(|title| normalized_title(title))
-        .filter(|title| !title.is_empty())
-        .collect();
-    std::iter::once(&right.title)
-        .chain(&right.aliases)
-        .any(|title| left_titles.contains(&normalized_title(title)))
+    // Publication/payload identity belongs to the variants. A product can have
+    // independent repacks and qualities, each with its own exact reference.
+    let left_titles = &titles[&left.reference].normalized;
+    titles[&right.reference]
+        .normalized
+        .iter()
+        .any(|title| left_titles.contains(title))
 }
 
 fn conflicting_identity<'a>(publications: impl IntoIterator<Item = &'a Work>) -> bool {
@@ -238,43 +251,6 @@ fn explicit_seasons(title: &str) -> Vec<u16> {
         previous = word;
     }
     seasons
-}
-
-fn year_labels(title: &str) -> impl Iterator<Item = (usize, &str, u16)> {
-    title.match_indices('(').filter_map(move |(start, _)| {
-        let (number, suffix) = title[start + 1..].split_once(')')?;
-        let year = number.parse::<u16>().ok()?;
-        (number.len() == 4 && (1900..=2099).contains(&year)).then_some((start, suffix, year))
-    })
-}
-
-/// Only observed source tags after a parenthesized year bound a release tail.
-/// Unknown title suffixes stay significant; years remain conflict evidence.
-fn release_title(title: &str) -> &str {
-    for (start, suffix, _) in year_labels(title) {
-        let suffix = suffix.trim();
-        let metadata = suffix.strip_prefix('[').unwrap_or(suffix);
-        let first = metadata
-            .split_whitespace()
-            .next()
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        if suffix.is_empty()
-            || matches!(first.as_str(), "bdrip" | "web-dl" | "web-dlrip")
-            || first.starts_with("uhd.bd.")
-        {
-            return title[..start].trim_end();
-        }
-    }
-    title
-}
-
-fn normalized_title(title: &str) -> String {
-    release_title(title)
-        .chars()
-        .filter(|character| character.is_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect()
 }
 
 pub fn rank_variants(mut variants: Vec<Variant>, preferred_language: Option<&str>) -> Vec<Variant> {

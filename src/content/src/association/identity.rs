@@ -1,0 +1,211 @@
+use std::collections::HashMap;
+
+use crate::{Category, PublicationRef, Work};
+
+pub(super) struct ProductTitle {
+    pub normalized: Vec<String>,
+    pub display: String,
+}
+
+struct GameRelease<'a> {
+    work: &'a Work,
+    title: &'a str,
+    base: &'a str,
+    builds: Vec<&'a str>,
+    year: Option<u16>,
+}
+
+pub(super) fn product_titles(publications: &[Work]) -> HashMap<PublicationRef, ProductTitle> {
+    let games: Vec<_> = publications
+        .iter()
+        .map(|work| (work.category == Category::Games).then(|| game_release(work)))
+        .collect();
+    let mut titles = HashMap::new();
+
+    for (index, work) in publications.iter().enumerate() {
+        let title = release_title(&work.title, work.category);
+        let mut display = title;
+        if let Some(game) = &games[index] {
+            display = game.base;
+            if game.base == game.title {
+                // A subtitle without an Edition/Bundle label is significant.
+                // Associate it only when an explicit edition of the shorter
+                // product reports the same build and original release year.
+                let mut candidates = games
+                    .iter()
+                    .flatten()
+                    .filter(|edition| {
+                        let prefix = game.title.get(..edition.base.len());
+                        let suffix = game.title.get(edition.base.len()..);
+                        edition.base != edition.title
+                            && game.year.is_some()
+                            && game.year == edition.year
+                            && !super::conflicting_identity([game.work, edition.work])
+                            && prefix
+                                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(edition.base))
+                            && suffix.is_some_and(|suffix| {
+                                suffix.starts_with(' ')
+                                    && !suffix.chars().any(|character| character.is_ascii_digit())
+                            })
+                            && game
+                                .builds
+                                .iter()
+                                .any(|build| edition.builds.contains(build))
+                    })
+                    .map(|edition| edition.base);
+                if let Some(base) = candidates.next()
+                    && candidates.all(|candidate| candidate == base)
+                {
+                    display = base;
+                }
+            }
+        }
+
+        let mut normalized = Vec::new();
+        for title in std::iter::once(display).chain(
+            work.aliases
+                .iter()
+                .map(|alias| release_title(alias, work.category)),
+        ) {
+            // Tracker labels explicitly report localized/original names with
+            // spaced slashes. A slash within Fate/stay night remains literal.
+            for alias in title.split(" / ") {
+                let alias = normalized_title(alias);
+                if !alias.is_empty() && !normalized.contains(&alias) {
+                    normalized.push(alias);
+                }
+            }
+        }
+        titles.insert(
+            work.reference.clone(),
+            ProductTitle {
+                normalized,
+                display: display.into(),
+            },
+        );
+    }
+
+    titles
+}
+
+fn game_release(work: &Work) -> GameRelease<'_> {
+    let title = release_title(&work.title, work.category);
+    let version = title.match_indices('[').find_map(|(start, _)| {
+        let (content, _) = title[start + 1..].split_once(']')?;
+        let content = content.strip_prefix('v')?;
+        content
+            .trim_start()
+            .starts_with(|character: char| character.is_ascii_digit())
+            .then_some((start, content))
+    });
+    let (title, builds) = match version {
+        Some((start, content)) => {
+            let builds = content
+                .split('+')
+                .next()
+                .unwrap_or_default()
+                .split('/')
+                .map(|build| build.trim().trim_start_matches('v').trim())
+                .filter(|build| build.len() >= 5 && build.bytes().all(|byte| byte.is_ascii_digit()))
+                .collect();
+            (title[..start].trim_end(), builds)
+        }
+        None => (title, Vec::new()),
+    };
+    let base = edition_base(title);
+
+    GameRelease {
+        work,
+        title,
+        base,
+        builds,
+        year: work
+            .year
+            .or_else(|| year_labels(&work.title).next().map(|(_, _, year)| year)),
+    }
+}
+
+fn edition_base(title: &str) -> &str {
+    for (start, separator) in title.match_indices(": ").chain(title.match_indices(" - ")) {
+        let suffix = &title[start + separator.len()..];
+        let label = suffix.split(" - ").next().unwrap_or_default();
+        let words: Vec<_> = label.split_whitespace().collect();
+        let Some((kind, descriptors)) = words.split_last() else {
+            continue;
+        };
+        let bundle = kind.eq_ignore_ascii_case("bundle");
+        if !bundle && !kind.eq_ignore_ascii_case("edition") {
+            continue;
+        }
+        if !descriptors.is_empty()
+            && descriptors.iter().all(|word| {
+                matches!(
+                    word.to_ascii_lowercase().as_str(),
+                    "standard"
+                        | "digital"
+                        | "deluxe"
+                        | "ultimate"
+                        | "gold"
+                        | "complete"
+                        | "definitive"
+                        | "collector's"
+                        | "collector’s"
+                        | "supporter"
+                        | "special"
+                        | "premium"
+                        | "anniversary"
+                        | "enhanced"
+                        | "goty"
+                        | "game"
+                        | "of"
+                        | "the"
+                        | "year"
+                ) || (bundle && word.bytes().all(|byte| byte.is_ascii_uppercase()))
+            })
+        {
+            return title[..start].trim_end();
+        }
+    }
+    title
+}
+
+pub(super) fn year_labels(title: &str) -> impl Iterator<Item = (usize, &str, u16)> {
+    title.match_indices('(').filter_map(move |(start, _)| {
+        let (number, suffix) = title[start + 1..].split_once(')')?;
+        let year = number.parse::<u16>().ok()?;
+        (number.len() == 4 && (1900..=2099).contains(&year)).then_some((start, suffix, year))
+    })
+}
+
+/// Recognized metadata bounds a release tail. Unknown suffixes remain part of
+/// the product title, and every reported year remains conflict evidence.
+fn release_title(title: &str, category: Category) -> &str {
+    for (start, suffix, _) in year_labels(title) {
+        let suffix = suffix.trim();
+        let metadata = suffix.strip_prefix('[').unwrap_or(suffix);
+        let first = metadata
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if suffix.is_empty()
+            || matches!(
+                first.as_str(),
+                "bdrip" | "bdrip-avc" | "web-dl" | "web-dlrip"
+            )
+            || first.starts_with("uhd.bd.")
+            || (category == Category::Games && matches!(first.as_str(), "pc" | "mac" | "linux"))
+        {
+            return title[..start].trim_end();
+        }
+    }
+    title
+}
+
+fn normalized_title(title: &str) -> String {
+    title
+        .chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}

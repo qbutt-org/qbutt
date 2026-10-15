@@ -302,7 +302,7 @@ impl ffi::WorkModel {
         };
         let text = match role - USER_ROLE {
             0 => work_id(&group.anchor),
-            1 => work.title.clone(),
+            1 => group.display_title(),
             2 => {
                 let mut sources = Vec::new();
                 for publication in &group.publications {

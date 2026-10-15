@@ -527,13 +527,10 @@ impl ffi::ContentController {
             return false;
         }
         let work = group.and_then(WorkGroup::anchor_work);
-        let (id, title) = match work {
-            Some(work) => (
-                QString::from(work_id(&work.reference)),
-                QString::from(&work.title),
-            ),
-            None => (QString::default(), QString::default()),
-        };
+        let id = work
+            .map(|work| QString::from(work_id(&work.reference)))
+            .unwrap_or_default();
+        let title = QString::from(group.map(WorkGroup::display_title).unwrap_or_default());
         let selected = work
             .and_then(|work| self.work_preferences.get(&work.reference))
             .and_then(|preferences| preferences.selected.as_ref());

@@ -39,7 +39,7 @@ pub(super) fn run() -> Result<()> {
         1,
     )?;
     check_pair(
-        "RuTor release tails with confirmed equal payload",
+        "RuTor release tails identify one work",
         release(1, SUZUME_RUTOR, &[]),
         release(2, SUZUME_WEB, &[]),
         1,
@@ -67,10 +67,10 @@ pub(super) fn run() -> Result<()> {
         info_hash: "f".repeat(40),
     };
     check_pair(
-        "public release labels do not establish payload identity",
+        "independent public releases of one work",
         release(1, SUZUME_RUTOR, &[]),
         other_payload,
-        2,
+        1,
     )?;
     check_pair(
         "ordinal season in a reported alias",
@@ -144,10 +144,10 @@ pub(super) fn run() -> Result<()> {
     let mut ambiguous = release(2, FRIEREN_EN, &[]);
     ambiguous.variants.clear();
     check_pair(
-        "known aliases without common identity stay ambiguous",
+        "known aliases identify a work without payload identity",
         known_frieren,
         ambiguous,
-        2,
+        1,
     )?;
 
     let mut original = release(1, "Berserk (1997)", &["Berserk"]);
