@@ -69,6 +69,10 @@ async fn main() -> ExitCode {
                     works.len(),
                     started.elapsed().as_millis()
                 );
+                if matching == 0 {
+                    succeeded = false;
+                    break;
+                }
             }
             Ok(Err(error)) => {
                 report_error(phase, &error, started.elapsed().as_millis());
