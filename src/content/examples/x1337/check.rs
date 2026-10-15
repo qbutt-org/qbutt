@@ -9,8 +9,11 @@ use tokio::io::AsyncReadExt;
 use url::Url;
 
 use super::browser::{BrowserBroker, BrowserChoice, BrowserError};
-use super::fixture::Fixture;
-use super::{Category, Error, PublicationRef, Source, browser_fixture, http, webview, x1337};
+use super::fixture::{Fixture, HASH};
+use super::{
+    Category, Error, PublicationRef, Source, SourceOperation, VariantRef, VariantSelector,
+    browser_fixture, http, webview, x1337,
+};
 
 type CheckResult<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -54,8 +57,11 @@ pub(super) fn helper() -> CheckResult {
         socket.read_exact(&mut [0])?;
         return Err("canceled helper survived".into());
     }
+    let manual_publication =
+        url.path().starts_with("/torrent/58/") || url.path().starts_with("/torrent/59/");
     let error = match query.as_str() {
-        "webview manual" => Some("browser_check_required"),
+        "webview manual" if mode == "silent" => Some("browser_check_required"),
+        _ if manual_publication && mode == "silent" => Some("browser_check_required"),
         "webview fault" => Some("webview_failed"),
         _ => None,
     };
@@ -114,9 +120,14 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
         ("webview foreign", 1),
     ] {
         let source = new_source();
+        let input = if query == "webview manual" {
+            "webview-&-manual"
+        } else {
+            query
+        };
         let before = fixture.hits.load(Ordering::SeqCst);
         let result = source
-            .search(query, Category::Movies, None, BrowserChoice::Auto)
+            .search(input, Category::Movies, None, BrowserChoice::Auto)
             .await;
         assert_eq!(
             fixture.hits.load(Ordering::SeqCst) - before,
@@ -139,10 +150,27 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
             "webview persistent" => assert!(matches!(result, Err(Error::SourceCheckRequired))),
             "webview manual" => {
                 assert!(matches!(result, Err(Error::SourceCheckRequired)));
-                source.complete_check().await?;
+                source
+                    .complete_check(&SourceOperation::Search {
+                        source: Source::X1337,
+                        query: input.into(),
+                        category: Category::Movies,
+                        language: None,
+                    })
+                    .await?;
+                let records = checks()?;
+                let silent = &records[records.len() - 2];
+                let manual = &records[records.len() - 1];
+                assert_eq!(silent["mode"], "silent");
+                assert_eq!(manual["mode"], "interactive");
+                assert_eq!(silent["url"], manual["url"]);
+                assert_eq!(
+                    manual["url"],
+                    fixture.origin.join("srch?search=webview+manual")?.as_str()
+                );
                 assert_eq!(
                     source
-                        .search(query, Category::Movies, None, BrowserChoice::Auto)
+                        .search(input, Category::Movies, None, BrowserChoice::Auto)
                         .await?
                         .len(),
                     2
@@ -171,6 +199,73 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
         .await?;
     assert_eq!(checks()?.len(), count, "exact release reuses clearance");
     source.close();
+
+    for (id, resolve) in [("58/Manual-Inspect", false), ("59/Manual-Resolve", true)] {
+        let source = new_source();
+        let publication = PublicationRef {
+            source: Source::X1337,
+            id: id.into(),
+        };
+        let selected = VariantRef {
+            publication: publication.clone(),
+            selector: VariantSelector::TorrentHash {
+                info_hash: HASH.into(),
+            },
+        };
+        let operation = if resolve {
+            SourceOperation::Resolve(selected.clone())
+        } else {
+            SourceOperation::Inspect {
+                reference: publication.clone(),
+                language: None,
+            }
+        };
+        let result = if resolve {
+            source
+                .resolve(&selected, None, BrowserChoice::Auto)
+                .await
+                .map(|_| ())
+        } else {
+            source
+                .inspect(&publication, None, BrowserChoice::Auto)
+                .await
+                .map(|_| ())
+        };
+        assert!(matches!(result, Err(Error::SourceCheckRequired)));
+        source.complete_check(&operation).await?;
+        let records = checks()?;
+        let silent = &records[records.len() - 2];
+        let manual = &records[records.len() - 1];
+        assert_eq!(silent["mode"], "silent");
+        assert_eq!(manual["mode"], "interactive");
+        assert_eq!(silent["url"], manual["url"]);
+        assert_eq!(
+            manual["url"],
+            fixture.origin.join(&format!("torrent/{id}/"))?.as_str()
+        );
+        if resolve {
+            let super::ResolvedContent::Torrent { reference, .. } =
+                source.resolve(&selected, None, BrowserChoice::Auto).await?
+            else {
+                panic!("unexpected acquisition");
+            };
+            assert_eq!(reference, selected);
+        } else {
+            assert_eq!(
+                source
+                    .inspect(&publication, None, BrowserChoice::Auto)
+                    .await?
+                    .reference,
+                publication
+            );
+        }
+        assert_eq!(
+            checks()?.len(),
+            records.len(),
+            "manual clearance continues the same operation"
+        );
+        source.close();
+    }
 
     let source = new_source();
     source
@@ -261,7 +356,7 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
             .iter()
             .filter(|record| record["mode"] == "interactive")
             .count(),
-        1,
+        3,
         "only explicit complete_check may show a window"
     );
     assert!(
@@ -275,7 +370,7 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
     std::fs::remove_dir(app)?;
     std::fs::remove_dir(root)?;
     println!(
-        "PASS 1337x_owned_check silent=ok original_search_replayed=ok category_replayed=ok cookie_ua_cache=ok expiry=refreshed ambiguous_browser=owned_check persistent=manual_required explicit_manual=same_profile helper_fault=typed foreign_origin=rejected cancel=helper_closed close=retired"
+        "PASS 1337x_owned_check silent=ok original_search_replayed=ok category_replayed=ok cookie_ua_cache=ok expiry=refreshed ambiguous_browser=owned_check persistent=manual_required explicit_manual=exact_search_inspect_resolve same_profile=ok helper_fault=typed foreign_origin=rejected cancel=helper_closed close=retired"
     );
     Ok(())
 }

@@ -7,7 +7,11 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
+#[allow(dead_code)]
+#[path = "../src/sources.rs"]
+mod sources;
 pub use qbutt_content::webview;
+pub use sources::SourceOperation;
 
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]

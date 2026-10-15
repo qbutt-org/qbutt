@@ -11,8 +11,8 @@ use crate::http::{SourceDocument, SourceHttp, SourceSession, browser_document};
 use crate::torrent::magnet;
 use crate::webview::{WebViewCheck, WebViewError, WebViewSessions};
 use crate::{
-    Category, Error, PublicationRef, ResolvedContent, Result, Source, Transport, Variant,
-    VariantRef, VariantSelector, Work,
+    Category, Error, PublicationRef, ResolvedContent, Result, Source, SourceOperation, Transport,
+    Variant, VariantRef, VariantSelector, Work,
 };
 
 const ORIGIN: &str = "https://1337x.to/";
@@ -65,8 +65,18 @@ impl X1337 {
     }
 
     /// Only an explicit source retry may show the profile used for silent checks.
-    pub async fn complete_check(&self) -> Result<()> {
-        self.checked_session(self.origin.clone(), true).await?;
+    pub async fn complete_check(&self, operation: &SourceOperation) -> Result<()> {
+        if operation.source() != Source::X1337 {
+            return Err(Error::InvalidReference);
+        }
+        operation.validate()?;
+        let url = match operation {
+            SourceOperation::Search { query, .. } => self.search_entry(&search_query(query)?),
+            SourceOperation::Inspect { reference, .. } => self.publication_url(reference)?,
+            SourceOperation::Resolve(reference) => self.publication_url(&reference.publication)?,
+            _ => return Err(Error::InvalidReference),
+        };
+        self.checked_session(url, true).await?;
         Ok(())
     }
 
@@ -77,22 +87,8 @@ impl X1337 {
         browser: Option<&BrowserHandle>,
         choice: BrowserChoice,
     ) -> Result<Vec<Work>> {
-        let query = query.trim();
-        if query.is_empty() || query.chars().count() > 500 || query.chars().any(char::is_control) {
-            return Err(Error::InvalidQuery);
-        }
-        let query = query
-            .split(|character: char| !character.is_alphanumeric())
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ");
-        if query.is_empty() {
-            return Err(Error::InvalidQuery);
-        }
-        // /srch is the site's form action. It establishes the search session;
-        // directly opening /search with a fresh session can return Bad search request.
-        let mut entry = self.origin.join("srch").expect("fixed search form path");
-        entry.query_pairs_mut().append_pair("search", &query);
+        let query = search_query(query)?;
+        let entry = self.search_entry(&query);
         let mut session = self.source_session()?;
         let result = self
             .search_request(
@@ -118,6 +114,13 @@ impl X1337 {
             }
             result => result,
         }
+    }
+
+    fn search_entry(&self, query: &str) -> Url {
+        // /srch establishes the site's search session before category requests.
+        let mut entry = self.origin.join("srch").expect("fixed search form path");
+        entry.query_pairs_mut().append_pair("search", query);
+        entry
     }
 
     async fn search_request(
@@ -189,11 +192,7 @@ impl X1337 {
         browser: Option<&BrowserHandle>,
         choice: BrowserChoice,
     ) -> Result<Release> {
-        publication.x1337_path()?;
-        let url = self
-            .origin
-            .join(&format!("torrent/{}/", publication.id))
-            .expect("validated 1337x publication path");
+        let url = self.publication_url(publication)?;
         let mut session = self.source_session()?;
         let mut result = self
             .document(url.clone(), &mut session, browser, choice)
@@ -214,6 +213,14 @@ impl X1337 {
             return Err(Error::VariantUnavailable);
         }
         release(&body, url, publication)
+    }
+
+    fn publication_url(&self, publication: &PublicationRef) -> Result<Url> {
+        publication.x1337_path()?;
+        Ok(self
+            .origin
+            .join(&format!("torrent/{}/", publication.id))
+            .expect("validated 1337x publication path"))
     }
 
     fn source_session(&self) -> Result<OperationSession> {
@@ -300,6 +307,22 @@ impl X1337 {
             Err(error) => Err(error),
         }
     }
+}
+
+fn search_query(query: &str) -> Result<String> {
+    let query = query.trim();
+    if query.is_empty() || query.chars().count() > 500 || query.chars().any(char::is_control) {
+        return Err(Error::InvalidQuery);
+    }
+    let query = query
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if query.is_empty() {
+        return Err(Error::InvalidQuery);
+    }
+    Ok(query)
 }
 
 fn document(response: SourceDocument) -> Result<(Url, String)> {

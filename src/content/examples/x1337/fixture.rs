@@ -219,7 +219,8 @@ impl Fixture {
                         let needs_clearance = (query.starts_with("webview")
                             && (query != "webview category"
                                 || url.path().starts_with("/category-search/")))
-                            || url.path().starts_with("/torrent/57/");
+                            || ["/torrent/57/", "/torrent/58/", "/torrent/59/"].iter()
+                                .any(|prefix| url.path().starts_with(prefix));
                         let (status, body) = if needs_clearance
                             && (!cleared || query == "webview persistent")
                         {

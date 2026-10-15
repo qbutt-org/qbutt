@@ -72,7 +72,7 @@ impl Catalog {
             Source::RuTracker => self.rutracker.complete_check().await?,
             Source::NnmClub => self.nnmclub.complete_check().await?,
             Source::Igruha => self.igruha.complete_check().await?,
-            Source::X1337 => self.x1337.complete_check().await?,
+            Source::X1337 => self.x1337.complete_check(operation).await?,
             _ => return result,
         }
         self.execute(operation).await
