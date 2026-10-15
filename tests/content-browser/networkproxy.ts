@@ -146,6 +146,20 @@ async function closeServer(server: Server): Promise<void> {
 }
 
 try {
+    const proxyCheck = "http://qbutt-webview.invalid/";
+    assert.equal((await get(proxy.url, proxyCheck, false)).status, 407);
+
+    const checked = await get(proxy.url, proxyCheck);
+    assert.equal(checked.status, 200);
+    assert.equal(checked.body.length, 0);
+
+    for (const destination of [`${proxyCheck}?query`, `${proxyCheck}other`, "http://qbutt-webview.invalid:80/"])
+        assert.equal((await get(proxy.url, destination)).status, 403);
+
+    const checkTunnel = await tunnel(proxy.url, "qbutt-webview.invalid:443");
+    assert.equal(checkTunnel.status, 403);
+    checkTunnel.socket.destroy();
+
     const destination = `http://fixture.invalid:${fixturePort}/legal.bin`;
     const unauthorized = await get(proxy.url, destination, false);
     assert.equal(unauthorized.status, 407);

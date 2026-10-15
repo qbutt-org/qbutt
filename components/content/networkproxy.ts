@@ -86,6 +86,9 @@ export class NetworkProxy {
     }
 
     private async addresses(url: URL) {
+        if (url.hostname === "qbutt-webview.invalid")
+            throw new Error("The proxy check URL cannot be forwarded.");
+
         const addresses = await (this.options.network?.addresses || publicAddresses)(url);
         if (this.closing)
             throw new Error("The media connection is closing.");
@@ -98,6 +101,20 @@ export class NetworkProxy {
             response.end();
             return;
         }
+
+        if (incoming.method === "GET" && incoming.url === "http://qbutt-webview.invalid/"
+            && incoming.headers["transfer-encoding"] === undefined
+            && (incoming.headers["content-length"] === undefined || incoming.headers["content-length"] === "0")) {
+            response.writeHead(200, {
+                "Content-Type": "text/html",
+                "Cache-Control": "no-store",
+                "Content-Length": "0",
+                "Connection": "close",
+            });
+            response.end();
+            return;
+        }
+
         let target: URL;
         let addresses: Awaited<ReturnType<typeof publicAddresses>>;
         try {
