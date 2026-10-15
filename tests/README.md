@@ -91,15 +91,20 @@ it does not substitute a controller call for the pointer action.
 
 `bun tests/content-reading/library.ts <acceptance-exe> <server-cert.pem>
 <server-key.pem> sharing` runs only the hidden native Share scenario. The isolated
-fixture build redirects `anilibria.top` to `127.0.0.1:443` and trusts the local CA
+fixture build redirects `anilibria.top` and `rutor.info` to `127.0.0.1:443` and trusts the local CA
 through a temporary `SourceHttp::new` overlay, as in the Lib session fixture above.
 Use a leaf server certificate signed by that CA; do not install either certificate
 in the OS store. Restore the source and rebuild the product after the fixture.
 This scenario checks missing exact variants/publications, unrelated references,
 private or malformed links, and one action already running when another confirmed
 publication arrives. It must retain the chosen variant, add the alternatives and
-emit that exact torrent without a second resolve. Require exit zero and the
-`sharing` receipt; the accepted run made eight inspections and zero searches.
+emit that exact torrent without a second resolve. A failed alternate must leave
+the preferred variant usable, remain visible in Sources and join the same work
+after its exact retry without changing the user's selection. A cancelled retry
+must not join; full failure remains explicit. A late edition/build witness must
+reconsider earlier private candidates while the confirmed variant remains usable.
+Require exit zero and the `sharing` receipt; the accepted run made twenty
+inspections and zero searches.
 It exercises the controller and SQLite, not native pointer interaction.
 
 Native library storage has an isolated process integration scenario with generated
@@ -982,6 +987,16 @@ qcatch session to resolve the selected video. qplay receives only the guarded
 local media URL. This mode requires the real connected browser; it checks the
 same actual playback ACK, exact History and gateway retirement. Product-window
 renders are saved at 1440×900 and 1280×720.
+
+The same `native-watch` spec accepts `saveRuntimeError` to exercise a failed Save
+without launching a player. The accepted case uses Rutube query `Big Buck Bunny`,
+work `rutube:135ce6bc6a0f29b07c01e3b7a2f3caa2`, and a text file named `invalid.exe`
+as `QBUTT_LAB_QPLAY`, with `QBUTT_LAB_PATHS=1`. Set `saveRuntimeError` to the
+expected localized Runtime message. Run the acceptance executable with
+`QBUTT_QT_ACCEPTANCE_SPEC` and a fresh `--profile`; this case also runs offscreen.
+Require passing `native-save-runtime-error` evidence: three rejected requests,
+zero jobs, error reset on the next Save and the newer error surviving an older
+completion. Native pointer acceptance remains separate.
 
 Native qplay Save uses `tests/media-save.ts` in two phases. Host `prepare` builds
 only the isolated driver, then restores SourceHttp byte-for-byte and rebuilds the
