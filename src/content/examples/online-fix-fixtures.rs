@@ -71,6 +71,56 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert!(results[0].needs_inspection && results[0].variants.is_empty());
     let work = source.inspect(&results[0].reference).await?;
     assert_eq!(work.title, "Generated Game");
+    let description = work
+        .description
+        .as_deref()
+        .expect("publication instructions");
+    for expected in [
+        "Информация о игре: Generated story & original text.",
+        "Версия игры: v1.2.3 Deluxe Edition",
+        "Файлы для игры:",
+        "Распаковываем игру в любую папку.",
+        "Fix Repair",
+        "Как запускать:",
+        "2. Запускаем Steam.",
+        "4. Запускаем GeneratedGame.exe.",
+        "Подключение:",
+        "Принимаем приглашение от друга.",
+        "Multiplayer → Host Friends Only → Invite Player",
+        "КООПЕРАТИВ: 5",
+        "МУЛЬТИПЛЕЕР: 0",
+        "Примечания:",
+        "- Требуется аккаунт Epic Games Store.",
+        "Steam (",
+        &format!(
+            "{}/files/progs/steam.html",
+            fixture.site.as_str().trim_end_matches('/')
+        ),
+        &format!("{}torrents/Generated%20Game/", fixture.uploads),
+    ] {
+        assert!(
+            description.contains(expected),
+            "missing authored instruction: {expected}"
+        );
+    }
+    for excluded in [
+        "AD_POISON",
+        "SCRIPT_POISON",
+        "COMMENT_POISON",
+        "SEO_POISON",
+        "HIDDEN_POISON",
+        "javascript:",
+        "file:",
+        "user:private",
+        "<script",
+        "<iframe",
+        "<b>",
+    ] {
+        assert!(
+            !description.contains(excluded),
+            "unsafe or unrelated description content"
+        );
+    }
     assert_eq!(work.variants.len(), 1);
     assert_eq!(work.variants[0].transport, Transport::Torrent);
     assert!(
@@ -145,8 +195,27 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     ));
     assert_eq!(fixture.archive_requests.load(Ordering::SeqCst), 0);
 
+    for path in ["18095-large", "18096-deep"] {
+        assert!(matches!(
+            source
+                .inspect(&PublicationRef {
+                    source: Source::OnlineFix,
+                    id: format!("games/horror/{path}.html"),
+                })
+                .await,
+            Err(Error::ResponseTooLarge)
+        ));
+    }
+    let empty = source
+        .inspect(&PublicationRef {
+            source: Source::OnlineFix,
+            id: "games/horror/18097-empty.html".into(),
+        })
+        .await?;
+    assert!(empty.description.is_none() && !empty.variants.is_empty());
+
     println!(
-        "PASS onlinefix search inspect exact_torrent stale_selection empty missing cancel no_archive"
+        "PASS onlinefix search inspect instructions_version_coop_links safe_plain_text description_bounds exact_torrent stale_selection empty missing cancel no_archive"
     );
     fixture.stop().await;
     Ok(())
@@ -337,8 +406,52 @@ fn route(
         );
     }
     if url.path() == "/games/horror/18094-generated-game.html" {
-        let body = format!(
-            "<link rel=\"canonical\" href=\"{site}games/horror/18094-generated-game.html\"><div class=\"full-story\"><h1 id=\"news-title\">Generated Game по сети</h1><div itemprop=\"articleBody\"><a href=\"{uploads}torrents/Generated%20Game/\">Скачать Torrent</a><a href=\"{uploads}uploads/Generated%20Game/Fix%20Repair/\">Скачать фикс с сервера</a></div></div>"
+        let body = article_page(
+            site,
+            url.path(),
+            &format!(
+                r#"
+            <iframe>AD_POISON</iframe><script>SCRIPT_POISON</script>
+            <div class="ads">AD_POISON</div><div hidden>HIDDEN_POISON</div>
+            <b>Информация о игре:</b> <i>Generated story &amp; original text.</i><br><br>
+            <b>Файлы для игры:</b><br>1. Распаковываем игру в любую папку.<br>
+            <div class="quote"><b>Версия игры: v1.2.3 Deluxe Edition</b><br>
+                <a class="btn btn-success" href="{uploads}torrents/Generated%20Game/">Скачать Torrent</a><br>
+                <a class="btn btn-success" href="{uploads}uploads/Generated%20Game/Fix%20Repair/">Скачать фикс с сервера</a><br>
+                Если игра уже скачана, распаковываем Fix Repair в папку с игрой.
+            </div>
+            <b>Как запускать:</b><ol start="2"><li>Запускаем Steam.</li><li value="4">Запускаем GeneratedGame.exe.</li></ol>
+            <b>В игре:</b><br><u>Подключение:</u><br>Принимаем приглашение от друга.<br><br>
+            <u>Создание сервера:</u><br>Multiplayer <span class="fa fa-arrow-right"></span> Host Friends Only <span class="fa fa-arrow-right"></span> Invite Player<br>
+            <b>Информация о сетевых режимах:</b><div class="quote"><div class="coop1">КООПЕРАТИВ: 5</div><div class="multi0">МУЛЬТИПЛЕЕР: 0</div></div>
+            <b>Примечания:</b><ul><li>Требуется аккаунт Epic Games Store.</li><li><a href="/files/progs/steam.html">Steam</a></li></ul>
+            <a href="javascript:alert(1)">Unsafe script link</a>
+            <a href="file:///private">Unsafe local link</a>
+            <a href="https://user:private@example.com">Unsafe credential link</a>
+        "#
+            ),
+        );
+        return ("200 OK", "text/html; charset=windows-1251", cp1251(&body));
+    }
+    if matches!(
+        url.path(),
+        "/games/horror/18095-large.html"
+            | "/games/horror/18096-deep.html"
+            | "/games/horror/18097-empty.html"
+    ) {
+        let content = match url.path() {
+            "/games/horror/18095-large.html" => "x".repeat(32 * 1024 + 1),
+            "/games/horror/18096-deep.html" => {
+                format!("{}instruction{}", "<span>".repeat(65), "</span>".repeat(65))
+            }
+            _ => String::new(),
+        };
+        let body = article_page(
+            site,
+            url.path(),
+            &format!(
+                "{content}<a hidden href=\"{uploads}torrents/Generated%20Game/\">Скачать Torrent</a>"
+            ),
         );
         return ("200 OK", "text/html; charset=windows-1251", cp1251(&body));
     }
@@ -350,6 +463,19 @@ fn route(
     }
     archives.fetch_add(1, Ordering::SeqCst);
     ("404 Not Found", "text/plain", Vec::new())
+}
+
+fn article_page(site: &Url, path: &str, content: &str) -> String {
+    let canonical = site.join(path).expect("generated article URL");
+    format!(
+        r#"
+        <link rel="canonical" href="{canonical}">
+        <div class="full-story"><h1 id="news-title">Generated Game по сети</h1>
+            <div itemprop="articleBody">{content}</div>
+            <div class="seo-text">SEO_POISON</div>
+        </div><div class="comments">COMMENT_POISON</div>
+    "#
+    )
 }
 
 fn cp1251(text: &str) -> Vec<u8> {

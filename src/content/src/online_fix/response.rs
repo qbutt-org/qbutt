@@ -5,12 +5,13 @@ use scraper::{ElementRef, Html, Selector};
 use url::Url;
 
 use crate::http::{SourceDocument, validate_https_url};
+use crate::torrent::info_hash;
 use crate::{
     Category, Error, PublicationRef, ResolvedContent, Result, Source, TorrentMetadata, Transport,
     Variant, VariantRef, VariantSelector, Work,
 };
 
-use crate::torrent::info_hash;
+use super::description;
 
 pub(super) struct Article {
     pub work: Work,
@@ -193,8 +194,11 @@ pub(super) fn article(
             "No Online-Fix game torrent directory is available",
         ));
     }
+    let description = description::extract(content, &canonical_url)?;
+    let mut work = work(reference, canonical_url, title, false);
+    work.description = description;
     Ok(Article {
-        work: work(reference, canonical_url, title, false),
+        work,
         torrent_directories: directories,
     })
 }

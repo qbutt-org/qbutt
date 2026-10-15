@@ -16,6 +16,28 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(work.reference, publication.reference);
     assert_eq!(work.category, Category::Games);
     assert!(!work.needs_inspection && !work.variants.is_empty());
+    let description = work
+        .description
+        .as_deref()
+        .ok_or("missing publication instructions")?;
+    assert!(description.contains("Как запускать:"));
+    if query.eq_ignore_ascii_case("ready or not") {
+        for expected in [
+            "Файлы для игры:",
+            "Версия игры:",
+            "ReadyOrNot.exe",
+            "Epic Games Store",
+            "Принимаем приглашение от друга.",
+            "Multiplayer → Host Friends Only",
+            "КООПЕРАТИВ: 5",
+        ] {
+            assert!(
+                description.contains(expected),
+                "missing current Ready or Not instruction"
+            );
+        }
+        assert!(!description.contains("КОММЕНТАРИЕВ:") && !description.contains("<iframe"));
+    }
 
     for variant in &work.variants {
         assert_eq!(variant.transport, Transport::Torrent);
@@ -44,10 +66,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
 
     println!(
-        "PASS onlinefix_live search={} publication={} variants={} exact_full_game_torrent=ok game_payload=none fix_archive=none",
+        "PASS onlinefix_live search={} publication={} variants={} description_bytes={} launch_instructions=present exact_full_game_torrent=ok game_payload=none fix_archive=none",
         found.len(),
         work.reference.id,
-        work.variants.len()
+        work.variants.len(),
+        description.len()
     );
     Ok(())
 }
