@@ -283,6 +283,7 @@ fn response(
         let title = format!("Generated {query}");
         let mut first = video(ID, &title, 4);
         if let Some(description) = description {
+            first["title"] = json!("Generated legal sample");
             first["description"] = json!(description);
         }
         let mut rows = vec![

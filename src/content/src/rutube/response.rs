@@ -66,18 +66,27 @@ impl Video {
     }
 
     pub(super) fn matches_query(&self, query: &str) -> bool {
-        if is_supplementary(&self.title, self.description.as_deref())
-            && !is_supplementary(query, None)
-        {
+        let requests_supplement = is_supplementary(query, None);
+        if is_supplementary(&self.title, self.description.as_deref()) && !requests_supplement {
             return false;
         }
 
         let title = self.title.to_lowercase().replace('ё', "е");
         let query = query.to_lowercase().replace('ё', "е");
+        let description = self
+            .description
+            .as_ref()
+            .filter(|_| requests_supplement)
+            .map(|value| value.to_lowercase().replace('ё', "е"));
         query
             .split(|character: char| !character.is_alphanumeric())
             .filter(|word| !word.is_empty())
-            .all(|word| title.contains(word))
+            .all(|word| {
+                title.contains(word)
+                    || description
+                        .as_ref()
+                        .is_some_and(|description| description.contains(word))
+            })
     }
 
     pub(super) fn category(&self) -> Option<Category> {

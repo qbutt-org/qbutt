@@ -58,9 +58,13 @@ pub(super) async fn verify(fixture: &Fixture, source: &Rutube) -> CheckResult<()
             .is_empty()
     );
     let explicit = source
-        .search("legal sample trailer", Category::Movies)
+        .search("legal sample трейлер", Category::Movies)
         .await?;
     assert_eq!(explicit.len(), 1);
+    assert_eq!(explicit[0].title, shallow.title);
+    for query in ["unrelated трейлер", "legal sample trailer"] {
+        assert!(source.search(query, Category::Movies).await?.is_empty());
+    }
     let inspected = source.inspect(&shallow.reference).await?;
     assert_eq!(inspected.title, shallow.title);
     assert_eq!(inspected.reference, shallow.reference);
@@ -119,6 +123,7 @@ pub(super) async fn verify(fixture: &Fixture, source: &Rutube) -> CheckResult<()
             source.search("legal sample", Category::Movies).await?.len(),
             1
         );
+        assert!(source.search("example", Category::Movies).await?.is_empty());
         let work = source.inspect(&shallow.reference).await?;
         let work: Work = serde_json::from_value(serde_json::to_value(work)?)?;
         let mut association = WorkAssociation::default();
