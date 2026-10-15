@@ -2,6 +2,8 @@
 
 #[path = "work-association/cross-source-games.rs"]
 mod cross_source_games;
+#[path = "work-association/game-updates.rs"]
+mod game_updates;
 #[path = "work-association/movies.rs"]
 mod movies;
 #[path = "work-association/product-releases.rs"]

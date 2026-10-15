@@ -20,6 +20,7 @@ pub(super) fn run() -> Result<()> {
         .map(|(index, title)| release(index + 1, title, Category::Games))
         .collect();
     super::cross_source_games::run(&games);
+    super::game_updates::run(&games);
     let movies = [
         release(
             20,

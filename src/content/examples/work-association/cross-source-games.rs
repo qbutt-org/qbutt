@@ -77,7 +77,6 @@ pub(super) fn run(rutor: &[Work]) {
     for title in [
         "Ready or Not 2 v133804 REPACK-KaOs",
         "Ready or Not: New Story – Deluxe Edition, v112610",
-        "Ready or Not Boiling Point Update v117216-RUNE",
         "Ready or Not - The Deadline is coming!",
     ] {
         let mut association = WorkAssociation::default();

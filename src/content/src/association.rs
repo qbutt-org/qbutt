@@ -73,7 +73,18 @@ impl WorkGroup {
         let variants = self
             .publications
             .iter()
-            .flat_map(|publication| publication.variants.iter().cloned())
+            .flat_map(|publication| {
+                publication
+                    .variants
+                    .iter()
+                    .cloned()
+                    .map(move |mut variant| {
+                        if variant.transport == Transport::Torrent && variant.title.is_none() {
+                            variant.title = Some(publication.title.clone());
+                        }
+                        variant
+                    })
+            })
             .collect();
         rank_variants(variants, preferred_language)
     }

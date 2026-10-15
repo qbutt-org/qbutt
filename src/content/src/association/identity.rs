@@ -88,7 +88,46 @@ pub(super) fn product_titles(publications: &[Work]) -> HashMap<PublicationRef, P
         );
     }
 
+    for game in games.iter().flatten() {
+        if let Some(title) = update_title(game, &games, &titles) {
+            titles.insert(game.work.reference.clone(), title);
+        }
+    }
+
     titles
+}
+
+fn update_title(
+    update: &GameRelease<'_>,
+    games: &[Option<GameRelease<'_>>],
+    titles: &HashMap<PublicationRef, ProductTitle>,
+) -> Option<ProductTitle> {
+    let (original, suffix) = update.title.rsplit_once(' ')?;
+    if !suffix.eq_ignore_ascii_case("update") || version_metadata(&update.work.title).is_none() {
+        return None;
+    }
+    let original = normalized_title(original);
+    let mut candidates = games.iter().flatten().filter(|game| {
+        normalized_title(game.title) == original
+            && !super::conflicting_identity([update.work, game.work])
+            && !game
+                .title
+                .rsplit_once(' ')
+                .is_some_and(|(_, suffix)| suffix.eq_ignore_ascii_case("update"))
+    });
+    let first = candidates.clone().next()?;
+    if super::conflicting_identity(candidates.clone().map(|game| game.work)) {
+        return None;
+    }
+    let title = &titles[&first.work.reference];
+    let canonical = normalized_title(&title.display);
+    if candidates.any(|game| normalized_title(&titles[&game.work.reference].display) != canonical) {
+        return None;
+    }
+    Some(ProductTitle {
+        normalized: title.normalized.clone(),
+        display: title.display.clone(),
+    })
 }
 
 fn game_release(work: &Work) -> GameRelease<'_> {
