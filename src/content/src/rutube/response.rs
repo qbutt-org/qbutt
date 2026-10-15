@@ -208,49 +208,62 @@ pub(super) fn publication_query(query: &str) -> Result<Option<PublicationRef>> {
 pub(super) fn matches_query(title: &str, query: &str) -> bool {
     let title = title.to_lowercase().replace('ё', "е");
     let query = query.to_lowercase().replace('ё', "е");
+
     let supplementary = |text: &str| {
-        text.split(|character: char| !character.is_alphanumeric())
-            .any(|word| {
-                matches!(
-                    word,
-                    "trailer"
-                        | "teaser"
-                        | "reaction"
-                        | "review"
-                        | "highlights"
-                        | "promo"
-                        | "preview"
-                        | "opening"
-                        | "ending"
-                        | "amv"
-                        | "edit"
-                        | "edits"
-                        | "clip"
-                        | "clips"
-                        | "recap"
-                        | "slowed"
-                ) || [
-                    "трейлер",
-                    "тизер",
-                    "реакци",
-                    "обзор",
-                    "нарезк",
-                    "промо",
-                    "превью",
-                    "опенинг",
-                    "эндинг",
-                    "амв",
-                    "эдит",
-                    "клип",
-                    "пересказ",
-                ]
-                .iter()
-                .any(|prefix| word.starts_with(prefix))
-            })
+        let words: Vec<_> = text
+            .split(|character: char| !character.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect();
+        words.windows(3).any(|phrase| {
+            matches!(
+                phrase,
+                ["за", count, "минут" | "минуту" | "минуты"]
+                    | ["in", count, "minute" | "minutes"]
+                    if count.chars().all(|character| character.is_ascii_digit())
+            )
+        }) || words.into_iter().any(|word| {
+            matches!(
+                word,
+                "trailer"
+                    | "teaser"
+                    | "reaction"
+                    | "review"
+                    | "highlights"
+                    | "promo"
+                    | "preview"
+                    | "opening"
+                    | "ending"
+                    | "amv"
+                    | "edit"
+                    | "edits"
+                    | "clip"
+                    | "clips"
+                    | "recap"
+                    | "slowed"
+            ) || [
+                "трейлер",
+                "тизер",
+                "реакци",
+                "обзор",
+                "нарезк",
+                "промо",
+                "превью",
+                "опенинг",
+                "эндинг",
+                "амв",
+                "эдит",
+                "клип",
+                "пересказ",
+            ]
+            .iter()
+            .any(|prefix| word.starts_with(prefix))
+        })
     };
+
     if supplementary(&title) && !supplementary(&query) {
         return false;
     }
+
     query
         .split(|character: char| !character.is_alphanumeric())
         .filter(|word| !word.is_empty())

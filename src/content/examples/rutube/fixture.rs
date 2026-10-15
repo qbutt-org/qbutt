@@ -241,6 +241,12 @@ fn response(
                 "Generated Story recap",
                 "Generated Story ПЕРЕСКАЗ АНИМЕ",
                 "Generated Story (slowed)",
+                "Generated Story за 48 минут",
+                "Generated Story Замороженные Узы За 10 Минут",
+                "Generated Story за 11 минут",
+                "Generated Story IN 8 MINUTES",
+                "Generated Story: 48 минут",
+                "Generated Story за 48 дней",
             ];
             let rows: Vec<_> = titles
                 .iter()

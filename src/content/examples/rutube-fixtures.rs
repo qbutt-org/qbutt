@@ -120,7 +120,7 @@ async fn main() -> CheckResult<()> {
     }
     fixture.case("search-relevance");
     for (query, expected) in [
-        ("generated story", vec![0, 1, 2, 3, 4, 17]),
+        ("generated story", vec![0, 1, 2, 3, 4, 17, 28, 29]),
         ("generated story opening", vec![5, 6]),
         ("generated story опенинг", vec![7]),
         ("generated story amv", vec![8, 9]),
@@ -136,6 +136,10 @@ async fn main() -> CheckResult<()> {
         ("generated story recap", vec![21]),
         ("generated story пересказ", vec![22]),
         ("generated story slowed", vec![23]),
+        ("generated story за 48 минут", vec![24]),
+        ("generated story за 10 минут", vec![25]),
+        ("generated story за 11 минут", vec![26]),
+        ("generated story in 8 minutes", vec![27]),
     ] {
         let rows = source.search(query, Category::Anime).await?;
         let ids: Vec<_> = rows.iter().map(|work| work.reference.id.clone()).collect();
