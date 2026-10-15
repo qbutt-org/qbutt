@@ -171,6 +171,8 @@ void exerciseReaderTextAhead(Content::ContentView *view, const QString &profileD
             && content(controller).startsWith(controller->property("readerTranslationLanguage").toString() + u':');
         }, u"Foreground translation"_s);
         require(!controller->property("readerTranslationError").toBool(), u"Foreground translation error"_s);
+        require(controller->property("readerTranslationErrorText").toString().isEmpty(),
+            u"Text reader inherited a manga decline reason"_s);
     };
     const auto nextTurn = [&](const int count, const QString &chapter)
     {

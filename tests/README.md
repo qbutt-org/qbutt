@@ -635,6 +635,12 @@ scenario, not a host pointer or representative artwork benchmark. The generated
 cleanup may alter artwork inside its source-lettering rectangles. Semantic
 accuracy, source-style recognition and local background quality still require
 reviewing the saved images; the PASS line does not establish them.
+On failure, the same fixture saves the public reader error at 1440×900 and
+1280×720 plus its bounded `readerTranslationErrorText` and QML text/layout
+properties in `manga-reader-error-state.json`. Only an explicit final model
+decline supplies this PlainText reason; other errors retain the existing
+generic, authentication or size message. The `decline-long-reason` controlled
+peer checks a long reason with literal HTML-like text and exact Original pixels.
 
 `tests/manga-render` is a standalone Qt 6.12 Gui CMake fixture. Configure it in
 the assigned build slot with `CMAKE_BUILD_TYPE=RelWithDebInfo`, then build

@@ -60,6 +60,8 @@ pub enum CodexError {
     Image,
     #[error("{0}")]
     Tool(String),
+    #[error("{0}")]
+    Declined(String),
 }
 
 impl CodexError {

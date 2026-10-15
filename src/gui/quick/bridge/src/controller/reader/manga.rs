@@ -279,6 +279,18 @@ async fn translate(
 }
 
 impl ffi::ContentController {
+    pub(in crate::controller) fn reader_translation_error_text(&self) -> QString {
+        if self.reader.is_text {
+            return QString::default();
+        }
+        match &self.reader.manga_translation.error {
+            Some(TranslationFailure::Codex(CodexError::Declined(reason))) => {
+                QString::from(reason.as_str())
+            }
+            _ => QString::default(),
+        }
+    }
+
     pub(in crate::controller) fn reader_translation_image_size_error(&self) -> bool {
         !self.reader.is_text
             && matches!(

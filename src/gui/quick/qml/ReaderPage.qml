@@ -121,7 +121,8 @@ Page {
                         ? qsTr("This page is too large to translate.")
                         : root.backend.readerTranslationNeedsCodex
                             ? qsTr("Install or sign in to Codex to translate.")
-                            : qsTr("Translation failed.")
+                            : root.backend.readerTranslationErrorText || qsTr("Translation failed.")
+                    wrapMode: Text.Wrap
                     textFormat: Text.PlainText
                 }
 

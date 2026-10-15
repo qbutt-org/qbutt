@@ -27,6 +27,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QTextOption>
 #include <QTimer>
 #include <QUrl>
 
@@ -153,6 +154,48 @@ namespace
         frame.exec();
         const QImage image = view->grabFramebuffer();
         require(image.size() == size && image.save(path), u"Reader screenshot failed: "_s + path);
+    }
+
+    void captureTranslationFailure(Content::ContentView *view, const QString &profileDir,
+        Qbutt::ContentController *controller, const QImage &original)
+    {
+        auto *reader = readerItem(view);
+        auto *message = control(reader, u"readerTranslationError"_s);
+        auto *retry = control(reader, u"readerTranslationRetry"_s);
+        const QString reason = controller->property("readerTranslationErrorText").toString();
+        require(reason.toUcs4().size() <= 500, u"Public translation reason exceeds its bound"_s);
+        QJsonArray states;
+        for (const QSize size : {QSize(1440, 900), QSize(1280, 720)})
+        {
+            const QString name = size.width() == 1440
+                ? u"manga-reader-error.png"_s : u"manga-reader-error-1280x720.png"_s;
+            capture(view, profileDir + u"/"_s + name, size);
+            require(pageImage(controller) == original,
+                u"Failed manga translation did not preserve Original"_s);
+            require(message->isVisible() && message->property("textFormat").toInt() == Qt::PlainText
+                    && message->property("wrapMode").toInt() == QTextOption::WrapAtWordBoundaryOrAnywhere
+                    && (reason.isEmpty() || message->property("text").toString() == reason)
+                    && message->property("contentHeight").toReal() <= message->height() + 1
+                    && message->width() > 0 && retry->isVisible()
+                    && retry->mapToScene(QPointF(retry->width(), retry->height())).x() <= size.width(),
+                u"Translation failure text or retry action exceeds the reader bounds"_s);
+            states.append(QJsonObject {
+                {u"width"_s, size.width()}, {u"height"_s, size.height()},
+                {u"reasonShown"_s, reason.isEmpty() || message->property("text").toString() == reason},
+                {u"textFormat"_s, message->property("textFormat").toInt()},
+                {u"wrapMode"_s, message->property("wrapMode").toInt()},
+                {u"lineCount"_s, message->property("lineCount").toInt()},
+                {u"labelWidth"_s, message->width()}, {u"labelHeight"_s, message->height()},
+                {u"contentHeight"_s, message->property("contentHeight").toReal()},
+                {u"originalExact"_s, true}, {u"retryVisible"_s, retry->isVisible()}
+            });
+        }
+        QFile stateFile(profileDir + u"/manga-reader-error-state.json"_s);
+        const QByteArray state = QJsonDocument(QJsonObject {
+            {u"reason"_s, reason}, {u"views"_s, states}
+        }).toJson(QJsonDocument::Indented);
+        require(stateFile.open(QIODevice::WriteOnly) && stateFile.write(state) == state.size(),
+            u"Public reader error state could not be saved"_s);
     }
 }
 
@@ -284,9 +327,10 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     const QString expectedFailure = qEnvironmentVariable("QBUTT_MANGA_EXPECT_FAILURE");
     if (!expectedFailure.isEmpty())
     {
+        captureTranslationFailure(view, profileDir, controller, original);
         require((expectedFailure == u"orientation" || expectedFailure == u"window" || expectedFailure == u"proposal")
-                && controller->property("readerTranslationError").toBool() && pageImage(controller) == original,
-            u"Rejected manga translation did not preserve Original"_s);
+                && controller->property("readerTranslationError").toBool(),
+            u"Expected manga translation rejection did not occur"_s);
         auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"reader-manga-rejection"_s);
         const auto closeDatabase = qScopeGuard([&]
         {
@@ -300,7 +344,6 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
         require(rows.exec(u"SELECT (SELECT count(*) FROM translated_images), (SELECT count(*) FROM translation_context)"_s)
                 && rows.next() && rows.value(0).toInt() == 0 && rows.value(1).toInt() == 0,
             u"Rejected page saved a partial PNG or context"_s);
-        capture(view, profileDir + u"/manga-reader-error.png"_s, QSize(1440, 900));
         qInfo().noquote() << u"PASS reader_manga_rejection cause=%1 original=exact png_rows=0 context_rows=0"_s.arg(expectedFailure);
         return;
     }
@@ -308,9 +351,7 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
         || controller->property("readerTranslationError").toBool()
         || controller->property("readerPageIndex").toInt() != 0)
     {
-        capture(view, profileDir + u"/manga-reader-error.png"_s, QSize(1440, 900));
-        require(pageImage(controller) == original,
-            u"Failed manga translation did not preserve Original"_s);
+        captureTranslationFailure(view, profileDir, controller, original);
         throw std::runtime_error("Live manga translation did not reach exact page zero");
     }
     const QImage translated = pageImage(controller);

@@ -10,6 +10,7 @@ pub(super) fn exercise() -> Result<()> {
     for (case, tools, submits, evaluated, previews, outcome, cached) in [
         ("invented-exhaustion", 0, 0, 0, 0, "declined", 0),
         ("final-rejected-after-acceptance", 2, 1, 1, 1, "declined", 0),
+        ("decline-long-reason", 2, 1, 1, 1, "declined", 0),
         ("invalid-geometry", 4, 3, 3, 0, "declined", 0),
         ("submission-limit", 5, 4, 3, 0, "declined", 0),
         ("final-bypass", 1, 0, 0, 0, "missing_candidate", 0),

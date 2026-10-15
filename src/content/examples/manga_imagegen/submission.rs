@@ -197,12 +197,24 @@ impl ProposalPeer {
             assert!(images.is_empty(), "Rejected proposal leaked preview images");
         }
         let accepted = self.accepted || self.case == "exhaustion-bypass";
+        let declined = matches!(
+            self.case.as_str(),
+            "final-rejected-after-acceptance" | "decline-long-reason"
+        );
         host::finish(
             output,
             thread,
             json!({
-                "accepted": accepted && self.case != "final-rejected-after-acceptance",
-                "reason": if accepted && self.case != "final-rejected-after-acceptance" {
+                "accepted": accepted && !declined,
+                "reason": if self.case == "decline-long-reason" {
+                    concat!(
+                        "Preview inspection revealed uncovered source strokes in the <b>engine sound</b> and large crash effect. ",
+                        "No submissions remain to correct cleanup coverage. The dialogue can be translated, but placing the replacement ",
+                        "sound effect would cover the car and nearby building details. I cannot approve this page while preserving its ",
+                        "complete lettering and artwork. Original remains available; no cleanup image was generated. ",
+                        "A thin pale halo would be acceptable; the uncovered source strokes remain readable."
+                    ).into()
+                } else if accepted && !declined {
                     String::new()
                 } else if accepted {
                     "The model declined its accepted proposal".into()

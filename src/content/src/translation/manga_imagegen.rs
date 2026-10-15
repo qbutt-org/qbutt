@@ -168,10 +168,10 @@ async fn translate_window<R: PageRenderer, C: ToolHandler + Send>(
         return Err(CodexError::Cancelled);
     }
     page_tools.model_decision = translation.value.get("accepted").and_then(Value::as_bool);
-    let decision = PageDecision::accept(translation.value, "Translation");
+    let decision = PageDecision::accept(translation.value);
     page_tools.outcome = match &decision {
         Ok(()) => "accepted",
-        Err(CodexError::Tool(_)) => "declined",
+        Err(CodexError::Declined(_)) => "declined",
         Err(_) => "invalid_decision",
     };
     decision?;
@@ -230,7 +230,7 @@ async fn translate_window<R: PageRenderer, C: ToolHandler + Send>(
     if completion.model != translation.model || completion.effort != translation.effort {
         return Err(CodexError::ModelUnavailable);
     }
-    PageDecision::accept(completion.value, "Image generation")?;
+    PageDecision::accept(completion.value)?;
     let original = job.original;
     let png = completion.png;
     let render_regions = regions.clone();
@@ -318,7 +318,7 @@ async fn native_work<T: Send + 'static>(
 }
 
 impl PageDecision {
-    fn accept(value: serde_json::Value, phase: &str) -> codex::Result<()> {
+    fn accept(value: serde_json::Value) -> codex::Result<()> {
         let decision: Self = serde_json::from_value(value).map_err(|_| CodexError::Protocol)?;
         if decision.reason.chars().count() > 500 || decision.reason.chars().any(char::is_control) {
             return Err(CodexError::Protocol);
@@ -329,10 +329,7 @@ impl PageDecision {
         if decision.reason.trim().is_empty() {
             return Err(CodexError::Protocol);
         }
-        Err(CodexError::Tool(format!(
-            "{phase} rejected the page: {}",
-            decision.reason
-        )))
+        Err(CodexError::Declined(decision.reason.trim().into()))
     }
 }
 

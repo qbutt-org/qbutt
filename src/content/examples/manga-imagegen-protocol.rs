@@ -378,6 +378,7 @@ async fn exercise(native: &Path, selected_case: Option<&str>) -> Result<()> {
         "invented-exhaustion",
         "exhaustion-bypass",
         "final-rejected-after-acceptance",
+        "decline-long-reason",
         "resubmit-accepted",
         "revise-preview",
         "revise-invalid-latest",
@@ -560,7 +561,7 @@ async fn exercise(native: &Path, selected_case: Option<&str>) -> Result<()> {
                 accepted.apply(&chapter.variant.publication, page.additions, &page.evidence)?;
                 assert_eq!(accepted.revision, 1);
             }
-            (failed, Err(CodexError::Tool(_)))
+            (failed, Err(CodexError::Tool(_) | CodexError::Declined(_)))
                 if failed.starts_with("invalid-")
                     || matches!(
                         failed,
@@ -573,6 +574,7 @@ async fn exercise(native: &Path, selected_case: Option<&str>) -> Result<()> {
                             | "invented-exhaustion"
                             | "exhaustion-bypass"
                             | "final-rejected-after-acceptance"
+                            | "decline-long-reason"
                             | "preview-missing"
                             | "preview-oversized"
                             | "preview-count"
@@ -602,6 +604,7 @@ async fn exercise(native: &Path, selected_case: Option<&str>) -> Result<()> {
                     | "cancel-prepare"
                     | "invalid-typography"
                     | "final-rejected-after-acceptance"
+                    | "decline-long-reason"
                     | "preview-missing"
                     | "preview-oversized"
                     | "preview-count"

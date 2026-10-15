@@ -161,7 +161,7 @@ pub(super) async fn exercise(
                 assert!(renderer.cancellation_observed.load(Ordering::Acquire));
             }
             ("long-final-rejected" | "long-final-oversized", Err(CodexError::Image)) => {}
-            (_, Err(CodexError::Tool(_))) => {}
+            (_, Err(CodexError::Tool(_) | CodexError::Declined(_))) => {}
             (_, outcome) => {
                 return Err(format!(
                     "{case}: unexpected outcome {}",

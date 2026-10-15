@@ -371,6 +371,7 @@ pub mod ffi {
         #[qproperty(bool, reader_translation_requested, cxx_name = "readerTranslationRequested", READ = reader_translation_requested, NOTIFY = reader_changed)]
         #[qproperty(bool, reader_translation_busy, cxx_name = "readerTranslationBusy", READ = reader_translation_busy, NOTIFY = reader_changed)]
         #[qproperty(bool, reader_translation_error, cxx_name = "readerTranslationError", READ = reader_translation_error, NOTIFY = reader_changed)]
+        #[qproperty(QString, reader_translation_error_text, cxx_name = "readerTranslationErrorText", READ = reader_translation_error_text, NOTIFY = reader_changed)]
         #[qproperty(bool, reader_translation_needs_codex, cxx_name = "readerTranslationNeedsCodex", READ = reader_translation_needs_codex, NOTIFY = reader_changed)]
         #[qproperty(bool, reader_translation_image_size_error, cxx_name = "readerTranslationImageSizeError", READ = reader_translation_image_size_error, NOTIFY = reader_changed)]
         #[qproperty(i32, reader_chapter_index, cxx_name = "readerChapterIndex", READ = reader_chapter_index, NOTIFY = reader_changed)]
@@ -902,6 +903,7 @@ pub mod ffi {
         fn reader_translation_requested(&self) -> bool;
         fn reader_translation_busy(&self) -> bool;
         fn reader_translation_error(&self) -> bool;
+        fn reader_translation_error_text(&self) -> QString;
         fn reader_translation_needs_codex(&self) -> bool;
         fn reader_translation_image_size_error(&self) -> bool;
         fn reader_chapter_index(&self) -> i32;
