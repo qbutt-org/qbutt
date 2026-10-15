@@ -235,7 +235,7 @@ QString Qbutt::contentError(const ContentError error)
     case ContentError::ExternalPlayback:
         return QCoreApplication::translate("ContentController", "Playback from this external source is not available yet.");
     case ContentError::BrowserPlayback:
-        return QCoreApplication::translate("ContentController", "Could not play the selected VK video. Check the browser connection and try again.");
+        return QCoreApplication::translate("ContentController", "Could not open the selected video through the browser.");
     case ContentError::LibraryWrite:
         return QCoreApplication::translate("ContentController", "Could not save the content library.");
     }

@@ -451,7 +451,11 @@ impl ffi::ContentController {
                 ..
             })) = &result
             {
-                Some(MediaGateway::prepare(media.clone()).await.map_err(|_| ()))
+                Some(
+                    MediaGateway::prepare(media.clone())
+                        .await
+                        .map_err(|error| error.to_string()),
+                )
             } else if let Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
                 reference,
                 url,
@@ -466,7 +470,8 @@ impl ffi::ContentController {
                 ) {
                     Some(
                         async {
-                            let handle = browser.handle().await.map_err(|_| ())?;
+                            let handle =
+                                browser.handle().await.map_err(|error| error.to_string())?;
                             let media = resolve_external_video(
                                 &handle,
                                 choice,
@@ -475,8 +480,10 @@ impl ffi::ContentController {
                                 source_url.clone(),
                             )
                             .await
-                            .map_err(|_| ())?;
-                            MediaGateway::prepare(media).await.map_err(|_| ())
+                            .map_err(|error| error.to_string())?;
+                            MediaGateway::prepare(media)
+                                .await
+                                .map_err(|error| error.to_string())
                         }
                         .await,
                     )
@@ -586,9 +593,15 @@ impl ffi::ContentController {
                                 Some(prepared),
                             );
                         }
-                        Some(Err(())) => controller
-                            .as_mut()
-                            .set_error(Some(ffi::ContentError::BrowserPlayback)),
+                        Some(Err(error)) => {
+                            ffi::log_content_error(
+                                &QString::from("browser playback"),
+                                &QString::from(error),
+                            );
+                            controller
+                                .as_mut()
+                                .set_error(Some(ffi::ContentError::BrowserPlayback));
+                        }
                         None => controller
                             .as_mut()
                             .set_error(Some(ffi::ContentError::ExternalPlayback)),

@@ -18763,8 +18763,8 @@ Please choose a different name and try again.</source>
         <translation>Просмотр с этого внешнего источника пока недоступен.</translation>
     </message>
     <message>
-        <source>Could not play the selected VK video. Check the browser connection and try again.</source>
-        <translation>Не удалось воспроизвести выбранное видео VK. Проверьте подключение браузера и повторите попытку.</translation>
+        <source>Could not open the selected video through the browser.</source>
+        <translation>Не удалось открыть выбранное видео через браузер.</translation>
     </message>
     <message>
         <source>The source did not respond in time.</source>
