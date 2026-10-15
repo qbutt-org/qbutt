@@ -29,6 +29,8 @@ mod host;
 mod long;
 #[path = "manga_imagegen/submission.rs"]
 mod submission;
+#[path = "manga_imagegen/summary.rs"]
+mod summary;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const ORIGINAL: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAIAAAA2iEnWAAAAFUlEQVR4nGP89eEZAwMDEwMDA4ICADXYAtaW6UM3AAAAAElFTkSuQmCC";
@@ -65,6 +67,11 @@ fn main() -> Result<()> {
     if std::env::args().any(|arg| arg == "app-server") {
         return host::run();
     }
+    let selected_case = if args.get(1).is_some_and(|arg| arg == "--summary-case") {
+        Some(args.get(2).ok_or("summary case missing")?.as_str())
+    } else {
+        None
+    };
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let profile = std::env::temp_dir().join(format!("qbutt-manga-imagegen-{nonce}"));
     let native = profile
@@ -83,7 +90,7 @@ fn main() -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    let result = runtime.block_on(exercise(&native));
+    let result = runtime.block_on(exercise(&native, selected_case));
     drop(runtime);
     unsafe {
         for (name, value) in names.into_iter().zip(saved) {
@@ -94,7 +101,11 @@ fn main() -> Result<()> {
         }
     }
     std::fs::remove_dir_all(&profile)?;
-    result
+    result?;
+    if selected_case.is_none() {
+        summary::exercise()?;
+    }
+    Ok(())
 }
 
 struct ImageSource;
@@ -310,7 +321,7 @@ impl PageRenderer for ContractRenderer {
     }
 }
 
-async fn exercise(native: &Path) -> Result<()> {
+async fn exercise(native: &Path, selected_case: Option<&str>) -> Result<()> {
     let chapter = ChapterRef {
         variant: VariantRef {
             publication: PublicationRef {
@@ -351,7 +362,7 @@ async fn exercise(native: &Path) -> Result<()> {
     let mut previous_pipeline = key.clone();
     previous_pipeline.pipeline = 2;
     assert_ne!(key, previous_pipeline);
-    for case in [
+    let cases = [
         "ru",
         "en",
         "partial-usage",
@@ -364,6 +375,7 @@ async fn exercise(native: &Path) -> Result<()> {
         "invalid-context",
         "submission-limit",
         "final-bypass",
+        "invented-exhaustion",
         "exhaustion-bypass",
         "final-rejected-after-acceptance",
         "resubmit-accepted",
@@ -396,7 +408,16 @@ async fn exercise(native: &Path) -> Result<()> {
         "renderer-rejected",
         "render-incomplete",
         "cancel-compose",
-    ] {
+    ];
+    if let Some(case) = selected_case
+        && !cases.contains(&case)
+    {
+        return Err("unknown diagnostic case".into());
+    }
+    for case in cases {
+        if selected_case.is_some_and(|selected| selected != case) {
+            continue;
+        }
         std::fs::write(native.join("case.txt"), case)?;
         std::fs::write(native.join("trace.jsonl"), "")?;
         let language = if case == "en" { "en" } else { "ru" };
@@ -465,6 +486,33 @@ async fn exercise(native: &Path) -> Result<()> {
         };
         let (result, controlled) = tokio::join!(work, control);
         controlled?;
+        if selected_case.is_some() {
+            let library_path = native.join("summary-library");
+            let mut library = qbutt_content::Library::open(&library_path)?;
+            if let Ok(page) = &result {
+                library.save_image_translation(
+                    key.clone(),
+                    0,
+                    &page.png,
+                    page.additions.clone(),
+                    &page.evidence,
+                    || true,
+                )?;
+            }
+            drop(library);
+            let database = rusqlite::Connection::open(library_path.join("content-library.sqlite"))?;
+            let (png_rows, context_rows): (i64, i64) = database.query_row(
+                "SELECT (SELECT count(*) FROM translated_images), (SELECT count(*) FROM translation_context)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            println!(
+                "MANGA_SUMMARY_CACHE {}",
+                serde_json::json!({
+                    "pngRows": png_rows, "contextRows": context_rows,
+                })
+            );
+        }
         match (case, result) {
             (
                 "ru"
@@ -522,6 +570,7 @@ async fn exercise(native: &Path) -> Result<()> {
                             | "prepare-rejected"
                             | "submission-limit"
                             | "final-bypass"
+                            | "invented-exhaustion"
                             | "exhaustion-bypass"
                             | "final-rejected-after-acceptance"
                             | "preview-missing"
@@ -542,7 +591,7 @@ async fn exercise(native: &Path) -> Result<()> {
             | "preview-missing" | "preview-oversized" | "preview-count" | "preview-bytes" => 3,
             "retry-typography" | "revise-preview" | "revise-invalid-latest" => 2,
             value if value.starts_with("invalid-") => 0,
-            "submission-limit" | "final-bypass" | "exhaustion-bypass" => 0,
+            "submission-limit" | "final-bypass" | "invented-exhaustion" | "exhaustion-bypass" => 0,
             _ => 1,
         };
         let generated = prepares > 0
@@ -590,7 +639,7 @@ async fn exercise(native: &Path) -> Result<()> {
             .filter(|entry| entry["event"] == "page_submission")
             .collect();
         let expected_submissions = match case {
-            "final-bypass" | "cancel-prepare" => 0,
+            "final-bypass" | "invented-exhaustion" | "cancel-prepare" => 0,
             "submission-limit" => 4,
             "retry-geometry" | "retry-typography" | "retry-context" | "resubmit-accepted"
             | "revise-preview" => 2,
@@ -638,6 +687,9 @@ async fn exercise(native: &Path) -> Result<()> {
             usize::from(rendered),
             processes.len()
         );
+    }
+    if selected_case.is_some() {
+        return Ok(());
     }
     for case in ["abort-prepare", "abort-compose"] {
         exercise_abort(native, &chapter, &chapters, case).await?;

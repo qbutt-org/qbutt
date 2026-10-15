@@ -397,6 +397,13 @@ pub fn run() -> Result<()> {
                             Some(200)
                         },
                     )?;
+                } else if case == "invented-exhaustion" {
+                    finish(
+                        &mut output,
+                        &thread,
+                        json!({"accepted":false,"reason":"All submissions exhausted; preview inspected (invented)"}),
+                        Some(100),
+                    )?;
                 } else {
                     assert_eq!(
                         request["params"]["outputSchema"]["required"],

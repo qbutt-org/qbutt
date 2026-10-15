@@ -66,7 +66,7 @@ struct AcceptedRegion {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Inspection {
-    window: PageWindow,
+    pub(super) window: PageWindow,
     previous_bottom: u32,
     next_top: Option<u32>,
     accepted_regions: Vec<AcceptedRegion>,

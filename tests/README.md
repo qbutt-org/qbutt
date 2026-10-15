@@ -733,6 +733,13 @@ replacement, invalid replacement, missing/oversized previews and shared long-pag
 budget exhaustion, with one cleanup after acceptance. Repeated invalid data,
 a fourth submission without a valid candidate and malicious final decisions must
 start no generation. Existing accepted image caches retain their pipeline identity.
+Each translation window emits one bounded `MANGA_SUBMISSION_SUMMARY` with actual
+tool/submit/evaluation counts, returned preview counts/bytes, the model's decision
+and fixed outcome/rejection categories. It includes the image digest, page and
+window offset, never page text, translations, glossary entries or model reasons.
+Owned subprocess cases verify fabricated exhaustion, the fourth-submit limit,
+acceptance without a candidate, rejected replacements and cancellation, including
+zero PNG/context rows after refusal or cancellation and atomic rows after success.
 The fixture also checks native preparation and final-render rejection,
 cooperative cancellation and owner abort during preparation and final rendering,
 complete/partial usage and child reaping. Its recording renderer does not

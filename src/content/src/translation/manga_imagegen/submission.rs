@@ -1,10 +1,12 @@
 //! One job owns visual feedback, the latest valid map and native preparation.
 
+use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
@@ -42,6 +44,32 @@ struct NativePreparation {
     task: JoinHandle<codex::Result<(PreparedPage, u64)>>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmissionDiagnostic {
+    outcome: &'static str,
+    reason: Option<&'static str>,
+    preview_images: usize,
+    preview_bytes: usize,
+}
+
+impl SubmissionDiagnostic {
+    fn reject(&mut self, error: &CodexError) {
+        self.outcome = if matches!(error, CodexError::Cancelled) {
+            "cancelled"
+        } else {
+            "rejected"
+        };
+        self.reason = match error {
+            CodexError::Cancelled => Some("cancelled"),
+            CodexError::Timeout => Some("timed out"),
+            CodexError::Image => Some("invalid or oversized image"),
+            CodexError::Tool(_) => self.reason,
+            _ => Some("provider or protocol failure"),
+        };
+    }
+}
+
 pub(super) struct PageTools<'a, R, C> {
     job: &'a PageJob,
     renderer: Arc<R>,
@@ -49,7 +77,12 @@ pub(super) struct PageTools<'a, R, C> {
     cancelled: watch::Receiver<bool>,
     window: Option<&'a windows::Inspection>,
     inspected_pixels: &'a mut u64,
-    submissions: usize,
+    tool_calls: usize,
+    submit_calls: usize,
+    limit_rejections: usize,
+    submissions: Vec<SubmissionDiagnostic>,
+    pub(super) model_decision: Option<bool>,
+    pub(super) outcome: &'static str,
     preparation: Option<NativePreparation>,
     pub(super) candidate: Option<PageCandidate>,
 }
@@ -70,7 +103,12 @@ impl<'a, R: PageRenderer, C: ToolHandler + Send> PageTools<'a, R, C> {
             cancelled,
             window,
             inspected_pixels,
-            submissions: 0,
+            tool_calls: 0,
+            submit_calls: 0,
+            limit_rejections: 0,
+            submissions: Vec::new(),
+            model_decision: None,
+            outcome: "interrupted",
             preparation: None,
             candidate: None,
         }
@@ -86,13 +124,16 @@ impl<'a, R: PageRenderer, C: ToolHandler + Send> PageTools<'a, R, C> {
     }
 
     async fn submit(&mut self, mut value: Value) -> codex::Result<(PageCandidate, PreparedPage)> {
+        let diagnostic = self.submissions.last_mut().unwrap();
         let clipped = match self.window {
             Some(window) => window.validate(&mut value)?,
             None => Vec::new(),
         };
+        diagnostic.reason = Some("malformed proposal");
         let proposal: TranslationProposal = serde_json::from_value(value)
             .map_err(|_| CodexError::Tool("Invalid translation proposal".into()))?;
         let (additions, evidence) = if self.window.is_some() && proposal.regions.is_empty() {
+            diagnostic.reason = Some("context evidence validation");
             if !proposal.terms.is_empty() || !proposal.facts.is_empty() {
                 return Err(CodexError::Tool(
                     "An empty window cannot add context".into(),
@@ -100,7 +141,9 @@ impl<'a, R: PageRenderer, C: ToolHandler + Send> PageTools<'a, R, C> {
             }
             (ContextAdditions::default(), Vec::new())
         } else {
+            diagnostic.reason = Some("region geometry or style validation");
             page::validate_regions(&proposal.regions)?;
+            diagnostic.reason = Some("context evidence validation");
             let (additions, evidence) = page::decode_context(
                 self.job,
                 proposal.regions.iter().map(|region| SourceObservation {
@@ -121,9 +164,11 @@ impl<'a, R: PageRenderer, C: ToolHandler + Send> PageTools<'a, R, C> {
                 .map_err(|reason| CodexError::Tool(reason.into()))?;
             (additions, evidence)
         };
+        diagnostic.reason = Some("window or seam validation");
         if let Some(window) = self.window {
             window.validate_regions(&proposal.regions, &clipped)?;
         }
+        diagnostic.reason = Some("native typography or preview validation");
         let prepared = if proposal.regions.is_empty() {
             PreparedPage {
                 diagnostics: Vec::new(),
@@ -200,36 +245,105 @@ impl<'a, R: PageRenderer, C: ToolHandler + Send> PageTools<'a, R, C> {
 impl<R: PageRenderer, C: ToolHandler + Send> ToolHandler for PageTools<'_, R, C> {
     fn call(&mut self, call: ToolCall) -> ToolFuture<'_> {
         Box::pin(async move {
+            self.tool_calls += 1;
+            if call.name == "submit_page" {
+                self.submit_calls += 1;
+            }
             if *self.cancelled.borrow() {
                 return Err(CodexError::Cancelled);
             }
             if call.name != "submit_page" {
                 return self.inspect_context(call).await;
             }
-            if self.submissions == MAX_SUBMISSIONS {
+            if self.submissions.len() == MAX_SUBMISSIONS {
+                self.limit_rejections += 1;
                 return Err(CodexError::Tool(
                     "All three page submissions were evaluated; accept the latest valid preview or decline".into(),
                 ));
             }
-            self.submissions += 1;
-            let (candidate, prepared) = self.submit(call.arguments).await.map_err(|error| {
-                CodexError::Tool(format!(
-                    "Page submission {}/{MAX_SUBMISSIONS} rejected: {error}",
-                    self.submissions
-                ))
-            })?;
+            self.submissions.push(SubmissionDiagnostic {
+                outcome: "evaluating",
+                reason: Some("window or seam validation"),
+                preview_images: 0,
+                preview_bytes: 0,
+            });
+            let (candidate, prepared) = match self.submit(call.arguments).await {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    self.submissions.last_mut().unwrap().reject(&error);
+                    return Err(CodexError::Tool(format!(
+                        "Page submission {}/{MAX_SUBMISSIONS} rejected: {error}",
+                        self.submissions.len()
+                    )));
+                }
+            };
+            let diagnostic = self.submissions.last_mut().unwrap();
+            diagnostic.outcome = "validated";
+            diagnostic.reason = None;
+            diagnostic.preview_images = prepared.previews.len();
+            diagnostic.preview_bytes = prepared
+                .previews
+                .iter()
+                .map(|image| image.bytes.len())
+                .sum();
             self.candidate = Some(candidate);
             Ok(ToolOutput {
                 text: json!({
                     "validated": true,
-                    "submission": self.submissions,
-                    "remainingSubmissions": MAX_SUBMISSIONS - self.submissions,
+                    "submission": self.submissions.len(),
+                    "remainingSubmissions": MAX_SUBMISSIONS - self.submissions.len(),
                     "diagnostics": prepared.diagnostics,
                 })
                 .to_string(),
                 images: prepared.previews,
             })
         })
+    }
+}
+
+impl<R, C> Drop for PageTools<'_, R, C> {
+    fn drop(&mut self) {
+        let cancelled = *self.cancelled.borrow();
+        if cancelled {
+            self.outcome = "cancelled";
+        }
+        for diagnostic in &mut self.submissions {
+            if diagnostic.outcome == "evaluating" {
+                diagnostic.outcome = if cancelled {
+                    "cancelled"
+                } else {
+                    "interrupted"
+                };
+                diagnostic.reason = Some("tool evaluation interrupted");
+            }
+        }
+        let preview_images: usize = self
+            .submissions
+            .iter()
+            .map(|item| item.preview_images)
+            .sum();
+        let preview_bytes: usize = self.submissions.iter().map(|item| item.preview_bytes).sum();
+        let summary = json!({
+            "originalDigest": format!("{:x}", Sha256::digest(&self.job.original.bytes)),
+            "page": self.job.page,
+            "windowTop": self.window.map(|window| window.window.top),
+            "toolCalls": self.tool_calls,
+            "contextCalls": self.tool_calls - self.submit_calls,
+            "submitCalls": self.submit_calls,
+            "evaluatedSubmissions": self.submissions.len(),
+            "limitRejections": self.limit_rejections,
+            "returnedPreviewImages": preview_images,
+            "returnedPreviewBytes": preview_bytes,
+            "modelDecision": self.model_decision,
+            "outcome": self.outcome,
+            "submissions": self.submissions,
+        });
+        // Only bounded counters and fixed diagnostic categories leave this owner.
+        // A closed stderr must not change translation or cancellation semantics.
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "MANGA_SUBMISSION_SUMMARY {summary}"
+        );
     }
 }
 
