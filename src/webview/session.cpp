@@ -683,7 +683,9 @@ void WebSession::pollDocument()
             fail(QStringLiteral("webview_failed"));
             return S_OK;
         }
-        if (state.value("challenge").toBool())
+        // Access-check widgets can appear after the document finishes loading.
+        // Give HTTP access checks the same bounded wait as recognized widgets.
+        if (state.value("challenge").toBool() || m_httpStatus == 401 || m_httpStatus == 403)
         {
             m_sawChallenge = true;
             m_cleanPolls = 0;
@@ -691,8 +693,7 @@ void WebSession::pollDocument()
         else if (state.value("ready").toBool() && ++m_cleanPolls >= 2)
         {
             if (m_httpStatus >= 400)
-                fail(m_httpStatus == 401 || m_httpStatus == 403
-                    ? QStringLiteral("browser_check_required") : QStringLiteral("webview_failed"));
+                fail(QStringLiteral("webview_failed"));
             else
                 collectSession(address);
         }
