@@ -35,6 +35,7 @@ mod mangadex;
 mod mangalib;
 mod media;
 mod model;
+mod nhentai;
 #[cfg(windows)]
 mod nnmclub;
 mod nyaa;
@@ -95,6 +96,7 @@ pub use mangadex::MangaDex;
 pub use mangalib::MangaLib;
 pub use media::{MediaGateway, MediaGatewayError, PreparedPlayback, PreparedSubtitle};
 pub use model::*;
+pub use nhentai::Nhentai;
 #[cfg(windows)]
 pub use nnmclub::NnmClub;
 pub use nyaa::Nyaa;

@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use qbutt_content::{
     AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, Estar, FitGirl, FreeTP,
-    Igruha, Kakuyomu, LibSession, LimeTorrents, MangaDex, MangaLib, NnmClub, Nyaa, OnlineFix,
-    RanobeHub, RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source,
+    Igruha, Kakuyomu, LibSession, LimeTorrents, MangaDex, MangaLib, Nhentai, NnmClub, Nyaa,
+    OnlineFix, RanobeHub, RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source,
     SourceOperation, Syosetu, TextChapter, TheLastGame, VkVideo, WeebCentral, Work, X1337,
     YummyAnime,
 };
@@ -30,6 +30,7 @@ pub(super) struct Catalog {
     animespirit: AnimeSpirit,
     pub(super) mangadex: Arc<MangaDex>,
     pub(super) weebcentral: Arc<WeebCentral>,
+    pub(super) nhentai: Arc<Nhentai>,
     pub(super) mangalib: Arc<MangaLib>,
     rutor: RuTor,
     rutracker: RuTracker,
@@ -95,6 +96,7 @@ impl Catalog {
             animespirit: AnimeSpirit::new()?,
             mangadex: Arc::new(MangaDex::new()?),
             weebcentral: Arc::new(WeebCentral::new()?),
+            nhentai: Arc::new(Nhentai::new()?),
             mangalib: Arc::new(MangaLib::new()?),
             rutor: RuTor::new()?,
             rutracker: RuTracker::new()?,
@@ -139,6 +141,7 @@ impl Catalog {
                     Source::YummyAnime => self.yummyanime.search(query).await,
                     Source::AnimeSpirit => self.animespirit.search(query).await,
                     Source::WeebCentral => self.weebcentral.search(query).await,
+                    Source::Nhentai => self.nhentai.search(query).await,
                     Source::MangaDex => {
                         self.mangadex
                             .search(query, language.as_deref().unwrap())
@@ -240,6 +243,7 @@ impl Catalog {
                     Source::YummyAnime => self.yummyanime.inspect(reference).await,
                     Source::AnimeSpirit => self.animespirit.inspect(reference).await,
                     Source::WeebCentral => self.weebcentral.inspect(reference).await,
+                    Source::Nhentai => self.nhentai.inspect(reference).await,
                     Source::MangaDex => {
                         self.mangadex
                             .inspect(reference, language.as_deref().unwrap())
@@ -395,6 +399,7 @@ impl Catalog {
                     }
                     Source::MangaDex
                     | Source::WeebCentral
+                    | Source::Nhentai
                     | Source::LocalBook
                     | Source::MangaLib
                     | Source::RanobeLib
@@ -410,6 +415,7 @@ impl Catalog {
                 let chapters = match reference.publication.source {
                     Source::MangaDex => self.mangadex.chapters(reference).await,
                     Source::WeebCentral => self.weebcentral.chapters(reference).await,
+                    Source::Nhentai => self.nhentai.chapters(reference).await,
                     Source::MangaLib => {
                         self.mangalib
                             .chapters(

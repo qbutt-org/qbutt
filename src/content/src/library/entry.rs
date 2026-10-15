@@ -241,6 +241,8 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
             && work.url.path() == ""
             && work.url.query().is_none()
             && work.url.fragment().is_none()
+    } else if work.reference.source == Source::Nhentai {
+        work.url.as_str() == format!("https://nhentai.net/g/{}/", work.reference.id)
     } else if matches!(work.reference.source, Source::RuTracker | Source::NnmClub) {
         let host = if work.reference.source == Source::RuTracker {
             "rutracker.org"
@@ -301,7 +303,8 @@ fn validate_work(work: &Work) -> std::result::Result<(), &'static str> {
                 variant.transport == Transport::Manga
             }
             (Source::MangaDex, VariantSelector::MangaTranslation { .. })
-            | (Source::WeebCentral, VariantSelector::WeebCentralPages) => {
+            | (Source::WeebCentral, VariantSelector::WeebCentralPages)
+            | (Source::Nhentai, VariantSelector::NhentaiPages) => {
                 variant.transport == Transport::Manga
             }
             (Source::MangaLib, VariantSelector::LibTranslation { .. }) => {

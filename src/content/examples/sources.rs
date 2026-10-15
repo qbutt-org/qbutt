@@ -29,6 +29,8 @@ fn main() -> Result<()> {
         assert_eq!(library.reader_settings()?.mode, ReaderMode::Continuous);
         let added = row(&library, Source::Rutube)?;
         assert!(added.enabled && added.revision == 0 && added.failure.is_none());
+        let adult = row(&library, Source::Nhentai)?;
+        assert!(!adult.enabled && adult.revision == 0 && adult.failure.is_none());
         assert_eq!(library.source_settings()?.len(), Source::ALL.len());
         return Ok(());
     }
@@ -72,7 +74,9 @@ fn exercise(profile: &Path) -> Result<()> {
         library
             .source_settings()?
             .iter()
-            .all(|row| row.enabled && row.revision == 0 && row.failure.is_none())
+            .all(|row| row.enabled == row.source.enabled_by_default()
+                && row.revision == 0
+                && row.failure.is_none())
     );
     library.save_reader_settings(ReaderSettings {
         fit: ReaderFit::Width,
@@ -88,8 +92,11 @@ fn exercise(profile: &Path) -> Result<()> {
     drop(library);
     let raw = Connection::open(profile.join("content-library.sqlite"))?;
     assert_eq!(
-        raw.execute("DELETE FROM source_settings WHERE source = 'rutube'", [])?,
-        1
+        raw.execute(
+            "DELETE FROM source_settings WHERE source IN ('rutube', 'nhentai')",
+            []
+        )?,
+        2
     );
     drop(raw);
     let status = Command::new(std::env::current_exe()?)

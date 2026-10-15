@@ -8,13 +8,14 @@ use crate::browser::BrowserError;
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
 impl Source {
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 29] = [
         Self::AniLiberty,
         Self::AniTokyo,
         Self::YummyAnime,
         Self::AnimeSpirit,
         Self::MangaDex,
         Self::WeebCentral,
+        Self::Nhentai,
         Self::MangaLib,
         Self::RanobeLib,
         Self::RuTor,
@@ -48,6 +49,7 @@ impl Source {
             Self::AnimeSpirit => "animespirit",
             Self::MangaDex => "mangadex",
             Self::WeebCentral => "weebcentral",
+            Self::Nhentai => "nhentai",
             Self::MangaLib => "mangalib",
             Self::RanobeLib => "ranobelib",
             Self::RuTor => "rutor",
@@ -77,6 +79,11 @@ impl Source {
         Self::ALL.into_iter().find(|source| source.id() == id)
     }
 
+    /// Adult catalogues require an explicit source choice, including in new profiles.
+    pub fn enabled_by_default(self) -> bool {
+        self != Self::Nhentai
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::LocalBook => "Local book",
@@ -86,6 +93,7 @@ impl Source {
             Self::AnimeSpirit => "AnimeSpirit",
             Self::MangaDex => "MangaDex",
             Self::WeebCentral => "Weeb Central",
+            Self::Nhentai => "nhentai (18+)",
             Self::MangaLib => "MangaLib",
             Self::RanobeLib => "RanobeLib",
             Self::RuTor => "RuTor",
@@ -127,6 +135,7 @@ impl Source {
             Self::AnimeSpirit => "https://my.animespirit.ru",
             Self::MangaDex => "https://mangadex.org",
             Self::WeebCentral => "https://weebcentral.com",
+            Self::Nhentai => "https://nhentai.net",
             Self::MangaLib => "https://mangalib.me",
             Self::RanobeLib => "https://ranobelib.me",
             Self::RuTor => "https://rutor.info",
@@ -158,7 +167,9 @@ impl Source {
             Self::AniLiberty | Self::AniTokyo | Self::YummyAnime | Self::AnimeSpirit => {
                 &[Category::Anime]
             }
-            Self::MangaDex | Self::MangaLib | Self::WeebCentral => &[Category::Manga],
+            Self::MangaDex | Self::MangaLib | Self::WeebCentral | Self::Nhentai => {
+                &[Category::Manga]
+            }
             Self::RanobeLib => &[Category::Books],
             Self::Rutube => &[Category::Movies, Category::Tv, Category::Anime],
             Self::VkVideo => &[Category::Video],
@@ -289,6 +300,7 @@ fn validate_reader(source: Source) -> crate::Result<()> {
         source,
         Source::MangaDex
             | Source::WeebCentral
+            | Source::Nhentai
             | Source::MangaLib
             | Source::RanobeLib
             | Source::RoyalRoad

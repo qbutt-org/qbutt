@@ -18,6 +18,7 @@ pub enum Source {
     MangaDex,
     #[serde(rename = "weebcentral")]
     WeebCentral,
+    Nhentai,
     MangaLib,
     RanobeLib,
     RuTor,
@@ -80,6 +81,7 @@ impl PublicationRef {
             Source::RuTracker => self.rutracker_id().map(|_| ()),
             Source::NnmClub => self.nnmclub_id().map(|_| ()),
             Source::Nyaa => self.nyaa_id().map(|_| ()),
+            Source::Nhentai => self.decimal_id(Source::Nhentai).map(|_| ()),
             Source::Rutube => self.rutube_id().map(|_| ()),
             Source::VkVideo => self.vkvideo_id().map(|_| ()),
             Source::Dodi => self.dodi_parts().map(|_| ()),
@@ -485,6 +487,8 @@ pub enum VariantSelector {
     },
     /// The single English edition published by Weeb Central.
     WeebCentralPages,
+    /// The exact gallery published by nhentai, including its scanlation.
+    NhentaiPages,
     LibTranslation {
         /// None identifies the API's null branch, not whichever translation is default.
         branch: Option<u64>,
@@ -511,6 +515,7 @@ impl VariantSelector {
             Self::RutubeVideo
             | Self::VkVideo
             | Self::WeebCentralPages
+            | Self::NhentaiPages
             | Self::OriginalText
             | Self::LocalPages => true,
             Self::Torrent { id } => *id != 0,
@@ -657,6 +662,7 @@ impl VariantRef {
                 )
                 | (Source::MangaDex, VariantSelector::MangaTranslation { .. })
                 | (Source::WeebCentral, VariantSelector::WeebCentralPages)
+                | (Source::Nhentai, VariantSelector::NhentaiPages)
                 | (Source::MangaLib, VariantSelector::LibTranslation { .. })
                 | (Source::RanobeLib, VariantSelector::LibTranslation { .. })
                 | (Source::RuTor, VariantSelector::TorrentHash { .. })
@@ -729,6 +735,7 @@ impl ChapterRef {
             Source::LocalBook => canonical_decimal(&self.id),
             Source::MangaDex => canonical_uuid(&self.id),
             Source::WeebCentral => canonical_ulid(&self.id),
+            Source::Nhentai => self.id == self.variant.publication.id,
             Source::MangaLib | Source::RanobeLib | Source::RanobeHub => canonical_decimal(&self.id),
             Source::RoyalRoad => self.id.split_once('/').is_some_and(|(fiction, chapter)| {
                 fiction == self.variant.publication.id && canonical_decimal(chapter)

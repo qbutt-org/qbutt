@@ -372,6 +372,30 @@ The quick acceptance target below accepts `--estar` to open that exact nonfirst
 chapter in the production text reader, confirm its QML blocks, and reopen it
 from History in an isolated profile.
 
+nhentai uses its public API v2 and the shared native image reader. It is an adult
+catalogue, disabled until explicitly enabled in Sources. The generated TLS
+scenario uses only invented gallery metadata and authored solid-color PNGs.
+Build `qbutt-reader-decode-fixture` in the quick-acceptance tree, then pass its
+executable to the TLS scenario:
+
+```powershell
+cargo run --locked --offline -p qbutt-content --example nhentai-fixtures -- <qbutt-reader-decode-fixture.exe>
+```
+
+It checks exact gallery/variant/chapter references, page 2 acquisition and its
+decoded pixels through the production Qt reader, image guards and corrupt-image
+rejection, cancellation, source opt-in and Library position across process restart.
+The decoder uses `QCoreApplication` and creates no window.
+The explicit live probe takes a public gallery ID and a receipt path outside the
+repository; it requests metadata and HEAD only, with zero public image bodies:
+
+```powershell
+cargo run --locked --offline -p qbutt-content --example nhentai -- 687445 "$env:TEMP/qbutt-nhentai-receipt.json"
+```
+
+Metadata and HEAD do not establish live reading or GUI acceptance. The shared
+reader still needs a VM check of the second page, fit/mode, History and restart.
+
 The production `ContentView` and Rust controller have a separate process-level
 acceptance target. Prepare the local Windows preset as described in
 [development setup](../docs/development.md), then run:

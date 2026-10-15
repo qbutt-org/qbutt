@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{Library, LibraryError, LibraryResult};
 
@@ -357,8 +357,8 @@ impl Library {
         for source in crate::Source::ALL {
             transaction.execute(
                 "INSERT OR IGNORE INTO source_settings (source, enabled, revision)
-                 VALUES (?1, 1, 0)",
-                [source.id()],
+                 VALUES (?1, ?2, 0)",
+                params![source.id(), source.enabled_by_default()],
             )?;
         }
         transaction.commit()?;

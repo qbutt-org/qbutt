@@ -124,7 +124,7 @@ impl Default for SourceState {
                 .map(|source| SourceStatus {
                     settings: SourceSettings {
                         source,
-                        enabled: true,
+                        enabled: source.enabled_by_default(),
                         revision: 0,
                         failure: None,
                     },
