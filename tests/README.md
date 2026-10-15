@@ -149,6 +149,23 @@ cancellation require separate acceptance; generated browser replies do not prove
 that a live source's challenge will pass. The `x1337` live example requires an
 explicit isolated discovery path for an already configured qcatch native host.
 
+The native WebView helper has a generated HTML integration fixture. It serves
+only authored pages through a closed loopback proxy and runs the real helper in
+silent mode. A normal HTTP 200 page loads Cloudflare's background JSD script and
+must return a session; challenge forms/stages, Turnstile, CAPTCHA and HTTP 403
+must still require a check. HTTP 503 remains a typed failure.
+
+Run in an interactive Windows user session, including a hidden scheduled task
+in an isolated VM. SSH Session 0 is outside this fixture's supported setup.
+Command template, verified with the copied script and built helper in the VM:
+
+```powershell
+bun tests/content-browser/webview-helper.ts <absolute-path-to-qbutt-webview.exe>
+```
+
+Require exit zero and all seven `PASS hidden_helper` outcomes. This checks
+classification and cleanup; it does not establish live source clearance.
+
 The protected playback transport has a generated HTTP/HTTPS integration scenario:
 
 ```powershell

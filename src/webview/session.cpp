@@ -33,18 +33,17 @@ namespace
     constexpr qsizetype maxResponseBytes = 256 * 1024 - 1; // reserve the JSON-lines newline
     constexpr wchar_t windowClass[] = L"qbuttWebSession";
     constexpr wchar_t documentState[] = LR"JS((() => {
-        const script = selector => document.querySelector(selector) !== null;
-        const anubis = script('script#anubis_challenge[type="application/json"]')
-            && script('script#anubis-main[src*="/.within.website/x/cmd/anubis/"]');
-        const cloudflare = script(`#challenge-form, #cf-challenge-running, .cf-turnstile,
-            script[src*="/cdn-cgi/challenge-platform/"]`);
-        const ddg = script('script[src*="check.ddos-guard.net/check.js"]');
-        const captcha = script(`form#captcha-form, form[action*="/captcha"], input[name="cap_sid"],
+        const has = selector => document.querySelector(selector) !== null;
+        const anubis = has('script#anubis_challenge[type="application/json"]')
+            && has('script#anubis-main[src*="/.within.website/x/cmd/anubis/"]');
+        const cloudflare = has('#challenge-form, #cf-challenge-running, #challenge-stage, .cf-turnstile');
+        const ddg = has('script[src*="check.ddos-guard.net/check.js"]');
+        const captcha = has(`form#captcha-form, form[action*="/captcha"], input[name="cap_sid"],
             input[name="g-recaptcha-response"], textarea[name="g-recaptcha-response"],
             input[name="h-captcha-response"], .g-recaptcha, .h-captcha`);
         const login = location.pathname === '/forum/login.php'
-            || (script('input[name="login_username"]') && script('input[name="login_password"]')
-                && !script('#logged-in-username'));
+            || (has('input[name="login_username"]') && has('input[name="login_password"]')
+                && !has('#logged-in-username'));
         return {url: location.href, ready: document.readyState === 'complete',
             challenge: anubis || cloudflare || ddg || captcha || login};
     })())JS";
