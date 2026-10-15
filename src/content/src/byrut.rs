@@ -264,12 +264,17 @@ fn search(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>> {
     let mut seen = HashSet::new();
     let mut works = Vec::new();
     for row in root.select(&selector("#dle-content a.search_res[href]")) {
-        if works.len() >= 100 {
+        if seen.len() >= 100 {
             return Err(Error::InvalidResponse("excessive ByRut search results"));
         }
         let (reference, url) = publication(required(row, "href")?, origin)?;
         if !seen.insert(reference.clone()) {
             return Err(Error::InvalidResponse("duplicate ByRut publication"));
+        }
+        if let Some(status) = optional(row, ".status-badge--ann")?
+            && checked_text(status)? == "Нет раздачи"
+        {
+            continue;
         }
         let title = checked_text(unique(row, ".search_res_title")?)?;
         let mut work = work(reference, url, title, true);
@@ -281,8 +286,15 @@ fn search(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>> {
             .transpose()?;
         works.push(work);
     }
-    if works.is_empty() && optional(root, "#dle-content .berrors_text")?.is_none() {
-        return Err(Error::InvalidResponse("missing ByRut search results"));
+    if seen.is_empty() {
+        let message = optional(root, ".search-page__feedback .berrors_text")?
+            .map(checked_text)
+            .transpose()?;
+        if !message
+            .is_some_and(|message| message.starts_with("По вашему запросу ничего не найдено"))
+        {
+            return Err(Error::InvalidResponse("missing ByRut search results"));
+        }
     }
     Ok(works)
 }
@@ -329,7 +341,19 @@ fn release(body: &str, origin: &Url, expected: &PublicationRef) -> Result<Parsed
     )?
     .map(checked_text)
     .transpose()?;
-    let link = unique(main, "a.itemdown_games[href]")?;
+    let Some(link) = optional(main, "a.itemdown_games[href]")? else {
+        let notice = optional(article, ".tupd-text")?
+            .map(checked_text)
+            .transpose()?;
+        if notice.as_deref() == Some("Торрента пока нет")
+            || status.as_deref() == Some("Раздача из файлового хранилища (без торрента).")
+        {
+            return Err(Error::UnsupportedAcquisition(
+                "ByRut publication has no available torrent file",
+            ));
+        }
+        return Err(Error::InvalidResponse("missing ByRut torrent link"));
+    };
     let (id, download) = torrent_link(required(link, "href")?, origin)?;
     if let Some(top) = optional(article, "a.itemtop_games[href]")?
         && torrent_link(required(top, "href")?, origin)?.0 != id

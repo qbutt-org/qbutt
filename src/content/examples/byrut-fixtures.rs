@@ -116,13 +116,27 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(fixture.downloads.load(Ordering::SeqCst), downloads + 1);
     fixture.changed.store(false, Ordering::SeqCst);
 
-    assert!(
-        provider
-            .search("empty", Category::Games, None, browser::BrowserChoice::Auto)
-            .await?
-            .is_empty()
-    );
-    for query in ["mismatch", "foreign", "duplicate", "challenge"] {
+    for query in ["empty", "unreleased"] {
+        assert!(
+            provider
+                .search(query, Category::Games, None, browser::BrowserChoice::Auto)
+                .await?
+                .is_empty()
+        );
+    }
+    let mixed = provider
+        .search("mixed", Category::Games, None, browser::BrowserChoice::Auto)
+        .await?;
+    assert_eq!(mixed.len(), 1);
+    assert_eq!(mixed[0].reference.id, "42-generated-legal");
+    for query in [
+        "mismatch",
+        "foreign",
+        "duplicate",
+        "challenge",
+        "source-error",
+        "missing-results",
+    ] {
         assert!(
             provider
                 .search(query, Category::Games, None, browser::BrowserChoice::Auto)
@@ -144,6 +158,33 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             "accepted {id}"
         );
     }
+    for id in ["46-unreleased", "47-storage-only"] {
+        let reference = PublicationRef {
+            source: Source::ByRut,
+            id: id.into(),
+        };
+        let downloads = fixture.downloads.load(Ordering::SeqCst);
+        assert!(matches!(
+            provider
+                .inspect(&reference, None, browser::BrowserChoice::Auto)
+                .await,
+            Err(Error::UnsupportedAcquisition(_))
+        ));
+        assert_eq!(fixture.downloads.load(Ordering::SeqCst), downloads);
+    }
+    assert!(matches!(
+        provider
+            .inspect(
+                &PublicationRef {
+                    source: Source::ByRut,
+                    id: "48-malformed".into(),
+                },
+                None,
+                browser::BrowserChoice::Auto,
+            )
+            .await,
+        Err(Error::InvalidResponse("missing ByRut torrent link"))
+    ));
     for id in ["../private", "42-Mixed", "42-", "0-game", "42-game?query"] {
         let reference = PublicationRef {
             source: Source::ByRut,
@@ -179,50 +220,72 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     fixture.stop().await;
     println!(
-        "PASS byrut_fixtures generated_https search inspect exact_torrent replaced_metadata_rejected faults_rejected game_payload=none"
+        "PASS byrut_fixtures generated_https search unavailable_rows_omitted inspect no_torrent_classified exact_torrent replaced_metadata_rejected faults_rejected game_payload=none"
     );
     Ok(())
 }
 
 async fn live() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let provider = byrut::ByRut::new()?;
-    let found = provider
-        .search(
-            "Stardew Valley",
-            Category::Games,
-            None,
-            browser::BrowserChoice::Auto,
-        )
-        .await?;
-    let publication = found
-        .iter()
-        .find(|work| work.reference.id == "2799-stardew-valley")
-        .ok_or("live ByRut search omitted the expected publication")?;
-    let work = provider
-        .inspect(&publication.reference, None, browser::BrowserChoice::Auto)
-        .await?;
-    let selected = work
-        .variants
-        .first()
-        .ok_or("live ByRut article has no torrent")?;
-    let resolved = provider
-        .resolve(&selected.reference, None, browser::BrowserChoice::Auto)
-        .await?;
-    let ResolvedContent::TorrentFile {
-        reference,
-        metadata,
-    } = resolved
-    else {
-        return Err("live ByRut resolve did not return torrent metadata".into());
-    };
-    assert_eq!(reference, selected.reference);
-    println!(
-        "PASS byrut_live {} {} {} metadata_bytes={} game_payload=none",
-        work.reference.id,
-        selected.title.as_deref().unwrap_or_default(),
-        selected.info_hash.as_deref().unwrap_or_default(),
-        metadata.bytes().len()
-    );
+    for (query, expected) in [
+        ("rezero", None),
+        ("ready or not", Some("2950-ready-or-not")),
+        ("Stardew Valley", Some("2799-stardew-valley")),
+    ] {
+        let found = provider
+            .search(query, Category::Games, None, browser::BrowserChoice::Auto)
+            .await?;
+        let Some(expected) = expected else {
+            assert!(found.is_empty());
+            println!("PASS byrut_live query={query} search_results=0 game_payload=none");
+            continue;
+        };
+        let publication = found
+            .iter()
+            .find(|work| work.reference.id == expected)
+            .ok_or("live ByRut search omitted the expected publication")?;
+        let work = provider
+            .inspect(&publication.reference, None, browser::BrowserChoice::Auto)
+            .await?;
+        let selected = work
+            .variants
+            .first()
+            .ok_or("live ByRut article has no torrent")?;
+        let resolved = provider
+            .resolve(&selected.reference, None, browser::BrowserChoice::Auto)
+            .await?;
+        let ResolvedContent::TorrentFile {
+            reference,
+            metadata,
+        } = resolved
+        else {
+            return Err("live ByRut resolve did not return torrent metadata".into());
+        };
+        assert_eq!(reference, selected.reference);
+        let hash = torrent::info_hash(metadata.bytes())?;
+        assert_eq!(selected.info_hash.as_deref(), Some(hash.as_str()));
+        println!(
+            "PASS byrut_live {} infohash={hash} metadata_bytes={} game_payload=none",
+            work.reference.id,
+            metadata.bytes().len()
+        );
+    }
+    for id in [
+        "17354-dont-give-up-not-ready-to-die",
+        "56825-ready-or-not-the-deadline-is-coming",
+    ] {
+        let reference = PublicationRef {
+            source: Source::ByRut,
+            id: id.into(),
+        };
+        assert!(matches!(
+            provider
+                .inspect(&reference, None, browser::BrowserChoice::Auto)
+                .await,
+            Err(Error::UnsupportedAcquisition(_))
+        ));
+        println!("PASS byrut_live {id} unsupported_acquisition game_payload=none");
+    }
     Ok(())
 }
 
@@ -358,15 +421,36 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
         let row = format!(
             "<a class=\"search_res\" href=\"{link}\"><span class=\"search_res_title\">Generated Legal</span><div class=\"search_res_sub\"><span class=\"js-ver\">v 1.2</span></div></a>"
         );
+        let unreleased = format!(
+            r#"<a class="search_res" href="{origin}46-unreleased.html">
+                <span class="search_res_title">Unreleased legal fixture</span>
+                <span class="status-badge status-badge--ann">Нет раздачи</span>
+            </a>"#
+        );
         let result = match query.as_str() {
-            "empty" => {
-                "<div class=\"berrors_text\">По вашему запросу ничего не найдено</div>".into()
-            }
+            "empty" | "source-error" | "missing-results" => String::new(),
+            "unreleased" => unreleased,
+            "mixed" => format!("{row}{unreleased}"),
             "duplicate" => row.repeat(2),
             _ => row,
         };
+        let feedback = match query.as_str() {
+            "empty" => {
+                r#"<div class="search-page__feedback"><div class="berrors_text">По вашему запросу ничего не найдено. Попробуйте изменить или сократить запрос.</div></div>"#
+            }
+            "source-error" => {
+                r#"<div class="search-page__feedback"><div class="berrors_text">Поиск временно недоступен.</div></div>"#
+            }
+            _ => "",
+        };
         let body = format!(
-            "<html><div id=\"dle-content\"><form id=\"fullsearch\"><input name=\"story\" value=\"{shown}\"></form>{result}</div></html>"
+            r#"<html><main>
+                <div id="dle-content">
+                    <form id="fullsearch"><input name="story" value="{shown}"></form>
+                    {result}
+                </div>
+                {feedback}
+            </main></html>"#
         );
         return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
     }
@@ -382,9 +466,45 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
         } else {
             url.path().trim_start_matches('/').trim_end_matches(".html")
         };
-        let id = 91;
+        let (number, _) = slug.split_once('-').expect("fixture publication slug");
+        let main = match slug {
+            "46-unreleased" | "48-malformed" => String::new(),
+            "47-storage-only" => {
+                r#"<div class="info-basictor__item--status info-basictor__item--altnav">
+                    <strong class="info-basictor__value">Раздача из файлового хранилища (без торрента).</strong>
+                </div>"#.into()
+            }
+            _ => format!(
+                r#"<div class="info-basictor__row">
+                    <div class="info-basictor__item">
+                        <strong class="info-basictor__value">Open fixture</strong>
+                    </div>
+                    <div class="info-basictor__item info-basictor__item--version">
+                        <strong class="info-basictor__value">v 1.2</strong>
+                    </div>
+                </div>
+                <div class="info-basictor__item--status">
+                    <strong class="info-basictor__value">Полная версия</strong>
+                </div>
+                <a class="itemdown_games" href="{origin}index.php?do=download&amp;id=91">Скачать .torrent</a>"#
+            ),
+        };
+        let notice = if slug == "46-unreleased" {
+            r#"<div class="tupd"><span class="tupd-text">Торрента пока нет</span></div>"#
+        } else {
+            ""
+        };
         let body = format!(
-            "<html><head><link rel=\"canonical\" href=\"{origin}{slug}.html\"></head><body><article class=\"main_content\" data-news-id=\"42\"><div class=\"game_details\"><h1>Generated Legal</h1></div><div class=\"main-release-block\"><div class=\"info-basictor__row\"><div class=\"info-basictor__item\"><strong class=\"info-basictor__value\">Open fixture</strong></div><div class=\"info-basictor__item info-basictor__item--version\"><strong class=\"info-basictor__value\">v 1.2</strong></div></div><div class=\"info-basictor__item--status\"><strong class=\"info-basictor__value\">Полная версия</strong></div><a class=\"itemdown_games\" href=\"{origin}index.php?do=download&amp;id={id}\">Скачать .torrent</a></div></article></body></html>"
+            r#"<html>
+                <head><link rel="canonical" href="{origin}{slug}.html"></head>
+                <body>
+                    <article class="main_content" data-news-id="{number}">
+                        <div class="game_details"><h1>Generated Legal</h1></div>
+                        <div class="main-release-block">{main}</div>
+                        {notice}
+                    </article>
+                </body>
+            </html>"#
         );
         return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
     }
