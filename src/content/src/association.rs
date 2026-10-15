@@ -136,7 +136,7 @@ impl WorkAssociation {
         self.groups_with_titles(&titles)
     }
 
-    /// Exact product names and confirmed aliases precede partial matches.
+    /// Exact names precede title prefixes, then matches within longer names.
     /// Ties depend on identity, never provider timing or a source preference.
     pub fn search_groups(&self, query: &str) -> Vec<WorkGroup> {
         let query = identity::normalized_title(query);
@@ -148,6 +148,7 @@ impl WorkAssociation {
                 .iter()
                 .flat_map(|reference| &titles[reference].normalized);
             let exact = names.clone().any(|name| name == &query);
+            let prefix = names.clone().any(|name| name.starts_with(&query));
             let name = names.min().cloned().unwrap_or_default();
             let reference = group
                 .references
@@ -157,6 +158,7 @@ impl WorkAssociation {
                 .unwrap();
             (
                 !exact,
+                !prefix,
                 name,
                 group.catalog_work().unwrap().category as u8,
                 (reference.0, reference.1.to_owned()),

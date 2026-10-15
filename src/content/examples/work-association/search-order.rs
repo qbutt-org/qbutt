@@ -132,8 +132,42 @@ pub(super) fn run() {
         identities(&association.search_groups("generated work")),
         [521, 522, 523]
     );
+
+    let publications = [
+        publication(530, "Re: Zero (2016)", Category::Anime),
+        publication(
+            531,
+            "[Almighty] Re:Zero kara Hajimeru Isekai Seikatsu S4 - Vol.3 [BD 1920x1080 x264 FLAC][Multi Subs]",
+            Category::Anime,
+        ),
+        publication(
+            532,
+            "Re:Zero. Жизнь с нуля в альтернативном мире",
+            Category::Anime,
+        ),
+        publication(
+            533,
+            "[AnoZu] Re: ZERO, Starting Life in Another World S04E17 1080p CR WEB-DL Dual-Audio",
+            Category::Anime,
+        ),
+    ];
+    for reverse in [false, true] {
+        let mut association = WorkAssociation::default();
+        let mut ordered = publications.to_vec();
+        if reverse {
+            ordered.reverse();
+        }
+        for publication in ordered {
+            association.update(publication);
+        }
+        assert_eq!(
+            identities(&association.search_groups("Re:Zero")),
+            [530, 532, 531, 533],
+            "catalogue titles starting with the query precede named upload groups"
+        );
+    }
     println!(
-        "search_order=exact_product_and_alias_before_partial sequel_episode=lower deterministic_ties=title_category_ref arrival_orders=12 incremental_and_repeated_updates=stable exact_publications_and_anchors=preserved"
+        "search_order=exact_then_prefix_then_contained sequel_episode=lower deterministic_ties=title_category_ref arrival_orders=14 incremental_and_repeated_updates=stable exact_publications_and_anchors=preserved"
     );
 }
 
