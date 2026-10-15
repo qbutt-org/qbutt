@@ -62,14 +62,17 @@ pub(super) fn product_titles(publications: &[Work]) -> HashMap<PublicationRef, P
         }
 
         let mut normalized = Vec::new();
-        for title in std::iter::once(display).chain(work.aliases.iter().map(|alias| {
-            let title = release_title(alias, work.category);
-            if work.category == Category::Games {
-                edition_base(title)
-            } else {
-                title
-            }
-        })) {
+        for title in std::iter::once(display)
+            .chain(games[index].as_ref().map(|game| game.title))
+            .chain(work.aliases.iter().map(|alias| {
+                let title = release_title(alias, work.category);
+                if work.category == Category::Games {
+                    edition_base(title)
+                } else {
+                    title
+                }
+            }))
+        {
             // Tracker labels explicitly report localized/original names with
             // spaced slashes. A slash within Fate/stay night remains literal.
             for alias in title.split(" / ") {
@@ -89,12 +92,47 @@ pub(super) fn product_titles(publications: &[Work]) -> HashMap<PublicationRef, P
     }
 
     for game in games.iter().flatten() {
+        if let Some(title) = confirmed_title_alias(game, &games, &titles) {
+            titles.insert(game.work.reference.clone(), title);
+        }
+    }
+    for game in games.iter().flatten() {
         if let Some(title) = update_title(game, &games, &titles) {
             titles.insert(game.work.reference.clone(), title);
         }
     }
 
     titles
+}
+
+fn confirmed_title_alias(
+    publication: &GameRelease<'_>,
+    games: &[Option<GameRelease<'_>>],
+    titles: &HashMap<PublicationRef, ProductTitle>,
+) -> Option<ProductTitle> {
+    let reported = normalized_title(publication.title);
+    if normalized_title(&titles[&publication.work.reference].display) != reported {
+        return None;
+    }
+    let candidates = games.iter().flatten().filter(|game| {
+        normalized_title(game.title) == reported
+            && !super::conflicting_identity([publication.work, game.work])
+    });
+    if super::conflicting_identity(candidates.clone().map(|game| game.work)) {
+        return None;
+    }
+    let mut witnesses = candidates
+        .filter(|game| normalized_title(&titles[&game.work.reference].display) != reported);
+    let first = witnesses.next()?;
+    let title = &titles[&first.work.reference];
+    let canonical = normalized_title(&title.display);
+    if witnesses.any(|game| normalized_title(&titles[&game.work.reference].display) != canonical) {
+        return None;
+    }
+    Some(ProductTitle {
+        normalized: title.normalized.clone(),
+        display: title.display.clone(),
+    })
 }
 
 fn update_title(

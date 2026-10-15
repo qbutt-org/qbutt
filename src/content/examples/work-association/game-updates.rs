@@ -24,9 +24,20 @@ pub(super) fn run(rutor: &[Work]) {
     };
     update.variants[0].info_hash = Some(UPDATE_HASH.into());
     update.variants[0].size = Some(2_491_081_031);
+    let mut full_release = game(301, "Ready or Not Boiling Point v142058-RUNE");
+    full_release.reference.source = Source::LimeTorrents;
+    full_release.reference.id =
+        "Ready-or-Not-Boiling-Point-v142058-RUNE-torrent-20020797.html".into();
+    full_release.url = Url::parse(&format!(
+        "https://www.limetorrents.fun/{}",
+        full_release.reference.id
+    ))
+    .unwrap();
+    full_release.variants[0].reference.publication = full_release.reference.clone();
 
     let mut publications = rutor.to_vec();
     publications.push(update.clone());
+    publications.push(full_release.clone());
     for reverse in [false, true] {
         for offset in 0..publications.len() {
             let mut ordered = publications.clone();
@@ -44,6 +55,10 @@ pub(super) fn run(rutor: &[Work]) {
             assert_eq!(group.display_title(), "Ready or Not (2023)");
             assert_eq!(group.anchor, ordered[0].reference);
             assert!(group.is_confirmed());
+            assert_eq!(
+                group.publication(&full_release.reference).unwrap().year,
+                None
+            );
             assert_eq!(group.variants(None).len(), publications.len());
             let variants = group.variants(None);
             let variant = variants
@@ -74,6 +89,7 @@ pub(super) fn run(rutor: &[Work]) {
     let edition = game(401, "Generated Game: Deluxe Edition [v 123456] (2023) PC");
     let original = game(402, "Generated Game New Story [v 123456] (2023) PC");
     let update = game(403, "Generated Game New Story Update v654321-RUNE");
+    let unverified = game(406, "Generated Game New Story v999999-RUNE");
     for title in [
         "Generated Game 2 Update v654321-RUNE",
         "Generated Game Other Story Update v654321-RUNE",
@@ -118,7 +134,7 @@ pub(super) fn run(rutor: &[Work]) {
         association.groups()[0].display_title(),
         "Generated Game New Story Update"
     );
-    for publication in [&base, &edition, &original] {
+    for publication in [&base, &edition, &original, &unverified] {
         association.update(publication.clone());
     }
     assert_eq!(
@@ -133,9 +149,21 @@ pub(super) fn run(rutor: &[Work]) {
     association.update(conflicting.clone());
     assert_eq!(
         association.groups().len(),
-        3,
+        4,
         "two remake years make the update ambiguous"
     );
+    for unresolved in [&update, &unverified] {
+        let groups = association.groups();
+        let group = groups
+            .iter()
+            .find(|group| group.publication(&unresolved.reference).is_some())
+            .unwrap();
+        assert_eq!(
+            group.publications.len(),
+            1,
+            "unknown-year alias must not choose a remake"
+        );
+    }
     conflicting.title = "Generated Game Other Story [v 123456] (2023) PC".into();
     association.update(conflicting);
     assert_eq!(
@@ -152,7 +180,7 @@ pub(super) fn run(rutor: &[Work]) {
         "withdrawn exact title splits the update again"
     );
     println!(
-        "game_update_corpus=real_Lime+RuTor arrival_orders=12 exact_label_hash_size=preserved sequel_subtitle_year_catalog_ambiguity=guarded late_witness=resolved withdrawn_witness=split"
+        "game_update_corpus=real_Lime_full+update+RuTor arrival_orders=14 exact_label_hash_size=preserved sequel_subtitle_year_catalog_ambiguity=guarded unknown_year_alias=confirmed late_witness=resolved withdrawn_witness=split"
     );
 }
 
