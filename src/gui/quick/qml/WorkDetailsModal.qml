@@ -60,6 +60,7 @@ ModalPicker {
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            rightPadding: effectiveScrollBarWidth
             contentItem: Flickable {
                 id: document
                 objectName: "contentWorkDetailsDocument"
@@ -119,11 +120,12 @@ ModalPicker {
                                     textFormat: Text.PlainText
                                 }
 
-                                ToolButton {
+                                IconButton {
                                     objectName: "contentPublicationNoteOpen"
+                                    theme: root.theme
                                     visible: comment.modelData.hasSourceLink
+                                    icon.source: root.theme.iconSource("application-url")
                                     text: qsTr("Open comment")
-                                    palette.buttonText: root.theme.accent
                                     onClicked: root.backend.openPublicationNote(root.publicationId, comment.index)
                                 }
                             }
