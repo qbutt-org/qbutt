@@ -114,13 +114,54 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     ));
     fixture.changed.store(false, Ordering::SeqCst);
 
-    assert!(
+    for query in ["Re:Zero", "Re-Zero"] {
+        assert_eq!(
+            provider
+                .search(query, Category::Games, None, browser::BrowserChoice::Auto)
+                .await?
+                .len(),
+            1
+        );
+    }
+    for query in ["empty", "empty:result"] {
+        assert!(
+            provider
+                .search(query, Category::Games, None, browser::BrowserChoice::Auto)
+                .await?
+                .is_empty()
+        );
+    }
+    let before_invalid = fixture.hits.load(Ordering::SeqCst);
+    let oversized = format!("Re{}", ":".repeat(500));
+    for query in ["", ":", " : : ", "Re:\nZero", &oversized] {
+        assert!(matches!(
+            provider
+                .search(query, Category::Games, None, browser::BrowserChoice::Auto)
+                .await,
+            Err(Error::InvalidQuery)
+        ));
+    }
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), before_invalid);
+    for query in ["mismatch", "wrong:echo", "wrongcase"] {
+        assert!(matches!(
+            provider
+                .search(query, Category::Games, None, browser::BrowserChoice::Auto)
+                .await,
+            Err(Error::InvalidResponse("Igruha search query changed"))
+        ));
+    }
+    assert!(matches!(
         provider
-            .search("empty", Category::Games, None, browser::BrowserChoice::Auto)
-            .await?
-            .is_empty()
-    );
-    for query in ["mismatch", "foreign", "duplicate", "challenge"] {
+            .search(
+                "failure",
+                Category::Games,
+                None,
+                browser::BrowserChoice::Auto,
+            )
+            .await,
+        Err(Error::HttpStatus(500))
+    ));
+    for query in ["foreign", "duplicate", "challenge"] {
         assert!(
             provider
                 .search(query, Category::Games, None, browser::BrowserChoice::Auto)
@@ -170,7 +211,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     check::run(&fixture).await?;
     fixture.stop().await;
     println!(
-        "PASS igruha_fixtures generated_https search inspect second_exact_torrent stale empty fault cancel game_payload=none"
+        "PASS igruha_fixtures generated_https search colon_normalized exact_query invalid_query empty http_failure challenge inspect second_exact_torrent stale fault cancel game_payload=none"
     );
     Ok(())
 }
@@ -321,10 +362,18 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
         .map(|(_, value)| value.into_owned());
     if url.path() == "/index.php" && query.is_some() {
         let query = query.unwrap();
+        assert!(!query.contains(':'), "normalize colons before the request");
         if query == "challenge" {
             return ("403 Forbidden", "text/html", b"DDoS-Guard".to_vec());
         }
-        let shown = if query == "mismatch" { "other" } else { &query };
+        if query == "failure" {
+            return ("500 Internal Server Error", "text/html", Vec::new());
+        }
+        let shown = match query.as_str() {
+            "mismatch" | "wrongecho" => "other",
+            "wrongcase" => "WRONGCASE",
+            _ => &query,
+        };
         let link = if query == "foreign" {
             "https://clone.example/42-generated-legal.html".into()
         } else {
@@ -334,7 +383,7 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             "<div class='game-card'><div class='game-card__cover'><img class='game-cover' src='/uploads/posts/fixture.webp'></div><div class='game-card__name'><a href='{link}'>Generated Legal (Свободная игра)</a></div></div>"
         );
         let rows = match query.as_str() {
-            "empty" => String::new(),
+            "empty" | "emptyresult" => String::new(),
             "duplicate" => row.repeat(2),
             _ => row,
         };

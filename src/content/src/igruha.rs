@@ -93,6 +93,13 @@ impl Igruha {
             return Ok(Vec::new());
         }
 
+        // Igruha removes colons before echoing its confirmed search query.
+        let query = query.replace(':', "");
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(Error::InvalidQuery);
+        }
+
         let mut url = self.origin.join("/index.php").expect("fixed search path");
         url.query_pairs_mut()
             .append_pair("do", "search")
