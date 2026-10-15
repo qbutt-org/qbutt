@@ -19,6 +19,8 @@ interface StreamingState {
     openStreams: number;
     completionReady: boolean;
     completionActionReady: boolean;
+    streamingLease: boolean;
+    deadlines: number;
     cancelledNativeReads?: number;
     nativeHandleReplaced?: boolean;
     files?: {fileIndex: number; nativeIndex: number; path: string; offset: number; size: number}[];
@@ -30,26 +32,29 @@ interface MediaFixture extends Omit<TorrentFixture, "files"> {
 
 const executable = process.env.QBUTT_QT_ACCEPTANCE_EXE;
 assert(executable, "Set QBUTT_QT_ACCEPTANCE_EXE to the deployed Qt process driver");
+const noCues = Bun.argv.slice(2).includes("--no-cues");
+assert(Bun.argv.slice(2).every(argument => argument === "--no-cues"), "Unknown media-streaming argument");
 const qplay = process.env.QBUTT_LAB_QPLAY;
 const qplayAcceptance = process.env.QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE;
 const qplayFixture = process.env.QBUTT_LAB_QPLAY_MATROSKA_FIXTURE;
 const expectedAcceptanceHash = process.env.QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE_SHA256;
-assert(qplay && qplayAcceptance && qplayFixture && expectedAcceptanceHash,
-    "Set QBUTT_LAB_QPLAY, QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE, QBUTT_LAB_QPLAY_MATROSKA_FIXTURE and QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE_SHA256");
+assert(qplay && qplayAcceptance && expectedAcceptanceHash,
+    "Set QBUTT_LAB_QPLAY, QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE and QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE_SHA256");
+if (!noCues)
+    assert(qplayFixture, "Set QBUTT_LAB_QPLAY_MATROSKA_FIXTURE for indexed subtitle acceptance");
 const qplayRoot = dirname(qplay);
 const qplayLibrary = join(qplayRoot, "engine", "libmpv-2.dll");
 process.env.QBUTT_LAB_PATHS = "1";
 const { runtimeDir: mediaRuntime, tools: { ffmpeg, mpv } } = await resolveMediaRuntime("", AbortSignal.timeout(30_000));
 process.env.QBUTT_LAB_EXE = executable;
-const lab = await createLab("media-streaming");
+const lab = await createLab(noCues ? "media-streaming-no-cues" : "media-streaming");
 await lab.checkpoint({check: "explicit-media-tools", mediaRuntime: await realpath(mediaRuntime),
     mpv: {path: await realpath(mpv), sha256: sha256(await readFile(mpv))},
     ffmpeg: {path: await realpath(ffmpeg), sha256: sha256(await readFile(ffmpeg))}});
 const acceptanceHash = sha256(await readFile(qplayAcceptance));
 assert.equal(acceptanceHash, expectedAcceptanceHash.toLowerCase(), "Native qplay acceptance executable differs from the approved build");
 await lab.checkpoint({check: "native-qplay-artifacts", acceptance: await realpath(qplayAcceptance),
-    acceptanceSha256: acceptanceHash, fixture: await realpath(qplayFixture),
-    fixtureSha256: sha256(await readFile(qplayFixture)), qplay: await realpath(qplay),
+    acceptanceSha256: acceptanceHash, qplay: await realpath(qplay),
     qplaySha256: sha256(await readFile(qplay)), runtime: await realpath(qplayLibrary),
     runtimeSha256: sha256(await readFile(qplayLibrary))});
 const mediaRoot = join(lab.root, "media");
@@ -133,6 +138,33 @@ function mp4Atoms(bytes: Buffer): string[] {
         offset += size;
     }
     return atoms;
+}
+
+function matroskaElements(bytes: Buffer): number[] {
+    const elements: number[] = [];
+    let offset = 0;
+    while (offset < bytes.length) {
+        let idWidth = 1;
+        while (idWidth <= 4 && !(bytes[offset]! & (0x80 >> (idWidth - 1))))
+            ++idWidth;
+        assert(idWidth <= 4 && offset + idWidth < bytes.length, "Invalid generated Matroska element ID");
+        const id = bytes.readUIntBE(offset, idWidth);
+        offset += idWidth;
+        let sizeWidth = 1;
+        while (sizeWidth <= 8 && !(bytes[offset]! & (0x80 >> (sizeWidth - 1))))
+            ++sizeWidth;
+        assert(sizeWidth <= 8 && offset + sizeWidth <= bytes.length, "Invalid generated Matroska size");
+        let size = BigInt(bytes[offset]! & (0xff >> sizeWidth));
+        for (let index = 1; index < sizeWidth; ++index)
+            size = (size << 8n) | BigInt(bytes[offset + index]!);
+        offset += sizeWidth;
+        elements.push(id);
+        if (id === 0x18538067)
+            continue; // Inspect Segment children without entering encoded track/cluster payload.
+        assert(size <= BigInt(bytes.length - offset), "Generated Matroska element exceeds the file");
+        offset += Number(size);
+    }
+    return elements;
 }
 
 async function play(url: URL, label: string, continuous = false) {
@@ -276,7 +308,8 @@ Dialogue: 0,0:00:01.00,0:00:19.00,Default,,0,0,0,,{\\an8}{\\pos(160,35)}Long ove
 Dialogue: 0,0:00:12.00,0:00:16.00,Default,,0,0,0,,Second cue
 `);
     await run([ffmpeg, "-hide_banner", "-nostdin", "-n", "-i", mp4, "-i", ass,
-        "-map", "0", "-map", "1:0", "-c", "copy", mkv], "Generated indexed Matroska with ASS");
+        "-map", "0", "-map", "1:0", "-c", "copy", ...(noCues ? ["-live", "1"] : []), mkv],
+        "Generated Matroska with ASS");
     await run([ffmpeg, "-hide_banner", "-nostdin", "-n", "-i", mp4, "-map", "0", "-c", "copy", endMoov],
         "Generated MP4 with trailing moov atom");
     for (const path of [mp4, mkv, endMoov])
@@ -297,6 +330,9 @@ Dialogue: 0,0:00:12.00,0:00:16.00,Default,,0,0,0,,Second cue
     }
     const faststartAtoms = mp4Atoms(sources.get(payload[0]!.path)!);
     const trailingAtoms = mp4Atoms(sources.get(payload[2]!.path)!);
+    const mkvElements = matroskaElements(sources.get(payload[1]!.path)!);
+    assert(mkvElements.includes(0x1f43b675), "Generated Matroska has no clusters");
+    assert.equal(mkvElements.includes(0x1c53bb6b), !noCues, "Generated Matroska Cues do not match the scenario");
     assert(faststartAtoms.indexOf("moov") < faststartAtoms.indexOf("mdat"), "Faststart fixture moov must precede media data");
     assert(trailingAtoms.indexOf("moov") > trailingAtoms.indexOf("mdat"), "Trailing-moov fixture must require a tail probe");
     await writeFile(join(mediaRoot, "payload.json"), JSON.stringify(payload, null, 2) + "\n");
@@ -340,8 +376,9 @@ for variant, flags in [("v1", lt.create_torrent.v1_only), ("v2", lt.create_torre
 print(json.dumps(descriptions))
 `;
     const fixtures = JSON.parse(await run([lab.python, "-c", generator, mediaRoot], "Media torrent generation")) as MediaFixture[];
-    await lab.checkpoint({check: "legal-media-generated", payload, codec: "H.264/AAC with indexed Matroska ASS",
+    await lab.checkpoint({check: "legal-media-generated", payload, codec: "H.264/AAC with Matroska ASS",
         containers: ["MP4 faststart", "Matroska", "MP4 trailing moov"], faststartAtoms, trailingAtoms,
+        matroskaCues: !noCues, matroskaClusters: mkvElements.filter(id => id === 0x1f43b675).length,
         formats: fixtures.map(fixture => ({name: fixture.name, pieceCount: fixture.pieceCount,
             paddingFiles: fixture.files.filter(file => file.pad).length}))});
     const entityTags = new Set<string>();
@@ -363,7 +400,12 @@ print(json.dumps(descriptions))
             torrentPath: join(mediaRoot, fixture.file), destination, peer: `${seed.host}:${seed.port}`}) + "\n");
         application = Bun.spawn([executable, `--profile=${join(lab.root, "profile")}`], {
             cwd: dirname(executable), windowsHide: true, stdin: "ignore", timeout: 300000,
-            env: {...process.env, QT_QPA_PLATFORM: "offscreen", QBUTT_QT_ACCEPTANCE_SPEC: specPath},
+            env: {
+                ...process.env,
+                QT_QPA_PLATFORM: "offscreen",
+                QBUTT_QT_ACCEPTANCE_SPEC: specPath,
+                QBUTT_BROWSER_BRIDGE_DISCOVERY: join(scenario, "browser-bridge.json"),
+            },
             stdout: Bun.file(join(scenario, "app.stdout.log")), stderr: Bun.file(join(scenario, "app.stderr.log")),
         });
         const ready = await waitFor("Qt media streaming readiness", readState, state => state?.phase === "ready", 45000);
@@ -371,7 +413,7 @@ print(json.dumps(descriptions))
             path: file.path, offset: file.offset, size: file.size})), "Qt visible file mapping differs from native torrent metadata");
         await command("rate", {bytesPerSecond: 256 * 1024});
         const fileEntityTags = new Map<number, string>();
-        for (const file of visibleFiles) {
+        for (const file of visibleFiles.filter(file => !noCues || file.path.endsWith(".mkv"))) {
             const expected = sources.get(file.path)!;
             assert(file.fileIndex !== null);
             const state = await command("open", {fileIndex: file.fileIndex});
@@ -471,17 +513,25 @@ print(json.dumps(descriptions))
             const cancelPiece = Math.floor((file.offset + cancelOffset) / fixture.pieceLength);
             assert.equal((await command("snapshot")).pieces[cancelPiece], false, "Cancellation target was already available");
             const cancelled = pendingRange(url, cancelOffset);
-            await Bun.sleep(250);
+            await waitFor("Cancellation request acquired a priority window", () => command("snapshot"),
+                snapshot => !snapshot.prioritiesRestored && snapshot.deadlines > 0, 5000);
             cancelled.cancel();
             await cancelled.done;
+            await waitFor("Cancelled range restores ordinary priorities", () => command("snapshot"),
+                snapshot => snapshot.prioritiesRestored && snapshot.deadlines === 0, 5000);
             await command("rate", {bytesPerSecond: 512 * 1024});
-            const playback = await play(url, `${file.fileIndex}-incomplete`, (fixture.name === "media-v1") && (file.fileIndex === 0));
+            const playback = noCues ? undefined : await play(url, `${file.fileIndex}-incomplete`,
+                (fixture.name === "media-v1") && file.fileIndex === 0);
             assert((await command("snapshot")).progress < 1, "mpv waited for the whole torrent");
-            if ((fixture.name === "media-v1") && file.path.endsWith(".mkv")) {
+            if (file.path.endsWith(".mkv") && (noCues || fixture.name === "media-v1")) {
                 const beforeNative = await command("snapshot");
                 assert(beforeNative.progress < 1, "Native qplay subtitle playback requires an incomplete torrent");
+                const firstPiece = Math.floor(file.offset / fixture.pieceLength);
+                const endPiece = Math.ceil((file.offset + file.size) / fixture.pieceLength);
+                assert(beforeNative.pieces.slice(firstPiece, endPiece).some(available => !available),
+                    "The Matroska file completed before native qplay; incomplete neighboring files do not prove streaming");
                 const profile = join(scenario, "qplay-subtitle-profile");
-                const prefix = join(scenario, "qplay-embedded-subtitles");
+                const prefix = join(scenario, noCues ? "qplay-torrent-budget" : "qplay-embedded-subtitles");
                 await mkdir(profile, {recursive: true});
                 const qplayEnvironment = {
                     ...process.env,
@@ -489,33 +539,54 @@ print(json.dumps(descriptions))
                     QT_PLUGIN_PATH: qplayRoot,
                     QML_IMPORT_PATH: join(qplayRoot, "qml"),
                     QT_COMMAND_LINE_PARSER_NO_GUI_MESSAGE_BOXES: "1",
-                    QPLAY_SUBTITLE_MKV_QA: "ass",
+                    QPLAY_SUBTITLE_MKV_QA: noCues ? undefined : "ass",
+                    QPLAY_TORRENT_SUBTITLE_BUDGET_QA: noCues ? "1" : undefined,
                 };
-                const seeded = await run([qplayFixture, url.href, "3", "Second cue", "ass", "12000", "19000", profile],
-                    "Cache seed from the real torrent stream", {cwd: qplayRoot, env: qplayEnvironment, timeout: 60000});
-                await writeFile(`${prefix}.seed.log`, seeded);
+                if (!noCues) {
+                    assert(qplayFixture);
+                    await lab.checkpoint({check: "subtitle-cache-fixture", fixture: await realpath(qplayFixture),
+                        fixtureSha256: sha256(await readFile(qplayFixture))});
+                    const seeded = await run([qplayFixture, url.href, "3", "Second cue", "ass", "12000", "19000", profile],
+                        "Cache seed from the real torrent stream", {cwd: qplayRoot, env: qplayEnvironment, timeout: 60000});
+                    await writeFile(`${prefix}.seed.log`, seeded);
+                }
                 const nativeOutput = await run([qplayAcceptance, qplayLibrary, url.href, mkv, profile, prefix],
-                    "Native qplay translation from the real torrent stream",
+                    noCues
+                        ? "Native qplay playback after subtitle scan failure"
+                        : "Native qplay translation from the real torrent stream",
                     {cwd: qplayRoot, env: qplayEnvironment, timeout: 60000});
                 await writeFile(`${prefix}.log`, nativeOutput);
                 const result = JSON.parse(await readFile(`${prefix}.json`, "utf8"));
-                assert.equal(result.format, "ass");
-                assert.equal(result.remoteEmbeddedTranslation, true);
-                assert.equal(result.cacheStyleOriginal, true);
-                assert.equal(result.gpuPixelsChanged, true);
+                if (noCues) {
+                    assert.equal(result.incompleteTorrentPlayback, true);
+                    assert.equal(result.subtitleScanFailed, true);
+                    assert.equal(result.originalPreserved, true);
+                    assert.equal(result.seekBeforeAndAfterFailure, true);
+                    assert.equal(result.isolatedInferenceUnavailable, true);
+                }
+                else {
+                    assert.equal(result.format, "ass");
+                    assert.equal(result.remoteEmbeddedTranslation, true);
+                    assert.equal(result.cacheStyleOriginal, true);
+                    assert.equal(result.gpuPixelsChanged, true);
+                    assert(result.selectedSubtitle > 0, "Native qplay lost the original Matroska text track");
+                }
                 assert.equal(result.ownedChildren, 0);
-                assert(result.selectedSubtitle > 0, "Native qplay lost the original Matroska text track");
                 const afterNative = await command("snapshot");
                 assert(afterNative.progress < 1, "Native qplay waited for full torrent completion");
-                await lab.checkpoint({check: "native-qplay-embedded-subtitles", result,
-                    evidence: `${prefix}.json`, frame: `${prefix}.embedded-subtitle.png`,
+                await lab.checkpoint({check: noCues ? "native-qplay-subtitle-budget-failure" : "native-qplay-embedded-subtitles", result,
+                    evidence: `${prefix}.json`, frame: `${prefix}.${noCues ? "torrent" : "embedded-subtitle"}.png`,
                     torrentVerifiedBefore: beforeNative.completedBytes,
                     torrentVerifiedAfter: afterNative.completedBytes,
-                    torrentIncomplete: true, translationSource: "preseeded accepted cache"});
+                    matroskaIncompleteBeforeNative: true,
+                    torrentIncomplete: true,
+                    translationSource: noCues ? "isolated unavailable inference" : "preseeded accepted cache"});
                 await rm(profile, {recursive: true, force: true});
             }
             const closed = await command("close", {fileIndex: file.fileIndex});
             assert.equal(closed.openStreams, 0);
+            assert.equal(closed.streamingLease, false, "Stopping playback retained a torrent streaming lease");
+            assert.equal(closed.deadlines, 0, "Stopping playback retained native piece deadlines");
             assert.equal(closed.prioritiesRestored, true, "Stopping playback changed ordinary torrent priorities or sequential mode");
             await fetch(url, {signal: AbortSignal.timeout(5000)}).then(async retired => {
                 assert([403, 404, 410].includes(retired.status), "Closed streaming URL remains usable");
@@ -528,6 +599,8 @@ print(json.dumps(descriptions))
             await lab.checkpoint({check: "remote-seek-concurrent-ranges-cancel-stop", format: fixture.name, file: file.path,
                 beginning, ranges, verifiedBefore: before.completedBytes, verifiedAfter: after.completedBytes,
                 torrentIncomplete: true, prioritiesRestored: closed.prioritiesRestored, sequential: closed.sequential,
+                streamingLeaseReleased: !closed.streamingLease, matroskaCues: file.path.endsWith(".mkv") ? !noCues : undefined,
+                nativeDeadlinesAfterStop: closed.deadlines,
                 headMime: mime, entityTag, staleEntityRejected: true, weakEntityRejected: true,
                 invalidRangeRejected: true, retiredCapabilityRejected: true, playback});
             await command("rate", {bytesPerSecond: 256 * 1024});
@@ -540,7 +613,8 @@ print(json.dumps(descriptions))
         assert.equal(seedEvidence.downloadPayloadBytes, 0, "Generated seed unexpectedly downloaded payload");
         await waitFor("Completed session permits its completion actions", () => command("snapshot"),
             snapshot => snapshot.completionActionReady, 15000);
-        const cached = await command("open", {fileIndex: 2});
+        const cachedFile = noCues ? 1 : 2;
+        const cached = await command("open", {fileIndex: cachedFile});
         assert(cached.url);
         assert.equal(cached.completionReady, false, "Automatic completion may interrupt an active playback capability");
         assert.equal(cached.completionActionReady, false, "Session completion actions may interrupt cached playback");
@@ -550,16 +624,16 @@ print(json.dumps(descriptions))
         const recovered = await command("reload-pending-reads");
         assert.equal(recovered.nativeHandleReplaced, true);
         assert.equal(recovered.openStreams, 0, "Reload left an old playback capability active");
-        const recoveredStream = await command("open", {fileIndex: 2});
+        const recoveredStream = await command("open", {fileIndex: cachedFile});
         assert(recoveredStream.url);
         assert.notEqual(recoveredStream.url, cached.url, "Recovery reused a retired playback capability");
         const recoveredHead = await fetch(recoveredStream.url, {method: "HEAD", signal: AbortSignal.timeout(5000)});
         assert.equal(recoveredHead.status, 200);
-        assert.equal(recoveredHead.headers.get("etag"), fileEntityTags.get(2),
+        assert.equal(recoveredHead.headers.get("etag"), fileEntityTags.get(cachedFile),
             "Reopening the same verified file changed its identity");
         await Bun.sleep(2000);
         const cachedPlayback = await play(new URL(recoveredStream.url), "cached-complete");
-        await command("close", {fileIndex: 2});
+        await command("close", {fileIndex: cachedFile});
         await waitFor("Closing playback releases session completion actions", () => command("snapshot"),
             snapshot => snapshot.completionActionReady, 15000);
         await command("finish");

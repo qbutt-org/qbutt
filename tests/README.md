@@ -1311,6 +1311,21 @@ translations are preseeded in the isolated cache; this does not exercise live
 inference or the qbutt product-window handoff. The other mpv checks use null
 audio/video outputs.
 
+Run `bun tests/media-streaming.ts --no-cues` with the same environment for the
+focused incomplete Matroska scenario. FFmpeg generates a live-mode MKV; the
+runner checks its Segment elements to confirm that Cues are absent. All three
+torrent formats exercise exact Range bytes, time seek, cancellation, ordinary
+download completion and cached playback. Native qplay starts while that MKV
+still has missing pieces, selects its original ASS, seeks and resumes after the
+bounded subtitle scanner fails. Its inference discovery is isolated in an empty
+owned directory; reaching unavailable inference instead of the scan failure
+fails the probe. This checks playback independently of full no-Cues subtitle
+extraction. A read-only plugin observes native time-critical pieces on
+libtorrent's thread: cancellation must acquire a deadline before releasing it,
+and closing playback must restore priorities, remove deadlines and release the
+streaming lease. Only the generated MKV is played in this mode; the neighboring
+MP4 files retain the multi-file torrent and padding mappings.
+
 For a short appearance-only acceptance on the same executable, use
 `bun run smoke:appearance`. It needs no Python, torrent data or transport child.
 Three offscreen app processes check a fresh System-theme profile under a

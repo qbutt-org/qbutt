@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -16,6 +17,9 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include <libtorrent/extensions.hpp>
+#include <libtorrent/torrent.hpp>
 
 #include <QAbstractButton>
 #include <QAction>
@@ -1511,6 +1515,26 @@ namespace
             {u"clickThrough"_s, true}, {u"noFocus"_s, true}, {u"minimizedVisible"_s, true}, {u"pauseHides"_s, true}});
     }
 
+    class StreamingDeadlines final : public lt::torrent_plugin
+    {
+    public:
+        StreamingDeadlines(const lt::torrent_handle &handle, std::shared_ptr<std::atomic<int>> count)
+            : m_torrent {handle.native_handle()}
+            , m_count {std::move(count)}
+        {
+        }
+
+        void tick() override
+        {
+            if (const auto torrent = m_torrent.lock())
+                m_count->store(torrent->num_time_critical_pieces());
+        }
+
+    private:
+        std::weak_ptr<lt::torrent> m_torrent;
+        std::shared_ptr<std::atomic<int>> m_count;
+    };
+
     void exerciseMediaStreaming(const QJsonObject &spec, QJsonObject &evidence)
     {
         auto *session = BitTorrent::Session::instance();
@@ -1536,6 +1560,17 @@ namespace
         require(torrent->connectPeer(BitTorrent::PeerAddress::parse(spec.value(u"peer"_s).toString())),
             u"Cannot connect generated media seed"_s);
         auto *nativeTorrent = static_cast<BitTorrent::TorrentImpl *>(torrent);
+        const auto deadlines = std::make_shared<std::atomic<int>>(-1);
+        const auto observeDeadlines = [&]
+        {
+            deadlines->store(-1);
+            nativeTorrent->nativeHandle().add_extension([deadlines](const lt::torrent_handle &handle, lt::client_data_t)
+            {
+                return std::make_shared<StreamingDeadlines>(handle, deadlines);
+            });
+            waitFor(u"Native streaming deadline observation"_s, [&] { return deadlines->load() >= 0; });
+        };
+        observeDeadlines();
         auto expectedPiecePriorities = nativeTorrent->nativeHandle().get_piece_priorities();
         const auto originalFilePriorities = torrent->filePriorities();
         const bool originalSequential = torrent->isSequentialDownload();
@@ -1557,8 +1592,10 @@ namespace
                 && (torrent->isSequentialDownload() == originalSequential);
             return QJsonObject {{u"pieces"_s, pieces},
                 {u"prioritiesRestored"_s, restored}, {u"sequential"_s, torrent->isSequentialDownload()},
+                {u"deadlines"_s, deadlines->load()},
                 {u"completedBytes"_s, torrent->completedSize()}, {u"progress"_s, torrent->progress()},
                 {u"openStreams"_s, streams.size()}, {u"completionReady"_s, nativeTorrent->isReadyForCompletion()},
+                {u"streamingLease"_s, nativeTorrent->hasStreamingLease()},
                 {u"completionActionReady"_s, static_cast<BitTorrent::SessionImpl *>(session)->canRunCompletionAction()}};
         };
         const QString commandPath = spec.value(u"commandPath"_s).toString();
@@ -1617,7 +1654,7 @@ namespace
                 {
                     waitFor(u"Streaming restores ordinary torrent priorities"_s, [&]
                     {
-                        return state().value(u"prioritiesRestored"_s).toBool();
+                        return state().value(u"prioritiesRestored"_s).toBool() && (deadlines->load() == 0);
                     }, 5000);
                 }
             }
@@ -1670,6 +1707,7 @@ namespace
                 torrent->start();
                 streams.clear();
                 require(nativeTorrent->nativeHandle() != oldHandle, u"Resume recovery did not replace the native handle"_s);
+                observeDeadlines();
                 waitFor(u"Reloaded media payload verified"_s, [&]
                 {
                     return (torrent->progress() == 1) && !torrent->isChecking() && !nativeTorrent->hasExclusiveFileOperation();
@@ -1678,7 +1716,8 @@ namespace
             }
             else if (action == u"finish")
             {
-                require(streams.isEmpty() && state().value(u"prioritiesRestored"_s).toBool(),
+                require(streams.isEmpty() && state().value(u"prioritiesRestored"_s).toBool()
+                    && !nativeTorrent->hasStreamingLease() && (deadlines->load() == 0),
                     u"Streaming left modified ordinary torrent priorities"_s);
                 require(torrent->progress() == 1, u"Ordinary media download did not complete"_s);
                 torrent->stop();
