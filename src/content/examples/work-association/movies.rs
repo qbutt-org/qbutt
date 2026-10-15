@@ -27,6 +27,8 @@ pub(super) fn run() {
     let unnumbered = [
         "Ready Or Not Here I Come (2026)",
         "Ready or Not Here I Come 2026 m1080p BluRay x264-GeneMige",
+        "Ready or Not: Here I Come (2026) [1080p] [WEBRip] [x265] [10bit] [5.1]",
+        "Ready or Not: Here I Come (2026) [2160p] [WEBRip] [x265] [10bit] [5.1]",
     ];
     let publications: Vec<_> = originals
         .into_iter()
@@ -99,6 +101,6 @@ pub(super) fn run() {
         }
     }
     println!(
-        "movie_release_corpus=RuTor+LimeTorrents original2019=7 sequel2026=7 unnumbered2026=2 arrival_orders=32 exact_variants=preserved"
+        "movie_release_corpus=RuTor+LimeTorrents original2019=7 sequel2026=7 unnumbered2026=4 arrival_orders=36 exact_variants=preserved"
     );
 }

@@ -227,7 +227,8 @@ fn video_metadata(suffix: &str) -> bool {
             .find(|word| !word.eq_ignore_ascii_case("uhd") && !word.eq_ignore_ascii_case("pl"))
             .unwrap_or_default()
             .to_ascii_lowercase();
-        let quality = first.strip_prefix('m').unwrap_or(&first);
+        let first = first.trim_end_matches([']', ')']);
+        let quality = first.strip_prefix('m').unwrap_or(first);
         if matches!(
             quality,
             "480p" | "576p" | "720p" | "1080p" | "1080i" | "1440p" | "2160p" | "4320p"
