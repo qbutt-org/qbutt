@@ -49,9 +49,6 @@ pub enum LibraryAction {
         group: WorkGroup,
         preferences: VariantPreferences,
     },
-    Refresh {
-        group: WorkGroup,
-    },
     ReaderProgress {
         save: ReaderSave,
         generation: u64,
@@ -767,7 +764,6 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
             None,
             None,
         ),
-        LibraryAction::Refresh { group } => (library.refresh_work(&group), None, None),
         LibraryAction::ReaderProgress { save, generation } => (
             library
                 .save_reader_progress(&save.group, save.preferences, save.progress)
