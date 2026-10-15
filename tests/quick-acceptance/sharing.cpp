@@ -14,6 +14,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScopeGuard>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -21,6 +22,7 @@
 #include <QTemporaryDir>
 #include <QThreadPool>
 #include <QTimer>
+#include <QVariant>
 
 #include "qbutt_quick/src/controller.cxxqt.h"
 
@@ -74,21 +76,32 @@ namespace
         };
     }
 
-    QJsonObject savedGroup(const QString &profile)
+    QJsonObject storedJson(const QString &profile, const QString &sql)
     {
-        QJsonObject group;
+        const QString connection = u"sharing-fixture"_s;
+        const auto removeConnection = qScopeGuard([&] { QSqlDatabase::removeDatabase(connection); });
+        auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, connection);
+        database.setDatabaseName(QDir(profile).filePath(u"content-library.sqlite"_s));
+        require(database.open(), database.lastError().text());
+        QSqlQuery query(database);
+        require(query.exec(sql), query.lastError().text());
+        require(query.next(), u"Shared fixture row is missing"_s);
+        return QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object();
+    }
+
+    QVariant sourceValue(Qbutt::ContentController &controller, const QByteArray &role)
+    {
+        auto *sources = qobject_cast<QAbstractItemModel *>(controller.property("sources").value<QObject *>());
+        require(sources, u"Native source settings are missing"_s);
+        const int sourceRole = sources->roleNames().key("sourceId", -1);
+        const int valueRole = sources->roleNames().key(role, -1);
+        require(sourceRole >= 0 && valueRole >= 0, u"Source status role is missing"_s);
+        for (int row = 0; row < sources->rowCount(); ++row)
         {
-            QSqlDatabase database = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"sharing-fixture"_s);
-            database.setDatabaseName(QDir(profile).filePath(u"content-library.sqlite"_s));
-            require(database.open(), database.lastError().text());
-            QSqlQuery query(database);
-            require(query.exec(u"SELECT entry FROM library"_s), query.lastError().text());
-            require(query.next(), u"Shared work was not saved"_s);
-            group = QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object().value(u"group"_s).toObject();
-            database.close();
+            if (sources->data(sources->index(row, 0), sourceRole).toString() == u"aniliberty"_s)
+                return sources->data(sources->index(row, 0), valueRole);
         }
-        QSqlDatabase::removeDatabase(u"sharing-fixture"_s);
-        return group;
+        throw std::runtime_error("The shared fixture source is missing");
     }
 
     void readyLibrary(Qbutt::ContentController &controller, const QString &profile)
@@ -151,7 +164,8 @@ void exerciseSharing()
         && (unavailableSignals == 1), u"Unrelated publication changed the imported work"_s);
     controller->setSelectedFavorite(true);
     waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Imported favorite"_s);
-    const QJsonArray confirmed = savedGroup(profile.path()).value(u"references"_s).toArray();
+    const QJsonArray confirmed = storedJson(profile.path(), u"SELECT entry FROM library"_s)
+        .value(u"group"_s).toObject().value(u"references"_s).toArray();
     require((confirmed.size() == 1) && (confirmed[0].toObject() == publication(u"9542"_s)),
         u"Unverified publication escaped into the library"_s);
 
@@ -218,7 +232,62 @@ void exerciseSharing()
     require(receivedMagnet.endsWith(QString::number(38'084, 16).rightJustified(40, QChar(u'0'))),
         u"Shared action returned a different torrent"_s);
 
+    const int previousUnavailable = unavailableSignals;
+    controller->openSharedLink(link({publication(u"9542"_s), publication(u"9545"_s)},
+        preferredTorrent(u"9542"_s, 28'084)));
+    waitFor([&]
+    {
+        return !controller->property("sharedImporting").toBool() && !controller->property("libraryPending").toBool();
+    }, u"Failed alternate shared publication"_s);
+    require(unavailableSignals == previousUnavailable && variants->rowCount() == 3
+        && controller->property("selectedVariantId").toString() == u"aniliberty:9542:torrent:28084"_s
+        && controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
+            == Qbutt::Search::VariantSelectionState::Available,
+        u"Failed alternate blocked or replaced the available exact shared variant"_s);
+    require(sourceValue(*controller, "failed").toBool()
+        && !sourceValue(*controller, "failureText").toString().isEmpty(),
+        u"Failed alternate was not reported in Sources"_s);
+    const QJsonObject failure = storedJson(profile.path(),
+        u"SELECT failure FROM source_settings WHERE source = 'aniliberty'"_s);
+    require(failure.value(u"operation"_s).toObject().value(u"inspect"_s).toObject().value(u"reference"_s).toObject()
+        == publication(u"9545"_s), u"Shared source failure lost its exact failed publication"_s);
+
+    const QString userChoice = u"aniliberty:9542:torrent:28085"_s;
+    controller->selectVariant(userChoice);
+    require(controller->retrySource(u"aniliberty"_s), u"Failed shared alternate retry was rejected"_s);
+    waitFor([&]
+    {
+        return !sourceValue(*controller, "retrying").toBool() && !controller->property("libraryPending").toBool();
+    }, u"Shared alternate retry"_s);
+    require(!sourceValue(*controller, "failed").toBool() && variants->rowCount() == 5
+        && controller->property("selectedVariantId").toString() == userChoice
+        && unavailableSignals == previousUnavailable,
+        u"Shared retry lost the user's choice, failed association or left its source error"_s);
+
+    controller->openSharedLink(link({publication(u"9542"_s), publication(u"9546"_s)},
+        preferredTorrent(u"9542"_s, 28'084)));
+    waitFor([&]
+    {
+        return !controller->property("sharedImporting").toBool() && !controller->property("libraryPending").toBool();
+    }, u"Cancellable shared alternate"_s);
+    const QString beforeCancel = controller->property("selectedVariantId").toString();
+    require(controller->retrySource(u"aniliberty"_s), u"Cancellable shared retry was rejected"_s);
+    controller->setListMode(Qbutt::Search::ListMode::Favorites);
+    qInfo("FIXTURE release_cancelled_shared_retry");
+    waitFor([&]
+    {
+        return !sourceValue(*controller, "retrying").toBool() && !controller->property("libraryPending").toBool();
+    }, u"Cancelled shared retry outcome"_s);
+    require(variants->rowCount() == 3 && controller->property("selectedVariantId").toString() == beforeCancel
+        && unavailableSignals == previousUnavailable,
+        u"Cancelled shared retry changed selection, added a publication or opened an error"_s);
+
+    controller->openSharedLink(link({publication(u"9547"_s)}));
+    waitFor([&] { return !controller->property("sharedImporting").toBool(); }, u"Entirely unavailable shared work"_s);
+    require(unavailableSignals == previousUnavailable + 1 && variants->rowCount() == 0
+        && controller->property("selectedWorkId").toString().isEmpty(), u"Full shared failure was hidden"_s);
+
     controller.reset();
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Shared receiver owner did not drain"_s);
-    qInfo("PASS share exact=unavailable unrelated=isolated missing=unselected public=accepted private=rejected malformed=rejected late=preserved");
+    qInfo("PASS share exact=unavailable unrelated=isolated missing=unselected public=accepted private=rejected malformed=rejected late=preserved partial=usable source_failure=exact retry=joined cancelled_retry=ignored full_failure=visible");
 }

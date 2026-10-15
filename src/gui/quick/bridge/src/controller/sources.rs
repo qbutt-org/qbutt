@@ -873,6 +873,11 @@ impl ffi::ContentController {
         let thread = self.qt_thread();
         let search_generation = self.search.generation;
         let inspection_generation = self.inspection.generation;
+        let shared_generation = self.shared_document.as_ref().and_then(|document| {
+            matches!(&request.operation, SourceOperation::Inspect { reference, .. }
+                if document.publications().contains(reference))
+            .then_some(self.shared_import.generation)
+        });
         let retry_generation = status.retry.generation;
         let retry_is_search = matches!(&request.operation, SourceOperation::Search { .. });
         let task = services.runtime.spawn(async move {
@@ -928,6 +933,23 @@ impl ffi::ContentController {
                                     .update(work);
                             }
                             controller.as_mut().refresh_search_groups(search_generation);
+                        }
+                        (
+                            SourceOperation::Inspect { reference, .. },
+                            Ok(SourceResponse::Inspect(work)),
+                        ) if shared_generation == Some(controller.shared_import.generation)
+                            && controller.shared_document.as_ref().is_some_and(|document| {
+                                document.publications().contains(reference)
+                            }) =>
+                        {
+                            controller
+                                .as_mut()
+                                .publish_shared_publication(reference, work);
+                            if shared_generation == Some(controller.shared_import.generation)
+                                && controller.shared_import.task.is_none()
+                            {
+                                controller.as_mut().complete_shared_import();
+                            }
                         }
                         (
                             SourceOperation::Inspect { reference, .. },

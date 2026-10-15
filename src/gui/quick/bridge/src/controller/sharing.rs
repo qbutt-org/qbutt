@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::QString;
-use qbutt_content::{ShareError, SharedWork, Source, SourceOperation};
+use qbutt_content::{PublicationRef, ShareError, SharedWork, Source, SourceOperation, Work};
 use tokio::task::JoinSet;
 
 use super::catalog::SourceResponse;
@@ -106,6 +106,7 @@ impl ffi::ContentController {
             state.shared_import.cancel();
             state.shared_document = None;
             state.shared_works.clear();
+            state.shared_association_failed = false;
         }
         self.as_mut().set_shared_importing(false);
     }
@@ -120,6 +121,7 @@ impl ffi::ContentController {
     pub(super) fn begin_shared_import(mut self: Pin<&mut Self>) {
         self.as_mut().rust_mut().shared_import.cancel();
         self.as_mut().rust_mut().shared_works.clear();
+        self.as_mut().rust_mut().shared_association_failed = false;
         let Some(document) = self.shared_document.clone() else {
             return;
         };
@@ -197,42 +199,10 @@ impl ffi::ContentController {
                             SourceOperation::Inspect { reference, .. },
                             Ok(SourceResponse::Inspect(work)),
                         ) = (&request.operation, result)
-                            && &work.reference == reference
                         {
-                            let Some(document) = controller.shared_document.clone() else {
-                                return;
-                            };
-                            if controller.shared_works.is_empty() && document.preferred().is_some()
-                            {
-                                controller
-                                    .as_mut()
-                                    .rust_mut()
-                                    .work_preferences
-                                    .entry(work.reference.clone())
-                                    .or_default()
-                                    .selected = None;
-                            }
-                            controller.as_mut().rust_mut().shared_works.push(work);
-                            let works = controller.shared_works.clone();
-                            let publications: Vec<_> = document
-                                .publications()
-                                .iter()
-                                .filter(|reference| {
-                                    works.iter().any(|work| &work.reference == *reference)
-                                })
-                                .cloned()
-                                .collect();
-                            let preferred = document
-                                .preferred()
-                                .filter(|variant| publications.contains(&variant.publication))
-                                .cloned();
-                            if !controller.as_mut().show_shared_publications(
-                                publications,
-                                works,
-                                preferred,
-                            ) {
-                                controller.as_mut().rust_mut().shared_works.pop();
-                            }
+                            controller
+                                .as_mut()
+                                .publish_shared_publication(reference, work);
                         }
                     });
                 }
@@ -251,25 +221,89 @@ impl ffi::ContentController {
                     return;
                 }
                 controller.as_mut().rust_mut().shared_import.task = None;
-                controller.as_mut().set_shared_importing(false);
-                if controller.shared_import.generation != generation {
-                    return;
-                }
-                if controller.shared_works.is_empty() {
-                    controller.as_mut().shared_link_failed(false);
-                    return;
-                }
-                let complete = controller.shared_document.as_ref().is_some_and(|document| {
-                    controller.shared_works.len() == document.publications().len()
-                });
-                controller.as_mut().rust_mut().shared_works.clear();
-                if complete {
-                    controller.as_mut().rust_mut().shared_document = None;
-                } else {
-                    controller.as_mut().shared_link_failed(false);
-                }
+                controller.as_mut().complete_shared_import();
             });
         });
         self.as_mut().rust_mut().shared_import.task = Some(task);
+    }
+
+    pub(super) fn publish_shared_publication(
+        mut self: Pin<&mut Self>,
+        reference: &PublicationRef,
+        work: Work,
+    ) {
+        let Some(document) = self.shared_document.clone() else {
+            return;
+        };
+        if &work.reference != reference {
+            self.as_mut().rust_mut().shared_association_failed = true;
+            return;
+        }
+        if self.selected_group.is_none() && document.preferred().is_some() {
+            self.as_mut()
+                .rust_mut()
+                .work_preferences
+                .entry(work.reference.clone())
+                .or_default()
+                .selected = None;
+        }
+        let mut works = self.shared_works.clone();
+        if let Some(previous) = works
+            .iter_mut()
+            .find(|previous| previous.reference == work.reference)
+        {
+            *previous = work;
+        } else {
+            works.push(work);
+        }
+        let publications: Vec<_> = document
+            .publications()
+            .iter()
+            .filter(|reference| works.iter().any(|work| &work.reference == *reference))
+            .cloned()
+            .collect();
+        let preferred = document
+            .preferred()
+            .filter(|variant| publications.contains(&variant.publication))
+            .cloned();
+        let generation = self.shared_import.generation;
+        let accepted =
+            self.as_mut()
+                .show_shared_publications(publications, works.clone(), preferred);
+        if self.shared_import.generation != generation {
+            return;
+        }
+        if accepted {
+            self.as_mut().rust_mut().shared_works = works;
+        } else {
+            self.as_mut().rust_mut().shared_association_failed = true;
+        }
+    }
+
+    pub(super) fn complete_shared_import(mut self: Pin<&mut Self>) {
+        let generation = self.shared_import.generation;
+        self.as_mut().set_shared_importing(false);
+        if self.shared_import.generation != generation {
+            return;
+        }
+        let Some(document) = &self.shared_document else {
+            return;
+        };
+        let unavailable = self.shared_works.is_empty()
+            || self.shared_association_failed
+            || document.preferred().is_some_and(|preferred| {
+                !self
+                    .shared_works
+                    .iter()
+                    .any(|work| work.reference == preferred.publication)
+            });
+        if self.shared_works.len() == document.publications().len() {
+            let mut state = self.as_mut().rust_mut();
+            state.shared_document = None;
+            state.shared_works.clear();
+        }
+        if unavailable {
+            self.as_mut().shared_link_failed(false);
+        }
     }
 }

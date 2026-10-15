@@ -35,7 +35,11 @@ function release(id: number) {
 const releases = [release(9542), release(9543)];
 const sharedReleases = [9550, 9551].map(id => ({ ...release(id), mal: { id: 52991 } }));
 const resolutionStarted = Promise.withResolvers<void>();
+const cancelledSharedRetry = Promise.withResolvers<void>();
 let sharedAnchorRequests = 0;
+let partialAlternateRequests = 0;
+let cancelledAlternateRequests = 0;
+let preferredPublicationRequests = 0;
 let searches = 0;
 let inspections = 0;
 let failure: unknown;
@@ -53,11 +57,19 @@ const server = Bun.serve({
                 ++searches;
                 return Response.json(releases);
             }
-            const match = /^\/api\/v1\/anime\/releases\/(9542|9543|9544|9550|9551)$/.exec(url.pathname);
+            const match = /^\/api\/v1\/anime\/releases\/(9542|9543|9544|9545|9546|9547|9550|9551)$/.exec(url.pathname);
             assert(match && !url.search, `Unexpected AniLiberty path: ${url.pathname}`);
             ++inspections;
-            if (match[1] === "9544")
+            if (match[1] === "9542") ++preferredPublicationRequests;
+            if (["9544", "9547"].includes(match[1]))
                 return Response.json({ message: "Not found" }, { status: 404 });
+            if (match[1] === "9545" || match[1] === "9546") {
+                const count = match[1] === "9545" ? ++partialAlternateRequests : ++cancelledAlternateRequests;
+                if (count === 1)
+                    return Response.json({ message: "Not found" }, { status: 404 });
+                if (match[1] === "9546") await cancelledSharedRetry.promise;
+                return Response.json({ ...release(Number(match[1])), name: { main: "Generated Frieren 9542" } });
+            }
             if (match[1] === "9550") {
                 if (++sharedAnchorRequests === 2) {
                     resolutionStarted.resolve();
@@ -94,6 +106,7 @@ async function runScenario(scenario: string, expected: string) {
     let output = "";
     function capture(chunk: Buffer) {
         output = (output + chunk.toString("utf8")).slice(-64 * 1024);
+        if (output.includes("FIXTURE release_cancelled_shared_retry")) cancelledSharedRetry.resolve();
     }
     child.stdout.on("data", capture);
     child.stderr.on("data", capture);
@@ -116,6 +129,10 @@ try {
     if (scenario !== "library") {
         await runScenario("sharing", "PASS share exact=unavailable");
         assert.equal(sharedAnchorRequests, 2, "Shared action must resolve once without a retry");
+        assert.equal(partialAlternateRequests, 2, "Shared retry must inspect only the failed alternate");
+        assert.equal(cancelledAlternateRequests, 2, "Cancelled shared retry must still complete its exact source probe");
+        if (scenario === "sharing")
+            assert.equal(preferredPublicationRequests, 5, "Alternate retries restarted the shared preferred publication");
     }
     if (failure) throw failure;
     if (scenario !== "sharing")
@@ -123,5 +140,6 @@ try {
     assert(inspections >= 5, "The native catalog did not repeat exact inspections");
     console.log(JSON.stringify({ ok: true, scenario, searches, inspections }));
 } finally {
+    cancelledSharedRetry.resolve();
     server.stop(true);
 }
