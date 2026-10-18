@@ -38,6 +38,15 @@ mod rutracker {
         }
     }
 
+    pub(super) fn cache_stale_manual_session(source: &RuTracker) -> Result<()> {
+        *source.clearance.lock().unwrap() = Some(Clearance {
+            received: Instant::now(),
+            session: SourceSession::anonymous(source.origin.clone())?,
+            manual: true,
+        });
+        Ok(())
+    }
+
     pub(super) async fn document_after_late_browser(
         source: &RuTracker,
         url: Url,
@@ -269,7 +278,7 @@ async fn main() -> CheckResult {
         "PASS rutracker_cp1251_request_response=ok source_ancestry=7 exact_topic=ok fresh_magnet=ok replaced_hash=rejected torrent_only=unsupported"
     );
     println!(
-        "PASS malformed_metadata=rejected challenge_login=typed connected_session_retry=ok unavailable_session=original browser_choice=typed cancellation=closed sqlite=redacted"
+        "PASS malformed_metadata=rejected challenge_login=typed connected_session_retry=ok cached_manual_challenge_retry=ok unavailable_session=original browser_choice=typed cancellation=closed sqlite=redacted"
     );
     Ok(())
 }
@@ -475,6 +484,27 @@ async fn browser_sessions(
 
     let mut edge = browser_fixture::extension(&discovery, "edge", "fixture-browser", false).await?;
     wait_browser(&handle, 1).await?;
+    fixture.case("manual-challenge");
+    let stale = rutracker::fixture(
+        http::fixture(fixture.client.clone(), fixture.origin.clone()),
+        fixture.origin.clone(),
+    );
+    rutracker::cache_stale_manual_session(&stale)?;
+    let before = fixture.requests.lock().unwrap().len();
+    let operation = stale.search(
+        "generated",
+        Category::Anime,
+        Some(&handle),
+        BrowserChoice::Edge,
+    );
+    let (result, reply) = tokio::join!(operation, answer_session(&mut edge, fixture, false));
+    assert_eq!(result?.len(), 1);
+    reply?;
+    {
+        let requests = fixture.requests.lock().unwrap();
+        assert_eq!(requests.len() - before, 3);
+        assert_eq!(requests[before + 1], requests[before + 2]);
+    }
     fixture.case("borrow-challenge");
     let url = fixture
         .origin

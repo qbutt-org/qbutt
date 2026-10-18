@@ -231,8 +231,7 @@ impl RuTracker {
             Err(error @ (Error::LoginRequired | Error::Challenge)) => error,
             result => return result,
         };
-        if matches!(&blocked, Error::LoginRequired)
-            && !matches!(session.browser, BrowserBorrow::Borrowed)
+        if !matches!(session.browser, BrowserBorrow::Borrowed)
             && let Some(browser) = browser
         {
             let scope = self.origin.join("/forum/tracker.php").unwrap();

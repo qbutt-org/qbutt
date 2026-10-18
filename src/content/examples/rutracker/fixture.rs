@@ -189,7 +189,8 @@ fn response(
             return cp1251("200 OK", login());
         }
         "session" | "borrow-challenge" if !authenticated => return cp1251("200 OK", login()),
-        "challenge" | "borrow-challenge" => {
+        "manual-challenge" if authenticated => {}
+        "challenge" | "borrow-challenge" | "manual-challenge" => {
             return cp1251(
                 "403 Forbidden",
                 "<script src='/cdn-cgi/challenge-platform/check.js'></script>".into(),
