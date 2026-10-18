@@ -67,8 +67,14 @@ const server = Bun.serve({
                 return Response.json({ response: [publication] });
             }
             assert.equal(url.pathname, "/anime/9661");
+            if (url.searchParams.get("need_videos") === "false") {
+                return Response.json({ response: publication });
+            }
+            assert.equal(url.searchParams.get("need_videos"), "true");
             ++lateInspections;
-            await (lateInspections === 1 ? releaseInspection.promise : releaseCachedLate.promise);
+            // A 503 gets one transport retry before the next logical inspection.
+            const firstInspection = lateInspections <= (scenario === "failure" ? 2 : 1);
+            await (firstInspection ? releaseInspection.promise : releaseCachedLate.promise);
             if (scenario === "failure") {
                 return new Response("Generated unavailable source", { status: 503 });
             }
@@ -124,7 +130,9 @@ child.stdout.on("data", capture);
 child.stderr.on("data", capture);
 const timer = setTimeout(() => child.kill(), 40_000);
 try {
-    assert.equal(await exited, 0, output);
+    const exitCode = await exited;
+    const requests = { scenario, searches, fastInspections, lateInspections };
+    assert.equal(exitCode, 0, `${output}\n${JSON.stringify(requests)}\n${String(failure ?? "")}`);
     if (failure) throw failure;
     assert(output.includes("PASS progressive_selection"), output);
     assert.equal(searches, 2);
@@ -132,7 +140,8 @@ try {
     if (scenario === "empty") expectedFastInspections = 2;
     else if (["missing", "split", "split-anchor"].includes(scenario)) expectedFastInspections = 3;
     assert.equal(fastInspections, expectedFastInspections);
-    assert.equal(lateInspections, scenario.startsWith("split") ? 3 : 2);
+    const expectedLateRequests = scenario === "failure" ? 4 : scenario.startsWith("split") ? 3 : 2;
+    assert.equal(lateInspections, expectedLateRequests);
     console.log(output);
     console.log(JSON.stringify({ ok: true, scenario, searches, fastInspections, lateInspections }));
 } finally {

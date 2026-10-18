@@ -73,13 +73,16 @@ stable. A held slow inspection must not disable the ready variant or block its
 exact torrent handoff. Favorites must verify their own publication before acting.
 Repeat with `failure` for an unavailable source, `initial` for the first ready
 variant while another source is loading, and `missing` for a vanished saved
-variant that must not be silently replaced. `split` and `split-anchor` give the
+variant that must not be silently replaced. `empty` checks removal of confirmed
+empty search groups, a late working source and unchanged Favorites.
+`split` and `split-anchor` give the
 late publication or the original anchor a conflicting year. Exact selection and
 filters must survive without implicit library writes. An explicit change then
 separates the saved work and its former member's confirmed History atomically;
 opening that History row must restore the exact variant. The isolated fixture build maps
 `anilibria.top` and `api.yani.tv` to `127.0.0.1:443` and trusts the fixture CA through
-a temporary `SourceHttp::new` overlay. Restore it and rebuild production transport
+a temporary `SourceHttp::new` overlay. Serve a TLS server certificate (`CA:FALSE`),
+not a CA certificate. Restore the overlay and rebuild production transport
 afterwards; this scenario never uses a live profile or source.
 Set `QBUTT_PROGRESSIVE_RENDER_DIR` to an absolute directory for an offscreen
 product render of the ready action while inspection is pending. This does not

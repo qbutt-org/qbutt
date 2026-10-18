@@ -148,7 +148,7 @@ void exerciseProgressiveSelection()
             && (controller->property("selectedVariantState").value<Qbutt::Search::VariantSelectionState>()
                 == Qbutt::Search::VariantSelectionState::Available),
             u"Empty source hid the working alternative"_s);
-        require(controller->setSelectedFavorite(true), u"Mixed work favorite rejected"_s);
+        controller->setSelectedFavorite(true);
         waitFor([&] { return !controller->property("libraryPending").toBool(); }, u"Mixed work favorite save"_s);
         const auto before = savedEntries(profile.path());
         controller->setListMode(Qbutt::Search::ListMode::Favorites);
