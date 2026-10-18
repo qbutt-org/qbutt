@@ -12,7 +12,11 @@ use crate::{
 };
 
 const ORIGIN: &str = "https://weebcentral.com";
-const IMAGE_HOSTS: &[&str] = &["hot.planeptune.us", "temp.compsci88.com"];
+const IMAGE_HOSTS: &[&str] = &[
+    "hot.planeptune.us",
+    "scans.lastation.us",
+    "temp.compsci88.com",
+];
 const MAX_CHAPTER_LIST_BYTES: usize = 4 * 1024 * 1024;
 
 /// Public English manga. The caller owns the runtime and request cancellation.

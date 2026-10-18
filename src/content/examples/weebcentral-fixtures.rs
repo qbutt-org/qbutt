@@ -55,12 +55,16 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(chapters[1].number.as_deref(), Some("2"));
     assert!(chapters.iter().all(|chapter| chapter.title.is_none()));
     let selected = &chapters[1].reference;
-    let pages = provider.chapter_pages(selected).await?;
-    assert_eq!(pages.images.len(), 2);
-    assert_eq!(
-        provider.image_bytes(&pages.images[0]).await?,
-        fixture::png()
-    );
+    for fault in ["", "legacy_cdn"] {
+        fixture.set_fault(fault);
+        let pages = provider.chapter_pages(selected).await?;
+        assert_eq!(pages.images.len(), 2);
+        assert_eq!(
+            provider.image_bytes(&pages.images[0]).await?,
+            fixture::png()
+        );
+    }
+    fixture.set_fault("");
     assert!(provider.search("empty").await?.is_empty());
     assert!(matches!(
         provider.search("malformed").await,
@@ -132,11 +136,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             Err(Error::InvalidResponse(_))
         ));
     }
-    fixture.set_fault("unsafe_image");
-    assert!(matches!(
-        provider.chapter_pages(selected).await,
-        Err(Error::UnsafeAddress)
-    ));
+    for fault in ["unsafe_image", "foreign_image", "image_port"] {
+        fixture.set_fault(fault);
+        assert!(matches!(
+            provider.chapter_pages(selected).await,
+            Err(Error::UnsafeAddress)
+        ));
+    }
     fixture.set_fault("");
     let mut wrong_branch = variant.clone();
     wrong_branch.selector = VariantSelector::MangaTranslation {
@@ -156,7 +162,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(provider.chapter_pages(selected).await?.images.len(), 2);
     fixture.stop().await;
     println!(
-        "PASS WeebCentral generated TLS search/empty/inspect/nonfirst chapter/image, exact publication/selector/chapter, optional age metadata, duplicate and unsafe resources, HTTP failure, timeout, cancellation, default 2MiB and chapter-list 4MiB bounds, retry"
+        "PASS WeebCentral generated TLS search/empty/inspect/nonfirst chapter/image, current and legacy CDN, exact publication/selector/chapter, optional age metadata, duplicate and unsafe resources, foreign CDN and port rejection, HTTP failure, timeout, cancellation, default 2MiB and chapter-list 4MiB bounds, retry"
     );
     Ok(())
 }

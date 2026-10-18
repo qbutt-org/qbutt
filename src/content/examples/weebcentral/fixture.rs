@@ -28,6 +28,7 @@ impl Fixture {
         let certified = rcgen::generate_simple_self_signed(vec![
             "fixture.example".into(),
             "hot.planeptune.us".into(),
+            "scans.lastation.us".into(),
         ])?;
         let config = ServerConfig::builder()
             .with_no_client_auth()
@@ -46,6 +47,7 @@ impl Fixture {
             .timeout(Duration::from_millis(500))
             .resolve("fixture.example", address)
             .resolve("hot.planeptune.us", address)
+            .resolve("scans.lastation.us", address)
             .add_root_certificate(reqwest::Certificate::from_der(certified.cert.der())?)
             .build()?;
         let fault = Arc::new(Mutex::new(""));
@@ -206,10 +208,12 @@ fn response(origin: &Url, path: &str, fault: &str) -> (u16, &'static str, Vec<u8
         if fault == "missing_images" {
             return (200, "text/html", b"<html>Missing</html>".to_vec());
         }
-        let image_origin = if fault == "unsafe_image" {
-            "https://127.0.0.1"
-        } else {
-            "https://hot.planeptune.us"
+        let image_origin = match fault {
+            "legacy_cdn" => "https://hot.planeptune.us",
+            "unsafe_image" => "https://127.0.0.1",
+            "foreign_image" => "https://scans.lastation.us.evil.invalid",
+            "image_port" => "https://scans.lastation.us:444",
+            _ => "https://scans.lastation.us",
         };
         // The fixture's client connects this production hostname to its private
         // TLS server. No production code admits loopback or a fixture host.
