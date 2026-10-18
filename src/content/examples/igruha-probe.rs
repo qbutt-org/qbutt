@@ -1,20 +1,21 @@
-//! One bounded Ready or Not search case using an isolated, owned QA profile.
+//! Bounded live search, inspection and resolution in an isolated QA profile.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use qbutt_content::{Category, Error, Igruha, SourceFailureReason, browser::BrowserChoice, query};
+use qbutt_content::{Category, Error, Igruha, ResolvedContent, browser::BrowserChoice, query};
 use tokio::time::{Instant, timeout_at};
-
-const QUERY: &str = "ready or not";
 
 #[tokio::main]
 async fn main() -> ExitCode {
     let Some(app_dir) = std::env::args_os().nth(1).map(PathBuf::from) else {
-        eprintln!("usage: igruha-probe HELPER_DIRECTORY");
+        eprintln!("usage: igruha-probe HELPER_DIRECTORY [QUERY]");
         return ExitCode::FAILURE;
     };
+    let query = std::env::args()
+        .nth(2)
+        .unwrap_or_else(|| "ready or not".into());
     let mut random = [0u8; 8];
     if getrandom::fill(&mut random).is_err() {
         eprintln!("probe_error=profile_identity");
@@ -50,23 +51,14 @@ async fn main() -> ExitCode {
         };
         source.initialize_webview(profile.clone(), app_dir.clone());
         let started = Instant::now();
-        let result = timeout_at(
-            deadline,
-            source.search(QUERY, Category::Games, None, BrowserChoice::Auto),
-        )
-        .await;
+        let result = timeout_at(deadline, check_publication(&source, &query, phase)).await;
         source.close();
         drop(source);
 
         match result {
-            Ok(Ok(works)) => {
-                let matching = works
-                    .iter()
-                    .filter(|work| query::matches(QUERY, work))
-                    .count();
+            Ok(Ok(matching)) => {
                 println!(
-                    "phase={phase} result=success raw_results={} matching_titles={matching} elapsed_ms={}",
-                    works.len(),
+                    "phase={phase} result=success matching_titles={matching} elapsed_ms={}",
                     started.elapsed().as_millis()
                 );
                 if matching == 0 {
@@ -101,6 +93,60 @@ async fn main() -> ExitCode {
     }
 }
 
+async fn check_publication(source: &Igruha, query: &str, phase: u8) -> Result<usize, Error> {
+    let works = source
+        .search(query, Category::Games, None, BrowserChoice::Auto)
+        .await?;
+    let matching = works
+        .iter()
+        .filter(|work| query::matches(query, work))
+        .count();
+    println!("phase={phase} raw_results={}", works.len());
+    for work in &works {
+        println!(
+            "phase={phase} publication={} title={:?}",
+            work.reference.id, work.title
+        );
+    }
+
+    let Some(publication) = works.iter().find(|work| query::matches(query, work)) else {
+        return Ok(matching);
+    };
+    let work = source
+        .inspect(&publication.reference, None, BrowserChoice::Auto)
+        .await?;
+    println!("phase={phase} inspected_variants={}", work.variants.len());
+    for variant in &work.variants {
+        println!(
+            "phase={phase} variant={:?} size={:?} info_hash={:?}",
+            variant.title, variant.size, variant.info_hash
+        );
+    }
+
+    let selected = &work
+        .variants
+        .first()
+        .ok_or(Error::VariantUnavailable)?
+        .reference;
+    let ResolvedContent::TorrentFile {
+        reference,
+        metadata,
+    } = source.resolve(selected, None, BrowserChoice::Auto).await?
+    else {
+        return Err(Error::InvalidResponse("Igruha did not resolve a torrent"));
+    };
+    if reference != *selected {
+        return Err(Error::InvalidResponse(
+            "Igruha resolved a different variant",
+        ));
+    }
+    println!(
+        "phase={phase} exact_resolution=true metadata_bytes={}",
+        metadata.bytes().len()
+    );
+    Ok(matching)
+}
+
 fn report_error(phase: u8, error: &Error, elapsed_ms: u128) {
     match error {
         Error::SourceCheck(error) => {
@@ -109,10 +155,9 @@ fn report_error(phase: u8, error: &Error, elapsed_ms: u128) {
         Error::HttpStatus(status) => {
             println!("phase={phase} result=http_status status={status} elapsed_ms={elapsed_ms}")
         }
-        error => println!(
-            "phase={phase} result=source_error reason={:?} elapsed_ms={elapsed_ms}",
-            SourceFailureReason::from_error(error)
-        ),
+        error => {
+            println!("phase={phase} result=source_error message={error} elapsed_ms={elapsed_ms}")
+        }
     }
 }
 

@@ -226,11 +226,11 @@ impl PublicationRef {
             || !canonical_decimal(number)
             || slug.is_empty()
             || slug.len() > 200
-            || slug.starts_with('-')
-            || slug.ends_with('-')
-            || !slug
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            || slug.starts_with(['-', '.'])
+            || slug.ends_with(['-', '.'])
+            || !slug.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-.".contains(&byte)
+            })
         {
             return Err(crate::Error::InvalidReference);
         }

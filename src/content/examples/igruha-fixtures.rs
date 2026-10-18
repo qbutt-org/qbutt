@@ -79,7 +79,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].reference.id, "42-generated-legal");
+    assert_eq!(found[0].reference.id, "42-generated-r.g.-legal");
     assert_eq!(found[0].title, "Generated Legal (Свободная игра)");
     assert!(found[0].needs_inspection);
 
@@ -170,7 +170,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             "accepted {query}"
         );
     }
-    for id in ["43-stale", "44-missing", "../private", "42-Mixed", "0-game"] {
+    for id in ["43-stale", "44-missing"] {
         let reference = PublicationRef {
             source: Source::Igruha,
             id: id.into(),
@@ -183,6 +183,29 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             "accepted {id}"
         );
     }
+    let before_invalid = fixture.hits.load(Ordering::SeqCst);
+    for id in [
+        "../private",
+        "42-Mixed",
+        "0-game",
+        "42-.",
+        "42-..",
+        "42-legal/../private",
+        "42-legal%2fprivate",
+        "42-legal%2e%2e",
+    ] {
+        let reference = PublicationRef {
+            source: Source::Igruha,
+            id: id.into(),
+        };
+        assert!(matches!(
+            provider
+                .inspect(&reference, None, browser::BrowserChoice::Auto)
+                .await,
+            Err(Error::InvalidReference)
+        ));
+    }
+    assert_eq!(fixture.hits.load(Ordering::SeqCst), before_invalid);
     let wrong_landing = PublicationRef {
         source: Source::Igruha,
         id: "42-wrong-landing".into(),
@@ -211,7 +234,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     check::run(&fixture).await?;
     fixture.stop().await;
     println!(
-        "PASS igruha_fixtures generated_https search colon_normalized exact_query invalid_query empty http_failure challenge inspect second_exact_torrent stale fault cancel game_payload=none"
+        "PASS igruha_fixtures generated_https search colon_normalized exact_query invalid_query dotted_publication unsafe_ref empty http_failure challenge inspect second_exact_torrent stale fault cancel game_payload=none"
     );
     Ok(())
 }
@@ -375,9 +398,9 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             _ => &query,
         };
         let link = if query == "foreign" {
-            "https://clone.example/42-generated-legal.html".into()
+            "https://clone.example/42-generated-r.g.-legal.html".into()
         } else {
-            format!("{origin}42-generated-legal.html")
+            format!("{origin}42-generated-r.g.-legal.html")
         };
         let row = format!(
             "<div class='game-card'><div class='game-card__cover'><img class='game-cover' src='/uploads/posts/fixture.webp'></div><div class='game-card__name'><a href='{link}'>Generated Legal (Свободная игра)</a></div></div>"
@@ -397,7 +420,7 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             return ("404 Not Found", "text/html", Vec::new());
         }
         let slug = if url.path().contains("stale") {
-            "42-generated-legal"
+            "42-generated-r.g.-legal"
         } else {
             url.path().trim_start_matches('/').trim_end_matches(".html")
         };
@@ -438,7 +461,7 @@ fn response(origin: &Url, url: &Url, changed: bool) -> (&'static str, &'static s
             Some("94") => "45-webview-article",
             Some("95") => "46-webview-landing",
             Some("96") => "47-webview-metadata",
-            _ => "42-generated-legal",
+            _ => "42-generated-r.g.-legal",
         };
         let body = format!(
             "<html><div id='dle-content'><div class='dl-back'><a href='{origin}{article}.html'>Вернуться к игре</a></div><a id='btn-download' href='{origin}engine/download.php?id={}'>Скачать торрент</a></div></html>",
