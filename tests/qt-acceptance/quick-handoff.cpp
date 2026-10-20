@@ -558,7 +558,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         ++cancellations;
         cancelledHash = hash;
     });
-    QObject::connect(&view, &Content::ContentView::torrentReady, &observation, [&](const QString &magnet)
+    QObject::connect(&view, &Content::ContentView::torrentReady, &observation, [&](const QString &, const QString &magnet)
     {
         ++handoffs;
         guiThread = guiThread && (QThread::currentThread() == qApp->thread());
@@ -572,7 +572,7 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     QObject::connect(&view, &Content::ContentView::torrentMetadataReady, &observation,
         [&](const QString &identity, const QByteArray &data)
     {
-        require(torrentFile && (identity == variantId), u"Torrent bytes lost the exact selected publication identity"_s);
+        require(torrentFile && identity.startsWith(u"qbutt-content:"), u"Torrent bytes have no addition identity"_s);
         const auto descriptor = BitTorrent::TorrentDescriptor::load(data);
         require(descriptor && (descriptor->infoHash().v1().toString() == infoHash),
             u"Source acquired different or malformed torrent bytes"_s);

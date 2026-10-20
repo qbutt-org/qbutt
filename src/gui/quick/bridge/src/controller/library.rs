@@ -19,7 +19,7 @@ use tokio::sync::{oneshot, watch};
 
 use super::ffi;
 use super::ffi::ContentController;
-use super::playback::PlaybackSave;
+use super::history::HistorySave;
 use super::sources::SourceWrite;
 use crate::models;
 
@@ -32,9 +32,9 @@ pub enum LibraryAction {
         reference: PublicationRef,
         generation: u64,
     },
-    PlaybackHistory {
+    Opened {
         token: u64,
-        save: PlaybackSave,
+        save: HistorySave,
     },
     SourceSettings,
     SourceWrite {
@@ -99,7 +99,7 @@ pub enum LibraryUpdate {
         history: Option<LibraryResult<Vec<LibraryEntry>>>,
         error_generation: u64,
         reader_generation: Option<u64>,
-        playback_token: Option<u64>,
+        history_token: Option<u64>,
     },
     ReaderResume {
         result: LibraryResult<Option<ReaderProgress>>,
@@ -710,7 +710,7 @@ impl LibraryWorker {
 }
 
 fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
-    let (result, reader_generation, playback_token) = match request.action {
+    let (result, reader_generation, history_token) = match request.action {
         LibraryAction::LocalBookImport { book, generation } => {
             return LibraryUpdate::LocalBookImport {
                 result: library.save_local_book(&book),
@@ -728,7 +728,7 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
                 generation,
             };
         }
-        LibraryAction::PlaybackHistory { token, save } => (
+        LibraryAction::Opened { token, save } => (
             library
                 .record_opened(&save.group, save.variant, save.preferences)
                 .map(Some),
@@ -814,7 +814,7 @@ fn apply(library: &mut Library, request: LibraryRequest) -> LibraryUpdate {
         history,
         error_generation: request.error_generation,
         reader_generation,
-        playback_token,
+        history_token,
     }
 }
 
@@ -848,15 +848,15 @@ impl ffi::ContentController {
             ffi::LibraryErrorKind::Opening => ffi::ContentError::LibraryOpen,
             ffi::LibraryErrorKind::Writing => ffi::ContentError::LibraryWrite,
             ffi::LibraryErrorKind::HistoryRead => ffi::ContentError::HistoryRead,
-            ffi::LibraryErrorKind::PlaybackWriting => ffi::ContentError::PlaybackHistoryWrite,
+            ffi::LibraryErrorKind::HistoryWriting => ffi::ContentError::HistoryWrite,
             _ => return QString::default(),
         };
         ffi::content_error(error)
     }
 
     pub(super) fn current_library_error_kind(&self) -> ffi::LibraryErrorKind {
-        if self.playback.failed() {
-            ffi::LibraryErrorKind::PlaybackWriting
+        if self.history_writes.failed() {
+            ffi::LibraryErrorKind::HistoryWriting
         } else {
             self.library_error_kind
         }
@@ -974,11 +974,11 @@ impl ffi::ContentController {
     fn publish_library(mut self: Pin<&mut Self>, update: LibraryUpdate) {
         let mut settings_retry_generation = None;
         let mut initial_opened = false;
-        let playback_write_failed = matches!(
+        let history_write_failed = matches!(
             &update,
             LibraryUpdate::Changed {
                 result: Err(_),
-                playback_token: Some(_),
+                history_token: Some(_),
                 ..
             }
         );
@@ -1068,11 +1068,11 @@ impl ffi::ContentController {
                 history,
                 error_generation,
                 reader_generation,
-                playback_token,
+                history_token,
             } => {
-                if let Some(token) = playback_token {
+                if let Some(token) = history_token {
                     self.as_mut()
-                        .complete_playback_history(token, result.is_ok());
+                        .complete_history_write(token, result.is_ok());
                 }
                 if let Some(generation) = reader_generation {
                     self.as_mut()
@@ -1134,8 +1134,8 @@ impl ffi::ContentController {
                         self.as_mut()
                             .resume_reader_settings_after_library_retry(generation);
                     }
-                    if self.playback.failed() {
-                        self.as_mut().retry_playback_history();
+                    if self.history_writes.failed() {
+                        self.as_mut().retry_history_write();
                     }
                 }
             }
@@ -1145,7 +1145,7 @@ impl ffi::ContentController {
                     state.library_state = ffi::LibraryState::Failed;
                     if !initial_opened {
                         state.library_pending = 0;
-                        self.as_mut().playback_library_failed();
+                        self.as_mut().history_library_failed();
                     }
                     self.as_mut().reader_settings_library_failed();
                     self.as_mut().reader_library_failed()
@@ -1156,7 +1156,7 @@ impl ffi::ContentController {
                     &QString::from("library"),
                     &QString::from(error.to_string()),
                 );
-                if !playback_write_failed && self.library_error_generation == error_generation {
+                if !history_write_failed && self.library_error_generation == error_generation {
                     self.as_mut().set_library_error(if initial {
                         ffi::LibraryErrorKind::Opening
                     } else if history_read {
@@ -1207,7 +1207,7 @@ impl ffi::ContentController {
         // History keeps the exact confirmed content snapshot. Filter choices
         // belong to the work and can change while that confirmation is pending.
         let saved_filters = match &mut action {
-            LibraryAction::PlaybackHistory { save, .. } => {
+            LibraryAction::Opened { save, .. } => {
                 Some((&save.group.anchor, &mut save.preferences.filters))
             }
             LibraryAction::ReaderProgress { save, .. } => {
@@ -1230,7 +1230,7 @@ impl ffi::ContentController {
             LibraryAction::ReaderSettings { .. }
                 | LibraryAction::SourceSettings
                 | LibraryAction::SourceWrite { .. }
-                | LibraryAction::PlaybackHistory { .. }
+                | LibraryAction::Opened { .. }
         );
         match self
             .library_worker

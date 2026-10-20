@@ -16,6 +16,7 @@ mod browser;
 mod capture;
 mod catalog;
 mod downloads;
+mod history;
 mod inspection;
 mod library;
 mod local_books;
@@ -35,6 +36,7 @@ use crate::download_model;
 use crate::models;
 use crate::source_model;
 use downloads::CapturedIntent;
+use history::HistoryState;
 use library::{DownloadStore, LibraryUpdate, LibraryWorker};
 use playback::PlaybackState;
 use reader::ReaderState;
@@ -77,8 +79,8 @@ pub mod ffi {
         HistoryRead,
         ReaderSettingsWrite,
         Playback,
-        PlaybackHistoryWrite,
-        PlaybackPending,
+        HistoryWrite,
+        ActionPending,
         ExternalPlayback,
         BrowserPlayback,
     }
@@ -221,7 +223,7 @@ pub mod ffi {
         Opening,
         Writing,
         HistoryRead,
-        PlaybackWriting,
+        HistoryWriting,
     }
 
     #[qenum]
@@ -721,6 +723,13 @@ pub mod ffi {
             NOTIFY = selected_work_description_changed
         )]
         #[qproperty(
+            bool,
+            can_open_publication,
+            cxx_name = "canOpenPublication",
+            READ = can_open_publication,
+            NOTIFY = selected_work_description_changed
+        )]
+        #[qproperty(
             QString,
             selected_work_category,
             cxx_name = "selectedWorkCategory",
@@ -876,6 +885,10 @@ pub mod ffi {
         fn selected_publication_id(&self) -> QString;
         fn selected_publication_source(&self) -> QString;
         fn selected_publication_notes(&self) -> QVariant;
+        fn can_open_publication(&self) -> bool;
+        #[qinvokable]
+        #[cxx_name = "openPublication"]
+        fn open_publication(&self, publication_id: QString) -> bool;
         #[qinvokable]
         #[cxx_name = "openPublicationNote"]
         fn open_publication_note(&self, publication_id: QString, row: i32) -> bool;
@@ -1195,8 +1208,8 @@ pub mod ffi {
         #[cxx_name = "finishPlayback"]
         fn finish_playback(self: Pin<&mut Self>, token: u64) -> bool;
         #[qinvokable]
-        #[cxx_name = "retryPlaybackHistory"]
-        fn retry_playback_history(self: Pin<&mut Self>) -> bool;
+        #[cxx_name = "retryHistoryWrite"]
+        fn retry_history_write(self: Pin<&mut Self>) -> bool;
         #[qsignal]
         #[cxx_name = "videoReady"]
         fn video_ready(
@@ -1216,13 +1229,17 @@ pub mod ffi {
             subtitles: QVector_QUrl,
         );
 
+        #[qinvokable]
+        #[cxx_name = "finishTorrentAddition"]
+        fn finish_torrent_addition(self: Pin<&mut Self>, source: QString, added: bool) -> bool;
+
         #[qsignal]
         #[cxx_name = "torrentReady"]
-        fn torrent_ready(self: Pin<&mut Self>, magnet: QString);
+        fn torrent_ready(self: Pin<&mut Self>, source: QString, magnet: QString);
 
         #[qsignal]
         #[cxx_name = "torrentMetadataReady"]
-        fn torrent_metadata_ready(self: Pin<&mut Self>, identity: QString, data: QByteArray);
+        fn torrent_metadata_ready(self: Pin<&mut Self>, source: QString, data: QByteArray);
     }
 
     impl cxx_qt::Threading for ContentController {}
@@ -1308,6 +1325,7 @@ pub struct ContentControllerRust {
     shared_reference_mismatch: bool,
     shared_importing: bool,
     playback: PlaybackState,
+    history_writes: HistoryState,
     reader: ReaderState,
     local_book: Option<Arc<LocalBook>>,
     local_book_load: Pending,
@@ -1417,6 +1435,7 @@ impl Default for ContentControllerRust {
             shared_reference_mismatch: false,
             shared_importing: false,
             playback: PlaybackState::default(),
+            history_writes: HistoryState::default(),
             reader: ReaderState::default(),
             local_book: None,
             local_book_load: Pending::default(),

@@ -28,6 +28,7 @@
         <file>dark/edit-clear.svg</file>
         <file>dark/edit-copy.svg</file>
         <file>dark/edit-find.svg</file>
+        <file>dark/external-link.svg</file>
         <file>dark/edit-rename.svg</file>
         <file>dark/error.svg</file>
         <file>dark/fileicon.svg</file>
@@ -409,6 +410,7 @@
         <file>help-about.svg</file>
         <file>help-contents.svg</file>
         <file>insert-link.svg</file>
+        <file>external-link.svg</file>
         <file>ip-blocked.svg</file>
         <file>list-add.svg</file>
         <file>list-remove.svg</file>

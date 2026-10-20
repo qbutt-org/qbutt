@@ -226,7 +226,7 @@ void exerciseSharing()
     require(!selected.isEmpty(), u"Alternative shared variant is missing"_s);
     QString receivedMagnet;
     QObject::connect(controller.get(), &Qbutt::ContentController::torrentReady,
-        controller.get(), [&](const QString &magnet) { receivedMagnet = magnet; });
+        controller.get(), [&](const QString &, const QString &magnet) { receivedMagnet = magnet; });
     controller->resolveVariant(selected);
     require(controller->property("resolving").toBool(), u"Shared action did not start"_s);
     waitFor([&] { return !controller->property("sharedImporting").toBool(); }, u"Additional shared publication"_s);

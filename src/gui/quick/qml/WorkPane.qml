@@ -121,6 +121,15 @@ Pane {
             }
 
             ActionButton {
+                objectName: "contentPublicationPage"
+                theme: root.theme
+                text: qsTr("Source page")
+                icon.source: root.theme.iconSource("external-link")
+                enabled: root.backend.canOpenPublication
+                onClicked: root.backend.openPublication(root.backend.selectedPublicationId)
+            }
+
+            ActionButton {
                 objectName: "contentShare"
                 theme: root.theme
                 visible: root.backend.canShareSelected

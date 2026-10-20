@@ -92,6 +92,20 @@ For an interactive VM pass, also set `QBUTT_PROGRESSIVE_POINTER=1`. At
 The fixture requires the exact handoff while the other inspection remains held;
 it does not substitute a controller call for the pointer action.
 
+`bun tests/content-search/torrent-history-native.ts <qt-acceptance-exe>
+<server-cert.pem> <server-key.pem>` checks torrent History through MainWindow's
+controller, the native Add dialog, GUIAddTorrentManager and libtorrent's actual
+addition callback. It uses generated legal metadata and stopped torrents, covering
+Cancel, repeated same-hash dialogs with different exact variants, changing the
+selected work before Add, malformed source metadata and native metadata rejection.
+SQLite and a second application process must retain both accepted exact variants
+and their full known works. Set `QBUTT_QT_ACCEPTANCE_BUNDLE` to the deployed bundle
+when the acceptance executable lives in the build directory. The temporary
+`SourceHttp::new` overlay maps `anilibria.top` and `itorrents-igruha.org` to
+`127.0.0.1:443` and trusts the fixture server certificate (`CA:FALSE`); restore it
+and rebuild production transport afterwards. This offscreen scenario does not
+establish payload transfer or native pointer interaction.
+
 `bun tests/content-reading/library.ts <acceptance-exe> <server-cert.pem>
 <server-key.pem> sharing` runs only the hidden native Share scenario. The isolated
 fixture build redirects `anilibria.top` and `rutor.info` to `127.0.0.1:443` and trusts the local CA

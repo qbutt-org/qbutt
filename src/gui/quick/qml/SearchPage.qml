@@ -250,13 +250,13 @@ Page {
                 text: qsTr("Try again")
                 visible: root.backend.libraryState === Library.Failed
                     || root.backend.libraryErrorKind === Library.HistoryRead
-                    || root.backend.libraryErrorKind === Library.PlaybackWriting
+                    || root.backend.libraryErrorKind === Library.HistoryWriting
                 enabled: !root.backend.libraryPending
                 onClicked: {
                     if (root.backend.libraryState === Library.Failed)
                         root.backend.retryLibrary();
-                    else if (root.backend.libraryErrorKind === Library.PlaybackWriting)
-                        root.backend.retryPlaybackHistory();
+                    else if (root.backend.libraryErrorKind === Library.HistoryWriting)
+                        root.backend.retryHistoryWrite();
                     else
                         root.backend.refreshHistory();
                 }

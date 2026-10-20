@@ -80,6 +80,11 @@ void exerciseLocalBookImportUi(Content::ContentView *view, const QString &profil
     }, u"Valid local book opening"_s);
     const QString chapter = controller->property("readerChapterId").toString();
     const QString title = controller->property("readerTitle").toString();
+    auto *publicationPage = view->rootObject()->findChild<QQuickItem *>(u"contentPublicationPage"_s);
+    require(publicationPage && !publicationPage->isEnabled()
+        && !controller->property("canOpenPublication").toBool()
+        && !controller->openPublication(controller->property("selectedPublicationId").toString()),
+        u"Local book offered a public source page"_s);
     auto *popup = view->rootObject()->findChild<QObject *>(u"contentLocalBookErrorPopup"_s);
     auto *message = popup ? popup->findChild<QQuickItem *>(u"contentLocalBookError"_s) : nullptr;
     auto *close = popup ? popup->findChild<QQuickItem *>(u"contentLocalBookErrorClose"_s) : nullptr;

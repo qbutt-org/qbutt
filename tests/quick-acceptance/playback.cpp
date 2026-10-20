@@ -84,7 +84,7 @@ namespace
     QJsonObject entry(QSqlDatabase &database)
     {
         QSqlQuery query(database);
-        require(query.exec(u"SELECT entry FROM library WHERE json_extract(entry, '$.work.reference.id') = '9542'"_s)
+        require(query.exec(u"SELECT entry FROM library WHERE json_extract(entry, '$.group.anchor.id') = '9542'"_s)
             && query.next(), u"Owned playback entry is missing"_s);
         return QJsonDocument::fromJson(query.value(0).toString().toUtf8()).object();
     }
@@ -114,7 +114,12 @@ void exercisePlayback()
     auto seed = std::make_unique<Qbutt::ContentController>();
     seed->initLibrary(profile.path());
     loaded(*seed);
-    require(seed->setSourceEnabled(u"rutor"_s, false) && seed->setSourceEnabled(u"mangadex"_s, false), u"Playback source fixture rejected"_s);
+    auto *sources = model(*seed, "sources");
+    for (int row = 0; row < sources->rowCount(); ++row)
+    {
+        const QString source = value(sources, row, "sourceId");
+        require(seed->setSourceEnabled(source, source == u"aniliberty"), u"Playback source fixture rejected"_s);
+    }
     saved(*seed);
     seed->search(u"Frieren"_s);
     waitFor([&] { return !seed->property("busy").toBool(); }, u"Live playback metadata"_s);
@@ -151,10 +156,11 @@ void exercisePlayback()
     auto preferences = generated.value(u"preferences"_s).toObject();
     preferences.insert(u"filters"_s, QJsonObject {{u"episode"_s, u"generated episode"_s},
         {u"translation"_s, u"generated translation"_s}, {u"source"_s, u"ani_liberty"_s},
-        {u"language"_s, u"ru"_s}, {u"player"_s, u"AniLiberty"_s}, {u"transport"_s, u"video"_s}});
+        {u"language"_s, u"ru"_s}, {u"player"_s, u"AniLiberty"_s}, {u"transport"_s, u"video"_s},
+        {u"query"_s, QJsonValue::Null}});
     generated.insert(u"preferences"_s, preferences);
     QSqlQuery replace(database);
-    replace.prepare(u"UPDATE library SET entry = ? WHERE json_extract(entry, '$.work.reference.id') = '9542'"_s);
+    replace.prepare(u"UPDATE library SET entry = ? WHERE json_extract(entry, '$.group.anchor.id') = '9542'"_s);
     replace.addBindValue(QString::fromUtf8(QJsonDocument(generated).toJson(QJsonDocument::Compact)));
     require(replace.exec(), replace.lastError().text());
 
@@ -214,21 +220,21 @@ void exercisePlayback()
     for (int request = 0; request < 66; ++request)
         controller->setSelectedFavorite(true);
     require(controller->confirmPlayback(first.token) && !controller->confirmPlayback(first.token), u"Playback ACK was not consumed exactly once"_s);
-    require(controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>() == Qbutt::Library::LibraryErrorKind::PlaybackWriting,
+    require(controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>() == Qbutt::Library::LibraryErrorKind::HistoryWriting,
         u"Full FIFO lost the confirmed playback intent"_s);
     exec(database, u"ROLLBACK"_s);
     require(controller->finishPlayback(first.token), u"Confirmed playback gateway did not retire"_s);
     listenerRetired(first.proxy);
     saved(*controller);
     exec(database, u"CREATE TRIGGER reject_playback BEFORE UPDATE ON library WHEN json_extract(NEW.entry, '$.last_opened') IS NOT NULL BEGIN SELECT RAISE(ABORT, 'generated playback history fault'); END;"_s);
-    require(controller->retryPlaybackHistory(), u"Rejected FIFO playback retry was not retained"_s);
+    require(controller->retryHistoryWrite(), u"Rejected FIFO playback retry was not retained"_s);
     saved(*controller);
     require((model(*controller, "history")->rowCount() == 0)
-        && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>() == Qbutt::Library::LibraryErrorKind::PlaybackWriting),
+        && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>() == Qbutt::Library::LibraryErrorKind::HistoryWriting),
         u"Failed confirmed playback did not retain exact retry intent"_s);
     require(controller->refreshHistory() && controller->setReaderFit(Qbutt::Reader::ReaderFit::Width), u"Independent history/reader action rejected"_s);
     saved(*controller);
-    require(controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>() == Qbutt::Library::LibraryErrorKind::PlaybackWriting,
+    require(controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>() == Qbutt::Library::LibraryErrorKind::HistoryWriting,
         u"Unrelated success cleared the playback retry"_s);
 
     const auto second = launch(videos.at(1));
@@ -293,12 +299,12 @@ void exercisePlayback()
     bool reentered = false;
     const auto connection = QObject::connect(controller, &Qbutt::ContentController::libraryErrorTextChanged, &observation, [&]
     {
-        if (!reentered && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>() == Qbutt::Library::LibraryErrorKind::PlaybackWriting))
+        if (!reentered && (controller->property("libraryErrorKind").value<Qbutt::Library::LibraryErrorKind>() == Qbutt::Library::LibraryErrorKind::HistoryWriting))
         {
             reentered = true;
             exec(database, u"DROP TRIGGER reject_reentrant_playback"_s);
             controller->setVariantQuery(u"after playback write failure"_s);
-            require(controller->retryPlaybackHistory(), u"Reentrant exact playback retry was rejected"_s);
+            require(controller->retryHistoryWrite(), u"Reentrant exact playback retry was rejected"_s);
         }
     }, Qt::DirectConnection);
     require(controller->confirmPlayback(third.token) && controller->finishPlayback(third.token), u"Reentrant launch confirmation failed"_s);

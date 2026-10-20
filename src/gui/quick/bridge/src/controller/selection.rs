@@ -4,6 +4,7 @@ use std::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QVariant};
 use qbutt_content::{PublicationRef, Source, VariantRef, Work, WorkAssociation, WorkGroup};
+use url::Url;
 
 use super::ffi;
 use super::library::LibraryAction;
@@ -139,6 +140,25 @@ impl ffi::ContentController {
         )
     }
 
+    fn current_publication_page(&self) -> Option<&Url> {
+        let work = self.current_publication()?;
+        qbutt_content::browser::public_url(&work.url)
+            .is_ok()
+            .then_some(&work.url)
+    }
+
+    pub(super) fn can_open_publication(&self) -> bool {
+        self.current_publication_page().is_some()
+    }
+
+    pub fn open_publication(&self, publication_id: QString) -> bool {
+        if publication_id != self.selected_publication_id() {
+            return false;
+        }
+        self.current_publication_page()
+            .is_some_and(|url| self.open_source_url(url))
+    }
+
     pub(super) fn selected_publication_notes(&self) -> QVariant {
         let Some(work) = self.current_publication() else {
             return QVariant::from(&QList::<QVariant>::default());
@@ -183,6 +203,10 @@ impl ffi::ContentController {
         else {
             return false;
         };
+        self.open_source_url(url)
+    }
+
+    fn open_source_url(&self, url: &Url) -> bool {
         let Some(services) = self.services.as_ref() else {
             return false;
         };
@@ -655,6 +679,8 @@ impl ffi::ContentController {
             != publication.map(|work| &work.reference);
         let notes_changed = self.current_publication().map(|work| &work.notes)
             != publication.map(|work| &work.notes);
+        let url_changed =
+            self.current_publication().map(|work| &work.url) != publication.map(|work| &work.url);
         let variant_id = selected
             .map(variant_id)
             .map(QString::from)
@@ -672,7 +698,8 @@ impl ffi::ContentController {
                 state.selected_work_title != title,
                 state.selected_work_description != description
                     || publication_changed
-                    || notes_changed,
+                    || notes_changed
+                    || url_changed,
                 state.selected_variant_id != variant_id,
             );
             state.selected_work_id = id;

@@ -121,7 +121,8 @@ QString Qbutt::browserDiscoveryPath()
 bool Qbutt::openBrowserUrl(const QString &url, const QString &choice)
 {
     const QUrl address {url, QUrl::StrictMode};
-    if (!address.isValid() || (address.scheme() != QStringLiteral("https"))
+    if (!address.isValid()
+        || ((address.scheme() != QStringLiteral("https")) && (address.scheme() != QStringLiteral("http")))
         || !address.userInfo().isEmpty())
     {
         return false;

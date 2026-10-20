@@ -153,7 +153,7 @@ void exerciseSessionRetry()
     require(title == u"Generated legal 42"_s, u"Authored publication title missing"_s);
     int handoffs = 0;
     QObject observer;
-    QObject::connect(controller, &Qbutt::ContentController::torrentReady, &observer, [&](const QString &magnet)
+    QObject::connect(controller, &Qbutt::ContentController::torrentReady, &observer, [&](const QString &, const QString &magnet)
     {
         ++handoffs;
         require(QUrlQuery(QUrl(magnet)).queryItemValue(u"xt"_s)

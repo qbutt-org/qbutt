@@ -232,6 +232,7 @@ bool GUIAddTorrentManager::showTorrent(const QString &source
         dialog->show();
         dialog->raise();
         dialog->activateWindow();
+        emit addTorrentDismissed(source);
         return true;
     }
 
@@ -273,6 +274,7 @@ bool GUIAddTorrentManager::showTorrent(const QString &source
             handleDuplicateTorrent(source, torrentDescr, torrent);
         }
 
+        emit addTorrentDismissed(source);
         return false;
     }
 
@@ -304,12 +306,14 @@ bool GUIAddTorrentManager::showTorrent(const QString &source
                 torrentFileGuard->setAutoRemove(false);
         }
 
-        addTorrentToSession(source, torrentDescr, addTorrentParams);
+        if (!addTorrentToSession(source, torrentDescr, addTorrentParams))
+            emit addTorrentDismissed(source);
     });
     connect(dlg, &AddNewTorrentDialog::torrentRejected, this, [this, source, infoHash]
     {
         releaseTorrentFileGuard(source);
         emit addTorrentCancelled(infoHash);
+        emit addTorrentDismissed(source);
     });
     connect(dlg, &QDialog::finished, this, [this, infoHash]
     {

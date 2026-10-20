@@ -392,7 +392,7 @@ namespace
         require(expectedHash.size() == 40, u"Selected torrent has no verifiable infohash"_s);
         QString receivedMagnet;
         int torrentSignals = 0;
-        QObject::connect(view, &Content::ContentView::torrentReady, &observation, [&](const QString &magnet)
+        QObject::connect(view, &Content::ContentView::torrentReady, &observation, [&](const QString &, const QString &magnet)
         {
             if (QThread::currentThread() != qApp->thread())
             {
@@ -698,7 +698,7 @@ int main(int argc, char *argv[])
     window->resize(1280, 760);
     auto *view = new Content::ContentView(profilePath, window);
     window->setCentralWidget(view);
-    QObject::connect(view, &Content::ContentView::torrentReady, window, [window](const QString &magnet)
+    QObject::connect(view, &Content::ContentView::torrentReady, window, [window](const QString &, const QString &magnet)
     {
         window->statusBar()->showMessage(u"Torrent handoff received; this acceptance host does not download files."_s);
         qInfo().noquote() << u"TORRENT_HANDOFF"_s << QUrlQuery(QUrl(magnet)).queryItemValue(u"xt"_s);

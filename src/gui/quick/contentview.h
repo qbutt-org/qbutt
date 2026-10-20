@@ -27,6 +27,7 @@ namespace Content
         bool isReading() const;
         bool confirmPlayback(quint64 launchToken);
         bool finishPlayback(quint64 launchToken);
+        bool finishTorrentAddition(const QString &source, bool added);
         void initializeBrowser();
         void setBrowserChoice(const QString &choice);
         void openBrowserSettingsForCapture();
@@ -46,7 +47,7 @@ namespace Content
         void cancelCaptureWatch();
 
     signals:
-        void torrentReady(const QString &magnet);
+        void torrentReady(const QString &source, const QString &magnet);
         void torrentMetadataReady(const QString &identity, const QByteArray &data);
         void videoReady(quint64 launchToken, const QString &identity, const QUrl &url,
             const QUrl &proxyUrl, const QString &title, const QString &contentKind,

@@ -108,6 +108,11 @@ Content::ContentView::~ContentView()
     m_controller->closeBrowserRelay();
 }
 
+bool Content::ContentView::finishTorrentAddition(const QString &source, const bool added)
+{
+    return m_controller->finishTorrentAddition(source, added);
+}
+
 void Content::ContentView::openLocalBookPicker()
 {
     if (rootObject())

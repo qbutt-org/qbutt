@@ -69,6 +69,7 @@ public:
 
 signals:
     void addTorrentCancelled(const BitTorrent::InfoHash &infoHash);
+    void addTorrentDismissed(const QString &source);
 
 private:
     void onDownloadFinished(const Net::DownloadResult &result);

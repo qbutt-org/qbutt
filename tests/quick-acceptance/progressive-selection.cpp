@@ -189,7 +189,7 @@ void exerciseProgressiveSelection()
     int handoffs = 0;
     QString magnet;
     const QMetaObject::Connection capture = QObject::connect(controller, &Qbutt::ContentController::torrentReady,
-        [&handoffs, &magnet](const QString &url)
+        [&handoffs, &magnet](const QString &, const QString &url)
         {
             ++handoffs;
             magnet = url;

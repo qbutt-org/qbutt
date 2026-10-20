@@ -223,7 +223,7 @@ void exerciseTorrentSource(const TorrentCatalog catalog)
 
     int handoffs = 0;
     bool exactHandoff = false;
-    QObject::connect(controller.get(), &Qbutt::ContentController::torrentReady, &observation, [&](const QString &magnet)
+    QObject::connect(controller.get(), &Qbutt::ContentController::torrentReady, &observation, [&](const QString &, const QString &magnet)
     {
         ++handoffs;
         exactHandoff = QUrlQuery(QUrl(magnet)).queryItemValue(u"xt"_s).compare(u"urn:btih:"_s + hash,

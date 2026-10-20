@@ -18579,6 +18579,10 @@ Please choose a different name and try again.</source>
 <context>
     <name>WorkPane</name>
     <message>
+        <source>Source page</source>
+        <translation>Страница источника</translation>
+    </message>
+    <message>
         <source>Details</source>
         <translation>Подробнее</translation>
     </message>
@@ -18759,12 +18763,12 @@ Please choose a different name and try again.</source>
         <translation>Не удалось начать просмотр.</translation>
     </message>
     <message>
-        <source>Could not save playback history.</source>
-        <translation>Не удалось сохранить историю просмотра.</translation>
+        <source>Could not save history.</source>
+        <translation>Не удалось сохранить историю.</translation>
     </message>
     <message>
-        <source>Finish another playback or save pending history first.</source>
-        <translation>Завершите другой просмотр или сохраните историю.</translation>
+        <source>Finish another action or save pending history first.</source>
+        <translation>Завершите другое действие или сохраните историю.</translation>
     </message>
     <message>
         <source>Playback from this external source is not available yet.</source>

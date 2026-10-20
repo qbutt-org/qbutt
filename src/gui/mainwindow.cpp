@@ -64,6 +64,7 @@
 
 #include "base/bittorrent/session.h"
 #include "base/bittorrent/sessionstatus.h"
+#include "base/bittorrent/torrentdescriptor.h"
 #include "base/global.h"
 #include "base/media/player.h"
 #include "base/path.h"
@@ -801,14 +802,34 @@ Content::ContentView *MainWindow::ensureContentView()
         {
             m_tabs->setCurrentWidget(downloadsWidget());
         });
-        connect(m_searchWidget, &Content::ContentView::torrentReady, this, [this](const QString &magnet)
+        auto *addTorrentManager = app()->addTorrentManager();
+        connect(addTorrentManager, &AddTorrentManager::torrentAdded, m_searchWidget,
+            [view = m_searchWidget](const QString &source, BitTorrent::Torrent *)
         {
-            app()->addTorrentManager()->addTorrent(magnet, {}, AddTorrentOption::ShowDialog);
+            view->finishTorrentAddition(source, true);
+        });
+        connect(addTorrentManager, &AddTorrentManager::addTorrentFailed, m_searchWidget,
+            [view = m_searchWidget](const QString &source)
+        {
+            view->finishTorrentAddition(source, false);
+        });
+        connect(addTorrentManager, &GUIAddTorrentManager::addTorrentDismissed, m_searchWidget,
+            [view = m_searchWidget](const QString &source)
+        {
+            view->finishTorrentAddition(source, false);
+        });
+        connect(m_searchWidget, &Content::ContentView::torrentReady, this,
+            [this, addTorrentManager](const QString &source, const QString &magnet)
+        {
+            const auto descriptor = BitTorrent::TorrentDescriptor::parse(magnet);
+            if (!descriptor || !addTorrentManager->showTorrent(source, descriptor.value()))
+                m_searchWidget->finishTorrentAddition(source, false);
         });
         connect(m_searchWidget, &Content::ContentView::torrentMetadataReady, this,
-            [this](const QString &identity, const QByteArray &data)
+            [this, addTorrentManager](const QString &source, const QByteArray &data)
         {
-            app()->addTorrentManager()->addTorrentData(identity, data);
+            if (!addTorrentManager->addTorrentData(source, data))
+                m_searchWidget->finishTorrentAddition(source, false);
         });
         connect(m_searchWidget, &Content::ContentView::videoReady, this,
             [this](const quint64 launchToken, const QString &identity, const QUrl &url,

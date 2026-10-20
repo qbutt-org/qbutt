@@ -243,10 +243,10 @@ QString Qbutt::contentError(const ContentError error)
         return QCoreApplication::translate("ContentController", "Could not save reading settings.");
     case ContentError::Playback:
         return QCoreApplication::translate("ContentController", "Could not start playback.");
-    case ContentError::PlaybackHistoryWrite:
-        return QCoreApplication::translate("ContentController", "Could not save playback history.");
-    case ContentError::PlaybackPending:
-        return QCoreApplication::translate("ContentController", "Finish another playback or save pending history first.");
+    case ContentError::HistoryWrite:
+        return QCoreApplication::translate("ContentController", "Could not save history.");
+    case ContentError::ActionPending:
+        return QCoreApplication::translate("ContentController", "Finish another action or save pending history first.");
     case ContentError::ExternalPlayback:
         return QCoreApplication::translate("ContentController", "Playback from this external source is not available yet.");
     case ContentError::BrowserPlayback:

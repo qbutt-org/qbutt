@@ -7,7 +7,7 @@ use super::BrowserError;
 pub(super) const MAX_BODY_BYTES: usize = 512 * 1024;
 pub(super) const MAX_FETCH_BODY_BYTES: usize = 680 * 1024;
 
-pub(super) fn public_url(url: &Url) -> Result<(), BrowserError> {
+pub fn public_url(url: &Url) -> Result<(), BrowserError> {
     // A selected page may include an anchor. Preserve its exact identity while
     // validating the address which the browser actually requests.
     let mut address = url.clone();

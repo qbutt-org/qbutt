@@ -4,6 +4,8 @@ qt_add_executable(qbutt-qt-acceptance
     add-torrent-layout.h
     metadata-cancel.cpp
     metadata-cancel.h
+    torrent-history.cpp
+    torrent-history.h
     quick-handoff.cpp
     quick-handoff.h
     native-watch.cpp

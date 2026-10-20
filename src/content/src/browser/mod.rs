@@ -28,6 +28,7 @@ pub use command::*;
 pub use protocol::*;
 pub use reply::*;
 pub use selection::Selection;
+pub use validation::public_url;
 
 /// Only bounded, public diagnostics cross this boundary. Remote error text and
 /// URLs are deliberately discarded because browser exceptions may contain keys.

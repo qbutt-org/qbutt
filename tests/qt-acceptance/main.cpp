@@ -138,6 +138,7 @@
 #include "gui/uithememanager.h"
 #include "add-torrent-layout.h"
 #include "metadata-cancel.h"
+#include "torrent-history.h"
 #include "quick-handoff.h"
 #include "native-watch.h"
 #include "language-switch.h"
@@ -3260,6 +3261,11 @@ namespace
         {
             window->hide();
             exerciseMetadataCancel(spec, evidence);
+            return;
+        }
+        if (spec.value(u"mode"_s).toString() == u"torrent-history")
+        {
+            TorrentHistoryAcceptance::run(application, spec, evidence);
             return;
         }
         if (spec.value(u"mode"_s).toString() == u"torrent-data")
