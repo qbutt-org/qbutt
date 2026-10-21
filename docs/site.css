@@ -1,11 +1,11 @@
 :root {
   color-scheme: dark;
-  font-family: "Segoe UI", sans-serif;
-  color: #f4f5f6;
-  background: #151719;
+  font-family: "Segoe UI", system-ui, sans-serif;
   font-synthesis: none;
+  color: #f1f2f3;
+  background: #17181a;
   --accent: #009df7;
-  --muted: #aeb6bf;
+  --muted: #a8adb4;
 }
 
 * {
@@ -16,10 +16,18 @@ body {
   margin: 0;
 }
 
-header,
-main,
-footer {
-  width: min(1120px, 100% - 64px);
+a {
+  color: inherit;
+  text-underline-offset: 4px;
+  text-decoration-color: #6b737e;
+}
+
+a:hover {
+  color: #80cfff;
+}
+
+header, main, footer {
+  width: min(1224px, 100% - 80px);
   margin: 0 auto;
 }
 
@@ -27,36 +35,31 @@ header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 28px;
-  padding: 28px 0;
-}
-
-a {
-  color: inherit;
-  text-decoration-color: #66727d;
-  text-underline-offset: 4px;
-}
-
-a:hover {
-  color: #84d2ff;
+  gap: 24px 40px;
+  padding: 30px 0;
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  font-size: 21px;
-  font-weight: 650;
+  gap: 11px;
   text-decoration: none;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.6px;
+}
+
+.brand img {
+  width: 34px;
+  height: 34px;
 }
 
 nav {
   display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  color: var(--muted);
+  align-items: center;
+  gap: 26px;
   font-size: 15px;
+  color: var(--muted);
 }
 
 nav a {
@@ -68,189 +71,235 @@ nav a {
 }
 
 .languages {
-  gap: 12px;
+  gap: 14px;
 }
 
 .languages [aria-current="page"] {
-  color: #f4f5f6;
+  color: #f1f2f3;
   text-decoration: underline;
   text-decoration-color: var(--accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 7px;
 }
 
 .hero {
-  padding: 56px 0 44px;
-  max-width: 760px;
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  align-items: center;
+  gap: 32px 64px;
+  padding: 72px 0 58px;
 }
 
 h1 {
-  margin: 0 0 28px;
-  font-size: 88px;
+  margin: 0;
+  font-size: 62px;
+  line-height: 1.1;
   font-weight: 600;
-  line-height: 1;
-  letter-spacing: -5px;
-}
-
-.lead {
-  margin: 0 0 22px;
-  font-size: 42px;
-  font-weight: 550;
-  line-height: 1.15;
-  letter-spacing: -1.5px;
+  letter-spacing: -2.8px;
 }
 
 .intro {
-  max-width: 590px;
   margin: 0;
+  font-size: 19px;
+  line-height: 1.65;
   color: var(--muted);
-  font-size: 20px;
-  line-height: 1.55;
 }
 
 .actions {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 18px 28px;
-  margin-top: 32px;
+  align-items: center;
+  gap: 20px 26px;
+  margin-top: 28px;
   font-size: 16px;
 }
 
 .download {
   display: inline-flex;
-  min-height: 54px;
   align-items: center;
   justify-content: center;
-  padding: 0 24px;
-  border-radius: 8px;
+  min-height: 52px;
+  padding: 0 23px;
+  border-radius: 7px;
   background: var(--accent);
   color: #07141c;
-  font-weight: 650;
   text-decoration: none;
+  font-weight: 650;
+  transition: background-color 120ms ease-out;
 }
 
 .download:hover {
-  background: #55beff;
+  background: #51bdff;
   color: #07141c;
 }
 
 .download:active {
-  background: #0083d0;
+  background: #0082cc;
+}
+
+a:focus-visible {
+  outline: 2px solid #80cfff;
+  outline-offset: 5px;
 }
 
 .preview {
-  margin: 12px 0 0;
+  margin: 0;
 }
 
 .preview img {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 10px;
+  border-radius: 12px;
+  border: 1px solid #35373a;
 }
 
 .details {
-  max-width: 760px;
-  margin-top: 72px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px 90px;
+  padding-top: 70px;
 }
 
 h2 {
-  margin: 0 0 20px;
-  font-size: 30px;
+  margin: 0 0 16px;
+  font-size: 27px;
+  line-height: 1.25;
   font-weight: 600;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.6px;
 }
 
 .details p {
-  margin: 0 0 18px;
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.75;
   color: var(--muted);
-  font-size: 18px;
-  line-height: 1.65;
 }
 
 footer {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 16px 28px;
-  padding: 72px 0 36px;
+  padding: 32px 0 40px;
   color: var(--muted);
   font-size: 14px;
 }
 
-@media (max-width: 700px) {
-  header,
-  main,
-  footer {
+footer span {
+  margin-right: auto;
+}
+
+@media (max-width: 1050px) {
+  .hero {
+    gap: 32px 40px;
+  }
+
+  h1 {
+    font-size: 49px;
+    letter-spacing: -2px;
+  }
+
+}
+
+@media (max-width: 760px) {
+  header, main, footer {
     width: auto;
     margin: 0 24px;
   }
 
   header {
-    align-items: flex-start;
-    padding-top: 24px;
-    gap: 20px;
+    gap: 22px;
+    padding: 24px 0;
   }
 
-  nav {
-    justify-content: flex-end;
-    gap: 12px 18px;
-  }
-
-  .languages {
-    order: 1;
-    margin-left: auto;
+  .brand {
+    font-size: 22px;
   }
 
   .products {
     order: 2;
     width: 100%;
     margin-left: 0;
-    justify-content: flex-start;
+    gap: 24px;
+  }
+
+  .languages {
+    margin-left: auto;
   }
 
   .hero {
-    padding-top: 36px;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 38px 0;
   }
 
   h1 {
-    font-size: 68px;
-    letter-spacing: -4px;
-  }
-
-  .lead {
-    font-size: 34px;
-    letter-spacing: -1px;
+    font-size: 43px;
+    line-height: 1.12;
+    letter-spacing: -1.8px;
   }
 
   .intro {
-    font-size: 18px;
+    max-width: 560px;
+    font-size: 17px;
+    line-height: 1.65;
+  }
+
+  .actions {
+    margin-top: 24px;
+  }
+
+  .preview img {
+    border-radius: 8px;
   }
 
   .details {
-    margin-top: 48px;
+    grid-template-columns: 1fr;
+    gap: 34px;
+    padding-top: 42px;
+  }
+
+  h2 {
+    font-size: 24px;
+    margin-bottom: 12px;
+  }
+
+  .details p {
+    font-size: 16px;
   }
 
   footer {
-    padding-top: 48px;
+    padding-top: 28px;
+    gap: 16px 22px;
   }
+
+  footer span {
+    width: 100%;
+  }
+
 }
 
-@media (max-width: 400px) {
-  header,
-  main,
-  footer {
+@media (max-width: 380px) {
+  header, main, footer {
     margin: 0 20px;
   }
 
-  header {
-    gap: 12px;
+  h1 {
+    font-size: 37px;
   }
 
   nav {
-    gap: 12px;
     font-size: 14px;
   }
 
-  .lead {
-    font-size: 30px;
+  .actions {
+    gap: 18px;
+    font-size: 15px;
   }
+
+  .download {
+    padding: 0 20px;
+  }
+
 }

@@ -3,54 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>qbutt — a torrent client with media search</title>
-  <meta name="description" content="qbutt for Windows: torrents, search for games, movies, anime, books and manga, video playback and a built-in reader.">
-  <meta name="theme-color" content="#151719">
+  <title>qbutt — A torrent client with media search</title>
+  <meta name="description" content="Compare results from different sources and download the release you choose. Videos open in qplay; books and manga open in the built-in reader.">
+  <meta name="theme-color" content="#17181a">
   <link rel="canonical" href="https://qbutt-org.github.io/qbutt/en/">
   <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="../site.css">
-  <link rel="alternate" hreflang="ru" href="https://qbutt-org.github.io/qbutt/?lang=ru">
+  <link rel="alternate" hreflang="ru" href="https://qbutt-org.github.io/qbutt/">
   <script src="../locale.js"></script>
 </head>
 <body>
   <header>
-    <a class="brand" href="./"><img src="../assets/icon.svg" width="32" height="32" alt=""><span>qbutt</span></a>
+    <a class="brand" href="./?lang=en"><img src="../assets/icon.svg" width="34" height="34" alt=""><span>qbutt</span></a>
     <nav class="products">
-      <a href="https://qbutt-org.github.io/qplay/en/">qplay</a>
-      <a href="https://qbutt-org.github.io/qcatch/en/">qcatch</a>
+      <a href="https://qbutt-org.github.io/qplay/en/?lang=en">qplay</a>
+      <a href="https://qbutt-org.github.io/qcatch/en/?lang=en">qcatch</a>
       <a href="https://github.com/qbutt-org/qbutt">GitHub</a>
     </nav>
     <nav class="languages" aria-label="Language">
       <a href="../?lang=ru" data-locale="ru" lang="ru" hreflang="ru">RU</a>
-      <a href="./" data-locale="en" lang="en" hreflang="en" aria-current="page">EN</a>
+      <a href="./?lang=en" data-locale="en" lang="en" hreflang="en" aria-current="page">EN</a>
     </nav>
   </header>
 
   <main>
     <section class="hero">
-      <h1>qbutt</h1>
-      <p class="lead">A torrent client with media search</p>
-      <p class="intro">qbutt helps you find games, movies, series, anime, books and manga and download them from available sources.</p>
-      <div class="actions">
-        <a class="download" href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.5/qbutt-1.5.5-windows-x64-setup.exe">Download for Windows</a>
-        <a href="https://github.com/qbutt-org/qbutt/releases/latest">Portable and all files</a>
+      <h1>Find media and<br>choose a release</h1>
+      <div>
+        <p class="intro">Compare results from different sources and download the release you choose. Videos open in qplay; books and manga open in the built-in reader.</p>
+        <div class="actions">
+          <a class="download" href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.6/qbutt-1.5.6-windows-x64-setup.exe">Download for Windows</a>
+          <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.6/qbutt-1.5.6-windows-x64.zip">Portable</a>
+        </div>
       </div>
     </section>
+    <figure class="preview">
+      <img src="../assets/search-en.png" width="1440" height="900" alt="qbutt search with source and release selection">
+    </figure>
 
     <section class="details">
-      <h2>Video and reading</h2>
-      <p>Videos open in <a href="https://qbutt-org.github.io/qplay/en/">qplay</a>, based on mpv. You can start watching a torrent before it finishes downloading. Books and manga open in the built-in reader with page navigation and options to fit the page to your screen.</p>
-      <p>The player and reader translate text into Russian and English through a signed-in Codex installation. The original remains available. Manga page translation is experimental: complex artwork and lettering may be handled inaccurately.</p>
-      <p><a href="https://qbutt-org.github.io/qcatch/en/">qcatch</a> connects your browser to capture video from a page and use the site's session. Install the extension when you need it.</p>
-      <a href="https://github.com/qbutt-org/qbutt/blob/main/README.en.md">Installation and details</a>
+      <article>
+        <h2>Compare the available releases</h2>
+        <p>Choose a language, quality and edition, and compare file sizes and seed counts. History remembers the release you selected.</p>
+      </article>
+      <article>
+        <h2>Open what you find</h2>
+        <p>Send videos to <a href='https://qbutt-org.github.io/qplay/en/?lang=en'>qplay</a>, including torrent files that are still downloading. The built-in reader supports chapters and saved reading positions.</p>
+      </article>
     </section>
   </main>
 
   <footer>
     <span>qbutt</span>
-    <a href="https://github.com/qbutt-org/qbutt/releases">What's new</a>
+    <a href="https://github.com/qbutt-org/qbutt/releases/latest">Release notes</a>
     <a href="https://github.com/qbutt-org/qbutt/issues">Report a problem</a>
-    <a href="https://github.com/qbutt-org/qbutt/blob/main/COPYING">Licenses</a>
+    <a href="https://github.com/qbutt-org/qbutt/blob/main/COPYING">License</a>
   </footer>
 </body>
 </html>
