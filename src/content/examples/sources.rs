@@ -5,7 +5,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use qbutt_content::{
-    Category, Library, LibraryError, LibraryView, PublicationRef, ReaderFit, ReaderMode,
+    Category, Error, Library, LibraryError, LibraryView, PublicationRef, ReaderFit, ReaderMode,
     ReaderSettings, Source, SourceFailure, SourceFailureReason, SourceOperation, SourceSettings,
     VariantRef, VariantSelector,
 };
@@ -21,6 +21,10 @@ fn main() -> Result<()> {
         let settings = row(&library, Source::RuTor)?;
         assert!(!settings.enabled);
         assert_eq!(settings.failure.as_ref().unwrap().operation, operation());
+        assert_eq!(
+            settings.failure.as_ref().unwrap().reason,
+            SourceFailureReason::ServiceUnavailable
+        );
         assert_eq!(
             row(&library, Source::MangaDex)?.failure.unwrap().operation,
             manga_inspection()
@@ -58,8 +62,12 @@ fn exercise(profile: &Path) -> Result<()> {
     let operation = operation();
     let failure = SourceFailure {
         operation: operation.clone(),
-        reason: SourceFailureReason::Http(403),
+        reason: SourceFailureReason::from_error(&Error::ServiceUnavailable).unwrap(),
     };
+    assert_eq!(
+        SourceFailureReason::from_error(&Error::HttpStatus(503)),
+        Some(failure.reason)
+    );
     let mut library = Library::open(profile)?;
     let settings = library.source_settings()?;
     assert_eq!(settings.len(), Source::ALL.len());

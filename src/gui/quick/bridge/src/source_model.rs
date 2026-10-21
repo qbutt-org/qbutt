@@ -129,6 +129,7 @@ impl ffi::SourceModel {
                             SourceFailureReason::Challenge => 10,
                             SourceFailureReason::ResponseTooLarge => 11,
                             SourceFailureReason::BrowserUpdateRequired => 12,
+                            SourceFailureReason::ServiceUnavailable => 13,
                             _ => 0,
                         })
                     })

@@ -18827,6 +18827,10 @@ Please choose a different name and try again.</source>
         <translation>Обновите qcatch и повторите попытку.</translation>
     </message>
     <message>
+        <source>The site is temporarily unavailable.</source>
+        <translation>Сайт временно недоступен.</translation>
+    </message>
+    <message>
         <source>Could not get data from this source.</source>
         <translation>Не удалось получить данные от источника.</translation>
     </message>

@@ -304,10 +304,15 @@ void exerciseSources()
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Snapshot retry connection did not drain"_s);
 
     exec(database, u"UPDATE source_settings SET enabled = (source = 'aniliberty')"_s);
-    failure(database, searchOperation(u"rezero"_s));
+    failure(database, searchOperation(u"rezero"_s), u"service_unavailable"_s);
     controller = std::make_unique<Qbutt::ContentController>();
     controller->initLibrary(profile.path());
     loaded(*controller);
+    require(value(model(*controller, "sources"), u"aniliberty"_s, "failureText").toString()
+            == QCoreApplication::translate("ContentController", "The site is temporarily unavailable.")
+        && !value(model(*controller, "sources"), u"aniliberty"_s, "manualCheck").toBool()
+        && value(model(*controller, "sources"), u"aniliberty"_s, "challengeSite").toString().isEmpty(),
+        u"Unavailable source lost its translated state or requested a browser check"_s);
     require(controller->retrySource(u"aniliberty"_s), u"Previous search retry rejected"_s);
     controller->cancelSearch();
     require(!value(model(*controller, "sources"), u"aniliberty"_s, "retrying").toBool(),

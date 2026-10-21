@@ -330,6 +330,7 @@ pub enum SourceFailureReason {
     Network,
     Timeout,
     Http(u16),
+    ServiceUnavailable,
     Metadata,
     ResponseTooLarge,
     UnsafeAddress,
@@ -356,6 +357,7 @@ impl SourceFailureReason {
             | Error::InvalidLocalBook(_)
             | Error::LocalBookChanged => None,
             Error::VariantUnavailable => Some(Self::VariantUnavailable),
+            Error::ServiceUnavailable | Error::HttpStatus(503) => Some(Self::ServiceUnavailable),
             Error::HttpStatus(status) => Some(Self::Http(*status)),
             Error::Timeout => Some(Self::Timeout),
             Error::InvalidResponse(_) | Error::Json(_) => Some(Self::Metadata),

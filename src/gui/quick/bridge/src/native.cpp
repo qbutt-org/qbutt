@@ -102,6 +102,8 @@ QString Qbutt::sourceError(const std::int32_t reason)
         return QCoreApplication::translate("ContentController", "The source response exceeds the size limit.");
     case 12:
         return QCoreApplication::translate("ContentController", "Update qcatch and try again.");
+    case 13:
+        return QCoreApplication::translate("ContentController", "The site is temporarily unavailable.");
     default:
         return QCoreApplication::translate("ContentController", "Could not get data from this source.");
     }

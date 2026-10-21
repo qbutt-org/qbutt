@@ -35,6 +35,8 @@ pub enum Error {
     InvalidResponse(&'static str),
     #[error("The source returned HTTP {0}")]
     HttpStatus(u16),
+    #[error("The site is temporarily unavailable")]
+    ServiceUnavailable,
     #[error("The source response exceeds the size limit")]
     ResponseTooLarge,
     #[error("The source request timed out")]

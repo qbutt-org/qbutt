@@ -181,9 +181,34 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         Err(Error::VariantUnavailable)
     ));
     fixture.changed.store(false, Ordering::SeqCst);
-    for query in ["Unlikely Result", "Re:Zero"] {
+    for query in ["Unlikely Result", "Re:Zero", "occt"] {
         assert!(source.search(query, Category::Games).await?.is_empty());
     }
+    assert!(matches!(
+        source.search("Maintenance Search", Category::Games).await,
+        Err(Error::ServiceUnavailable)
+    ));
+    let maintenance_publication = PublicationRef {
+        source: Source::OnlineFix,
+        id: "games/horror/18098-maintenance.html".into(),
+    };
+    assert!(matches!(
+        source.inspect(&maintenance_publication).await,
+        Err(Error::ServiceUnavailable)
+    ));
+    assert!(matches!(
+        source
+            .resolve(&VariantRef {
+                publication: maintenance_publication,
+                selector: selected.selector.clone(),
+            })
+            .await,
+        Err(Error::ServiceUnavailable)
+    ));
+    assert!(matches!(
+        source.search("Unavailable Search", Category::Games).await,
+        Err(Error::HttpStatus(503))
+    ));
     for query in [
         "Changed Query",
         "Missing Results",
@@ -252,7 +277,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert!(empty.description.is_none() && !empty.variants.is_empty());
 
     println!(
-        "PASS onlinefix search inspect instructions_version_coop_links safe_plain_text description_bounds publication_comments authors published_permalink absent_permalink foreign_permalink serialization exact_torrent stale_selection empty_notice query_identity malformed_search challenge http_status missing cancel no_archive"
+        "PASS onlinefix search inspect instructions_version_coop_links safe_plain_text description_bounds publication_comments authors published_permalink absent_permalink foreign_permalink serialization exact_torrent stale_selection empty_notice maintenance_search_inspect_resolve maintenance_wording http_503 query_identity malformed_search challenge http_status missing cancel no_archive"
     );
     fixture.stop().await;
     Ok(())
@@ -413,6 +438,23 @@ fn route(
         .query_pairs()
         .find(|(name, _)| name == "story")
         .map(|(_, value)| value.into_owned());
+    if query.as_deref() == Some("Maintenance Search")
+        || url.path() == "/games/horror/18098-maintenance.html"
+    {
+        return (
+            "200 OK",
+            "text/html; charset=windows-1251",
+            cp1251(
+                r#"<html><head><title>Online-Fix - Сайт временно отключен</title></head>
+                <body class="errorwrap"><div class="wrapper clearfix"><center>
+                    <p>Сайт временно отключен</p><p><i>We are tweaking some secret things!</i></p>
+                </center></div></body></html>"#,
+            ),
+        );
+    }
+    if query.as_deref() == Some("Unavailable Search") {
+        return ("503 Service Unavailable", "text/html", Vec::new());
+    }
     if url.path() == "/index.php" {
         assert!(
             url.query_pairs()
@@ -427,7 +469,7 @@ fn route(
             </div></noindex>
         "#;
         let (notice, results) = match query.as_str() {
-            "Unlikely Result" | "Re:Zero" | "Changed Query" | "Denied Search" => {
+            "Unlikely Result" | "Re:Zero" | "occt" | "Changed Query" | "Denied Search" => {
                 (empty_notice, String::new())
             }
             "Missing Results" => (
@@ -442,7 +484,12 @@ fn route(
             _ => (
                 "",
                 format!(
-                    "<div class=\"news news-search\"><a href=\"{site}games/horror/18094-generated-game.html\"><h2 class=\"title\">Generated Game по сети</h2></a></div>"
+                    r#"<p>Online-Fix - Сайт временно отключен</p>
+                    <div class="news news-search">
+                        <a href="{site}games/horror/18094-generated-game.html">
+                            <h2 class="title">Generated Game по сети</h2>
+                        </a>
+                    </div>"#
                 ),
             ),
         };

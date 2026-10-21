@@ -106,6 +106,15 @@ pub(super) fn site_document(response: SourceDocument, expected: &Url) -> Result<
     if invalid {
         return Err(Error::InvalidResponse("invalid Online-Fix text encoding"));
     }
+
+    let document = Html::parse_document(&body);
+    if document
+        .select(&selector("title"))
+        .any(|title| text(title) == "Online-Fix - Сайт временно отключен")
+    {
+        return Err(Error::ServiceUnavailable);
+    }
+
     Ok(body.into_owned())
 }
 
