@@ -26,24 +26,24 @@
     },
     "qcatch": {
       "repository": "https://github.com/qbutt-org/qcatch.git",
-      "commit": "66b0ad96db5106d5a3da711cb86d4b613abac7dc",
-      "version": "1.2.1",
+      "commit": "8711bdf6c93f08137216b51379e555aeba2e3d8f",
+      "version": "1.2.2",
       "protocolVersion": 1,
       "artifacts": {
         "setup": {
-          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.2.1/qcatch-setup.exe",
-          "size": 10594408,
-          "sha256": "3859b04e409cce582ddea094d56a1e8ebdc8878d730690218b5a561ce2de17f3"
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.2.2/qcatch-setup.exe",
+          "size": 10598221,
+          "sha256": "34c9518ecb7d38934624eaa05b74b43bc5c4440cd09fbd56d7214c61c753f7dd"
         },
         "portable": {
-          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.2.1/qcatch-portable.zip",
-          "size": 13209880,
-          "sha256": "3a6081438468f8bdeee8cd28c8355e594f745e903c271ee80c5e3ec8c40a1172"
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.2.2/qcatch-portable.zip",
+          "size": 13211811,
+          "sha256": "0e046c2e665fc61a1bc97c1d19e1058e24e1f7136b4250dd2d9843c1186e0cc0"
         },
         "runtimeSources": {
-          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.2.1-sources/qcatch-1.2.1-runtime-sources.zip",
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.2.2-sources/qcatch-1.2.2-runtime-sources.zip",
           "size": 136930224,
-          "sha256": "3f9fef0dd7f738d4e2c59b099a689d569dfb6fb65f6a2f0d827f3ebabd116104"
+          "sha256": "1ba5c8d28968d197ffb2fd429790b4b017f28f6998cc9f2e01463cad10fa7e33"
         }
       }
     }
