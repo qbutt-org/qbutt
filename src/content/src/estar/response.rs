@@ -134,8 +134,7 @@ pub(super) fn search(body: &str, query: &str) -> Result<Vec<Work>> {
         .field(result, "nodes")?
         .as_array()
         .ok_or(Error::InvalidResponse("invalid Estar search results"))?;
-    let count = state.number(result, "totalCount")?;
-    if nodes.len() > 30 || count < nodes.len() as u64 || (count == 0) != nodes.is_empty() {
+    if nodes.len() > 30 {
         return Err(Error::InvalidResponse("invalid Estar search count"));
     }
 

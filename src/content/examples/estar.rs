@@ -3,6 +3,12 @@ use qbutt_content::{Estar, Source, Transport};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider = Estar::new()?;
+    if let Some(query) = std::env::args().nth(1) {
+        let results = provider.search(&query).await?;
+        println!("Estar search: {} results", results.len());
+        return Ok(());
+    }
+
     let results = provider.search("下の階の消防士").await?;
     println!("Estar search: {} results", results.len());
     let found = results

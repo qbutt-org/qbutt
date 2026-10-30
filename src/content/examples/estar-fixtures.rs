@@ -48,7 +48,7 @@ fn document(state: String, body: &str) -> String {
     )
 }
 
-fn search(query: &str, ticket: &str) -> String {
+fn search(query: &str, ticket: &str, with_work: bool, total_count: u64) -> String {
     let mut state = Nuxt::new();
     let work_id = state.add(json!("42"));
     let title = state.add(json!("生成した物語"));
@@ -62,8 +62,8 @@ fn search(query: &str, ticket: &str) -> String {
         ("publishedBodyCount", count),
         ("catchphrase", caption),
     ]);
-    let nodes = state.add(json!([work]));
-    let total = state.add(json!(1));
+    let nodes = state.add(if with_work { json!([work]) } else { json!([]) });
+    let total = state.add(json!(total_count));
     let results = state.object(&[("nodes", nodes), ("totalCount", total)]);
     let query_slot = state.add(json!(query));
     let ticket_slot = state.add(json!(ticket));
@@ -143,13 +143,20 @@ fn viewer(pay_required: bool, selected_page: u32, content: &str) -> String {
 }
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let works = response::search(&search("生成", "1"), "生成")?;
+    let works = response::search(&search("生成", "1", true, 1), "生成")?;
     assert_eq!(works.len(), 1);
     assert_eq!(works[0].variants[0].languages, ["ja"]);
     assert!(matches!(
-        response::search(&search("生成", "0"), "生成"),
+        response::search(&search("生成", "0", true, 1), "生成"),
         Err(Error::InvalidResponse(_))
     ));
+    for total_count in [0, 14] {
+        assert!(response::search(&search("生成", "1", false, total_count), "生成")?.is_empty());
+    }
+    assert_eq!(
+        response::search(&search("生成", "1", true, 0), "生成")?.len(),
+        1
+    );
     assert!(matches!(
         response::book(&book("43"), &works[0].reference),
         Err(Error::VariantUnavailable)
