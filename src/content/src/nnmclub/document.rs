@@ -66,14 +66,14 @@ pub(super) fn decode(bytes: &[u8], content_type: Option<&str>) -> Result<String>
     Ok(body.into_owned())
 }
 
-pub(super) fn access(body: &str, final_url: &Url) -> Result<()> {
+pub(super) fn access(body: &str, final_url: &Url, status: u16) -> Result<()> {
     let document = Html::parse_document(body);
     let challenge = Selector::parse(
-        "input[name='cap_sid'], input[name='g-recaptcha-response'], textarea[name='g-recaptcha-response'], input[name='h-captcha-response'], .g-recaptcha, .h-captcha, .cf-turnstile",
+        "#challenge-form, #cf-challenge-running, #challenge-stage, input[name='cap_sid'], input[name='g-recaptcha-response'], textarea[name='g-recaptcha-response'], input[name='h-captcha-response'], .g-recaptcha, .h-captcha, .cf-turnstile",
     )
     .unwrap();
     if document.select(&challenge).next().is_some()
-        || body.contains("/cdn-cgi/challenge-platform/")
+        || (matches!(status, 403 | 503) && body.contains("/cdn-cgi/challenge-platform/"))
         || body.contains("_cf_chl_opt")
         || body.contains("challenges.cloudflare.com")
     {

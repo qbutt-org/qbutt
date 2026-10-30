@@ -706,6 +706,7 @@ fn page(
             "200 OK",
             format!(
                 concat!(
+                    "<script src='/cdn-cgi/challenge-platform/scripts/jsd/main.js'></script>",
                     "<form id='search_form'><select id='fs' name='f[]'>",
                     "<optgroup label='Трекер: Всё для детей и родителей'>",
                     "<option value='1339'>Зарубежные Мультфильмы 21-го века (HD, FHD, UHD)</option>",

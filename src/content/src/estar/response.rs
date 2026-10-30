@@ -135,7 +135,7 @@ pub(super) fn search(body: &str, query: &str) -> Result<Vec<Work>> {
         .as_array()
         .ok_or(Error::InvalidResponse("invalid Estar search results"))?;
     if nodes.len() > 30 {
-        return Err(Error::InvalidResponse("invalid Estar search count"));
+        return Err(Error::InvalidResponse("too many Estar search results"));
     }
 
     let mut seen = HashSet::new();

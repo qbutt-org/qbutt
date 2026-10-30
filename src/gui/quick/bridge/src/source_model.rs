@@ -140,7 +140,11 @@ impl ffi::SourceModel {
             7 => QVariant::from(
                 &(matches!(
                     row.source,
-                    Source::RuTracker | Source::NnmClub | Source::X1337 | Source::Igruha
+                    Source::RuTracker
+                        | Source::NnmClub
+                        | Source::X1337
+                        | Source::Igruha
+                        | Source::RoyalRoad
                 ) && matches!(
                     row.failure,
                     Some(

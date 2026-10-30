@@ -270,7 +270,7 @@ impl NnmClub {
 
 fn checked_document(response: SourceDocument, expected: &Url) -> Result<String> {
     let body = document::decode(&response.body, response.content_type.as_deref())?;
-    document::access(&body, &response.final_url)?;
+    document::access(&body, &response.final_url, response.status)?;
     if !(200..300).contains(&response.status) {
         return Err(Error::HttpStatus(response.status));
     }

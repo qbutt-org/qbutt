@@ -73,6 +73,7 @@ impl Catalog {
             Source::NnmClub => self.nnmclub.complete_check().await?,
             Source::Igruha => self.igruha.complete_check().await?,
             Source::X1337 => self.x1337.complete_check(operation).await?,
+            Source::RoyalRoad => self.royalroad.complete_check(operation).await?,
             _ => return result,
         }
         self.execute(operation).await
@@ -85,6 +86,8 @@ impl Catalog {
             .initialize_webview(profile_dir.clone(), app_dir.clone());
         self.igruha
             .initialize_webview(profile_dir.clone(), app_dir.clone());
+        self.royalroad
+            .initialize_webview(profile_dir.clone(), app_dir.clone());
         self.x1337.initialize_webview(profile_dir, app_dir);
     }
 
@@ -93,6 +96,7 @@ impl Catalog {
         self.nnmclub.close();
         self.igruha.close();
         self.x1337.close();
+        self.royalroad.close();
     }
 
     pub(super) fn new(browser: BrowserClient) -> qbutt_content::Result<Self> {
