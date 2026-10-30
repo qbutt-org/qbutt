@@ -5,9 +5,13 @@ use qbutt_content::{Category, Error, FreeTP, ResolvedContent, VariantSelector};
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let source = FreeTP::new()?;
-    assert!(source.search("Re:Zero", Category::Games).await?.is_empty());
-    println!("PASS freetp_live query=Re:Zero results=0 game_payload=none");
+    for query in ["Acon Acoustica 8", "Re:Zero"] {
+        println!("CHECK freetp_live query={query:?}");
+        assert!(source.search(query, Category::Games).await?.is_empty());
+        println!("PASS freetp_live query={query:?} results=0 game_payload=none");
+    }
     let query = std::env::args().nth(1).unwrap_or_else(|| "КЛЕТЬ".into());
+    println!("CHECK freetp_live query={query:?}");
     let found = source.search(&query, Category::Games).await?;
     let publication = found.first().ok_or("no FreeTP game results")?;
     assert!(publication.needs_inspection && publication.variants.is_empty());

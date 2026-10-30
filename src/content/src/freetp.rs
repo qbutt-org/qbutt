@@ -1,7 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
-use std::fmt::Write;
 
-use encoding_rs::WINDOWS_1251;
 use scraper::{ElementRef, Html, Selector};
 use url::Url;
 
@@ -52,24 +50,14 @@ impl FreeTP {
             return Err(Error::InvalidQuery);
         }
 
-        let (bytes, _, invalid) = WINDOWS_1251.encode(query);
-        if invalid {
-            return Err(Error::InvalidQuery);
-        }
-        let mut story = String::new();
-        for byte in bytes.iter().copied() {
-            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-                story.push(char::from(byte));
-            } else if byte == b' ' {
-                story.push('+');
-            } else {
-                write!(story, "%{byte:02X}").expect("writing to String");
-            }
-        }
-
-        let url = self.origin.join(&format!(
-            "/index.php?do=search&subaction=search&story={story}&search_start=1&full_search=0&result_from=1"
-        )).expect("fixed search path");
+        let mut url = self.origin.join("/index.php").expect("fixed search path");
+        url.query_pairs_mut().extend_pairs([
+            ("do", "search"),
+            ("subaction", "search"),
+            ("story", query),
+            ("search_start", "0"),
+            ("full_search", "0"),
+        ]);
         let mut session = SourceSession::anonymous(self.origin.clone())?;
         let (arrived, body) = self.document(url.clone(), &mut session).await?;
         if arrived != url {
@@ -108,14 +96,14 @@ impl FreeTP {
             .join(&format!("/index.php?newsid={id}"))
             .expect("validated publication ID");
         let mut session = SourceSession::anonymous(self.origin.clone())?;
-        let (arrived, body) = match self.document(url, &mut session).await {
+        let (_, body) = match self.document(url, &mut session).await {
             Err(Error::HttpStatus(404 | 410)) => return Err(Error::VariantUnavailable),
             result => result?,
         };
-        let mut release = parse_release(&body, &self.origin, &arrived, publication)?;
+        let mut release = parse_release(&body, &self.origin, publication)?;
         let candidates = {
             let document = Html::parse_document(&body);
-            let content = unique(document.root_element(), &format!("#news-id-{id}"))?;
+            let content = unique(document.root_element(), "#content .game-page__content")?;
             let mut seen = HashSet::new();
             let mut candidates = Vec::new();
 
@@ -197,24 +185,21 @@ impl FreeTP {
             return Err(Error::InvalidResponse("FreeTP file identity changed"));
         }
         let document = Html::parse_document(&body);
-        let title = text(unique(document.root_element(), "title")?);
-        let filename = title
-            .strip_suffix(" скачать бесплатно")
-            .ok_or(Error::InvalidResponse("missing FreeTP file name"))?;
+        let filename = text(unique(document.root_element(), ".ftp-dl-title b")?);
         if !filename.to_ascii_lowercase().ends_with(".torrent") {
             return Ok(None);
         }
         if filename.len() > 512 || filename.chars().any(char::is_control) {
             return Err(Error::InvalidResponse("invalid FreeTP file name"));
         }
-        Ok(Some(filename.to_owned()))
+        Ok(Some(filename))
     }
 
     async fn metadata(&self, id: u64, session: &mut SourceSession) -> Result<TorrentMetadata> {
         let referer = self.origin.join(&format!("/getfile-{id}")).unwrap();
         let url = self
             .origin
-            .join(&format!("/engine/download.php?id={id}&area="))
+            .join(&format!("/index.php?do=download&id={id}"))
             .unwrap();
         let response = self
             .http
@@ -232,15 +217,8 @@ impl FreeTP {
             .as_deref()
             .and_then(|value| value.split(';').next())
             .map(str::trim);
-        if !content_type.is_some_and(|value| {
-            [
-                "application/force-download",
-                "application/x-bittorrent",
-                "application/octet-stream",
-            ]
-            .iter()
-            .any(|mime| value.eq_ignore_ascii_case(mime))
-        }) {
+        if !content_type.is_some_and(|value| value.eq_ignore_ascii_case("application/x-bittorrent"))
+        {
             return Err(Error::InvalidResponse(
                 "FreeTP file is not torrent metadata",
             ));
@@ -264,35 +242,32 @@ fn decode_document(response: SourceDocument) -> Result<(Url, String)> {
     let content_type = response.content_type.as_deref().unwrap_or_default();
     let parts = content_type.split(';').map(str::trim).collect::<Vec<_>>();
     if !parts[0].eq_ignore_ascii_case("text/html")
-        || !parts[1..].iter().any(|part| {
-            matches!(
-                part.to_ascii_lowercase().as_str(),
-                "charset=cp1251" | "charset=windows-1251"
-            )
-        })
+        || !parts[1..]
+            .iter()
+            .any(|part| part.eq_ignore_ascii_case("charset=utf-8"))
     {
-        return Err(Error::InvalidResponse("FreeTP response is not CP1251 HTML"));
+        return Err(Error::InvalidResponse("FreeTP response is not UTF-8 HTML"));
     }
-    let (body, invalid) = WINDOWS_1251.decode_without_bom_handling(&response.body);
-    if invalid {
-        return Err(Error::InvalidResponse("invalid FreeTP text encoding"));
-    }
-    Ok((response.final_url, body.into_owned()))
+    let body = String::from_utf8(response.body)
+        .map_err(|_| Error::InvalidResponse("invalid FreeTP text encoding"))?;
+    Ok((response.final_url, body))
 }
 
 fn parse_search(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>> {
     let document = Html::parse_document(body);
     let root = document.root_element();
-    let form = unique(root, "#dle-content #fullsearch")?;
+    let content = unique(root, "#content")?;
+    let form = unique(content, "#fullsearch")?;
     let story = unique(form, "input[name='story']")?;
     let started = unique(form, "input[name='search_start']")?;
-    if story.value().attr("value") != Some(query) || started.value().attr("value") != Some("1") {
+    if story.value().attr("value") != Some(query) || started.value().attr("value") != Some("0") {
         return Err(Error::InvalidResponse("FreeTP search was not confirmed"));
     }
-    if text(unique(root, "#dle-content h1.heading3")?) != "Поиск по сайту" {
+    if text(unique(form, ".searchpage h1.title")?) != "Поиск по сайту" {
         return Err(Error::InvalidResponse("missing FreeTP search results"));
     }
-    if text(unique(root, "#dle-content")?).contains("Вы сможете воспользоваться поиском через")
+    let content_text = text(content);
+    if content_text.contains("Вы сможете воспользоваться поиском через")
     {
         return Err(Error::InvalidResponse(
             "FreeTP search is temporarily limited",
@@ -301,7 +276,7 @@ fn parse_search(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>> {
 
     let mut works = Vec::new();
     let mut seen = HashSet::new();
-    for link in document.select(&selector("#dle-content > .base > .heading > a[href]")) {
+    for link in content.select(&selector(".shortstory .game-card__title > a[href]")) {
         if works.len() == 100 {
             return Err(Error::InvalidResponse("excessive FreeTP search results"));
         }
@@ -330,29 +305,31 @@ fn parse_search(body: &str, origin: &Url, query: &str) -> Result<Vec<Work>> {
             needs_inspection: true,
         });
     }
+    if works.is_empty()
+        && !content_text.contains("К сожалению, поиск по сайту не дал никаких результатов.")
+    {
+        return Err(Error::InvalidResponse("missing FreeTP search results"));
+    }
     Ok(works)
 }
 
-fn parse_release(
-    body: &str,
-    origin: &Url,
-    url: &Url,
-    expected: &PublicationRef,
-) -> Result<Release> {
-    let Some((arrived, canonical)) = publication(url.as_str(), origin) else {
-        return Err(Error::VariantUnavailable);
-    };
-    if arrived != *expected {
-        return Err(Error::VariantUnavailable);
-    }
+fn parse_release(body: &str, origin: &Url, expected: &PublicationRef) -> Result<Release> {
     let document = Html::parse_document(body);
     let root = document.root_element();
-    let article = unique(root, "#dle-content > .base.fullstory")?;
-    let title = text(unique(article, "h1")?);
+    let canonical = unique(root, "link[rel='canonical'][href]")?;
+    let Some((reference, canonical)) = publication(canonical.value().attr("href").unwrap(), origin)
+    else {
+        return Err(Error::VariantUnavailable);
+    };
+    if reference != *expected {
+        return Err(Error::VariantUnavailable);
+    }
+    let article = unique(root, "#content > .fullstory")?;
+    let title = text(unique(article, ".game-page__title")?);
     if title.is_empty() || title.len() > 2048 {
         return Err(Error::InvalidResponse("invalid FreeTP article title"));
     }
-    let content = unique(article, &format!("#news-id-{}", expected.id))?;
+    let content = unique(article, ".game-page__content")?;
     let description = content
         .select(&selector("p"))
         .map(text)

@@ -65,34 +65,35 @@ fn page(
         .iter()
         .cloned()
         .collect::<std::collections::BTreeMap<_, _>>();
-    if path == "/index.php" && params.contains_key("newsid") {
-        return ("302 Found", "text/html; charset=cp1251", Vec::new());
-    }
     if path == "/index.php" && params.contains_key("story") {
         let story = params.get("story").unwrap().replace(':', "");
         if story == "forbidden" {
             return (
                 "403 Forbidden",
-                "text/html; charset=cp1251",
+                "text/html; charset=utf-8",
                 b"error".to_vec(),
             );
         }
         if story == "server-error" {
             return (
                 "503 Service Unavailable",
-                "text/html; charset=cp1251",
+                "text/html; charset=utf-8",
                 b"error".to_vec(),
             );
         }
         if story == "challenge" {
             return (
                 "200 OK",
-                "text/html; charset=cp1251",
+                "text/html; charset=utf-8",
                 b"<h1>Checking your browser</h1>".to_vec(),
             );
         }
-        let result = if matches!(story.as_str(), "generated" | "generatedlegal") {
-            r#"<div class="base"><div class="heading"><a href="/po-seti/42-generated-game.html">Generated Legal Game играть по сети и интернету Онлайн</a></div></div>"#
+        let result = if matches!(story.as_str(), "generated" | "generatedlegal" | "КЛЕТЬ") {
+            r#"<article class="shortstory">
+    <h2 class="game-card__title">
+        <a href="/po-seti/42-generated-game.html">Generated Legal Game играть по сети и интернету Онлайн</a>
+    </h2>
+</article>"#
         } else {
             ""
         };
@@ -103,19 +104,50 @@ fn page(
         };
         let notice = if story == "limited" {
             "Вы сможете воспользоваться поиском через 10 секунд"
+        } else if result.is_empty() && story != "malformed-empty" {
+            "К сожалению, поиск по сайту не дал никаких результатов. Попробуйте изменить или сократить Ваш запрос."
         } else {
             ""
         };
+        let started = if story == "unstarted" {
+            "1"
+        } else {
+            params.get("search_start").map(String::as_str).unwrap_or("")
+        };
         let body = format!(
-            r#"<div id="dle-content"><h1 class="heading3">Поиск по сайту</h1><form id="fullsearch"><input name="story" value="{shown}"><input name="search_start" value="1"></form>{result}{notice}</div>"#
+            r#"<section id="content">
+    <div class="ftp-info">{notice}</div>
+    <form id="fullsearch">
+        <input name="story" value="{shown}">
+        <input name="search_start" value="{started}">
+        <article class="searchpage"><h1 class="title">Поиск по сайту</h1></article>
+    </form>
+    {result}
+</section>"#
         );
-        let (bytes, _, _) = encoding_rs::WINDOWS_1251.encode(&body);
-        return ("200 OK", "text/html; charset=cp1251", bytes.into_owned());
+        return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
     }
-    if path == "/po-seti/42-generated-game.html" {
-        let body = r#"<div id="dle-content"><div class="base fullstory"><h1>Generated Legal Game играть по сети и интернету Онлайн</h1><div id="news-id-42"><p>Legal game and setup instructions.</p><p>Скачать игру</p><p><a href="/getfile-10">Скачать Generated_Game_v2.torrent</a><a href="/getfile-12"> </a></p><p>Скачать патч</p><p><a href="/getfile-13">Generated_Patch_v2.torrent</a></p><p>Скачать онлайн фикс</p><p><a href="/getfile-11">Online Fix.exe</a></p></div></div></div>"#;
-        let (bytes, _, _) = encoding_rs::WINDOWS_1251.encode(body);
-        return ("200 OK", "text/html; charset=cp1251", bytes.into_owned());
+    if path == "/index.php" && params.contains_key("newsid") {
+        let body = r#"<link rel="canonical" href="/po-seti/42-generated-game.html">
+<section id="content">
+    <article class="fullstory">
+        <h2 class="game-page__title">Generated Legal Game играть по сети и интернету Онлайн</h2>
+        <div class="game-page__content">
+            <p>Legal game and setup instructions.</p>
+            <p>Скачать игру</p>
+            <p><a href="/getfile-10">Скачать Generated_Game_v2.torrent</a><a href="/getfile-12"> </a></p>
+            <p>Скачать патч</p>
+            <p><a href="/getfile-13">Generated_Patch_v2.torrent</a></p>
+            <p>Скачать онлайн фикс</p>
+            <p><a href="/getfile-11">Online Fix.exe</a></p>
+        </div>
+    </article>
+</section>"#;
+        return (
+            "200 OK",
+            "text/html; charset=utf-8",
+            body.as_bytes().to_vec(),
+        );
     }
     if let Some(id) = path.strip_prefix("/getfile-") {
         let name = match id {
@@ -123,13 +155,12 @@ fn page(
             "11" => "Online_Fix.exe",
             "12" => "Unrelated_Game.torrent",
             "13" => "Generated_Patch_v2.torrent",
-            _ => return ("404 Not Found", "text/html; charset=cp1251", Vec::new()),
+            _ => return ("404 Not Found", "text/html; charset=utf-8", Vec::new()),
         };
-        let body = format!("<title>{name} скачать бесплатно</title>");
-        let (bytes, _, _) = encoding_rs::WINDOWS_1251.encode(&body);
-        return ("200 OK", "text/html; charset=cp1251", bytes.into_owned());
+        let body = format!(r#"<h1 class="ftp-dl-title">Скачать файл <b>{name}</b></h1>"#);
+        return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
     }
-    if path == "/engine/download.php" {
+    if path == "/index.php" && params.get("do").is_some_and(|value| value == "download") {
         let bytes = match params.get("id").map(String::as_str) {
             Some("10") => metadata(if changed {
                 "Changed Game"
@@ -137,11 +168,11 @@ fn page(
                 "Generated Game"
             }),
             Some("13") => metadata("Generated Patch"),
-            _ => return ("404 Not Found", "text/html; charset=cp1251", Vec::new()),
+            _ => return ("404 Not Found", "text/html; charset=utf-8", Vec::new()),
         };
-        return ("200 OK", "application/force-download", bytes);
+        return ("200 OK", "application/x-bittorrent", bytes);
     }
-    ("404 Not Found", "text/html; charset=cp1251", Vec::new())
+    ("404 Not Found", "text/html; charset=utf-8", Vec::new())
 }
 
 struct Fixture {
@@ -225,20 +256,16 @@ impl Fixture {
                         let referred = expected_referer.as_ref().is_some_and(|expected| {
                             request.lines().any(|line| line.trim().eq_ignore_ascii_case(expected))
                         });
-                        let (status, mime, bytes) = if url.path() == "/engine/download.php" && !referred {
-                            ("403 Forbidden", "text/html; charset=cp1251", Vec::new())
+                        let (status, mime, bytes) = if url.path() == "/index.php"
+                            && params.iter().any(|(name, value)| name == "do" && value == "download")
+                            && !referred
+                        {
+                            ("403 Forbidden", "text/html; charset=utf-8", Vec::new())
                         } else {
                             page(url.path(), &params, changed.load(Ordering::SeqCst))
                         };
-                        let location = if url.path() == "/index.php"
-                            && params.iter().any(|(name, _)| name == "newsid")
-                        {
-                            "Location: /po-seti/42-generated-game.html\r\n"
-                        } else {
-                            ""
-                        };
                         let header = format!(
-                            "HTTP/1.1 {status}\r\n{location}Content-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                             bytes.len()
                         );
                         let _ = stream.write_all(header.as_bytes()).await;
@@ -329,12 +356,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         Err(Error::VariantUnavailable)
     ));
     assert!(source.resolve(&work.variants[1].reference).await.is_ok());
-    for query in ["absent", "Re:Zero"] {
+    for query in ["absent", "Re:Zero", "Acon Acoustica 8"] {
         assert!(source.search(query, Category::Games).await?.is_empty());
     }
     let normalized = source.search("generated:legal", Category::Games).await?;
     assert_eq!(normalized.len(), 1);
     assert_eq!(normalized[0].reference, found[0].reference);
+    let cyrillic = source.search("КЛЕТЬ", Category::Games).await?;
+    assert_eq!(cyrillic.len(), 1);
+    assert_eq!(cyrillic[0].reference, found[0].reference);
     for query in [":", ": :"] {
         assert!(matches!(
             source.search(query, Category::Games).await,
@@ -344,6 +374,23 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert!(matches!(
         source.search("mismatch", Category::Games).await,
         Err(Error::InvalidResponse("FreeTP search was not confirmed"))
+    ));
+    assert!(matches!(
+        source.search("unstarted", Category::Games).await,
+        Err(Error::InvalidResponse("FreeTP search was not confirmed"))
+    ));
+    assert!(matches!(
+        source.search("malformed-empty", Category::Games).await,
+        Err(Error::InvalidResponse("missing FreeTP search results"))
+    ));
+    assert!(matches!(
+        source
+            .inspect(&PublicationRef {
+                source: Source::FreeTP,
+                id: "43".into()
+            })
+            .await,
+        Err(Error::VariantUnavailable)
     ));
     assert!(matches!(
         source.search("forbidden", Category::Games).await,
@@ -370,7 +417,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     fixture.stop().await;
     println!(
-        "PASS freetp_fixture search colon_normalized positive empty_rezero mismatch_rejected http_challenge_preserved inspect game patch exact_resolve changed_hash limited cancel"
+        "PASS freetp_fixture search utf8_cyrillic colon_normalized positive empty_acoustica_rezero mismatch_rejected unstarted_rejected malformed_empty_rejected http_challenge_preserved inspect canonical_identity game patch exact_resolve changed_hash limited cancel"
     );
     Ok(())
 }
