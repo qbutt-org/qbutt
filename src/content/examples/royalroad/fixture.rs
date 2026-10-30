@@ -24,6 +24,7 @@ pub(super) enum Fault {
     InvalidSubscription,
     MissingManifest,
     UnsafeChapter,
+    Challenge,
 }
 
 pub(super) struct Fixture {
@@ -158,6 +159,15 @@ async fn serve(
         "mime" => mime = "application/json",
         "utf8" => body = vec![0xff],
         "challenge" | "missing" => body = b"<h1>Verify you are human</h1>".to_vec(),
+        "normal-jsd" => {
+            body.extend_from_slice(
+                b"<script src='/cdn-cgi/challenge-platform/scripts/jsd/main.js'></script>",
+            );
+        }
+        "changed-query" => {
+            status = "302 Found";
+            extra = "Location: /fictions/search?title=unrelated\r\n".into();
+        }
         "huge-length" => extra = "Content-Length: 2097153\r\n".into(),
         "huge-stream" => {
             body = vec![b'x'; 2097153];
@@ -181,6 +191,39 @@ async fn serve(
         }
         _ => {}
     }
+    let session = request
+        .lines()
+        .any(|line| line == "cookie: clearance=fixture-pass")
+        && request
+            .lines()
+            .any(|line| line == "user-agent: fixture-webview");
+    if matches!(query.as_str(), "plain-denial" | "plain-denial-utf8") {
+        status = "403 Forbidden";
+        body = if query == "plain-denial-utf8" {
+            vec![0xff]
+        } else {
+            b"<h1>Access denied</h1>".to_vec()
+        };
+    } else if query == "persistent-challenge"
+        || ((query.starts_with("clearance")
+            || matches!(
+                query.as_str(),
+                "Acon Acoustica 8"
+                    | "manual-check"
+                    | "check-timeout"
+                    | "check-fault"
+                    | "foreign-session"
+            )
+            || fault == Fault::Challenge)
+            && !session)
+    {
+        status = if query == "clearance-success-status" {
+            "200 OK"
+        } else {
+            "403 Forbidden"
+        };
+        body = b"<title>Just a moment...</title><form id='challenge-form'></form><script src='/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1'></script>".to_vec();
+    }
     if !matches!(query.as_str(), "huge-length" | "huge-stream") {
         extra.push_str(&format!("Content-Length: {}\r\n", body.len()));
     }
@@ -195,7 +238,7 @@ async fn serve(
 fn search(query: &str) -> String {
     let row = r#"<div class="fiction-list-item"><h2 class="fiction-title"><a href="/fiction/42/generated">Generated &amp; legal fiction</a></h2><img data-type="cover" src="https://www.royalroadcdn.com/public/covers-full/42.jpg?time=1"></div>"#;
     let rows = match query {
-        "empty" => String::new(),
+        "empty" | "Acon Acoustica 8" => String::new(),
         "no-cover" => row.replace(
             "https://www.royalroadcdn.com/public/covers-full/42.jpg?time=1",
             "/dist/img/nocover-new-min.png",

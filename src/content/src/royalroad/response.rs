@@ -44,6 +44,19 @@ struct ChapterMetadata {
     url: String,
 }
 
+pub(crate) fn is_challenge(body: &str, status: u16) -> bool {
+    if body.contains("_cf_chl_opt")
+        || (matches!(status, 403 | 503) && body.contains("/cdn-cgi/challenge-platform/"))
+    {
+        return true;
+    }
+    let document = Html::parse_document(body);
+    let challenge =
+        Selector::parse("#challenge-form, #cf-challenge-running, #challenge-stage, .cf-turnstile")
+            .expect("fixed Cloudflare challenge selector");
+    document.select(&challenge).next().is_some()
+}
+
 pub(crate) fn search(body: &str, origin: &Url) -> Result<Vec<Work>> {
     let document = Html::parse_document(body);
     let results = one(&document, ".fiction-list")?;

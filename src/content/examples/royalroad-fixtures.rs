@@ -7,8 +7,12 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
+#[allow(dead_code)]
+#[path = "../src/sources.rs"]
+mod sources;
 #[cfg(windows)]
 pub use qbutt_content::webview;
+pub use sources::SourceOperation;
 
 #[cfg(windows)]
 #[allow(dead_code)]
@@ -31,10 +35,17 @@ mod http {
 mod royalroad {
     include!("../src/royalroad.rs");
     pub(super) fn fixture(http: SourceHttp, origin: Url) -> RoyalRoad {
-        RoyalRoad { http, origin }
+        RoyalRoad {
+            http,
+            origin,
+            webview: std::sync::OnceLock::new(),
+            clearance: std::sync::Mutex::new(None),
+        }
     }
 }
 
+#[path = "royalroad/check.rs"]
+mod check;
 #[path = "royalroad/fixture.rs"]
 mod fixture;
 
@@ -44,6 +55,9 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    if std::env::args().nth(1).as_deref() == Some("--stdio") {
+        return check::helper();
+    }
     if let Some(profile) = std::env::args_os().nth(1) {
         let library = qbutt_content::Library::open(profile)?;
         let reference = qbutt_content::PublicationRef {
@@ -79,6 +93,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert_eq!(search[0].cover.as_ref().unwrap().query(), None);
     assert!(provider.search("empty").await?.is_empty());
     assert!(provider.search("no-cover").await?[0].cover.is_none());
+    assert_eq!(provider.search("normal-jsd").await?.len(), 1);
+    assert!(matches!(
+        provider.search("changed-query").await,
+        Err(Error::InvalidResponse("Royal Road search identity changed"))
+    ));
 
     let publication = search[0].reference.clone();
     let work = provider.inspect(&publication).await?;
@@ -284,6 +303,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
     assert_eq!(provider.chapter_text(selected).await?, chapter);
+    check::run(&fixture).await?;
     fixture.stop().await;
     println!(
         "PASS Royal Road generated TLS search/inspect/public TOC/nonfirst original, stable blocks, emphasis, hidden noise, paid/missing/changed identity, invalid metadata/references, bounded HTTP/redirect/timeout/cancel/retry"

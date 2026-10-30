@@ -3,11 +3,40 @@ use qbutt_content::{PublicationRef, RoyalRoad, Source, Transport};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let source = RoyalRoad::new()?;
+    let mut arguments = std::env::args_os().skip(1);
+    let query = if let Some(app_dir) = arguments.next() {
+        let profile = arguments
+            .next()
+            .ok_or("usage: royalroad [HELPER_DIRECTORY PROFILE_DIRECTORY [SEARCH_QUERY]]")?;
+        source.initialize_webview(profile.into(), app_dir.into());
+        arguments
+            .next()
+            .map(|query| query.into_string().map_err(|_| "query is not UTF-8"))
+            .transpose()?
+    } else {
+        None
+    };
+    let result = exercise(&source, query.as_deref()).await;
+    source.close();
+    result
+}
+
+async fn exercise(
+    source: &RoyalRoad,
+    query: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let search = source.search(query.unwrap_or("Mother of Learning")).await?;
+    if query.is_some() {
+        println!(
+            "PASS Royal Road live exact search: results={}",
+            search.len()
+        );
+        return Ok(());
+    }
     let reference = PublicationRef {
         source: Source::RoyalRoad,
         id: "21220".into(),
     };
-    let search = source.search("Mother of Learning").await?;
     let listed = search
         .iter()
         .find(|work| work.reference == reference)
