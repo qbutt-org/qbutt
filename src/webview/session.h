@@ -36,7 +36,6 @@ private:
     void finish(const QJsonObject &result);
     void fail(const QString &code);
     void close();
-    static bool publicUrl(const QUrl &url);
 
     std::function<void(const QJsonObject &)> m_completed;
     QString m_id;

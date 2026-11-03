@@ -13,41 +13,24 @@
 #pragma pop_macro("__has_attribute")
 #endif
 
-#include <QDateTime>
 #include <QDir>
 #include <QFile>
-#include <QFileInfo>
-#include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
+
+#include "request.h"
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
 using Microsoft::WRL::Make;
+using namespace SourceCheck;
 
 namespace
 {
     constexpr qsizetype maxResponseBytes = 256 * 1024 - 1; // reserve the JSON-lines newline
     constexpr wchar_t windowClass[] = L"qbuttWebSession";
-    const QUrl proxyCheckUrl {QStringLiteral("http://qbutt-webview.invalid/")};
-    constexpr wchar_t documentState[] = LR"JS((() => {
-        const has = selector => document.querySelector(selector) !== null;
-        const anubis = has('script#anubis_challenge[type="application/json"]')
-            && has('script#anubis-main[src*="/.within.website/x/cmd/anubis/"]');
-        const cloudflare = has('#challenge-form, #cf-challenge-running, #challenge-stage, .cf-turnstile');
-        const ddg = has('script[src*="check.ddos-guard.net/check.js"]');
-        const captcha = has(`form#captcha-form, form[action*="/captcha"], input[name="cap_sid"],
-            input[name="g-recaptcha-response"], textarea[name="g-recaptcha-response"],
-            input[name="h-captcha-response"], .g-recaptcha, .h-captcha`);
-        const login = location.pathname === '/forum/login.php'
-            || (has('input[name="login_username"]') && has('input[name="login_password"]')
-                && !has('#logged-in-username'));
-        return {url: location.href, ready: document.readyState === 'complete',
-            challenge: anubis || cloudflare || ddg || captcha || login};
-    })())JS";
 
     QString consumeString(LPWSTR value)
     {
@@ -90,91 +73,26 @@ void WebSession::start(const QJsonObject &request)
         return;
     }
     m_started = true;
-    m_id = request.value("id").toString();
-    m_url = QUrl {request.value("url").toString(), QUrl::StrictMode};
-    const QString mode = request.value("mode").toString();
-    m_interactive = (mode == "interactive");
-    const QString profile = QDir::cleanPath(request.value("profileDirectory").toString());
-    const QJsonObject proxy = request.value("proxy").toObject();
-    m_proxy = QUrl {proxy.value("url").toString(), QUrl::StrictMode};
-    m_proxyUsername = proxy.value("username").toString();
-    m_proxyPassword = proxy.value("password").toString();
-    const int timeout = request.value("timeoutMs").toInt();
-    const QFileInfo profileInfo {profile};
-    const QRegularExpression profileName {"\\A[a-f0-9]{64}\\z"};
-    const QString fingerprint = request.value("configuredSession").toString();
-    const QJsonArray initialCookies = request.value("initialCookies").toArray();
-    const bool authoritative = request.value("authoritativeCookies").toBool();
-    const QJsonArray retainedCookies = request.value("retainedCookies").toArray();
-    if (m_id.isEmpty() || m_id.size() > 128 || !publicUrl(m_url)
-        || (mode != "silent" && mode != "interactive")
-        || timeout < 1000 || timeout > (m_interactive ? 180000 : 30000)
-        || !profileInfo.isAbsolute() || profile.startsWith("//")
-        || !profileName.match(profileInfo.fileName()).hasMatch()
-        || QFileInfo {profileInfo.path()}.fileName() != "web-session"
-        || m_proxy.scheme() != "http" || m_proxy.host() != "127.0.0.1" || m_proxy.port() <= 0
-        || !m_proxy.userInfo().isEmpty() || !m_proxy.path().isEmpty() || m_proxy.hasQuery() || m_proxy.hasFragment()
-        || m_proxyUsername != "qbutt" || m_proxyPassword.size() < 32 || m_proxyPassword.size() > 128)
+    const auto parsed = SourceCheck::parseRequest(request);
+    if (!parsed)
     {
+        m_id = request.value("id").toString();
+        m_url = QUrl(request.value("url").toString(), QUrl::StrictMode);
         fail(QStringLiteral("webview_failed"));
         return;
     }
-
-    const bool hasConfiguredSession = request.contains("configuredSession") || request.contains("initialCookies");
-    if ((hasConfiguredSession && (!profileName.match(fingerprint).hasMatch()
-            || !request.value("initialCookies").isArray() || initialCookies.size() > 128))
-        || (request.contains("authoritativeCookies") && (!request.value("authoritativeCookies").isBool() || !hasConfiguredSession))
-        || (request.contains("retainedCookies") && (!authoritative || !request.value("retainedCookies").isArray()
-            || retainedCookies.size() > 128)))
-    {
-        fail(QStringLiteral("webview_failed"));
-        return;
-    }
-    const QRegularExpression cookieName {"\\A[!#$%&'*+.^_`|~0-9A-Za-z-]+\\z"};
-    const QRegularExpression cookieValue {"\\A[\\x21\\x23-\\x2B\\x2D-\\x3A\\x3C-\\x5B\\x5D-\\x7E]*\\z"};
-    const auto validIdentity = [this, &cookieName](const QJsonValue &value)
-    {
-        const QJsonObject cookie = value.toObject();
-        const QString name = cookie.value("name").toString();
-        return value.isObject() && name.size() <= 256 && cookieName.match(name).hasMatch()
-            && cookie.value("domain").toString() == m_url.host(QUrl::EncodeUnicode) && cookie.value("path").toString() == "/"
-            && cookie.value("hostOnly").isBool() && cookie.value("hostOnly").toBool();
-    };
-    QSet<QString> names;
-    for (const QJsonValue &value : initialCookies)
-    {
-        const QJsonObject cookie = value.toObject();
-        const QString name = cookie.value("name").toString();
-        const QString content = cookie.value("value").toString();
-        QString octets = content;
-        if (octets.size() >= 2 && octets.startsWith('"') && octets.endsWith('"'))
-            octets = octets.mid(1, octets.size() - 2);
-        if (!validIdentity(value)
-            || !cookie.value("value").isString() || name.size() + content.size() > 4096
-            || !cookieValue.match(octets).hasMatch() || names.contains(name)
-            || !cookie.value("secure").isBool()
-            || !cookie.value("httpOnly").isBool()
-            || (cookie.contains("expires") && (!cookie.value("expires").isDouble()
-                || !std::isfinite(cookie.value("expires").toDouble())
-                || cookie.value("expires").toDouble() <= QDateTime::currentSecsSinceEpoch())))
-        {
-            fail(QStringLiteral("webview_failed"));
-            return;
-        }
-        names.insert(name);
-    }
-    QSet<QString> retained;
-    for (const QJsonValue &cookie : retainedCookies)
-    {
-        const QString name = cookie.toObject().value("name").toString();
-        if (!validIdentity(cookie) || names.contains(name))
-        {
-            fail(QStringLiteral("webview_failed"));
-            return;
-        }
-        names.insert(name);
-        retained.insert(name);
-    }
+    m_id = parsed->id;
+    m_url = parsed->url;
+    m_interactive = parsed->interactive;
+    m_proxy = parsed->proxy;
+    m_proxyUsername = parsed->proxyUsername;
+    m_proxyPassword = parsed->proxyPassword;
+    const QString profile = parsed->profileDirectory;
+    const QString fingerprint = parsed->configuredSession;
+    const QJsonArray initialCookies = parsed->initialCookies;
+    const QSet<QString> retained = parsed->retainedCookies;
+    const bool authoritative = parsed->authoritativeCookies;
+    const int timeout = parsed->timeoutMs;
 
     m_deadline.start(timeout);
     if (!QDir().mkpath(profile))
@@ -659,7 +577,7 @@ void WebSession::pollDocument()
         return;
     m_polling = true;
     const quint64 generation = m_navigationGeneration;
-    const HRESULT result = m_view->ExecuteScript(documentState,
+    const HRESULT result = m_view->ExecuteScript(reinterpret_cast<LPCWSTR>(QString::fromUtf8(documentState).utf16()),
         Callback<ICoreWebView2ExecuteScriptCompletedHandler>([this, generation](const HRESULT status, LPCWSTR json) -> HRESULT
     {
         m_polling = false;
@@ -830,30 +748,6 @@ void WebSession::close()
         DestroyWindow(m_window);
         m_window = nullptr;
     }
-}
-
-bool WebSession::publicUrl(const QUrl &url)
-{
-    if (!url.isValid() || (url.scheme() != "https" && url.scheme() != "http")
-        || url.host().isEmpty() || url.host() == proxyCheckUrl.host()
-        || !url.userInfo().isEmpty() || url.port(443) <= 0)
-        return false;
-    const QHostAddress address {url.host()};
-    if (address.isNull())
-        return true;
-    bool isV4 = false;
-    const quint32 ip = address.toIPv4Address(&isV4);
-    if (isV4)
-    {
-        const quint32 first = ip >> 24;
-        const quint32 second = (ip >> 16) & 255;
-        return first != 0 && first != 10 && first != 127 && first < 224
-            && !(first == 169 && second == 254)
-            && !(first == 172 && second >= 16 && second <= 31)
-            && !(first == 192 && second == 168)
-            && !(first == 100 && second >= 64 && second <= 127);
-    }
-    return (address.toIPv6Address()[0] & 0xE0) == 0x20;
 }
 
 LRESULT CALLBACK WebSession::windowProcedure(HWND window, const UINT message, const WPARAM wParam, const LPARAM lParam)

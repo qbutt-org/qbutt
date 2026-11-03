@@ -33,6 +33,10 @@ if (WIN32)
             bcrypt
             ntdll
     )
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LibSecret REQUIRED IMPORTED_TARGET libsecret-1)
+    target_link_libraries(qbutt_quick INTERFACE PkgConfig::LibSecret)
 endif()
 
 qt_add_library(qbt_quick STATIC

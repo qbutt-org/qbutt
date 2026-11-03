@@ -15,6 +15,7 @@
 #include <QJsonValue>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QVersionNumber>
 
 #include "base/global.h"
@@ -33,15 +34,26 @@ namespace
             return QFileInfo(executable).isAbsolute() ? executable : QString {};
         }
 
+        #ifdef Q_OS_WIN
+        const QString executableName = u"qplay.exe"_s;
+#else
+        const QString executableName = u"qplay"_s;
+#endif
         const QDir portable(QCoreApplication::applicationDirPath() + u"/qplay"_s);
         if (portable.exists(u"qplay.portable"_s))
-            return portable.filePath(u"qplay.exe"_s);
+            return portable.filePath(executableName);
 
 #ifdef Q_OS_WIN
         const QSettings installation(u"HKEY_CURRENT_USER\\Software\\qbutt-org\\qplay"_s, QSettings::Registry64Format);
         const QString directory = installation.value(u"InstallDir"_s).toString();
         if (QFileInfo(directory).isAbsolute())
-            return QDir(directory).filePath(u"qplay.exe"_s);
+            return QDir(directory).filePath(executableName);
+#elif defined(Q_OS_LINUX)
+        const QDir data(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation));
+        const QFileInfo installed(data.filePath(u"qplay/app/qplay"_s));
+        if (installed.isFile() && installed.isExecutable())
+            return installed.canonicalFilePath();
+        return QFileInfo(QStandardPaths::findExecutable(executableName)).canonicalFilePath();
 #endif
         return {};
     }

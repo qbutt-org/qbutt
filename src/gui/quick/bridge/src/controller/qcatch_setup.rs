@@ -78,7 +78,9 @@ struct QcatchPin {
 
 #[derive(Deserialize)]
 struct QcatchArtifacts {
-    setup: ArtifactPin,
+    #[cfg_attr(target_os = "linux", serde(rename = "linuxPortable"))]
+    #[cfg_attr(not(target_os = "linux"), serde(rename = "setup"))]
+    installation: ArtifactPin,
 }
 
 #[derive(Deserialize)]
@@ -115,7 +117,11 @@ fn pin() -> Result<QcatchPin, SetupError> {
     )))
     .map_err(|_| SetupError::Integrity)?;
     let pin = lock.products.qcatch;
-    let url = Url::parse(&pin.artifacts.setup.url).map_err(|_| SetupError::Integrity)?;
+    let url = Url::parse(&pin.artifacts.installation.url).map_err(|_| SetupError::Integrity)?;
+    #[cfg(target_os = "linux")]
+    let filename = "qcatch-linux-x64.zip";
+    #[cfg(not(target_os = "linux"))]
+    let filename = "qcatch-setup.exe";
     if url.scheme() != "https"
         || url.host_str() != Some("github.com")
         || !url.username().is_empty()
@@ -123,13 +129,13 @@ fn pin() -> Result<QcatchPin, SetupError> {
         || !url
             .path()
             .starts_with("/qbutt-org/qcatch/releases/download/")
-        || !url.path().ends_with("/qcatch-setup.exe")
-        || pin.artifacts.setup.size == 0
-        || pin.artifacts.setup.size > 2 * 1024 * 1024 * 1024
-        || pin.artifacts.setup.sha256.len() != 64
+        || url.path_segments().and_then(Iterator::last) != Some(filename)
+        || pin.artifacts.installation.size == 0
+        || pin.artifacts.installation.size > 2 * 1024 * 1024 * 1024
+        || pin.artifacts.installation.sha256.len() != 64
         || !pin
             .artifacts
-            .setup
+            .installation
             .sha256
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
@@ -257,10 +263,16 @@ async fn verified_setup(
     pin: &QcatchPin,
     control: &Mutex<SetupControl>,
 ) -> Result<PathBuf, SetupError> {
-    let local = std::env::var_os("LOCALAPPDATA").ok_or(SetupError::Unavailable)?;
-    let directory = PathBuf::from(local).join("qbutt/cache/components");
-    let destination = directory.join(format!("qcatch-{}-setup.exe", pin.version));
-    if valid_cached(&destination, &pin.artifacts.setup).await? {
+    let directory = PathBuf::from(ffi::qcatch_setup_cache_directory().to_string());
+    if !directory.is_absolute() {
+        return Err(SetupError::Unavailable);
+    }
+    #[cfg(target_os = "linux")]
+    let filename = format!("qcatch-{}-linux-x64.zip", pin.version);
+    #[cfg(not(target_os = "linux"))]
+    let filename = format!("qcatch-{}-setup.exe", pin.version);
+    let destination = directory.join(filename);
+    if valid_cached(&destination, &pin.artifacts.installation).await? {
         return Ok(destination);
     }
     control.lock().expect("setup lock").ensure_active()?;
@@ -273,7 +285,7 @@ async fn verified_setup(
         .timeout(Duration::from_secs(180))
         .build()
         .map_err(|_| SetupError::Download)?;
-    let mut url = Url::parse(&pin.artifacts.setup.url).map_err(|_| SetupError::Integrity)?;
+    let mut url = Url::parse(&pin.artifacts.installation.url).map_err(|_| SetupError::Integrity)?;
     let mut response = None;
     for _ in 0..=5 {
         control.lock().expect("setup lock").ensure_active()?;
@@ -314,7 +326,7 @@ async fn verified_setup(
     while let Some(chunk) = response.chunk().await.map_err(|_| SetupError::Download)? {
         control.lock().expect("setup lock").ensure_active()?;
         size += chunk.len() as u64;
-        if size > pin.artifacts.setup.size {
+        if size > pin.artifacts.installation.size {
             return Err(SetupError::Integrity);
         }
         hash.update(&chunk);
@@ -324,8 +336,8 @@ async fn verified_setup(
     }
     file.sync_all().await.map_err(|_| SetupError::Download)?;
     drop(file);
-    if size != pin.artifacts.setup.size
-        || format!("{:x}", hash.finalize()) != pin.artifacts.setup.sha256
+    if size != pin.artifacts.installation.size
+        || format!("{:x}", hash.finalize()) != pin.artifacts.installation.sha256
     {
         return Err(SetupError::Integrity);
     }
@@ -338,6 +350,64 @@ async fn verified_setup(
     path.persist(&destination)
         .map_err(|_| SetupError::Download)?;
     Ok(destination)
+}
+
+#[cfg(target_os = "linux")]
+fn unpack_setup(package: &Path) -> Result<(tempfile::TempDir, PathBuf), SetupError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let file = std::fs::File::open(package).map_err(|_| SetupError::Integrity)?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|_| SetupError::Integrity)?;
+    if archive.len() > 4096 {
+        return Err(SetupError::Integrity);
+    }
+    let directory = tempfile::Builder::new()
+        .prefix("qcatch-install-")
+        .tempdir()
+        .map_err(|_| SetupError::Install)?;
+    let mut total_size = 0_u64;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|_| SetupError::Integrity)?;
+        let relative = entry.enclosed_name().ok_or(SetupError::Integrity)?;
+        let destination = directory.path().join(relative);
+        let mode = entry.unix_mode().unwrap_or(0o644);
+        if entry.is_dir() {
+            if !matches!(mode & 0o170000, 0 | 0o040000) {
+                return Err(SetupError::Integrity);
+            }
+            std::fs::create_dir_all(destination).map_err(|_| SetupError::Install)?;
+            continue;
+        }
+        if !matches!(mode & 0o170000, 0 | 0o100000) {
+            return Err(SetupError::Integrity);
+        }
+        total_size = total_size
+            .checked_add(entry.size())
+            .filter(|size| *size <= 4 * 1024 * 1024 * 1024)
+            .ok_or(SetupError::Integrity)?;
+        let parent = destination.parent().ok_or(SetupError::Integrity)?;
+        std::fs::create_dir_all(parent).map_err(|_| SetupError::Install)?;
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination)
+            .map_err(|_| SetupError::Install)?;
+        let expected_size = entry.size();
+        let mut bounded = std::io::Read::take(&mut entry, expected_size + 1);
+        let copied = std::io::copy(&mut bounded, &mut output).map_err(|_| SetupError::Integrity)?;
+        if copied != expected_size {
+            return Err(SetupError::Integrity);
+        }
+        output.sync_all().map_err(|_| SetupError::Install)?;
+        std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(mode & 0o755))
+            .map_err(|_| SetupError::Install)?;
+    }
+    let executable = directory.path().join("qcatch");
+    let metadata = std::fs::symlink_metadata(&executable).map_err(|_| SetupError::Integrity)?;
+    if !metadata.is_file() || metadata.permissions().mode() & 0o100 == 0 {
+        return Err(SetupError::Integrity);
+    }
+    Ok((directory, executable))
 }
 
 pub(super) async fn connect(
@@ -355,7 +425,14 @@ pub(super) async fn connect(
         let setup = timeout(Duration::from_secs(600), verified_setup(&pin, control))
             .await
             .map_err(|_| SetupError::Download)??;
+        #[cfg(target_os = "linux")]
+        let (_directory, setup) = tokio::task::spawn_blocking(move || unpack_setup(&setup))
+            .await
+            .map_err(|_| SetupError::Install)??;
         let mut command = command(&setup);
+        #[cfg(target_os = "linux")]
+        command.arg("--install");
+        #[cfg(not(target_os = "linux"))]
         command.args([
             "/CURRENTUSER",
             "/VERYSILENT",

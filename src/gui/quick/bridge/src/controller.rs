@@ -290,6 +290,8 @@ pub mod ffi {
         fn browserInstallations() -> Vec<BrowserInstallation>;
         #[rust_name = "qcatch_executable"]
         fn qcatchExecutable() -> QString;
+        #[rust_name = "qcatch_setup_cache_directory"]
+        fn qcatchSetupCacheDirectory() -> QString;
         #[rust_name = "open_browser_url"]
         fn openBrowserUrl(url: &QString, choice: &QString) -> bool;
         #[rust_name = "browser_discovery_path"]
