@@ -58,5 +58,5 @@ windows-sys = { version = "=0.61.2", features = [
 
 [dev-dependencies]
 rcgen = { version = "=0.14.10", default-features = false, features = ["ring"] }
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.48.0", features = ["io-std", "macros", "rt-multi-thread"] }
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
