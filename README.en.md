@@ -34,12 +34,22 @@
 
 ## Installation
 
+### Windows
+
 Download the installer using the button above, or choose a file on the [latest release](https://github.com/qbutt-org/qbutt/releases/latest) page:
 
 - **EXE installer** installs qbutt and adds a Start menu shortcut.
 - **Portable ZIP** can be extracted and run using `qbutt.exe`. Settings are stored in the `profile` folder next to the app.
 
 Videos open in [qplay](https://github.com/qbutt-org/qplay), an independent player built on mpv. The qbutt installer installs it alongside the app. [qcatch](https://github.com/qbutt-org/qcatch) connects your browser and can be installed from qbutt when needed. Both projects also work on their own.
+
+### Linux
+
+Linux x64 builds target Ubuntu 24.04 or later with glibc 2.39+. See [Development](#development) for building the bundle from source.
+
+Extract the built `qbutt-<version>-linux-x64.zip` and run `./install.sh`. It installs for the current user and installs qplay as an independent app. Open qbutt from the applications menu or run `~/.local/bin/qbutt`.
+
+Run `./qbutt` without installation to use the normal qbutt profile. For a separate portable profile, use `./qbutt --profile=/absolute/path/to/profile`. Close qbutt before installation, updates, or removal. `./uninstall.sh` from the bundle or installation directory preserves settings, downloads, and the independent qplay installation.
 
 qbutt has its own profile. Import settings and torrents from another client through **File → Import profile**. Downloads go to the **Desktop** by default; change the folder in **Settings → Downloads**. Updates preserve your previously selected folder.
 
@@ -53,7 +63,7 @@ The **Sources** button opens the source catalog and settings. Some sources requi
 
 ## Watching and reading
 
-Online video streams to qplay when the source provides a direct stream. You can also watch a torrent before its download finishes: the player receives already verified parts of the file. Open local video and audio through **File → Open media…**. The player includes upscaling and frame generation; available modes depend on your GPU.
+Online video streams to qplay when the source provides a direct stream. You can also watch a torrent before its download finishes: the player receives already verified parts of the file. Open local video and audio through **File → Open media…**. Upscaling depends on your GPU; frame generation is available only on Windows.
 
 qplay settings offer audio and subtitle selection, playback speed, and text subtitle translation into Russian or English. The original remains available, and translated segments are cached. Subtitle height can be adjusted with the mouse or reset to automatic positioning.
 
@@ -66,14 +76,14 @@ The reader translates text and manga pages into Russian and English using an ins
 qcatch is used for websites with login sessions and video players that require a browser session:
 
 1. Open **Search → Sources → Browser** and select your browser.
-2. Click **Install qcatch…**. qcatch will be installed, and the extension folder will open.
-3. In Edge, enable developer mode at `edge://extensions`, click **Load unpacked**, and select the folder shown.
+2. Click **Install qcatch…** and follow the instructions. On Linux, you can also follow [qcatch's installation instructions](https://github.com/qbutt-org/qcatch/blob/main/README.en.md#installation).
+3. Open `edge://extensions` in Edge or `chrome://extensions` in Chrome or Chromium. Enable developer mode, click **Load unpacked**, and select the installed extension directory shown.
 
 Once connected, qbutt uses the relevant website session and can obtain the selected episode and voice track stream for qplay. The browser is still needed when a site requires login, verification, or player selection. Cookies and temporary stream URLs are excluded from **Share** links.
 
 ## Downloads and networking
 
-To complete existing files, add the torrent as usual and select the folder containing them: qbutt checks the files and downloads what is missing. For advanced repair, stop the added torrent and choose **Repair files** from its menu.
+To complete existing files, add the torrent as usual and select the folder containing them: qbutt checks the files and downloads what is missing. On Windows, stop the added torrent and choose **Repair files** for advanced repair. On Linux, advanced repair is currently limited to analysis.
 
 In **Settings → Downloads**, you can configure automatic opening of `.torrent` files: the Desktop is watched by default, and the original `.torrent` file is deleted after opening. The same page offers a progress bar above other windows and removal of completed torrents from the list while keeping their files.
 
@@ -81,9 +91,9 @@ To use several nodes at once, add an ordinary Mihomo subscription in **Settings 
 
 ## Settings and updates
 
-Light, Dark, and System themes are available, with changes applied immediately. Minimizing keeps the window on the taskbar, closing sends it to the tray, and **Exit** quits the app. Startup at Windows logon does not open a window.
+Light, Dark, and System themes are available, with changes applied immediately. On Windows, minimizing keeps the window on the taskbar, closing sends it to the tray, and **Exit** quits the app. Startup at Windows logon does not open a window.
 
-Updates are available from the **Help** menu. The installed version downloads an EXE in the background and offers to update and restart; the portable ZIP is updated manually.
+Updates are available from the **Help** menu. On Windows, the installed version downloads an EXE in the background and offers to update and restart; the portable ZIP is updated manually. Linux updates are manual: close qbutt, extract a new ZIP, and run `./install.sh` from its directory.
 
 ## Development
 
@@ -95,9 +105,11 @@ Windows x64, Visual Studio 2022 with C++ and the Windows SDK, CMake, Git, and Py
 
 The script downloads pinned dependencies, including Bun and Go, and builds the portable ZIP and EXE installer locally. `-BuildRoot` sets the build directory; `-ArtifactRoot` sets the output directory. The bundle includes `qbutt-net` and a pinned qplay build. Bun is used only during the build; Python and Bun are not required to run the finished app.
 
-`upstream-lock.json` pins component Git revisions, protocol versions, and SHA-256 hashes of installers, portable archives, and third-party runtime sources. `scripts/package-products.ts` verifies the finished artifacts before including them in the build. The portable bundle contains its own qplay in the `qplay/` subfolder. qcatch is downloaded from a pinned URL only when its install button is clicked.
+`scripts/build-linux.ts` owns Linux builds and packaging. It needs Qt 6.12 `gcc_64`, GCC/G++, CMake, Rust, Bun, and Go at their pinned versions. `--qt-root`, `--dependency-root`, `--build-root`, and `--artifact-root` select the SDK, dependencies, and external output directories. It creates `qbutt-<version>-linux-x64.zip` with the Qt runtime, `qbutt-net`, and verified product components. A complete Linux bundle requires pinned qplay and qcatch Linux artifacts.
 
-The player interface, upscaling, frame generation, mpv, media tools, and subtitle translation belong to the qplay repository. The extension, its Windows helper, and the browser connection belong to qcatch. qbutt owns torrent Range streaming and viewing history. The apps pass media and playback options to each other.
+`upstream-lock.json` pins component Git revisions, protocol versions, and SHA-256 hashes of installers, portable archives, and third-party runtime sources. Packaging scripts verify the artifacts before including them in the build. Windows downloads qcatch from a pinned URL when its install button is clicked; the Linux bundle includes a prepared copy for explicit installation. The portable bundle contains its own qplay in the `qplay/` subfolder.
+
+The player interface, upscaling, frame generation, mpv, media tools, and subtitle translation belong to the qplay repository. The extension, native helper, and browser connection belong to qcatch. qbutt owns torrent Range streaming and viewing history. The apps pass media and playback options to each other.
 
 Component sources are available at the pinned Git revisions in the [qplay](https://github.com/qbutt-org/qplay) and [qcatch](https://github.com/qbutt-org/qcatch) repositories; third-party runtime sources are published in separate technical releases of those products. The build verifies their archives and keeps them in the dependency cache. Downloaded packages, generated GPU engines, and user caches are stored outside the source tree.
 
@@ -111,6 +123,6 @@ The former Bun implementation in `components/content/` remains for separate inte
 | `src/base/media/` | qplay integration and torrent Range streaming |
 | `scripts/package-products.ts`, `upstream-lock.json` | Verification and packaging of pinned product components |
 
-See the [Rust/QML and redesign plan](docs/implementation.md), [project rules](AGENTS.md), [content contracts](docs/agents/content.md), [architecture](docs/qbutt-architecture.md), and [integration checks](tests/README.md). Windows releases are built locally, without automatic builds in GitHub Actions.
+See the [Rust/QML and redesign plan](docs/implementation.md), [project rules](AGENTS.md), [content contracts](docs/agents/content.md), [architecture](docs/qbutt-architecture.md), and [integration checks](tests/README.md). Releases are built locally, without automatic builds in GitHub Actions.
 
 The upstream [authors](AUTHORS), [licenses](COPYING), and dependency notices are preserved. IP country data: [DB-IP](https://db-ip.com/db/download/ip-to-country-lite), CC BY 4.0.
