@@ -539,12 +539,22 @@ await rm(installerArchive, { force: true });
 await command(["tar", "--create", "--gzip", "--file", installerArchive, "--directory", portable, "."]);
 await command(["gzip", "--test", installerArchive]);
 const archiveMetadata = {
-    product: "qbutt", version, platform: "linux-x64",
+    product: "qbutt",
+    version,
+    platform: "linux-x64",
     sourceRevision: compiled.sourceRevision,
     sourceWorktreeChanged: compiled.sourceWorktreeChanged,
     buildManifestSha256: await sha256(join(portable, "build-manifest.json")),
-    portable: { file: basename(archive), size: (await lstat(archive)).size, sha256: await sha256(archive) },
-    installer: { file: basename(installerArchive), size: (await lstat(installerArchive)).size, sha256: await sha256(installerArchive) },
+    portable: {
+        file: basename(archive),
+        size: (await lstat(archive)).size,
+        sha256: await sha256(archive),
+    },
+    installer: {
+        file: basename(installerArchive),
+        size: (await lstat(installerArchive)).size,
+        sha256: await sha256(installerArchive),
+    },
 };
 await Bun.write(join(artifacts, `qbutt-${version}-linux-x64.artifacts.json`), JSON.stringify(archiveMetadata, null, 2) + "\n");
 console.log(`Portable archive: ${archive}\nSHA-256: ${archiveMetadata.portable.sha256}`);
