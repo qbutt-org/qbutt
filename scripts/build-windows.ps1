@@ -284,7 +284,8 @@ finally { Pop-Location }
 Invoke-Native $cmake (@('-S', $SourceDir, '-B', $BuildRoot) + $common + @(
     "-DLibtorrentRasterbar_DIR=$libtorrentBuild/install/lib/cmake/LibtorrentRasterbar", "-DCMAKE_PREFIX_PATH=$qtRoot",
     "-DQBUTT_WEBVIEW2_SDK=$webviewSdk", "-DRust_COMPILER=$rustc", "-DRust_CARGO=$cargo",
-    '-DMSVC_RUNTIME_DYNAMIC=ON', '-DTESTING=OFF', '-DQBUTT_STAGING_FAULTS=OFF', '-DQBUTT_COMPLETION_FAULTS=OFF'))
+    '-DMSVC_RUNTIME_DYNAMIC=ON', '-DTESTING=OFF', '-DQBUTT_QT_ACCEPTANCE=OFF',
+    '-DQBUTT_STAGING_FAULTS=OFF', '-DQBUTT_COMPLETION_FAULTS=OFF'))
 Invoke-Native $cmake @('--build', $BuildRoot, '--parallel', "$Parallel")
 
 $binaryVersion = (Get-Item -LiteralPath (Join-Path $BuildRoot 'qbutt.exe')).VersionInfo
