@@ -9,7 +9,7 @@ if (GUI)
     add_subdirectory(gui)
 endif()
 
-if (WIN32 AND GUI)
+if (GUI AND (WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
     add_subdirectory(webview)
 endif()
 
