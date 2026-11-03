@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="site.css">
   <link rel="alternate" hreflang="en" href="https://qbutt-org.github.io/qbutt/en/">
   <script src="locale.js"></script>
+  <script src="downloads.js" defer></script>
 </head>
 <body>
   <header>
@@ -32,8 +33,13 @@
       <div>
         <p class="intro">Сравнивайте варианты из разных источников и скачивайте выбранную раздачу. Видео открывается в qplay, книги и манга — во встроенной читалке.</p>
         <div class="actions">
-          <a class="download" href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.8/qbutt-1.5.8-windows-x64-setup.exe">Скачать для Windows</a>
-          <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.8/qbutt-1.5.8-windows-x64.zip">Portable</a>
+          <details class="editions">
+            <summary class="download" data-all-label="Все сборки">Скачать</summary>
+            <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.8/qbutt-1.5.8-windows-x64-setup.exe"
+              data-platform="windows-x64"
+              data-download-label="Скачать для Windows">Windows x64 (установщик)</a>
+            <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.8/qbutt-1.5.8-windows-x64.zip">Windows x64 (Portable)</a>
+          </details>
         </div>
       </div>
     </section>

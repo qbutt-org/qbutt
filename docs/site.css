@@ -108,7 +108,7 @@ h1 {
 .actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 20px 26px;
   margin-top: 28px;
   font-size: 16px;
@@ -137,9 +137,32 @@ h1 {
   background: #0082cc;
 }
 
-a:focus-visible {
+a:focus-visible, summary:focus-visible {
   outline: 2px solid #80cfff;
   outline-offset: 5px;
+}
+
+.editions summary {
+  line-height: 52px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: #6b737e;
+  text-underline-offset: 4px;
+}
+
+.editions summary.download {
+  display: list-item;
+  list-style-position: inside;
+  text-decoration: none;
+}
+
+.editions summary:not(.download):hover {
+  color: #80cfff;
+}
+
+.editions > a {
+  display: block;
+  margin-top: 14px;
 }
 
 .preview {
