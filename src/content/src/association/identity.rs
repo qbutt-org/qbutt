@@ -278,7 +278,22 @@ pub(super) fn year_labels(title: &str) -> impl Iterator<Item = (usize, &str, u16
 /// the product title, and every reported year remains conflict evidence.
 fn release_title(title: &str, category: Category) -> &str {
     let mut product = title;
-    for (start, suffix, _) in year_labels(title) {
+    if category == Category::Games {
+        for (start, opening) in product.match_indices(['[', '(']) {
+            let closing = if opening == "[" { ']' } else { ')' };
+            let Some((metadata, _)) = product[start + 1..].split_once(closing) else {
+                continue;
+            };
+            if game_release_metadata(metadata) {
+                product = product[..start].trim_end();
+                break;
+            }
+        }
+        if let Some((start, _)) = version_metadata(product) {
+            product = product[..start].trim_end();
+        }
+    }
+    for (start, suffix, _) in year_labels(product) {
         let suffix = suffix.trim();
         let first = suffix.split_whitespace().next().unwrap_or_default();
         if suffix.is_empty()
@@ -292,12 +307,26 @@ fn release_title(title: &str, category: Category) -> &str {
             break;
         }
     }
-    if category == Category::Games
-        && let Some((start, _)) = version_metadata(product)
-    {
-        return product[..start].trim_end();
-    }
     product
+}
+
+fn game_release_metadata(metadata: &str) -> bool {
+    let mut words = metadata.split_whitespace();
+    let first = words.next().unwrap_or_default();
+    if first.eq_ignore_ascii_case("build") || first.eq_ignore_ascii_case("crackfix") {
+        let value = words.next().unwrap_or_default();
+        let value = value.strip_prefix(['v', 'V']).unwrap_or(value);
+        return !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit());
+    }
+    if first.eq_ignore_ascii_case("repack") {
+        return words
+            .next()
+            .is_some_and(|word| word.eq_ignore_ascii_case("by"))
+            && words.next().is_some();
+    }
+    metadata
+        .rsplit_once(' ')
+        .is_some_and(|(name, label)| !name.is_empty() && label.eq_ignore_ascii_case("repack"))
 }
 
 fn video_metadata(suffix: &str) -> bool {

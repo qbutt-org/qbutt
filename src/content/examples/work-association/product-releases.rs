@@ -200,6 +200,72 @@ pub(super) fn run() -> Result<()> {
     assert_eq!(association.groups()[0].anchor, anchor);
     assert_eq!(association.groups()[0].variants(None).len(), 5);
 
+    // Current public CoD labels share a product while keeping exact payloads.
+    let mut association = WorkAssociation::default();
+    let mut releases = Vec::new();
+    for (index, title) in [
+        "Call of Duty: Modern Warfare 4 (2026)",
+        "Call of Duty: Modern Warfare 4 [Build 25909941 | Campaign Only] (2026)",
+        "Call of Duty: Modern Warfare 4 (2026) (CrackFix V2) – Campaign Only [DODI Repack]",
+        "Call of Duty: Modern Warfare 4 (2026) (CrackFix v2) – Campaign Only [DODI Repack]",
+        "Call of Duty Modern Warfare 4 [DODI Repack]",
+        "Call of Duty Modern Warfare 4 [Repack by SeleZen]",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let work = release(50 + index, title, Category::Games);
+        association.update(work.clone());
+        releases.push(work);
+    }
+    let groups = association.groups();
+    assert_eq!(
+        groups.len(),
+        1,
+        "explicit release annotations are not products"
+    );
+    let group = &groups[0];
+    assert_eq!(
+        group.display_title(),
+        "Call of Duty: Modern Warfare 4 (2026)"
+    );
+    assert_eq!(group.variants(None).len(), releases.len());
+    for work in &releases {
+        assert_eq!(group.publication(&work.reference), Some(work));
+    }
+    for (index, title) in [
+        "Call of Duty: Modern Warfare 4 (2025) [DODI Repack]",
+        "Call of Duty: Modern Warfare 4 Campaign (2026) [DODI Repack]",
+        "Call of Duty: Modern Warfare 4 [Build Your Own Campaign] (2026)",
+        "Call of Duty: Modern Warfare 4 [CrackFix Story] (2026)",
+        "Call of Duty: Modern Warfare 4 [New Story] (2026)",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        association.update(release(60 + index, title, Category::Games));
+    }
+    assert_eq!(
+        association.groups().len(),
+        8,
+        "years and subtitles stay separate; yearless repacks cannot choose a remake"
+    );
+    let mut movie = release(
+        70,
+        "Call of Duty: Modern Warfare 4 [DODI Repack]",
+        Category::Movies,
+    );
+    movie.year = Some(2026);
+    association.update(movie);
+    assert_eq!(
+        association.groups().len(),
+        9,
+        "game annotations do not cross categories"
+    );
+    println!(
+        "release_metadata=build,crackfix,repack exact_labels_preserved conflicts_and_unknown_subtitles_separate"
+    );
+
     println!(
         "product_release_corpus=game5+movie2 arrival_orders=120 exact_variants=preserved incremental_anchor=stable"
     );

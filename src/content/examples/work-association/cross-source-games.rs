@@ -33,6 +33,12 @@ pub(super) fn run(rutor: &[Work]) {
             "Ready Or Not играть по сети и интернету Онлайн",
         ),
         publication(107, Source::ByRut, "Ready or Not по сети"),
+        publication(108, Source::LimeTorrents, "Ready or Not [FitGirl Repack]"),
+        publication(
+            109,
+            Source::LimeTorrents,
+            "Ready or Not [Repack by SeleZen]",
+        ),
     ]);
 
     let mut orderings = 0;
@@ -72,7 +78,7 @@ pub(super) fn run(rutor: &[Work]) {
             orderings += 1;
         }
     }
-    assert_eq!(orderings, 26);
+    assert_eq!(orderings, 30);
 
     for title in [
         "Ready or Not 2 v133804 REPACK-KaOs",
@@ -91,7 +97,7 @@ pub(super) fn run(rutor: &[Work]) {
     association.update(publication(201, Source::Dodi, DODI));
     assert_eq!(association.groups()[0].display_title(), "Ready or Not");
     println!(
-        "cross_source_game_corpus=RuTor,FitGirl,DODI,ByRut,OnlineFix,LimeTorrents,FreeTP publications=13 arrival_orders=26 raw_labels_and_exact_variants=preserved unknown_subtitles=split"
+        "cross_source_game_corpus=RuTor,FitGirl,DODI,ByRut,OnlineFix,LimeTorrents,FreeTP publications=15 arrival_orders=30 raw_labels_and_exact_variants=preserved unknown_subtitles=split"
     );
 }
 
