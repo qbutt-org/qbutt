@@ -210,7 +210,8 @@ Initialize-Qt $qtRoot $pins.qt $qtArchives -External:([bool]$QtRootOverride)
 $webviewArchive = Join-Path $DependencyRoot "Microsoft.Web.WebView2.$($pins.webview2.version).nupkg"
 Save-VerifiedDownload $webviewArchive $pins.webview2.url $pins.webview2.sha256
 $webviewSdk = Join-Path $DependencyRoot "WebView2/$($pins.webview2.version)"
-Expand-Archive -LiteralPath $webviewArchive -DestinationPath $webviewSdk -Force
+New-Item -ItemType Directory -Force $webviewSdk | Out-Null
+Invoke-Native (Join-Path $env:SystemRoot 'System32/tar.exe') @('-xf', $webviewArchive, '-C', $webviewSdk)
 
 $libtorrent = if ($LibtorrentSourceDir) { [IO.Path]::GetFullPath($LibtorrentSourceDir) }
     else { Join-Path $DependencyRoot 'qbutt-libtorrent' }
