@@ -3,47 +3,67 @@
   "products": {
     "qplay": {
       "repository": "https://github.com/qbutt-org/qplay.git",
-      "commit": "08731dd0a9680749d19c640d3ced80e119634e91",
-      "version": "1.2.1",
+      "commit": "5563dbbd8a06aea32560495a21fdc01323938fb6",
+      "version": "1.3.0",
       "protocolVersion": 1,
       "artifacts": {
         "setup": {
-          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.2.1/qplay-setup.exe",
-          "size": 117791670,
-          "sha256": "ffeb4150d65fdbd1e9541facd2f1539436fc8eb3c68706c5e9091e787eb09853"
+          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.3.0/qplay-setup.exe",
+          "size": 117828755,
+          "sha256": "9e792dc9ade135f1c6cd5705673d6d5522b70ddd7c227aa0e9ead633f06c50b8"
         },
         "portable": {
-          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.2.1/qplay-portable.zip",
-          "size": 156543444,
-          "sha256": "b66a4c8e726516fdb743df31fcafbdeedb89d3feb2d30e6599127a6a0f754e0c"
+          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.3.0/qplay-portable.zip",
+          "size": 156588132,
+          "sha256": "40c050a96980b5325bb2ee6fe72c334c9044200fa9749b97342d1d75f7a374b1"
         },
         "runtimeSources": {
           "url": "https://github.com/qbutt-org/qplay/releases/download/v1.0.0-sources/qplay-1.0.0-runtime-sources.zip",
           "size": 1432941010,
           "sha256": "ed37bcf1f833e392ab5c71132e79de7efb27164c1611e0134ed0c6ce08718a4a"
+        },
+        "linuxPortable": {
+          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.3.0/qplay-linux-x64.zip",
+          "size": 185469113,
+          "sha256": "a79142a5c26e82152c00d59ac521d4a9b3545b2819cca8d5754d100842eb38c5"
+        },
+        "linuxRuntimeSources": {
+          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.3.0-sources/qplay-1.3.0-linux-runtime-sources.tar.gz",
+          "size": 992770353,
+          "sha256": "59db683b8e68257bad7349a9b9c69a0735c6d94289d6498153510b9466069d00"
         }
       }
     },
     "qcatch": {
       "repository": "https://github.com/qbutt-org/qcatch.git",
-      "commit": "11cd8b388ef2f9fa5d1e7a524f5d1927c9ec8234",
-      "version": "1.2.6",
+      "commit": "caaedf3624fdbe488f2f06bc8bc86482bdb6d60a",
+      "version": "1.3.0",
       "protocolVersion": 1,
       "artifacts": {
         "setup": {
-          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.2.6/qcatch-setup.exe",
-          "size": 10593645,
-          "sha256": "94586430143dbed1becc4ca03cd614cae0c6432d2ec59f2ac83160b2dc20deae"
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.3.0/qcatch-setup.exe",
+          "size": 10600178,
+          "sha256": "5b054590589a0788d3867c7d4c9435a8d896e7a41013c49bedeb4b7ec1fd9dfb"
         },
         "portable": {
-          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.2.6/qcatch-portable.zip",
-          "size": 13216292,
-          "sha256": "d4f7adc263dae116c13277e6240935c6cbf14d5e8db27d2eeba916f082d240d3"
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.3.0/qcatch-portable.zip",
+          "size": 13217895,
+          "sha256": "e60ed252db3ebaad609b4b02d2a52cb7335bd0fa61fc46c0d2de37dc0d851acf"
         },
         "runtimeSources": {
-          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.2.6-sources/qcatch-1.2.6-runtime-sources.zip",
-          "size": 136930224,
-          "sha256": "12eed291464a81d37d39775f61a079a1250f6170952005607735d3377402edf0"
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.3.0-sources/qcatch-1.3.0-runtime-sources.zip",
+          "size": 136930233,
+          "sha256": "1135da99a01a961b377314cbf00abb3cfa5800ffb5e585295756a3b49b5a19bc"
+        },
+        "linuxPortable": {
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.3.0/qcatch-linux-x64.zip",
+          "size": 120773737,
+          "sha256": "4b30f40ee2e1af999a04ff6e4269755bcb719f00cab9db2229c5b7111e13b98e"
+        },
+        "linuxRuntimeSources": {
+          "url": "https://github.com/qbutt-org/qcatch/releases/download/v1.3.0-sources/qcatch-1.3.0-linux-runtime-sources.zip",
+          "size": 121330997,
+          "sha256": "d4d0f3817af988bf008a3178176d087ba8589fea304136ffe70839a6377a83ce"
         }
       }
     }
