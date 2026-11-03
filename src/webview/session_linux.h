@@ -5,8 +5,6 @@
 #include <memory>
 
 #include <QJsonObject>
-#include <QList>
-#include <QNetworkCookie>
 #include <QObject>
 #include <QTimer>
 
@@ -14,6 +12,7 @@
 
 class QWebEngineProfile;
 class QWebEngineView;
+class SourceCookies;
 
 class WebSession final : public QObject
 {
@@ -26,9 +25,8 @@ public:
 
 private:
     void prepareProfile();
-    void synchronizeCookies();
-    void cookieBarrier();
-    void authenticateProxy();
+    void synchronizeCookies(const QJsonArray &existing);
+    void navigateSource();
     void pollDocument();
     void collectSession(const QUrl &url);
     void finish(const QJsonObject &result);
@@ -38,16 +36,9 @@ private:
     SourceCheck::Request m_request;
     std::unique_ptr<QWebEngineProfile> m_profile;
     std::unique_ptr<QWebEngineView> m_view;
-    QList<QNetworkCookie> m_cookies;
+    std::unique_ptr<SourceCookies> m_cookies;
     QTimer m_deadline;
     QTimer m_poll;
-    QByteArray m_barrierName;
-    enum class CookiePhase
-    {
-        Loading,
-        Applying
-    };
-    CookiePhase m_cookiePhase = CookiePhase::Loading;
     bool m_profileUnchanged = false;
     bool m_started = false;
     bool m_finished = false;

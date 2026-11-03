@@ -20,7 +20,13 @@ if(WIN32)
         "${QBUTT_WEBVIEW2_SDK}/build/native/x64/WebView2LoaderStatic.lib")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(Qt6 6.8 REQUIRED COMPONENTS WebEngineCore WebEngineWidgets)
-    qt_add_executable(qbutt-webview main_linux.cpp session_linux.cpp session_linux.h)
+    qt_add_executable(qbutt-webview
+        main_linux.cpp
+        session_linux.cpp
+        session_linux.h
+        cookies_linux.cpp
+        cookies_linux.h
+    )
     target_link_libraries(qbutt-webview PRIVATE Qt6::WebEngineCore Qt6::WebEngineWidgets)
 else()
     return()

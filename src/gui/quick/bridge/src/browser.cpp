@@ -19,8 +19,11 @@
 extern "C"
 {
     typedef struct _GAppInfo GAppInfo;
+    typedef struct _GError GError;
     GAppInfo *g_app_info_get_default_for_uri_scheme(const char *scheme);
-    const char *g_app_info_get_executable(GAppInfo *application);
+    const char *g_app_info_get_commandline(GAppInfo *application);
+    int g_shell_parse_argv(const char *command, int *count, char ***arguments, GError **error);
+    void g_strfreev(char **strings);
     void g_object_unref(void *object);
 }
 #endif
@@ -97,7 +100,13 @@ namespace
         GAppInfo *application = g_app_info_get_default_for_uri_scheme("https");
         if (!application)
             return {};
-        const QString executable = QString::fromLocal8Bit(g_app_info_get_executable(application));
+        QString executable;
+        const char *command = g_app_info_get_commandline(application);
+        int count = 0;
+        char **arguments = nullptr;
+        if (command && g_shell_parse_argv(command, &count, &arguments, nullptr) && count > 0)
+            executable = QString::fromLocal8Bit(arguments[0]);
+        g_strfreev(arguments);
         g_object_unref(application);
         return QStandardPaths::findExecutable(executable);
     }

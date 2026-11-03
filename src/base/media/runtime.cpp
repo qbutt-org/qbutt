@@ -34,7 +34,7 @@ namespace
             return QFileInfo(executable).isAbsolute() ? executable : QString {};
         }
 
-        #ifdef Q_OS_WIN
+#ifdef Q_OS_WIN
         const QString executableName = u"qplay.exe"_s;
 #else
         const QString executableName = u"qplay"_s;

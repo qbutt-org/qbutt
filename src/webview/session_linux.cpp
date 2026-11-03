@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "session_linux.h"
 
-#include <algorithm>
+#include "cookies_linux.h"
+
 #include <atomic>
 #include <utility>
 
@@ -10,7 +11,6 @@
 
 #include <QAuthenticator>
 #include <QCloseEvent>
-#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -18,10 +18,8 @@
 #include <QNetworkProxy>
 #include <QSaveFile>
 #include <QShortcut>
-#include <QUuid>
 #include <QWebEngineCertificateError>
 #include <QWebEngineClientCertificateSelection>
-#include <QWebEngineCookieStore>
 #include <QWebEngineDownloadRequest>
 #include <QWebEngineFileSystemAccessRequest>
 #include <QWebEngineLoadingInfo>
@@ -129,19 +127,7 @@ namespace
             && status.st_uid == getuid() && (status.st_mode & 0077) == 0;
     }
 
-    bool cookieMatches(const QNetworkCookie &cookie, const QUrl &url)
-    {
-        const QString host = url.host().toLower();
-        const QString domain = cookie.domain().toLower();
-        const bool hostMatches = domain.startsWith(u'.')
-            ? host == domain.mid(1) || host.endsWith(domain) : host == domain;
-        const QString path = url.path(QUrl::FullyEncoded).isEmpty() ? QStringLiteral("/") : url.path(QUrl::FullyEncoded);
-        const QString cookiePath = cookie.path().isEmpty() ? QStringLiteral("/") : cookie.path();
-        const bool pathMatches = path == cookiePath || (path.startsWith(cookiePath)
-            && (cookiePath.endsWith(u'/') || path.at(cookiePath.size()) == u'/'));
-        return hostMatches && pathMatches && (!cookie.isSecure() || url.scheme() == QStringLiteral("https"))
-            && (cookie.isSessionCookie() || cookie.expirationDate() > QDateTime::currentDateTimeUtc());
-    }
+
 }
 
 WebSession::WebSession(std::function<void(const QJsonObject &)> completed, QObject *parent)
@@ -159,6 +145,7 @@ WebSession::WebSession(std::function<void(const QJsonObject &)> completed, QObje
 
 WebSession::~WebSession()
 {
+    m_cookies.reset();
     m_view.reset();
     m_profile.reset();
 }
@@ -308,14 +295,15 @@ void WebSession::prepareProfile()
             }
             m_proxyAuthenticated = true;
             requests->authenticated.store(true);
-            QTimer::singleShot(0, this, [this]
+            m_cookies = std::make_unique<SourceCookies>(m_view->page());
+            m_cookies->read(m_request.url, [this](SourceCookies::Snapshot cookies)
             {
                 if (m_finished)
                     return;
-                if (m_request.interactive)
-                    m_view->show();
-                m_view->load(m_request.url);
-                m_poll.start();
+                if (!cookies)
+                    fail(QStringLiteral("webview_failed"));
+                else
+                    synchronizeCookies(*cookies);
             });
         }
         else if (success || m_httpStatus >= 400)
@@ -328,87 +316,49 @@ void WebSession::prepareProfile()
         }
     });
 
-    const auto store = m_profile->cookieStore();
-    connect(store, &QWebEngineCookieStore::cookieAdded, this, [this](const QNetworkCookie &cookie)
+    // This nonforwarded page authenticates the gateway before the internal
+    // cookie adapter can inspect the source profile or navigate to a source.
+    m_view->load(proxyCheckUrl);
+}
+
+void WebSession::synchronizeCookies(const QJsonArray &existing)
+{
+    QSet<QString> supplied;
+    QSet<QString> present;
+    QJsonArray removals;
+    for (const QJsonValue &entry : m_request.initialCookies)
+        supplied.insert(entry.toObject().value("name").toString());
+    for (const QJsonValue &entry : existing)
+    {
+        const QJsonObject cookie = entry.toObject();
+        if (cookie.value("domain").toString() != m_request.url.host(QUrl::EncodeUnicode)
+            || cookie.value("path").toString() != QStringLiteral("/"))
+        {
+            continue;
+        }
+        const QString name = cookie.value("name").toString();
+        present.insert(name);
+        if (m_request.authoritativeCookies && !supplied.contains(name) && !m_request.retainedCookies.contains(name))
+            removals.append(cookie);
+    }
+    QJsonArray seeds;
+    for (const QJsonValue &entry : m_request.initialCookies)
+    {
+        if (!m_profileUnchanged || m_request.authoritativeCookies || !present.contains(entry.toObject().value("name").toString()))
+            seeds.append(entry);
+    }
+    m_cookies->apply(m_request.url, seeds, removals, [this](const bool success)
     {
         if (m_finished)
             return;
-        if (cookie.name().startsWith("qbutt_barrier_") && cookie.domain() == proxyCheckUrl.host())
-        {
-            m_profile->cookieStore()->deleteCookie(cookie, proxyCheckUrl);
-            if (cookie.name() != m_barrierName)
-                return;
-            if (m_cookiePhase == CookiePhase::Loading)
-                synchronizeCookies();
-            else if (m_cookiePhase == CookiePhase::Applying)
-                authenticateProxy();
-            return;
-        }
-        const auto existing = std::find_if(m_cookies.begin(), m_cookies.end(), [&cookie](const QNetworkCookie &entry)
-        {
-            return entry.hasSameIdentifier(cookie);
-        });
-        if (existing == m_cookies.end())
-            m_cookies.append(cookie);
-        else
-            *existing = cookie;
-        if (m_cookies.size() > 4096)
+        if (!success)
             fail(QStringLiteral("webview_failed"));
+        else
+            navigateSource();
     });
-    connect(store, &QWebEngineCookieStore::cookieRemoved, this, [this](const QNetworkCookie &cookie)
-    {
-        std::erase_if(m_cookies, [&cookie](const QNetworkCookie &entry) { return entry.hasSameIdentifier(cookie); });
-    });
-    store->loadAllCookies();
-    cookieBarrier();
 }
 
-void WebSession::cookieBarrier()
-{
-    // Qt forwards cookie operations to Chromium in order. A fresh cookie on
-    // the nonforwarded bootstrap origin acknowledges the preceding snapshot
-    // or mutations without a timing delay or a request to the source.
-    m_barrierName = "qbutt_barrier_" + QUuid::createUuid().toByteArray(QUuid::Id128);
-    QNetworkCookie barrier(m_barrierName, "1");
-    barrier.setPath(QStringLiteral("/"));
-    m_profile->cookieStore()->setCookie(barrier, proxyCheckUrl);
-}
-
-void WebSession::synchronizeCookies()
-{
-    m_cookiePhase = CookiePhase::Applying;
-    QSet<QString> supplied;
-    QSet<QString> present;
-    for (const QJsonValue &entry : m_request.initialCookies)
-        supplied.insert(entry.toObject().value("name").toString());
-    const auto store = m_profile->cookieStore();
-    for (const QNetworkCookie &cookie : std::as_const(m_cookies))
-    {
-        const QString name = QString::fromLatin1(cookie.name());
-        if (cookie.domain() != m_request.url.host() || cookie.path() != QStringLiteral("/"))
-            continue;
-        present.insert(name);
-        if (m_request.authoritativeCookies && !supplied.contains(name) && !m_request.retainedCookies.contains(name))
-            store->deleteCookie(cookie, m_request.url);
-    }
-    for (const QJsonValue &value : m_request.initialCookies)
-    {
-        const QJsonObject entry = value.toObject();
-        const QString name = entry.value("name").toString();
-        if (m_profileUnchanged && !m_request.authoritativeCookies && present.contains(name))
-            continue;
-        QNetworkCookie cookie(name.toLatin1(), entry.value("value").toString().toLatin1());
-        cookie.setPath(QStringLiteral("/"));
-        cookie.setSecure(entry.value("secure").toBool());
-        cookie.setHttpOnly(entry.value("httpOnly").toBool());
-        if (entry.contains("expires"))
-            cookie.setExpirationDate(QDateTime::fromMSecsSinceEpoch(entry.value("expires").toDouble() * 1000, Qt::UTC));
-        store->setCookie(cookie, m_request.url);
-    }
-    cookieBarrier();
-}
-
-void WebSession::authenticateProxy()
+void WebSession::navigateSource()
 {
     if (!m_request.configuredSession.isEmpty() && !m_profileUnchanged)
     {
@@ -420,7 +370,10 @@ void WebSession::authenticateProxy()
             return;
         }
     }
-    m_view->load(proxyCheckUrl);
+    if (m_request.interactive)
+        m_view->show();
+    m_view->load(m_request.url);
+    m_poll.start();
 }
 
 void WebSession::pollDocument()
@@ -458,31 +411,25 @@ void WebSession::pollDocument()
 
 void WebSession::collectSession(const QUrl &url)
 {
-    QJsonArray cookies;
-    for (const QNetworkCookie &cookie : std::as_const(m_cookies))
+    m_poll.stop();
+    const quint64 generation = m_generation;
+    m_cookies->read(url, [this, url, generation](SourceCookies::Snapshot cookies)
     {
-        if (!cookieMatches(cookie, url))
-            continue;
-        QJsonObject entry {
-            {"name", QString::fromLatin1(cookie.name())},
-            {"value", QString::fromLatin1(cookie.value())},
-            {"domain", cookie.domain()},
-            {"path", cookie.path()},
-            {"secure", cookie.isSecure()},
-            {"httpOnly", cookie.isHttpOnly()},
-            {"hostOnly", !cookie.domain().startsWith(u'.')}
-        };
-        if (!cookie.isSessionCookie())
-            entry.insert("expires", cookie.expirationDate().toMSecsSinceEpoch() / 1000.0);
-        cookies.append(entry);
-    }
-    if (cookies.size() > 512)
-    {
-        fail(QStringLiteral("webview_failed"));
-        return;
-    }
-    finish({{"session", QJsonObject {{"url", url.toString(QUrl::FullyEncoded)},
-        {"userAgent", m_profile->httpUserAgent()}, {"cookies", cookies}}}});
+        if (m_finished)
+            return;
+        if (generation != m_generation)
+        {
+            m_poll.start();
+            return;
+        }
+        if (!cookies)
+        {
+            fail(QStringLiteral("webview_failed"));
+            return;
+        }
+        finish({{"session", QJsonObject {{"url", url.toString(QUrl::FullyEncoded)},
+            {"userAgent", m_profile->httpUserAgent()}, {"cookies", *cookies}}}});
+    });
 }
 
 void WebSession::cancel()
@@ -504,6 +451,7 @@ void WebSession::finish(const QJsonObject &result)
     m_poll.stop();
     QTimer::singleShot(0, this, [this, result]
     {
+        m_cookies.reset();
         m_view.reset();
         m_profile.reset();
         QJsonObject response = result;
