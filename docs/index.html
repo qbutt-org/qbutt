@@ -33,15 +33,39 @@
       <div>
         <p class="intro">Сравнивайте варианты из разных источников и скачивайте выбранную раздачу. Видео открывается в qplay, книги и манга — во встроенной читалке.</p>
         <div class="actions">
+          <div class="linux-install">
+            <p class="install-label">Linux x64 / WSL (Ubuntu 24.04+, glibc 2.39+)</p>
+            <div class="install-field">
+              <code>
+                <span class="install-prompt" aria-hidden="true">$</span>
+                <span id="install-command">curl -fsSL https://qbutt-org.github.io/qbutt/install.sh | sh</span>
+              </code>
+              <button class="install-copy"
+                aria-label="Копировать команду"
+                data-copied-label="Скопировано">
+                <svg class="copy-icon" aria-hidden="true" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="1.8"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="11" height="11" rx="2"/>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                <svg class="copied-icon" aria-hidden="true" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m5 12 4 4 10-10"/>
+                </svg>
+              </button>
+            </div>
+            <p class="install-error" role="alert" hidden>Не удалось скопировать. Скопируйте выделенную команду вручную.</p>
+          </div>
           <details class="editions">
             <summary class="download" data-all-label="Все сборки">Скачать</summary>
-            <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.1/qbutt-1.6.1-linux-x64.zip"
-              data-platform="linux-x64"
-              data-download-label="Скачать для Linux">Linux x64 (Ubuntu 24.04+, glibc 2.39+)</a>
-            <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.1/qbutt-1.6.1-windows-x64-setup.exe"
+            <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.2/qbutt-1.6.2-linux-x64.tar.gz"
+              data-platform="linux-x64">Linux x64 (tar.gz)</a>
+            <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.2/qbutt-1.6.2-windows-x64-setup.exe"
               data-platform="windows-x64"
               data-download-label="Скачать для Windows">Windows x64 (установщик)</a>
-            <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.1/qbutt-1.6.1-windows-x64.zip">Windows x64 (Portable)</a>
+            <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.2/qbutt-1.6.2-windows-x64.zip">Windows x64 (Portable)</a>
           </details>
         </div>
       </div>

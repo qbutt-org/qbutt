@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.1/qbutt-1.6.1-windows-x64-setup.exe">
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.2/qbutt-1.6.2-windows-x64-setup.exe">
     <img alt="Download qbutt for Windows" src="https://img.shields.io/badge/DOWNLOAD-Windows-009df7?style=for-the-badge">
   </a>
   <a href="https://github.com/qbutt-org/qbutt/releases">
@@ -29,7 +29,7 @@
 
 <p align="center">
   <a href="https://qbutt-org.github.io/qbutt/en/">Website</a> /
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.1/qbutt-1.6.1-windows-x64.zip">Portable</a>
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.2/qbutt-1.6.2-windows-x64.zip">Portable</a>
 </p>
 
 ## Installation
@@ -45,9 +45,15 @@ Videos open in [qplay](https://github.com/qbutt-org/qplay), an independent playe
 
 ### Linux
 
-Linux x64 requires Ubuntu 24.04 or later with glibc 2.39+. Download [qbutt-1.6.1-linux-x64.zip](https://github.com/qbutt-org/qbutt/releases/download/v1.6.1/qbutt-1.6.1-linux-x64.zip) and extract the archive.
+Linux x64 requires Ubuntu 24.04 or later with glibc 2.39+. Run this in a Linux or WSL terminal:
 
-Run `./install.sh` in the extracted directory. It installs for the current user and installs qplay as an independent app. Open qbutt from the applications menu or run `~/.local/bin/qbutt`.
+```sh
+curl -fsSL https://qbutt-org.github.io/qbutt/install.sh | sh
+```
+
+It installs for the current user and installs qplay as an independent app. Open qbutt from the applications menu or run `~/.local/bin/qbutt`.
+
+For manual installation, download [qbutt-1.6.2-linux-x64.tar.gz](https://github.com/qbutt-org/qbutt/releases/download/v1.6.2/qbutt-1.6.2-linux-x64.tar.gz), extract it, and run `./install.sh`.
 
 Run `./qbutt` without installation to use the normal qbutt profile. For a separate portable profile, use `./qbutt --profile=/absolute/path/to/profile`. Close qbutt before installation, updates, or removal. `./uninstall.sh` from the bundle or installation directory preserves settings, downloads, and the independent qplay installation.
 
@@ -93,7 +99,7 @@ To use several nodes at once, add an ordinary Mihomo subscription in **Settings 
 
 Light, Dark, and System themes are available, with changes applied immediately. On Windows, minimizing keeps the window on the taskbar, closing sends it to the tray, and **Exit** quits the app. Startup at Windows logon does not open a window.
 
-Updates are available from the **Help** menu. On Windows, the installed version downloads an EXE in the background and offers to update and restart; the portable ZIP is updated manually. Linux updates are manual: close qbutt, extract a new ZIP, and run `./install.sh` from its directory.
+Updates are available from the **Help** menu. On Windows, the installed version downloads an EXE in the background and offers to update and restart; the portable ZIP is updated manually. Linux updates are manual: close qbutt and repeat the installation command.
 
 ## Development
 

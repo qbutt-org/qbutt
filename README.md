@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.1/qbutt-1.6.1-windows-x64-setup.exe">
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.2/qbutt-1.6.2-windows-x64-setup.exe">
     <img alt="Скачать qbutt для Windows" src="https://img.shields.io/badge/%D0%A1%D0%9A%D0%90%D0%A7%D0%90%D0%A2%D0%AC-Windows-009df7?style=for-the-badge">
   </a>
   <a href="https://github.com/qbutt-org/qbutt/releases">
@@ -29,7 +29,7 @@
 
 <p align="center">
   <a href="https://qbutt-org.github.io/qbutt/">Сайт</a> /
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.1/qbutt-1.6.1-windows-x64.zip">Portable</a>
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.2/qbutt-1.6.2-windows-x64.zip">Portable</a>
 </p>
 
 ## Установка
@@ -45,9 +45,15 @@
 
 ### Linux
 
-Для Linux x64 нужны Ubuntu 24.04 или новее и glibc 2.39+. Скачайте [qbutt-1.6.1-linux-x64.zip](https://github.com/qbutt-org/qbutt/releases/download/v1.6.1/qbutt-1.6.1-linux-x64.zip) и распакуйте архив.
+Для Linux x64 нужны Ubuntu 24.04 или новее и glibc 2.39+. Выполните в терминале Linux или WSL:
 
-В распакованной папке выполните `./install.sh`. Приложение устанавливается текущему пользователю; qplay устанавливается отдельно вместе с ним. Открывайте qbutt из меню приложений или командой `~/.local/bin/qbutt`.
+```sh
+curl -fsSL https://qbutt-org.github.io/qbutt/install.sh | sh
+```
+
+Приложение устанавливается текущему пользователю; qplay устанавливается отдельно вместе с ним. Открывайте qbutt из меню приложений или командой `~/.local/bin/qbutt`.
+
+Для ручной установки скачайте [qbutt-1.6.2-linux-x64.tar.gz](https://github.com/qbutt-org/qbutt/releases/download/v1.6.2/qbutt-1.6.2-linux-x64.tar.gz), распакуйте и выполните `./install.sh`.
 
 Без установки можно запустить `./qbutt`: он использует обычный профиль qbutt. Для отдельного переносимого профиля укажите `./qbutt --profile=/полный/путь/к/профилю`. Перед установкой, обновлением и удалением закройте qbutt. `./uninstall.sh` из пакета или папки установки сохраняет настройки, загрузки и самостоятельный qplay.
 
@@ -93,7 +99,7 @@
 
 Доступны светлая, тёмная и системная темы; изменения применяются сразу. В Windows сворачивание оставляет окно на панели задач, закрытие убирает его в трей, а **Выход** завершает приложение. Автозапуск при входе в Windows работает без открытия окна.
 
-Обновления доступны через меню **Справка**. В Windows установленная версия скачивает EXE в фоне и предлагает обновить и перезапустить программу; portable ZIP обновляется вручную. В Linux обновление выполняется вручную: закройте qbutt, распакуйте новый ZIP и выполните `./install.sh` из его папки.
+Обновления доступны через меню **Справка**. В Windows установленная версия скачивает EXE в фоне и предлагает обновить и перезапустить программу; portable ZIP обновляется вручную. В Linux обновление выполняется вручную: закройте qbutt и повторите команду установки.
 
 ## Разработка
 
