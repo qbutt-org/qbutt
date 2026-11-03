@@ -9,7 +9,7 @@ use url::Url;
 use super::fixture::{FixtureResult, read, write};
 
 pub(super) async fn dispatch(handle: &BrowserHandle, edge: &mut BrowserClient) -> FixtureResult {
-    let source: Url = "https://yani.tv/catalog/item/fixture-author-video".parse()?;
+    let source: Url = "https://ru.yummyani.me/catalog/item/fixture-author-video".parse()?;
     let reference = VariantRef {
         publication: PublicationRef {
             source: Source::YummyAnime,

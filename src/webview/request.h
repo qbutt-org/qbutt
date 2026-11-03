@@ -37,7 +37,6 @@ namespace SourceCheck
         return {url: location.href, body};
     })())JS";
 
-
     struct Request
     {
         QString id;
