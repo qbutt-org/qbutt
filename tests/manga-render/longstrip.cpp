@@ -3,9 +3,11 @@
 
 #include <stdexcept>
 
+#include <QBuffer>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QImageIOHandler>
 #include <QImageReader>
 #include <QJsonArray>
@@ -59,6 +61,80 @@ namespace
                  { "layout", jsonRect(region.layout) },
                  { "cleanupRects", cleanup } };
     }
+
+    void authorEncodedWindowFixtures(const QString &directory, const QImage &original,
+        const QImage &partial, const QList<QRect> &lettering)
+    {
+        constexpr qsizetype inputLimit = 12 * 1024 * 1024;
+        constexpr qint64 localPageLimit = 24 * 1024 * 1024;
+        const auto pngSize = [](const QImage &image)
+        {
+            QByteArray bytes;
+            QBuffer output(&bytes);
+            require(output.open(QIODevice::WriteOnly) && image.save(&output, "PNG"), u"Encode noise crop"_s);
+            return bytes.size();
+        };
+        const QString lastDirectory = directory + u"/oversize-last"_s;
+        const QString allDirectory = directory + u"/oversize-all"_s;
+        require(QDir().mkpath(lastDirectory) && QDir().mkpath(allDirectory), u"Noise fixture directories"_s);
+        QRegion protectedLettering;
+        for (const QRect &rect : lettering)
+            protectedLettering += rect;
+        QImage noise = original.convertToFormat(QImage::Format_RGB32);
+        QImage last = noise.copy();
+        QImage expected = partial.convertToFormat(QImage::Format_ARGB32);
+        quint32 random = 0x9e3779b9U;
+        for (int y = 0; y < noise.height(); ++y)
+        {
+            auto *noiseRow = reinterpret_cast<QRgb *>(noise.scanLine(y));
+            auto *lastRow = reinterpret_cast<QRgb *>(last.scanLine(y));
+            auto *expectedRow = reinterpret_cast<QRgb *>(expected.scanLine(y));
+            for (int x = 0; x < noise.width(); ++x)
+            {
+                random ^= random << 13;
+                random ^= random >> 17;
+                random ^= random << 5;
+                const QRgb pixel = qRgb(random & 255, (random >> 8) & 255, (random >> 16) & 255);
+                noiseRow[x] = pixel;
+                if (y >= 13'952 && !protectedLettering.contains({ x, y }))
+                {
+                    lastRow[x] = pixel;
+                    expectedRow[x] = pixel;
+                }
+            }
+        }
+        const QString lastOriginal = lastDirectory + u"/original.png"_s;
+        require(last.save(lastOriginal) && expected.save(lastDirectory + u"/partial-result.png"_s)
+            && QFileInfo(lastOriginal).size() <= localPageLimit
+            && QFileInfo(lastDirectory + u"/partial-result.png"_s).size() <= 16 * 1024 * 1024,
+            u"Mixed noise/control page exceeded source or final PNG limits"_s);
+        for (const QString &name : { u"window-0-proposal.json"_s, u"t0-cleanup.png"_s })
+            require(QFile::copy(directory + u'/' + name, lastDirectory + u'/' + name), u"Noise/control map and cleanup"_s);
+        qsizetype controlBytes = 0;
+        qsizetype oversizedBytes = 0;
+        {
+            const PageImage control = cropWindow(last, 0, 16'000);
+            const PageImage oversized = cropWindow(last, 13'952, 6048);
+            require(control.error.isEmpty() && oversized.error.isEmpty(), u"Mixed page native crops"_s);
+            controlBytes = pngSize(control.image);
+            oversizedBytes = pngSize(oversized.image);
+            require(controlBytes > 0 && controlBytes <= inputLimit && oversizedBytes > inputLimit,
+                u"Mixed page did not straddle encoded input boundary"_s);
+        }
+        const QString allOriginal = allDirectory + u"/original.jpg"_s;
+        require(noise.save(allOriginal, "JPEG", 90) && QFileInfo(allOriginal).size() <= localPageLimit,
+            u"Legal all-noise JPEG source exceeded the local-page limit"_s);
+        const QImage decoded(allOriginal);
+        require(!decoded.isNull(), u"All-noise JPEG decode"_s);
+        for (const int top : { 0, 13'952 })
+        {
+            const PageImage oversized = cropWindow(decoded, top, qMin(16'000, decoded.height() - top));
+            require(oversized.error.isEmpty() && pngSize(oversized.image) > inputLimit,
+                u"All-noise crop did not exceed encoded input boundary"_s);
+        }
+        qInfo() << "PASS manga_encoded_window_boundary control_bytes=" << controlBytes
+                << "oversized_bytes=" << oversizedBytes << "all_oversized=2 source_bytes=" << QFileInfo(allOriginal).size();
+    }
 }
 
 void exerciseLongStrip(const QString &directory)
@@ -110,6 +186,7 @@ void exerciseLongStrip(const QString &directory)
     painter.end();
     clean.end();
     QImage composed = original.copy();
+    QImage partial = original.copy();
     QRegion allowed;
     for (const Region &region : fullRegions)
     {
@@ -151,6 +228,8 @@ void exerciseLongStrip(const QString &directory)
         QImage noisy = result.rendered.copy();
         noisy.setPixelColor(0, 0, Qt::red);
         require(composeWindow(composed, noisy, top, regions).isEmpty(), u"Native long compose failed"_s);
+        if (top == 0)
+            require(composeWindow(partial, noisy, top, regions).isEmpty(), u"Partial long compose failed"_s);
         QJsonArray clipped;
         if (top == 0)
             clipped.append(jsonRect(normalized(QRectF(82, 15'802, 636, 198), crop.image.size())));
@@ -182,6 +261,8 @@ void exerciseLongStrip(const QString &directory)
     {
         for (int x = 0; x < original.width(); ++x)
         {
+            const QRgb expected = y < rectangles.constLast().top() ? composed.pixel(x, y) : original.pixel(x, y);
+            require(partial.pixel(x, y) == expected, u"Declined window changed Original or lost accepted lettering"_s);
             if (original.pixel(x, y) != composed.pixel(x, y))
             {
                 require(allowed.contains({ x, y }), u"Longstrip composition changed non-region artwork"_s);
@@ -204,6 +285,7 @@ void exerciseLongStrip(const QString &directory)
     require(!composeWindow(cancelled, crop, 0, { fullRegions.constFirst() }, [] { return true; }).isEmpty(),
             u"Cancelled long composition succeeded"_s);
     require(original.save(directory + u"/original.png"_s) && composed.save(directory + u"/result.png"_s) &&
+                partial.save(directory + u"/partial-result.png"_s) &&
                 original.copy(0, 14'000, 800, 2600).save(directory + u"/seam-original.png"_s) &&
                 composed.copy(0, 14'000, 800, 2600).save(directory + u"/seam-result.png"_s),
             u"Longstrip images could not be saved"_s);
@@ -232,5 +314,6 @@ void exerciseLongStrip(const QString &directory)
                 u"Authored JPEG lost its orientation metadata"_s);
     }
     qInfo() << "PASS manga_long_native geometry=800x20000 regions=3 crossing=complete colors=preserved "
-               "outside=unchanged cancelled=rejected";
+               "outside=unchanged declined_window=original accepted_window=preserved cancelled=rejected";
+    authorEncodedWindowFixtures(directory, original, partial, rectangles);
 }

@@ -4,6 +4,7 @@
 #include <functional>
 #include <stdexcept>
 
+#include <QAbstractItemModel>
 #include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
@@ -97,7 +98,8 @@ namespace
     QVariant scalar(QSqlDatabase &database, const QString &sql)
     {
         QSqlQuery query(database);
-        require(query.exec(sql), query.lastError().text());
+        const bool executed = query.exec(sql);
+        require(executed, u"SQLite %1: %2; %3"_s.arg(query.lastError().nativeErrorCode(), query.lastError().text(), sql));
         require(query.next(), u"Fixture query returned no row"_s);
         return query.value(0);
     }
@@ -116,21 +118,31 @@ void exerciseReaderMangaAhead(Content::ContentView *view, const QString &profile
 {
     const QByteArray root = qgetenv("QBUTT_MANGA_PEER_ROOT");
     const QDir native(QString::fromUtf8(qgetenv("QBUTT_MANGA_PEER_DIRECTORY")));
-    require(!root.isEmpty() && QFile::exists(native.filePath(u"codex.exe"_s)), u"Controlled manga peer missing"_s);
+#ifdef Q_OS_WIN
+    const QString peerName = u"codex.exe"_s;
+#else
+    const QString peerName = u"codex"_s;
+#endif
+    require(!root.isEmpty() && QFile::exists(native.filePath(peerName)), u"Controlled manga peer missing"_s);
     const QByteArray previousProgramFiles = qgetenv("ProgramFiles");
     const QByteArray previousLocalAppData = qgetenv("LOCALAPPDATA");
     const QByteArray previousCodexHome = qgetenv("CODEX_HOME");
+    const QByteArray previousPath = qgetenv("PATH");
     const auto restoreEnvironment = qScopeGuard([&]
     {
         qputenv("ProgramFiles", previousProgramFiles);
         qputenv("LOCALAPPDATA", previousLocalAppData);
         qputenv("CODEX_HOME", previousCodexHome);
+        qputenv("PATH", previousPath);
     });
     const auto locate = [&](const QByteArray &directory)
     {
         qputenv("ProgramFiles", directory);
         qputenv("LOCALAPPDATA", directory);
         qputenv("CODEX_HOME", directory);
+#ifndef Q_OS_WIN
+        qputenv("PATH", directory);
+#endif
     };
     locate(root);
 
@@ -178,6 +190,18 @@ void exerciseReaderMangaAhead(Content::ContentView *view, const QString &profile
     import(u"first"_s);
     require(turns(native).isEmpty(), u"Original reading started AI"_s);
     const QImage original = pageImage(controller);
+    auto *pages = qobject_cast<QAbstractItemModel *>(controller->property("readerPages").value<QObject *>());
+    require(pages, u"Reader page model missing"_s);
+    const int pageUrlRole = pages->roleNames().key("pageUrl", -1);
+    require(pageUrlRole >= 0, u"Reader page URL role missing"_s);
+    const auto rowTranslated = [&](const int index)
+    {
+        const QUrl url = pages->data(pages->index(index, 0), pageUrlRole).toUrl();
+        if (!url.isLocalFile())
+            return false;
+        const QImage image(url.toLocalFile());
+        return !image.isNull() && image.convertToFormat(QImage::Format_ARGB32) != original;
+    };
     gate(native, 2, true);
     controller->setReaderMangaTranslation(true);
     translated();
@@ -197,7 +221,8 @@ void exerciseReaderMangaAhead(Content::ContentView *view, const QString &profile
     require(first != original, u"Translation did not change the original page"_s);
     const auto history = scalar(database, u"SELECT entry FROM library LIMIT 1"_s);
     gate(native, 2, false);
-    waitFor([&] { return cached() == 2; }, u"One following page cache"_s);
+    waitFor([&] { return rowTranslated(1); }, u"One following page publication"_s);
+    require(cached() == 2, u"Following page publication preceded cache commit"_s);
     settle();
     require(turns(native).size() == 2 && first == pageImage(controller)
         && controller->property("readerPageIndex").toInt() == 0
@@ -216,11 +241,12 @@ void exerciseReaderMangaAhead(Content::ContentView *view, const QString &profile
     gate(native, 3, false);
     translated();
     nextTurn(4);
-    waitFor([&] { return cached() == 4; }, u"Promoted and next page cache"_s);
+    waitFor([&] { return rowTranslated(3); }, u"Promoted and next page publication"_s);
+    require(cached() == 4, u"Next page publication preceded cache commit"_s);
     controller->selectReaderPage(4);
     translated();
     nextTurn(5);
-    waitFor([&] { return cached() == 5; }, u"Last page cache"_s);
+    require(cached() == 5, u"Last page publication preceded cache commit"_s);
     require(scalar(database, u"SELECT revision FROM translation_context"_s).toInt() == 5,
         u"Promotion wrote duplicate work context"_s);
     const QImage last = pageImage(controller);
@@ -340,7 +366,8 @@ void exerciseReaderMangaAhead(Content::ContentView *view, const QString &profile
     require(exited(retiredChapter) && cached() == beforeStale,
         u"Chapter replacement accepted stale PNG or repeated the current translation"_s);
     gate(native, 20, false);
-    waitFor([&] { return cached() == beforeStale + 1; }, u"Replaced chapter read ahead"_s);
+    waitFor([&] { return rowTranslated(1); }, u"Replaced chapter read ahead publication"_s);
+    require(cached() == beforeStale + 1, u"Replaced chapter publication preceded cache commit"_s);
     settle();
     require(turns(native).size() == 20, u"Chapter reload exceeded one next page"_s);
     gate(native, 21, true, u"fail"_s);
@@ -359,6 +386,78 @@ void exerciseReaderMangaAhead(Content::ContentView *view, const QString &profile
     translated();
     nextTurn(23);
     require(cached() == beforeStale + 2, u"Foreground did not retry the failed next page once"_s);
+    const QImage acceptedPage = pageImage(controller);
+    const int beforeDecline = cached();
+    gate(native, 24, true, u"decline-cleanup"_s);
+    controller->selectReaderPage(4);
+    nextTurn(24);
+    waitFor([&] { return !controller->property("readerTranslationBusy").toBool()
+        && controller->property("readerTranslationError").toBool(); }, u"Local sound-effect cleanup decline"_s);
+    require(controller->property("readerTranslationRequested").toBool()
+        && pageImage(controller) == original && cached() == beforeDecline,
+        u"One declined page disabled chapter translation or cached a failure"_s);
+    settle();
+    require(turns(native).size() == 24, u"Declined current page retried automatically"_s);
+
+    locate(profileDir.toUtf8());
+    controller->setReaderMangaTranslation(true);
+    waitFor([&] { return !controller->property("readerTranslationBusy").toBool()
+        && controller->property("readerTranslationNeedsCodex").toBool(); }, u"Typed unavailable Codex"_s);
+    locate(root);
+    controller->selectReaderPage(2);
+    waitFor([&] { return !controller->property("readerBusy").toBool()
+        && !controller->property("readerTranslationBusy").toBool(); }, u"Cached page during service failure"_s);
+    require(controller->property("readerTranslationRequested").toBool()
+        && pageImage(controller) == acceptedPage,
+        u"A service failure hid an accepted translated page"_s);
+    controller->selectReaderPage(4);
+    waitFor([&] { return !controller->property("readerBusy").toBool()
+        && !controller->property("readerTranslationBusy").toBool(); }, u"Paused failed page"_s);
+    settle();
+    require(turns(native).size() == 24 && cached() == beforeDecline,
+        u"A global service failure retried or changed the cache"_s);
+    controller->selectReaderPage(2);
+    waitFor([&] { return !controller->property("readerBusy").toBool()
+        && !controller->property("readerTranslationBusy").toBool(); }, u"Paused cached page before chapter reload"_s);
+    const quint64 pausedChapter = pages->property("generation").toULongLong();
+    controller->retryReader();
+    waitFor([&] { return pages->property("generation").toULongLong() != pausedChapter
+        && !controller->property("readerBusy").toBool()
+        && !controller->property("readerTranslationBusy").toBool(); }, u"Paused chapter reload"_s);
+    require(controller->property("readerTranslationNeedsCodex").toBool()
+        && controller->property("readerTranslationRequested").toBool()
+        && pageImage(controller) == acceptedPage && turns(native).size() == 24,
+        u"Chapter reload resumed a paused service or hid its accepted cache"_s);
+    controller->selectReaderPage(4);
+    waitFor([&] { return !controller->property("readerBusy").toBool()
+        && !controller->property("readerTranslationBusy").toBool(); }, u"Paused chapter cache miss"_s);
+    require(controller->property("readerTranslationNeedsCodex").toBool()
+        && turns(native).size() == 24 && cached() == beforeDecline,
+        u"Chapter cache miss resumed inference without explicit Retry"_s);
+    controller->setReaderMangaTranslation(true);
+    translated();
+    nextTurn(25);
+    require(cached() == beforeDecline + 1, u"Explicit retry did not cache the recovered page"_s);
+    const QImage recoveredPage = pageImage(controller);
+    // Page 1's next page is cached, so this check has no fresh inference target.
+    controller->selectReaderPage(1);
+    translated();
+    require(pageImage(controller) == acceptedPage && turns(native).size() == 25,
+        u"Local decline discarded an already translated page"_s);
+    controller->selectReaderPage(4);
+    translated();
+    controller->setReaderMangaTranslation(false);
+    require(pageImage(controller) == original, u"Original did not restore after a local decline"_s);
+    controller->closeReader();
+    locate(profileDir.toUtf8());
+    controller->openReader();
+    waitFor([&] { return controller->property("readerOpen").toBool()
+        && !controller->property("readerBusy").toBool(); }, u"Recovered page reopen"_s);
+    controller->setReaderMangaTranslation(true);
+    translated();
+    require(pageImage(controller) == recoveredPage && turns(native).size() == 25,
+        u"Recovered page did not reopen from its exact offline cache"_s);
+    qInfo("PASS reader_manga_ahead foreground_decline service_pause retained_pages explicit_retry original offline_cache chapter_pause");
     require(view->grabFramebuffer().save(profileDir + u"/reader-manga-ahead.png"_s), u"Qt render capture"_s);
     controller->closeReader();
     for (const auto &turn : turns(native))

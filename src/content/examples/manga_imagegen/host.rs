@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
+use std::path::Path;
 
 use serde_json::{Value, json};
 
@@ -115,7 +116,7 @@ pub fn run() -> Result<()> {
                         )?;
                     }
                 }
-                attempt @ 920..=923 => {
+                attempt @ 920..=926 => {
                     submission.reply(&mut output, &thread, &mut trace, attempt, &request)?;
                 }
                 _ => return Err("unexpected tool reply".into()),
@@ -246,19 +247,29 @@ pub fn run() -> Result<()> {
                     if image_phase {
                         generate(&mut output, &thread)?;
                         writeln!(trace, "{}", json!({"event":"image_generation_started"}))?;
+                        let region = prompt["cleanupRegions"][0]["id"].as_str().unwrap();
+                        let declined = case == "long-decline-all"
+                            || (case == "long-decline-first" && region == "r1")
+                            || (case == "long-decline-last" && region == "crossing");
                         finish(
                             &mut output,
                             &thread,
-                            json!({"accepted":true,"reason":""}),
+                            if declined {
+                                json!({"accepted":false,"reason":"One sound effect cannot be cleaned without damaging the scene."})
+                            } else {
+                                json!({"accepted":true,"reason":""})
+                            },
                             Some(200),
                         )?;
                     } else {
                         let value = long_proposal(&case, &prompt)?;
                         writeln!(trace, "{}", json!({"window":prompt["window"]["window"]}))?;
-                        if matches!(
-                            case.as_str(),
-                            "long-context-oversized" | "long-context-budget"
-                        ) {
+                        if prompt["window"]["window"]["top"] == 0
+                            && matches!(
+                                case.as_str(),
+                                "long-context-oversized" | "long-context-budget"
+                            )
+                        {
                             pending_window = Some(value);
                             send(
                                 &mut output,
@@ -270,7 +281,12 @@ pub fn run() -> Result<()> {
                                     },
                                 }),
                             )?;
-                        } else if prompt["window"]["window"]["top"] == 0 {
+                        } else if prompt["window"]["window"]["top"] == 0
+                            || prompt["window"]["acceptedRegions"]
+                                .as_array()
+                                .unwrap()
+                                .is_empty()
+                        {
                             submission.start(&mut output, &thread, value)?;
                         } else {
                             pending_window = Some(value);
@@ -300,10 +316,20 @@ pub fn run() -> Result<()> {
                         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
                         generate_png(&mut output, &thread, &encoded)?;
                         writeln!(trace, "{}", json!({"event":"image_generation_started"}))?;
+                        let declined = (ahead_fixture
+                            && native
+                                .join(format!("decline-cleanup-{}", recorded_turns(&native)?))
+                                .exists())
+                            || (native.join("decline-last-window").exists()
+                                && id.starts_with("t13952-"));
                         finish(
                             &mut output,
                             &thread,
-                            json!({"accepted":true,"reason":""}),
+                            if declined {
+                                json!({"accepted":false,"reason":"One sound effect cannot be cleaned without damaging the scene."})
+                            } else {
+                                json!({"accepted":true,"reason":""})
+                            },
                             Some(200),
                         )?;
                     } else {
@@ -316,13 +342,7 @@ pub fn run() -> Result<()> {
                         let mut proposal: Value =
                             serde_json::from_slice(&std::fs::read(directory.join(proposal_file))?)?;
                         if ahead_fixture {
-                            let turn = std::fs::read_dir(&native)?
-                                .filter_map(|entry| entry.ok())
-                                .filter(|entry| {
-                                    entry.file_name().to_string_lossy().starts_with("turn-")
-                                })
-                                .count()
-                                + 1;
+                            let turn = recorded_turns(&native)? + 1;
                             let recorded = json!({
                                 "pid": std::process::id(),
                                 "turn": turn,
@@ -330,7 +350,7 @@ pub fn run() -> Result<()> {
                                 "model": model,
                                 "effort": request["params"]["effort"],
                             });
-                            #[cfg(windows)]
+                            #[cfg(any(windows, target_os = "linux"))]
                             let recorded = {
                                 let mut recorded = recorded;
                                 recorded["createdAt"] = json!(process_creation_time()?.to_string());
@@ -361,12 +381,17 @@ pub fn run() -> Result<()> {
                     assert!(!case.starts_with("invalid-"));
                     let cleanup = &prompt["cleanupRegions"][0];
                     assert_eq!(cleanup["sourceText"], SOURCE_TEXT);
-                    let width =
-                        if matches!(case.as_str(), "revise-preview" | "revise-invalid-latest") {
-                            0.4
-                        } else {
-                            0.3
-                        };
+                    let width = if matches!(
+                        case.as_str(),
+                        "revise-preview"
+                            | "revise-invalid-latest"
+                            | "retry-schema-previews"
+                            | "preview-limit"
+                    ) {
+                        0.4
+                    } else {
+                        0.3
+                    };
                     assert_eq!(
                         cleanup["cleanupRects"],
                         json!([{"x":0.2,"y":0.2,"width":width,"height":0.3}])
@@ -447,6 +472,13 @@ pub fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn recorded_turns(native: &Path) -> std::io::Result<usize> {
+    Ok(std::fs::read_dir(native)?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("turn-"))
+        .count())
 }
 
 pub(super) fn proposal(case: &str) -> Value {
@@ -540,25 +572,26 @@ fn long_proposal(case: &str, prompt: &Value) -> Result<Value> {
             }
             return Ok(value);
         }
-        assert_eq!(
-            prompt["window"]["pendingFragments"]
-                .as_array()
-                .unwrap()
-                .len(),
-            1
-        );
-        assert_eq!(
-            prompt["window"]["acceptedRegions"]
-                .as_array()
-                .unwrap()
-                .len(),
-            1
-        );
-        assert!(
-            prompt["workContext"]
-                .to_string()
-                .contains(if case == "long-en" { "Ren" } else { "Рен" })
-        );
+        let accepted = prompt["window"]["acceptedRegions"].as_array().unwrap();
+        let pending = prompt["window"]["pendingFragments"].as_array().unwrap();
+        if accepted.is_empty() {
+            assert!(pending.is_empty());
+            assert_eq!(prompt["window"]["previousBottom"], 0);
+            assert!(
+                prompt["workContext"]["terms"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+        } else {
+            assert_eq!(accepted.len(), 1);
+            assert_eq!(pending.len(), 1);
+            assert!(
+                prompt["workContext"]
+                    .to_string()
+                    .contains(if case == "long-en" { "Ren" } else { "Рен" })
+            );
+        }
         value["regions"][0]["id"] = json!("crossing");
         value["regions"][0]["sourceText"] = json!("レンは姉です。続きも全部読みます。");
         value["terms"] = json!([]);
@@ -741,4 +774,15 @@ fn process_creation_time() -> Result<u64> {
         return Err(std::io::Error::last_os_error().into());
     }
     Ok((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
+}
+
+#[cfg(target_os = "linux")]
+fn process_creation_time() -> Result<u64> {
+    let stat = std::fs::read_to_string("/proc/self/stat")?;
+    let fields = stat.rsplit_once(')').ok_or("missing process name")?.1;
+    let started = fields
+        .split_whitespace()
+        .nth(19)
+        .ok_or("missing process start time")?;
+    Ok(started.parse()?)
 }

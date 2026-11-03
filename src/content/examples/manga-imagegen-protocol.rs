@@ -74,18 +74,25 @@ fn main() -> Result<()> {
     };
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let profile = std::env::temp_dir().join(format!("qbutt-manga-imagegen-{nonce}"));
-    let native = profile
-        .join("nodejs/node_modules/@openai/codex/node_modules")
-        .join("@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin");
+    let native = if cfg!(windows) {
+        profile
+            .join("nodejs/node_modules/@openai/codex/node_modules")
+            .join("@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin")
+    } else {
+        profile.join("bin")
+    };
     std::fs::create_dir_all(&native)?;
-    std::fs::copy(std::env::current_exe()?, native.join("codex.exe"))?;
-    let names = ["ProgramFiles", "LOCALAPPDATA", "CODEX_HOME"];
+    let executable = if cfg!(windows) { "codex.exe" } else { "codex" };
+    std::fs::copy(std::env::current_exe()?, native.join(executable))?;
+    let names = ["ProgramFiles", "LOCALAPPDATA", "CODEX_HOME", "PATH"];
     let saved = names.map(std::env::var_os);
     // Only this owned single-threaded fixture process changes its locator.
     unsafe {
-        for name in names {
+        for name in ["ProgramFiles", "LOCALAPPDATA", "CODEX_HOME"] {
             std::env::set_var(name, &profile);
         }
+        #[cfg(unix)]
+        std::env::set_var("PATH", &native);
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -143,6 +150,9 @@ impl ContractRenderer {
             id: region.id.clone(),
             status: if self.case == format!("{stage}-incomplete")
                 || (stage == "prepare" && region.layout.width < 0.02)
+                || (self.case == "retry-schema-previews"
+                    && stage == "prepare"
+                    && region.id == "unclear-sfx")
             {
                 RenderStatus::Overflow
             } else {
@@ -231,6 +241,10 @@ impl PageRenderer for ContractRenderer {
             return Ok(vec![0; qbutt_codex::MAX_GENERATED_IMAGE_BYTES + 1]);
         }
         assert!(!_windows.is_empty());
+        if let Some(top) = long::partial_window_top(&self.case) {
+            assert_eq!(_windows.len(), 1, "A declined window reached composition");
+            assert_eq!(_windows[0].window.top, top);
+        }
         Ok(_original.bytes.clone())
     }
     fn prepare(
@@ -241,7 +255,11 @@ impl PageRenderer for ContractRenderer {
         cancelled: Arc<AtomicBool>,
     ) -> qbutt_codex::Result<PreparedPage> {
         assert_eq!(original.bytes, image(ORIGINAL).bytes);
-        assert!(regions.len() == 1 || self.case.starts_with("long-"));
+        assert!(
+            regions.len() == 1
+                || self.case.starts_with("long-")
+                || (self.case == "retry-schema-previews" && regions.len() == 2)
+        );
         assert_eq!(regions[0].text_color, "#314455");
         assert_eq!(regions[0].outline_color.as_deref(), Some("#ffffff"));
         assert_eq!(regions[0].outline_width, 4.0);
@@ -288,7 +306,7 @@ impl PageRenderer for ContractRenderer {
         self.renders.fetch_add(1, Ordering::Release);
         if matches!(
             self.case.as_str(),
-            "revise-preview" | "revise-invalid-latest"
+            "revise-preview" | "revise-invalid-latest" | "retry-schema-previews" | "preview-limit"
         ) {
             assert!(
                 regions[0].translation[0].bold,
@@ -370,6 +388,8 @@ async fn exercise(native: &Path, selected_case: Option<&str>) -> Result<()> {
         "retry-third",
         "retry-typography",
         "retry-context",
+        "retry-schema-previews",
+        "preview-limit",
         "invalid-geometry",
         "invalid-typography",
         "invalid-context",
@@ -523,6 +543,8 @@ async fn exercise(native: &Path, selected_case: Option<&str>) -> Result<()> {
                 | "retry-third"
                 | "retry-typography"
                 | "retry-context"
+                | "retry-schema-previews"
+                | "preview-limit"
                 | "resubmit-accepted"
                 | "revise-preview"
                 | "revise-invalid-latest",
@@ -589,6 +611,8 @@ async fn exercise(native: &Path, selected_case: Option<&str>) -> Result<()> {
             (_, Ok(_)) => return Err(format!("{case}: invalid page accepted").into()),
         }
         let prepares = match case {
+            "retry-schema-previews" => 4,
+            "preview-limit" => 3,
             "invalid-typography" | "prepare-rejected" | "prepare-incomplete"
             | "preview-missing" | "preview-oversized" | "preview-count" | "preview-bytes" => 3,
             "retry-typography" | "revise-preview" | "revise-invalid-latest" => 2,
@@ -643,12 +667,13 @@ async fn exercise(native: &Path, selected_case: Option<&str>) -> Result<()> {
             .collect();
         let expected_submissions = match case {
             "final-bypass" | "invented-exhaustion" | "cancel-prepare" => 0,
-            "submission-limit" => 4,
+            "submission-limit" => 7,
+            "exhaustion-bypass" | "retry-schema-previews" => 6,
+            "preview-limit" => 4,
             "retry-geometry" | "retry-typography" | "retry-context" | "resubmit-accepted"
             | "revise-preview" => 2,
             "prepare-rejected"
             | "prepare-incomplete"
-            | "exhaustion-bypass"
             | "retry-third"
             | "revise-invalid-latest"
             | "preview-missing"
@@ -666,17 +691,46 @@ async fn exercise(native: &Path, selected_case: Option<&str>) -> Result<()> {
             let expected = match case {
                 "retry-geometry" | "retry-third" => "cleanup rectangle",
                 "retry-typography" => "Overflow",
+                "retry-schema-previews" => "Invalid translation proposal",
                 _ => "Context evidence",
             };
             assert!(feedback.contains(expected), "{case}: {feedback}");
         }
         if case == "submission-limit" {
+            assert_eq!(submissions[6]["accepted"], false);
+            assert!(
+                submissions[6]["feedback"]
+                    .as_str()
+                    .unwrap()
+                    .contains("map submission limit")
+            );
+        }
+        if case == "retry-schema-previews" {
+            for (index, submission) in submissions.iter().enumerate() {
+                assert_eq!(submission["accepted"], index >= 3);
+                assert_eq!(submission["previewImages"], usize::from(index >= 3));
+            }
+            assert!(
+                submissions[1]["feedback"]
+                    .as_str()
+                    .unwrap()
+                    .contains("cleanup rectangle")
+            );
+            assert!(
+                submissions[2]["feedback"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Overflow")
+            );
+        }
+        if case == "preview-limit" {
             assert_eq!(submissions[3]["accepted"], false);
+            assert_eq!(submissions[3]["previewImages"], 0);
             assert!(
                 submissions[3]["feedback"]
                     .as_str()
                     .unwrap()
-                    .contains("three page submissions")
+                    .contains("native preview limit")
             );
         }
         let starts = trace
@@ -810,7 +864,8 @@ fn process_exited(pid: u32) -> bool {
     }
 }
 
-#[cfg(not(windows))]
-fn process_exited(_: u32) -> bool {
-    true
+#[cfg(unix)]
+fn process_exited(pid: u32) -> bool {
+    let missing = unsafe { libc::kill(pid as libc::pid_t, 0) == -1 };
+    missing && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
 }

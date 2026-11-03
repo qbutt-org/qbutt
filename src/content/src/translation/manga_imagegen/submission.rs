@@ -22,7 +22,8 @@ use crate::translation::page::{
     SourceObservation,
 };
 
-const MAX_SUBMISSIONS: usize = 3;
+const MAX_SUBMISSIONS: usize = 6;
+const MAX_PREVIEW_SETS: usize = 3;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -112,6 +113,13 @@ impl<'a, R: PageRenderer, C: ToolHandler + Send> PageTools<'a, R, C> {
             preparation: None,
             candidate: None,
         }
+    }
+
+    fn preview_sets(&self) -> usize {
+        self.submissions
+            .iter()
+            .filter(|submission| submission.preview_images > 0)
+            .count()
     }
 
     // The transport may cancel and drop a tool future while Qt is working.
@@ -255,11 +263,17 @@ impl<R: PageRenderer, C: ToolHandler + Send> ToolHandler for PageTools<'_, R, C>
             if call.name != "submit_page" {
                 return self.inspect_context(call).await;
             }
-            if self.submissions.len() == MAX_SUBMISSIONS {
+            let map_limit = self.submissions.len() >= MAX_SUBMISSIONS;
+            if map_limit || self.preview_sets() >= MAX_PREVIEW_SETS {
                 self.limit_rejections += 1;
-                return Err(CodexError::Tool(
-                    "All three page submissions were evaluated; accept the latest valid preview or decline".into(),
-                ));
+                let limit = if map_limit {
+                    "map submission"
+                } else {
+                    "native preview"
+                };
+                return Err(CodexError::Tool(format!(
+                    "The {limit} limit was reached; accept the latest valid preview or decline"
+                )));
             }
             self.submissions.push(SubmissionDiagnostic {
                 outcome: "evaluating",
@@ -272,8 +286,9 @@ impl<R: PageRenderer, C: ToolHandler + Send> ToolHandler for PageTools<'_, R, C>
                 Err(error) => {
                     self.submissions.last_mut().unwrap().reject(&error);
                     return Err(CodexError::Tool(format!(
-                        "Page submission {}/{MAX_SUBMISSIONS} rejected: {error}",
-                        self.submissions.len()
+                        "Page submission {}/{MAX_SUBMISSIONS} rejected: {error}. Remaining native preview sets: {}",
+                        self.submissions.len(),
+                        MAX_PREVIEW_SETS - self.preview_sets(),
                     )));
                 }
             };
@@ -292,6 +307,7 @@ impl<R: PageRenderer, C: ToolHandler + Send> ToolHandler for PageTools<'_, R, C>
                     "validated": true,
                     "submission": self.submissions.len(),
                     "remainingSubmissions": MAX_SUBMISSIONS - self.submissions.len(),
+                    "remainingPreviewSets": MAX_PREVIEW_SETS - self.preview_sets(),
                     "diagnostics": prepared.diagnostics,
                 })
                 .to_string(),
@@ -382,7 +398,7 @@ pub(super) fn tool_definitions(windowed: bool) -> Vec<FunctionTool> {
     }
     tools.push(FunctionTool {
         name: "submit_page",
-        description: "Validate the complete map and inspect native source/cleanup-coverage/lettering previews. Correct and replace the latest valid map within three submissions; only final acceptance starts cleanup.",
+        description: "Validate a region map and inspect native source/cleanup-coverage/lettering previews. Use at most six map submissions and three usable preview sets; rejected maps without previews do not spend the preview limit. A valid map replaces the candidate; only final acceptance starts cleanup.",
         input_schema: schema,
     });
     tools

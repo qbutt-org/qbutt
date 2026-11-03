@@ -13,6 +13,7 @@ pub(super) struct ProposalPeer {
     proposal: Option<Value>,
     correction: Option<Value>,
     accepted: bool,
+    preview_sets: usize,
 }
 
 impl ProposalPeer {
@@ -24,6 +25,7 @@ impl ProposalPeer {
             proposal: None,
             correction: None,
             accepted: false,
+            preview_sets: 0,
         }
     }
 
@@ -42,6 +44,9 @@ impl ProposalPeer {
             );
         }
         match self.case.as_str() {
+            "retry-schema-previews" => {
+                proposal["regions"][0]["translation"][0]["bold"] = json!("invalid");
+            }
             "repair-preview" => {
                 self.correction = Some(proposal.clone());
                 let index = proposal["regions"]
@@ -104,11 +109,22 @@ impl ProposalPeer {
             })
         )?;
         trace.flush()?;
+        if !success {
+            assert!(images.is_empty(), "Rejected proposal leaked preview images");
+        }
+        let last_rejected_attempt =
+            if matches!(self.case.as_str(), "submission-limit" | "exhaustion-bypass") {
+                925
+            } else {
+                922
+            };
         if success {
+            self.preview_sets += usize::from(!images.is_empty());
             let value: Value = serde_json::from_str(feedback)?;
             assert_eq!(value["validated"], true);
             assert_eq!(value["submission"], attempt - 919);
-            assert_eq!(value["remainingSubmissions"], 922 - attempt);
+            assert_eq!(value["remainingSubmissions"], 925 - attempt);
+            assert_eq!(value["remainingPreviewSets"], 3 - self.preview_sets);
             assert_eq!(
                 images.is_empty(),
                 self.proposal.as_ref().unwrap()["regions"]
@@ -117,6 +133,23 @@ impl ProposalPeer {
                     .is_empty()
             );
             self.accepted = true;
+            if (self.case == "retry-schema-previews" && attempt < 925)
+                || (self.case == "preview-limit" && attempt < 922)
+            {
+                let mut proposal = self.proposal.as_ref().unwrap().clone();
+                proposal["regions"][0]["translation"][0]["bold"] = json!(true);
+                proposal["regions"][0]["cleanupRects"][0]["width"] =
+                    json!(if self.preview_sets == 1 { 0.3 } else { 0.4 });
+                submit(output, thread, &proposal, attempt - 919)?;
+                self.proposal = Some(proposal);
+                return Ok(());
+            }
+            if self.case == "preview-limit" && attempt == 922 {
+                let mut proposal = self.proposal.as_ref().unwrap().clone();
+                proposal["regions"][0]["translation"][0]["bold"] = json!(false);
+                proposal["regions"][0]["cleanupRects"][0]["width"] = json!(0.5);
+                return submit(output, thread, &proposal, 3);
+            }
             if self.case == "cancel-after-preview" {
                 return Ok(());
             }
@@ -153,6 +186,36 @@ impl ProposalPeer {
                     attempt - 919,
                 );
             }
+        } else if self.case == "retry-schema-previews" {
+            let expected = match attempt {
+                920 => "Invalid translation proposal",
+                921 => "cleanup rectangle",
+                922 => "Overflow",
+                _ => return Err("Unexpected submission rejection".into()),
+            };
+            assert!(feedback.contains(expected), "{feedback}");
+            let mut proposal = host::proposal("ru");
+            if attempt == 920 {
+                proposal["regions"][0]["cleanupRects"][0]["x"] = json!(0.99);
+            } else if attempt == 921 {
+                let first = json!({"x":0.1,"y":0.1,"width":0.35,"height":0.35});
+                proposal["regions"][0]["bounds"] = first.clone();
+                proposal["regions"][0]["layout"] = first.clone();
+                proposal["regions"][0]["cleanupRects"] = json!([first]);
+                let mut sfx = proposal["regions"][0].clone();
+                let second = json!({"x":0.55,"y":0.55,"width":0.35,"height":0.35});
+                sfx["id"] = json!("unclear-sfx");
+                sfx["sourceText"] = json!("ドン");
+                sfx["bounds"] = second.clone();
+                sfx["layout"] = second.clone();
+                sfx["cleanupRects"] = json!([second]);
+                proposal["regions"].as_array_mut().unwrap().push(sfx);
+            }
+            submit(output, thread, &proposal, attempt - 919)?;
+            self.proposal = Some(proposal);
+            return Ok(());
+        } else if self.case == "preview-limit" {
+            assert!(feedback.contains("native preview limit"), "{feedback}");
         } else if self.case.starts_with("retry-")
             && (attempt == 920 || (self.case == "retry-third" && attempt == 921))
         {
@@ -183,18 +246,15 @@ impl ProposalPeer {
             submit(output, thread, &proposal, attempt - 919)?;
             self.proposal = Some(proposal);
             return Ok(());
-        } else if !self.accepted && attempt < 922 {
+        } else if !self.accepted && attempt < last_rejected_attempt {
             return submit(
                 output,
                 thread,
                 self.proposal.as_ref().unwrap(),
                 attempt - 919,
             );
-        } else if !self.accepted && attempt == 922 && self.case == "submission-limit" {
-            return submit(output, thread, &host::proposal("ru"), 3);
-        }
-        if !success {
-            assert!(images.is_empty(), "Rejected proposal leaked preview images");
+        } else if !self.accepted && attempt == 925 && self.case == "submission-limit" {
+            return submit(output, thread, &host::proposal("ru"), 6);
         }
         let accepted = self.accepted || self.case == "exhaustion-bypass";
         let declined = matches!(

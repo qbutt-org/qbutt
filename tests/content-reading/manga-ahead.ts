@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { Database } from "bun:sqlite";
 
 const [application, peer, fixtures, evidence] = process.argv.slice(2);
 if (!application || !peer || !fixtures || !evidence || ![application, peer, fixtures, evidence].every(isAbsolute)) {
@@ -10,10 +11,17 @@ if (!application || !peer || !fixtures || !evidence || ![application, peer, fixt
 await mkdir(evidence);
 const runtime = await mkdtemp(join(tmpdir(), "qbutt-manga-ahead-"));
 try {
-    const native = join(runtime, "nodejs/node_modules/@openai/codex/node_modules",
-        "@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin");
+    const windows = process.platform === "win32";
+    const native = windows
+        ? join(runtime, "nodejs/node_modules/@openai/codex/node_modules",
+            "@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin")
+        : runtime;
     await mkdir(native, { recursive: true });
-    await Bun.write(join(native, "codex.exe"), Bun.file(peer));
+    const executable = join(native, windows ? "codex.exe" : "codex");
+    await Bun.write(executable, Bun.file(peer));
+    if (!windows) {
+        await chmod(executable, 0o700);
+    }
     await writeFile(join(native, "case.txt"), "ahead");
 
     const pageFixtures = join(runtime, "pages");
@@ -60,7 +68,7 @@ try {
             QBUTT_MANGA_PEER_ROOT: runtime,
             QT_QPA_PLATFORM: "offscreen",
             QT_QUICK_BACKEND: "software",
-            QT_QPA_FONTDIR: "C:/Windows/Fonts",
+            ...(windows ? { QT_QPA_FONTDIR: "C:/Windows/Fonts" } : {}),
             QT_FORCE_STDERR_LOGGING: "1",
         },
         stdout: Bun.file(join(evidence, "stdout.log")),
@@ -78,6 +86,19 @@ try {
     const tracePaths = [...new Bun.Glob("turn-*.json").scanSync(native)].sort();
     const turns = await Promise.all(tracePaths.map(async path =>
         JSON.parse(await readFile(join(native, path), "utf8"))));
+    let cache;
+    if (code === 0) {
+        const database = new Database(join(profile, "content-library.sqlite"), { readonly: true });
+        try {
+            const integrity = database.query("PRAGMA quick_check").get() as { quick_check: string };
+            if (integrity.quick_check !== "ok") {
+                throw new Error(`Native reader cache failed integrity check: ${integrity.quick_check}`);
+            }
+            cache = database.query("SELECT (SELECT count(*) FROM translated_images) AS images, (SELECT count(*) FROM translation_context) AS contexts").get();
+        } finally {
+            database.close();
+        }
+    }
 
     await writeFile(join(evidence, "receipt.json"), JSON.stringify({
         exitCode: code,
@@ -89,11 +110,14 @@ try {
         attemptedPagesPolicy: "Each page is prefetched once within the chapter and translation-settings lifecycle. Failed or canceled targets are not retried automatically after other prefetches. Visiting a target may retry foreground work; reader, chapter and settings resets clear attempts.",
         liveInferenceCalls: 0,
         nativePointerVerified: false,
+        cache,
         turns,
     }, null, 2));
     await writeFile(join(evidence, "trace.jsonl"), await readFile(join(native, "trace.jsonl")));
 
-    if (code !== 0 || !log.includes("PASS reader_manga_ahead chapter_cancel background_failure foreground_retry cleanup")) {
+    if (code !== 0 || turns.length !== 25
+        || !log.includes("PASS reader_manga_ahead chapter_cancel background_failure foreground_retry cleanup")
+        || !log.includes("PASS reader_manga_ahead foreground_decline service_pause retained_pages explicit_retry original offline_cache chapter_pause")) {
         throw new Error(`Native manga read-ahead failed with exit ${code}.`);
     }
 } finally {

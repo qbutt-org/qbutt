@@ -149,9 +149,12 @@ namespace
     void capture(Content::ContentView *view, const QString &path, const QSize &size)
     {
         view->resize(size);
-        QEventLoop frame;
-        QTimer::singleShot(150, &frame, &QEventLoop::quit);
-        frame.exec();
+        auto *page = control(readerItem(view), u"readerPageImage"_s);
+        waitFor([&]
+        {
+            return view->size() == size && page->isVisible() && page->width() > 0
+                && page->height() > 0 && page->property("status").toInt() == 1;
+        }, u"Rendered reader page"_s);
         const QImage image = view->grabFramebuffer();
         require(image.size() == size && image.save(path), u"Reader screenshot failed: "_s + path);
     }
@@ -208,26 +211,36 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     const QByteArray previousProgramFiles = qgetenv("ProgramFiles");
     const QByteArray previousLocalAppData = qgetenv("LOCALAPPDATA");
     const QByteArray previousCodexHome = qgetenv("CODEX_HOME");
-    const auto restorePeerEnvironment = qScopeGuard([&]
+    const QByteArray previousPath = qgetenv("PATH");
+    const auto restoreEnvironment = qScopeGuard([&]
     {
-        if (!peerRoot.isEmpty())
-        {
-            qputenv("ProgramFiles", previousProgramFiles);
-            qputenv("LOCALAPPDATA", previousLocalAppData);
-            qputenv("CODEX_HOME", previousCodexHome);
-        }
+        qputenv("ProgramFiles", previousProgramFiles);
+        qputenv("LOCALAPPDATA", previousLocalAppData);
+        qputenv("CODEX_HOME", previousCodexHome);
+        qputenv("PATH", previousPath);
     });
+#ifdef Q_OS_WIN
+    const QString peerNative = QString::fromUtf8(peerRoot)
+        + u"/nodejs/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin"_s;
+    const QString peerExecutable = u"codex.exe"_s;
+#else
+    const QString peerNative = QString::fromUtf8(peerRoot);
+    const QString peerExecutable = u"codex"_s;
+#endif
+    const bool expectedPartial = qEnvironmentVariableIsSet("QBUTT_MANGA_EXPECT_PARTIAL");
+    require(!expectedPartial || !peerRoot.isEmpty(), u"Partial manga fixture requires the controlled peer"_s);
     if (!peerRoot.isEmpty())
     {
         require(QDir::isAbsolutePath(QString::fromUtf8(peerRoot)), u"Controlled manga peer root must be absolute"_s);
-        const QString native = QString::fromUtf8(peerRoot)
-            + u"/nodejs/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin"_s;
-        QFile peerCase(native + u"/case.txt"_s);
+        QFile peerCase(peerNative + u"/case.txt"_s);
         require(peerCase.open(QIODevice::ReadOnly) && peerCase.readAll().trimmed() == "native"
-            && QFile::exists(native + u"/codex.exe"_s), u"Controlled manga peer is missing"_s);
+            && QFile::exists(peerNative + u'/' + peerExecutable), u"Controlled manga peer is missing"_s);
         qputenv("ProgramFiles", peerRoot);
         qputenv("LOCALAPPDATA", peerRoot);
         qputenv("CODEX_HOME", peerRoot);
+#ifndef Q_OS_WIN
+        qputenv("PATH", peerRoot);
+#endif
     }
 
     auto *controller = view->findChild<Qbutt::ContentController *>();
@@ -328,9 +341,20 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     if (!expectedFailure.isEmpty())
     {
         captureTranslationFailure(view, profileDir, controller, original);
-        require((expectedFailure == u"orientation" || expectedFailure == u"window" || expectedFailure == u"proposal")
+        require((expectedFailure == u"orientation" || expectedFailure == u"proposal" || expectedFailure == u"encoded-window")
                 && controller->property("readerTranslationError").toBool(),
             u"Expected manga translation rejection did not occur"_s);
+        if (expectedFailure == u"encoded-window")
+        {
+            require(controller->property("readerTranslationRequested").toBool()
+                && controller->property("readerTranslationErrorText").toString().contains(u"encoded input size limit"_s),
+                u"Oversized windows did not produce a page-local encoded-size rejection"_s);
+            QFile trace(peerNative + u"/trace.jsonl"_s);
+            require(!peerRoot.isEmpty() && trace.open(QIODevice::ReadOnly), u"Oversized-window peer trace"_s);
+            for (const QByteArray &line : trace.readAll().split('\n'))
+                require(QJsonDocument::fromJson(line).object()[u"method"_s].toString() != u"turn/start"_s,
+                    u"An oversized window started model inference"_s);
+        }
         auto database = QSqlDatabase::addDatabase(u"QSQLITE"_s, u"reader-manga-rejection"_s);
         const auto closeDatabase = qScopeGuard([&]
         {
@@ -358,11 +382,10 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
     require(translated.size() == original.size(), u"Translated manga dimensions changed"_s);
     if (!peerRoot.isEmpty())
     {
-        QFile fixtureFile(QString::fromUtf8(peerRoot)
-            + u"/nodejs/node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/fixture-directory.txt"_s);
+        QFile fixtureFile(peerNative + u"/fixture-directory.txt"_s);
         require(fixtureFile.open(QIODevice::ReadOnly), u"Controlled manga fixture path is missing"_s);
         const QString fixtureDirectory = QString::fromUtf8(fixtureFile.readAll().trimmed());
-        const QImage expected(fixtureDirectory + u"/result.png"_s);
+        const QImage expected(fixtureDirectory + (expectedPartial ? u"/partial-result.png"_s : u"/result.png"_s));
         require(!expected.isNull() && translated == expected.convertToFormat(QImage::Format_ARGB32),
             u"Controlled native manga result differs from expected full-page pixels"_s);
     }
@@ -430,15 +453,10 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
         u"Original choice did not restore exact original pixels"_s);
     capture(view, profileDir + u"/manga-reader-restored.png"_s, QSize(1280, 720));
     controller->closeReader();
-    const QByteArray originalProgramFiles = qgetenv("ProgramFiles");
-    const QByteArray originalLocalAppData = qgetenv("LOCALAPPDATA");
-    const auto restoreEnvironment = qScopeGuard([&]
-    {
-        qputenv("ProgramFiles", originalProgramFiles);
-        qputenv("LOCALAPPDATA", originalLocalAppData);
-    });
     qputenv("ProgramFiles", profileDir.toUtf8());
     qputenv("LOCALAPPDATA", profileDir.toUtf8());
+    qputenv("CODEX_HOME", profileDir.toUtf8());
+    qputenv("PATH", profileDir.toUtf8());
     controller->openReader();
     waitFor([&]
     {
@@ -459,6 +477,8 @@ void exerciseReaderMangaTranslation(Content::ContentView *view, const QString &p
         && pageImage(controller) == translated,
         u"Reopened manga did not reuse the exact translation offline"_s);
     capture(view, profileDir + u"/manga-reader-cached.png"_s, QSize(1440, 900));
+    if (expectedPartial)
+        qInfo("PASS reader_manga_partial accepted_window=translated declined_window=original atomic_cache=exact original=exact offline_cache=exact");
     qInfo().noquote() << u"PASS reader_manga_translation model=%1 effort=%2 target=%3 translation_ms=%4 page=0 geometry=ok original=ok offline_cache=ok visual_review=required"_s
         .arg(model, effort, targetLanguage).arg(translationMs);
 }

@@ -165,7 +165,7 @@ impl ffi::ContentController {
         {
             let mut state = self.as_mut().rust_mut();
             if state.reader.page_index != index {
-                state.reader.manga_translation.error = None;
+                state.reader.manga_translation.clear_page_error();
             }
             state.reader.page_index = index;
             state.reader.scroll_offset = 0.0;
@@ -289,7 +289,7 @@ impl ffi::ContentController {
         if user_moved {
             let mut state = self.as_mut().rust_mut();
             if state.reader.page_index != anchor {
-                state.reader.manga_translation.error = None;
+                state.reader.manga_translation.clear_page_error();
             }
             state.reader.page_index = anchor;
             state.reader.scroll_offset = offset;

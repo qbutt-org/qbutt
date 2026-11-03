@@ -12,12 +12,14 @@ pub(super) fn exercise() -> Result<()> {
         ("final-rejected-after-acceptance", 2, 1, 1, 1, "declined", 0),
         ("decline-long-reason", 2, 1, 1, 1, "declined", 0),
         ("invalid-geometry", 4, 3, 3, 0, "declined", 0),
-        ("submission-limit", 5, 4, 3, 0, "declined", 0),
+        ("submission-limit", 8, 7, 6, 0, "declined", 0),
         ("final-bypass", 1, 0, 0, 0, "missing_candidate", 0),
-        ("exhaustion-bypass", 4, 3, 3, 0, "missing_candidate", 0),
+        ("exhaustion-bypass", 7, 6, 6, 0, "missing_candidate", 0),
         ("cancel-after-preview", 2, 1, 1, 1, "cancelled", 0),
         ("cancel-prepare", 2, 1, 1, 0, "cancelled", 0),
         ("retry-geometry", 3, 2, 2, 1, "accepted", 1),
+        ("retry-schema-previews", 7, 6, 6, 3, "accepted", 1),
+        ("preview-limit", 5, 4, 3, 3, "accepted", 1),
         ("resubmit-accepted", 3, 2, 2, 1, "accepted", 1),
         ("revise-invalid-latest", 4, 3, 3, 2, "accepted", 1),
     ] {
@@ -67,6 +69,25 @@ pub(super) fn exercise() -> Result<()> {
                 assert_eq!(rejected["outcome"], "rejected");
                 assert_eq!(rejected["reason"], "region geometry or style validation");
             }
+        }
+        if case == "retry-schema-previews" {
+            let submissions = summary["submissions"].as_array().unwrap();
+            for (index, submission) in submissions.iter().enumerate() {
+                assert_eq!(
+                    submission["outcome"],
+                    if index < 3 { "rejected" } else { "validated" }
+                );
+                assert_eq!(submission["previewImages"], usize::from(index >= 3));
+            }
+            assert_eq!(submissions[0]["reason"], "malformed proposal");
+            assert_eq!(
+                submissions[1]["reason"],
+                "region geometry or style validation"
+            );
+            assert_eq!(
+                submissions[2]["reason"],
+                "native typography or preview validation"
+            );
         }
         let encoded = serde_json::to_string(summary)?;
         assert!(!encoded.contains(SOURCE_TEXT));

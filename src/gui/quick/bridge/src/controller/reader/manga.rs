@@ -37,6 +37,18 @@ struct MangaJob {
 }
 
 impl MangaTranslationState {
+    pub(super) fn clear_page_error(&mut self) {
+        if matches!(
+            self.error,
+            Some(
+                TranslationFailure::UnsupportedSize
+                    | TranslationFailure::Codex(CodexError::Declined(_))
+            )
+        ) {
+            self.error = None;
+        }
+    }
+
     pub(super) fn cancel_job(&mut self) {
         if let Some(job) = &self.job {
             let _ = job.cancel.send(true);
@@ -49,12 +61,13 @@ impl MangaTranslationState {
 
     pub(super) fn reset_chapter(&mut self) {
         self.cancel_job();
-        self.error = None;
+        self.clear_page_error();
         self.attempted_pages.clear();
     }
 
     pub(super) fn reset_reader(&mut self) {
         self.reset_chapter();
+        self.error = None;
         self.requested = false;
     }
 }
@@ -150,17 +163,26 @@ async fn translate(
     library: LibraryWorker,
     byte_limit: Arc<Semaphore>,
     language: String,
+    allow_request: bool,
     cancelled: watch::Receiver<bool>,
-) -> Result<Arc<CachedPage>, TranslationFailure> {
+) -> Result<Option<Arc<CachedPage>>, TranslationFailure> {
     if !ffi::manga_translation_size_supported(original.width, original.height) {
-        return Err(TranslationFailure::UnsupportedSize);
+        return if allow_request {
+            Err(TranslationFailure::UnsupportedSize)
+        } else {
+            Ok(None)
+        };
     }
     let bytes = CachedPage::original_bytes(Arc::clone(&original))
         .await
         .map_err(TranslationFailure::Cache)?;
     let windowed = manga_imagegen::needs_windows(original.width as u32, original.height as u32);
     if !windowed && bytes.len() > codex::MAX_IMAGE_BYTES {
-        return Err(TranslationFailure::UnsupportedSize);
+        return if allow_request {
+            Err(TranslationFailure::UnsupportedSize)
+        } else {
+            Ok(None)
+        };
     }
     let input = page::input_image(bytes).map_err(TranslationFailure::Codex)?;
     let saved = library
@@ -188,8 +210,11 @@ async fn translate(
             let page = CachedPage::translated(original, png, byte_limit)
                 .await
                 .map_err(TranslationFailure::Cache)?;
-            return Ok(Arc::new(page));
+            return Ok(Some(Arc::new(page)));
         }
+    }
+    if !allow_request {
+        return Ok(None);
     }
 
     let explicit = saved.as_ref().filter(|selection| selection.explicit);
@@ -275,7 +300,7 @@ async fn translate(
     let page = CachedPage::translated(original, png, byte_limit)
         .await
         .map_err(TranslationFailure::Cache)?;
-    Ok(Arc::new(page))
+    Ok(Some(Arc::new(page)))
 }
 
 impl ffi::ContentController {
@@ -340,6 +365,7 @@ impl ffi::ContentController {
         }
         let current = self.reader.page_index as usize;
         let current_ready = self.reader.pages.translated_ready(current);
+        let allow_request = self.reader.manga_translation.error.is_none();
         if let Some(job) = &self.reader.manga_translation.job {
             let original_matches = self
                 .reader
@@ -361,6 +387,10 @@ impl ffi::ContentController {
                 self.as_mut().rust_mut().reader.manga_translation.busy = busy;
                 self.as_mut().reader_changed();
             }
+            return;
+        }
+        // Reload accepted pages after viewport eviction without resuming inference.
+        if current_ready && !allow_request {
             return;
         }
         let ahead = current_ready;
@@ -431,7 +461,15 @@ impl ffi::ContentController {
         let generation = self.reader.manga_translation.generation;
         let task = self.services.as_ref().unwrap().runtime.spawn(async move {
             let result = translate(
-                original, chapter, index, chapters, source, library, byte_limit, language,
+                original,
+                chapter,
+                index,
+                chapters,
+                source,
+                library,
+                byte_limit,
+                language,
+                allow_request,
                 cancelled,
             )
             .await;
@@ -459,7 +497,7 @@ impl ffi::ContentController {
                 }
                 let current = controller.reader.page_index == index as i32;
                 match result {
-                    Ok(page) => {
+                    Ok(Some(page)) => {
                         controller
                             .as_mut()
                             .rust_mut()
@@ -468,6 +506,7 @@ impl ffi::ContentController {
                             .pin_mut()
                             .translated(chapter_generation, index, page);
                     }
+                    Ok(None) => {}
                     Err(error) => {
                         ffi::log_content_error(
                             &QString::from("manga translation"),
@@ -476,22 +515,17 @@ impl ffi::ContentController {
                         if current {
                             let state =
                                 &mut controller.as_mut().rust_mut().reader.manga_translation;
-                            state.requested = false;
+                            state.attempted_pages.insert(index);
                             state.error = Some(error);
-                            controller
-                                .as_mut()
-                                .rust_mut()
-                                .reader
-                                .pages
-                                .pin_mut()
-                                .translation_mode(false);
                         }
                     }
                 }
                 if current {
                     controller.as_mut().reader_changed();
                 }
-                controller.as_mut().start_manga_translation();
+                if controller.reader.manga_translation.error.is_none() {
+                    controller.as_mut().start_manga_translation();
+                }
             });
         });
         drop(task);

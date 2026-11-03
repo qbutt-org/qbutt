@@ -34,6 +34,9 @@ pub(super) async fn exercise(
         "long-ru",
         "long-en",
         "long-empty-last",
+        "long-decline-first",
+        "long-decline-last",
+        "long-decline-all",
         "long-empty-context",
         "long-oversized-crossing",
         "long-explicit-unsupported",
@@ -161,7 +164,41 @@ pub(super) async fn exercise(
                 assert!(renderer.cancellation_observed.load(Ordering::Acquire));
             }
             ("long-final-rejected" | "long-final-oversized", Err(CodexError::Image)) => {}
-            (_, Err(CodexError::Tool(_) | CodexError::Declined(_))) => {}
+            (_, Ok(page)) if partial_window_top(case).is_some() => {
+                let top = partial_window_top(case).unwrap();
+                let prefix = if top == 0 { "w0:" } else { "w1:" };
+                assert_eq!(page.png, original.bytes);
+                assert_eq!(page.evidence.len(), if top == 0 { 2 } else { 1 });
+                assert!(
+                    page.evidence
+                        .iter()
+                        .all(|segment| segment.id.starts_with(prefix))
+                );
+                assert!(page.usage.is_none(), "Declined requests have unknown usage");
+                assert_eq!(renderer.crops.load(Ordering::Acquire), 2);
+                assert_eq!(renderer.compositions.load(Ordering::Acquire), 1);
+                assert_eq!(renderer.renders.load(Ordering::Acquire), 1);
+                let mut library =
+                    qbutt_content::Library::open(native.join(format!("cache-{case}")))?;
+                library.save_image_translation(
+                    key.clone(),
+                    0,
+                    &page.png,
+                    page.additions,
+                    &page.evidence,
+                    || true,
+                )?;
+                drop(library);
+                let library = qbutt_content::Library::open(native.join(format!("cache-{case}")))?;
+                assert_eq!(
+                    library.cached_translation_image(&key)?.as_deref(),
+                    Some(original.bytes.as_slice())
+                );
+            }
+            ("long-decline-all", Err(CodexError::Declined(_))) => {
+                assert_eq!(renderer.renders.load(Ordering::Acquire), 0);
+                assert_eq!(renderer.compositions.load(Ordering::Acquire), 0);
+            }
             (_, outcome) => {
                 return Err(format!(
                     "{case}: unexpected outcome {}",
@@ -192,7 +229,7 @@ pub(super) async fn exercise(
             | "long-explicit-unsupported"
             | "long-context-oversized"
             | "long-context-budget"
-            | "long-edge" => 1,
+            | "long-edge" => 3,
             "long-empty-last"
             | "long-empty-context"
             | "long-missing-crossing"
@@ -215,4 +252,24 @@ pub(super) async fn exercise(
         super::exercise_abort(native, chapter, chapters, case).await?;
     }
     Ok(())
+}
+
+pub(super) fn partial_window_top(case: &str) -> Option<u32> {
+    match case {
+        "long-decline-first"
+        | "long-oversized-crossing"
+        | "long-explicit-unsupported"
+        | "long-context-oversized"
+        | "long-context-budget"
+        | "long-edge" => Some(13_952),
+        "long-decline-last"
+        | "long-empty-context"
+        | "long-preview-budget"
+        | "long-missing-crossing"
+        | "long-duplicate"
+        | "long-late-overlap"
+        | "long-split-crossing"
+        | "long-merged-accepted" => Some(0),
+        _ => None,
+    }
 }

@@ -140,11 +140,7 @@ impl PageRenderer for QtMangaRenderer {
         let output =
             ffi::crop_manga_window(&original.bytes, window.top, window.height, &cancellation);
         check_error(&output.error, &cancellation)?;
-        if output.width != window.width
-            || output.height != window.height
-            || output.png.is_empty()
-            || output.png.len() > codex::MAX_IMAGE_BYTES
-        {
+        if output.width != window.width || output.height != window.height || output.png.is_empty() {
             return Err(CodexError::Image);
         }
         Ok(InputImage::png(output.png))
