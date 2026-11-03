@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.8/qbutt-1.5.8-windows-x64-setup.exe">
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.0/qbutt-1.6.0-windows-x64-setup.exe">
     <img alt="Download qbutt for Windows" src="https://img.shields.io/badge/DOWNLOAD-Windows-009df7?style=for-the-badge">
   </a>
   <a href="https://github.com/qbutt-org/qbutt/releases">
@@ -29,7 +29,7 @@
 
 <p align="center">
   <a href="https://qbutt-org.github.io/qbutt/en/">Website</a> /
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.8/qbutt-1.5.8-windows-x64.zip">Portable</a>
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.0/qbutt-1.6.0-windows-x64.zip">Portable</a>
 </p>
 
 ## Installation
@@ -45,9 +45,9 @@ Videos open in [qplay](https://github.com/qbutt-org/qplay), an independent playe
 
 ### Linux
 
-Linux x64 builds target Ubuntu 24.04 or later with glibc 2.39+. See [Development](#development) for building the bundle from source.
+Linux x64 requires Ubuntu 24.04 or later with glibc 2.39+. Download [qbutt-1.6.0-linux-x64.zip](https://github.com/qbutt-org/qbutt/releases/download/v1.6.0/qbutt-1.6.0-linux-x64.zip) and extract the archive.
 
-Extract the built `qbutt-<version>-linux-x64.zip` and run `./install.sh`. It installs for the current user and installs qplay as an independent app. Open qbutt from the applications menu or run `~/.local/bin/qbutt`.
+Run `./install.sh` in the extracted directory. It installs for the current user and installs qplay as an independent app. Open qbutt from the applications menu or run `~/.local/bin/qbutt`.
 
 Run `./qbutt` without installation to use the normal qbutt profile. For a separate portable profile, use `./qbutt --profile=/absolute/path/to/profile`. Close qbutt before installation, updates, or removal. `./uninstall.sh` from the bundle or installation directory preserves settings, downloads, and the independent qplay installation.
 

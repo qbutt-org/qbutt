@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.8/qbutt-1.5.8-windows-x64-setup.exe">
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.0/qbutt-1.6.0-windows-x64-setup.exe">
     <img alt="Скачать qbutt для Windows" src="https://img.shields.io/badge/%D0%A1%D0%9A%D0%90%D0%A7%D0%90%D0%A2%D0%AC-Windows-009df7?style=for-the-badge">
   </a>
   <a href="https://github.com/qbutt-org/qbutt/releases">
@@ -29,7 +29,7 @@
 
 <p align="center">
   <a href="https://qbutt-org.github.io/qbutt/">Сайт</a> /
-  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.5.8/qbutt-1.5.8-windows-x64.zip">Portable</a>
+  <a href="https://github.com/qbutt-org/qbutt/releases/download/v1.6.0/qbutt-1.6.0-windows-x64.zip">Portable</a>
 </p>
 
 ## Установка
@@ -45,9 +45,9 @@
 
 ### Linux
 
-Linux x64 собирается для Ubuntu 24.04 и новее с glibc 2.39+. Как собрать пакет, описано в разделе [Разработка](#разработка).
+Для Linux x64 нужны Ubuntu 24.04 или новее и glibc 2.39+. Скачайте [qbutt-1.6.0-linux-x64.zip](https://github.com/qbutt-org/qbutt/releases/download/v1.6.0/qbutt-1.6.0-linux-x64.zip) и распакуйте архив.
 
-Распакуйте собранный `qbutt-<версия>-linux-x64.zip` и выполните `./install.sh`. Приложение устанавливается текущему пользователю; qplay устанавливается отдельно вместе с ним. Открывайте qbutt из меню приложений или командой `~/.local/bin/qbutt`.
+В распакованной папке выполните `./install.sh`. Приложение устанавливается текущему пользователю; qplay устанавливается отдельно вместе с ним. Открывайте qbutt из меню приложений или командой `~/.local/bin/qbutt`.
 
 Без установки можно запустить `./qbutt`: он использует обычный профиль qbutt. Для отдельного переносимого профиля укажите `./qbutt --profile=/полный/путь/к/профилю`. Перед установкой, обновлением и удалением закройте qbutt. `./uninstall.sh` из пакета или папки установки сохраняет настройки, загрузки и самостоятельный qplay.
 
