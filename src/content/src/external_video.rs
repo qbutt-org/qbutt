@@ -60,7 +60,7 @@ pub async fn resolve_external_video(
         }
         "Плеер Alloha" => {
             let selection = alloha_selection(&url, episode)?;
-            if source_url.origin().ascii_serialization() != "https://yani.tv"
+            if source_url.origin().ascii_serialization() != crate::yummyanime::ORIGIN
                 || !source_url.path().starts_with("/catalog/item/")
                 || source_url.query().is_some()
                 || source_url.fragment().is_some()
