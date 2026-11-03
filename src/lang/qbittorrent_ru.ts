@@ -5762,6 +5762,10 @@ Minimum requirement: %2.</source>
 <context>
     <name>Media::Player</name>
     <message>
+        <source>The private player connection directory is unavailable.</source>
+        <translation>Защищённая папка подключения к проигрывателю недоступна.</translation>
+    </message>
+    <message>
         <source>Preparing player…</source>
         <translation>Подготовка проигрывателя…</translation>
     </message>

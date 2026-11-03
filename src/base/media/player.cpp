@@ -18,6 +18,7 @@
 #include <QLocale>
 #include <QMimeDatabase>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QUuid>
 
 #include "base/bittorrent/infohash.h"
@@ -326,6 +327,15 @@ void Player::startPrepared(const QString &executable)
         return;
     }
 
+#ifndef Q_OS_WIN
+    const QString runtimePath = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
+    if (runtimePath.isEmpty() || !QDir(runtimePath).exists())
+    {
+        failPreparation(tr("The private player connection directory is unavailable."));
+        return;
+    }
+#endif
+
     m_current = std::exchange(m_pending, {});
     m_position = 0;
     m_duration = 0;
@@ -339,7 +349,7 @@ void Player::startPrepared(const QString &executable)
 #ifdef Q_OS_WIN
     const QString ipcPath = u"\\\\.\\pipe\\"_s + m_pipeName;
 #else
-    const QString ipcPath = QDir::tempPath() + u'/' + m_pipeName;
+    const QString ipcPath = QDir(runtimePath).filePath(m_pipeName);
     m_pipeName = ipcPath;
 #endif
     QStringList arguments {
