@@ -37,7 +37,6 @@ mod royalroad {
             http,
             origin,
             webview: std::sync::OnceLock::new(),
-            clearance: std::sync::Mutex::new(None),
         }
     }
 }

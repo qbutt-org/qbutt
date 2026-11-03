@@ -201,12 +201,15 @@ Command template, verified with the copied script and built helper in the VM:
 bun tests/content-browser/webview-helper.ts <absolute-path-to-qbutt-webview.exe>
 ```
 
-Require exit zero and all eleven `PASS webview_helper` outcomes. Each helper first
+Require exit zero and all fifteen `PASS webview_helper` outcomes, or thirteen with
+`--silent-only` when visible windows are unavailable. Each helper first
 authenticates its fresh proxy through one private bootstrap page, then opens the
 source. The repeated normal page keeps the same profile across helper restarts.
 Delayed HTTP 403 checks recover in both silent and interactive modes; a persistent
 refusal waits for the bounded deadline instead of closing the interactive window.
-This checks classification and cleanup; it does not establish live source clearance.
+Document capture also checks UTF-8 content, recovery, the 2 MiB bound and cancellation;
+ordinary session checks return no document. This checks classification and cleanup;
+it does not establish live source clearance.
 
 The HTTPS proxy fixture verifies CONNECT after that bootstrap and preserves an
 authored cookie across two helper processes with fresh proxy ports/passwords:

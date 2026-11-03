@@ -24,6 +24,8 @@ use crate::http::validate_media_url;
 
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
 const MAX_RESPONSE_BYTES: u64 = 256 * 1024;
+const MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_DOCUMENT_RESPONSE_BYTES: u64 = MAX_RESPONSE_BYTES + 6 * MAX_DOCUMENT_BYTES as u64;
 const SILENT_TIMEOUT_MS: u32 = 15_000;
 const INTERACTIVE_TIMEOUT_MS: u32 = 120_000;
 
@@ -70,6 +72,9 @@ pub struct WebViewCookieIdentity {
 
 #[derive(Default)]
 pub struct WebViewCheck {
+    /// Return the checked page from the same browser request when its cookies
+    /// alone cannot authorize another HTTP client.
+    pub include_document: bool,
     /// The configured authorization identity. Never replace this with a hash
     /// of refreshed clearance cookies or a profile reset would erase them.
     pub configured_session: Option<String>,
@@ -81,11 +86,18 @@ pub struct WebViewCheck {
 }
 
 #[derive(Clone, Deserialize)]
+pub struct WebViewDocument {
+    pub status: u16,
+    pub body: String,
+}
+
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebViewSession {
     pub url: Url,
     pub user_agent: String,
     pub cookies: Vec<WebViewCookie>,
+    pub document: Option<WebViewDocument>,
 }
 
 struct Pending {
@@ -170,6 +182,7 @@ impl WebViewSessions {
                 options.authoritative_cookies,
                 &retained,
                 options.interactive,
+                options.include_document.then_some(&url),
             ))
             .unwrap(),
         );
@@ -299,6 +312,7 @@ struct HelperRequest<'a> {
     profile_directory: String,
     mode: &'static str,
     timeout_ms: u32,
+    include_document: bool,
     configured_session: &'a str,
     initial_cookies: &'a [WebViewCookie],
     authoritative_cookies: bool,
@@ -372,6 +386,7 @@ async fn run_with_proxy(
             "silent"
         },
         timeout_ms,
+        include_document: options.include_document,
         configured_session: fingerprint,
         initial_cookies: &options.initial_cookies,
         authoritative_cookies: options.authoritative_cookies,
@@ -389,6 +404,11 @@ async fn run_with_proxy(
         return Err(WebViewError::InvalidRequest);
     }
     input.push(b'\n');
+    let max_response_bytes = if options.include_document {
+        MAX_DOCUMENT_RESPONSE_BYTES
+    } else {
+        MAX_RESPONSE_BYTES
+    };
     let helper = if cfg!(windows) {
         "qbutt-webview.exe"
     } else {
@@ -415,11 +435,11 @@ async fn run_with_proxy(
             .map_err(|_| WebViewError::Failed)?;
         let mut output = Vec::new();
         stdout
-            .take(MAX_RESPONSE_BYTES + 1)
+            .take(max_response_bytes + 1)
             .read_to_end(&mut output)
             .await
             .map_err(|_| WebViewError::Failed)?;
-        if output.len() as u64 > MAX_RESPONSE_BYTES {
+        if output.len() as u64 > max_response_bytes {
             return Err(WebViewError::Failed);
         }
         let status = child.wait().await.map_err(|_| WebViewError::Failed)?;
@@ -442,6 +462,13 @@ async fn run_with_proxy(
         }
         let session = response.session.ok_or(WebViewError::Failed)?;
         validate_session(&url, &session)?;
+        if options.include_document
+            && !session.document.as_ref().is_some_and(|document| {
+                (200..300).contains(&document.status) && document.body.len() <= MAX_DOCUMENT_BYTES
+            })
+        {
+            return Err(WebViewError::Failed);
+        }
         Ok(session)
     };
     tokio::time::timeout(

@@ -10,6 +10,9 @@
 
 namespace SourceCheck
 {
+    inline constexpr qsizetype maxSessionResponseBytes = 256 * 1024;
+    inline constexpr qsizetype maxDocumentBytes = 2 * 1024 * 1024;
+    inline constexpr qsizetype maxDocumentResponseBytes = maxSessionResponseBytes + 6 * maxDocumentBytes;
     inline const QUrl proxyCheckUrl {QStringLiteral("http://qbutt-webview.invalid/")};
     inline constexpr char documentState[] = R"JS((() => {
         const has = selector => document.querySelector(selector) !== null;
@@ -27,6 +30,13 @@ namespace SourceCheck
             challenge: anubis || cloudflare || ddg || captcha || login};
     })())JS";
 
+    inline constexpr char documentSnapshot[] = R"JS((() => {
+        const body = document.documentElement.outerHTML;
+        if (new TextEncoder().encode(body).length > %1)
+            return {tooLarge: true};
+        return {url: location.href, body};
+    })())JS";
+
 
     struct Request
     {
@@ -42,6 +52,7 @@ namespace SourceCheck
         int timeoutMs = 0;
         bool authoritativeCookies = false;
         bool interactive = false;
+        bool includeDocument = false;
     };
 
     bool publicUrl(const QUrl &url);

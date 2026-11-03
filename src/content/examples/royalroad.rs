@@ -26,21 +26,21 @@ async fn exercise(
     query: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let search = source.search(query.unwrap_or("Mother of Learning")).await?;
-    if query.is_some() {
-        println!(
-            "PASS Royal Road live exact search: results={}",
-            search.len()
-        );
-        return Ok(());
-    }
     let reference = PublicationRef {
         source: Source::RoyalRoad,
         id: "21220".into(),
     };
-    let listed = search
-        .iter()
-        .find(|work| work.reference == reference)
-        .ok_or("known fiction missing from search")?;
+    let known_fiction = search.iter().find(|work| work.reference == reference);
+    if query.is_some() {
+        println!(
+            "Royal Road live exact search: results={} known_fiction_21220={} known_title_matches={}",
+            search.len(),
+            known_fiction.is_some(),
+            known_fiction.is_some_and(|work| work.title == "Mother of Learning"),
+        );
+        return Ok(());
+    }
+    let listed = known_fiction.ok_or("known fiction missing from search")?;
     assert!(listed.needs_inspection);
     let work = source.inspect(&reference).await?;
     assert!(!work.needs_inspection);

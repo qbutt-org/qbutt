@@ -24,6 +24,7 @@ pub(super) fn helper() -> CheckResult {
     let root = profile.parent().unwrap().parent().unwrap();
     let mode = request["mode"].as_str().unwrap();
     assert!(matches!(mode, "silent" | "interactive"));
+    assert_eq!(request["includeDocument"], true);
     assert_eq!(
         request["timeoutMs"],
         if mode == "silent" { 15_000 } else { 120_000 }
@@ -43,8 +44,12 @@ pub(super) fn helper() -> CheckResult {
         "{}",
         json!({"mode":mode,"url":url,"profile":profile,"configured":request["configuredSession"]})
     )?;
+    if query == "manual-check" && mode == "interactive" {
+        std::fs::write(root.join("manual-complete"), [])?;
+    }
     let error = match query.as_str() {
-        "manual-check" if mode == "silent" => Some("browser_check_required"),
+        "persistent-challenge" => Some("browser_check_required"),
+        "manual-check" if !root.join("manual-complete").exists() => Some("browser_check_required"),
         "check-timeout" => Some("webview_timeout"),
         "check-fault" => Some("webview_failed"),
         _ => None,
@@ -55,20 +60,17 @@ pub(super) fn helper() -> CheckResult {
         let returned = if query == "foreign-session" {
             Url::parse("https://ads.example/")?
         } else {
-            url
+            url.clone()
         };
-        let expires = (query == "clearance-expiry").then(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64()
-                + 0.5
-        });
+        let body = match url.path() {
+            "/fiction/42" => super::fixture::book(&url, Fault::None),
+            "/fiction/42/generated/chapter/22/second" => super::fixture::chapter(&url, Fault::None),
+            "/fictions/search" => super::fixture::search(&query),
+            _ => return Err("unexpected document URL".into()),
+        };
         json!({"id":request["id"],"session":{
-            "url":returned,"userAgent":"fixture-webview","cookies":[{
-                "name":"clearance","value":"fixture-pass","domain":"fixture.example",
-                "path":"/","secure":true,"httpOnly":true,"hostOnly":true,"expires":expires
-            }]
+            "url":returned,"userAgent":"fixture-webview","cookies":[],
+            "document":{"status":200,"body":body}
         }})
     };
     println!("{response}");
@@ -95,15 +97,23 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
             .map(serde_json::from_str)
             .collect::<std::result::Result<_, _>>()?)
     };
-    for query in ["clearance", "clearance-success-status", "Acon Acoustica 8"] {
+    for query in [
+        "browser-document",
+        "browser-document-success-status",
+        "Acon Acoustica 8",
+    ] {
         let source = new_source();
         let before = fixture.hits.load(Ordering::SeqCst);
         let expected = usize::from(query != "Acon Acoustica 8");
         assert_eq!(source.search(query).await?.len(), expected);
-        assert_eq!(fixture.hits.load(Ordering::SeqCst) - before, 2);
+        assert_eq!(fixture.hits.load(Ordering::SeqCst) - before, 1);
         let count = checks()?.len();
         assert_eq!(source.search(query).await?.len(), expected);
-        assert_eq!(checks()?.len(), count, "reuse clearance and matching UA");
+        assert_eq!(
+            checks()?.len(),
+            count + 1,
+            "retrieve the exact current document"
+        );
         source.close();
     }
     for query in [
@@ -154,22 +164,10 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
             assert_eq!(silent["profile"], manual["profile"]);
             assert_eq!(silent["configured"], manual["configured"]);
             assert_eq!(source.search(query).await?.len(), 1);
-            assert_eq!(checks()?.len(), records.len());
+            assert_eq!(checks()?.len(), records.len() + 1);
         }
         source.close();
     }
-
-    let source = new_source();
-    source.search("clearance-expiry").await?;
-    let count = checks()?.len();
-    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-    source.search("clearance-expiry").await?;
-    assert_eq!(
-        checks()?.len(),
-        count + 1,
-        "expired clearance must be refreshed"
-    );
-    source.close();
 
     *fixture.fault.lock().unwrap() = Fault::Challenge;
     let source = new_source();
@@ -182,21 +180,38 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
     let chapters = source.chapters(&work.variants[0].reference).await?;
     let selected = &chapters[1].reference;
     assert_eq!(source.chapter_text(selected).await?.reference, *selected);
-    assert_eq!(checks()?.len(), count, "reader reuses the source clearance");
+    let records = checks()?;
+    assert_eq!(
+        records.len(),
+        count + 3,
+        "reader checks exact book and chapter documents"
+    );
+    assert_eq!(
+        records.last().unwrap()["url"],
+        fixture
+            .origin
+            .join("/fiction/42/generated/chapter/22/second")?
+            .as_str()
+    );
     source.close();
     assert!(matches!(
         source.inspect(&publication).await,
         Err(Error::SourceCheck(webview::WebViewError::Stopped))
     ));
-    assert_eq!(checks()?.len(), count, "close retires the helper owner");
+    assert_eq!(
+        checks()?.len(),
+        records.len(),
+        "close retires the helper owner"
+    );
     *fixture.fault.lock().unwrap() = Fault::None;
 
     std::fs::remove_file(app.join("qbutt-webview.exe"))?;
     std::fs::remove_file(root.join("checks.jsonl"))?;
+    std::fs::remove_file(root.join("manual-complete"))?;
     std::fs::remove_dir(app)?;
     std::fs::remove_dir(root)?;
     println!(
-        "PASS Royal Road owned check: silent recovery, exact replay, cookie/UA reuse, persistent challenge, explicit same-profile retry, typed timeout/fault, foreign session rejection, plain denial, reader reuse, close"
+        "PASS Royal Road owned document check: silent recovery, exact search/book/nonfirst chapter, persistent challenge, explicit same-profile retry, typed timeout/fault, foreign session rejection, plain denial, close"
     );
     Ok(())
 }

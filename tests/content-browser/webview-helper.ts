@@ -8,6 +8,7 @@ import { dirname, isAbsolute, join } from "node:path";
 // it never forwards requests. Interactive cases may show a fixture window.
 const executable = process.argv[2];
 assert(executable && isAbsolute(executable), "Pass the absolute qbutt-webview.exe path");
+const silentOnly = process.argv.includes("--silent-only");
 const directory = await mkdtemp(join(tmpdir(), "qbutt-webview-html-"));
 const origin = "http://fixture.example";
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -32,11 +33,30 @@ const scenarios = [
         arrived: `${origin}/accepted`,
     },
     { id: "unavailable", status: 503, body: "Temporarily unavailable", error: "webview_failed" },
+    {
+        id: "document", status: 200, includeDocument: true,
+        body: '<main>Generated legal catalog Пример</main>', documentContains: "catalog Пример",
+    },
+    {
+        id: "document-recovery", status: 403, includeDocument: true,
+        body: '<p>Generated delayed access check</p><script>setTimeout(() => location.replace("/accepted"), 1800)</script>',
+        arrived: `${origin}/accepted`, documentContains: "<main>Ready</main>",
+    },
+    {
+        id: "document-too-large", status: 200, includeDocument: true,
+        body: `<main>${"Я".repeat(1024 * 1024)}</main>`, error: "webview_failed", timeoutMs: 9_000,
+    },
+    {
+        id: "document-cancel", status: 200, includeDocument: true,
+        body: '<form id="challenge-form"></form>', cancelAfterMs: 600, error: "canceled",
+    },
 ];
 let scripts = 0;
 let failure: unknown;
 try {
     for (const scenario of scenarios) {
+        if (silentOnly && scenario.mode === "interactive")
+            continue;
         const password = randomBytes(32).toString("hex");
         const authorization = `Basic ${Buffer.from(`qbutt:${password}`).toString("base64")}`;
         let challenges = 0;
@@ -81,7 +101,8 @@ try {
             url,
             profileDirectory: join(directory, "web-session", digest(origin)),
             mode: scenario.mode ?? "silent",
-            timeoutMs: 5_000,
+            timeoutMs: scenario.timeoutMs ?? 5_000,
+            includeDocument: scenario.includeDocument ?? false,
             configuredSession: digest("[]"),
             initialCookies: [],
             authoritativeCookies: false,
@@ -90,13 +111,21 @@ try {
         const child = Bun.spawn([executable, "--stdio"], {
             stdin: "pipe", stdout: "pipe", stderr: "ignore", windowsHide: true,
         });
-        const deadline = setTimeout(() => child.kill(), 8_000);
+        const deadline = setTimeout(() => child.kill(), request.timeoutMs + 3_000);
+        let cancellation: ReturnType<typeof setTimeout> | undefined;
         try {
             const started = performance.now();
             child.stdin.write(`${JSON.stringify(request)}\n`);
             await child.stdin.flush();
+            if (scenario.cancelAfterMs) {
+                cancellation = setTimeout(() => {
+                    child.stdin.write(`${JSON.stringify({ method: "cancel", id: scenario.id })}\n`);
+                    void child.stdin.flush();
+                }, scenario.cancelAfterMs);
+            }
             const output = await new Response(child.stdout).text();
-            assert(Buffer.byteLength(output) <= 256 * 1024, "Bounded helper response");
+            const maximum = scenario.includeDocument ? 256 * 1024 + 6 * 2 * 1024 * 1024 : 256 * 1024;
+            assert(Buffer.byteLength(output) <= maximum, "Bounded helper response");
             assert.equal(await child.exited, 0, `Helper exit for ${scenario.id}`);
             const response = JSON.parse(output);
             assert.equal(response.id, scenario.id);
@@ -114,11 +143,21 @@ try {
                 assert.equal(response.session?.url, scenario.arrived ?? url);
                 assert(response.session.userAgent.length > 0);
                 assert(Array.isArray(response.session.cookies));
+                if (scenario.includeDocument) {
+                    assert.equal(response.session.document?.status, 200);
+                    assert(Buffer.byteLength(response.session.document.body) <= 2 * 1024 * 1024);
+                    assert(typeof scenario.documentContains === "string");
+                    assert(response.session.document.body.includes(scenario.documentContains));
+                }
+                else {
+                    assert.equal(response.session.document, undefined);
+                }
             }
             console.log(`PASS webview_helper ${scenario.id}=${scenario.error ?? "session"}`);
         }
         finally {
             clearTimeout(deadline);
+            clearTimeout(cancellation);
             if (child.exitCode === null)
                 child.kill();
             await child.exited;

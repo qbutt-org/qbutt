@@ -33,6 +33,7 @@ private:
     void navigateSource();
     void pollDocument();
     void collectSession(const QUrl &url);
+    void collectDocument(QJsonObject session);
     void finish(const QJsonObject &result);
     void fail(const QString &code);
     void close();
@@ -56,6 +57,7 @@ private:
     bool m_polling = false;
     bool m_sawChallenge = false;
     bool m_interactive = false;
+    bool m_includeDocument = false;
     bool m_proxyAuthenticated = false;
     int m_cleanPolls = 0;
     int m_httpStatus = 0;

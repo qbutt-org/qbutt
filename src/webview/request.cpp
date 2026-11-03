@@ -18,6 +18,7 @@ std::optional<Request> SourceCheck::parseRequest(const QJsonObject &request)
     result.url = QUrl {request.value("url").toString(), QUrl::StrictMode};
     const QString mode = request.value("mode").toString();
     result.interactive = (mode == "interactive");
+    result.includeDocument = request.value("includeDocument").toBool();
     const QString profile = QDir::cleanPath(request.value("profileDirectory").toString());
     const QJsonObject proxy = request.value("proxy").toObject();
     result.proxy = QUrl {proxy.value("url").toString(), QUrl::StrictMode};
@@ -32,6 +33,7 @@ std::optional<Request> SourceCheck::parseRequest(const QJsonObject &request)
     const QJsonArray retainedCookies = request.value("retainedCookies").toArray();
     if (result.id.isEmpty() || result.id.size() > 128 || !publicUrl(result.url)
         || (mode != "silent" && mode != "interactive")
+        || (request.contains("includeDocument") && !request.value("includeDocument").isBool())
         || timeout < 1000 || timeout > (result.interactive ? 180000 : 30000)
         || !profileInfo.isAbsolute() || profile.startsWith("//")
         || !profileName.match(profileInfo.fileName()).hasMatch()

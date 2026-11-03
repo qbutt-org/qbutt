@@ -29,7 +29,6 @@ using namespace SourceCheck;
 
 namespace
 {
-    constexpr qsizetype maxResponseBytes = 256 * 1024 - 1; // reserve the JSON-lines newline
     constexpr wchar_t windowClass[] = L"qbuttWebSession";
 
     QString consumeString(LPWSTR value)
@@ -84,6 +83,7 @@ void WebSession::start(const QJsonObject &request)
     m_id = parsed->id;
     m_url = parsed->url;
     m_interactive = parsed->interactive;
+    m_includeDocument = parsed->includeDocument;
     m_proxy = parsed->proxy;
     m_proxyUsername = parsed->proxyUsername;
     m_proxyPassword = parsed->proxyPassword;
@@ -698,7 +698,54 @@ void WebSession::collectSession(const QUrl &url)
             cookies.append(entry);
         }
         const QJsonObject session {{"url", url.toString(QUrl::FullyEncoded)}, {"userAgent", m_userAgent}, {"cookies", cookies}};
+        collectDocument(session);
+        return S_OK;
+    }).Get());
+    if (FAILED(result))
+        fail(QStringLiteral("webview_failed"));
+}
+
+void WebSession::collectDocument(QJsonObject session)
+{
+    if (!m_includeDocument)
+    {
         finish({{"session", session}});
+        return;
+    }
+    if (m_httpStatus < 200 || m_httpStatus >= 300)
+    {
+        fail(QStringLiteral("webview_failed"));
+        return;
+    }
+    const quint64 generation = m_navigationGeneration;
+    const QString script = QString::fromUtf8(documentSnapshot).arg(maxDocumentBytes);
+    const HRESULT result = m_view->ExecuteScript(reinterpret_cast<LPCWSTR>(script.utf16()),
+        Callback<ICoreWebView2ExecuteScriptCompletedHandler>([this, session, generation](const HRESULT status, LPCWSTR json) -> HRESULT
+    {
+        if (m_finished)
+            return S_OK;
+        if (generation != m_navigationGeneration)
+        {
+            m_poll.start();
+            return S_OK;
+        }
+        const QByteArray data = json ? QString::fromWCharArray(json).toUtf8() : QByteArray {};
+        if (FAILED(status) || data.size() >= maxDocumentResponseBytes)
+        {
+            fail(QStringLiteral("webview_failed"));
+            return S_OK;
+        }
+        const QJsonObject document = QJsonDocument::fromJson(data).object();
+        const QJsonValue body = document.value("body");
+        if (document.value("url") != session.value("url") || !body.isString()
+            || body.toString().toUtf8().size() > maxDocumentBytes)
+        {
+            fail(QStringLiteral("webview_failed"));
+            return S_OK;
+        }
+        QJsonObject completed = session;
+        completed.insert("document", QJsonObject {{"status", m_httpStatus}, {"body", body}});
+        finish({{"session", completed}});
         return S_OK;
     }).Get());
     if (FAILED(result))
@@ -727,7 +774,8 @@ void WebSession::finish(const QJsonObject &result)
         close();
         QJsonObject response = result;
         response.insert("id", m_id);
-        if (QJsonDocument {response}.toJson(QJsonDocument::Compact).size() > maxResponseBytes)
+        const qsizetype maximum = m_includeDocument ? maxDocumentResponseBytes : maxSessionResponseBytes;
+        if (QJsonDocument {response}.toJson(QJsonDocument::Compact).size() >= maximum)
             response = {{"id", m_id}, {"error", QJsonObject {{"code", "webview_failed"}, {"url", m_url.toString(QUrl::FullyEncoded)}}}};
         m_completed(response);
     });

@@ -29,6 +29,7 @@ private:
     void navigateSource();
     void pollDocument();
     void collectSession(const QUrl &url);
+    void collectDocument(QJsonObject session);
     void finish(const QJsonObject &result);
     void fail(const QString &code);
 

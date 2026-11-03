@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use url::Url;
 
@@ -20,7 +20,6 @@ pub struct RoyalRoad {
     http: SourceHttp,
     origin: Url,
     webview: OnceLock<WebViewSessions>,
-    clearance: Mutex<Option<SourceSession>>,
 }
 
 impl RoyalRoad {
@@ -30,7 +29,6 @@ impl RoyalRoad {
             http: SourceHttp::new(origin.clone(), reqwest::header::HeaderMap::new())?,
             origin,
             webview: OnceLock::new(),
-            clearance: Mutex::new(None),
         })
     }
 
@@ -39,10 +37,6 @@ impl RoyalRoad {
     }
 
     pub fn close(&self) {
-        self.clearance
-            .lock()
-            .expect("Royal Road clearance lock")
-            .take();
         if let Some(webview) = self.webview.get() {
             webview.close();
         }
@@ -63,7 +57,7 @@ impl RoyalRoad {
             }
             _ => return Err(Error::InvalidReference),
         };
-        self.checked_session(url, true).await?;
+        self.checked_document(url, true).await?;
         Ok(())
     }
 
@@ -133,38 +127,16 @@ impl RoyalRoad {
     }
 
     async fn page(&self, url: Url) -> Result<String> {
-        let mut session = {
-            let mut clearance = self.clearance.lock().expect("Royal Road clearance lock");
-            if clearance
-                .as_ref()
-                .is_some_and(SourceSession::has_expired_cookie)
-            {
-                clearance.take();
-            }
-            match clearance.as_ref() {
-                Some(cached) => cached.clone(),
-                None => SourceSession::anonymous(self.origin.clone())?,
-            }
-        };
+        let mut session = SourceSession::anonymous(self.origin.clone())?;
         let response = self
             .http
             .session_document(url.clone(), &mut session)
             .await?;
         match html_response(response, &url) {
             Err(Error::Challenge) => {
-                session = self.checked_session(url.clone(), false).await?;
-                let response = self
-                    .http
-                    .session_document(url.clone(), &mut session)
-                    .await?;
-                match html_response(response, &url) {
-                    Err(Error::Challenge) => {
-                        self.clearance
-                            .lock()
-                            .expect("Royal Road clearance lock")
-                            .take();
-                        Err(Error::SourceCheckRequired)
-                    }
+                let document = self.checked_document(url.clone(), false).await?;
+                match html_response(document, &url) {
+                    Err(Error::Challenge) => Err(Error::SourceCheckRequired),
                     result => result,
                 }
             }
@@ -172,20 +144,17 @@ impl RoyalRoad {
         }
     }
 
-    async fn checked_session(&self, url: Url, interactive: bool) -> Result<SourceSession> {
-        self.clearance
-            .lock()
-            .expect("Royal Road clearance lock")
-            .take();
+    async fn checked_document(&self, url: Url, interactive: bool) -> Result<SourceDocument> {
         let webview = self
             .webview
             .get()
             .ok_or(Error::SourceCheck(WebViewError::Unavailable))?;
-        let checked = webview
+        let mut checked = webview
             .check(
                 url,
                 WebViewCheck {
                     interactive,
+                    include_document: true,
                     ..WebViewCheck::default()
                 },
             )
@@ -195,9 +164,19 @@ impl RoyalRoad {
                 WebViewError::Canceled if interactive => Error::SourceCheckRequired,
                 error => Error::SourceCheck(error),
             })?;
-        let session = SourceSession::from_webview(self.origin.clone(), checked)?;
-        *self.clearance.lock().expect("Royal Road clearance lock") = Some(session.clone());
-        Ok(session)
+        if checked.url.origin() != self.origin.origin() {
+            return Err(Error::UnsafeAddress);
+        }
+        let document = checked
+            .document
+            .take()
+            .ok_or(Error::SourceCheck(WebViewError::Failed))?;
+        Ok(SourceDocument {
+            status: document.status,
+            content_type: Some("text/html; charset=utf-8".into()),
+            final_url: checked.url,
+            body: document.body.into_bytes(),
+        })
     }
 }
 

@@ -427,8 +427,45 @@ void WebSession::collectSession(const QUrl &url)
             fail(QStringLiteral("webview_failed"));
             return;
         }
-        finish({{"session", QJsonObject {{"url", url.toString(QUrl::FullyEncoded)},
-            {"userAgent", m_profile->httpUserAgent()}, {"cookies", *cookies}}}});
+        collectDocument(QJsonObject {{"url", url.toString(QUrl::FullyEncoded)},
+            {"userAgent", m_profile->httpUserAgent()}, {"cookies", *cookies}});
+    });
+}
+
+void WebSession::collectDocument(QJsonObject session)
+{
+    if (!m_request.includeDocument)
+    {
+        finish({{"session", session}});
+        return;
+    }
+    if (m_httpStatus < 200 || m_httpStatus >= 300)
+    {
+        fail(QStringLiteral("webview_failed"));
+        return;
+    }
+    const quint64 generation = m_generation;
+    m_view->page()->runJavaScript(QString::fromUtf8(documentSnapshot).arg(maxDocumentBytes),
+        [this, session, generation](const QVariant &value)
+    {
+        if (m_finished)
+            return;
+        if (generation != m_generation)
+        {
+            m_poll.start();
+            return;
+        }
+        const QJsonObject document = QJsonObject::fromVariantMap(value.toMap());
+        const QJsonValue body = document.value("body");
+        if (document.value("url") != session.value("url") || !body.isString()
+            || body.toString().toUtf8().size() > maxDocumentBytes)
+        {
+            fail(QStringLiteral("webview_failed"));
+            return;
+        }
+        QJsonObject completed = session;
+        completed.insert("document", QJsonObject {{"status", m_httpStatus}, {"body", body}});
+        finish({{"session", completed}});
     });
 }
 
@@ -456,7 +493,8 @@ void WebSession::finish(const QJsonObject &result)
         m_profile.reset();
         QJsonObject response = result;
         response.insert("id", m_request.id);
-        if (QJsonDocument(response).toJson(QJsonDocument::Compact).size() >= 256 * 1024)
+        const qsizetype maximum = m_request.includeDocument ? maxDocumentResponseBytes : maxSessionResponseBytes;
+        if (QJsonDocument(response).toJson(QJsonDocument::Compact).size() >= maximum)
             response = {{"id", m_request.id}, {"error", QJsonObject {{"code", "webview_failed"},
                 {"url", m_request.url.toString(QUrl::FullyEncoded)}}}};
         m_completed(response);
