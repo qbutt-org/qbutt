@@ -111,7 +111,7 @@ void Content::BrowserCapture::cancel()
     }
     m_pending = false;
     m_action = Action::None;
-    m_page = {};
+    m_page = QUrl {};
     m_title.clear();
     m_captureId.clear();
     emit preparationChanged({});
