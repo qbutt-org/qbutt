@@ -4693,14 +4693,18 @@ QJsonObject SessionImpl::peerRouteDiagnostics() const
             {u"connected"_s, static_cast<qint64>(route.connected)},
             {u"closed"_s, static_cast<qint64>(route.closed)},
             {u"connectionFailures"_s, static_cast<qint64>(route.connectionFailures)},
-            {u"timeouts"_s, static_cast<qint64>(route.timeouts)}, {u"payloadDownload"_s, route.payloadDownload},
-            {u"payloadUpload"_s, route.payloadUpload}, {u"verifiedDownload"_s, route.verifiedDownload},
-            {u"demandMilliseconds"_s, route.demandMilliseconds}, {u"chokedMilliseconds"_s, route.chokedMilliseconds}});
+            {u"timeouts"_s, static_cast<qint64>(route.timeouts)},
+            {u"payloadDownload"_s, static_cast<qint64>(route.payloadDownload)},
+            {u"payloadUpload"_s, static_cast<qint64>(route.payloadUpload)},
+            {u"verifiedDownload"_s, static_cast<qint64>(route.verifiedDownload)},
+            {u"demandMilliseconds"_s, static_cast<qint64>(route.demandMilliseconds)},
+            {u"chokedMilliseconds"_s, static_cast<qint64>(route.chokedMilliseconds)}});
     }
     QJsonArray events;
     for (const auto &event : diagnostics.events)
     {
-        QJsonObject entry {{u"ageMilliseconds"_s, event.ageMilliseconds}, {u"pathId"_s, QString::number(event.pathId)},
+        QJsonObject entry {{u"ageMilliseconds"_s, static_cast<qint64>(event.ageMilliseconds)},
+            {u"pathId"_s, QString::number(event.pathId)},
             {u"generation"_s, static_cast<qint64>(event.generation)}, {u"event"_s, u"selected"_s},
             {u"decision"_s, decisionName(event.decision)}};
         events.append(entry);
