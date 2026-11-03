@@ -53,8 +53,11 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QNetworkAccessManager>
 #include <QNetworkInterface>
 #include <QNetworkProxy>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -87,6 +90,7 @@
 #include <QToolButton>
 #include <QTreeWidget>
 #include <QUrl>
+#include <QUrlQuery>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -842,6 +846,163 @@ namespace
         dialog.reject();
     }
 
+    void exerciseReadOnlyRepair(MainWindow *window, BitTorrent::Torrent *torrent
+        , const QJsonObject &spec, QJsonObject &evidence)
+    {
+        require((UIThemeManager::instance()->colorScheme() == ColorScheme::Light)
+            && !Preferences::instance()->useCustomUITheme(), u"Functional repair fixture did not load its Light appearance"_s);
+        require(!Preferences::instance()->isAutoRemoveCompletedTorrentsEnabled()
+            , u"Repair ownership fixture requires completed torrents to remain in the list"_s);
+        const BitTorrent::TorrentID torrentId = torrent->id();
+        const QString destination = spec.value(u"destination"_s).toString();
+        const auto before = snapshot(destination);
+        const qint64 expectedVerified = spec.value(u"expectedVerifiedBytes"_s).toInteger();
+        require(expectedVerified > 0, u"Read-only repair fixture has no expected verified bytes"_s);
+
+        {
+            RepairDialog cancellation {window, torrent};
+            cancellation.show();
+            QCoreApplication::processEvents();
+            auto *analyze = requiredChild<QPushButton>(&cancellation, u"repairAnalyze"_s);
+            waitFor(u"Read-only scan can start"_s, [=] { return analyze->isEnabled(); });
+            analyze->click();
+            require(!analyze->isEnabled(), u"Read-only scan did not acquire torrent ownership"_s);
+            cancellation.reject();
+        }
+        require(snapshot(destination) == before, u"Cancelling read-only scan changed payload"_s);
+        torrent->start();
+        waitFor(u"Ordinary Start after cancelling analysis"_s, [=]
+        {
+            BitTorrent::Torrent *const current = BitTorrent::Session::instance()->getTorrent(torrentId);
+            require(current == torrent, u"The repaired torrent disappeared during ordinary Start"_s);
+            return !current->isStopped() && !current->isChecking() && current->isFinished();
+        }, 30000);
+        require(BitTorrent::Session::instance()->getTorrent(torrentId) == torrent
+            , u"Native verification removed the retained torrent"_s);
+        torrent->stop();
+        waitFor(u"Stopped after ordinary Start"_s, [=] { return torrent->isStopped(); });
+        require(snapshot(destination) == before, u"Ordinary checking after cancellation changed complete payload"_s);
+        addCheck(evidence, {{u"name"_s, u"repair-readonly-cancel"_s}, {u"ownershipReleased"_s, true}, {u"ordinaryStart"_s, true}});
+
+        {
+            RepairDialog repair {window, torrent};
+            repair.show();
+            QCoreApplication::processEvents();
+            auto *mode = requiredChild<QComboBox>(&repair, u"repairMode"_s);
+            auto *roots = requiredChild<QPlainTextEdit>(&repair, u"repairSourceRoots"_s);
+            auto *consent = requiredChild<QCheckBox>(&repair, u"repairConsent"_s);
+            require((repair.windowTitle() == RepairDialog::tr("Scan files")) && (mode->currentIndex() == 1)
+                && !mode->isEnabled() && !mode->isVisible() && !roots->isVisible(), u"Read-only dialog exposes an unavailable repair method"_s);
+            requiredChild<QToolButton>(&repair, u"repairDetails"_s)->click();
+            require(!mode->isVisible() && !roots->isVisible(), u"Expanding files exposed unavailable staging options"_s);
+            auto *files = requiredChild<QTreeWidget>(&repair, u"repairFiles"_s);
+            require(files->isVisible(), u"Read-only file inspection is unavailable"_s);
+            for (const QString &name : {u"repairPrepare"_s, u"repairCommit"_s, u"repairRollback"_s})
+                require(!requiredChild<QPushButton>(&repair, name)->isVisible(), u"Read-only dialog exposes mutation action "_s + name);
+            require(!consent->isVisible() && !consent->isEnabled(), u"Read-only dialog requests mutation consent"_s);
+
+            auto *service = repair.findChild<BitTorrent::RepairService *>();
+            require(service, u"Read-only dialog has no service owner"_s);
+            std::optional<BitTorrent::RepairAnalysis> analysis;
+            QString failure;
+            QObject::connect(service, &BitTorrent::RepairService::analyzed, &repair
+                , [&](const BitTorrent::RepairAnalysis &result) { analysis = result; });
+            QObject::connect(service, &BitTorrent::RepairService::failed, &repair
+                , [&](const QString &error) { failure = error; });
+            auto *analyze = requiredChild<QPushButton>(&repair, u"repairAnalyze"_s);
+            waitFor(u"Read-only dialog is ready to scan"_s, [=] { return analyze->isEnabled(); });
+            analyze->click();
+            waitFor(u"Descriptor-backed dialog analysis"_s, [&] { return analysis.has_value() || !failure.isEmpty(); }, 30000);
+            require(failure.isEmpty(), failure);
+            require(analysis && analysis->error.isEmpty() && (analysis->verifiedBytes == expectedVerified)
+                && (analysis->expectedBytes == expectedVerified), u"Dialog analysis did not verify exact fixture bytes"_s);
+            require(std::any_of(analysis->files.cbegin(), analysis->files.cend()
+                , [](const BitTorrent::RepairFileAnalysis &file) { return file.actualSize > file.expectedSize; })
+                , u"Read-only analysis omitted the generated oversized tail"_s);
+            require(files->topLevelItemCount() == torrent->filesCount(), u"Analysis omitted native file rows"_s);
+            qint64 renderedVerified = 0;
+            for (int row = 0; row < files->topLevelItemCount(); ++row)
+            {
+                bool numeric = false;
+                renderedVerified += repair.locale().toLongLong(files->topLevelItem(row)->text(3), &numeric);
+                require(numeric, u"Verified-byte table cell is not numeric"_s);
+            }
+            require(renderedVerified == expectedVerified, u"Native table properties disagree with verified bytes"_s);
+            for (const QString &name : {u"repairPrepare"_s, u"repairCommit"_s, u"repairRollback"_s})
+                require(!requiredChild<QPushButton>(&repair, name)->isVisible(), u"Analysis enabled an unavailable mutation action"_s);
+            require(!consent->isVisible() && !consent->isEnabled(), u"Analysis enabled unavailable consent"_s);
+            require(snapshot(destination) == before, u"Descriptor-backed dialog scan changed payload"_s);
+            require(repair.grab().save(QDir(spec.value(u"screenshots"_s).toString()).filePath(u"repair-readonly.png"_s))
+                , u"Cannot render read-only analysis"_s);
+            addCheck(evidence, {{u"name"_s, u"repair-readonly-dialog"_s}, {u"verifiedBytes"_s, analysis->verifiedBytes}
+                , {u"files"_s, files->topLevelItemCount()}, {u"mutationControlsHidden"_s, true}, {u"payloadPreserved"_s, true}});
+            repair.reject();
+        }
+
+        const QString origin = spec.value(u"apiOrigin"_s).toString();
+        require(origin.startsWith(u"http://127.0.0.1:"_s), u"Repair API fixture must use loopback"_s);
+        QNetworkAccessManager client;
+        client.setProxy(QNetworkProxy {QNetworkProxy::NoProxy});
+        const auto request = [&](const QString &action, const QUrlQuery &parameters = QUrlQuery {})
+        {
+            QNetworkRequest networkRequest {QUrl(origin + u"/api/v2/"_s + action)};
+            networkRequest.setRawHeader("Origin", origin.toUtf8());
+            networkRequest.setRawHeader("Referer", (origin + u'/').toUtf8());
+            QNetworkReply *reply = nullptr;
+            if (parameters.isEmpty())
+                reply = client.get(networkRequest);
+            else
+            {
+                networkRequest.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
+                reply = client.post(networkRequest, parameters.query(QUrl::FullyEncoded).toUtf8());
+            }
+            const auto deleteReply = qScopeGuard([reply] { delete reply; });
+            waitFor(u"Repair HTTP request "_s + action, [=] { return reply->isFinished(); }, 6000);
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            require((status >= 200) && (status < 300)
+                , u"Repair API "_s + action + u" returned HTTP "_s + QString::number(status));
+            return reply->readAll();
+        };
+        QUrlQuery login;
+        login.addQueryItem(u"username"_s, u"lab"_s);
+        login.addQueryItem(u"password"_s, spec.value(u"apiPassword"_s).toString());
+        request(u"auth/login"_s, login);
+        const QJsonObject preferences = QJsonDocument::fromJson(request(u"app/preferences"_s)).object();
+        for (const QString &name : {u"dht"_s, u"lsd"_s, u"pex"_s, u"bypass_local_auth"_s})
+        {
+            require(preferences.value(name).isBool() && !preferences.value(name).toBool()
+                , u"Isolated repair profile did not disable "_s + name);
+        }
+        QUrlQuery analyze;
+        analyze.addQueryItem(u"hash"_s, torrent->id().toString());
+        const QJsonObject operation = QJsonDocument::fromJson(request(u"qbuttRepair/analyze"_s, analyze)).object();
+        QJsonObject status;
+        waitFor(u"Read-only Repair API analysis"_s, [&]
+        {
+            status = QJsonDocument::fromJson(request(u"qbuttRepair/status"_s)).object();
+            return (status.value(u"state"_s).toString() == u"analyzed") || (status.value(u"state"_s).toString() == u"failed");
+        }, 30000);
+        require((status.value(u"state"_s).toString() == u"analyzed") && status.contains(u"managed_repair_supported"_s)
+            && status.value(u"managed_repair_supported"_s).isBool() && !status.value(u"managed_repair_supported"_s).toBool()
+            , u"Repair API overstated managed mutation capability"_s);
+        require(status.value(u"analysis"_s).toObject().value(u"verified_bytes"_s).toInteger() == expectedVerified
+            , u"Repair API returned incorrect verified-byte accounting"_s);
+        require(snapshot(destination) == before, u"Read-only Repair API analysis changed payload"_s);
+        QUrlQuery apply;
+        apply.addQueryItem(u"id"_s, operation.value(u"id"_s).toString());
+        apply.addQueryItem(u"consent"_s, u"true"_s);
+        const QJsonObject refused = QJsonDocument::fromJson(request(u"qbuttRepair/apply"_s, apply)).object();
+        require((refused.value(u"state"_s).toString() == u"failed") && !refused.value(u"error"_s).toString().isEmpty()
+            , u"Repair API accepted forced managed mutation"_s);
+        require(snapshot(destination) == before, u"Rejected Repair API mutation changed payload"_s);
+        QUrlQuery cancel;
+        cancel.addQueryItem(u"id"_s, operation.value(u"id"_s).toString());
+        const QJsonObject cancelled = QJsonDocument::fromJson(request(u"qbuttRepair/cancel"_s, cancel)).object();
+        require(cancelled.value(u"state"_s).toString() == u"idle", u"Repair API did not release the failed operation"_s);
+        addCheck(evidence, {{u"name"_s, u"repair-readonly-api"_s}, {u"verifiedBytes"_s, expectedVerified}
+            , {u"managedRepairSupported"_s, false}, {u"forcedApplyRefused"_s, true}, {u"payloadPreserved"_s, true}});
+    }
+
     void exerciseRepair(MainWindow *window, const QJsonObject &spec, QJsonObject &evidence)
     {
         auto *session = BitTorrent::Session::instance();
@@ -926,6 +1087,12 @@ namespace
         for (auto it = targetBefore.cbegin(); it != targetBefore.cend(); ++it)
             require(initializedTarget.value(it.key()) == it.value(),
                 u"Adding the stopped torrent changed an existing destination file"_s);
+
+        if (!BitTorrent::RepairService::supportsManagedRepair())
+        {
+            exerciseReadOnlyRepair(window, torrent, spec, evidence);
+            return;
+        }
 
         {
             TreeMutationMonitor sourceMutations {source};
@@ -3272,6 +3439,12 @@ namespace
         {
             window->hide();
             exerciseTorrentData(application, spec, evidence);
+            return;
+        }
+        if (spec.value(u"mode"_s).toString() == u"repair-readonly")
+        {
+            window->hide();
+            exerciseRepair(window, spec, evidence);
             return;
         }
         if (spec.value(u"mode"_s).toString() == u"installed-update")

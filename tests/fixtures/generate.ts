@@ -41,11 +41,8 @@ function payloadBytes(name: string, size: number): Buffer {
     return result;
 }
 
-export async function generateFixtures(python: string, output?: string): Promise<string> {
-    const root = output ? resolve(output) : await mkdtemp(join(tmpdir(), "qbutt-fixtures-"));
-    // An explicit output must be new: the fixture tool never overwrites a user's tree.
-    if (output)
-        await mkdir(root);
+export async function generatePayload(root: string): Promise<PayloadFile[]> {
+    await mkdir(join(root, "seed"));
     const sizes: [string, number][] = [
         ["bundle/alpha.bin", 16384 + 123],
         ["bundle/nested/beta.bin", 32768 + 777],
@@ -61,6 +58,15 @@ export async function generateFixtures(python: string, output?: string): Promise
         payload.push({ path, size, sha256: sha256(bytes) });
     }
     await writeFile(join(root, "payload.json"), JSON.stringify(payload, null, 2) + "\n");
+    return payload;
+}
+
+export async function generateFixtures(python: string, output?: string): Promise<string> {
+    const root = output ? resolve(output) : await mkdtemp(join(tmpdir(), "qbutt-fixtures-"));
+    // An explicit output must be new: the fixture tool never overwrites a user's tree.
+    if (output)
+        await mkdir(root);
+    const payload = await generatePayload(root);
     const generated = Bun.spawn([python, join(import.meta.dir, "torrents.py"), root], {
         stdout: "pipe", stderr: "pipe", timeout: 30000,
     });

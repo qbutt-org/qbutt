@@ -1608,6 +1608,24 @@ It checks explicit mutation/filesystem refusals and preserves unrelated data.
 This storage fixture does not establish GUI, torrent lifecycle, native recheck,
 download or staged-commit acceptance.
 
+The Linux Qt integration uses the existing `qbutt-qt-acceptance` target:
+
+```bash
+QBUTT_QT_ACCEPTANCE_EXE=/path/to/qbutt-qt-acceptance \
+    bun tests/qt-acceptance/repair-readonly.ts
+```
+
+Build the driver with `-DQBUTT_QT_ACCEPTANCE=ON`; restore `OFF` before the final
+production build. Run from the native application's SDK environment. The runner
+owns an Xvfb display, D-Bus session and isolated Light `.conf` profile. It reuses the generated
+five-file payload, verifies ordinary add/recheck without download, cancels a scan
+and starts the torrent normally, checks the read-only dialog's Qt properties and
+verified bytes, then exercises authenticated HTTP analysis, capability reporting
+and forced-apply refusal. It verifies original, oversized and unrelated bytes
+again after application shutdown and removes its profile and payload. Compact
+evidence, logs and native window captures remain beside the temporary fixture.
+The driver uses Qt actions; real pointer acceptance is a separate native UI pass.
+
 `smoke:repair-mappings` checks selected in-place repair with separate download/save
 directories and native `.!qB`/`.unwanted` mappings for v1/v2/hybrid. Analysis and
 cancel/restart preserve the data; apply/recheck leaves ignored tails and missing
