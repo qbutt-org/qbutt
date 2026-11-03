@@ -19,6 +19,8 @@ pub mod ffi {
         type QVariant = cxx_qt_lib::QVariant;
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
+        include!("cxx-qt-lib/qstringlist.h");
+        type QStringList = cxx_qt_lib::QStringList;
         include!("cxx-qt-lib/qhash.h");
         type QHash_i32_QByteArray = cxx_qt_lib::QHash<cxx_qt_lib::QHashPair_i32_QByteArray>;
         include!("cxx-qt-lib/qvector.h");
@@ -30,7 +32,13 @@ pub mod ffi {
         #[qml_element]
         #[qml_uncreatable]
         #[base = QAbstractListModel]
+        #[qproperty(QStringList, category_keys, cxx_name = "categoryKeys", READ = category_keys, NOTIFY = category_keys_changed)]
         type WorkModel = super::WorkModelRust;
+
+        fn category_keys(&self) -> QStringList;
+        #[qsignal]
+        #[cxx_name = "categoryKeysChanged"]
+        fn category_keys_changed(self: Pin<&mut Self>);
 
         #[qinvokable]
         #[cxx_name = "idAt"]
@@ -279,6 +287,21 @@ pub struct WorkModelRust {
 }
 
 impl ffi::WorkModel {
+    fn category_keys(&self) -> QStringList {
+        let mut keys = Vec::new();
+        for group in &self.rows {
+            let Some(work) = group.catalog_work() else {
+                continue;
+            };
+            let key = category_key(work.category);
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+        keys.sort_unstable();
+        keys.into_iter().map(QString::from).collect()
+    }
+
     pub fn id_at(&self, row: i32) -> QString {
         self.rows
             .get(row as usize)
@@ -359,6 +382,7 @@ impl ffi::WorkModel {
         self.as_mut().begin_reset_model();
         self.as_mut().rust_mut().rows.clear();
         self.as_mut().end_reset_model();
+        self.category_keys_changed();
     }
 
     /// Publish the library's confirmed order without sorting or retaining
@@ -369,7 +393,8 @@ impl ffi::WorkModel {
         }
         self.as_mut().begin_reset_model();
         self.as_mut().rust_mut().rows = groups;
-        self.end_reset_model();
+        self.as_mut().end_reset_model();
+        self.category_keys_changed();
     }
 
     pub fn remove(mut self: Pin<&mut Self>, reference: &PublicationRef) {
@@ -382,6 +407,7 @@ impl ffi::WorkModel {
                 .begin_remove_rows(&QModelIndex::default(), row as i32, row as i32);
             self.as_mut().rust_mut().rows.remove(row);
             self.as_mut().end_remove_rows();
+            self.category_keys_changed();
         }
     }
 
@@ -405,6 +431,7 @@ impl ffi::WorkModel {
             self.as_mut().rust_mut().rows.push(group);
             self.as_mut().end_insert_rows();
         }
+        self.category_keys_changed();
     }
 
     pub fn move_to(mut self: Pin<&mut Self>, reference: &PublicationRef, row: usize) {

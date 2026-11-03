@@ -19,7 +19,8 @@
 #include <QSqlQuery>
 #include <QTimer>
 #include <QUrl>
-#include <qt_windows.h>
+
+#include "peer-process.h"
 
 #include "gui/quick/contentview.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
@@ -86,20 +87,11 @@ namespace
 
     bool exited(const QJsonObject &turn)
     {
-        const DWORD pid = turn[u"pid"_s].toInteger();
+        const qint64 pid = turn[u"pid"_s].toInteger();
         const quint64 expectedCreation = turn[u"createdAt"_s].toString().toULongLong();
         require(pid && expectedCreation, u"Peer process identity missing"_s);
-        HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-        if (!process)
-            return GetLastError() == ERROR_INVALID_PARAMETER;
-        const auto close = qScopeGuard([&] { CloseHandle(process); });
-        FILETIME creation, exit, kernel, user;
-        require(GetProcessTimes(process, &creation, &exit, &kernel, &user), u"Peer creation time unavailable"_s);
-        const quint64 createdAt = (quint64(creation.dwHighDateTime) << 32) | creation.dwLowDateTime;
-        // A PID can be reused by another process while this long scenario runs.
-        if (createdAt != expectedCreation)
-            return true;
-        return WaitForSingleObject(process, 0) == WAIT_OBJECT_0;
+        const auto process = PeerProcess::state(pid);
+        return !process.running || (process.createdAt != expectedCreation);
     }
 
     QVariant scalar(QSqlDatabase &database, const QString &sql)

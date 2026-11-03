@@ -31,6 +31,30 @@ Page {
     }
     readonly property WorkModel activeWorks: backend.listMode === Search.History ? backend.history
         : backend.listMode === Search.Favorites ? backend.favorites : backend.works
+    property string categoryKey: ""
+    readonly property var availableCategoryKeys: activeWorks.categoryKeys
+    readonly property bool categoriesLoading: backend.listMode === Search.Search ? backend.busy
+        : backend.libraryState !== Library.Ready || backend.libraryPending
+    readonly property var categoryOptions: [
+        { label: qsTr("All"), value: "" },
+        { label: qsTr("Movies"), value: "movies" },
+        { label: qsTr("TV series"), value: "tv" },
+        { label: qsTr("Video"), value: "video" },
+        { label: qsTr("Anime"), value: "anime" },
+        { label: qsTr("Manga"), value: "manga" },
+        { label: qsTr("Games"), value: "games" },
+        { label: qsTr("Software"), value: "software" },
+        { label: qsTr("Books"), value: "books" }
+    ].filter(option => option.value === "" || option.value === root.categoryKey
+        || root.availableCategoryKeys.indexOf(option.value) >= 0)
+
+    onAvailableCategoryKeysChanged: Qt.callLater(root.reconcileCategory)
+    onCategoriesLoadingChanged: Qt.callLater(root.reconcileCategory)
+
+    function reconcileCategory(): void {
+        if (!categoriesLoading && categoryKey !== "" && availableCategoryKeys.indexOf(categoryKey) < 0)
+            categoryKey = "";
+    }
 
     implicitWidth: 1200
     implicitHeight: 560
@@ -62,14 +86,14 @@ Page {
     WorkFilterModel {
         id: filteredWorks
         sourceModel: root.activeWorks
-        filterRegularExpression: new RegExp(categories.currentIndex > 0 ? "^" + categories.currentValue + "$" : "")
+        filterRegularExpression: new RegExp(root.categoryKey !== "" ? "^" + root.categoryKey + "$" : "")
     }
 
     Connections {
         target: root.backend
         function onSharedImportingChanged(): void {
             if (root.backend.sharedImporting)
-                categories.currentIndex = 0;
+                root.categoryKey = "";
         }
         function onLocalBookErrorChanged(): void {
             if (root.backend.localBookError === "")
@@ -179,17 +203,9 @@ Page {
                 valueRole: "value"
                 Accessible.name: qsTr("Category")
                 onCurrentIndexChanged: Qt.callLater(works.revealSelection)
-                model: [
-                    { label: qsTr("All"), value: "" },
-                    { label: qsTr("Movies"), value: "movies" },
-                    { label: qsTr("TV series"), value: "tv" },
-                    { label: qsTr("Video"), value: "video" },
-                    { label: qsTr("Anime"), value: "anime" },
-                    { label: qsTr("Manga"), value: "manga" },
-                    { label: qsTr("Games"), value: "games" },
-                    { label: qsTr("Software"), value: "software" },
-                    { label: qsTr("Books"), value: "books" }
-                ]
+                model: root.categoryOptions
+                currentIndex: root.categoryOptions.findIndex(option => option.value === root.categoryKey)
+                onActivated: root.categoryKey = currentValue
             }
 
             ActionButton {
@@ -366,7 +382,7 @@ Page {
                     width: parent.width - 32
                     visible: works.count === 0 && (root.backend.listMode !== Search.Search
                         ? root.backend.libraryState === Library.Ready : root.backend.searchState === Search.Succeeded)
-                    text: categories.currentIndex > 0 ? qsTr("No titles in this category")
+                    text: root.categoryKey !== "" ? qsTr("No titles in this category")
                         : root.backend.listMode === Search.History ? qsTr("History is empty")
                         : root.backend.listMode === Search.Favorites ? qsTr("No favorites") : qsTr("No titles found")
                     color: appearance.muted

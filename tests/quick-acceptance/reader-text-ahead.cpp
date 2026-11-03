@@ -20,7 +20,8 @@
 #include <QSqlQuery>
 #include <QTimer>
 #include <QUrl>
-#include <qt_windows.h>
+
+#include "peer-process.h"
 
 #include "gui/quick/contentview.h"
 #include "qbutt_quick/src/controller.cxxqt.h"
@@ -98,13 +99,7 @@ namespace
 
     bool exited(const QJsonObject &turn)
     {
-        const DWORD pid = turn[u"pid"_s].toInteger();
-        HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid);
-        if (!process)
-            return GetLastError() == ERROR_INVALID_PARAMETER;
-        const bool complete = WaitForSingleObject(process, 0) == WAIT_OBJECT_0;
-        CloseHandle(process);
-        return complete;
+        return !PeerProcess::state(turn[u"pid"_s].toInteger()).running;
     }
 
     QVariant scalar(QSqlDatabase &database, const QString &sql)

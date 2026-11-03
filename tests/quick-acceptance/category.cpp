@@ -5,7 +5,6 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
-#include <utility>
 
 #include <QAccessible>
 #include <QApplication>
@@ -25,6 +24,7 @@
 #include <QTemporaryDir>
 #include <QThreadPool>
 #include <QTimer>
+#include <QVariant>
 
 #include "gui/quick/contentview.h"
 #include "gui/quick/qml/workfiltermodel.h"
@@ -189,13 +189,24 @@ namespace
             empty = view.rootObject()->findChild<QQuickItem *>(u"contentEmptyResults"_s);
             require(category && results && pane && empty, u"Production category controls are missing"_s);
             proxy = qobject_cast<Content::WorkFilterModel *>(results->property("model").value<QObject *>());
-            require(proxy && (category->property("count").toInt() == 9), u"Production category proxy or selector is invalid"_s);
+            require(proxy && (category->property("count").toInt() == 1), u"Production category proxy or selector is invalid"_s);
         }
 
-        void choose(const int index, const QString &key)
+        int categoryIndex(const QString &key)
         {
-            require(category->setProperty("currentIndex", index) && (category->property("currentValue").toString() == key),
-                u"Category selector did not expose its exact key"_s);
+            int index = -1;
+            require(QMetaObject::invokeMethod(category, "indexOfValue", Q_RETURN_ARG(int, index), Q_ARG(QVariant, key)),
+                u"Category value lookup failed"_s);
+            return index;
+        }
+
+        void choose(const QString &key)
+        {
+            const int index = categoryIndex(key);
+            require((index >= 0) && category->setProperty("currentIndex", index)
+                && QMetaObject::invokeMethod(category, "activated", Q_ARG(int, index))
+                && (category->property("currentValue").toString() == key),
+                u"Category selector did not preserve its exact key: %1"_s.arg(key));
         }
 
         void selection(const QString &id, const bool visible)
@@ -236,8 +247,12 @@ namespace
                 if (!delegate)
                     continue;
                 ++rendered;
-                for (const auto *role : {"workId", "title", "source", "category", "year"})
-                    require(delegate->property(role).toString() == value(proxy, row, role), u"Filtered delegate lost a native role"_s);
+                for (const auto *role : {"workId", "title", "source", "category"})
+                    require(delegate->property(role).toString() == value(proxy, row, role),
+                        u"Filtered delegate lost its %1 role"_s.arg(QString::fromLatin1(role)));
+                const QString year = value(proxy, row, "year");
+                require(year.isEmpty() || delegate->property("title").toString().contains(year),
+                    u"Known year is absent from the rendered product title"_s);
                 auto *accessible = QAccessible::queryAccessibleInterface(delegate);
                 require(accessible && (accessible->text(QAccessible::Name) == value(proxy, row, "title")),
                     u"Filtered category delegate lost its accessible title"_s);
@@ -263,15 +278,41 @@ namespace
         require((favoriteIds.size() == 6) && (historyIds.size() == 6) && (favoriteIds != historyIds),
             u"Equal-count stored sources need distinct confirmed orders"_s);
         screen.controller->setListMode(Qbutt::Search::ListMode::Favorites);
-        for (const auto &[index, category] : {std::pair {8, u"books"_s}, {6, u"games"_s}, {7, u"software"_s}})
+        require((screen.category->property("count").toInt() == 4) && (screen.categoryIndex(u"movies"_s) < 0),
+            u"Stored categories contain an empty choice"_s);
+        for (const auto &category : {u"books"_s, u"games"_s, u"software"_s})
         {
-            screen.choose(index, category);
+            screen.choose(category);
             waitFor([&] { return screen.results->property("count").toInt() == 2; }, u"Equal-count category switch"_s);
             screen.visibleRows(category);
             require((screen.proxy->sourceModel() == favorites) && (identities(favorites) == favoriteIds)
                 && (identities(history) == historyIds), u"Category filtering damaged stored source collections"_s);
         }
-        screen.choose(8, u"books"_s);
+        screen.choose(u"software"_s);
+        screen.controller->setListMode(Qbutt::Search::ListMode::History);
+        const int softwareIndex = screen.categoryIndex(u"software"_s);
+        auto late = generatedEntry(7);
+        auto lateWork = GroupEntry::anchorWork(late);
+        lateWork.insert(u"category"_s, u"movies"_s);
+        GroupEntry::replaceAnchorWork(late, lateWork);
+        late.insert(u"favorite"_s, false);
+        writeEntry(database, late, 8);
+        require(screen.controller->refreshHistory(), u"Late pending category refresh rejected"_s);
+        settled(screen.controller);
+        waitFor([&] { return screen.categoryIndex(u"movies"_s) >= 0; }, u"Pending category discovery before inspection"_s);
+        require((screen.categoryIndex(u"software"_s) != softwareIndex)
+            && (screen.category->property("currentValue").toString() == u"software"_s),
+            u"Late earlier category changed selection by index"_s);
+        QSqlQuery removeLate(database);
+        require(removeLate.prepare(u"DELETE FROM library WHERE reference = ?"_s), removeLate.lastError().text());
+        removeLate.addBindValue(entryKey(late));
+        require(removeLate.exec() && screen.controller->refreshHistory(), u"Late category retirement rejected"_s);
+        settled(screen.controller);
+        waitFor([&] { return screen.categoryIndex(u"movies"_s) < 0; }, u"Confirmed category retirement"_s);
+        require(screen.category->property("currentValue").toString() == u"software"_s,
+            u"Unrelated category retirement changed the selected value"_s);
+        screen.controller->setListMode(Qbutt::Search::ListMode::Favorites);
+        screen.choose(u"books"_s);
         screen.visibleRows(u"books"_s);
         const QString selected = u"rutor:900000001"_s;
         screen.controller->selectWork(selected);
@@ -292,10 +333,10 @@ namespace
             u"Keyboard selection retained another exact variant"_s);
         key(screen.view, Qt::Key_Home);
         screen.selection(selected, true);
-        screen.choose(6, u"games"_s);
+        screen.choose(u"games"_s);
         screen.selection(selected, false);
         require(screen.proxy->rowCount() == 2, u"Hidden category switch changed the equal-count fixture"_s);
-        screen.choose(8, u"books"_s);
+        screen.choose(u"books"_s);
         screen.selection(selected, true);
         require((screen.controller->property("selectedVariantId").toString() == exact)
             && (savedEntry(database, selected).value(u"preferences"_s) == preferences), u"Hidden/back filter changed exact preferences"_s);
@@ -318,7 +359,7 @@ namespace
         screen.selection(selected, false);
         require((history->rowCount(QModelIndex()) == 6) && (screen.proxy->rowCount() == 1),
             u"Updated source category did not refilter the real snapshot"_s);
-        screen.choose(7, u"software"_s);
+        screen.choose(u"software"_s);
         screen.selection(selected, true);
         screen.visibleRows(u"software"_s);
         for (int number = 1; number <= 6; ++number)
@@ -329,20 +370,16 @@ namespace
         }
         require(screen.controller->refreshHistory(), u"Empty History refresh rejected"_s);
         settled(screen.controller);
-        screen.choose(0, QString());
+        screen.choose(QString());
         waitFor([&] { return screen.empty->isVisible(); }, u"Empty History presentation"_s);
         require(screen.empty->property("text").toString() == QCoreApplication::translate("SearchPage", "History is empty"),
             u"All-category History used category-empty wording"_s);
-        screen.choose(5, u"manga"_s);
-        require(screen.empty->property("text").toString() == QCoreApplication::translate("SearchPage", "No titles in this category"),
-            u"Filtered empty History lost its category wording"_s);
+        require((screen.category->property("count").toInt() == 1) && (screen.categoryIndex(u"manga"_s) < 0),
+            u"Empty History retained unavailable category choices"_s);
         screen.controller->setListMode(Qbutt::Search::ListMode::Favorites);
-        screen.choose(1, u"movies"_s);
-        waitFor([&] { return screen.empty->isVisible(); }, u"Empty favorite category"_s);
-        require((favorites->rowCount(QModelIndex()) == 6) && (screen.proxy->rowCount() == 0)
-            && (screen.empty->property("text").toString() == QCoreApplication::translate("SearchPage", "No titles in this category")),
-            u"Empty favorite category erased its source or used the wrong wording"_s);
-        screen.choose(0, QString());
+        require((screen.categoryIndex(u"movies"_s) < 0) && (favorites->rowCount(QModelIndex()) == 6),
+            u"Unavailable favorite category is selectable or erased its collection"_s);
+        screen.choose(QString());
         waitFor([&] { return (screen.proxy->rowCount() == 6) && !screen.empty->isVisible(); },
             u"All-category Favorites restoration"_s);
     }
@@ -350,8 +387,17 @@ namespace
     QString liveSearch(Screen &screen)
     {
         auto *works = model(screen.controller, "works");
+        screen.choose(u"software"_s);
         screen.controller->setListMode(Qbutt::Search::ListMode::Search);
-        screen.choose(0, QString());
+        screen.controller->search(u"Blender"_s);
+        QCoreApplication::processEvents();
+        require(screen.category->property("currentValue").toString() == u"software"_s,
+            u"Starting a new search transiently erased its category"_s);
+        screen.controller->cancelSearch();
+        waitFor([&] { return screen.category->property("currentValue").toString().isEmpty(); },
+            u"Cancelled empty search category retirement"_s);
+        require((screen.category->property("count").toInt() == 1) && (works->rowCount(QModelIndex()) == 0),
+            u"Cancelled generation retained empty choices or late rows"_s);
         int resets = 0;
         int searching = 0;
         bool filteredDuringSearch = false;
@@ -361,13 +407,15 @@ namespace
         {
             searching += screen.controller->property("busy").toBool() ? 1 : 0;
         });
-        QObject::connect(works, &QAbstractItemModel::rowsInserted, &observer, [&]
+        QObject::connect(works, &Qbutt::WorkModel::categoryKeysChanged, &observer, [&]
         {
-            if (!filteredDuringSearch && screen.controller->property("busy").toBool())
+            if (!filteredDuringSearch && screen.controller->property("busy").toBool()
+                && (screen.categoryIndex(u"software"_s) >= 0))
             {
                 const auto before = identities(works);
-                screen.choose(6, u"games"_s);
-                screen.choose(7, u"software"_s);
+                screen.choose(u"software"_s);
+                screen.choose(QString());
+                screen.choose(u"software"_s);
                 require(identities(works) == before, u"Filtering during search removed source rows"_s);
                 filteredDuringSearch = true;
             }
@@ -383,9 +431,9 @@ namespace
         const auto all = identities(works);
         const auto software = identities(screen.proxy);
         screen.visibleRows(u"software"_s);
-        screen.choose(0, QString());
+        screen.choose(QString());
         require((identities(works) == all) && (identities(screen.proxy) == all), u"All filter lost live accumulated results"_s);
-        screen.choose(7, u"software"_s);
+        screen.choose(u"software"_s);
         require(identities(screen.proxy) == software, u"Software filter lost its previous results"_s);
         screen.results->forceActiveFocus();
         key(screen.view, Qt::Key_Home);
@@ -397,11 +445,11 @@ namespace
         screen.controller->setSelectedFavorite(true);
         settled(screen.controller);
         const QString exact = screen.controller->property("selectedVariantId").toString();
-        screen.choose(6, u"games"_s);
-        screen.selection(publication, false);
-        screen.choose(7, u"software"_s);
+        screen.choose(QString());
         screen.selection(publication, true);
-        require(screen.controller->property("selectedVariantId").toString() == exact, u"Live hidden/back category changed exact torrent preference"_s);
+        screen.choose(u"software"_s);
+        screen.selection(publication, true);
+        require(screen.controller->property("selectedVariantId").toString() == exact, u"Live category return changed exact torrent preference"_s);
         return publication;
     }
 }
@@ -458,7 +506,7 @@ void exerciseCategory()
         QObject::connect(view.engine(), &QQmlEngine::warnings, &view, [&](const QList<QQmlError> &) { ++warnings; });
         Screen screen(view);
         screen.controller->setListMode(Qbutt::Search::ListMode::Favorites);
-        screen.choose(8, u"books"_s);
+        screen.choose(u"books"_s);
         require(screen.proxy->indexOfId(publication) >= 0, u"Saved category fixture was not loaded"_s);
         auto *favorites = model(screen.controller, "favorites");
         int changed = 0;
@@ -474,7 +522,7 @@ void exerciseCategory()
             && (value(favorites, favorites->indexOfId(publication), "category") == u"software"_s),
             u"Fresh inspection did not update the native source category"_s);
         screen.selection(publication, false);
-        screen.choose(7, u"software"_s);
+        screen.choose(u"software"_s);
         screen.selection(publication, true);
         require(savedEntry(database, publication).value(u"preferences"_s) == preferences,
             u"Category enrichment replaced exact saved variant preferences"_s);
@@ -486,15 +534,15 @@ void exerciseCategory()
             screen.controller->setSelectedFavorite(false);
             settled(screen.controller);
         }
-        screen.choose(0, QString());
         waitFor([&] { return (favorites->rowCount(QModelIndex()) == 0) && screen.empty->isVisible(); },
             u"Empty Favorites presentation"_s);
+        require(screen.category->property("currentValue").toString().isEmpty(),
+            u"Final category removal did not return to All"_s);
         require(screen.empty->property("text").toString() == QCoreApplication::translate("SearchPage", "No favorites"),
             u"All-category empty Favorites used category-empty wording"_s);
-        screen.choose(7, u"software"_s);
-        require(screen.empty->property("text").toString() == QCoreApplication::translate("SearchPage", "No titles in this category"),
-            u"Filtered empty Favorites lost its category wording"_s);
+        require((screen.category->property("count").toInt() == 1) && (screen.categoryIndex(u"software"_s) < 0),
+            u"Empty Favorites retained unavailable category choices"_s);
     }
     require(warnings == 0, u"Category interaction emitted QML warnings"_s);
-    qInfo("PASS category production_ui=ok stored_equal_count=ok exact_hidden_restore=ok source_reset=ok live_incremental=ok no_search_restart=ok keyboard_proxy=ok data_changed=ok empty_semantics=ok preferences=ok");
+    qInfo("PASS category production_ui=ok stored_equal_count=ok exact_hidden_restore=ok source_reset=ok live_incremental=ok no_search_restart=ok keyboard_proxy=ok data_changed=ok available_categories=ok pending_before_click=ok late_value_preserved=ok retirement_cancel=ok empty_semantics=ok preferences=ok");
 }

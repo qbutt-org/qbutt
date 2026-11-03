@@ -84,6 +84,8 @@ qt_add_executable(qbutt-quick-acceptance
     library.h
     local-books-ui.cpp
     local-books-ui.h
+    peer-process.cpp
+    peer-process.h
     playback.cpp
     playback.h
     progressive-selection.cpp

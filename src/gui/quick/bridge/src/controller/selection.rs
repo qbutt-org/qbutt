@@ -644,6 +644,18 @@ impl ffi::ContentController {
                 .rust_mut()
                 .known_groups
                 .insert(group.anchor.clone(), group.clone());
+            if self
+                .selected_group
+                .as_ref()
+                .is_some_and(|selected| selected.anchor == group.anchor)
+                && self.favorites.find(&work_id(&group.anchor)).is_some()
+            {
+                self.as_mut()
+                    .rust_mut()
+                    .favorites
+                    .pin_mut()
+                    .update(group.clone());
+            }
             if self.as_mut().show_group(&group, generation) {
                 self.as_mut().select_initial_variant();
             }
