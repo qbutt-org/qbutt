@@ -330,7 +330,7 @@ void Player::startPrepared(const QString &executable)
 
 #ifndef Q_OS_WIN
     const QString runtimePath = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
-    if (runtimePath.isEmpty() || !QDir(runtimePath).exists())
+    if (runtimePath.isEmpty())
     {
         failPreparation(tr("The private player connection directory is unavailable."));
         return;
