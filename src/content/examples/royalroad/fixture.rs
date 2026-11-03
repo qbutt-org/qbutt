@@ -207,6 +207,7 @@ async fn serve(
                 | "check-timeout"
                 | "check-fault"
                 | "foreign-session"
+                | "document-challenge"
         )
         || fault == Fault::Challenge
     {

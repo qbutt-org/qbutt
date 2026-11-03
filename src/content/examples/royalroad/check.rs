@@ -65,6 +65,9 @@ pub(super) fn helper() -> CheckResult {
         let body = match url.path() {
             "/fiction/42" => super::fixture::book(&url, Fault::None),
             "/fiction/42/generated/chapter/22/second" => super::fixture::chapter(&url, Fault::None),
+            "/fictions/search" if query == "document-challenge" => {
+                "<form id='challenge-form'></form>".into()
+            }
             "/fictions/search" => super::fixture::search(&query),
             _ => return Err("unexpected document URL".into()),
         };
@@ -118,6 +121,7 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
     }
     for query in [
         "persistent-challenge",
+        "document-challenge",
         "manual-check",
         "check-timeout",
         "check-fault",
@@ -129,7 +133,7 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
         let before = checks()?.len();
         let result = source.search(query).await;
         match query {
-            "persistent-challenge" | "manual-check" | "check-timeout" => {
+            "persistent-challenge" | "document-challenge" | "manual-check" | "check-timeout" => {
                 assert!(matches!(result, Err(Error::SourceCheckRequired)));
             }
             "check-fault" => assert!(matches!(
@@ -211,7 +215,7 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
     std::fs::remove_dir(app)?;
     std::fs::remove_dir(root)?;
     println!(
-        "PASS Royal Road owned document check: silent recovery, exact search/book/nonfirst chapter, persistent challenge, explicit same-profile retry, typed timeout/fault, foreign session rejection, plain denial, close"
+        "PASS Royal Road owned document check: silent recovery, exact search/book/nonfirst chapter, persistent challenge and successful challenge document, explicit same-profile retry, typed timeout/fault, foreign session rejection, plain denial, close"
     );
     Ok(())
 }
