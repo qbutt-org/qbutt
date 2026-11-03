@@ -124,7 +124,10 @@ pub(super) async fn closed(client: &mut BrowserClient) -> FixtureResult {
     let result = timeout(Duration::from_secs(7), client.read(&mut byte)).await?;
     assert!(
         matches!(result, Ok(0))
-            || matches!(result, Err(ref error) if matches!(error.raw_os_error(), Some(109 | 232 | 233)))
+            || matches!(&result, Err(error) if matches!(error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::NotConnected | std::io::ErrorKind::UnexpectedEof)),
+        "expected a closed native browser connection: {result:?}"
     );
     Ok(())
 }

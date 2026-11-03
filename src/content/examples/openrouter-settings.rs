@@ -18,6 +18,37 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 fn main() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
     let operation = args.next();
+    if operation.as_deref() == Some(std::ffi::OsStr::new("--without-keyring")) {
+        let profile = std::path::PathBuf::from(args.next().ok_or("isolated profile missing")?);
+        if profile.exists() {
+            return Err("the unavailable-keyring fixture requires a fresh profile".into());
+        }
+        let result = (|| -> Result<()> {
+            let mut library = Library::open(&profile)?;
+            let options = OpenRouterSettings {
+                model: "example/text-model".into(),
+                effort: "low".into(),
+            };
+            let error = library
+                .configure_text_translation(TextTranslationService::OpenRouter, &options, Some(KEY))
+                .err()
+                .ok_or("protected settings accepted an unavailable keyring")?;
+            assert!(matches!(error, LibraryError::Credentials(_)));
+            assert!(!error.to_string().contains(KEY));
+            let saved = library.text_translation_settings()?;
+            assert_eq!(saved.service, TextTranslationService::Codex);
+            assert!(!saved.key_configured);
+            drop(library);
+            let bytes = std::fs::read(profile.join("content-library.sqlite"))?;
+            assert!(!bytes.windows(KEY.len()).any(|part| part == KEY.as_bytes()));
+            println!("PASS protected_settings unavailable_keyring no_plaintext no_setting_change");
+            Ok(())
+        })();
+        if profile.exists() {
+            std::fs::remove_dir_all(&profile)?;
+        }
+        return result;
+    }
     if operation.as_deref() == Some(std::ffi::OsStr::new("--seed-reader")) {
         let profile = std::path::PathBuf::from(args.next().ok_or("fresh profile missing")?);
         if profile.exists() && profile.read_dir()?.next().is_some() {
@@ -205,6 +236,21 @@ fn exercise(profile: &Path) -> Result<()> {
     let mut library = Library::open(profile)?;
     library.configure_text_translation(TextTranslationService::OpenRouter, &options, Some(KEY))?;
     drop(library);
+    let connection = rusqlite::Connection::open(&database)?;
+    let mut tampered = protected.clone();
+    *tampered.last_mut().ok_or("protected settings were empty")? ^= 1;
+    connection.execute(
+        "UPDATE text_translation_service SET api_key_dpapi = ?1",
+        rusqlite::params![tampered],
+    )?;
+    drop(connection);
+    let library = Library::open(profile)?;
+    assert!(matches!(
+        library.openrouter_client(),
+        Err(LibraryError::Credentials(_))
+    ));
+    drop(library);
+    println!("PASS protected_settings authenticated_ciphertext_tamper_rejected");
     let connection = rusqlite::Connection::open(&database)?;
     connection.execute(
         "UPDATE text_translation_service SET api_key_dpapi = x'0102'",
