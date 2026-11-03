@@ -15,6 +15,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocalServer>
 #include <QLocale>
 #include <QMimeDatabase>
 #include <QRegularExpression>
@@ -467,6 +468,13 @@ void Player::finishPlayback()
     m_stopTimer.stop();
     m_saveTimer.stop();
     m_ipc.abort();
+#ifndef Q_OS_WIN
+    if (!m_pipeName.isEmpty())
+    {
+        QLocalServer::removeServer(m_pipeName);
+        m_pipeName.clear();
+    }
+#endif
     m_messages.clear();
     m_cookies.reset();
     Playback current = std::exchange(m_current, {});
