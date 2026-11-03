@@ -196,6 +196,8 @@
     "qt": {
       "version": "6.12.0",
       "sourceUrl": "https://download.qt.io/archive/qt/6.12/6.12.0/single/qt-everywhere-src-6.12.0.tar.xz",
+      "sourceSize": 443394020,
+      "sourceSha256": "98ff4f44bac6ec3e1e62ee2a4316ae0e3d15badb015d753cc0268a20db52f165",
       "architecture": "win64_msvc2022_64",
       "directory": "msvc2022_64",
       "licenseFiles": [
@@ -595,7 +597,17 @@
       ],
       "architecture": "linux_gcc_64",
       "directory": "gcc_64",
-      "webEngineSourceSbom": "qtwebengine-6.140.0.spdx.json"
+      "webEngineSourceSbom": "qtwebengine-6.140.0.spdx.json",
+      "webEngineSource": {
+        "vendorBuild": "6.12.0-0-202609281005",
+        "vendorPackage": "extensions.qtwebengine.6120.61400.src",
+        "vendorFeed": "https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtwebengine/6120/61400/src_doc_examples/Updates.xml",
+        "url": "https://download.qt.io/online/qtsdkrepository/all_os/extensions/qtwebengine/6120/61400/src_doc_examples/extensions.qtwebengine.6120.61400.src/6.12.0-0-202609281005qtwebengine-everywhere-src-6.140.0.tar.xz",
+        "size": 584649116,
+        "sha256": "141e9b230e5ec9ee65a7357ca4b87d702e4badc515289eeade1047a788bb96e7",
+        "vendorSha1": "0c0fddbfb4daf3da64d9c323ff1d81db53152901",
+        "archiveRevision": "d505fc23640d2bd6345e6483eb73daf4e19f5829"
+      }
     },
     "bun": {
       "version": "1.4.2",

@@ -98,6 +98,7 @@ for entry in "$bundle"/* "$bundle"/.[!.]* "$bundle"/..?*; do
 done
 awk 'substr($0, 67, 6) != "qplay/"' "$bundle/bundle.sha256" >"$stage/bundle.sha256"
 (cd -- "$stage" && sha256sum --strict --check bundle.sha256 >/dev/null)
+managed_directory "$stage"
 if test -d "$app"; then
     mv -- "$app" "$base/.previous"
 fi

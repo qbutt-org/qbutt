@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, cp, lstat, mkdir, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -88,6 +88,90 @@ async function sha256(path: string): Promise<string> {
     return hash.digest("hex");
 }
 
+async function buildInputs() {
+    const [sourceRevision, sourceStatus, sourceDiff, untrackedPaths, compiler, cmake, ninja, go, rust] = await Promise.all([
+        command(["git", "-C", repository, "rev-parse", "HEAD"], repository, true),
+        command(["git", "-C", repository, "status", "--porcelain", "--untracked-files=all"], repository, true),
+        command(["git", "-C", repository, "diff", "--binary", "HEAD"], repository, true),
+        command(["git", "-C", repository, "ls-files", "--others", "--exclude-standard", "-z"], repository, true),
+        command(["c++", "--version"], repository, true),
+        command(["cmake", "--version"], repository, true),
+        command(["ninja", "--version"], repository, true),
+        command(["go", "version"], repository, true),
+        command(["rustc", "--version", "--verbose"], repository, true),
+    ]);
+    const untracked = [];
+    for (const path of untrackedPaths.split("\0").filter(Boolean)) {
+        untracked.push(`${path}\0${await sha256(join(repository, path))}`);
+    }
+    const sourceFingerprint = createHash("sha256").update(sourceStatus).update("\0")
+        .update(sourceDiff).update("\0").update(untracked.join("\0")).digest("hex");
+    return {
+        sourceRoot: await realpath(repository),
+        dependencyRoot: dependencies,
+        libtorrentSource: libtorrent,
+        netSource: net,
+        sourceRevision,
+        sourceWorktreeChanged: Boolean(sourceStatus),
+        sourceFingerprint,
+        dependencyLockSha256: await sha256(join(repository, "upstream-lock.json")),
+        cargoLockSha256: await sha256(join(repository, "Cargo.lock")),
+        rustToolchainSha256: await sha256(join(repository, "rust-toolchain.toml")),
+        qtRoot, compiler, cmake, ninja, go, rust, bun: Bun.version,
+    };
+}
+
+async function dependencyInputs() {
+    const [libtorrentRevision, libtorrentStatus, netRevision, netStatus] = await Promise.all([
+        command(["git", "-C", libtorrent, "rev-parse", "HEAD"], repository, true),
+        command(["git", "-C", libtorrent, "status", "--porcelain", "--untracked-files=all"], repository, true),
+        command(["git", "-C", net, "rev-parse", "HEAD"], repository, true),
+        command(["git", "-C", net, "status", "--porcelain", "--untracked-files=all"], repository, true),
+    ]);
+    return { libtorrentRevision, libtorrentStatus, netRevision, netStatus };
+}
+
+async function productionCacheHash(): Promise<string> {
+    const path = join(build, "CMakeCache.txt");
+    const cache = (await readFile(path, "utf8")).split("\n");
+    for (const [key, expected] of Object.entries({
+        CMAKE_HOME_DIRECTORY: repository,
+        CMAKE_BUILD_TYPE: "Release",
+        GUI: "ON", WEBUI: "ON", TESTING: "OFF", QBUTT_QT_ACCEPTANCE: "OFF",
+        QBUTT_STAGING_FAULTS: "OFF", QBUTT_COMPLETION_FAULTS: "OFF",
+    })) {
+        const entry = cache.find(line => line.startsWith(`${key}:`));
+        assert(entry && entry.slice(entry.indexOf("=") + 1) === expected,
+            `Packaging requires ${key}=${expected} in the compiled CMake cache.`);
+    }
+    return sha256(path);
+}
+
+const binaryNames = ["qbutt", "qbutt-net", "qbutt-webview"] as const;
+async function builtBinaryHashes(): Promise<Record<string, string>> {
+    const hashes: Record<string, string> = {};
+    for (const name of binaryNames) hashes[name] = await sha256(join(build, name));
+    return hashes;
+}
+
+interface BuildReceipt {
+    schemaVersion: number;
+    inputs: Awaited<ReturnType<typeof buildInputs>>;
+    dependencies: Awaited<ReturnType<typeof dependencyInputs>>;
+    cmakeCacheSha256: string;
+    binaries: Record<string, string>;
+}
+
+async function verifyBuildReceipt(receipt: BuildReceipt): Promise<void> {
+    assert.equal(receipt.schemaVersion, 1, "Unknown Linux build receipt. Run a full build.");
+    assert.deepEqual(await buildInputs(), receipt.inputs, "Source or toolchain inputs changed after compilation. Run a full build.");
+    assert.deepEqual(await dependencyInputs(), receipt.dependencies, "Dependency sources changed after compilation. Run a full build.");
+    assert.equal(await productionCacheHash(), receipt.cmakeCacheSha256,
+        "The CMake configuration changed after compilation. Run a full build.");
+    assert.deepEqual(await builtBinaryHashes(), receipt.binaries,
+        "The compiled binaries changed after the build receipt was written. Run a full build.");
+}
+
 async function download(pin: { url: string; sha256: string; size?: number }, destination: string): Promise<void> {
     assert(/^[0-9a-f]{64}$/.test(pin.sha256) && new URL(pin.url).protocol === "https:", "Invalid dependency pin.");
     if (await Bun.file(destination).exists() && await sha256(destination) === pin.sha256) return;
@@ -118,7 +202,7 @@ async function source(path: string, pin: { repository: string; commit: string })
     }
     assert.equal(await command(["git", "-C", path, "rev-parse", "HEAD"], repository, true), pin.commit,
         `Dependency revision differs: ${path}.`);
-    assert.equal(await command(["git", "-C", path, "status", "--porcelain", "--untracked-files=no"], repository, true), "",
+    assert.equal(await command(["git", "-C", path, "status", "--porcelain", "--untracked-files=all"], repository, true), "",
         `Dependency has source changes: ${path}.`);
     await command(["git", "-C", path, "submodule", "update", "--init", "--recursive"]);
 }
@@ -139,17 +223,21 @@ assert.equal(await command([join(qtRoot, "bin/qmake"), "-query", "QT_VERSION"], 
 const boost = join(dependencies, boostPin.directory);
 const boostArchive = join(dependencies, basename(new URL(boostPin.url).pathname));
 const libtorrentBuild = join(dependencies, "libtorrent-linux");
+const receiptPath = join(build, "qbutt-build-receipt.json");
 if (!values["package-only"]) {
+    const inputs = await buildInputs();
+    await rm(receiptPath, { force: true });
     await download(boostPin, boostArchive);
     if (!await Bun.file(join(boost, "boost/version.hpp")).exists()) {
         await command(["tar", "-xf", boostArchive, "-C", dependencies]);
     }
     await source(libtorrent, libtorrentPin);
     await source(net, lock.qbuttNet);
+    const dependencySources = await dependencyInputs();
     await command(["cargo", "fetch", "--locked", "--target", "x86_64-unknown-linux-gnu"]);
     await command([
         join(qtRoot, "bin/qt-cmake"), "-S", libtorrent, "-B", join(libtorrentBuild, "build"), "-G", "Ninja",
-        "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CXX_STANDARD=20", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+        "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CXX_COMPILER=c++", "-DCMAKE_CXX_STANDARD=20", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         `-DCMAKE_INSTALL_PREFIX=${join(libtorrentBuild, "install")}`, `-DBOOST_ROOT=${boost}`,
         "-DBoost_NO_SYSTEM_PATHS=ON", "-DBUILD_SHARED_LIBS=OFF", "-Ddeprecated-functions=OFF", "-Dstatic_runtime=OFF",
     ]);
@@ -158,17 +246,32 @@ if (!values["package-only"]) {
     await command(["go", "build", `-p=${jobs}`, "-mod=readonly", "-trimpath", "-o", join(build, "qbutt-net"), "./cmd/qbutt-net"], net);
     await command([
         join(qtRoot, "bin/qt-cmake"), "-S", repository, "-B", build, "-G", "Ninja",
-        "-DCMAKE_BUILD_TYPE=Release", `-DCMAKE_PREFIX_PATH=${qtRoot};${join(libtorrentBuild, "install")}`,
+        "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CXX_COMPILER=c++", `-DCMAKE_PREFIX_PATH=${qtRoot};${join(libtorrentBuild, "install")}`,
         `-DBOOST_ROOT=${boost}`, "-DBoost_NO_SYSTEM_PATHS=ON", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
-        "-DCMAKE_INSTALL_RPATH=$ORIGIN/lib", "-DTESTING=OFF", "-DQBUTT_QT_ACCEPTANCE=OFF",
+        "-DCMAKE_INSTALL_RPATH=$ORIGIN/lib", "-DGUI=ON", "-DWEBUI=ON", "-DTESTING=OFF", "-DQBUTT_QT_ACCEPTANCE=OFF",
         "-DQBUTT_STAGING_FAULTS=OFF", "-DQBUTT_COMPLETION_FAULTS=OFF",
     ]);
     await command(["cmake", "--build", build, "--parallel", String(jobs)]);
+    assert.deepEqual(await buildInputs(), inputs, "Source or toolchain inputs changed during compilation; no build receipt was written.");
+    assert.deepEqual(await dependencyInputs(), dependencySources, "Dependency sources changed during compilation; no build receipt was written.");
+    const receipt: BuildReceipt = {
+        schemaVersion: 1, inputs, dependencies: dependencySources,
+        cmakeCacheSha256: await productionCacheHash(),
+        binaries: await builtBinaryHashes(),
+    };
+    await Bun.write(`${receiptPath}.partial`, JSON.stringify(receipt, null, 2) + "\n");
+    await rename(`${receiptPath}.partial`, receiptPath);
 }
+
 if (values["build-only"]) {
     console.log(`Linux native build: ${build}`);
     process.exit(0);
 }
+
+assert(await Bun.file(receiptPath).exists(), "No successful Linux build receipt. Run the full build entrypoint first.");
+const receipt = JSON.parse(await readFile(receiptPath, "utf8")) as BuildReceipt;
+await verifyBuildReceipt(receipt);
+const compiled = receipt.inputs;
 
 const version = (await readFile(join(repository, "qbutt-version.txt"), "utf8")).trim();
 assert(/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(version), "Invalid qbutt version.");
@@ -182,8 +285,9 @@ if (portableInfo) {
     await rm(portable, { recursive: true });
 }
 await mkdir(portable);
-for (const name of ["qbutt", "qbutt-net", "qbutt-webview"]) {
+for (const name of binaryNames) {
     await cp(join(build, name), join(portable, name));
+    assert.equal(await sha256(join(portable, name)), receipt.binaries[name], `The compiled ${name} changed while staging.`);
     await chmod(join(portable, name), 0o755);
     await command(["strip", "--strip-unneeded", join(portable, name)]);
 }
@@ -369,7 +473,8 @@ if (!values["without-products"]) {
         const archive = join(dependencies, "products", basename(new URL(pin.url).pathname));
         await verifiedArtifact(pin, archive, AbortSignal.timeout(20 * 60_000));
         const entries = (await command(["unzip", "-Z1", archive], repository, true)).split("\n").filter(Boolean);
-        assert(entries.length && entries.every(entry => !entry.includes("\\") && !entry.startsWith("/")
+        assert(entries.length && new Set(entries).size === entries.length
+            && entries.every(entry => !entry.includes("\\") && !entry.startsWith("/")
             && !entry.split("/").some(part => part === "..")), `Unsafe ${name} archive path.`);
         const modes = (await command(["unzip", "-Z", "-l", archive], repository, true)).split("\n")
             .filter(line => /^[bcdlps-][rwxstST-]{9}\s/.test(line));
@@ -388,8 +493,9 @@ await Bun.write(join(portable, "THIRD-PARTY-NOTICES.txt"), [
     "The native Rust content library and Qt Quick bridge are statically linked. Exact source checksums and license files are in licenses/rust/dependencies.json.",
     `qbutt-net source: ${lock.qbuttNet.repository.replace(/\.git$/, "")}/tree/${lock.qbuttNet.commit}. Its GPLv3 license and dependency notices are in licenses/.`,
     `Qt ${pins.qt.version} and Qt WebEngine ${pins.qt.webEngineVersion} are dynamically linked. License texts and SBOMs are in licenses/qt/ and licenses/qt-sbom/. Compatible modified Qt libraries can replace the bundled libraries.`,
-    `Qt source: ${lock.windows.qt.sourceUrl}`,
-    "Qt WebEngine source locators, build instructions and Chromium notices are recorded in its bundled SBOMs.",
+    `Qt ${pins.qt.version} base and module sources: ${lock.windows.qt.sourceUrl}\nSHA-256: ${lock.windows.qt.sourceSha256}`,
+    `Qt WebEngine publisher source archive for vendor build ${pins.qt.webEngineSource.vendorBuild}: ${pins.qt.webEngineSource.url}\nSHA-256: ${pins.qt.webEngineSource.sha256}`,
+    "The publisher associates that source archive with the binary build ID. Its archive revision differs from the binary SBOM's declared Git locator; no matching public Git revision has been verified. Chromium notices and vendor build instructions are included in the SBOMs.",
     `libtorrent source: ${libtorrentPin.repository.replace(/\.git$/, "")}/tree/${libtorrentPin.commit}`,
     `Boost source: ${boostPin.url}`,
     "Fonts are covered by their SIL Open Font License files in licenses/. Tabler Icons are under MIT; see licenses/Tabler-Icons.txt.",
@@ -397,16 +503,10 @@ await Bun.write(join(portable, "THIRD-PARTY-NOTICES.txt"), [
 ].join("\n\n") + "\n");
 const binaryHashes: Record<string, string> = {};
 for (const name of ["qbutt", "qbutt-webview", "qbutt-net", "libexec/QtWebEngineProcess"]) binaryHashes[name] = await sha256(join(portable, name));
+await verifyBuildReceipt(receipt);
 const manifest = {
     product: "qbutt", version, platform: "linux-x64", configuration: "Release",
-    sourceRevision: await command(["git", "-C", repository, "rev-parse", "HEAD"], repository, true),
-    sourceWorktreeChanged: Boolean(await command(["git", "-C", repository, "status", "--porcelain"], repository, true)),
-    compiler: await command(["c++", "--version"], repository, true),
-    cmake: await command(["cmake", "--version"], repository, true),
-    go: goVersion, bun: Bun.version, rust: rustVersion, qt: pins.qt,
-    dependencyLockSha256: await sha256(join(repository, "upstream-lock.json")),
-    cargoLockSha256: await sha256(join(repository, "Cargo.lock")),
-    rustToolchainSha256: await sha256(join(repository, "rust-toolchain.toml")),
+    ...compiled, qt: pins.qt, cmakeCacheSha256: receipt.cmakeCacheSha256,
     products: productArtifacts, productCandidates, systemLibraries, binaries: binaryHashes,
 };
 await Bun.write(join(portable, "build-manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
