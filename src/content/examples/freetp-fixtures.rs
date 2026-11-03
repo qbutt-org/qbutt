@@ -89,7 +89,7 @@ fn page(
         let result = if matches!(story.as_str(), "generated" | "generatedlegal" | "КЛЕТЬ") {
             r#"<article class="shortstory">
     <h2 class="game-card__title">
-        <a href="/po-seti/42-generated-game.html">Generated Legal Game играть по сети и интернету Онлайн</a>
+        <a href="/games/racing/42-generated-game.html">Generated Legal Game играть по сети и интернету Онлайн</a>
     </h2>
 </article>"#
         } else {
@@ -126,7 +126,7 @@ fn page(
         return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
     }
     if path == "/index.php" && params.contains_key("newsid") {
-        let body = r#"<link rel="canonical" href="/po-seti/42-generated-game.html">
+        let body = r#"<link rel="canonical" href="/games/racing/42-generated-game.html">
 <section id="content">
     <article class="fullstory">
         <h2 class="game-page__title">Generated Legal Game играть по сети и интернету Онлайн</h2>
@@ -415,7 +415,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     fixture.stop().await;
     println!(
-        "PASS freetp_fixture search utf8_cyrillic colon_normalized positive empty_acoustica_rezero mismatch_rejected unstarted_rejected malformed_empty_rejected http_challenge_preserved inspect canonical_identity game patch exact_resolve changed_hash limited cancel"
+        "PASS freetp_fixture search utf8_cyrillic colon_normalized positive nested_racing_search_inspect_resolve empty_acoustica_rezero mismatch_rejected unstarted_rejected malformed_empty_rejected http_challenge_preserved inspect canonical_identity game patch exact_resolve changed_hash limited cancel"
     );
     Ok(())
 }

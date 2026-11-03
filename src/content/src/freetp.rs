@@ -374,15 +374,14 @@ fn publication(input: &str, origin: &Url) -> Option<(PublicationRef, Url)> {
     {
         return None;
     }
-    let mut segments = url.path().trim_start_matches('/').split('/');
-    let section = segments.next()?;
-    if !matches!(section, "po-seti" | "singleplayer" | "games") {
+    let (section, filename) = url.path().trim_start_matches('/').rsplit_once('/')?;
+    if !matches!(
+        section,
+        "po-seti" | "singleplayer" | "games" | "games/racing"
+    ) {
         return None;
     }
-    let filename = segments.next()?.strip_suffix(".html")?;
-    if segments.next().is_some() {
-        return None;
-    }
+    let filename = filename.strip_suffix(".html")?;
     let (id, slug) = filename.split_once('-')?;
     if slug.is_empty() || slug.len() > 240 || !crate::model::canonical_decimal(id) {
         return None;
