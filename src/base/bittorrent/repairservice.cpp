@@ -22,6 +22,21 @@
 
 using namespace BitTorrent;
 
+namespace
+{
+    constexpr auto ManagedRepairUnavailable = QT_TRANSLATE_NOOP("BitTorrent::RepairService"
+        , "Managed repair requires exclusive file and directory ownership unavailable on this platform.");
+}
+
+bool RepairService::supportsManagedRepair()
+{
+#ifdef Q_OS_WIN
+    return true;
+#else
+    return false;
+#endif
+}
+
 RepairService::RepairService(Torrent *torrent, QObject *parent)
     : QObject {parent}
     , m_torrent {qobject_cast<TorrentImpl *>(torrent)}
@@ -353,8 +368,12 @@ void RepairService::analyzeDrainedData()
         }
         else
         {
-            const QSet<int> readableFiles = m_guard->existingFiles();
-            m_analysis = analyzeRepairData(*m_target, m_files, m_savePath, &m_cancelled, &readableFiles);
+            m_analysis = m_guard->analyze(*m_target, m_files, &m_cancelled);
+#ifdef Q_OS_LINUX
+            // Linux leases protect the read, not an indefinitely open preview.
+            // Applying changes needs a separate native ownership implementation.
+            m_guard->releaseFiles();
+#endif
         }
         for (RepairFileAnalysis &file : m_analysis.files)
             file.selected = m_selectedFiles.contains(file.nativeIndex);
@@ -387,6 +406,11 @@ void RepairService::apply()
 {
     if (m_state != State::Ready)
         return;
+    if (!supportsManagedRepair())
+    {
+        fail(tr(ManagedRepairUnavailable));
+        return;
+    }
     if (!m_torrent || !m_torrent->isStopped() || !m_ownsTorrent)
     {
         fail(tr("Torrent ownership changed. Analyze the data again."));
@@ -436,6 +460,11 @@ void RepairService::analyzeStaged(const QStringList &sourceRoots, const QMap<int
 {
     if (m_state != State::Idle)
         return;
+    if (!supportsManagedRepair())
+    {
+        fail(tr(ManagedRepairUnavailable));
+        return;
+    }
     m_staged = true;
     m_sourceRoots = sourceRoots;
     m_sourceMappings = mappings;
@@ -446,6 +475,11 @@ void RepairService::recoverStaged()
 {
     if (m_state != State::Idle)
         return;
+    if (!supportsManagedRepair())
+    {
+        fail(tr(ManagedRepairUnavailable));
+        return;
+    }
     m_staged = true;
     m_recovering = true;
     analyze();

@@ -19,6 +19,8 @@
 
 namespace BitTorrent
 {
+    struct RepairAnalysis;
+
     // Resolve aliases in the existing prefix even when the target is missing.
     QString repairPathIdentity(const QString &path);
 
@@ -43,6 +45,10 @@ namespace BitTorrent
         QByteArray identity() const;
         QByteArray directoryIdentity() const;
         QSet<int> existingFiles() const;
+        // Call before releaseFiles(). Linux hashes retained descriptors and
+        // rejects changed paths or leases.
+        RepairAnalysis analyze(const lt::torrent_info &target, const lt::file_storage &mappedFiles
+            , const std::atomic_bool *cancelled = nullptr) const;
         bool createMissingEmpty(QString &error, const std::atomic_bool *cancelled = nullptr);
         bool truncateOversized(QString &error, const std::atomic_bool *cancelled = nullptr);
         // Permit engine file I/O while retaining directory identities until recheck completes.
@@ -54,7 +60,11 @@ namespace BitTorrent
 
         struct File
         {
+#ifdef Q_OS_LINUX
+            int descriptor = -1;
+#else
             void *handle = nullptr;
+#endif
             int nativeIndex = -1;
             QString path;
             qint64 expectedSize = 0;
@@ -68,6 +78,14 @@ namespace BitTorrent
             QString path;
         };
 
+#ifdef Q_OS_LINUX
+        static std::shared_ptr<RepairFileGuard> openLinux(const lt::file_storage &files
+            , const QString &savePath, bool writable, QString &error, const std::atomic_bool *cancelled
+            , bool renameChildren);
+        bool validateLinuxSnapshot(QString &error) const;
+        QMap<QString, int> m_directoryDescriptors;
+        QMap<QString, QByteArray> m_pathIdentities;
+#endif
         QMap<QString, void *> m_directoryHandles;
         std::vector<File> m_files;
         std::vector<MissingEmptyFile> m_missingEmptyFiles;

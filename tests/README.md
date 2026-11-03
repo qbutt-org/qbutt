@@ -1581,6 +1581,33 @@ same exclusive guard used for apply; a target or mapped parent directory appeari
 after analysis is rejected.
 It drives the real session through standard recheck and download after apply.
 
+Linux provides descriptor-backed read-only analysis. Managed in-place repair and
+staged mutation remain unavailable: Linux file leases can be broken and retained
+directory descriptors do not prevent pathname replacement. The dialog exposes
+scanning only; the Repair API reports `managed_repair_supported=false`.
+
+`tests/repair/linux-native` compiles the actual guard and hash-analysis sources
+against the application's Qt SDK, exact libtorrent fork install and Boost headers:
+
+```bash
+"$QT_ROOT/bin/qt-cmake" -S tests/repair/linux-native -B "$REPAIR_BUILD" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$LIBTORRENT_ROOT" \
+    -DLibtorrentRasterbar_DIR="$LIBTORRENT_ROOT/lib/cmake/LibtorrentRasterbar" \
+    -DBoost_INCLUDE_DIR="$BOOST_ROOT" -DBoost_NO_SYSTEM_PATHS=ON
+cmake --build "$REPAIR_BUILD" --parallel 1
+"$REPAIR_BUILD/qbutt-linux-repair-fixture"
+```
+
+Use a native Linux filesystem for `TMPDIR`. The fixture generates legal
+v1/v2/hybrid payloads and a sparse 256 MiB race file, then removes its data.
+It verifies hashes and exact-size reporting without truncation; missing-file and
+directory races; hardlink, symlink and FIFO rejection; pre-existing, mapped and
+independent-process writers; lease breaks; replacement triggered by actual hashing
+reads; case-sensitive physical mappings; cancellation and descriptor cleanup.
+It checks explicit mutation/filesystem refusals and preserves unrelated data.
+This storage fixture does not establish GUI, torrent lifecycle, native recheck,
+download or staged-commit acceptance.
+
 `smoke:repair-mappings` checks selected in-place repair with separate download/save
 directories and native `.!qB`/`.unwanted` mappings for v1/v2/hybrid. Analysis and
 cancel/restart preserve the data; apply/recheck leaves ignored tails and missing

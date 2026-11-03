@@ -297,6 +297,8 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         ${IOKit_LIBRARY}
     )
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(qbt_base PRIVATE bittorrent/repairfileguard_linux.cpp)
+
     include(CheckSymbolExists)
     check_symbol_exists(getrandom "sys/random.h" HAVE_GETRANDOM)
 

@@ -9,6 +9,10 @@
 #include <cstddef>
 #include <limits>
 
+#ifdef Q_OS_LINUX
+#include <unistd.h>
+#endif
+
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <winioctl.h>
@@ -23,6 +27,8 @@
 #include <QFileInfo>
 #include <QScopeGuard>
 #include <QSet>
+
+#include "repairanalysis.h"
 
 namespace
 {
@@ -217,15 +223,19 @@ QString BitTorrent::repairPathIdentity(const QString &path)
         }
 #else
         const QString canonical = info.canonicalFilePath();
-        if (canonical.isEmpty() && info.exists())
+        if (canonical.isEmpty() && (info.exists() || info.isSymbolicLink()))
             return {};
 #endif
         if (!canonical.isEmpty())
         {
             QString identity = suffix.isEmpty() ? canonical : QDir(canonical).filePath(suffix);
-            if (identity.endsWith(u'/'))
+            if ((identity.size() > 1) && identity.endsWith(u'/'))
                 identity.chop(1);
+#ifdef Q_OS_LINUX
+            return identity;
+#else
             return identity.toCaseFolded();
+#endif
         }
         suffix = suffix.isEmpty() ? info.fileName() : info.fileName() + u'/' + suffix;
         const QString parent = info.path();
@@ -279,7 +289,10 @@ std::shared_ptr<BitTorrent::RepairFileGuard> BitTorrent::RepairFileGuard::open(
     const lt::file_storage &files, const QString &savePath, const bool writable, QString &error
     , const std::atomic_bool *cancelled, const bool renameChildren, const QSet<int> *writableFiles)
 {
-#ifndef Q_OS_WIN
+#ifdef Q_OS_LINUX
+    Q_UNUSED(writableFiles)
+    return openLinux(files, savePath, writable, error, cancelled, renameChildren);
+#elif !defined(Q_OS_WIN)
     Q_UNUSED(files)
     Q_UNUSED(savePath)
     Q_UNUSED(writable)
@@ -542,6 +555,9 @@ BitTorrent::RepairFileGuard::~RepairFileGuard()
 #ifdef Q_OS_WIN
     for (auto it = m_directoryHandles.cbegin(); it != m_directoryHandles.cend(); ++it)
         CloseHandle(it.value());
+#elif defined(Q_OS_LINUX)
+    for (const int descriptor : m_directoryDescriptors)
+        close(descriptor);
 #endif
 }
 
@@ -550,6 +566,9 @@ void BitTorrent::RepairFileGuard::releaseFiles()
 #ifdef Q_OS_WIN
     for (const File &file : m_files)
         CloseHandle(file.handle);
+#elif defined(Q_OS_LINUX)
+    for (const File &file : m_files)
+        close(file.descriptor);
 #endif
     m_files.clear();
 }
@@ -575,6 +594,30 @@ QSet<int> BitTorrent::RepairFileGuard::existingFiles() const
     for (const File &file : m_files)
         indexes.insert(file.nativeIndex);
     return indexes;
+}
+
+BitTorrent::RepairAnalysis BitTorrent::RepairFileGuard::analyze(const lt::torrent_info &target
+    , const lt::file_storage &mappedFiles, const std::atomic_bool *cancelled) const
+{
+    const QSet<int> readable = existingFiles();
+#ifdef Q_OS_LINUX
+    RepairAnalysis result;
+    if (!validateLinuxSnapshot(result.error))
+        return result;
+    QMap<int, int> descriptors;
+    for (const File &file : m_files)
+        descriptors.insert(file.nativeIndex, file.descriptor);
+    result = analyzeRepairData(target, mappedFiles, m_root, cancelled, &readable, &descriptors);
+    if (!validateLinuxSnapshot(result.error))
+    {
+        const QString error = result.error;
+        result = {};
+        result.error = error;
+    }
+    return result;
+#else
+    return analyzeRepairData(target, mappedFiles, m_root, cancelled, &readable);
+#endif
 }
 
 bool BitTorrent::RepairFileGuard::createMissingEmpty(QString &error, const std::atomic_bool *cancelled)

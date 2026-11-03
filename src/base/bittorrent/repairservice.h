@@ -36,6 +36,7 @@ namespace BitTorrent
         explicit RepairService(Torrent *torrent, QObject *parent = nullptr);
         ~RepairService() override;
 
+        static bool supportsManagedRepair();
         void analyze();
         void apply();
         void analyzeStaged(const QStringList &sourceRoots, const QMap<int, QString> &mappings = {});

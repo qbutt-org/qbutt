@@ -88,6 +88,7 @@ void RepairController::analyzeAction()
     {
         {u"id"_s, QUuid::createUuid().toString(QUuid::WithoutBraces)},
         {u"hash"_s, id.toString()},
+        {u"managed_repair_supported"_s, BitTorrent::RepairService::supportsManagedRepair()},
         {u"state"_s, u"analyzing"_s}
     };
     m_service = new BitTorrent::RepairService {torrent, this};

@@ -48,8 +48,9 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
     , m_files {new QTreeWidget {this}}
     , m_consent {new QCheckBox {tr("I have closed other programs that can change these files."), this}}
 {
+    const bool managedRepair = BitTorrent::RepairService::supportsManagedRepair();
     setObjectName(QStringLiteral("RepairDialog"));
-    setWindowTitle(tr("Repair files"));
+    setWindowTitle(managedRepair ? tr("Repair files") : tr("Scan files"));
     setWindowModality(Qt::WindowModal);
     resize(760, 0);
 
@@ -60,7 +61,8 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
     name->setTextInteractionFlags(Qt::TextSelectableByMouse);
     name->setWordWrap(true);
     details->addRow(tr("Torrent:"), name);
-    const QString pendingDestination = BitTorrent::StagingOperation::pendingDestination(torrent->id().toString());
+    const QString pendingDestination = managedRepair
+        ? BitTorrent::StagingOperation::pendingDestination(torrent->id().toString()) : QString {};
     auto *location = new QLabel {pendingDestination.isEmpty() ? torrent->actualStorageLocation().toString() : pendingDestination, this};
     location->setTextFormat(Qt::PlainText);
     location->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -70,7 +72,7 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
 
     auto *detailsToggle = new QToolButton {this};
     detailsToggle->setObjectName(QStringLiteral("repairDetails"));
-    detailsToggle->setText(tr("Files and options"));
+    detailsToggle->setText(managedRepair ? tr("Files and options") : tr("Files"));
     detailsToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     detailsToggle->setArrowType(Qt::RightArrow);
     detailsToggle->setCheckable(true);
@@ -86,6 +88,11 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
         mode->setCurrentIndex(2);
     else if (options.mode == RepairDialogMode::InPlace)
         mode->setCurrentIndex(1);
+    if (!managedRepair)
+    {
+        mode->setCurrentIndex(1);
+        mode->setEnabled(false);
+    }
     settings->addRow(tr("Repair method:"), mode);
     auto *roots = new QPlainTextEdit {this};
     roots->setObjectName(QStringLiteral("repairSourceRoots"));
@@ -141,6 +148,13 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
     m_files->setMinimumHeight(180);
     optionsLayout->addWidget(m_files, 1);
     optionsLayout->addWidget(chooseSource, 0, Qt::AlignLeft);
+    if (!managedRepair)
+    {
+        settings->setRowVisible(mode, false);
+        settings->setRowVisible(roots, false);
+        settings->setRowVisible(browse, false);
+        chooseSource->hide();
+    }
     for (int index = 0; index < torrent->filesCount(); ++index)
     {
         auto *item = new QTreeWidgetItem {m_files, {torrent->filePath(index).toString()
@@ -368,6 +382,7 @@ RepairDialog::RepairDialog(QWidget *parent, BitTorrent::Torrent *torrent, const 
 
 void RepairDialog::showAnalysis(const BitTorrent::RepairAnalysis &analysis, const QString &directory)
 {
+    const bool managedRepair = BitTorrent::RepairService::supportsManagedRepair();
     m_progress->hide();
     m_files->clear();
     QMap<int, QString> targetNames;
@@ -400,12 +415,21 @@ void RepairDialog::showAnalysis(const BitTorrent::RepairAnalysis &analysis, cons
         .arg(locale().formattedDataSize(analysis.verifiedBytes), locale().formattedDataSize(analysis.expectedBytes));
     if (analysis.wholeFileV2Verification)
         summary += tr("\nPartial files need another check before downloading.");
-    if (!m_staged)
+    if (!managedRepair)
+    {
+        summary += tr("\nRepair actions are unavailable on this system.");
+    }
+    else if (!m_staged)
+    {
         summary += tr("\nRepair will change the original files without a backup.");
+    }
     m_status->setText(summary);
-    m_consent->setEnabled(true);
-    m_consent->show();
-    m_apply->show();
+    if (managedRepair)
+    {
+        m_consent->setEnabled(true);
+        m_consent->show();
+        m_apply->show();
+    }
 }
 
 void RepairDialog::showFailure(const QString &message)

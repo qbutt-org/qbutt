@@ -2647,6 +2647,10 @@ Supports the formats: S01E01, 1x1, 2017.12.31 and 31.12.2017 (Date formats also 
         <source>Use commit recovery or rollback for this interrupted operation.</source>
         <translation>Для этой прерванной операции используйте восстановление фиксации или откат.</translation>
     </message>
+    <message>
+        <source>Managed repair requires exclusive file and directory ownership unavailable on this platform.</source>
+        <translation>На этой системе восстановление недоступно: нельзя обеспечить исключительное владение файлами и папками.</translation>
+    </message>
 </context>
 <context>
     <name>BitTorrent::ResumeDataStorage</name>
@@ -13974,6 +13978,16 @@ Repair will change the original files without a backup.</source>
         <translation>
 Восстановление изменит исходные файлы без резервной копии.</translation>
     </message>
+    <message>
+        <source>Files</source>
+        <translation>Файлы</translation>
+    </message>
+    <message>
+        <source>
+Repair actions are unavailable on this system.</source>
+        <translation>
+Восстановление на этой системе недоступно.</translation>
+    </message>
 </context>
 <context>
     <name>RepairFileGuard</name>
@@ -14146,6 +14160,42 @@ Repair will change the original files without a backup.</source>
         <location filename="../base/bittorrent/repairfileguard.cpp" line="709"/>
         <source>Exact size verification failed after truncating %1.</source>
         <translation>Проверка точного размера после обрезания %1 завершилась ошибкой.</translation>
+    </message>
+    <message>
+        <source>Read-only repair analysis requires a supported local Linux filesystem: %1.</source>
+        <translation>Для проверки без изменений нужна поддерживаемая локальная файловая система Linux: %1.</translation>
+    </message>
+    <message>
+        <source>Cannot safely read %1 (Linux error %2).</source>
+        <translation>Не удалось безопасно прочитать %1 (ошибка Linux %2).</translation>
+    </message>
+    <message>
+        <source>Managed repair cannot obtain exclusive file and directory ownership on Linux. Read-only analysis is available.</source>
+        <translation>В Linux недоступно исключительное владение файлами и папками для восстановления. Доступна проверка без изменений.</translation>
+    </message>
+    <message>
+        <source>Repair requires a clean absolute Linux path.</source>
+        <translation>Для проверки нужен абсолютный путь Linux без избыточных компонентов.</translation>
+    </message>
+    <message>
+        <source>Repair exceeds the limit of %1 open file and directory descriptors.</source>
+        <translation>Для проверки требуется больше %1 открытых файлов и папок.</translation>
+    </message>
+    <message>
+        <source>Cannot obtain a stable read lease for %1 (Linux error %2). Close writers or use a local filesystem that supports leases.</source>
+        <translation>Не удалось защитить %1 от записи на время проверки (ошибка Linux %2). Закройте программы, изменяющие файл, или выберите поддерживаемую локальную файловую систему.</translation>
+    </message>
+    <message>
+        <source>Repair requires an ordinary file without hard links or symbolic links: %1</source>
+        <translation>Для проверки нужен обычный файл без жёстких или символических ссылок: %1</translation>
+    </message>
+    <message>
+        <source>The file or its read lease changed during analysis: %1. Analyze the data again.</source>
+        <translation>Файл или защита чтения изменились во время проверки: %1. Запустите проверку заново.</translation>
+    </message>
+    <message>
+        <source>A target path changed during analysis: %1. Analyze the data again.</source>
+        <translation>Путь к файлу изменился во время проверки: %1. Запустите проверку заново.</translation>
     </message>
 </context>
 <context>
