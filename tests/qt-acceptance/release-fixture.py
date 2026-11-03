@@ -40,6 +40,7 @@ sha = lambda data: hashlib.sha256(data).hexdigest()
 scenario = ""
 requests = []
 base = "https://github.com/qbutt-org/qbutt/releases/"
+platform = "linux-x64" if sys.platform.startswith("linux") else "windows-x64"
 current_version = (Path(__file__).resolve().parents[2] / "qbutt-version.txt").read_text().strip()
 next_major = int(current_version.split(".")[0]) + 1
 future_version = os.environ.get("QBUTT_UPDATE_FIXTURE_RELEASE_VERSION") or (
@@ -51,8 +52,8 @@ invalid_version = future_version.rsplit(".", 1)[0] + ".01"
 
 def release(version):
     mode = scenario.removeprefix("installed-")
-    def asset_for(suffix, data):
-        name = f"qbutt-{version}-windows-x64{suffix}"
+    def asset_for(suffix, data, target_platform=platform):
+        name = f"qbutt-{version}-{target_platform}{suffix}"
         return {"name": name, "size": len(data), "digest": "sha256:" + sha(data),
                 "browser_download_url": base + f"download/v{version}/{name}", "state": "uploaded"}
     asset = asset_for("-setup.exe", installer) if scenario.startswith("installed-") else asset_for(".zip", payload)
@@ -70,6 +71,11 @@ def release(version):
     if scenario.startswith("installed-"):
         assets.insert(0, asset_for(".zip", payload))
         if mode == "missing-installer":
+            assets = assets[:1]
+    else:
+        other_platform = "windows-x64" if platform == "linux-x64" else "linux-x64"
+        assets.insert(0, asset_for(".zip", b"other platform; never downloaded", other_platform))
+        if mode == "wrong-platform":
             assets = assets[:1]
     return {"tag_name": "v" + version, "html_url": base + "tag/v" + version,
             "draft": False, "prerelease": "-" in version, "assets": assets}
@@ -170,7 +176,8 @@ try:
                                     ("corrupt", 7), ("interrupted", 7), ("identity", 7),
                                     ("redirect", 7), ("network", 7), ("untrusted", 7),
                                     ("missing-digest", 7), ("invalid-digest", 7), ("duplicate", 7),
-                                    ("oversize-asset", 7), ("short-asset", 7), ("archive-redirect", 5)]
+                                    ("oversize-asset", 7), ("short-asset", 7), ("archive-redirect", 5),
+                                    ("wrong-platform", 7)]
                 if len(sys.argv) > 3:
                     cases += [("installed-success", 5), ("installed-cache-hit", 5), ("installed-cache-corrupt", 5),
                               ("installed-cancel", 6), ("installed-corrupt", 7), ("installed-missing-installer", 7),
@@ -202,9 +209,9 @@ try:
                 if scenario == "short-asset":
                     assert "exceeded its expected size" in item["message"], item
                 if scenario == "versions":
-                    assert item["fileName"] == f"qbutt-{version_10}-windows-x64.zip", item
+                    assert item["fileName"] == f"qbutt-{version_10}-{platform}.zip", item
                 archive_requests = [r for r in requests if r["scenario"] == scenario and ".zip " in r["request"]]
-                if scenario in ("identity", "missing-digest", "invalid-digest", "duplicate", "oversize-asset"):
+                if scenario in ("identity", "missing-digest", "invalid-digest", "duplicate", "oversize-asset", "wrong-platform"):
                     assert not archive_requests, requests
                 if scenario == "success":
                     assert len(archive_requests) == 1, requests

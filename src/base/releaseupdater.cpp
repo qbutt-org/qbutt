@@ -376,8 +376,12 @@ void ReleaseUpdater::readReleases()
         return;
     }
     m_version = selected.value(u"tag_name"_s).toString().mid(1);
+#ifdef Q_OS_LINUX
+    m_fileName = u"qbutt-%1-linux-x64.zip"_s.arg(m_version);
+#else
     m_fileName = (isInstalled() ? u"qbutt-%1-windows-x64-setup.exe"_s
         : u"qbutt-%1-windows-x64.zip"_s).arg(m_version);
+#endif
     const QString prefix = RELEASE_ROOT + u"download/v" + m_version + u'/';
     QJsonObject archive;
     int matches = 0;
@@ -400,7 +404,7 @@ void ReleaseUpdater::readReleases()
     m_archiveHash = assetHash(archive);
     if ((matches != 1) || (m_archiveSize <= 0) || (m_archiveSize > MAX_ARCHIVE_SIZE) || m_archiveHash.isEmpty())
     {
-        fail(tr("The Windows download is not available. Try again later."));
+        fail(tr("The download for this platform is not available. Try again later."));
         return;
     }
     m_archiveUrl = QUrl(prefix + m_fileName);

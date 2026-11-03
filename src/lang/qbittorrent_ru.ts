@@ -13420,8 +13420,8 @@ Showing the first %L1 files.</source>
     </message>
     <message>
         <location filename="../base/releaseupdater.cpp" line="326"/>
-        <source>The Windows download is not available. Try again later.</source>
-        <translation>Загрузка для Windows недоступна. Повторите попытку позже.</translation>
+        <source>The download for this platform is not available. Try again later.</source>
+        <translation>Сборка для этой платформы недоступна. Повторите попытку позже.</translation>
     </message>
     <message>
         <location filename="../base/releaseupdater.cpp" line="331"/>
