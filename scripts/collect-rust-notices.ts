@@ -33,14 +33,16 @@ const { values } = parseArgs({
         rustc: { type: "string", default: "rustc" },
     },
 });
-assert(values.bundle, "Usage: bun scripts/collect-rust-notices.ts --bundle <bundle> [--cargo <cargo.exe>] [--rustc <rustc.exe>]");
+assert(values.bundle, "Usage: bun scripts/collect-rust-notices.ts --bundle <bundle> [--cargo <cargo>] [--rustc <rustc>]");
 
 const repository = resolve(import.meta.dir, "..");
 const output = resolve(values.bundle, "licenses/rust");
 const outputRelative = relative(repository, output);
 assert(outputRelative === ".." || outputRelative.startsWith(`..${sep}`) || isAbsolute(outputRelative),
     "Keep generated notices outside source");
-const target = "x86_64-pc-windows-msvc";
+assert(process.arch === "x64" && ["win32", "linux"].includes(process.platform), "Unsupported notice collection platform");
+const target = process.platform === "win32" ? "x86_64-pc-windows-msvc" : "x86_64-unknown-linux-gnu";
+const tar = process.platform === "win32" ? "tar.exe" : "tar";
 
 // These published crates omit the repository's license files. Keep the exact
 // source commit and file checksums until a replacement crate includes them.
@@ -135,7 +137,7 @@ const toolchain = Bun.TOML.parse(toolchainBytes.toString("utf8")) as { toolchain
 assert(/^\d+\.\d+\.\d+$/.test(toolchain.toolchain.channel), "Rust toolchain must name an exact release");
 const compiler = (await command([values.rustc!, "--version", "--verbose"])).toString("utf8").trim();
 assert(compiler.split(/\r?\n/).includes(`release: ${toolchain.toolchain.channel}`), "Rust compiler differs from rust-toolchain.toml");
-assert(compiler.split(/\r?\n/).includes(`host: ${target}`), "Expected the Windows x64 MSVC Rust toolchain");
+assert(compiler.split(/\r?\n/).includes(`host: ${target}`), `Expected the ${target} Rust toolchain`);
 const cargoLockBytes = await readFile(join(repository, "Cargo.lock"));
 const cargoLock = Bun.TOML.parse(cargoLockBytes.toString("utf8")) as CargoLock;
 const metadata = JSON.parse((await command([
@@ -158,7 +160,7 @@ for (const item of packages) {
     const archive = resolve(root, "../../..", "cache", basename(dirname(root)), `${item.name}-${item.version}.crate`);
     assert.equal(sha256(await readFile(archive)), checksum, `Cargo source archive differs from Cargo.lock: ${item.name}`);
     const prefix = `${item.name}-${item.version}/`;
-    const entries = (await command(["tar.exe", "-tf", archive])).toString("utf8").trim().split(/\r?\n/);
+    const entries = (await command([tar, "-tf", archive])).toString("utf8").trim().split(/\r?\n/);
     const files = entries.filter(path => /^(?:licen[sc]e|copying|notice|patents|copyright)(?:[._-].*)?$/i.test(basename(path)));
     if (item.license_file) {
         files.push(prefix + relative(root, resolve(root, item.license_file)).replaceAll("\\", "/"));
@@ -168,7 +170,7 @@ for (const item of packages) {
         assert(file.startsWith(prefix), `License outside crate source: ${item.name}`);
         const path = file.slice(prefix.length);
         assert(!path.split("/").includes("..") && !isAbsolute(path), `License outside crate source: ${item.name}`);
-        const bytes = await command(["tar.exe", "-xOf", archive, file]);
+        const bytes = await command([tar, "-xOf", archive, file]);
         assert(bytes.length <= 1024 * 1024, `License exceeds 1 MiB: ${item.name}/${path}`);
         assert(!bytes.includes(0), `License is not plain text: ${item.name}/${path}`);
         const hash = sha256(bytes);
@@ -180,7 +182,7 @@ for (const item of packages) {
     if (!files.length) {
         const source = repositoryLicenses.find(entry => entry.crates.includes(`${item.name}@${item.version}`));
         assert(source, `No upstream license text: ${item.name}@${item.version}`);
-        const vcs = JSON.parse((await command(["tar.exe", "-xOf", archive, prefix + ".cargo_vcs_info.json"])).toString("utf8"));
+        const vcs = JSON.parse((await command([tar, "-xOf", archive, prefix + ".cargo_vcs_info.json"])).toString("utf8"));
         assert.equal(vcs.git.sha1, source.commit, `License source commit differs from crate: ${item.name}`);
         for (const file of source.files) {
             const url = "url" in file ? file.url
@@ -198,7 +200,7 @@ for (const item of packages) {
             await Bun.write(destination, bytes);
             licenseEntries.push({ file: prefix + file.path, sha256: file.sha256, source: url });
         }
-        const sourceText = (await command(["tar.exe", "-xOf", archive])).toString("utf8");
+        const sourceText = (await command([tar, "-xOf", archive])).toString("utf8");
         const copyrights = [...new Set(sourceText.match(/SPDX-FileCopyrightText: [^\r\n]+/g))].sort();
         if (copyrights.length) {
             const text = Buffer.from(copyrights.join("\n") + "\n");
@@ -229,7 +231,7 @@ await Bun.write(join(output, "dependencies.json"), JSON.stringify({
     compiler,
     cargoLockSha256: sha256(cargoLockBytes),
     toolchainFileSha256: sha256(toolchainBytes),
-    scope: "Locked Windows workspace dependency graph, including build and development dependencies.",
+    scope: `Locked ${target} workspace dependency graph, including build and development dependencies.`,
     packages: notices,
 }, null, 2) + "\n");
 console.log(`Collected ${notices.length} Rust crate notices and the pinned standard-library notices.`);

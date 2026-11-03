@@ -500,5 +500,114 @@
       "openssl": "3.6.3",
       "zlib": "1.3.2#1"
     }
+  },
+  "linux": {
+    "architecture": "x86_64",
+    "buildDistribution": "Ubuntu 24.04",
+    "qt": {
+      "version": "6.12.0",
+      "webEngineVersion": "6.140.0-rc",
+      "archives": [
+        {
+          "file": "6.12.0-0-202609280346qtpositioning-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.addons.qtpositioning.linux_gcc_64/6.12.0-0-202609280346qtpositioning-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 400635,
+          "sha256": "f49c3db711a80368dc967a0915659211ead6a53077c5019b5928b737250316b6",
+          "vendorSha1": "2dd7d111edc0beb896d3d484fb5930bee35a5937"
+        },
+        {
+          "file": "6.12.0-0-202609280346qtshadertools-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.addons.qtshadertools.linux_gcc_64/6.12.0-0-202609280346qtshadertools-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 1734173,
+          "sha256": "66892450a2baf559b230778f34f879db76d93fdc58b4241522a5d495643f00a5",
+          "vendorSha1": "d3693b910a0ba95ae3f1829e2d2cc7b144edd075"
+        },
+        {
+          "file": "6.12.0-0-202609280346qtwebchannel-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.addons.qtwebchannel.linux_gcc_64/6.12.0-0-202609280346qtwebchannel-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 125934,
+          "sha256": "e82fa970a649ce33a16155efed4abefb211ae8af156bf17ab667175b08187b42",
+          "vendorSha1": "03aa4b9112a277b4579983b7b53db10f3a25f406"
+        },
+        {
+          "file": "6.12.0-0-202609280346qtimageformats-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.addons.qtimageformats.linux_gcc_64/6.12.0-0-202609280346qtimageformats-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 553310,
+          "sha256": "a94de54e4d4c695bb61d6dc1041f9673c67c6dd5336b4df63da3198da6d1ed09",
+          "vendorSha1": "aa4fee24ea0afca76c445aac87d51b3945e9c9ef"
+        },
+        {
+          "file": "6.12.0-0-202609280346qtbase-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.linux_gcc_64/6.12.0-0-202609280346qtbase-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 23729678,
+          "sha256": "943023b929d0c08eafe7341700b5ed7601284410b7afd6093f950be291d1d7cd",
+          "vendorSha1": "ee66bceaaee64df0b068d64191046fa0dbea91b1"
+        },
+        {
+          "file": "6.12.0-0-202609280346qttools-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.linux_gcc_64/6.12.0-0-202609280346qttools-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 29144192,
+          "sha256": "5d6f90961df3a1e5a57fac69bbbe6983860bad11c419a49736b84914588b4334",
+          "vendorSha1": "8c3e98a15ecebf04499e1b1450fbf723be4de195"
+        },
+        {
+          "file": "6.12.0-0-202609280346qtdeclarative-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.linux_gcc_64/6.12.0-0-202609280346qtdeclarative-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 153654100,
+          "sha256": "0c719e17ea9fbd37aa615595149dca2578985656433f27bf2846cffe4b687d3e",
+          "vendorSha1": "4a6470843dbb2fc1ab3c4cc4ec1f0678aa203d20"
+        },
+        {
+          "file": "6.12.0-0-202609280346qtwayland-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.linux_gcc_64/6.12.0-0-202609280346qtwayland-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 132690,
+          "sha256": "14c0dc4c8147cf9f7f64909b27ae5c9ab2aaa8ad6625bc2248c693c2a327ab5b",
+          "vendorSha1": "ac659f6ba937eda343dba3084340145b3c61b84d"
+        },
+        {
+          "file": "6.12.0-0-202609280346qttranslations-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.linux_gcc_64/6.12.0-0-202609280346qttranslations-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 2003147,
+          "sha256": "bd10fbbce93b076d9bc29576f41e9ccbaf3f7782625f9bebb418d2d9b9f97c47",
+          "vendorSha1": "4780d746a64670bbe973b6448807144f5defae1c"
+        },
+        {
+          "file": "6.12.0-0-202609280346icu-linux-Rhel8.6-x86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.linux_gcc_64/6.12.0-0-202609280346icu-linux-Rhel8.6-x86_64.7z",
+          "size": 9660660,
+          "sha256": "1fdbcd67b1760f3a3f031c64637a9f19992aed2f35aa615e12a468f8c655d4da",
+          "vendorSha1": "e8ca1caa798c902eb6bf1aab81a3ea52b6f16714"
+        },
+        {
+          "file": "6.12.0-0-202609281005qtwebengine-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/extensions/qtwebengine/6120/61400/x86_64/extensions.qtwebengine.6120.61400.linux_gcc_64/6.12.0-0-202609281005qtwebengine-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 130438145,
+          "sha256": "dd7a7a1062152038bf37a3ab995d765b313112efca561c9041a6fe9c1951cb0d",
+          "vendorSha1": "df1668503cc0981087b2b003fea4a1df1ad15ae3"
+        },
+        {
+          "file": "6.12.0-0-202609280346qtsvg-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "url": "https://download.qt.io/online/qtsdkrepository/linux_x64/desktop/qt6_6120/qt6_6120/qt.qt6.6120.linux_gcc_64/6.12.0-0-202609280346qtsvg-Linux-RHEL_9_6-GCC-Linux-RHEL_9_6-X86_64.7z",
+          "size": 297464,
+          "sha256": "22a7404505a2883c54556183f19adfff1cdbea30664e34bfd4171180802142e9",
+          "vendorSha1": "7827d071ce0ab985b6dcad712b7803ea7211d6ef"
+        }
+      ],
+      "architecture": "linux_gcc_64",
+      "directory": "gcc_64",
+      "webEngineSourceSbom": "qtwebengine-6.140.0.spdx.json"
+    },
+    "bun": {
+      "version": "1.4.2",
+      "file": "bun-1.4.2-linux-x64-baseline.zip",
+      "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64-baseline.zip",
+      "sha256": "c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f"
+    },
+    "go": {
+      "version": "1.27.1",
+      "file": "go1.27.1.linux-amd64.tar.gz",
+      "url": "https://go.dev/dl/go1.27.1.linux-amd64.tar.gz",
+      "sha256": "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445"
+    }
   }
 }
