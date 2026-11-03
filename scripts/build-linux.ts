@@ -483,6 +483,11 @@ if (!values["without-products"]) {
         await mkdir(output);
         await command(["unzip", "-q", archive, "-d", output]);
         assert(await Bun.file(join(output, name)).exists(), `The ${name} Linux portable executable is missing.`);
+        const manifest = JSON.parse(await readFile(join(output, "build-manifest.json"), "utf8"));
+        assert(manifest.product === name && manifest.platform === "linux-x64"
+            && manifest.version === product.version && manifest.sourceRevision === product.commit
+            && manifest.protocolVersion === product.protocolVersion && manifest.sourceWorktreeChanged === false,
+        `The ${name} release manifest differs from its pinned clean build identity.`);
         productArtifacts[name] = pin;
     }
 }
