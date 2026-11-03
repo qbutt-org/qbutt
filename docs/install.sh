@@ -16,16 +16,16 @@ main() {
             sha256=6fec1d95b0138ccece9d652d5a88f4c34b367ec3f9bff47e57903233af48e7f3
             ;;
         qplay)
-            version=1.3.0
+            version=1.4.0
             file=qplay-linux-x64.tar.gz
-            size=185230917
-            sha256=53e8a11e785e13707badbdd49906a37e6483915bdf6d05c6f167967e64063cc3
+            size=188806676
+            sha256=ad497516286194efb304afd51a669be66bf36fa98121f5d1c7b20d8e6a52129c
             ;;
         qcatch)
-            version=1.3.1
+            version=1.3.2
             file=qcatch-linux-x64.tar.gz
-            size=118744811
-            sha256=b6df4503840b2115c58c781657f84700a532fe71fb5e2536216ade8764da8bd0
+            size=118750357
+            sha256=20ff7d28c84580acdb8fec5813139786a1a7ea81dbdf1a6edeacbf6751dd3513
             ;;
         *)
             printf '%s\n' 'Choose qbutt, qplay or qcatch.' >&2
