@@ -4,12 +4,12 @@ use std::path::Path;
 use std::task::Poll;
 use std::time::Duration;
 
+use super::fixture::BrowserClient;
 use qbutt_content::browser::{
     BrowserBroker, BrowserChoice, BrowserError, BrowserHandle, BrowserReply,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::windows::named_pipe::NamedPipeClient;
 use tokio::time::{sleep, timeout};
 
 use super::fixture::{
@@ -72,8 +72,8 @@ pub(super) async fn framing_faults(discovery: &Path) -> FixtureResult {
 
 pub(super) async fn connection_identity(
     handle: &BrowserHandle,
-    edge: &mut NamedPipeClient,
-    chrome: &mut NamedPipeClient,
+    edge: &mut BrowserClient,
+    chrome: &mut BrowserClient,
 ) -> FixtureResult {
     let pending = request(handle, BrowserChoice::Edge, cookies());
     let wire = read(edge).await?;
@@ -87,7 +87,7 @@ pub(super) async fn connection_identity(
 
 pub(super) async fn cancellation(
     handle: &BrowserHandle,
-    edge: &mut NamedPipeClient,
+    edge: &mut BrowserClient,
 ) -> FixtureResult {
     let pending = request(handle, BrowserChoice::Edge, cookies());
     let wire = read(edge).await?;
@@ -108,7 +108,7 @@ pub(super) async fn cancellation(
     Ok(())
 }
 
-pub(super) async fn capacity(handle: &BrowserHandle, edge: &mut NamedPipeClient) -> FixtureResult {
+pub(super) async fn capacity(handle: &BrowserHandle, edge: &mut BrowserClient) -> FixtureResult {
     let mut pending = Vec::new();
     for _ in 0..16 {
         let request = request(handle, BrowserChoice::Edge, cookies());

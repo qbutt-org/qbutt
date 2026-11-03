@@ -3,7 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(windows)]
 use crate::browser::BrowserError;
 use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
 
@@ -367,10 +366,8 @@ impl SourceFailureReason {
             Error::Network(_) => Some(Self::Network),
             Error::LoginRequired => Some(Self::LoginRequired),
             Error::Challenge => Some(Self::Challenge),
-            #[cfg(windows)]
             Error::SourceCheckRequired => Some(Self::SourceCheckRequired),
             Error::BrowserChoiceRequired => Some(Self::BrowserChoiceRequired),
-            #[cfg(windows)]
             Error::BrowserSession(error) => Some(match error {
                 BrowserError::BrowserRequired
                 | BrowserError::Disconnected
@@ -395,7 +392,6 @@ impl SourceFailureReason {
                 | BrowserError::UnsupportedPrivateTracks
                 | BrowserError::CaptureExpired => Self::Metadata,
             }),
-            #[cfg(windows)]
             Error::SourceCheck(_) => Some(Self::SourceCheck),
             Error::UnsupportedTorrent => Some(Self::UnsupportedTorrent),
         }

@@ -2,11 +2,11 @@ use std::io;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::windows::named_pipe::NamedPipeServer;
 use tokio::sync::{mpsc, watch};
 use tokio::time::timeout;
 
 use super::BrowserConnection;
+use super::listener::Connection;
 use super::protocol::{Hello, MAX_FRAME_BYTES, Response};
 
 pub(crate) enum Event {
@@ -23,7 +23,7 @@ pub(crate) enum Event {
 /// Each direction retains its read/write future until completion. Recreating a
 /// read_exact future after every outgoing frame would lose a partial header.
 pub(crate) async fn connection(
-    pipe: NamedPipeServer,
+    pipe: Connection,
     id: u64,
     events: mpsc::Sender<Event>,
     mut outgoing: mpsc::Receiver<Vec<u8>>,

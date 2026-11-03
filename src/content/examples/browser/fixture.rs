@@ -7,9 +7,16 @@ use qbutt_content::browser::{
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::ClientOptions;
+#[cfg(windows)]
+pub(super) type BrowserClient = tokio::net::windows::named_pipe::NamedPipeClient;
+#[cfg(unix)]
+pub(super) type BrowserClient = tokio::net::UnixStream;
 use tokio::task::JoinHandle;
-use tokio::time::{sleep, timeout};
+#[cfg(windows)]
+use tokio::time::sleep;
+use tokio::time::timeout;
 
 pub(super) const MAX_FRAME: usize = 768 * 1024;
 pub(super) type FixtureResult = Result<(), Box<dyn std::error::Error>>;
@@ -31,7 +38,7 @@ pub(super) fn request(
 
 pub(super) async fn exchange(
     handle: &BrowserHandle,
-    edge: &mut NamedPipeClient,
+    edge: &mut BrowserClient,
     command: Value,
     result: Value,
     expected: Option<BrowserError>,
@@ -67,11 +74,12 @@ pub(super) fn hello(browser: &str, user_agent: &str, vk_search: bool) -> Value {
     })
 }
 
-pub(super) async fn connect(
-    discovery: &Path,
-) -> Result<NamedPipeClient, Box<dyn std::error::Error>> {
+pub(super) async fn connect(discovery: &Path) -> Result<BrowserClient, Box<dyn std::error::Error>> {
     let value: Value = serde_json::from_slice(&fs::read(discovery)?)?;
     let pipe = value["pipe"].as_str().ok_or("Missing discovery pipe")?;
+    #[cfg(unix)]
+    return Ok(BrowserClient::connect(pipe).await?);
+    #[cfg(windows)]
     for _ in 0..200 {
         match ClientOptions::new().open(pipe) {
             Ok(client) => return Ok(client),
@@ -81,6 +89,7 @@ pub(super) async fn connect(
             Err(error) => return Err(error.into()),
         }
     }
+    #[cfg(windows)]
     Err("Pipe connection timeout".into())
 }
 
@@ -89,7 +98,7 @@ pub(super) async fn extension(
     browser: &str,
     agent: &str,
     vk_search: bool,
-) -> Result<NamedPipeClient, Box<dyn std::error::Error>> {
+) -> Result<BrowserClient, Box<dyn std::error::Error>> {
     let mut client = connect(discovery).await?;
     write(&mut client, &hello(browser, agent, vk_search)).await?;
     Ok(client)
@@ -110,7 +119,7 @@ pub(super) async fn wait_status(
     Ok(())
 }
 
-pub(super) async fn closed(client: &mut NamedPipeClient) -> FixtureResult {
+pub(super) async fn closed(client: &mut BrowserClient) -> FixtureResult {
     let mut byte = [0u8; 1];
     let result = timeout(Duration::from_secs(7), client.read(&mut byte)).await?;
     assert!(
@@ -120,9 +129,7 @@ pub(super) async fn closed(client: &mut NamedPipeClient) -> FixtureResult {
     Ok(())
 }
 
-pub(super) async fn read(
-    client: &mut NamedPipeClient,
-) -> Result<Value, Box<dyn std::error::Error>> {
+pub(super) async fn read(client: &mut BrowserClient) -> Result<Value, Box<dyn std::error::Error>> {
     timeout(Duration::from_secs(3), async {
         let length = client.read_u32_le().await? as usize;
         if length == 0 || length > MAX_FRAME {
@@ -135,7 +142,7 @@ pub(super) async fn read(
     .await?
 }
 
-pub(super) async fn write(client: &mut NamedPipeClient, value: &Value) -> FixtureResult {
+pub(super) async fn write(client: &mut BrowserClient, value: &Value) -> FixtureResult {
     let bytes = serde_json::to_vec(value)?;
     client
         .write_all(&(bytes.len() as u32).to_le_bytes())
@@ -144,7 +151,7 @@ pub(super) async fn write(client: &mut NamedPipeClient, value: &Value) -> Fixtur
     Ok(())
 }
 
-pub(super) async fn write_fragmented(client: &mut NamedPipeClient, value: &Value) -> FixtureResult {
+pub(super) async fn write_fragmented(client: &mut BrowserClient, value: &Value) -> FixtureResult {
     let body = serde_json::to_vec(value)?;
     let bytes: Vec<_> = (body.len() as u32)
         .to_le_bytes()

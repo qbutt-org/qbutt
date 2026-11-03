@@ -10,7 +10,6 @@ use reqwest::header::{
 use serde::de::DeserializeOwned;
 use url::{Host, Url};
 
-#[cfg(windows)]
 use crate::browser::{
     BrowserChoice, BrowserCommand, BrowserError, BrowserHandle, BrowserReply, FetchInit,
 };
@@ -60,7 +59,6 @@ pub(crate) struct SourceDocument {
 
 /// qcatch owns the authenticated browser request and charset decoding. Keep the
 /// returned bytes and advertised encoding consistent for existing source parsers.
-#[cfg(windows)]
 pub(crate) async fn browser_document(
     browser: &BrowserHandle,
     choice: BrowserChoice,

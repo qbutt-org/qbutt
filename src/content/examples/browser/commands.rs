@@ -1,14 +1,14 @@
+use super::fixture::BrowserClient;
 use qbutt_content::browser::{
     BrowserChoice, BrowserCommand, BrowserError, BrowserHandle, BrowserReply,
 };
 use serde_json::{Value, json};
-use tokio::net::windows::named_pipe::NamedPipeClient;
 
 use super::fixture::{FixtureResult, MAX_FRAME, cookies, exchange, read, request, write};
 
 pub(super) async fn command_replies(
     handle: &BrowserHandle,
-    edge: &mut NamedPipeClient,
+    edge: &mut BrowserClient,
 ) -> FixtureResult {
     let cookie = json!({
         "name": "session",

@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -35,11 +36,13 @@ pub(super) async fn native_host_relay(
     }
     let broker = BrowserBroker::start(discovery.to_path_buf()).await?;
     let handle = broker.handle();
+    let mut command = Command::new(executable);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
     let mut child = NativeHost(
-        Command::new(executable)
+        command
             .arg(format!("chrome-extension://{extension_id}/"))
             .env("QBUTT_BROWSER_BRIDGE_DISCOVERY", discovery)
-            .creation_flags(0x0800_0000)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

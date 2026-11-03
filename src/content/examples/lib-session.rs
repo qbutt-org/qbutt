@@ -1,14 +1,12 @@
 //! Generated pipe + HTTPS integration for the operation-scoped Lib transport.
 //! The fixture supplies TLS/DNS only; no product endpoints or profile are changed.
 
-#[cfg(windows)]
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 #[path = "../src/browser/mod.rs"]
 mod browser;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
-#[cfg(windows)]
 pub use qbutt_content::webview;
 pub use qbutt_content::{Source, TorrentMetadata};
 
@@ -37,15 +35,11 @@ mod lib_api {
     }
 }
 
-#[cfg(windows)]
 #[path = "lib_session/mod.rs"]
 mod acceptance;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    #[cfg(windows)]
     acceptance::run().await?;
-    #[cfg(not(windows))]
-    return Err("Lib browser integration requires Windows".into());
     Ok(())
 }

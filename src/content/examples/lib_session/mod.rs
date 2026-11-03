@@ -35,9 +35,7 @@ pub(super) async fn run() -> FixtureResult {
         Err(Error::BrowserSession(BrowserError::UpdateRequired))
     ));
     drop(edge);
-    let discovery_value: Value = serde_json::from_slice(&fs::read(&discovery)?)?;
-    let mut edge = tokio::net::windows::named_pipe::ClientOptions::new()
-        .open(discovery_value["pipe"].as_str().unwrap())?;
+    let mut edge = pipe::open(&discovery).await?;
     pipe::write(&mut edge, &json!({"type":"hello","version":1,"browser":"edge","userAgent":"generated lib extension","capabilities":["lib-session"]})).await?;
     pipe::wait_agent(&handle, "generated lib extension").await?;
     println!("PASS no connected browser is anonymous; missing capability requires update");
@@ -281,8 +279,7 @@ pub(super) async fn run() -> FixtureResult {
     let mut stale = pending.await??;
     drop(edge);
 
-    let mut replacement = tokio::net::windows::named_pipe::ClientOptions::new()
-        .open(discovery_value["pipe"].as_str().unwrap())?;
+    let mut replacement = pipe::open(&discovery).await?;
     pipe::write(&mut replacement, &json!({"type":"hello","version":1,"browser":"edge","userAgent":"generated replacement","capabilities":["lib-session"]})).await?;
     pipe::wait_agent(&handle, "generated replacement").await?;
     let before = requests.load(Ordering::SeqCst);

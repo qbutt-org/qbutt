@@ -103,21 +103,30 @@ fn dpapi(input: &[u8], decrypt: bool) -> io::Result<Vec<u8>> {
     result
 }
 
-#[cfg(not(windows))]
-fn dpapi(_: &[u8], _: bool) -> io::Result<Vec<u8>> {
-    Err(io::Error::other("protected API keys require Windows"))
-}
+#[cfg(target_os = "linux")]
+#[path = "secrets/linux.rs"]
+mod linux;
 
 pub(crate) fn protect(value: &str) -> io::Result<Vec<u8>> {
     let secret = Secret::from_plaintext(value.as_bytes())?;
-    dpapi(&secret.0, false)
+    #[cfg(windows)]
+    {
+        dpapi(&secret.0, false)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux::protect(&secret.0)
+    }
 }
 
 pub(crate) fn unprotect(value: &[u8]) -> io::Result<Secret> {
     if value.is_empty() || value.len() > MAX_PROTECTED_BYTES {
         return Err(io::Error::other("saved protected settings are invalid"));
     }
+    #[cfg(windows)]
     let mut plaintext = dpapi(value, true)?;
+    #[cfg(target_os = "linux")]
+    let mut plaintext = linux::unprotect(value)?;
     let secret = Secret::from_plaintext(&plaintext);
     erase(&mut plaintext);
     secret

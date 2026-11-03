@@ -20,24 +20,44 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
 
 fn main() -> Result<()> {
+    #[cfg(unix)]
+    if std::env::args().any(|arg| arg == "--hold-fixture-process") {
+        loop {
+            std::thread::park();
+        }
+    }
     if std::env::args().any(|arg| arg == "app-server") {
         return host();
     }
+    #[cfg(unix)]
+    if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let profile = std::env::temp_dir().join(format!("qbutt-codex-protocol-{nonce}"));
-    let native = profile
-        .join("nodejs/node_modules/@openai/codex/node_modules")
-        .join("@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin");
+    let native = if cfg!(windows) {
+        profile
+            .join("nodejs/node_modules/@openai/codex/node_modules")
+            .join("@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin")
+    } else {
+        profile.join("bin")
+    };
     std::fs::create_dir_all(&native)?;
-    std::fs::copy(std::env::current_exe()?, native.join("codex.exe"))?;
+    std::fs::copy(
+        std::env::current_exe()?,
+        native.join(if cfg!(windows) { "codex.exe" } else { "codex" }),
+    )?;
     let original_program_files = std::env::var_os("ProgramFiles");
     let original_local_app_data = std::env::var_os("LOCALAPPDATA");
     let original_codex_home = std::env::var_os("CODEX_HOME");
+    let original_path = std::env::var_os("PATH");
     // The fixture owns this single-threaded process before its Tokio runtime.
     unsafe {
         std::env::set_var("ProgramFiles", &profile);
         std::env::set_var("LOCALAPPDATA", &profile);
         std::env::set_var("CODEX_HOME", &profile);
+        #[cfg(unix)]
+        std::env::set_var("PATH", &native);
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -56,6 +76,10 @@ fn main() -> Result<()> {
         match original_codex_home {
             Some(value) => std::env::set_var("CODEX_HOME", value),
             None => std::env::remove_var("CODEX_HOME"),
+        }
+        match original_path {
+            Some(value) => std::env::set_var("PATH", value),
+            None => std::env::remove_var("PATH"),
         }
     }
     std::fs::remove_dir_all(&profile)?;
@@ -129,9 +153,20 @@ async fn exercise(native: &Path, profile: &Path) -> Result<()> {
         "different-bytes",
         "locked-file",
         "cleanup-failure",
+        "replaced-before-cleanup",
+        "parent-renamed",
         "late-tool",
         "late-tool-after-image",
     ] {
+        // Windows sharing and readonly deletion semantics have no POSIX equivalent.
+        #[cfg(unix)]
+        if matches!(case, "locked-swap" | "locked-file" | "cleanup-failure") {
+            continue;
+        }
+        #[cfg(windows)]
+        if matches!(case, "replaced-before-cleanup" | "parent-renamed") {
+            continue;
+        }
         std::fs::write(native.join("case.txt"), case)?;
         std::fs::write(native.join("trace.jsonl"), "")?;
         let artifact = images.join(format!("fixture-{case}/image-1.png"));
@@ -179,7 +214,7 @@ async fn exercise(native: &Path, profile: &Path) -> Result<()> {
         let (result, controlled) = tokio::join!(work, control);
         controlled?;
         match (case, result) {
-            ("valid" | "metadata-rejected", Ok(output)) => {
+            ("valid" | "metadata-rejected" | "parent-renamed", Ok(output)) => {
                 assert_eq!(
                     output.png,
                     base64::engine::general_purpose::STANDARD.decode(PNG)?
@@ -204,7 +239,7 @@ async fn exercise(native: &Path, profile: &Path) -> Result<()> {
             | ("setup-timeout", Err(CodexError::Timeout))
             | ("cancel" | "cancel-after-image" | "locked-swap", Err(CodexError::Cancelled)) => {}
             (
-                "cleanup-failure",
+                "cleanup-failure" | "replaced-before-cleanup",
                 Err(CodexError::ArtifactCleanup {
                     primary: Some(primary),
                     reason,
@@ -267,6 +302,21 @@ async fn exercise(native: &Path, profile: &Path) -> Result<()> {
             assert!(!trace.contains("turn/start"));
             assert_eq!(std::fs::read(&artifact)?, png);
         }
+        if case == "replaced-before-cleanup" {
+            assert_eq!(
+                std::fs::read(&artifact)?,
+                b"replacement must survive cleanup"
+            );
+            assert_eq!(
+                std::fs::read(artifact.with_file_name("preserved-owned.png"))?,
+                png
+            );
+        }
+        if case == "parent-renamed" {
+            let renamed = images.join(format!("renamed-{case}"));
+            assert!(renamed.is_dir());
+            assert!(!renamed.join("image-1.png").exists());
+        }
         if case == "cleanup-failure" {
             #[cfg(windows)]
             {
@@ -285,6 +335,39 @@ async fn exercise(native: &Path, profile: &Path) -> Result<()> {
         assert!(process_exited(
             first["pid"].as_u64().ok_or("host PID missing")? as u32
         ));
+        #[cfg(unix)]
+        if case == "cancel" {
+            let descendant = trace
+                .lines()
+                .map(serde_json::from_str::<Value>)
+                .collect::<std::result::Result<Vec<_>, _>>()?
+                .into_iter()
+                .find_map(|entry| entry["descendantPid"].as_u64())
+                .ok_or("descendant PID missing")?;
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                let mut status = 0;
+                let reaped =
+                    unsafe { libc::waitpid(descendant as libc::pid_t, &mut status, libc::WNOHANG) };
+                if reaped == descendant as libc::pid_t {
+                    assert!(libc::WIFSIGNALED(status));
+                    assert_eq!(libc::WTERMSIG(status), libc::SIGKILL);
+                    break;
+                }
+                if reaped < 0 {
+                    return Err(std::io::Error::last_os_error().into());
+                }
+                if Instant::now() >= deadline {
+                    unsafe {
+                        libc::kill(descendant as libc::pid_t, libc::SIGKILL);
+                        libc::waitpid(descendant as libc::pid_t, &mut status, 0);
+                    }
+                    return Err("owned Codex descendant survived cancellation".into());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            println!("PASS imagegen_protocol owned_process_group descendant_reaped=true");
+        }
         println!("PASS imagegen_protocol case={case} process_reaped=true");
     }
     // Structured consumers must keep the built-in disabled and reject its events.
@@ -316,6 +399,16 @@ fn host() -> Result<()> {
         .append(true)
         .open(native.join("trace.jsonl"))?;
     writeln!(trace, "{}", json!({"pid": std::process::id()}))?;
+    #[cfg(unix)]
+    if case == "cancel" {
+        let descendant = std::process::Command::new(std::env::current_exe()?)
+            .arg("--hold-fixture-process")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
+        writeln!(trace, "{}", json!({"descendantPid": descendant.id()}))?;
+    }
     let args: Vec<_> = std::env::args().collect();
     let mut features = BTreeMap::new();
     for pair in args.windows(2) {
@@ -455,7 +548,7 @@ fn turn(
     case: &str,
     thread: &str,
     codex_home: &Path,
-    artifact_lock: &mut Option<std::fs::File>,
+    _artifact_lock: &mut Option<std::fs::File>,
 ) -> Result<()> {
     if case == "large-line" {
         writeln!(output, "{}", "x".repeat(33 * 1024 * 1024))?;
@@ -515,6 +608,8 @@ fn turn(
                 | "different-bytes"
                 | "locked-file"
                 | "cleanup-failure"
+                | "replaced-before-cleanup"
+                | "parent-renamed"
                 | "late-tool-after-image"
         ) {
             let path = codex_home
@@ -529,12 +624,16 @@ fn turn(
                     preserved.parent().unwrap(),
                     path.parent().unwrap(),
                 )?;
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(preserved.parent().unwrap(), path.parent().unwrap())?;
             } else {
                 std::fs::create_dir_all(path.parent().unwrap())?;
                 match case {
                     "file-symlink" => {
                         #[cfg(windows)]
                         std::os::windows::fs::symlink_file(&preserved, &path)?;
+                        #[cfg(unix)]
+                        std::os::unix::fs::symlink(&preserved, &path)?;
                     }
                     "hardlink" => std::fs::hard_link(&preserved, &path)?,
                     "different-bytes" => {
@@ -548,7 +647,7 @@ fn turn(
             if case == "locked-file" {
                 #[cfg(windows)]
                 {
-                    *artifact_lock = Some(
+                    *_artifact_lock = Some(
                         std::fs::OpenOptions::new()
                             .read(true)
                             .share_mode(1)
@@ -593,6 +692,25 @@ fn turn(
             }))
         });
         send(output, done.clone())?;
+        #[cfg(unix)]
+        if matches!(case, "replaced-before-cleanup" | "parent-renamed") {
+            std::thread::sleep(Duration::from_millis(100));
+            let path = codex_home
+                .join("generated_images")
+                .join(thread)
+                .join("image-1.png");
+            if case == "replaced-before-cleanup" {
+                std::fs::rename(&path, path.with_file_name("preserved-owned.png"))?;
+                std::fs::write(&path, b"replacement must survive cleanup")?;
+            } else {
+                std::fs::rename(
+                    path.parent().unwrap(),
+                    codex_home
+                        .join("generated_images")
+                        .join(format!("renamed-{case}")),
+                )?;
+            }
+        }
         if case == "double-complete" {
             send(output, done)?;
         }
@@ -617,7 +735,10 @@ fn turn(
             return Ok(());
         }
     }
-    let text = if matches!(case, "malformed-final" | "cleanup-failure") {
+    let text = if matches!(
+        case,
+        "malformed-final" | "cleanup-failure" | "replaced-before-cleanup"
+    ) {
         "not JSON"
     } else if case == "metadata-rejected" {
         "{\"accepted\":false}"
@@ -663,9 +784,15 @@ fn artifact_is_locked(path: &Path) -> bool {
     matches!(result, Err(error) if error.raw_os_error() == Some(32))
 }
 
-#[cfg(not(windows))]
-fn artifact_is_locked(_: &Path) -> bool {
-    false
+#[cfg(unix)]
+fn artifact_is_locked(path: &Path) -> bool {
+    // Linux has no deny-delete handles. Observe the accepted artifact descriptor
+    // before signalling cancellation, so capture has actually consumed the event.
+    std::fs::read_dir("/proc/self/fd").is_ok_and(|entries| {
+        entries
+            .flatten()
+            .any(|entry| std::fs::read_link(entry.path()).is_ok_and(|target| target == path))
+    })
 }
 
 #[cfg(windows)]
@@ -689,7 +816,8 @@ fn process_exited(pid: u32) -> bool {
     }
 }
 
-#[cfg(not(windows))]
-fn process_exited(_pid: u32) -> bool {
-    true
+#[cfg(unix)]
+fn process_exited(pid: u32) -> bool {
+    (unsafe { libc::kill(pid as libc::pid_t, 0) }) != 0
+        && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
 }

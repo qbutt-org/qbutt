@@ -8,9 +8,15 @@
 
 mod actor;
 mod command;
+#[cfg(windows)]
 mod discovery;
+#[cfg(unix)]
+#[path = "discovery_unix.rs"]
+mod discovery;
+mod listener;
 mod protocol;
 mod reply;
+#[cfg(windows)]
 mod security;
 mod selection;
 mod transport;
@@ -137,7 +143,7 @@ impl BrowserBroker {
             tokio::task::spawn_blocking(move || discovery::Discovery::open(discovery_path))
                 .await
                 .map_err(|_| BrowserError::StartFailed)??;
-        let listener = security::create_pipe(discovery.pipe_name(), true)
+        let listener = listener::Listener::bind(discovery.pipe_name())
             .map_err(|_| BrowserError::StartFailed)?;
         discovery.publish()?;
         let (requests, incoming) = mpsc::channel(16);

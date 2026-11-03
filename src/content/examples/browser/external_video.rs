@@ -1,14 +1,14 @@
+use super::fixture::BrowserClient;
 use qbutt_content::browser::{BrowserChoice, BrowserError, BrowserHandle};
 use qbutt_content::{
     ExternalVideoError, PublicationRef, Source, VariantRef, VariantSelector, resolve_external_video,
 };
 use serde_json::json;
-use tokio::net::windows::named_pipe::NamedPipeClient;
 use url::Url;
 
 use super::fixture::{FixtureResult, read, write};
 
-pub(super) async fn dispatch(handle: &BrowserHandle, edge: &mut NamedPipeClient) -> FixtureResult {
+pub(super) async fn dispatch(handle: &BrowserHandle, edge: &mut BrowserClient) -> FixtureResult {
     let source: Url = "https://yani.tv/catalog/item/fixture-author-video".parse()?;
     let reference = VariantRef {
         publication: PublicationRef {

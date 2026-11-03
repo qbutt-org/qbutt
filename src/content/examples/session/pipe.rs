@@ -5,8 +5,15 @@ use std::time::Duration;
 use crate::browser::BrowserHandle;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
-use tokio::time::{sleep, timeout};
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::ClientOptions;
+#[cfg(windows)]
+pub(super) type BrowserClient = tokio::net::windows::named_pipe::NamedPipeClient;
+#[cfg(unix)]
+pub(super) type BrowserClient = tokio::net::UnixStream;
+#[cfg(windows)]
+use tokio::time::sleep;
+use tokio::time::timeout;
 
 use super::FixtureResult;
 
@@ -18,16 +25,22 @@ pub(super) async fn connect(
     discovery: &Path,
     browser: &str,
     agent: &str,
-) -> FixtureResult<NamedPipeClient> {
+) -> FixtureResult<BrowserClient> {
+    let mut client = open(discovery).await?;
+    write(&mut client, &hello(browser, agent)).await?;
+    Ok(client)
+}
+
+pub(super) async fn open(discovery: &Path) -> FixtureResult<BrowserClient> {
     let value: Value = serde_json::from_slice(&fs::read(discovery)?)?;
     let pipe = value["pipe"].as_str().ok_or("Missing discovery pipe")?;
+    #[cfg(unix)]
+    return Ok(BrowserClient::connect(pipe).await?);
+    #[cfg(windows)]
     timeout(Duration::from_secs(3), async {
         loop {
             match ClientOptions::new().open(pipe) {
-                Ok(mut client) => {
-                    write(&mut client, &hello(browser, agent)).await?;
-                    return Ok(client);
-                }
+                Ok(client) => return Ok(client),
                 Err(error) if error.raw_os_error() == Some(231) => {
                     sleep(Duration::from_millis(10)).await
                 }
@@ -54,7 +67,7 @@ pub(super) async fn wait_agent(handle: &BrowserHandle, agent: &str) -> FixtureRe
     .await?
 }
 
-pub(super) async fn read(client: &mut NamedPipeClient) -> FixtureResult<Value> {
+pub(super) async fn read(client: &mut BrowserClient) -> FixtureResult<Value> {
     timeout(Duration::from_secs(3), async {
         let size = client.read_u32_le().await? as usize;
         if size == 0 || size > 768 * 1024 {
@@ -67,7 +80,7 @@ pub(super) async fn read(client: &mut NamedPipeClient) -> FixtureResult<Value> {
     .await?
 }
 
-pub(super) async fn write(client: &mut NamedPipeClient, value: &Value) -> FixtureResult {
+pub(super) async fn write(client: &mut BrowserClient, value: &Value) -> FixtureResult {
     let bytes = serde_json::to_vec(value)?;
     client.write_u32_le(bytes.len() as u32).await?;
     client.write_all(&bytes).await?;

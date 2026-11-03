@@ -243,23 +243,9 @@ mod windows {
 #[cfg(windows)]
 pub(super) use windows::ImageArtifact;
 
-#[cfg(not(windows))]
-pub(super) struct ImageArtifact;
+#[cfg(unix)]
+#[path = "imagegen_artifact_unix.rs"]
+mod unix;
 
-#[cfg(not(windows))]
-impl ImageArtifact {
-    pub(crate) fn new() -> std::io::Result<Self> {
-        Err(std::io::Error::other(
-            "safe generated-image cleanup requires Windows",
-        ))
-    }
-    pub(crate) fn claim_thread(&mut self, _: &str) -> std::io::Result<()> {
-        unreachable!()
-    }
-    pub(crate) fn capture(&mut self, _: &serde_json::Value, _: &[u8]) -> std::io::Result<()> {
-        unreachable!()
-    }
-    pub(crate) fn cleanup(&mut self) -> std::io::Result<()> {
-        unreachable!()
-    }
-}
+#[cfg(unix)]
+pub(super) use unix::ImageArtifact;

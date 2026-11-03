@@ -36,7 +36,13 @@ impl Scratch {
         getrandom::fill(&mut random).map_err(|_| CodexError::Provider)?;
         let name = format!("qbutt-codex-{}", u64::from_le_bytes(random));
         let path = std::env::temp_dir().join(name);
-        std::fs::create_dir(&path).map_err(|_| CodexError::Provider)?;
+        let directory = &mut std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            directory.mode(0o700);
+        }
+        directory.create(&path).map_err(|_| CodexError::Provider)?;
         Ok(Self(path))
     }
 
@@ -82,6 +88,15 @@ impl Client {
             "HTTP_PROXY",
             "ALL_PROXY",
             "NO_PROXY",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            "XDG_RUNTIME_DIR",
+            "DBUS_SESSION_BUS_ADDRESS",
+            "LANG",
+            "LC_ALL",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
         ] {
             if let Some(value) = std::env::var_os(name) {
                 command.env(name, value);
@@ -121,6 +136,8 @@ impl Client {
             .kill_on_drop(true);
         #[cfg(windows)]
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        #[cfg(unix)]
+        command.process_group(0);
 
         let mut child = command.spawn().map_err(|_| CodexError::Unavailable)?;
         let stdin = child.stdin.take().ok_or(CodexError::Protocol)?;
@@ -139,6 +156,11 @@ impl Client {
     }
 
     pub(super) async fn stop(&mut self) -> std::io::Result<()> {
+        #[cfg(unix)]
+        if let Some(pid) = self.child.id() {
+            // The child leads a private group; helpers cannot outlive a request.
+            unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+        }
         let _ = self.child.start_kill();
         let reaped = tokio::time::timeout(Duration::from_secs(3), self.child.wait()).await;
         if let Some(artifact) = &mut self.artifact {
@@ -180,10 +202,65 @@ pub(super) fn installed_codex() -> Option<PathBuf> {
         candidates.sort_by_key(|path| path.metadata().and_then(|info| info.modified()).ok());
         candidates.pop()
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
         std::env::split_paths(&std::env::var_os("PATH")?)
             .map(|path| path.join("codex"))
-            .find(|path| path.is_file())
+            .find_map(|path| native_codex(&path))
+    }
+}
+
+#[cfg(unix)]
+fn native_codex(path: &Path) -> Option<PathBuf> {
+    use std::io::Read;
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = path.canonicalize().ok()?;
+    let native = |path: &Path| {
+        let metadata = path.metadata().ok()?;
+        if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+            return None;
+        }
+        let mut signature = [0u8; 4];
+        std::fs::File::open(path)
+            .ok()?
+            .read_exact(&mut signature)
+            .ok()?;
+        (signature == *b"\x7fELF").then(|| path.to_path_buf())
+    };
+    if let Some(path) = native(&path) {
+        return Some(path);
+    }
+    // npm's public executable is a JavaScript shim. Resolve its installed native
+    // optional package directly, retaining the application's no-runtime boundary.
+    let root = path.parent()?.parent()?;
+    let (package, triple) = match std::env::consts::ARCH {
+        "x86_64" => ("codex-linux-x64", "x86_64-unknown-linux-musl"),
+        "aarch64" => ("codex-linux-arm64", "aarch64-unknown-linux-musl"),
+        _ => return None,
+    };
+    for vendor in [
+        root.join("vendor"),
+        root.join("node_modules/@openai")
+            .join(package)
+            .join("vendor"),
+        root.parent()?.join(package).join("vendor"),
+    ] {
+        for executable in ["codex/codex", "bin/codex"] {
+            if let Some(path) = native(&vendor.join(triple).join(executable)) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.child.id() {
+            // Covers cancellation by dropping the owning future before stop().
+            unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+        }
     }
 }

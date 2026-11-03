@@ -2,7 +2,6 @@ use reqwest::header::{HeaderMap, HeaderValue, ORIGIN, REFERER};
 use serde::de::DeserializeOwned;
 use url::Url;
 
-#[cfg(windows)]
 use crate::browser::{BrowserChoice, BrowserError, BrowserHandle};
 use crate::http::{SourceHttp, SourceSession};
 use crate::{Error, Result, Source};
@@ -15,7 +14,6 @@ const API_ORIGIN: &str = "https://api.cdnlibs.org";
 pub struct LibSession {
     source: Source,
     api: SourceSession,
-    #[cfg(windows)]
     browser: Option<(BrowserHandle, u64)>,
 }
 
@@ -25,14 +23,12 @@ impl LibSession {
         Ok(Self {
             source,
             api: SourceSession::anonymous(Url::parse(API_ORIGIN).expect("fixed Lib API"))?,
-            #[cfg(windows)]
             browser: None,
         })
     }
 
     /// Only an already connected qcatch session is used. This does not start a
     /// browser or wait for installation; public requests still work without it.
-    #[cfg(windows)]
     pub async fn from_browser(
         source: Source,
         browser: Option<&BrowserHandle>,
@@ -105,7 +101,6 @@ impl LibHttp {
 
         // The site owns token refresh. Read its current value once after a 401;
         // a missing/expired session is a login failure, never an anonymous retry.
-        #[cfg(windows)]
         if let Some((browser, identity)) = &session.browser {
             let site = Url::parse(site_origin(self.source)?).expect("fixed Lib site");
             let (borrowed, token) = browser
@@ -134,7 +129,6 @@ impl LibHttp {
         // API authorization is never supplied to image hosts, including after
         // redirects. This fresh jar contains only this CDN's browser cookies.
         let mut image_session = SourceSession::anonymous(url.clone())?;
-        #[cfg(windows)]
         if let Some((browser, identity)) = &session.browser {
             let borrowed = browser
                 .session_from_connection(BrowserChoice::Auto, url.clone(), Some(*identity))
@@ -164,7 +158,6 @@ fn access_result<T>(result: Result<T>) -> Result<T> {
     }
 }
 
-#[cfg(windows)]
 fn browser_error(error: BrowserError) -> Error {
     match error {
         BrowserError::LoginRequired => Error::LoginRequired,

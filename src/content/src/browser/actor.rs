@@ -2,16 +2,16 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tokio::net::windows::named_pipe::NamedPipeServer;
 use tokio::sync::{Notify, mpsc, oneshot, watch};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, sleep_until};
 
 use super::discovery::Discovery;
+use super::listener::Listener;
 use super::transport::{self, Event};
 use super::{
     BrowserChoice, BrowserCommand, BrowserConnection, BrowserError, BrowserId, BrowserReply,
-    BrowserStatus, security,
+    BrowserStatus,
 };
 
 pub(crate) struct Request {
@@ -51,7 +51,7 @@ struct WireCommand<'a> {
 
 pub(crate) async fn run(
     discovery: Discovery,
-    mut listener: NamedPipeServer,
+    mut listener: Listener,
     mut incoming: mpsc::Receiver<Request>,
     status: watch::Sender<BrowserStatus>,
     mut stop: watch::Receiver<bool>,
@@ -78,15 +78,11 @@ pub(crate) async fn run(
         };
         tokio::select! {
             _ = stop.changed() => break,
-            result = listener.connect(), if tasks.len() < 4 => {
-                if result.is_err() {
-                    break;
-                }
-                let next = match security::create_pipe(discovery.pipe_name(), false) {
-                    Ok(next) => next,
+            result = listener.accept(), if tasks.len() < 4 => {
+                let connected = match result {
+                    Ok(connected) => connected,
                     Err(_) => break,
                 };
-                let connected = std::mem::replace(&mut listener, next);
                 next_connection += 1;
                 let connection = next_connection;
                 let (outgoing, output) = mpsc::channel(16);

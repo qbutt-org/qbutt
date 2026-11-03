@@ -16,6 +16,7 @@ use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::AbortHandle;
 use url::Url;
+#[cfg(windows)]
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use crate::MediaGateway;
@@ -388,9 +389,17 @@ async fn run_with_proxy(
         return Err(WebViewError::InvalidRequest);
     }
     input.push(b'\n');
-    let mut command = Command::new(owner.app_dir.join("qbutt-webview.exe"));
+    let helper = if cfg!(windows) {
+        "qbutt-webview.exe"
+    } else {
+        "qbutt-webview"
+    };
+    let mut command = Command::new(owner.app_dir.join(helper));
     command.arg("--stdio");
+    #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
+    #[cfg(unix)]
+    command.process_group(0);
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

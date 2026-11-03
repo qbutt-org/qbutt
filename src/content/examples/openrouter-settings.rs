@@ -1,4 +1,4 @@
-//! Current-user DPAPI and isolated Library settings across a real process restart.
+//! Current-user protected settings across a real process restart.
 //! The generated key is public fixture data; no environment or installed key is read.
 
 use std::path::Path;
@@ -109,7 +109,7 @@ fn main() -> Result<()> {
     std::fs::remove_dir_all(&profile)?;
     result?;
     println!(
-        "PASS openrouter_settings dpapi rollback key_removal no_env elapsed_ms={}",
+        "PASS openrouter_settings protected_storage rollback key_removal no_env elapsed_ms={}",
         started.elapsed().as_millis()
     );
     Ok(())

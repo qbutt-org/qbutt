@@ -6,17 +6,14 @@ mod error;
 pub use error::{Error, Result};
 pub use qbutt_content::TorrentMetadata;
 
-#[cfg(windows)]
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 #[path = "../src/browser/mod.rs"]
 mod browser;
 
-#[cfg(windows)]
 mod webview {
     pub use qbutt_content::webview::{WebViewError, WebViewSession};
 }
 
-#[cfg(windows)]
 #[allow(dead_code)]
 mod http {
     include!("../src/http.rs");
@@ -26,15 +23,11 @@ mod http {
     }
 }
 
-#[cfg(windows)]
 #[path = "session/mod.rs"]
 mod session;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    #[cfg(windows)]
     session::run().await?;
-    #[cfg(not(windows))]
-    return Err("The browser session fixture requires Windows".into());
     Ok(())
 }

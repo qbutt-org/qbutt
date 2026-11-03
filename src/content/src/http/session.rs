@@ -1,5 +1,4 @@
 use cookie_store::Cookie;
-#[cfg(windows)]
 use cookie_store::{CookieExpiration, RawCookie};
 use reqwest::RequestBuilder;
 use reqwest::header::{AUTHORIZATION, COOKIE, HeaderMap, HeaderValue, SET_COOKIE, USER_AGENT};
@@ -34,7 +33,6 @@ impl SourceSession {
         })
     }
 
-    #[cfg(windows)]
     pub(crate) fn set_bearer(&mut self, token: Option<String>) -> Result<()> {
         self.authorization = token
             .map(|token| {
@@ -47,7 +45,6 @@ impl SourceSession {
         Ok(())
     }
 
-    #[cfg(windows)]
     pub(crate) fn from_browser(
         origin: Url,
         session: crate::browser::BrowserSession,
@@ -83,7 +80,6 @@ impl SourceSession {
         Ok(source)
     }
 
-    #[cfg(windows)]
     pub(crate) fn from_webview(
         origin: Url,
         session: crate::webview::WebViewSession,

@@ -378,8 +378,23 @@ fn move_without_replace(source: &Path, destination: &Path) -> io::Result<()> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn move_without_replace(source: &Path, destination: &Path) -> io::Result<()> {
-    std::fs::hard_link(source, destination)?;
-    std::fs::remove_file(source)
+    let source = std::ffi::CString::new(source.as_os_str().as_encoded_bytes())?;
+    let destination = std::ffi::CString::new(destination.as_os_str().as_encoded_bytes())?;
+    // Commit the independently written staging inode without overwriting a file
+    // created after destination selection or introducing another writable link.
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            libc::AT_FDCWD,
+            destination.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }

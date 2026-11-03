@@ -6,8 +6,7 @@ mod lifecycle;
 mod native_host;
 mod security;
 
-use std::fs::{self, File};
-use std::os::windows::io::AsRawHandle;
+use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -28,7 +27,7 @@ use lifecycle::{
     stale_discovery,
 };
 use native_host::native_host_relay;
-use security::private_acl;
+use security::{private_connection, private_discovery};
 
 pub async fn run() -> FixtureResult {
     let directory = std::env::temp_dir().join(format!(
@@ -45,7 +44,7 @@ pub async fn run() -> FixtureResult {
         BrowserBroker::start(discovery.clone()).await,
         Err(BrowserError::OwnerExists)
     ));
-    private_acl(File::open(&discovery)?.as_raw_handle());
+    private_discovery(&discovery)?;
     for address in [
         "http://127.0.0.1/",
         "https://10.0.0.1/",
@@ -68,7 +67,7 @@ pub async fn run() -> FixtureResult {
 
     framing_faults(&discovery).await?;
     let mut edge = connect(&discovery).await?;
-    private_acl(edge.as_raw_handle());
+    private_connection(&edge)?;
     write_fragmented(&mut edge, &hello("edge", "fixture edge", true)).await?;
     wait_status(&handle, |status| {
         status
@@ -162,9 +161,11 @@ pub async fn run() -> FixtureResult {
         _ => return Err("Expected qcatch.exe and extension ID arguments".into()),
     };
     assert!(!discovery.exists());
+    #[cfg(unix)]
+    security::filesystem_faults(&directory).await?;
     fs::remove_dir(&directory)?;
     println!(
-        "PASS browser_bridge=ok real_windows_pipe=ok private_acl=ok framing=ok exact_selection=ok connection_identity=ok cancellation=ok batch_cancel=ok connection_grace=ok connected_only=ok static_errors=ok bounded_pending=ok shutdown=ok native_host={native_host}"
+        "PASS browser_bridge=ok native_transport=ok private_access=ok framing=ok exact_selection=ok connection_identity=ok cancellation=ok batch_cancel=ok connection_grace=ok connected_only=ok static_errors=ok bounded_pending=ok shutdown=ok native_host={native_host}"
     );
     Ok(())
 }
