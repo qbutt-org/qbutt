@@ -121,6 +121,7 @@ impl ImageArtifact {
         let Some((directory, name, file)) = self.artifact.take() else {
             return Ok(());
         };
+        let owned = file.metadata()?;
         let mut random = [0u8; 8];
         getrandom::fill(&mut random).map_err(io::Error::other)?;
         let quarantine = CString::new(format!(
@@ -143,11 +144,32 @@ impl ImageArtifact {
             {
                 return Err(io::Error::last_os_error());
             }
-            let moved = open_at(&private, b"image.png", false)?.metadata()?;
-            let owned = file.metadata()?;
-            if moved.dev() != owned.dev() || moved.ino() != owned.ino() || moved.nlink() != 1 {
-                // Preserve a replacement and avoid overwriting a concurrently recreated name.
-                unsafe {
+            // Metadata must describe the directory entry itself. Opening it as a
+            // regular file would reject a replacement symlink or socket before
+            // the common restore path can put that entry back at its original name.
+            let mut moved = std::mem::MaybeUninit::<libc::stat>::uninit();
+            let identity = if unsafe {
+                libc::fstatat(
+                    private.as_raw_fd(),
+                    c"image.png".as_ptr(),
+                    moved.as_mut_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            } == 0
+            {
+                // SAFETY: successful fstatat initialized the complete stat value.
+                let moved = unsafe { moved.assume_init() };
+                Ok(moved.st_dev == owned.dev()
+                    && moved.st_ino == owned.ino()
+                    && moved.st_nlink == 1
+                    && moved.st_mode & libc::S_IFMT == libc::S_IFREG)
+            } else {
+                Err(io::Error::last_os_error())
+            };
+            if !matches!(&identity, Ok(true)) {
+                // Preserve every replacement type without overwriting a name
+                // recreated concurrently while the entry was in quarantine.
+                if unsafe {
                     libc::renameat2(
                         private.as_raw_fd(),
                         c"image.png".as_ptr(),
@@ -155,7 +177,14 @@ impl ImageArtifact {
                         name.as_ptr(),
                         libc::RENAME_NOREPLACE,
                     )
-                };
+                } != 0
+                {
+                    return Err(io::Error::other(format!(
+                        "generated-image artifact could not be restored; files were preserved: {}",
+                        io::Error::last_os_error(),
+                    )));
+                }
+                identity?;
                 return Err(io::Error::other(
                     "generated-image artifact changed before cleanup; files were preserved",
                 ));

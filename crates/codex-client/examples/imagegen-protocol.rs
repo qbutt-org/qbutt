@@ -126,6 +126,8 @@ async fn exercise(native: &Path, profile: &Path) -> Result<()> {
 
     for case in [
         "valid",
+        "replaced-by-symlink",
+        "replaced-by-socket",
         "wrong-thread",
         "wrong-turn",
         "wrong-id",
@@ -164,7 +166,13 @@ async fn exercise(native: &Path, profile: &Path) -> Result<()> {
             continue;
         }
         #[cfg(windows)]
-        if matches!(case, "replaced-before-cleanup" | "parent-renamed") {
+        if matches!(
+            case,
+            "replaced-before-cleanup"
+                | "replaced-by-symlink"
+                | "replaced-by-socket"
+                | "parent-renamed"
+        ) {
             continue;
         }
         std::fs::write(native.join("case.txt"), case)?;
@@ -239,7 +247,10 @@ async fn exercise(native: &Path, profile: &Path) -> Result<()> {
             | ("setup-timeout", Err(CodexError::Timeout))
             | ("cancel" | "cancel-after-image" | "locked-swap", Err(CodexError::Cancelled)) => {}
             (
-                "cleanup-failure" | "replaced-before-cleanup",
+                "cleanup-failure"
+                | "replaced-before-cleanup"
+                | "replaced-by-symlink"
+                | "replaced-by-socket",
                 Err(CodexError::ArtifactCleanup {
                     primary: Some(primary),
                     reason,
@@ -310,6 +321,30 @@ async fn exercise(native: &Path, profile: &Path) -> Result<()> {
             assert_eq!(
                 std::fs::read(artifact.with_file_name("preserved-owned.png"))?,
                 png
+            );
+        }
+        #[cfg(unix)]
+        if matches!(case, "replaced-by-symlink" | "replaced-by-socket") {
+            use std::os::unix::fs::FileTypeExt;
+            let kind = std::fs::symlink_metadata(&artifact)?.file_type();
+            if case == "replaced-by-symlink" {
+                assert!(kind.is_symlink());
+                assert_eq!(std::fs::read_link(&artifact)?, preserved);
+            } else {
+                assert!(kind.is_socket());
+            }
+            assert_eq!(
+                std::fs::read(artifact.with_file_name("preserved-owned.png"))?,
+                png
+            );
+            assert!(
+                !std::fs::read_dir(artifact.parent().unwrap())?
+                    .collect::<std::io::Result<Vec<_>>>()?
+                    .iter()
+                    .any(|entry| entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".qbutt-cleanup-"))
             );
         }
         if case == "parent-renamed" {
@@ -609,6 +644,8 @@ fn turn(
                 | "locked-file"
                 | "cleanup-failure"
                 | "replaced-before-cleanup"
+                | "replaced-by-symlink"
+                | "replaced-by-socket"
                 | "parent-renamed"
                 | "late-tool-after-image"
         ) {
@@ -693,22 +730,41 @@ fn turn(
         });
         send(output, done.clone())?;
         #[cfg(unix)]
-        if matches!(case, "replaced-before-cleanup" | "parent-renamed") {
+        if matches!(
+            case,
+            "replaced-before-cleanup"
+                | "replaced-by-symlink"
+                | "replaced-by-socket"
+                | "parent-renamed"
+        ) {
             std::thread::sleep(Duration::from_millis(100));
             let path = codex_home
                 .join("generated_images")
                 .join(thread)
                 .join("image-1.png");
-            if case == "replaced-before-cleanup" {
-                std::fs::rename(&path, path.with_file_name("preserved-owned.png"))?;
-                std::fs::write(&path, b"replacement must survive cleanup")?;
-            } else {
+            if case == "parent-renamed" {
                 std::fs::rename(
                     path.parent().unwrap(),
                     codex_home
                         .join("generated_images")
                         .join(format!("renamed-{case}")),
                 )?;
+            } else {
+                std::fs::rename(&path, path.with_file_name("preserved-owned.png"))?;
+                if case == "replaced-by-symlink" {
+                    std::os::unix::fs::symlink(
+                        codex_home.join("generated_images/user-existing/image-1.png"),
+                        &path,
+                    )?;
+                } else if case == "replaced-by-socket" {
+                    // Bind a short relative name: sockaddr_un cannot contain
+                    // the full generated-image path, but the inode can be moved.
+                    let socket = std::os::unix::net::UnixListener::bind("replacement.sock")?;
+                    std::fs::rename("replacement.sock", &path)?;
+                    drop(socket);
+                } else {
+                    std::fs::write(&path, b"replacement must survive cleanup")?;
+                }
             }
         }
         if case == "double-complete" {
@@ -737,7 +793,11 @@ fn turn(
     }
     let text = if matches!(
         case,
-        "malformed-final" | "cleanup-failure" | "replaced-before-cleanup"
+        "malformed-final"
+            | "cleanup-failure"
+            | "replaced-before-cleanup"
+            | "replaced-by-symlink"
+            | "replaced-by-socket"
     ) {
         "not JSON"
     } else if case == "metadata-rejected" {
