@@ -10,10 +10,8 @@ pub use error::{Error, Result};
 #[allow(dead_code)]
 #[path = "../src/torrent.rs"]
 mod torrent;
-#[cfg(windows)]
 pub use qbutt_content::webview;
 
-#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;

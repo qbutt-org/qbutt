@@ -11,10 +11,8 @@ use qbutt_content::{Library, LibraryView, SharedWork, VariantPreferences, WorkGr
 mod error;
 pub use error::{Error, Result};
 
-#[cfg(windows)]
 use qbutt_content::webview;
 
-#[cfg(windows)]
 #[path = "../src/browser/mod.rs"]
 #[allow(dead_code)]
 mod browser;

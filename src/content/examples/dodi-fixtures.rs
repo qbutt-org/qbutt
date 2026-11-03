@@ -8,12 +8,10 @@ pub use model::*;
 mod error;
 pub use error::{Error, Result};
 
-#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;
 
-#[cfg(windows)]
 mod webview {
     pub use qbutt_content::webview::{WebViewError, WebViewSession};
 }
@@ -45,7 +43,6 @@ mod dodi {
         id: &str,
     ) -> Result<crate::TorrentMetadata> {
         let mut session = SourceSession::anonymous(url.clone())?;
-        #[cfg(windows)]
         session.set_bearer(Some("generated-fixture-authorization".into()))?;
         host::download(http, url, &mut session, id).await
     }

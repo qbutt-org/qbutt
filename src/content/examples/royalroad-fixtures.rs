@@ -10,11 +10,9 @@ pub use error::{Error, Result};
 #[allow(dead_code)]
 #[path = "../src/sources.rs"]
 mod sources;
-#[cfg(windows)]
 pub use qbutt_content::webview;
 pub use sources::SourceOperation;
 
-#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;

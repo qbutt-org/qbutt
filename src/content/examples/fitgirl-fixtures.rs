@@ -11,10 +11,8 @@ pub use error::{Error, Result};
 mod html_text;
 #[path = "../src/query.rs"]
 mod query;
-#[cfg(windows)]
 pub use qbutt_content::webview;
 
-#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;

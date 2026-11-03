@@ -8,10 +8,8 @@ mod error;
 pub use error::{Error, Result};
 #[path = "../src/html_text.rs"]
 mod html_text;
-#[cfg(windows)]
 pub use qbutt_content::webview;
 
-#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;

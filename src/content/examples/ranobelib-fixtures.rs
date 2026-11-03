@@ -1,7 +1,6 @@
 //! Generated legal metadata and text exercise the production parser and guards.
 //! No copyrighted chapter, live profile or test-only provider endpoint is used.
 
-#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;
@@ -22,7 +21,6 @@ pub use model::*;
 #[path = "../src/error.rs"]
 mod error;
 pub use error::{Error, Result};
-#[cfg(windows)]
 pub use qbutt_content::webview;
 
 pub use text::{TextBlock, TextBlockKind, TextChapter, TextSpan};

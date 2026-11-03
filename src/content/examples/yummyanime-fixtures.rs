@@ -9,10 +9,8 @@ mod error;
 #[path = "../src/query.rs"]
 mod query;
 pub use error::{Error, Result};
-#[cfg(windows)]
 pub use qbutt_content::webview;
 
-#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;
@@ -35,7 +33,6 @@ mod http {
     use serde::de::DeserializeOwned;
     use url::Url;
 
-    #[cfg(windows)]
     pub(crate) use super::guarded_http::validate_media_url;
     pub(crate) use super::guarded_http::{public_media_url, validate_https_url};
     use super::{Result, guarded_http};

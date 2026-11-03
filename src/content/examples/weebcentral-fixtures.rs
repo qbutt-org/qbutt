@@ -8,9 +8,7 @@ pub use model::*;
 mod error;
 pub use error::{Error, Result};
 pub use qbutt_content::TorrentMetadata;
-#[cfg(windows)]
 pub use qbutt_content::webview;
-#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;
