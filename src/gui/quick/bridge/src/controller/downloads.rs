@@ -365,7 +365,7 @@ impl ffi::ContentController {
                         }
                         CapturedVideoError::Browser(_) => "capture",
                     })?;
-                prepare_acquisition(media).await.map_err(|_| "capture")
+                prepare_acquisition(media).await.map_err(|_| "failed")
             }
             .await;
             let _ = qt_thread.queue(move |mut controller| {
