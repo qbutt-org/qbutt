@@ -1,5 +1,3 @@
-#![cfg(windows)]
-
 #[path = "vkvideo/association.rs"]
 mod association;
 #[path = "browser/fixture.rs"]
@@ -318,7 +316,7 @@ fn video(id: &str, title: &str) -> Value {
 }
 
 async fn respond(
-    peer: &mut tokio::net::windows::named_pipe::NamedPipeClient,
+    peer: &mut fixture::BrowserClient,
     command: &Value,
     result: Value,
 ) -> FixtureResult {

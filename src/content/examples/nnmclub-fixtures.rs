@@ -476,7 +476,7 @@ async fn browser_session(fixture: &Fixture, source: &nnmclub::NnmClub) -> CheckR
 }
 
 async fn answer_session(
-    edge: &mut tokio::net::windows::named_pipe::NamedPipeClient,
+    edge: &mut browser_fixture::BrowserClient,
     fixture: &Fixture,
     expired: bool,
 ) -> CheckResult {
@@ -507,7 +507,7 @@ async fn answer_session(
 }
 
 async fn answer_fetch(
-    edge: &mut tokio::net::windows::named_pipe::NamedPipeClient,
+    edge: &mut browser_fixture::BrowserClient,
     fixture: &Fixture,
     changed_url: bool,
 ) -> CheckResult {

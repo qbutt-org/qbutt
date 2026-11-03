@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 
 use url::Url;
 
-#[cfg(windows)]
 use crate::browser::ResolvedMedia;
 
 /// Fresh browser acquisition data. Credentials and remote URLs stay inside the
@@ -70,7 +69,6 @@ pub(crate) struct PlaybackSubtitle {
     pub language: Option<String>,
 }
 
-#[cfg(windows)]
 impl From<ResolvedMedia> for PlaybackMedia {
     fn from(media: ResolvedMedia) -> Self {
         let video_height = media.quality.as_deref().and_then(|quality| {

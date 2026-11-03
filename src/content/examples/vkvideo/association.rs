@@ -2,20 +2,20 @@
 
 use std::path::Path;
 
+use super::fixture::BrowserClient;
 use qbutt_content::browser::{BrowserChoice, BrowserHandle};
 use qbutt_content::{
     Category, Library, PublicationRef, Source, Transport, VariantPreferences, VariantSelector,
     VkVideo, Work, WorkAssociation, WorkGroup,
 };
 use serde_json::json;
-use tokio::net::windows::named_pipe::NamedPipeClient;
 use url::Url;
 
 use super::{FixtureResult, read, respond, video};
 
 pub(super) async fn run(
     browser: &BrowserHandle,
-    edge: &mut NamedPipeClient,
+    edge: &mut BrowserClient,
     directory: &Path,
 ) -> FixtureResult {
     let pending = tokio::spawn({
@@ -259,7 +259,7 @@ pub(super) async fn run(
 
 async fn promotional_aliases(
     browser: &BrowserHandle,
-    edge: &mut NamedPipeClient,
+    edge: &mut BrowserClient,
     original: &Work,
 ) -> FixtureResult {
     for (query, before, after) in [

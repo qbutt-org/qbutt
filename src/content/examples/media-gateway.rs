@@ -6,7 +6,6 @@
 mod error;
 pub use error::{Error, Result};
 pub use qbutt_content::TorrentMetadata;
-#[cfg(windows)]
 pub use qbutt_content::webview;
 
 #[allow(dead_code)]
@@ -14,7 +13,6 @@ pub use qbutt_content::webview;
 mod model;
 pub use model::*;
 
-#[cfg(windows)]
 #[allow(dead_code)]
 #[path = "../src/browser/mod.rs"]
 mod browser;

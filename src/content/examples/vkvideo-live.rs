@@ -1,8 +1,6 @@
 //! Explicit live acceptance using qcatch's already authorized browser session.
 //! Output contains public publication metadata, never acquisition descriptors.
 
-#![cfg(windows)]
-
 use std::path::PathBuf;
 use std::time::Duration;
 

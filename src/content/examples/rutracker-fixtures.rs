@@ -662,7 +662,7 @@ async fn wait_browser(handle: &browser::BrowserHandle, connections: usize) -> Ch
 }
 
 async fn answer_session(
-    client: &mut tokio::net::windows::named_pipe::NamedPipeClient,
+    client: &mut browser_fixture::BrowserClient,
     fixture: &Fixture,
     expired: bool,
 ) -> CheckResult {
@@ -686,9 +686,7 @@ async fn answer_session(
     Ok(())
 }
 
-async fn answer_fetch_login(
-    client: &mut tokio::net::windows::named_pipe::NamedPipeClient,
-) -> CheckResult {
+async fn answer_fetch_login(client: &mut browser_fixture::BrowserClient) -> CheckResult {
     let wire = browser_fixture::read(client).await?;
     assert_eq!(wire["method"], "fetch");
     browser_fixture::write(
