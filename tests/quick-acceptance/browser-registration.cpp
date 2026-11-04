@@ -3,6 +3,12 @@
 
 #include <utility>
 
+#ifdef __linux__
+#include <cerrno>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -13,6 +19,16 @@
 
 namespace
 {
+    QJsonDocument nativeManifest(const QString &executable)
+    {
+        return QJsonDocument(QJsonObject {
+            {QStringLiteral("name"), QStringLiteral("org.qbutt.qcatch")},
+            {QStringLiteral("type"), QStringLiteral("stdio")},
+            {QStringLiteral("path"), executable},
+            {QStringLiteral("allowed_origins"), QJsonArray {QStringLiteral("chrome-extension://jnmnnglmejlbjnjmmjampnhfncpcbffh/")}}
+        });
+    }
+
 #ifdef Q_OS_WIN
     bool setString(const QString &key, const QString &name, const QString &value)
     {
@@ -27,6 +43,21 @@ namespace
             static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
         RegCloseKey(handle);
         return result == ERROR_SUCCESS;
+    }
+#elif defined(Q_OS_LINUX)
+    bool privateDirectory(const QString &path)
+    {
+        struct stat metadata {};
+        const QByteArray encoded = QFile::encodeName(path);
+        return (::lstat(encoded.constData(), &metadata) == 0) && S_ISDIR(metadata.st_mode)
+            && (metadata.st_uid == ::geteuid()) && ((metadata.st_mode & 0777) == 0700);
+    }
+
+    bool createPrivateDirectory(const QString &path)
+    {
+        const QByteArray encoded = QFile::encodeName(path);
+        return ((::mkdir(encoded.constData(), 0700) == 0) || (errno == EEXIST))
+            && privateDirectory(path);
     }
 #endif
 }
@@ -53,6 +84,17 @@ BrowserRegistrationFixture::BrowserRegistrationFixture(QString directory)
         return;
     }
     m_ready = true;
+#elif defined(Q_OS_LINUX)
+    if (!privateDirectory(m_directory))
+        return;
+    const QString config = QDir(m_directory).filePath(QStringLiteral("config"));
+    if (!createPrivateDirectory(config))
+        return;
+    m_configDirectory = QFileInfo(config).canonicalFilePath();
+    if (!m_configDirectory.startsWith(QFileInfo(m_directory).canonicalFilePath() + '/'))
+        return;
+    m_originalConfigHome = qgetenv("XDG_CONFIG_HOME");
+    m_ready = qputenv("XDG_CONFIG_HOME", QFile::encodeName(m_configDirectory));
 #endif
 }
 
@@ -70,6 +112,14 @@ BrowserRegistrationFixture::~BrowserRegistrationFixture()
         RegCloseKey(m_machine);
     if (m_key.startsWith(QStringLiteral("Software\\qbutt-acceptance\\browser-")) && m_key.size() > 60)
         RegDeleteTreeW(HKEY_CURRENT_USER, reinterpret_cast<LPCWSTR>(m_key.utf16()));
+#elif defined(Q_OS_LINUX)
+    if (m_ready)
+    {
+        if (m_originalConfigHome.isNull())
+            qunsetenv("XDG_CONFIG_HOME");
+        else
+            qputenv("XDG_CONFIG_HOME", m_originalConfigHome);
+    }
 #endif
 }
 
@@ -96,12 +146,7 @@ bool BrowserRegistrationFixture::setRegistered(const QString &browser, const boo
         return false;
     const QString path = QDir(m_directory).filePath(QStringLiteral("native-host.json"));
     QFile file(path);
-    const QJsonDocument manifest(QJsonObject {
-        {QStringLiteral("name"), QStringLiteral("org.qbutt.qcatch")},
-        {QStringLiteral("type"), QStringLiteral("stdio")},
-        {QStringLiteral("path"), executable},
-        {QStringLiteral("allowed_origins"), QJsonArray {QStringLiteral("chrome-extension://jnmnnglmejlbjnjmmjampnhfncpcbffh/")}}
-    });
+    const QJsonDocument manifest = nativeManifest(executable);
     if (!file.open(QIODevice::WriteOnly) || (file.write(manifest.toJson()) < 0))
         return false;
     file.close();
@@ -115,6 +160,35 @@ bool BrowserRegistrationFixture::setRegistered(const QString &browser, const boo
         reinterpret_cast<const BYTE *>(path.utf16()), static_cast<DWORD>((path.size() + 1) * sizeof(wchar_t)));
     RegCloseKey(handle);
     return result == ERROR_SUCCESS;
+#elif defined(Q_OS_LINUX)
+    if (!m_ready || !registered || (browser != QStringLiteral("edge")))
+        return false;
+    const QFileInfo executable {qEnvironmentVariable("QBUTT_QCATCH_EXE")};
+    if (!executable.isAbsolute() || !executable.isFile()
+        || !executable.isExecutable() || executable.isSymLink())
+        return false;
+    QDir directory {m_configDirectory};
+    if (!privateDirectory(directory.path()))
+        return false;
+    for (const QString &name : {QStringLiteral("microsoft-edge"), QStringLiteral("NativeMessagingHosts")})
+    {
+        const QString path = directory.filePath(name);
+        if (!createPrivateDirectory(path))
+            return false;
+        directory.setPath(path);
+    }
+    QFile file {directory.filePath(QStringLiteral("org.qbutt.qcatch.json"))};
+    if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly,
+            QFileDevice::ReadOwner | QFileDevice::WriteOwner))
+        return false;
+    const QByteArray bytes = nativeManifest(executable.absoluteFilePath()).toJson();
+    if ((file.write(bytes) != bytes.size()) || !file.flush())
+    {
+        file.close();
+        file.remove();
+        return false;
+    }
+    return true;
 #else
     Q_UNUSED(browser)
     Q_UNUSED(registered)

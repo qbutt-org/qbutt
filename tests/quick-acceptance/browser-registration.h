@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 
+#include <QByteArray>
 #include <QString>
 
 #ifdef Q_OS_WIN
@@ -25,5 +26,8 @@ private:
 #ifdef Q_OS_WIN
     HKEY m_user = nullptr;
     HKEY m_machine = nullptr;
+#elif defined(Q_OS_LINUX)
+    QString m_configDirectory;
+    QByteArray m_originalConfigHome;
 #endif
 };

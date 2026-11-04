@@ -5,10 +5,16 @@
 #include <cstdio>
 #include <memory>
 
+#ifdef __linux__
+#include <cerrno>
+#endif
+
 #ifdef _WIN32
 #include <io.h>
 #include <winsock2.h>
 #include <windows.h>
+#elif defined(__linux__)
+#include <unistd.h>
 #endif
 
 #include <QAbstractItemModel>
@@ -21,9 +27,14 @@
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QScopeGuard>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QThreadPool>
 #include <QTimer>
+
+#ifdef Q_OS_LINUX
+#include <QSocketNotifier>
+#endif
 
 #include "browser-registration.h"
 #include "gui/content/browsercapture.h"
@@ -44,7 +55,7 @@ namespace
 
 int runBrowserRelayHost()
 {
-#ifndef Q_OS_WIN
+#if !defined(Q_OS_WIN) && !defined(Q_OS_LINUX)
     return 2;
 #else
     // This explicit process fixture never selects a user's discovery or profile.
@@ -52,6 +63,7 @@ int runBrowserRelayHost()
     QTemporaryDir profile;
     if (discovery.isEmpty() || !profile.isValid())
         return 2;
+#ifdef Q_OS_WIN
     // The registry fixture hides HKLM, including Winsock's provider catalog.
     // Load the TCP provider before installing its registry override.
     WSADATA winsock {};
@@ -62,6 +74,15 @@ int runBrowserRelayHost()
     if (initialized == INVALID_SOCKET)
         return 2;
     closesocket(initialized);
+#elif defined(Q_OS_LINUX)
+    // The fixture's private XDG config must use the real native-host paths.
+    const bool testMode = QStandardPaths::isTestModeEnabled();
+    QStandardPaths::setTestModeEnabled(false);
+    const auto restoreTestMode = qScopeGuard([testMode]
+    {
+        QStandardPaths::setTestModeEnabled(testMode);
+    });
+#endif
 
     BrowserRegistrationFixture registration(profile.path());
     if (!registration.isReady())
@@ -192,31 +213,14 @@ int runBrowserRelayHost()
                 {QStringLiteral("browserReply"), response}});
         });
         QByteArray input;
-        const HANDLE pipe = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(stdin)));
-        QTimer reader;
-        QObject::connect(&reader, &QTimer::timeout, &view, [&]
+        const auto consumeInput = [&](const char *bytes, const qsizetype count)
         {
-            DWORD available = 0;
-            if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr))
-            {
-                qApp->quit();
-                return;
-            }
-            if (!available)
-                return;
-            if (available + input.size() > MAX_LINE * 2)
+            if (count + input.size() > MAX_LINE * 2)
             {
                 qApp->exit(1);
                 return;
             }
-            QByteArray bytes(available, '\0');
-            DWORD count = 0;
-            if (!ReadFile(pipe, bytes.data(), available, &count, nullptr))
-            {
-                qApp->exit(1);
-                return;
-            }
-            input.append(bytes.constData(), count);
+            input.append(bytes, count);
             qsizetype end = 0;
             while ((end = input.indexOf('\n')) >= 0)
             {
@@ -290,8 +294,59 @@ int runBrowserRelayHost()
             }
             if (input.size() > MAX_LINE)
                 qApp->exit(1);
+        };
+#ifdef Q_OS_WIN
+        const HANDLE pipe = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(stdin)));
+        QTimer reader;
+        QObject::connect(&reader, &QTimer::timeout, &view, [&]
+        {
+            DWORD available = 0;
+            if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr))
+            {
+                qApp->quit();
+                return;
+            }
+            if (!available)
+                return;
+            if (available + input.size() > MAX_LINE * 2)
+            {
+                qApp->exit(1);
+                return;
+            }
+            QByteArray bytes(available, '\0');
+            DWORD count = 0;
+            if (!ReadFile(pipe, bytes.data(), available, &count, nullptr))
+            {
+                qApp->exit(1);
+                return;
+            }
+            consumeInput(bytes.constData(), count);
         });
         reader.start(10);
+#elif defined(Q_OS_LINUX)
+        QSocketNotifier reader {STDIN_FILENO, QSocketNotifier::Read, &view};
+        QObject::connect(&reader, &QSocketNotifier::activated, &view,
+            [&](QSocketDescriptor, QSocketNotifier::Type)
+        {
+            char bytes[64 * 1024];
+            ssize_t count = 0;
+            do
+            {
+                count = ::read(STDIN_FILENO, bytes, sizeof(bytes));
+            }
+            while ((count < 0) && (errno == EINTR));
+            if (count <= 0)
+            {
+                reader.setEnabled(false);
+                if (count == 0)
+                    qApp->quit();
+                else
+                    qApp->exit(1);
+                return;
+            }
+            consumeInput(bytes, count);
+        });
+#endif
         QTimer::singleShot(180'000, &view, [] { qApp->exit(1); });
         send({{QStringLiteral("ready"), true}, {QStringLiteral("captureProfile"), profile.path()}});
         result = qApp->exec();

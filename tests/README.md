@@ -1252,6 +1252,10 @@ host against the production Qt/Rust capture receiver. Set `QBUTT_QCATCH_EXE`,
 `QBUTT_QUICK_ACCEPTANCE_EXE`, `QBUTT_LAB_QPLAY` and `QBUTT_LAB_PATHS=1` as above.
 Set `QBUTT_LAB_FFMPEG` and `QBUTT_LAB_FFPROBE` from that qplay bundle's verified
 `--runtime-info-json` response, with its Qt runtime available on `PATH`.
+On Linux, give the Qt process private `HOME`, XDG paths and `TMPDIR` before
+startup, with a short private `XDG_RUNTIME_DIR` for its Unix socket. This capture
+fixture owns its XDG config and Edge native-host manifest. Browser registration,
+startup and setup simulations using other operations remain Windows-only.
 The isolated fixture build temporarily allows loopback in
 `src/content/src/http.rs`'s `public_address`; restore that source byte-for-byte
 after building, and rebuild before using the executable outside the lab.
