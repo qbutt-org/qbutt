@@ -10,10 +10,10 @@ main() {
     product=${1-qbutt}
     case "$product" in
         qbutt)
-            version=1.6.6
-            file=qbutt-1.6.6-linux-x64.tar.gz
-            size=535084488
-            sha256=0c849c2954cc616dc7f683bf35c937146323d5440b0c2a5cb4dc14150d0f5f14
+            version=1.6.7
+            file=qbutt-1.6.7-linux-x64.tar.gz
+            size=535633783
+            sha256=65a6f3a2205356fc7c2070edaad5d0520e914f0e530309e20b3dfc98c505572d
             ;;
         qplay)
             version=1.4.2
