@@ -308,6 +308,9 @@ fn webview_fixture() -> CheckResult {
         Some("manual" | "login-required") => json!({
             "id":request["id"], "error":{"code":"browser_check_required"}
         }),
+        Some("timeout") => json!({
+            "id":request["id"], "error":{"code":"webview_timeout"}
+        }),
         Some("fault") => json!({
             "id":request["id"], "error":{"code":"webview_failed"}
         }),
@@ -338,7 +341,7 @@ async fn webview_sessions(fixture: &Fixture) -> CheckResult {
     std::fs::hard_link(std::env::current_exe()?, app_dir.join("qbutt-webview.exe"))?;
     fixture.case("auto-challenge");
 
-    for query in ["generated", "persistent", "manual", "fault"] {
+    for query in ["generated", "persistent", "manual", "timeout", "fault"] {
         let source = rutracker::fixture(
             http::fixture(fixture.client.clone(), fixture.origin.clone()),
             fixture.origin.clone(),
@@ -354,7 +357,7 @@ async fn webview_sessions(fixture: &Fixture) -> CheckResult {
                 assert_eq!(works.len(), 1);
                 assert_eq!(works[0].title, "Синтел [версия 2] & legal");
             }
-            "persistent" => assert!(matches!(result, Err(Error::SourceCheckRequired))),
+            "persistent" | "timeout" => assert!(matches!(result, Err(Error::SourceCheckRequired))),
             "manual" => {
                 assert!(matches!(result, Err(Error::SourceCheckRequired)));
                 source.complete_check().await?;

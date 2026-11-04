@@ -292,7 +292,7 @@ impl RuTracker {
         };
         let verified = match webview.check(url.clone(), WebViewCheck::default()).await {
             Ok(session) => session,
-            Err(WebViewError::CheckRequired) => {
+            Err(WebViewError::CheckRequired | WebViewError::Timeout) => {
                 return Err(if matches!(&blocked, Error::LoginRequired) {
                     Error::LoginRequired
                 } else {

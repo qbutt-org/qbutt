@@ -61,6 +61,7 @@ pub(super) fn helper() -> CheckResult {
         url.path().starts_with("/torrent/58/") || url.path().starts_with("/torrent/59/");
     let error = match query.as_str() {
         "webview manual" if mode == "silent" => Some("browser_check_required"),
+        "webview timeout" => Some("webview_timeout"),
         _ if manual_publication && mode == "silent" => Some("browser_check_required"),
         "webview fault" => Some("webview_failed"),
         _ => None,
@@ -116,6 +117,7 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
         ("webview category", 6),
         ("webview persistent", 2),
         ("webview manual", 1),
+        ("webview timeout", 1),
         ("webview fault", 1),
         ("webview foreign", 1),
     ] {
@@ -147,7 +149,9 @@ pub(super) async fn run(fixture: &Fixture) -> CheckResult {
                 );
                 assert_eq!(checks()?.len(), count, "reuse clearance and matching UA");
             }
-            "webview persistent" => assert!(matches!(result, Err(Error::SourceCheckRequired))),
+            "webview persistent" | "webview timeout" => {
+                assert!(matches!(result, Err(Error::SourceCheckRequired)))
+            }
             "webview manual" => {
                 assert!(matches!(result, Err(Error::SourceCheckRequired)));
                 source

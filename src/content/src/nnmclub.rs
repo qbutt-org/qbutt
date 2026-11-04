@@ -224,7 +224,7 @@ impl NnmClub {
             )
             .await
             .map_err(|error| match error {
-                WebViewError::CheckRequired => Error::SourceCheckRequired,
+                WebViewError::CheckRequired | WebViewError::Timeout => Error::SourceCheckRequired,
                 error => Error::SourceCheck(error),
             })?;
         *session = SourceSession::from_webview(self.origin.clone(), checked)?;

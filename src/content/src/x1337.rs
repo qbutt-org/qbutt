@@ -256,10 +256,8 @@ impl X1337 {
             )
             .await
             .map_err(|error| match error {
-                WebViewError::CheckRequired => Error::SourceCheckRequired,
-                WebViewError::Canceled | WebViewError::Timeout if interactive => {
-                    Error::SourceCheckRequired
-                }
+                WebViewError::CheckRequired | WebViewError::Timeout => Error::SourceCheckRequired,
+                WebViewError::Canceled if interactive => Error::SourceCheckRequired,
                 error => Error::SourceCheck(error),
             })?;
         let session = SourceSession::from_webview(self.origin.clone(), checked)?;
