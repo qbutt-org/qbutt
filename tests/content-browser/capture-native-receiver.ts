@@ -56,6 +56,11 @@ const cancelledId = crypto.randomUUID();
 const commands: string[] = [];
 const errors: Error[] = [];
 const fixtureSession = "generated-legal-session";
+const trackSessions = {
+    video: "generated-video-session",
+    audio: "generated-audio-session",
+    subs: "generated-subtitle-session",
+};
 let peer: ReturnType<typeof spawn> | undefined;
 let mediaServer: Server | undefined;
 
@@ -106,8 +111,26 @@ function resolvedMedia(captureId: string, page: string, media: Awaited<ReturnTyp
     if (captureId === dashId)
         return { ...source, url: media.assetUrl("manifest.mpd"), quality: "90p", headers };
     if (captureId === externalId) {
-        return { ...source, url: media.url, audioUrl: media.assetUrl("audio.m4a"), headers,
-            subtitles: [{ title: "Accent", language: "en", url: media.assetUrl("accent.ass") }] };
+        return {
+            ...source,
+            url: media.assetUrl("video/generated.mp4"),
+            audioUrl: media.assetUrl("audio/audio.m4a"),
+            headers,
+            subtitles: [{
+                title: "Accent",
+                language: "en",
+                url: media.assetUrl("subs/accent.ass"),
+            }],
+            cookies: Object.entries(trackSessions).map(([path, value]) => ({
+                name: "session",
+                value,
+                domain: new URL(media.url).hostname,
+                path: `/${path}/`,
+                secure: false,
+                hostOnly: true,
+                httpOnly: true,
+            })),
+        };
     }
     return { ...source, url: media.url };
 }
@@ -161,12 +184,23 @@ async function localMedia() {
         if (/^[a-z0-9._-]+\.(?:mp4|m4a|m3u8|ts|mpd|m4s|ass)$/i.test(name))
             assets.set(name, await readFile(join(root, name)));
     }
-    const requested: { path: string; session?: string }[] = [];
+    const requested: { path: string; session?: string; authenticated?: boolean }[] = [];
+    const tracks = new Map([
+        ["video/generated.mp4", { asset: "generated.mp4", session: trackSessions.video }],
+        ["audio/audio.m4a", { asset: "audio.m4a", session: trackSessions.audio }],
+        ["subs/accent.ass", { asset: "accent.ass", session: trackSessions.subs }],
+    ]);
 
     mediaServer = createServer((request, response) => {
         const name = new URL(request.url!, "http://fixture.invalid").pathname.slice(1);
-        const bytes = assets.get(name);
-        requested.push({ path: name, session: request.headers["x-source-session"] as string | undefined });
+        const track = tracks.get(name);
+        const authenticated = track ? request.headers.cookie === `session=${track.session}` : undefined;
+        requested.push({ path: name, session: request.headers["x-source-session"] as string | undefined, authenticated });
+        if (track && !authenticated) {
+            response.writeHead(403).end();
+            return;
+        }
+        const bytes = assets.get(track?.asset ?? name);
         if (!bytes) {
             response.writeHead(404).end();
             return;
@@ -289,9 +323,20 @@ try {
     for (const [captureId, expectedPaths] of [
         [hlsId, ["master.m3u8", "video.m3u8", "audio.m3u8"]],
         [dashId, ["manifest.mpd", "init-stream0.m4s", "init-stream1.m4s"]],
-        [externalId, ["generated.mp4", "audio.m4a", "accent.ass"]],
+        [externalId, ["video/generated.mp4", "audio/audio.m4a", "subs/accent.ass"]],
     ] as const) {
         const previous = new Set(jobs(profile).map(job => job.id));
+        if (captureId === externalId) {
+            for (const path of expectedPaths) {
+                for (const cookie of [undefined, "session=wrong"]) {
+                    const rejected = await fetch(generated.assetUrl(path), {
+                        headers: cookie ? { Cookie: cookie } : {},
+                    });
+                    assert.equal(rejected.status, 403, "Source accepted a missing or wrong track cookie");
+                    await rejected.body?.cancel();
+                }
+            }
+        }
         const requestStart = generated.requested.length;
         openCapture("download", captureId, page);
         await waitFor(() => !!event("downloadFinished", captureId), "segmented durable acknowledgement");
@@ -326,6 +371,16 @@ try {
                 && Number(stream.nb_read_packets) > 0), `Saved ${kind} stream has no packets`);
         await mediaCommand(ffmpeg, ["-v", "error", "-i", complete.path, "-f", "null", "-"]);
         if (captureId === externalId) {
+            assert(requests.every(request => request.authenticated), "Separate tracks did not receive their scoped cookie");
+            const persisted = await Promise.all(["", "-wal"].map(suffix =>
+                readFile(join(profile, `content-library.sqlite${suffix}`)).catch(error => {
+                    if (error.code === "ENOENT") return Buffer.alloc(0);
+                    throw error;
+                })));
+            for (const value of Object.values(trackSessions)) {
+                assert(!JSON.stringify(complete).includes(value));
+                assert(persisted.every(bytes => !bytes.includes(Buffer.from(value))), "Track cookie reached durable storage");
+            }
             assert(probe.streams.some(stream => stream.codec_type === "subtitle"
                 && stream.codec_name === "ass" && Number(stream.nb_read_packets) > 0));
             const subtitle = join(root, "extracted.ass");
