@@ -29,6 +29,10 @@ const MAX_DOCUMENT_RESPONSE_BYTES: u64 = MAX_RESPONSE_BYTES + 6 * MAX_DOCUMENT_B
 const SILENT_TIMEOUT_MS: u32 = 15_000;
 const INTERACTIVE_TIMEOUT_MS: u32 = 120_000;
 
+tokio::task_local! {
+    static DEFER_SILENT_CHECKS: ();
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum WebViewError {
     #[error("The source check request is invalid")]
@@ -145,6 +149,12 @@ struct Inner {
 pub struct WebViewSessions(Arc<Inner>);
 
 impl WebViewSessions {
+    /// Try the original request and connected browser before continuing a
+    /// confirmed check. Deferral applies only while polling this attempt.
+    pub async fn defer_silent_checks<T>(attempt: impl Future<Output = T>) -> T {
+        DEFER_SILENT_CHECKS.scope((), attempt).await
+    }
+
     pub fn new(data_dir: PathBuf, app_dir: PathBuf) -> Self {
         Self(Arc::new(Inner {
             data_dir,
@@ -189,6 +199,9 @@ impl WebViewSessions {
         loop {
             if self.0.stopped.load(Ordering::Acquire) {
                 return Err(WebViewError::Stopped);
+            }
+            if !options.interactive && DEFER_SILENT_CHECKS.try_with(|_| ()).is_ok() {
+                return Err(WebViewError::CheckRequired);
             }
             let existing = {
                 self.0

@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use qbutt_content::webview::WebViewSessions;
 use qbutt_content::{
     AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, Estar, FitGirl, FreeTP,
     Igruha, Kakuyomu, LibSession, LimeTorrents, MangaDex, MangaLib, Nhentai, NnmClub, Nyaa,
@@ -60,8 +61,14 @@ impl Catalog {
     pub(super) async fn retry(
         &self,
         operation: &SourceOperation,
+        confirmed_check: bool,
     ) -> qbutt_content::Result<SourceResponse> {
-        let result = self.execute(operation).await;
+        let attempt = self.execute(operation);
+        let result = if confirmed_check {
+            WebViewSessions::defer_silent_checks(attempt).await
+        } else {
+            attempt.await
+        };
         if !matches!(
             result,
             Err(qbutt_content::Error::LoginRequired | qbutt_content::Error::SourceCheckRequired)

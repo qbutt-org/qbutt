@@ -245,13 +245,14 @@ void exerciseSessionRetry()
     require(handoffs == 1 && !sourceValue(controller, "failed").toBool(), u"Unknown-outcome probe replayed Open"_s);
 
     failOpen("manual");
+    const auto beforeManual = read(qEnvironmentVariable("QBUTT_SESSION_CHECK_LOG"));
     require(controller->retrySource(u"rutracker"_s), u"Manual continuation rejected"_s);
     waitFor([&] { return !controller->property("resolving").toBool()
         && !sourceValue(controller, "retrying").toBool(); }, u"Existing manual check continuation"_s);
     saved(controller);
     require(handoffs == 2 && !sourceValue(controller, "failed").toBool()
-        && read(qEnvironmentVariable("QBUTT_SESSION_CHECK_LOG")).count("interactive\n") == 1,
-        u"Still expired session did not complete through its existing check"_s);
+        && read(qEnvironmentVariable("QBUTT_SESSION_CHECK_LOG")) == beforeManual + "interactive\n",
+        u"Manual continuation did not resume through one check without a second silent check"_s);
     view.reset();
     require(QThreadPool::globalInstance()->waitForDone(100'000), u"Session fixture did not drain"_s);
     require(!QFile::exists(qEnvironmentVariable("QBUTT_BROWSER_BRIDGE_DISCOVERY")), u"Discovery owner leaked"_s);

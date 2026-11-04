@@ -325,7 +325,7 @@ impl ffi::ContentController {
         let choice = browser.choice();
         let task = services.runtime.spawn(async move {
             let result = if source_retry {
-                catalog.retry(&request.operation).await
+                catalog.retry(&request.operation, true).await
             } else {
                 catalog.execute(&request.operation).await
             };

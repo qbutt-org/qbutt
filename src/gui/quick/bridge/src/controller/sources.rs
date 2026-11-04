@@ -811,13 +811,15 @@ impl ffi::ContentController {
         let Some(failure) = status.settings.failure.clone() else {
             return false;
         };
-        let manual_check = matches!(
-            source,
-            Source::RuTracker | Source::NnmClub | Source::X1337 | Source::Igruha
-        ) && matches!(
+        let confirmed_check = matches!(
             failure.reason,
             SourceFailureReason::LoginRequired | SourceFailureReason::SourceCheckRequired
         );
+        let manual_check = confirmed_check
+            && matches!(
+                source,
+                Source::RuTracker | Source::NnmClub | Source::X1337 | Source::Igruha
+            );
         if manual_check && self.resolving {
             return false;
         }
@@ -884,7 +886,7 @@ impl ffi::ContentController {
             let count = remaining.len() + 1;
             for (index, request) in std::iter::once(request).chain(remaining).enumerate() {
                 let result = if index == 0 {
-                    catalog.retry(&request.operation).await
+                    catalog.retry(&request.operation, confirmed_check).await
                 } else {
                     catalog.execute(&request.operation).await
                 };
