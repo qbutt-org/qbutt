@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use qbutt_content::webview::WebViewSessions;
 use qbutt_content::{
-    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, Estar, FitGirl, FreeTP,
-    Igruha, Kakuyomu, LibSession, LimeTorrents, MangaDex, MangaLib, Nhentai, NnmClub, Nyaa,
-    OnlineFix, RanobeHub, RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker, Rutube, Source,
-    SourceOperation, Syosetu, TextChapter, TheLastGame, VkVideo, WeebCentral, Work, X1337,
-    YummyAnime,
+    AniLiberty, AniTokyo, AnimeSpirit, ByRut, Chapter, ChapterRef, Dodi, Estar, ExternalVideoError,
+    FitGirl, FreeTP, Igruha, Kakuyomu, LibSession, LimeTorrents, MangaDex, MangaLib, Nhentai,
+    NnmClub, Nyaa, OnlineFix, RanobeHub, RanobeLib, ResolvedContent, RoyalRoad, RuTor, RuTracker,
+    Rutube, Source, SourceOperation, Syosetu, TextChapter, TheLastGame, VkVideo, WeebCentral, Work,
+    X1337, YummyAnime, resolve_external_video,
 };
 
 use super::browser::BrowserClient;
@@ -373,7 +373,36 @@ impl Catalog {
                 let resolved = match reference.publication.source {
                     Source::AniLiberty => self.aniliberty.resolve(reference).await,
                     Source::AniTokyo => self.anitokyo.resolve(reference).await,
-                    Source::YummyAnime => self.yummyanime.resolve(reference).await,
+                    Source::YummyAnime => match self.yummyanime.resolve(reference).await? {
+                        ResolvedContent::ExternalVideo {
+                            reference,
+                            title,
+                            url,
+                            source_url,
+                        } if reference.supports_video_acquisition() => {
+                            let browser = self
+                                .browser
+                                .handle()
+                                .await
+                                .map_err(qbutt_content::Error::BrowserSession)?;
+                            let media = resolve_external_video(
+                                &browser, choice, &reference, url, source_url,
+                            )
+                            .await
+                            .map_err(|error| match error {
+                                ExternalVideoError::Content(error) => error,
+                                ExternalVideoError::Browser(error) => {
+                                    qbutt_content::Error::BrowserSession(error)
+                                }
+                            })?;
+                            Ok(ResolvedContent::BrowserVideo {
+                                reference,
+                                title,
+                                media,
+                            })
+                        }
+                        resolved => Ok(resolved),
+                    },
                     Source::AnimeSpirit => self.animespirit.resolve(reference).await,
                     Source::RuTor => self.rutor.resolve(reference).await,
                     Source::RuTracker => {

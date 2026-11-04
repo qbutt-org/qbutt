@@ -83,6 +83,7 @@ pub mod ffi {
         ActionPending,
         ExternalPlayback,
         BrowserPlayback,
+        BrowserLoginRequired,
     }
 
     #[derive(PartialEq)]

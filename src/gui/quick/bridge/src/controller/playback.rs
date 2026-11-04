@@ -7,7 +7,7 @@ use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QByteArray, QString, QUrl, QVector};
 use qbutt_content::{
     Category, MediaGateway, PreparedPlayback, ResolvedContent, Source, SourceFailureReason,
-    SourceOperation, Transport, VariantRef, VariantSelector, resolve_external_video,
+    SourceOperation, Transport, VariantRef,
 };
 
 use super::catalog::SourceResponse;
@@ -321,8 +321,6 @@ impl ffi::ContentController {
         let qt_thread = self.qt_thread();
         let services = self.services.as_ref().unwrap();
         let catalog = Arc::clone(&services.catalog);
-        let browser = services.browser.client();
-        let choice = browser.choice();
         let task = services.runtime.spawn(async move {
             let result = if source_retry {
                 catalog.retry(&request.operation, true).await
@@ -347,40 +345,6 @@ impl ffi::ContentController {
                         .await
                         .map_err(|error| error.to_string()),
                 )
-            } else if let Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
-                reference,
-                url,
-                source_url,
-                ..
-            })) = &result
-            {
-                if matches!(
-                    &reference.selector,
-                    VariantSelector::YummyAnimeVideo { player, .. }
-                        if matches!(player.as_str(), "Плеер VK" | "Плеер Alloha")
-                ) {
-                    Some(
-                        async {
-                            let handle =
-                                browser.handle().await.map_err(|error| error.to_string())?;
-                            let media = resolve_external_video(
-                                &handle,
-                                choice,
-                                reference,
-                                url.clone(),
-                                source_url.clone(),
-                            )
-                            .await
-                            .map_err(|error| error.to_string())?;
-                            MediaGateway::prepare(media)
-                                .await
-                                .map_err(|error| error.to_string())
-                        }
-                        .await,
-                    )
-                } else {
-                    None
-                }
             } else {
                 None
             };
@@ -504,6 +468,18 @@ impl ffi::ContentController {
                             .as_mut()
                             .set_error(Some(ffi::ContentError::ExternalPlayback)),
                     },
+                    Err(error) if transport == Transport::Video => {
+                        let notice = if SourceFailureReason::from_error(&error)
+                            == Some(SourceFailureReason::LoginRequired)
+                        {
+                            Some(ffi::ContentError::BrowserLoginRequired)
+                        } else if matches!(error, qbutt_content::Error::BrowserSession(_)) {
+                            Some(ffi::ContentError::BrowserPlayback)
+                        } else {
+                            None
+                        };
+                        controller.as_mut().set_error(notice);
+                    }
                     Err(_) => {}
                     Ok(_) => {
                         ffi::log_content_error(

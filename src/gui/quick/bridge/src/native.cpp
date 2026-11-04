@@ -253,6 +253,8 @@ QString Qbutt::contentError(const ContentError error)
         return QCoreApplication::translate("ContentController", "Playback from this external source is not available yet.");
     case ContentError::BrowserPlayback:
         return QCoreApplication::translate("ContentController", "Could not open the selected video through the browser.");
+    case ContentError::BrowserLoginRequired:
+        return QCoreApplication::translate("ContentController", "Sign in to the source in the connected browser.");
     case ContentError::LibraryWrite:
         return QCoreApplication::translate("ContentController", "Could not save the content library.");
     }

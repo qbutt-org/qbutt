@@ -55,7 +55,7 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
 {
     const QString platform = QGuiApplication::platformName();
     const bool native = qEnvironmentVariableIsSet("QBUTT_QT_ACCEPTANCE_NATIVE");
-    require((platform == u"offscreen"_s) || ((platform == u"windows"_s) && native),
+    require((platform == u"offscreen"_s) || (native && ((platform == u"windows"_s) || (platform == u"xcb"_s))),
         u"Native Watch requires offscreen Qt or an explicit native fixture"_s);
     auto *session = BitTorrent::Session::instance();
     require(session->torrents().isEmpty() && (session->networkInterfaceAddress() == u"127.0.0.1")
@@ -205,6 +205,38 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
     if (spec.contains(u"saveRuntimeError"_s))
     {
         exerciseMediaRuntimeFailure(*view, variantId, spec, evidence);
+        return;
+    }
+    if (spec.value(u"expectBrowserLogin"_s).toBool())
+    {
+        auto *downloads = qobject_cast<QAbstractItemModel *>(controller->property("downloads").value<QObject *>());
+        const auto *save = view->rootObject()->findChild<QQuickItem *>(u"contentSaveVideo"_s);
+        require(downloads && save && save->isEnabled(), u"Browser login Save action is unavailable"_s);
+        const QString expected = u"Sign in to the source in the connected browser."_s;
+        const auto verifyLoginNotice = [&](const QString &action)
+        {
+            const QString notice = controller->property("errorText").toString();
+            const QString failure = sources->data(selectedSource, sourceRoles.key("failureText")).toString();
+            require(notice == expected, action + u" sign-in notice: %1 (%2)"_s.arg(notice, failure));
+        };
+        controller->resolveVariant(variantId);
+        waitFor([&] { return !controller->property("resolving").toBool()
+            && !controller->property("libraryPending").toBool(); }, u"Watch browser response"_s);
+        verifyLoginNotice(u"Watch"_s);
+        require(controller->downloadSelected(variantId) && controller->property("errorText").toString().isEmpty(),
+            u"Save did not start a fresh browser request"_s);
+        waitFor([&] { return !controller->property("errorText").toString().isEmpty()
+            && !controller->property("libraryPending").toBool(); }, u"Save browser response"_s);
+        verifyLoginNotice(u"Save"_s);
+        require((history->rowCount() == 0) && (downloads->rowCount() == 0)
+            && (controller->property("selectedVariantId").toString() == variantId)
+            && sources->data(selectedSource, sourceRoles.key("failed")).toBool(),
+            u"Browser login lost the exact selection or published an action"_s);
+        evidence[u"checks"_s] = QJsonArray {QJsonObject {
+            {u"name"_s, u"native-browser-login"_s}, {u"variantId"_s, variantId},
+            {u"watchSignIn"_s, true}, {u"saveSignIn"_s, true},
+            {u"historyRows"_s, history->rowCount()}, {u"downloadRows"_s, downloads->rowCount()}
+        }};
         return;
     }
 

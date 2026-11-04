@@ -18833,6 +18833,10 @@ Please choose a different name and try again.</source>
         <translation>Не удалось открыть выбранное видео через браузер.</translation>
     </message>
     <message>
+        <source>Sign in to the source in the connected browser.</source>
+        <translation>Войдите на сайт источника в подключённом браузере.</translation>
+    </message>
+    <message>
         <source>The source did not respond in time.</source>
         <translation>Источник не ответил вовремя.</translation>
     </message>

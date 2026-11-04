@@ -9,8 +9,8 @@ use cxx_qt_lib::QString;
 use qbutt_content::browser::{BrowserCommand, BrowserError, ResolveKind, Selection};
 use qbutt_content::{
     CapturedVideoError, DirectDownload, DownloadError, DownloadQueue, MediaGateway, MediaTools,
-    PlaybackMedia, PreparedPlayback, ResolvedContent, SourceOperation, Transport, VariantSelector,
-    resolve_captured_video, resolve_external_video,
+    PlaybackMedia, PreparedPlayback, ResolvedContent, SourceFailureReason, SourceOperation,
+    Transport, resolve_captured_video,
 };
 use url::Url;
 
@@ -534,8 +534,6 @@ impl ffi::ContentController {
             return false;
         };
         let catalog = Arc::clone(&services.catalog);
-        let browser = services.browser.client();
-        let choice = browser.choice();
         let qt_thread = self.qt_thread();
         services.runtime.spawn(async move {
             let result = catalog.execute(&request.operation).await;
@@ -545,37 +543,6 @@ impl ffi::ContentController {
             })) = &result
             {
                 Some(prepare_acquisition(media.clone()).await.map_err(|_| ()))
-            } else if let Ok(SourceResponse::Resolve(ResolvedContent::ExternalVideo {
-                reference,
-                url,
-                source_url,
-                ..
-            })) = &result
-            {
-                if matches!(
-                    &reference.selector,
-                    VariantSelector::YummyAnimeVideo { player, .. }
-                        if matches!(player.as_str(), "Плеер VK" | "Плеер Alloha")
-                ) {
-                    Some(
-                        async {
-                            let handle = browser.handle().await.map_err(|_| ())?;
-                            let media = resolve_external_video(
-                                &handle,
-                                choice,
-                                reference,
-                                url.clone(),
-                                source_url.clone(),
-                            )
-                            .await
-                            .map_err(|_| ())?;
-                            prepare_acquisition(media).await.map_err(|_| ())
-                        }
-                        .await,
-                    )
-                } else {
-                    None
-                }
             } else {
                 None
             };
@@ -613,6 +580,11 @@ impl ffi::ContentController {
                         .playback_download_finished(launch_token, false);
                     return;
                 };
+                let requires_login = result
+                    .as_ref()
+                    .err()
+                    .and_then(SourceFailureReason::from_error)
+                    == Some(SourceFailureReason::LoginRequired);
                 let download = match result {
                     Ok(SourceResponse::Resolve(ResolvedContent::DirectVideo {
                         reference: resolved,
@@ -655,14 +627,17 @@ impl ffi::ContentController {
                 let (download, segmented) = match download {
                     Ok(download) => download,
                     Err(error) => {
-                        ffi::log_content_error(
-                            &QString::from("download descriptor"),
-                            &QString::from(error.to_string()),
-                        );
+                        let notice = if requires_login {
+                            ffi::ContentError::BrowserLoginRequired
+                        } else {
+                            ffi::log_content_error(
+                                &QString::from("download descriptor"),
+                                &QString::from(error.to_string()),
+                            );
+                            ffi::ContentError::Download
+                        };
                         if controller.download_notice_generation == notice_generation {
-                            controller
-                                .as_mut()
-                                .set_error(Some(ffi::ContentError::Download));
+                            controller.as_mut().set_error(Some(notice));
                         }
                         controller
                             .as_mut()
