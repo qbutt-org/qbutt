@@ -7,6 +7,8 @@ use url::Url;
 pub(crate) mod playback;
 pub use playback::{PlaybackAudioTrack, PlaybackMedia};
 
+pub(crate) const YUMMY_ANIME_ORIGIN: &str = "https://ru.yummyani.me";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {

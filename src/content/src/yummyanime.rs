@@ -12,12 +12,12 @@ use tokio::time::{Instant, timeout_at};
 use url::Url;
 
 use crate::http::{SourceHttp, public_media_url};
+use crate::model::YUMMY_ANIME_ORIGIN as ORIGIN;
 use crate::{Error, PublicationRef, ResolvedContent, Result, VariantRef, VariantSelector, Work};
 
 use crate::kodik::{self, KodikVideo};
 use response::{Anime, Envelope};
 
-pub(crate) const ORIGIN: &str = "https://ru.yummyani.me";
 const API_ORIGIN: &str = "https://api.yani.tv";
 const SEARCH_ALIAS_LIMIT: usize = 4;
 const SEARCH_ALIAS_BUDGET: Duration = Duration::from_secs(3);

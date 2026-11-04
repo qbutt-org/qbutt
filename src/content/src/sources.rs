@@ -130,7 +130,7 @@ impl Source {
             Self::LocalBook => return None,
             Self::AniLiberty => "https://anilibria.top",
             Self::AniTokyo => "https://anitokyo.tv",
-            Self::YummyAnime => crate::yummyanime::ORIGIN,
+            Self::YummyAnime => crate::model::YUMMY_ANIME_ORIGIN,
             Self::AnimeSpirit => "https://my.animespirit.ru",
             Self::MangaDex => "https://mangadex.org",
             Self::WeebCentral => "https://weebcentral.com",
