@@ -10,10 +10,10 @@ main() {
     product=${1-qbutt}
     case "$product" in
         qbutt)
-            version=1.6.3
-            file=qbutt-1.6.3-linux-x64.tar.gz
-            size=535084991
-            sha256=39e7e895bb0de6009105afd22670709867a79fc3a9b69c07f4e444a8f767fff5
+            version=1.6.4
+            file=qbutt-1.6.4-linux-x64.tar.gz
+            size=535090118
+            sha256=e843846c04b171a34baab170238c91fd470750a0bc6e132b92ae65606dab257e
             ;;
         qplay)
             version=1.4.0
@@ -22,10 +22,10 @@ main() {
             sha256=ad497516286194efb304afd51a669be66bf36fa98121f5d1c7b20d8e6a52129c
             ;;
         qcatch)
-            version=1.3.3
+            version=1.3.4
             file=qcatch-linux-x64.tar.gz
-            size=118749580
-            sha256=e8c5fa825d04d994b487acec2ca4fd92a9b0f80451e5a1f4202227f89ac196c4
+            size=118748174
+            sha256=55a90612a11a30bcf302b6c35f2c0c709de591a38bf2b943a34b86216e6a6da8
             ;;
         *)
             printf '%s\n' 'Choose qbutt, qplay or qcatch.' >&2
