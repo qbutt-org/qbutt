@@ -127,11 +127,25 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     assert!(source.search("empty", Category::Movies).await?.is_empty());
     assert!(
         source
+            .search("sponsored-only", Category::Movies)
+            .await?
+            .is_empty()
+    );
+    assert!(
+        source
             .search("generated", Category::Games)
             .await?
             .is_empty()
     );
-    for query in ["duplicate", "foreign", "challenge", "wrong-query"] {
+    for query in [
+        "duplicate",
+        "foreign",
+        "challenge",
+        "wrong-query",
+        "wrong-sponsored-query",
+        "unknown-table",
+        "missing-results",
+    ] {
         let result = source.search(query, Category::Movies).await;
         assert!(
             matches!(
@@ -283,6 +297,33 @@ async fn http_retries(fixture: &Fixture) -> std::result::Result<(), Box<dyn std:
 }
 
 fn search_page(query: &str) -> String {
+    if matches!(
+        query,
+        "sponsored only" | "wrong sponsored query" | "unknown table" | "missing results"
+    ) {
+        let value = if query == "wrong sponsored query" {
+            "another"
+        } else {
+            query
+        };
+        let heading = if query == "unknown table" {
+            "Recent torrents"
+        } else {
+            "Sponsored Links"
+        };
+        let result_label = if query == "missing results" {
+            r#"<h2>Search Results for : <span class="querytext">missing results</span></h2>"#
+        } else {
+            ""
+        };
+        return format!(
+            r#"<div id="search"><input class="searchfield" name="q" value="{value}"></div>
+            <div id="content">{result_label}<table class="table3">
+            <tr><th class="thleft">{heading}</th></tr>
+            <tr><td><a href="/leet2/?search=1">Advertised Download</a></td></tr>
+            </table></div>"#
+        );
+    }
     let row = format!(
         r##"<tr bgcolor="#ffffff">
             <td><div class="tt-name"><a href="/{ID}">Generated &amp;amp; Legal &lt;edition&gt; &amp;#50;026</a></div></td>

@@ -99,14 +99,30 @@ struct Release {
 
 fn search_results(body: &str, origin: &Url, query: &str, category: Category) -> Result<Vec<Work>> {
     let document = Html::parse_document(body);
-    let query_label = unique(document.root_element(), "#content .querytext")?;
-    if text(query_label) != query {
-        return Err(Error::InvalidResponse("search query was not confirmed"));
-    }
+    let root = document.root_element();
 
+    let labels = Selector::parse("#content .querytext").expect("fixed query label selector");
+    let mut labels = document.select(&labels);
+    let label = labels.next();
     let tables = Selector::parse("#content table.table2").expect("fixed results table selector");
     let mut tables = document.select(&tables);
-    let Some(table) = tables.next() else {
+    let table = tables.next();
+
+    if table.is_none() && label.is_none() {
+        // An empty search can render only the sponsored table. The search
+        // field is then the only catalogue echo of the query.
+        let input = unique(root, "#search input.searchfield[name='q'][value]")?;
+        let sponsored = unique(root, "#content > table.table3 th.thleft")?;
+        if input.attr("value") == Some(query) && text(sponsored) == "Sponsored Links" {
+            return Ok(Vec::new());
+        }
+        return Err(Error::InvalidResponse("unrecognized empty search page"));
+    }
+
+    if label.is_none_or(|label| text(label) != query) || labels.next().is_some() {
+        return Err(Error::InvalidResponse("search query was not confirmed"));
+    }
+    let Some(table) = table else {
         let empty = Selector::parse("#content h2").expect("fixed empty result selector");
         if document
             .select(&empty)
