@@ -44,7 +44,8 @@ impl YummyAnime {
     }
 
     /// Publish search rows before bounded, optional catalogue alias requests.
-    /// Metadata failure preserves successful rows; variants still need inspection.
+    /// Search can omit the alias that matched. Check the leading API candidates
+    /// before requiring a local match; variants still need inspection.
     /// The caller owns this future, its cancellation and publication generation.
     pub async fn search_with_updates(
         &self,
@@ -75,7 +76,7 @@ impl YummyAnime {
         let deadline = Instant::now() + SEARCH_ALIAS_BUDGET;
         for work in works
             .iter_mut()
-            .filter(|work| work.aliases.is_empty() && crate::query::matches(query, work))
+            .filter(|work| work.aliases.is_empty())
             .take(SEARCH_ALIAS_LIMIT)
         {
             if Instant::now() >= deadline {
@@ -90,6 +91,7 @@ impl YummyAnime {
                 continue;
             };
             if metadata.aliases.is_empty()
+                || !crate::query::matches(query, &metadata)
                 || metadata.title != work.title
                 || matches!((work.year, metadata.year), (Some(a), Some(b)) if a != b)
                 || work.identifiers.iter().any(|(name, value)| {

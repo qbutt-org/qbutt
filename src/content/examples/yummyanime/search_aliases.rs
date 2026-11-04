@@ -50,8 +50,27 @@ pub(super) async fn exercise(catalog: &yummyanime::YummyAnime, state: &State) ->
             .aliases
             .is_empty()
     );
-    let inspected = catalog.inspect(&works[1].reference).await?;
+    let inspected = catalog.inspect(&works[0].reference).await?;
     association_orders(&batches[0], &works, &inspected)?;
+
+    let mut alias_batches = Vec::new();
+    let alias_only = catalog
+        .search_with_updates("Generated Animation", |works| {
+            alias_batches.push(works.to_vec());
+        })
+        .await?;
+    assert_eq!(state.take_requests(), [601, 602, 603, 604]);
+    assert_eq!(alias_batches.len(), 2);
+    assert_eq!(alias_batches[0].len(), 5);
+    assert!(alias_batches[0].iter().all(|work| work.aliases.is_empty()));
+    assert_eq!(alias_batches[1].len(), 1);
+    assert_eq!(alias_batches[1][0].reference.id, "602");
+    let admitted: Vec<_> = alias_only
+        .iter()
+        .filter(|work| crate::query::matches("Generated Animation", work))
+        .map(|work| work.reference.id.as_str())
+        .collect();
+    assert_eq!(admitted, ["602"]);
 
     let guarded = catalog.search("Guards").await?;
     assert_eq!(state.take_requests(), [201, 202, 203, 204]);
@@ -107,7 +126,7 @@ pub(super) async fn exercise(catalog: &yummyanime::YummyAnime, state: &State) ->
         "cancelled search started another metadata request"
     );
     println!(
-        "PASS yummyanime-search-aliases raw_immediate=40 metadata_limit=4 admitted_only=true budget=3s partial_failure=success cancellation=connection_closed identity_conflicts=id_year_catalog_title arrival_orders=8 late_search_preserves_inspection=true fresh_inspection_splits=true new_generation_accepts_raw=true"
+        "PASS yummyanime-search-aliases raw_immediate=40 metadata_limit=4 alias_only=confirmed budget=3s partial_failure=success cancellation=connection_closed identity_conflicts=id_year_catalog_title arrival_orders=8 late_search_preserves_inspection=true fresh_inspection_splits=true new_generation_accepts_raw=true"
     );
     Ok(())
 }
@@ -234,7 +253,7 @@ pub(super) async fn response(
         .strip_prefix("/anime/")
         .and_then(|id| id.parse::<u64>().ok())
     {
-        if !(101..=502).contains(&id) {
+        if !(101..=604).contains(&id) {
             return None;
         }
         if url.query() == Some("need_videos=true") {
@@ -264,13 +283,14 @@ pub(super) async fn response(
             202 => work["year"] = json!(2020),
             203 => work["remote_ids"]["myanimelist_id"] = json!(999),
             204 => work["title"] = json!("Another product"),
+            601 | 603 | 604 => work["other_titles"] = json!(["Different Animation"]),
             _ => {}
         }
         return Some(json!({"response": work}));
     }
     let query = url.query_pairs().find(|(key, _)| key == "q")?.1;
     let ids: Vec<u64> = match query.as_ref() {
-        "Aliases" => [100, 101, 102, 103, 104, 105, 110]
+        "Aliases" => [101, 102, 103, 104, 100, 105, 110]
             .into_iter()
             .chain(1000..1033)
             .collect(),
@@ -278,6 +298,7 @@ pub(super) async fn response(
         "Partial" => (301..=303).collect(),
         "Budget" => (401..=403).collect(),
         "Cancellation" => (501..=502).collect(),
+        "Generated Animation" => (601..=605).collect(),
         _ => return None,
     };
     Some(json!({"response": ids.into_iter().map(anime).collect::<Vec<_>>()}))
