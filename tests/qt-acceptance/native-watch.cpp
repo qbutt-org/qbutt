@@ -10,8 +10,10 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMetaObject>
 #include <QMouseEvent>
 #include <QQuickItem>
 #include <QScopeGuard>
@@ -136,12 +138,16 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
         require(category && results && (results->property("count").toInt() > 0),
             u"Native VK search returned no visible publications"_s);
         const int count = results->property("count").toInt();
-        require(category->setProperty("currentIndex", 1), u"Native movie category is unavailable"_s);
-        waitFor([&] { return results->property("count").toInt() == 0; }, u"VK category exclusion"_s);
-        require(category->setProperty("currentIndex", 3)
+        int movieIndex = -1;
+        int videoIndex = -1;
+        require(QMetaObject::invokeMethod(category, "indexOfValue", Q_RETURN_ARG(int, movieIndex),
+            Q_ARG(QVariant, u"movies"_s)) && (movieIndex == -1), u"Empty movie category was offered"_s);
+        require(QMetaObject::invokeMethod(category, "indexOfValue", Q_RETURN_ARG(int, videoIndex),
+            Q_ARG(QVariant, u"video"_s)) && (videoIndex >= 0) && category->setProperty("currentIndex", videoIndex)
+            && QMetaObject::invokeMethod(category, "activated", Q_ARG(int, videoIndex))
             && (category->property("currentValue").toString() == u"video"_s),
             u"Native Video category is unavailable"_s);
-        waitFor([&] { return results->property("count").toInt() == count; }, u"VK category restoration"_s);
+        waitFor([&] { return results->property("count").toInt() == count; }, u"VK Video category"_s);
     }
     controller->selectWork(workId);
     waitFor([&] { return !controller->property("inspecting").toBool(); }, u"Native video variants"_s);
@@ -218,11 +224,21 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
             const QString notice = controller->property("errorText").toString();
             const QString failure = sources->data(selectedSource, sourceRoles.key("failureText")).toString();
             require(notice == expected, action + u" sign-in notice: %1 (%2)"_s.arg(notice, failure));
+            require(sources->data(selectedSource, sourceRoles.key("challengeSite")).toString() == u"vkvideo.ru"_s,
+                u"Sign-in does not open VK Video"_s);
         };
-        controller->resolveVariant(variantId);
-        waitFor([&] { return !controller->property("resolving").toBool()
-            && !controller->property("libraryPending").toBool(); }, u"Watch browser response"_s);
-        verifyLoginNotice(u"Watch"_s);
+        const auto watchNeedsLogin = [&]
+        {
+            controller->resolveVariant(variantId);
+            waitFor([&] { return !controller->property("resolving").toBool()
+                && !controller->property("libraryPending").toBool(); }, u"Watch browser response"_s);
+            verifyLoginNotice(u"Watch"_s);
+        };
+        const QString sessionPath = spec.value(u"browserLoginSessionFile"_s).toString();
+        QFile session(sessionPath);
+        if (!sessionPath.isEmpty())
+            require(session.remove(), u"Cannot expire browser fixture session"_s);
+        watchNeedsLogin();
         require(controller->downloadSelected(variantId) && controller->property("errorText").toString().isEmpty(),
             u"Save did not start a fresh browser request"_s);
         waitFor([&] { return !controller->property("errorText").toString().isEmpty()
@@ -232,6 +248,40 @@ void NativeWatchAcceptance::run(Application &application, const QJsonObject &spe
             && (controller->property("selectedVariantId").toString() == variantId)
             && sources->data(selectedSource, sourceRoles.key("failed")).toBool(),
             u"Browser login lost the exact selection or published an action"_s);
+        if (!sessionPath.isEmpty())
+        {
+            const auto restoreSession = [&]
+            {
+                require(session.open(QIODevice::WriteOnly), u"Cannot restore browser fixture session"_s);
+                session.close();
+            };
+            const auto downloadRoles = downloads->roleNames();
+            const auto download = [&](const QByteArray &role)
+            {
+                return downloads->data(downloads->index(0, 0), downloadRoles.key(role)).toString();
+            };
+            restoreSession();
+            require(controller->retrySource(sourceId), u"Sources did not resume the pending Save"_s);
+            waitFor([&] { return (downloads->rowCount() == 1) && (download("status") == u"complete"_s)
+                && !controller->property("libraryPending").toBool(); }, u"Resumed exact Save"_s);
+            require(history->rowCount() == 0, u"Retrying Save also started Watch"_s);
+            require(session.remove(), u"Cannot expire browser fixture session again"_s);
+            watchNeedsLogin();
+
+            auto *player = Media::Player::instance();
+            const auto stop = qScopeGuard([player] { player->stop(); });
+            QString openedIdentity;
+            QObject observations;
+            QObject::connect(player, &Media::Player::playbackStarted, &observations,
+                [&](const QString &identity, quint64) { openedIdentity = identity; });
+            restoreSession();
+            require(controller->retrySource(sourceId), u"Sources did not resume the pending Watch"_s);
+            waitFor([&] { return !openedIdentity.isEmpty() && (history->rowCount() == 1); }, u"Resumed exact Watch"_s);
+            require((openedIdentity == u"video:"_s + variantId) && (downloads->rowCount() == 1),
+                u"Retrying Watch changed the selected variant or duplicated Save"_s);
+            selection[u"savedFile"_s] = download("path");
+            evidence[u"selection"_s] = selection;
+        }
         evidence[u"checks"_s] = QJsonArray {QJsonObject {
             {u"name"_s, u"native-browser-login"_s}, {u"variantId"_s, variantId},
             {u"watchSignIn"_s, true}, {u"saveSignIn"_s, true},

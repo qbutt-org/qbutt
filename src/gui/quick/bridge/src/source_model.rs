@@ -73,6 +73,7 @@ pub struct SourceRow {
     pub source: Source,
     pub enabled: bool,
     pub failure: Option<SourceFailureReason>,
+    pub browser_site: Option<&'static str>,
     pub pending: bool,
     pub retrying: bool,
 }
@@ -155,13 +156,13 @@ impl ffi::SourceModel {
             ),
             8 => QVariant::from(&row.source.account_url().is_some()),
             9 => {
-                let site = match (row.failure, row.source.site_url()) {
-                    (Some(SourceFailureReason::Challenge), Some(site)) => {
+                let site = row
+                    .browser_site
+                    .map(|site| {
                         let site = url::Url::parse(site).expect("fixed source site");
                         QString::from(site.host_str().expect("source site host"))
-                    }
-                    _ => QString::default(),
-                };
+                    })
+                    .unwrap_or_default();
                 QVariant::from(&site)
             }
             _ => QVariant::default(),

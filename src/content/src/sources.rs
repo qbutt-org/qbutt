@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::browser::BrowserError;
-use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef};
+use crate::{Category, ChapterRef, Error, PublicationRef, Source, VariantRef, VariantSelector};
 
 impl Source {
     pub const ALL: [Self; 29] = [
@@ -251,6 +251,17 @@ impl SourceOperation {
         }
     }
 
+    pub fn browser_login_site(&self) -> Option<&'static str> {
+        match self {
+            operation if operation.source() == Source::VkVideo => Source::VkVideo.site_url(),
+            Self::Resolve(VariantRef {
+                selector: VariantSelector::YummyAnimeVideo { player, .. },
+                ..
+            }) if player == "Плеер VK" => Source::VkVideo.site_url(),
+            _ => None,
+        }
+    }
+
     pub fn validate(&self) -> crate::Result<()> {
         match self {
             Self::Search {
@@ -403,6 +414,16 @@ impl SourceFailureReason {
 pub struct SourceFailure {
     pub operation: SourceOperation,
     pub reason: SourceFailureReason,
+}
+
+impl SourceFailure {
+    pub fn browser_site(&self) -> Option<&'static str> {
+        match self.reason {
+            SourceFailureReason::LoginRequired => self.operation.browser_login_site(),
+            SourceFailureReason::Challenge => self.operation.source().site_url(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

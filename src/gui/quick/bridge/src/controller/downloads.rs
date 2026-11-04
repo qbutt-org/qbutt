@@ -16,7 +16,7 @@ use url::Url;
 
 use super::catalog::SourceResponse;
 use super::ffi;
-use super::sources::SourceRequest;
+use super::sources::{PendingVariantAction, SourceRequest, VariantAction};
 use crate::download_model;
 
 pub(super) struct CapturedIntent {
@@ -262,6 +262,10 @@ impl ffi::ContentController {
         let Some(request) = self.source_request(SourceOperation::Resolve(reference)) else {
             return false;
         };
+        self.as_mut()
+            .rust_mut()
+            .source_status
+            .pending_variant_action = None;
         self.as_mut().resolve_download(request, queue, None, 0)
     }
 
@@ -535,6 +539,10 @@ impl ffi::ContentController {
         };
         let catalog = Arc::clone(&services.catalog);
         let qt_thread = self.qt_thread();
+        let selected_save = (launch_token == 0
+            && retry_id.is_none()
+            && request.operation.browser_login_site().is_some())
+        .then(|| (self.selected_variant_id.clone(), self.resolution.generation));
         services.runtime.spawn(async move {
             let result = catalog.execute(&request.operation).await;
             let external = if let Ok(SourceResponse::Resolve(ResolvedContent::BrowserVideo {
@@ -637,6 +645,22 @@ impl ffi::ContentController {
                             ffi::ContentError::Download
                         };
                         if controller.download_notice_generation == notice_generation {
+                            if requires_login
+                                && let Some((id, generation)) = selected_save
+                                && controller.resolution.generation == generation
+                                && controller.selected_variant_id == id
+                            {
+                                controller
+                                    .as_mut()
+                                    .rust_mut()
+                                    .source_status
+                                    .pending_variant_action = Some(PendingVariantAction {
+                                    reference: reference.clone(),
+                                    id,
+                                    resolution_generation: generation,
+                                    action: VariantAction::Save,
+                                });
+                            }
                             controller.as_mut().set_error(Some(notice));
                         }
                         controller

@@ -12,7 +12,7 @@ use qbutt_content::{
 
 use super::catalog::SourceResponse;
 use super::history::HistorySave;
-use super::sources::PendingVariantAction;
+use super::sources::{PendingVariantAction, VariantAction};
 use super::{Services, ffi};
 use crate::models;
 
@@ -355,27 +355,30 @@ impl ffi::ContentController {
                     return;
                 }
                 controller.as_mut().rust_mut().resolution.task = None;
+                let failure_reason = result
+                    .as_ref()
+                    .err()
+                    .and_then(SourceFailureReason::from_error);
                 let needs_source_check = matches!(
                     reference.publication.source,
                     Source::RuTracker | Source::NnmClub
-                ) && result
-                    .as_ref()
-                    .err()
-                    .and_then(SourceFailureReason::from_error)
-                    .is_some_and(|reason| {
-                        matches!(
-                            reason,
-                            SourceFailureReason::LoginRequired
-                                | SourceFailureReason::SourceCheckRequired
-                        )
-                    });
+                ) && matches!(
+                    failure_reason,
+                    Some(
+                        SourceFailureReason::LoginRequired
+                            | SourceFailureReason::SourceCheckRequired
+                    )
+                );
+                let needs_browser_login = failure_reason
+                    == Some(SourceFailureReason::LoginRequired)
+                    && request.operation.browser_login_site().is_some();
                 controller.as_mut().source_outcome(&request, &result);
                 if controller.resolution.generation != generation
                     || !controller.source_request_current(&request)
                 {
                     return;
                 }
-                if needs_source_check {
+                if needs_source_check || needs_browser_login {
                     controller
                         .as_mut()
                         .rust_mut()
@@ -384,6 +387,7 @@ impl ffi::ContentController {
                         reference: reference.clone(),
                         id: id.clone(),
                         resolution_generation: generation,
+                        action: VariantAction::Open,
                     });
                 }
                 controller.as_mut().set_resolving(false);

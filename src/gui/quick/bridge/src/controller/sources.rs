@@ -61,11 +61,18 @@ struct SourceStatus {
     retry_is_search: bool,
 }
 
-/// An in-memory continuation of the user's Open action, never a persisted retry instruction.
+#[derive(Clone, Copy)]
+pub(super) enum VariantAction {
+    Open,
+    Save,
+}
+
+/// Only the current in-memory action may be resumed after source access changes.
 pub(super) struct PendingVariantAction {
     pub reference: VariantRef,
     pub id: QString,
     pub resolution_generation: u64,
+    pub action: VariantAction,
 }
 
 impl SourceStatus {
@@ -85,10 +92,12 @@ impl SourceStatus {
     }
 
     fn row(&self) -> source_model::SourceRow {
+        let failure = self.failure();
         source_model::SourceRow {
             source: self.settings.source,
             enabled: self.enabled(),
-            failure: self.failure().map(|failure| failure.reason),
+            failure: failure.map(|failure| failure.reason),
+            browser_site: failure.and_then(SourceFailure::browser_site),
             pending: self.pending != 0,
             retrying: self.retry.task.is_some(),
         }
@@ -196,9 +205,18 @@ impl ffi::ContentController {
     }
 
     pub fn open_source_site(self: Pin<&mut Self>, id: QString) -> bool {
-        let Some(url) = Source::from_id(&id.to_string()).and_then(Source::site_url) else {
+        let Some(source) = Source::from_id(&id.to_string()) else {
             return false;
         };
+        let Some(site) = source.site_url() else {
+            return false;
+        };
+        let url = self
+            .source_status
+            .status(source)
+            .failure()
+            .and_then(SourceFailure::browser_site)
+            .unwrap_or(site);
         self.open_source_page(id, url)
     }
 
@@ -280,6 +298,7 @@ impl ffi::ContentController {
             Source::RanobeLib,
             Source::ByRut,
             Source::Igruha,
+            Source::VkVideo,
             Source::YummyAnime,
         ] {
             {
@@ -820,7 +839,9 @@ impl ffi::ContentController {
                 source,
                 Source::RuTracker | Source::NnmClub | Source::X1337 | Source::Igruha
             );
-        if manual_check && self.resolving {
+        let browser_login = failure.reason == SourceFailureReason::LoginRequired
+            && failure.operation.browser_login_site().is_some();
+        if (manual_check || browser_login) && self.resolving {
             return false;
         }
         let Some(request) = self.source_request(failure.operation) else {
@@ -831,7 +852,7 @@ impl ffi::ContentController {
             .pending_variant_action
             .as_ref()
             .filter(|action| {
-                manual_check
+                (manual_check || browser_login)
                     && request.operation == SourceOperation::Resolve(action.reference.clone())
                     && self.resolution.generation == action.resolution_generation
                     && self.selected_variant_id == action.id
@@ -840,10 +861,15 @@ impl ffi::ContentController {
                         .find(&action.id.to_string())
                         .is_some_and(|variant| variant.reference == action.reference)
             })
-            .map(|action| action.id.clone());
-        if let Some(id) = continuation {
-            self.as_mut().resolve_variant_action(id, true);
-            return self.resolving;
+            .map(|action| (action.id.clone(), action.action));
+        if let Some((id, action)) = continuation {
+            return match action {
+                VariantAction::Open => {
+                    self.as_mut().resolve_variant_action(id, manual_check);
+                    self.resolving
+                }
+                VariantAction::Save => self.as_mut().download_selected(id),
+            };
         }
         let mut remaining = Vec::new();
         if manual_check
