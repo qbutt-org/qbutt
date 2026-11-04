@@ -701,6 +701,8 @@ For manga read-ahead, build `qbutt-quick-acceptance` and the
 `manga-imagegen-protocol` example. Generate the authored page fixture with
 `tests/manga-render`, then run the following with Qt's `bin` directory on `PATH`:
 
+The Windows recipe below has not been rerun for the current R6 changes.
+
 ```powershell
 bun tests/content-reading/manga-ahead.ts `
     'C:/Tools/qbutt/agent-build/2/manga-cleanup-quick/qbutt-quick-acceptance.exe' `
@@ -709,15 +711,33 @@ bun tests/content-reading/manga-ahead.ts `
     'C:/Tools/qbutt/agent-build/2/manga-ahead-qa-final-identity'
 ```
 
-This verified command requires a fresh evidence directory. Its authored CBZ and
-owned Codex peer make no live inference calls. Require exit zero and all five
-`PASS reader_manga_ahead` lines. The 23 turns check one next page, accepted names
+The current R6 revision was verified on Linux with the following command. Use a
+fresh final evidence path when repeating it:
+
+```bash
+/home/ariex/qbutt-linux/tools/bin/bun tests/content-reading/manga-ahead.ts \
+    /home/ariex/qbutt-linux/build/qbutt-package/tests/quick-acceptance/qbutt-quick-acceptance \
+    /home/ariex/qbutt-linux/build/qbutt-package/cargo/build/x86_64-unknown-linux-gnu/release/examples/manga-imagegen-protocol \
+    /home/ariex/qbutt-linux/evidence/r6-20261104/native-render-positive \
+    /home/ariex/qbutt-linux/evidence/r6-20261104/chapter-pause-restored-final
+```
+
+These commands require a fresh evidence directory. Their authored CBZ and
+owned Codex peer make no live inference calls. Require exit zero and all six
+`PASS reader_manga_ahead` lines. The 25 turns check one next page, accepted names
 and facts, promotion without duplicate inference, exact Original/offline PNG
 cache, unchanged History, current-page priority, cancellation and drain across
 Original/language/model/effort/close/book/chapter resets, stale context rejection
-and foreground retry after a background failure. Each page is prefetched once
+and foreground retry after a background failure. A declined foreground page
+retains chapter translation and accepted pages. A service failure pauses fresh
+inference, permits cached pages to reload after viewport eviction and requires
+explicit Retry before another model turn. This pause survives a generation-changing
+chapter reload, including cached hits and misses. The scenario also checks recovery,
+Original and exact offline reopening. Each page is prefetched once
 within the current chapter and translation-settings lifecycle; a later prefetch does not permit an earlier failed or canceled target
-to repeat automatically. Visiting that target may retry foreground work.
+to repeat automatically. Visiting that target may retry foreground work after
+a local failure. Background completion waits for the published page URL after
+the Library write acknowledgement; SQLite integrity is checked after native exit.
 Native pointer interaction and model recognition remain separate acceptance checks.
 
 Run `--reader-manga-translation --lang ru --profile <isolated-directory>` in
@@ -792,9 +812,25 @@ offline cache reuse. Ordinary pages retain pipeline 3. `--reader-longstrip`
 separately checks original tiling, source-relative position and cleanup; it
 does not request translation.
 
-For controlled rejection, set `QBUTT_MANGA_EXPECT_FAILURE=window` with an omitted
-second-window balloon, or `orientation` with either authored orientation JPEG.
-Require `PASS reader_manga_rejection`, the concrete native/seam error in the log,
+For the authored longstrip's partial result, create an empty `decline-last-window`
+file beside the controlled peer and set `QBUTT_MANGA_EXPECT_PARTIAL=1`. Use the
+same longstrip input and `native` peer. Require `PASS reader_manga_partial` and
+the normal reader PASS: the complete output must match `partial-result.png`,
+with the accepted window translated and the declined window left Original.
+The normal atomic cache, exact Original and offline reopening checks still run.
+Remove the flag and unset the environment variable for ordinary scenarios.
+
+The native renderer also authors `longstrip/oversize-last` and `longstrip/oversize-all`.
+Use `oversize-last/original.png` with the native peer and `QBUTT_MANGA_EXPECT_PARTIAL=1`,
+without `decline-last-window`: one native crop is below 12 MiB and the other exceeds
+it, while the accepted full-page PNG remains at most 16 MiB. Require the same exact
+partial PNG, atomic cache, Original and offline checks. Use `oversize-all/original.jpg`
+with `QBUTT_MANGA_EXPECT_FAILURE=encoded-window` and no partial flag to require a
+page-local rejection, zero `turn/start` calls and zero PNG/context rows.
+
+For controlled rejection, set `QBUTT_MANGA_EXPECT_FAILURE=orientation` with either
+authored orientation JPEG.
+Require `PASS reader_manga_rejection`, the concrete rejection in the log,
 exact Original, zero PNG/context rows and `manga-reader-error.png` after leaving
 the busy state. For small authored-page proposal scenarios, put `retry-geometry`,
 `retry-context` or `retry-typography` in the peer's `submission-case.txt` to verify
@@ -853,8 +889,10 @@ unreadable preview. Sheets are at most 2048 pixels per side. Their aggregate
 16M-pixel allocation uses the remaining shared 64M inspection budget, with the
 transport's existing 24-image and 12 MiB encoded batch limits. This bounds preview
 RGBA buffers to 64 MB; original decode and encoded output have separate limits.
-The model can correct geometry, coverage and typography within three evaluated
-submissions. A fully validated preview replaces the latest candidate; a rejected
+The request allows six evaluated maps and three usable native preview sets.
+Schema, geometry or native-render rejection without a usable preview does not
+spend a visual correction. Existing image-inspection and transport limits still
+apply. A fully validated preview replaces the latest candidate; a rejected
 replacement retains it. The final response is only `accepted` and `reason` and
 selects that exact latest candidate, or declines it. It cannot bypass submission
 or start cleanup after rejection. The fixture checks validation repair, visual
