@@ -16,10 +16,10 @@ main() {
             sha256=0c849c2954cc616dc7f683bf35c937146323d5440b0c2a5cb4dc14150d0f5f14
             ;;
         qplay)
-            version=1.4.1
+            version=1.4.2
             file=qplay-linux-x64.tar.gz
-            size=188815651
-            sha256=afbc0859c89568b398b7079544775c7d69ee621e9df1dacef61e56bb3ccea533
+            size=188807959
+            sha256=31446afc049a994c7bac5856ae89b53f9c57743fbc16ad4321724fba046b46f9
             ;;
         qcatch)
             version=1.3.6
