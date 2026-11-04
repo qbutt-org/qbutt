@@ -1755,10 +1755,14 @@ namespace
             const auto available = nativeTorrent->nativeHandle().status(lt::torrent_handle::query_pieces).pieces;
             for (int index = 0; index < available.size(); ++index)
                 pieces.append(available[lt::piece_index_t(index)]);
-            const bool restored = (nativeTorrent->nativeHandle().get_piece_priorities() == expectedPiecePriorities)
+            const auto nativePriorities = nativeTorrent->nativeHandle().get_piece_priorities();
+            QJsonArray piecePriorities;
+            for (const auto priority : nativePriorities)
+                piecePriorities.append(static_cast<int>(static_cast<unsigned char>(priority)));
+            const bool restored = (nativePriorities == expectedPiecePriorities)
                 && (torrent->filePriorities() == originalFilePriorities)
                 && (torrent->isSequentialDownload() == originalSequential);
-            return QJsonObject {{u"pieces"_s, pieces},
+            return QJsonObject {{u"pieces"_s, pieces}, {u"piecePriorities"_s, piecePriorities},
                 {u"prioritiesRestored"_s, restored}, {u"sequential"_s, torrent->isSequentialDownload()},
                 {u"deadlines"_s, deadlines->load()},
                 {u"completedBytes"_s, torrent->completedSize()}, {u"progress"_s, torrent->progress()},
@@ -1835,11 +1839,12 @@ namespace
             else if (action == u"priority")
             {
                 const int index = command.value(u"fileIndex"_s).toInt(-1);
-                const int priority = command.value(u"priority"_s).toInt(-1);
-                require((index >= 0) && (index < torrent->filesCount()) && ((priority == 0) || (priority == 1)),
-                    u"Invalid generated media file priority"_s);
+                const auto ignored = command.value(u"ignored"_s);
+                require((index >= 0) && (index < torrent->filesCount()) && ignored.isBool(),
+                    u"Invalid generated media file selection"_s);
                 auto priorities = originalFilePriorities;
-                priorities[index] = static_cast<BitTorrent::DownloadPriority>(priority);
+                if (ignored.toBool())
+                    priorities[index] = BitTorrent::DownloadPriority::Ignored;
                 torrent->prioritizeFiles(priorities);
             }
             else if (action == u"cancel-read-burst")

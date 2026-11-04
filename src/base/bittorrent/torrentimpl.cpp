@@ -1867,10 +1867,9 @@ void TorrentImpl::applyPiecePriorities(const bool refreshDeadlines)
         for (int piece = range.first; piece <= range.last; ++piece)
         {
             activePieces.insert(piece);
-            const auto priority = LT::toNative(range.urgent ? DownloadPriority::Maximum : DownloadPriority::Normal);
-            priorities[piece] = std::max(priorities[piece], priority);
             if (range.urgent)
             {
+                priorities[piece] = std::max(priorities[piece], LT::toNative(DownloadPriority::Maximum));
                 // Space deadlines by bytes: one second per tiny piece starves
                 // libtorrent's time-critical scheduler on small-piece torrents.
                 const int deadline = qint64(piece - range.first) * pieceLength() * 1000 / (1024 * 1024);

@@ -12,6 +12,7 @@ interface StreamingState {
     phase: string;
     url?: string;
     pieces: boolean[];
+    piecePriorities: number[];
     prioritiesRestored: boolean;
     sequential: boolean;
     completedBytes: number;
@@ -37,6 +38,7 @@ assert(Bun.argv.slice(2).every(argument => argument === "--no-cues"), "Unknown m
 const qplay = process.env.QBUTT_LAB_QPLAY;
 const qplayAcceptance = process.env.QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE;
 const qplayFixture = process.env.QBUTT_LAB_QPLAY_MATROSKA_FIXTURE;
+const qplayContentProbe = process.env.QBUTT_LAB_QPLAY_CONTENT_PROBE;
 const expectedAcceptanceHash = process.env.QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE_SHA256;
 assert(qplay && qplayAcceptance && expectedAcceptanceHash,
     "Set QBUTT_LAB_QPLAY, QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE and QBUTT_LAB_QPLAY_NATIVE_ACCEPTANCE_SHA256");
@@ -45,7 +47,7 @@ if (!noCues)
 const qplayRoot = dirname(qplay);
 const qplayLibrary = join(qplayRoot, "engine", "libmpv-2.dll");
 process.env.QBUTT_LAB_PATHS = "1";
-const { runtimeDir: mediaRuntime, tools: { ffmpeg, mpv } } = await resolveMediaRuntime("", AbortSignal.timeout(30_000));
+const { runtimeDir: mediaRuntime, tools: { ffmpeg, ffprobe, mpv } } = await resolveMediaRuntime("", AbortSignal.timeout(30_000));
 process.env.QBUTT_LAB_EXE = executable;
 const lab = await createLab(noCues ? "media-streaming-no-cues" : "media-streaming");
 await lab.checkpoint({check: "explicit-media-tools", mediaRuntime: await realpath(mediaRuntime),
@@ -119,14 +121,18 @@ async function range(url: string, expected: Buffer, first: number, last: number,
 
 function pendingRange(url: URL, offset: number) {
     const abort = new AbortController();
-    const done = fetch(url, {headers: {Range: `bytes=${offset}-${offset + 65535}`}, signal: abort.signal})
-        .then(async response => {
-            await response.arrayBuffer();
-            throw new Error("Pending range completed before cancellation");
-        }).catch(error => {
-            assert.equal(error.name, "AbortError", "Pending stream failed before client cancellation");
-        });
-    return {cancel: () => abort.abort(), done};
+    const response = fetch(url, {headers: {Range: `bytes=${offset}-${offset + 65535}`}, signal: abort.signal});
+    let receivedBytes = 0;
+    const done = response.then(async response => {
+        assert.equal(response.status, 206, "Pending range was rejected");
+        assert(response.body);
+        for await (const chunk of response.body)
+            receivedBytes += chunk.byteLength;
+        throw new Error("Pending range completed before cancellation");
+    }).catch(error => {
+        assert.equal(error.name, "AbortError", "Pending stream failed before client cancellation");
+    });
+    return {response, cancel: () => abort.abort(), done, receivedBytes: () => receivedBytes};
 }
 
 function mp4Atoms(bytes: Buffer): string[] {
@@ -413,7 +419,8 @@ print(json.dumps(descriptions))
             path: file.path, offset: file.offset, size: file.size})), "Qt visible file mapping differs from native torrent metadata");
         await command("rate", {bytesPerSecond: 256 * 1024});
         const fileEntityTags = new Map<number, string>();
-        for (const file of visibleFiles.filter(file => !noCues || file.path.endsWith(".mkv"))) {
+        const streamedFiles = visibleFiles.filter(file => !noCues || file.path.endsWith(".mkv"));
+        for (const file of streamedFiles) {
             const expected = sources.get(file.path)!;
             assert(file.fileIndex !== null);
             const state = await command("open", {fileIndex: file.fileIndex});
@@ -458,41 +465,80 @@ print(json.dumps(descriptions))
             assert.equal(invalid.status, 416);
             assert.equal(invalid.headers.get("content-range"), `bytes */${expected.length}`);
             await invalid.body?.cancel();
-            if (file.fileIndex === 0) {
+            if (file === streamedFiles[0]) {
+                // Retain verified bytes in an otherwise ignored, incomplete file.
+                await range(url.href, expected, 0, 32767, entityTag);
                 await command("rate", {bytesPerSecond: 1024});
+                await command("priority", {fileIndex: file.fileIndex, ignored: true});
+                const probeOffset = Math.floor(expected.length * 0.32);
+                const viewerOffset = Math.floor(expected.length * 0.68);
+                const probePiece = Math.floor((file.offset + probeOffset) / fixture.pieceLength);
+                const viewerPiece = Math.floor((file.offset + viewerOffset) / fixture.pieceLength);
+                const ignored = await waitFor("Native ignored-file priorities applied", () => command("snapshot"),
+                    snapshot => snapshot.piecePriorities[probePiece] === 0
+                        && snapshot.piecePriorities[viewerPiece] === 0 && snapshot.deadlines === 0, 5000);
+                assert.equal(ignored.pieces[probePiece], false, "Probe target already verified");
+                assert.equal(ignored.pieces[viewerPiece], false, "Viewer target already verified");
                 const probeUrl = new URL(url);
                 probeUrl.searchParams.set("role", "probe");
-                const probe = pendingRange(probeUrl, Math.floor(expected.length * 0.32));
+                const cachedProbe = await range(probeUrl.href, expected, 0, 32767, entityTag);
+                const cachedState = await command("snapshot");
+                assert.deepEqual(cachedState.piecePriorities, ignored.piecePriorities,
+                    "Reading verified probe bytes changed ignored-file priorities");
+                assert.equal(cachedState.deadlines, 0);
+
+                const probe = pendingRange(probeUrl, probeOffset);
                 let urgent: ReturnType<typeof pendingRange> | undefined;
                 try {
-                    await Bun.sleep(200);
-                    assert.equal((await command("snapshot")).prioritiesRestored, true, "A background probe changed normal priorities");
-                    urgent = pendingRange(url, Math.floor(expected.length * 0.68));
-                    await waitFor("Urgent request overtakes a concurrent background probe", () => command("snapshot"),
-                        snapshot => !snapshot.prioritiesRestored, 5000);
+                    await probe.response;
+                    const probeState = await command("snapshot");
+                    assert.deepEqual(probeState.piecePriorities, ignored.piecePriorities,
+                        "A background probe requested otherwise ignored pieces");
+                    assert.equal(probeState.deadlines, 0, "A background probe added native deadlines");
+                    assert.equal(probe.receivedBytes(), 0, "Probe returned an unverified piece");
+
+                    urgent = pendingRange(url, viewerOffset);
+                    await urgent.response;
+                    const concurrent = await waitFor("Viewer prioritizes its ignored range beside the probe", () => command("snapshot"),
+                        snapshot => snapshot.piecePriorities[viewerPiece] === 7 && snapshot.deadlines > 0, 5000);
+                    assert.equal(concurrent.piecePriorities[probePiece], 0,
+                        "The probe acquired priority beside the active viewer");
+                    assert.equal(concurrent.pieces[probePiece], false);
+                    assert.equal(probe.receivedBytes(), 0);
+
+                    urgent.cancel();
+                    await urgent.done;
+                    await waitFor("Viewer release restores ignored priorities while the probe remains", () => command("snapshot"),
+                        snapshot => snapshot.deadlines === 0
+                            && snapshot.piecePriorities.every((priority, index) => priority === ignored.piecePriorities[index]), 5000);
+                    assert.equal(probe.receivedBytes(), 0, "Waiting probe consumed unavailable bytes");
                 }
                 finally {
                     urgent?.cancel();
                     probe.cancel();
                     await Promise.all([urgent?.done, probe.done]);
+                    await command("priority", {fileIndex: file.fileIndex, ignored: false});
                 }
-                await waitFor("Cancelled probe and urgent request release priorities", () => command("snapshot"),
-                    snapshot => snapshot.prioritiesRestored, 5000);
+                await waitFor("Cancelled consumers restore ordinary priorities", () => command("snapshot"),
+                    snapshot => snapshot.prioritiesRestored && snapshot.deadlines === 0, 5000);
                 await command("rate", {bytesPerSecond: 256 * 1024});
-                await lab.checkpoint({check: "probe-role-does-not-preempt-playback", format: fixture.name,
-                    independentConcurrentConsumers: true, prioritiesRestoredAfterCancel: true});
+                await lab.checkpoint({check: "probe-preserves-ignored-piece-policy", format: fixture.name,
+                    cachedProbe, missingProbeBytes: probe.receivedBytes(),
+                    viewerPriority: 7, probePriority: 0, prioritiesRestoredAfterCancel: true});
                 const priorityOffset = Math.floor(expected.length * 0.40);
                 const pendingPriorityRange = range(url.href, expected, priorityOffset, priorityOffset + 65535, entityTag);
                 await Bun.sleep(100);
-                await command("priority", {fileIndex: file.fileIndex, priority: 0});
+                await command("priority", {fileIndex: file.fileIndex, ignored: true});
+                const observedPriorityRange = range(probeUrl.href, expected, priorityOffset, priorityOffset + 65535, entityTag);
                 await command("rate", {bytesPerSecond: 512 * 1024});
-                const priorityRange = await pendingPriorityRange;
-                await command("priority", {fileIndex: file.fileIndex, priority: 1});
+                const [priorityRange, observedRange] = await Promise.all([pendingPriorityRange, observedPriorityRange]);
+                await command("priority", {fileIndex: file.fileIndex, ignored: false});
                 await waitFor("Ordinary priorities restored after a live file-priority change", () => command("snapshot"),
                     snapshot => snapshot.prioritiesRestored, 5000);
                 await command("rate", {bytesPerSecond: 256 * 1024});
                 await lab.checkpoint({check: "active-stream-survives-file-priority-change", format: fixture.name,
-                    ignoredFileStillStreamsVerifiedBytes: priorityRange, originalPrioritiesRestored: true});
+                    ignoredFileStillStreamsVerifiedBytes: priorityRange, probeReadsViewerVerifiedBytes: observedRange,
+                    originalPrioritiesRestored: true});
             }
             const middle = Math.floor(expected.length * 0.73);
             const tail = expected.length - 128 * 1024 - 1;
@@ -636,6 +682,25 @@ print(json.dumps(descriptions))
         await command("close", {fileIndex: cachedFile});
         await waitFor("Closing playback releases session completion actions", () => command("snapshot"),
             snapshot => snapshot.completionActionReady, 15000);
+        if (qplayContentProbe && fixture.name === "media-v1") {
+            const file = visibleFiles[0]!;
+            const stream = await command("open", {fileIndex: file.fileIndex});
+            assert(stream.url, "Verified media has no stream URL");
+            const options = {cwd: qplayRoot, env: {...process.env, Path: `${qplayRoot};${process.env.Path ?? ""}`}, timeout: 65000};
+            const local = JSON.parse(await run([qplayContentProbe, ffprobe, join(destination, file.path), "90", "file"],
+                "qplay content probe on the verified file", options));
+            const remote = JSON.parse(await run([qplayContentProbe, ffprobe, stream.url, "90", "network"],
+                "qplay content probe over the native torrent stream", options));
+            assert.equal(local.status, "classified");
+            assert.equal(remote.status, "classified");
+            assert.equal(remote.kind, local.kind);
+            assert.equal(remote.fps, 24);
+            assert.equal(remote.variable, false);
+            await command("close", {fileIndex: file.fileIndex});
+            await lab.checkpoint({check: "qplay-content-policy-real-libtorrent-range", format: fixture.name,
+                kind: remote.kind, fps: remote.fps, matchedLocal: true, cachedWithoutPeers: true,
+                probeSha256: sha256(await readFile(qplayContentProbe))});
+        }
         await command("finish");
         const exit: number = await application.exited;
         const evidence = JSON.parse(await readFile(evidencePath, "utf8"));

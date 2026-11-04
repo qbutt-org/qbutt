@@ -1467,7 +1467,10 @@ bun tests/media-streaming.ts
 The generated v1/v2/hybrid torrents contain faststart MP4, trailing-moov MP4
 and indexed Matroska with an authored ASS track. The suite verifies exact Range
 bytes during incomplete downloads, seek/cancellation and priority restoration,
-then full hashes/sizes and playback without peers. Strong ETags must survive
+then full hashes/sizes and playback without peers. An ignored, partially verified
+file must serve its cached probe bytes without raising native piece priorities.
+A probe waiting on missing bytes must add no deadlines or priority, including
+beside an urgent viewer and after that viewer is cancelled. Strong ETags must survive
 capability replacement; matching/list/wildcard If-Match requests succeed, while
 stale or weak tags return 412 without payload. Numbered immutable command
 responses avoid replacing a file while the Windows runner reads it. The native
@@ -1477,6 +1480,10 @@ authored style and restore Original while the torrent is incomplete. Accepted
 translations are preseeded in the isolated cache; this does not exercise live
 inference or the qbutt product-window handoff. The other mpv checks use null
 audio/video outputs.
+
+To compare qplay's content analysis on the verified file and its real torrent
+Range URL, set `QBUTT_LAB_QPLAY_CONTENT_PROBE` to the qplay `content-probe`
+example executable. The v1 fixture runs this comparison after stopping the seed.
 
 Run `bun tests/media-streaming.ts --no-cues` with the same environment for the
 focused incomplete Matroska scenario. FFmpeg generates a live-mode MKV; the
