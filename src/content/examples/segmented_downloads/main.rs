@@ -97,6 +97,48 @@ fn request(
     .unwrap()
 }
 
+fn authenticated_request(port: u16, path: &str, tools: &MediaTools) -> DirectDownload {
+    let audio_host = if path.ends_with(".mpd") {
+        "child.fixture.example"
+    } else {
+        "fixture.example"
+    };
+    let cookie = |domain: &str, path: &str, value: &str| {
+        serde_json::json!({
+            "name":"session", "value":value, "domain":domain, "path":path, "secure":false, "hostOnly":true
+        })
+    };
+    let media: PlaybackMedia = serde_json::from_value::<qbutt_content::browser::ResolvedMedia>(serde_json::json!({
+        "kind":"video", "resolver":"direct",
+        "url":format!("http://fixture.example:{port}/auth-video/{path}"),
+        "audioUrl":format!("http://{audio_host}:{port}/auth-audio/audio.m4a"),
+        "subtitles":[{"title":"Accent", "language":"en", "url":format!("http://fixture.example:{port}/auth-sub/accent.ass")}],
+        "cookies":[
+            cookie("fixture.example", "/auth-video/", "generated-video"),
+            cookie(audio_host, "/auth-audio/", "generated-audio"),
+            cookie("fixture.example", "/auth-sub/", "generated-subtitle"),
+            {"name":"domain", "value":"generated-domain", "domain":".fixture.example", "path":"/", "secure":false, "hostOnly":false},
+            {"name":"expired", "value":"generated-expired", "domain":"fixture.example", "path":"/", "secure":false, "hostOnly":true,"expirationDate":1.0}
+        ]
+    })).unwrap().into();
+    DirectDownload::segmented_catalog(
+        VariantRef {
+            publication: PublicationRef {
+                source: Source::Rutube,
+                id: "0123456789abcdef0123456789abcdef".into(),
+            },
+            selector: VariantSelector::RutubeVideo,
+        },
+        format!("Authenticated {path}"),
+        media.with_video_height(90),
+        MediaTools {
+            ffmpeg: tools.ffmpeg.clone(),
+            ffprobe: tools.ffprobe.clone(),
+        },
+    )
+    .unwrap()
+}
+
 async fn wait_for(
     updates: &mut tokio::sync::watch::Receiver<Vec<DownloadJob>>,
     id: &str,
@@ -142,6 +184,33 @@ async fn serve(listener: TcpListener, media: PathBuf, requests: Arc<Mutex<Vec<St
             let request = String::from_utf8_lossy(&head[..count]);
             let path = request.split_whitespace().nth(1).unwrap_or("/");
             requests.lock().unwrap().push(path.to_owned());
+            let expected_session = if path.starts_with("/auth-video/") {
+                Some("session=generated-video")
+            } else if path.starts_with("/auth-audio/") {
+                Some("session=generated-audio")
+            } else if path.starts_with("/auth-sub/") {
+                Some("session=generated-subtitle")
+            } else {
+                None
+            };
+            if let Some(expected) = expected_session {
+                let cookies = request
+                    .lines()
+                    .skip(1)
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("cookie").then_some(value.trim())
+                    })
+                    .unwrap_or("");
+                let pairs: Vec<_> = cookies.split("; ").collect();
+                if pairs.len() != 2
+                    || !pairs.contains(&expected)
+                    || !pairs.contains(&"domain=generated-domain")
+                {
+                    let _ = socket.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                    return;
+                }
+            }
             let slow = path.starts_with("/slow/");
             let expired = path.starts_with("/expired/") && !path.ends_with("master.m3u8");
             let name = path.rsplit('/').next().unwrap_or("");
@@ -245,6 +314,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
         .resolve("fixture.example", address)
+        .resolve("child.fixture.example", address)
         .build()?;
     let store = Store(Arc::new(Mutex::new(Library::open(&profile)?)));
     let queue =
@@ -309,6 +379,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::read(destination.join("HLS.mkv"))?,
         b"existing user payload"
     );
+
+    for path in ["master.m3u8", "manifest.mpd"] {
+        let job = queue
+            .enqueue(authenticated_request(address.port(), path, &tools))
+            .await?;
+        let done = wait_for(&mut updates, &job.id, |job| {
+            matches!(job.status, DownloadStatus::Complete | DownloadStatus::Error)
+        })
+        .await;
+        assert_eq!(
+            done.status,
+            DownloadStatus::Complete,
+            "Authenticated {path}: {:?}",
+            done.error
+        );
+        decode(&tools.ffmpeg, done.path.as_deref().unwrap());
+        assert_eq!(
+            fs::metadata(done.path.as_deref().unwrap())?.len(),
+            done.bytes
+        );
+        let probe = Command::new(&tools.ffprobe)
+            .args(["-v", "error", "-show_streams", "-of", "json"])
+            .arg(done.path.as_deref().unwrap())
+            .output()?;
+        assert!(probe.status.success());
+        let streams: serde_json::Value = serde_json::from_slice(&probe.stdout)?;
+        for kind in ["video", "audio", "subtitle"] {
+            assert!(
+                streams["streams"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|stream| stream["codec_type"] == kind),
+                "Authenticated {path} lost {kind}"
+            );
+        }
+        println!(
+            "PASS authenticated_segmented format={} bytes={} secondary_audio=decoded subtitle=retained path_cookies=isolated domain_cookie=retained expired_cookie=omitted",
+            if path.ends_with(".mpd") {
+                "static_dash"
+            } else {
+                "clear_hls"
+            },
+            done.bytes
+        );
+    }
 
     audio::verify(&queue, address.port(), &fixture, &tools).await?;
     assert!(
@@ -444,8 +560,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .windows(b"fixture.example".len())
             .any(|bytes| bytes == b"fixture.example")
     );
+    assert!(
+        !database
+            .windows(b"generated-".len())
+            .any(|bytes| bytes == b"generated-")
+    );
     println!(
-        "PASS native_segmented hls=1 dash=1 external_audio=1 ass_style=1 mux_decode=6 collision=1 expired_retry=1 cancel=1 restart_retry=1 live_rejected=2 drm_rejected=2 descriptor_urls_persisted=0"
+        "PASS native_segmented hls=1 dash=1 external_audio=1 ass_style=1 authenticated_hls=1 authenticated_dash=1 mux_decode=8 collision=1 expired_retry=1 cancel=1 restart_retry=1 live_rejected=2 drm_rejected=2 descriptor_urls_persisted=0 cookie_values_persisted=0"
     );
     Ok(())
 }

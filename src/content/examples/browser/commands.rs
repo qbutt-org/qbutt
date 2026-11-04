@@ -163,20 +163,78 @@ pub(super) async fn command_replies(
     let media = json!({
         "kind": "video",
         "resolver": "direct",
-        "url": "https://media.example/video.m3u8?key=ephemeral-fixture-secret",
+        "url": "https://media.example/video/selected.m3u8?key=ephemeral-fixture-secret",
         "selection": resolve["selection"],
-        "headers": {"Cookie": "session=ephemeral-fixture-secret"},
-        "audioUrl": "https://media.example/audio.m3u8",
+        "headers": {"Referer": "https://fixture.example/player"},
+        "cookies": [
+            {"name":"session","value":"generated-video","domain":"media.example","path":"/video/","secure":true,"hostOnly":true},
+            {"name":"session","value":"generated-audio","domain":"audio.example","path":"/audio/","secure":true,"hostOnly":true},
+            {"name":"session","value":"generated-subtitle","domain":".media.example","path":"/subs/","secure":true,"hostOnly":false,"expirationDate":4102444800.0}
+        ],
+        "audioUrl": "https://audio.example/audio/selected.m3u8",
         "audioTrack": {"title": "Original", "language": "ja", "channels": 2},
         "subtitles": [{
             "title": "Russian",
-            "url": "https://media.example/ru.vtt",
+            "url": "https://media.example/subs/ru.vtt",
             "language": "ru",
         }],
     });
     let reply = exchange(handle, edge, resolve.clone(), media.clone(), None).await?;
     assert_eq!(reply["audioTrack"]["channels"], 2);
     assert_eq!(reply["subtitles"][0]["language"], "ru");
+    assert_eq!(reply["cookies"].as_array().unwrap().len(), 3);
+    for name in ["Cookie", "cookie", "cOoKiE"] {
+        let mut invalid = media.clone();
+        invalid["headers"][name] = json!("generated=flat");
+        exchange(
+            handle,
+            edge,
+            resolve.clone(),
+            invalid,
+            Some(BrowserError::InvalidResponse),
+        )
+        .await?;
+    }
+    for (field, value) in [
+        ("domain", json!("unselected.example")),
+        ("path", json!("/unselected/")),
+        ("expirationDate", json!(-1)),
+    ] {
+        let mut invalid = media.clone();
+        invalid["cookies"][0][field] = value;
+        exchange(
+            handle,
+            edge,
+            resolve.clone(),
+            invalid,
+            Some(BrowserError::InvalidResponse),
+        )
+        .await?;
+    }
+    for cookies in [
+        vec![media["cookies"][0].clone(); 513],
+        (0..32)
+            .map(|index| {
+                json!({"name":format!("cookie{index}"),"value":"x".repeat(16*1024),
+            "domain":"media.example","path":"/video/","secure":true,"hostOnly":true})
+            })
+            .collect(),
+    ] {
+        let mut invalid = media.clone();
+        invalid["cookies"] = json!(cookies);
+        exchange(
+            handle,
+            edge,
+            resolve.clone(),
+            invalid,
+            Some(BrowserError::InvalidResponse),
+        )
+        .await?;
+    }
+    exchange(handle, edge,
+        json!({"method":"resolve","url":"https://fixture.example/download","kind":"file"}),
+        json!({"kind":"file","resolver":"direct","url":media["url"],"cookies":[media["cookies"][0].clone()]}),
+        Some(BrowserError::InvalidResponse)).await?;
     let mut wrong_selection = media.clone();
     wrong_selection["selection"]["episode"] = json!("8");
     exchange(

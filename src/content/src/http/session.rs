@@ -4,11 +4,10 @@ use reqwest::RequestBuilder;
 use reqwest::header::{AUTHORIZATION, COOKIE, HeaderMap, HeaderValue, SET_COOKIE, USER_AGENT};
 use url::{Origin, Url};
 
+use crate::browser::BrowserCookie;
 use crate::{Error, Result};
 
-const MAX_COOKIES: usize = 512;
 const MAX_COOKIE_BYTES: usize = 16 * 1024;
-const MAX_SESSION_BYTES: usize = 256 * 1024;
 const MAX_COOKIE_HEADER_BYTES: usize = 64 * 1024;
 
 /// Credentials stay with a provider operation or its bounded source owner;
@@ -16,7 +15,7 @@ const MAX_COOKIE_HEADER_BYTES: usize = 64 * 1024;
 /// HTTP guards remain external to RFC cookie domain/path matching.
 #[derive(Clone)]
 pub(crate) struct SourceSession {
-    pub(super) origin: Origin,
+    pub(crate) origin: Origin,
     user_agent: Option<HeaderValue>,
     cookies: Vec<Cookie<'static>>,
     authorization: Option<HeaderValue>,
@@ -57,7 +56,31 @@ impl SourceSession {
             HeaderValue::from_str(&session.connection.user_agent)
                 .map_err(|_| Error::InvalidResponse("invalid browser user agent"))?,
         );
-        for browser in session.cookies {
+        source.import_browser_cookies(&session.url, session.cookies)?;
+        Ok(source)
+    }
+
+    pub(crate) fn for_media(
+        origin: Url,
+        cookies: Vec<crate::browser::BrowserCookie>,
+    ) -> Result<Self> {
+        super::validate_media_url(&origin)?;
+        let mut source = Self {
+            origin: origin.origin(),
+            user_agent: None,
+            cookies: Vec::new(),
+            authorization: None,
+        };
+        source.import_browser_cookies(&origin, cookies)?;
+        Ok(source)
+    }
+
+    fn import_browser_cookies(
+        &mut self,
+        url: &Url,
+        cookies: Vec<crate::browser::BrowserCookie>,
+    ) -> Result<()> {
+        for browser in cookies {
             let mut raw = RawCookie::build((browser.name, browser.value))
                 .path(browser.path)
                 .secure(browser.secure)
@@ -65,7 +88,7 @@ impl SourceSession {
             if !browser.host_only {
                 raw = raw.domain(browser.domain);
             }
-            let mut cookie = Cookie::try_from_raw_cookie(&raw.build(), &session.url)
+            let mut cookie = Cookie::try_from_raw_cookie(&raw.build(), url)
                 .map_err(|_| Error::InvalidResponse("invalid browser cookie"))?
                 .into_owned();
             if let Some(expiry) = browser.expiration_date {
@@ -75,9 +98,9 @@ impl SourceSession {
                 .map_err(|_| Error::InvalidResponse("invalid browser cookie expiry"))?;
                 cookie.expires = CookieExpiration::AtUtc(expiry);
             }
-            source.store(cookie)?;
+            self.store(cookie)?;
         }
-        Ok(source)
+        Ok(())
     }
 
     pub(crate) fn from_webview(
@@ -115,7 +138,7 @@ impl SourceSession {
         Ok(source)
     }
 
-    pub(super) fn apply(&self, request: RequestBuilder, url: &Url) -> Result<RequestBuilder> {
+    pub(crate) fn apply(&self, request: RequestBuilder, url: &Url) -> Result<RequestBuilder> {
         let mut cookies: Vec<_> = self
             .cookies
             .iter()
@@ -203,7 +226,9 @@ impl SourceSession {
                     + cookie.path.as_ref().len()
             })
             .sum();
-        if self.cookies.len() == MAX_COOKIES || bytes > MAX_SESSION_BYTES {
+        if self.cookies.len() == BrowserCookie::MAX_SESSION_COOKIES
+            || bytes > BrowserCookie::MAX_SESSION_BYTES
+        {
             return Err(Error::ResponseTooLarge);
         }
         self.cookies.push(cookie);

@@ -11,7 +11,7 @@ use tokio::net::TcpStream;
 use url::{Origin, Url};
 
 use super::{HEAD_TIMEOUT, IDLE_TIMEOUT, MAX_HEADERS, MediaGatewayError, hop_header, reject};
-use crate::http::{media_client, validate_media_url};
+use crate::http::{SourceSession, media_client, validate_media_url};
 use crate::{PlaybackAudioTrack, PlaybackMedia};
 
 pub struct PreparedPlayback {
@@ -42,6 +42,7 @@ pub(crate) struct Resources {
     client: Client,
     origin: Origin,
     headers: HeaderMap,
+    sessions: Vec<SourceSession>,
     entries: Vec<Resource>,
 }
 
@@ -70,10 +71,40 @@ impl Resources {
         media: &PlaybackMedia,
         client: Client,
     ) -> Result<Self, MediaGatewayError> {
+        let sources: Vec<_> = std::iter::once(&media.url)
+            .chain(media.audio_url.iter())
+            .chain(media.subtitles.iter().map(|subtitle| &subtitle.url))
+            .collect();
+        let mut sessions: Vec<SourceSession> = Vec::new();
+        for url in &sources {
+            if sessions
+                .iter()
+                .any(|session| session.origin == url.origin())
+            {
+                continue;
+            }
+            let cookies: Vec<_> = media
+                .cookies
+                .iter()
+                .filter(|cookie| {
+                    sources
+                        .iter()
+                        .any(|source| source.origin() == url.origin() && cookie.valid_for(source))
+                })
+                .cloned()
+                .collect();
+            if !cookies.is_empty() {
+                sessions.push(
+                    SourceSession::for_media((*url).clone(), cookies)
+                        .map_err(|_| MediaGatewayError::InvalidDescriptor)?,
+                );
+            }
+        }
         Ok(Self {
             client,
             origin: media.url.origin(),
             headers: playback_headers(media.headers.clone())?,
+            sessions,
             entries: Vec::new(),
         })
     }
@@ -292,6 +323,15 @@ impl Resources {
                 if target.origin() == self.origin || public_header(name.as_str()) {
                     request = request.header(name, value);
                 }
+            }
+            if let Some(session) = self
+                .sessions
+                .iter()
+                .find(|session| session.origin == target.origin())
+            {
+                request = session
+                    .apply(request, &target)
+                    .map_err(|_| MediaGatewayError::InvalidDescriptor)?;
             }
             request = request.header("Accept-Encoding", "identity");
             if let Some(range) = range {
@@ -522,6 +562,9 @@ fn playback_headers(
 ) -> Result<HeaderMap, MediaGatewayError> {
     let mut result = HeaderMap::new();
     for (name, mut value) in headers {
+        if name.eq_ignore_ascii_case("cookie") {
+            return Err(MediaGatewayError::InvalidDescriptor);
+        }
         if hop_header(&name)
             || ["host", "accept-encoding", "content-length", "range"]
                 .iter()

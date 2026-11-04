@@ -13,7 +13,7 @@ use tokio::task::JoinSet;
 use url::Url;
 
 use super::media::{MediaGateway, MediaGatewayError};
-use super::{AcceptanceResult, PlaybackMedia, local_get};
+use super::{AcceptanceResult, PlaybackMedia, fixture_cookie, local_get};
 
 type RequestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -100,7 +100,13 @@ pub(super) async fn run(directory: &Path, ffmpeg: &Path) -> AcceptanceResult<()>
                 tokio::select! {
                     _ = &mut stopped => break,
                     completed = requests.join_next(), if !requests.is_empty() => {
-                        completed.unwrap().unwrap().unwrap();
+                        if let Err(error) = completed.unwrap().unwrap() {
+                            let peer_closed = error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+                                matches!(error.kind(), std::io::ErrorKind::BrokenPipe
+                                    | std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted)
+                            });
+                            assert!(peer_closed, "Generated HLS source failed: {error}");
+                        }
                     }
                     accepted = listener.accept() => {
                         let (socket, _) = accepted.unwrap();
@@ -118,7 +124,6 @@ pub(super) async fn run(directory: &Path, ffmpeg: &Path) -> AcceptanceResult<()>
     let descriptor = |path: &str| PlaybackMedia {
         url: origin.join(path).unwrap(),
         headers: [
-            ("Cookie".into(), "fixture=session".into()),
             ("Authorization".into(), "Bearer fixture".into()),
             (
                 "Referer".into(),
@@ -127,6 +132,7 @@ pub(super) async fn run(directory: &Path, ffmpeg: &Path) -> AcceptanceResult<()>
             ("Origin".into(), "https://alloha.yani.tv".into()),
         ]
         .into(),
+        cookies: vec![fixture_cookie(&origin)],
         audio_url: None,
         audio_track: None,
         video_height: None,
@@ -355,7 +361,7 @@ async fn respond(
         .collect::<BTreeMap<_, _>>();
     let child = headers
         .get("host")
-        .is_some_and(|host| host.starts_with("child.example:"));
+        .is_some_and(|host| host.starts_with("child.fixture.example:"));
     assert_eq!(
         headers.get("cookie").map(String::as_str),
         (!child).then_some("fixture=session")
@@ -383,7 +389,7 @@ async fn respond(
     if path == "/redirect-segment" || path == "/private-redirect-segment" {
         let mut target = origin.join("segment000.ts")?;
         target.set_host(Some(if path == "/redirect-segment" {
-            "child.example"
+            "child.fixture.example"
         } else {
             "127.0.0.1"
         }))?;

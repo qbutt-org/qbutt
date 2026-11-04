@@ -22,7 +22,7 @@ mod browser;
 mod policy;
 
 mod http {
-    pub(crate) use super::policy::validate_media_url;
+    pub(crate) use super::policy::{SourceSession, validate_media_url};
     use reqwest::dns::{Addrs, Name, Resolve, Resolving};
     use std::io;
     use std::net::SocketAddr;
@@ -35,7 +35,10 @@ mod http {
     impl Resolve for FixtureResolver {
         fn resolve(&self, name: Name) -> Resolving {
             Box::pin(async move {
-                let addresses = if matches!(name.as_str(), "fixture.example" | "child.example") {
+                let addresses = if matches!(
+                    name.as_str(),
+                    "fixture.example" | "child.example" | "child.fixture.example"
+                ) {
                     vec![SocketAddr::from(([127, 0, 0, 1], 0))]
                 } else {
                     super::policy::public_addresses(
@@ -61,10 +64,12 @@ mod http {
     pub(crate) async fn resolve_public_url(url: &Url) -> io::Result<Vec<SocketAddr>> {
         validate_media_url(url).map_err(|_| io::ErrorKind::PermissionDenied)?;
         match url.host_str() {
-            Some("fixture.example" | "child.example") => Ok(vec![SocketAddr::from((
-                [127, 0, 0, 1],
-                url.port_or_known_default().unwrap(),
-            ))]),
+            Some("fixture.example" | "child.example" | "child.fixture.example") => {
+                Ok(vec![SocketAddr::from((
+                    [127, 0, 0, 1],
+                    url.port_or_known_default().unwrap(),
+                ))])
+            }
             Some("mixed.example") => super::policy::public_addresses(vec![
                 SocketAddr::from(([1, 1, 1, 1], 443)),
                 SocketAddr::from(([127, 0, 0, 1], 443)),
@@ -373,10 +378,25 @@ async fn main() -> AcceptanceResult<()> {
     Ok(())
 }
 
+fn fixture_cookie(origin: &Url) -> browser::BrowserCookie {
+    browser::BrowserCookie {
+        name: "fixture".into(),
+        value: "session".into(),
+        domain: format!(".{}", origin.host_str().unwrap()),
+        path: "/".into(),
+        secure: origin.scheme() == "https",
+        host_only: false,
+        http_only: Some(true),
+        same_site: None,
+        expiration_date: None,
+    }
+}
+
 async fn exercise_prepared_mp4(origin: &Url) -> AcceptanceResult<()> {
     let media = PlaybackMedia {
         url: origin.join("protected.mp4")?,
-        headers: [("Cookie".to_owned(), "fixture=session".to_owned())].into(),
+        headers: Default::default(),
+        cookies: vec![fixture_cookie(origin)],
         audio_url: None,
         audio_track: None,
         video_height: None,
@@ -422,7 +442,8 @@ async fn exercise_prepared_mp4(origin: &Url) -> AcceptanceResult<()> {
 
     let redirected = PlaybackMedia {
         url: origin.join("redirect-protected.mp4")?,
-        headers: [("Cookie".to_owned(), "fixture=session".to_owned())].into(),
+        headers: Default::default(),
+        cookies: vec![fixture_cookie(origin)],
         audio_url: None,
         audio_track: None,
         video_height: None,
@@ -452,6 +473,7 @@ async fn exercise_prepared_mp4(origin: &Url) -> AcceptanceResult<()> {
         let media = PlaybackMedia {
             url: origin.join(path)?,
             headers: Default::default(),
+            cookies: Vec::new(),
             audio_url: None,
             audio_track: None,
             video_height: None,

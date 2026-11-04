@@ -2,14 +2,15 @@ use std::collections::BTreeMap;
 
 use url::Url;
 
-use crate::browser::ResolvedMedia;
+use crate::browser::{BrowserCookie, ResolvedMedia};
 
 /// Fresh browser acquisition data. Credentials and remote URLs stay inside the
 /// native content layer; the gateway publishes only its local resource URLs.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 pub struct PlaybackMedia {
     pub(crate) url: Url,
     pub(crate) headers: BTreeMap<String, String>,
+    pub(crate) cookies: Vec<BrowserCookie>,
     pub(crate) audio_url: Option<Url>,
     pub(crate) audio_track: Option<PlaybackAudioTrack>,
     pub(crate) video_height: Option<u16>,
@@ -21,6 +22,7 @@ impl PlaybackMedia {
         Self {
             url,
             headers: BTreeMap::new(),
+            cookies: Vec::new(),
             audio_url: None,
             audio_track: None,
             video_height: None,
@@ -84,6 +86,7 @@ impl From<ResolvedMedia> for PlaybackMedia {
         Self {
             url: media.url,
             headers: media.headers,
+            cookies: media.cookies,
             audio_url: media.audio_url,
             audio_track: media.audio_track.map(|track| PlaybackAudioTrack {
                 title: track.title,

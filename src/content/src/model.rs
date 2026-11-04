@@ -926,7 +926,7 @@ impl TorrentMetadata {
 
 /// A resolution is a fresh acquisition descriptor, not a persistent share link.
 /// DirectVideo does not imply that a player has been launched or a stream read.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 pub enum ResolvedContent {
     Torrent {
         reference: VariantRef,

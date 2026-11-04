@@ -47,7 +47,7 @@ pub struct LibSessionReply {
     pub(crate) cookies: Vec<BrowserCookie>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BrowserCookie {
     pub name: String,
@@ -64,7 +64,7 @@ pub struct BrowserCookie {
     pub expiration_date: Option<f64>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SameSite {
     NoRestriction,
@@ -74,7 +74,10 @@ pub enum SameSite {
 }
 
 impl BrowserCookie {
-    pub(super) fn valid_for(&self, url: &Url) -> bool {
+    pub(crate) const MAX_SESSION_COOKIES: usize = 512;
+    pub(crate) const MAX_SESSION_BYTES: usize = 256 * 1024;
+
+    pub(crate) fn valid_for(&self, url: &Url) -> bool {
         let domain = self.domain.trim_start_matches('.').to_ascii_lowercase();
         let host = url.host_str().unwrap_or_default();
         (self.name.is_empty() || token(&self.name, 256))
@@ -126,6 +129,8 @@ pub struct ResolvedMedia {
     pub source_url: Option<Url>,
     #[serde(default)]
     pub headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub cookies: Vec<BrowserCookie>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_url: Option<Url>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -167,6 +172,32 @@ impl ResolvedMedia {
         validate_headers(&self.headers)?;
         if let Some(url) = &self.audio_url {
             public_url(url)?;
+        }
+        let sources: Vec<_> = std::iter::once(&self.url)
+            .chain(self.audio_url.iter())
+            .chain(self.subtitles.iter().map(|subtitle| &subtitle.url))
+            .collect();
+        let cookie_bytes: usize = self
+            .cookies
+            .iter()
+            .map(|cookie| {
+                cookie.name.len() + cookie.value.len() + cookie.domain.len() + cookie.path.len()
+            })
+            .sum();
+        if self.cookies.len() > BrowserCookie::MAX_SESSION_COOKIES
+            || cookie_bytes > BrowserCookie::MAX_SESSION_BYTES
+            || self
+                .cookies
+                .iter()
+                .any(|cookie| !sources.iter().any(|url| cookie.valid_for(url)))
+            || kind != ResolveKind::Video && !self.cookies.is_empty()
+            || kind == ResolveKind::Video
+                && self
+                    .headers
+                    .keys()
+                    .any(|name| name.eq_ignore_ascii_case("cookie"))
+        {
+            return Err(BrowserError::InvalidResponse);
         }
         if self.subtitles.len() > 32
             || self.subtitles.iter().any(|subtitle| {
