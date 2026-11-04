@@ -22,10 +22,10 @@ main() {
             sha256=afbc0859c89568b398b7079544775c7d69ee621e9df1dacef61e56bb3ccea533
             ;;
         qcatch)
-            version=1.3.4
+            version=1.3.5
             file=qcatch-linux-x64.tar.gz
-            size=118748174
-            sha256=55a90612a11a30bcf302b6c35f2c0c709de591a38bf2b943a34b86216e6a6da8
+            size=118760315
+            sha256=c64e353f365abc926272ed84ce386ef0fd07f8d17234bfdb93b018520fc97863
             ;;
         *)
             printf '%s\n' 'Choose qbutt, qplay or qcatch.' >&2
