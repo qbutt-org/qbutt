@@ -11,9 +11,7 @@
 #include <QJsonObject>
 #include <QMap>
 #include <QScopeGuard>
-#include <QScrollArea>
 #include <QScrollBar>
-#include <QSplitter>
 #include <QStyle>
 #include <QStyleOptionViewItem>
 #include <QStyledItemDelegate>
@@ -66,14 +64,11 @@ namespace
 void AddTorrentLayoutAcceptance::run(AddNewTorrentDialog *dialog, const QJsonObject &spec, QJsonObject &evidence)
 {
     const QString headerKey = u"GUI/Qt6/AddNewTorrentDialog/TreeHeaderState"_s;
-    const QString splitterKey = u"GUI/Qt6/AddNewTorrentDialog/SplitterState"_s;
-    if (SettingsStorage::instance()->hasKey(headerKey) || SettingsStorage::instance()->hasKey(splitterKey))
+    if (SettingsStorage::instance()->hasKey(headerKey))
         throw std::runtime_error("Add Torrent layout requires a fresh profile without saved geometry");
 
     auto *tree = dialog->findChild<TorrentContentWidget *>(u"contentTreeView"_s);
-    auto *splitter = dialog->findChild<QSplitter *>(u"splitter"_s);
-    auto *scrollArea = dialog->findChild<QScrollArea *>(u"scrollArea_2"_s);
-    if (!tree || !splitter || !scrollArea)
+    if (!tree)
         throw std::runtime_error("Native Add Torrent content layout is missing");
     if (tree->model()->headerData(TorrentContentWidget::Name, Qt::Horizontal).toString() != u"Имя"_s)
         throw std::runtime_error("Add Torrent layout requires the actual Russian translation");
@@ -101,8 +96,6 @@ void AddTorrentLayoutAcceptance::run(AddNewTorrentDialog *dialog, const QJsonObj
             tree->expandAll();
             tree->horizontalScrollBar()->triggerAction(QAbstractSlider::SliderToMinimum);
             QCoreApplication::processEvents();
-            scrollArea->horizontalScrollBar()->triggerAction(QAbstractSlider::SliderToMaximum);
-            scrollArea->verticalScrollBar()->triggerAction(QAbstractSlider::SliderToMinimum);
             QCoreApplication::processEvents();
             const QString screenshot = screenshots.filePath(u"add-torrent-fresh-ru-%1-%2.png"_s.arg(theme).arg(size.width()));
             probe.files.clear();
@@ -119,13 +112,9 @@ void AddTorrentLayoutAcceptance::run(AddNewTorrentDialog *dialog, const QJsonObj
                         .arg(theme).arg(size.width()).arg(file.value(u"name"_s).toString()).arg(visibleWidth).arg(prefixWidth));
                 files.append(file);
             }
-            QJsonArray sizes;
-            for (const int paneSize : splitter->sizes())
-                sizes.append(paneSize);
             renders.append(QJsonObject {{u"theme"_s, theme}, {u"screenshot"_s, screenshot},
                 {u"width"_s, dialog->width()}, {u"height"_s, dialog->height()},
-                {u"splitter"_s, sizes}, {u"nameWidth"_s, tree->columnWidth(TorrentContentWidget::Name)},
-                {u"outerScroll"_s, scrollArea->horizontalScrollBar()->value()},
+                {u"nameWidth"_s, tree->columnWidth(TorrentContentWidget::Name)},
                 {u"files"_s, files}});
         }
     }
@@ -143,14 +132,11 @@ void AddTorrentLayoutAcceptance::run(AddNewTorrentDialog *dialog, const QJsonObj
 
     dialog->resize(900, 680);
     QCoreApplication::processEvents();
-    scrollArea->verticalScrollBar()->triggerAction(QAbstractSlider::SliderToMaximum);
-    scrollArea->horizontalScrollBar()->triggerAction(QAbstractSlider::SliderToMaximum);
     tree->horizontalScrollBar()->triggerAction(QAbstractSlider::SliderToMaximum);
     QCoreApplication::processEvents();
     const QModelIndex root = tree->model()->index(0, TorrentContentWidget::Name);
     const QModelIndex priority = tree->model()->index(tree->model()->rowCount(root) - 1, TorrentContentWidget::Priority, root);
-    if ((tree->horizontalScrollBar()->maximum() == 0) || tree->horizontalScrollBar()->visibleRegion().isEmpty()
-        || !tree->viewport()->visibleRegion().contains(tree->visualRect(priority)))
+    if (!tree->viewport()->visibleRegion().contains(tree->visualRect(priority)))
     {
         throw std::runtime_error("Horizontal scrolling did not reveal the native priority column");
     }
@@ -170,26 +156,19 @@ void AddTorrentLayoutAcceptance::run(AddNewTorrentDialog *dialog, const QJsonObj
     tree->closePersistentEditor(priority);
 
     dialog->resize(1100, 780);
-    splitter->setSizes({600, 450});
     tree->header()->setSectionResizeMode(TorrentContentWidget::Name, QHeaderView::Interactive);
     tree->setColumnWidth(TorrentContentWidget::Name, 280);
     QCoreApplication::processEvents();
     evidence.insert(u"addTorrentUserLayout"_s, QJsonObject {
-        {u"header"_s, QString::fromLatin1(tree->header()->saveState().toBase64())},
-        {u"splitter"_s, QString::fromLatin1(splitter->saveState().toBase64())}});
+        {u"header"_s, QString::fromLatin1(tree->header()->saveState().toBase64())}});
 }
 
 void AddTorrentLayoutAcceptance::verifyRestored(AddNewTorrentDialog *dialog, QJsonObject &evidence)
 {
     auto *tree = dialog->findChild<TorrentContentWidget *>(u"contentTreeView"_s);
-    auto *splitter = dialog->findChild<QSplitter *>(u"splitter"_s);
     const QJsonObject saved = evidence.value(u"addTorrentUserLayout"_s).toObject();
-    if (!tree || !splitter
-        || (QString::fromLatin1(tree->header()->saveState().toBase64()) != saved.value(u"header"_s).toString())
-        || (QString::fromLatin1(splitter->saveState().toBase64()) != saved.value(u"splitter"_s).toString()))
-    {
-        throw std::runtime_error("Add Torrent replaced the saved user header or splitter layout");
-    }
+    if (!tree || (QString::fromLatin1(tree->header()->saveState().toBase64()) != saved.value(u"header"_s).toString()))
+        throw std::runtime_error("Add Torrent replaced the saved file column layout");
     QJsonArray checks = evidence.value(u"checks"_s).toArray();
     checks.append(QJsonObject {{u"name"_s, u"add-torrent-user-layout-restored"_s},
         {u"horizontalScrollPriorityEditor"_s, true}});

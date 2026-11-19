@@ -1040,10 +1040,7 @@ namespace
             });
             dialog.show();
             QCoreApplication::processEvents();
-            requiredChild<QComboBox>(&dialog, u"comboTMM"_s)->setCurrentIndex(0);
             requiredChild<FileSystemPathEdit>(&dialog, u"savePath"_s)->setSelectedPath(Path(savePath));
-            requiredChild<QCheckBox>(&dialog, u"startTorrentCheckBox"_s)->setChecked(!stopped);
-            requiredChild<QCheckBox>(&dialog, u"skipCheckingCheckBox"_s)->setChecked(false);
             require(dialog.grab().save(screenshots.filePath(stopped ? u"repair-add.png"_s : u"existing-add.png"_s)),
                 u"Cannot render ordinary Add Torrent dialog"_s);
             dialog.accept();
@@ -3280,7 +3277,6 @@ namespace
         waitFor(u"Closed writer auto-opened"_s, [&] { return (dialogs().size() == 1) && !QFileInfo::exists(locked); }, 15000);
         AddTorrentLayoutAcceptance::verifyRestored(dialogs().constFirst(), evidence);
         requiredChild<FileSystemPathEdit>(dialogs().constFirst(), u"savePath"_s)->setSelectedPath(Path(spec.value(u"payload"_s).toString()));
-        requiredChild<QCheckBox>(dialogs().constFirst(), u"startTorrentCheckBox"_s)->setChecked(false);
         dialogs().constFirst()->accept();
         waitFor(u"Accepted metadata survives source removal"_s, [] { return BitTorrent::Session::instance()->torrents().size() == 1; });
 

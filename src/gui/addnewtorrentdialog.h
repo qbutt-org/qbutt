@@ -33,17 +33,14 @@
 
 #include <QDialog>
 
-#include "base/path.h"
+#include "base/bittorrent/addtorrentparams.h"
+#include "base/bittorrent/torrentdescriptor.h"
 #include "base/settingvalue.h"
 #include "filterpatternformat.h"
 
-class LineEdit;
-
 namespace BitTorrent
 {
-    class TorrentDescriptor;
     class TorrentInfo;
-    struct AddTorrentParams;
 }
 
 namespace Ui
@@ -73,45 +70,22 @@ public slots:
     void reject() override;
     void done(int result) override;
 
-private slots:
-    void updateDiskSpaceLabel();
-    void onSavePathChanged(const Path &newPath);
-    void onDownloadPathChanged(const Path &newPath);
-    void onUseDownloadPathChanged(bool checked);
-    void TMMChanged(int index);
-    void categoryChanged(int index);
-    void contentLayoutChanged();
-
 private:
     class TorrentContentAdaptor;
-    struct Context;
 
     void showEvent(QShowEvent *event) override;
 
-    void setCurrentContext(std::shared_ptr<Context> context);
-    void updateCurrentContext();
-    void populateSavePaths();
-    void loadState();
-    void saveState();
-    void setMetadataProgressIndicator(bool visibleIndicator, const QString &labelText = {});
+    void updateSelectionAction();
     void setupTreeview();
-    void saveTorrentFile();
     void showContentFilterContextMenu();
     void setContentFilterPattern();
 
+    BitTorrent::TorrentDescriptor m_torrentDescr;
+    BitTorrent::AddTorrentParams m_torrentParams;
     Ui::AddNewTorrentDialog *m_ui = nullptr;
     std::unique_ptr<TorrentContentAdaptor> m_contentAdaptor;
-    int m_savePathIndex = -1;
-    int m_downloadPathIndex = -1;
-    bool m_useDownloadPath = false;
-    LineEdit *m_filterLine = nullptr;
-
-    std::shared_ptr<Context> m_currentContext;
 
     SettingValue<QSize> m_storeDialogSize;
-    SettingValue<QString> m_storeDefaultCategory;
-    SettingValue<bool> m_storeRememberLastSavePath;
     SettingValue<QByteArray> m_storeTreeHeaderState;
-    SettingValue<QByteArray> m_storeSplitterState;
     SettingValue<FilterPatternFormat> m_storeFilterPatternFormat;
 };

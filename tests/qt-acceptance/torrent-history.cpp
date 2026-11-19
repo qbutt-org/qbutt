@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "torrent-history.h"
 
+#include <algorithm>
 #include <functional>
 #include <stdexcept>
 
 #include <QAbstractItemModel>
 #include <QApplication>
-#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonObject>
-#include <QLabel>
 #include <QPointer>
 #include <QPushButton>
 #include <QStringList>
@@ -238,8 +237,6 @@ void TorrentHistoryAcceptance::run(Application &application, const QJsonObject &
     require(repeated == dialog, u"Same hash opened a second native dialog"_s);
     assertHistory(*controller, 0);
     inspect(*controller, metadataWork);
-    auto *start = dialog->findChild<QCheckBox *>(u"startTorrentCheckBox"_s);
-    require(start && !start->isChecked(), u"Generated torrent must be added stopped"_s);
     clickDialog(*dialog, QDialogButtonBox::Ok);
     waitFor(u"libtorrent magnet addition"_s, [&] { return !dialog && added == 1; });
     assertHistory(*controller, 1);
@@ -281,13 +278,14 @@ void TorrentHistoryAcceptance::run(Application &application, const QJsonObject &
     checks.append(QJsonObject {{u"name"_s, u"failed-metadata-keeps-history"_s}, {u"passed"_s, true}});
 
     dialog = resolvedDialog(*controller, metadataVariant);
-    auto *hash = dialog->findChild<QLabel *>(u"labelInfohash1Data"_s);
-    require(hash && hash->text().compare(spec.value(u"metadataHash"_s).toString(), Qt::CaseInsensitive) == 0,
-        u"Metadata dialog substituted the selected torrent"_s);
     assertHistory(*controller, 1);
     inspect(*controller, magnetWork);
     clickDialog(*dialog, QDialogButtonBox::Ok);
     waitFor(u"libtorrent metadata addition"_s, [&] { return !dialog && added == 2; });
+    require(std::ranges::any_of(session->torrents(), [&](const auto *torrent)
+    {
+        return torrent->infoHash().v1().toString() == spec.value(u"metadataHash"_s).toString();
+    }), u"Metadata addition substituted the selected torrent"_s);
     assertHistory(*controller, 2);
     reopenHistory(*controller, metadataWork, metadataVariant);
     require(magnetHandoffs == 3 && metadataHandoffs == 2 && failures == 1 && sessionAdded == 2

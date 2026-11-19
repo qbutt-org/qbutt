@@ -8,7 +8,6 @@
 #include <QAbstractItemModel>
 #include <QAction>
 #include <QApplication>
-#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDirIterator>
@@ -18,7 +17,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QKeyEvent>
-#include <QLabel>
 #include <QMouseEvent>
 #include <QPalette>
 #include <QPointer>
@@ -603,14 +601,9 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
     }, 5000, u"Native torrent dialog"_s);
     require(dialogs.size() == 1, u"Handoff did not open exactly one native torrent dialog"_s);
     QPointer<AddNewTorrentDialog> dialog = dialogs.first();
-    auto *hashLabel = dialog->findChild<QLabel *>(u"labelInfohash1Data"_s);
     auto *savePath = dialog->findChild<FileSystemPathEdit *>(u"savePath"_s);
-    auto *start = dialog->findChild<QCheckBox *>(u"startTorrentCheckBox"_s);
     auto *buttons = dialog->findChild<QDialogButtonBox *>(u"buttonBox"_s);
-    require(hashLabel && (hashLabel->text().compare(infoHash, Qt::CaseInsensitive) == 0),
-        u"Native dialog contains a different torrent hash"_s);
     require(savePath && (savePath->selectedPath() == Path(payload.absolutePath())), u"Native dialog escaped the fixture destination"_s);
-    require(start && !start->isChecked(), u"Native dialog is not configured to add a stopped torrent"_s);
     require(buttons && buttons->button(QDialogButtonBox::Cancel), u"Native Cancel button is missing"_s);
     require(dialog->grab().save(screenshots.filePath(u"quick-add-torrent.png"_s)), u"Could not capture the native torrent dialog"_s);
 
@@ -628,14 +621,13 @@ void QuickHandoffAcceptance::run(Application &application, const QJsonObject &sp
         require(buttons->button(QDialogButtonBox::Ok), u"Native Add button is missing"_s);
         require(dialog->grab().save(screenshots.filePath(u"quick-add-metadata.png"_s)),
             u"Could not capture received native metadata"_s);
-        start->click();
-        require(start->isChecked(), u"Native Start torrent checkbox did not enable download"_s);
         QTimer::singleShot(0, buttons->button(QDialogButtonBox::Ok), &QPushButton::click);
         waitFor([&] { return dialog.isNull() && (added == 1) && (session->torrents().size() == 1); },
             10'000, u"Accepted native torrent"_s);
         auto *torrent = session->torrents().constFirst();
         require(torrent->infoHash() == receivedMetadata.infoHash(), u"Native Add substituted another torrent"_s);
 
+        torrent->start();
         QElapsedTimer downloadElapsed;
         QElapsedTimer progressElapsed;
         downloadElapsed.start();

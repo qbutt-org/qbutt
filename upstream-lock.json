@@ -3,19 +3,19 @@
   "products": {
     "qplay": {
       "repository": "https://github.com/qbutt-org/qplay.git",
-      "commit": "8a9ad3dd207d154f71d2851e7b07894b6863c12b",
-      "version": "1.4.2",
+      "commit": "e24b22b2bc7dfe7806027595fb3b680670fd8f08",
+      "version": "1.4.3",
       "protocolVersion": 1,
       "artifacts": {
         "setup": {
-          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.4.2/qplay-setup.exe",
-          "size": 116237970,
-          "sha256": "7af8a573245fc7a304f616f44e1d200a2cfc91ddf989ae0d039b35323a425a4b"
+          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.4.3/qplay-setup.exe",
+          "size": 116318958,
+          "sha256": "ee74f0f730b3bcbfc133741d0237a8a43cee69b9a44ba2077ced79cc5b33ecf1"
         },
         "portable": {
-          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.4.2/qplay-portable.zip",
-          "size": 154389241,
-          "sha256": "abb107ab8002a5f0cab349c8f741464c2023f481045ad7fe2c55082bfec7909c"
+          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.4.3/qplay-portable.zip",
+          "size": 154519968,
+          "sha256": "fd7ba16ad15ce3a17a7cb6d43e6b4ac16d5b4719543e30ff2e2a87b7a83ef410"
         },
         "runtimeSources": {
           "url": "https://github.com/qbutt-org/qplay/releases/download/v1.4.0-sources/qplay-native-framegen-windows-runtime-sources.zip",
@@ -23,9 +23,9 @@
           "sha256": "b08be7206c37fbada0c04f1d0103b4bf71c5e6a4b5b8774b00fb2155957750c5"
         },
         "linuxPortable": {
-          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.4.2/qplay-linux-x64.zip",
-          "size": 189056991,
-          "sha256": "4dba6a9c855782c1df7be65e4e00b1cd10459d3ab1c2a4e90da27e655c336d7f"
+          "url": "https://github.com/qbutt-org/qplay/releases/download/v1.4.3/qplay-linux-x64.zip",
+          "size": 189340581,
+          "sha256": "26b2de51ebc8e791cdc6ddb3e10f70526d3a4ba986e646ce510dcea3b8372b8a"
         },
         "linuxRuntimeSources": {
           "url": "https://github.com/qbutt-org/qplay/releases/download/v1.4.1/qplay-linux-runtime-sources.zip",
