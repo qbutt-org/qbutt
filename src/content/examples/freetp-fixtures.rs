@@ -126,26 +126,34 @@ fn page(
         return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
     }
     if path == "/index.php" && params.contains_key("newsid") {
-        let body = r#"<link rel="canonical" href="/games/racing/42-generated-game.html">
+        let (article_id, active_files) = if params["newsid"] == "44" {
+            ("44", "")
+        } else {
+            (
+                "42",
+                r#"
+            <p>Скачать игру</p>
+            <p><a href="/getfile-10">Скачать Generated_Game_v2.torrent</a><a href="/getfile-12"> </a></p>
+            <p>Скачать патч</p>
+            <p><a href="/getfile-13">Generated_Patch_v2.torrent</a></p>"#,
+            )
+        };
+        let body = format!(
+            r#"<link rel="canonical" href="/games/racing/{article_id}-generated-game.html">
 <section id="content">
     <article class="fullstory">
         <h2 class="game-page__title">Generated Legal Game играть по сети и интернету Онлайн</h2>
         <div class="game-page__content">
             <p>Legal game and setup instructions.</p>
-            <p>Скачать игру</p>
-            <p><a href="/getfile-10">Скачать Generated_Game_v2.torrent</a><a href="/getfile-12"> </a></p>
-            <p>Скачать патч</p>
-            <p><a href="/getfile-13">Generated_Patch_v2.torrent</a></p>
+            <p><a href="/getfile-14">Removed.torrent</a></p>
+            {active_files}
             <p>Скачать онлайн фикс</p>
             <p><a href="/getfile-11">Online Fix.exe</a></p>
         </div>
     </article>
-</section>"#;
-        return (
-            "200 OK",
-            "text/html; charset=utf-8",
-            body.as_bytes().to_vec(),
+</section>"#
         );
+        return ("200 OK", "text/html; charset=utf-8", body.into_bytes());
     }
     if let Some(id) = path.strip_prefix("/getfile-") {
         let name = match id {
@@ -153,6 +161,7 @@ fn page(
             "11" => "Online_Fix.exe",
             "12" => "Unrelated_Game.torrent",
             "13" => "Generated_Patch_v2.torrent",
+            "14" => "Removed.torrent",
             _ => return ("404 Not Found", "text/html; charset=utf-8", Vec::new()),
         };
         let body = format!(r#"<h1 class="ftp-dl-title">Скачать файл <b>{name}</b></h1>"#);
@@ -182,7 +191,9 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn start() -> std::result::Result<Self, Box<dyn std::error::Error>> {
+    async fn start(
+        mut dropped_handshakes: usize,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let certificate = rcgen::generate_simple_self_signed(vec!["fixture.example".into()])?;
         let config = ServerConfig::builder()
             .with_no_client_auth()
@@ -217,6 +228,10 @@ impl Fixture {
                             Err(_) => break,
                         },
                     };
+                    if dropped_handshakes > 0 {
+                        dropped_handshakes -= 1;
+                        continue;
+                    }
                     let acceptor = acceptor.clone();
                     let origin = origin.clone();
                     let changed = Arc::clone(&changed);
@@ -292,7 +307,7 @@ impl Fixture {
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let fixture = Fixture::start().await?;
+    let fixture = Fixture::start(1).await?;
     let source = Arc::new(freetp::fixture(
         http::fixture(fixture.client.clone(), fixture.origin.clone()),
         fixture.origin.clone(),
@@ -354,6 +369,16 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         Err(Error::VariantUnavailable)
     ));
     assert!(source.resolve(&work.variants[1].reference).await.is_ok());
+    let mut removed = work.variants[0].reference.clone();
+    removed.publication.id = "44".into();
+    assert!(matches!(
+        source.inspect(&removed.publication).await,
+        Err(Error::UnsupportedAcquisition(_))
+    ));
+    assert!(matches!(
+        source.resolve(&removed).await,
+        Err(Error::VariantUnavailable)
+    ));
     for query in ["absent", "Re:Zero", "Acon Acoustica 8"] {
         assert!(source.search(query, Category::Games).await?.is_empty());
     }
@@ -414,8 +439,29 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .is_err()
     );
     fixture.stop().await;
+
+    // The POST gets one connection attempt, the GET gets two. The next call succeeds.
+    let interrupted = Fixture::start(3).await?;
+    let transport = http::fixture(interrupted.client.clone(), interrupted.origin.clone());
+    let url = interrupted.origin.join("/index.php?newsid=42")?;
+    let mut session = http::SourceSession::anonymous(interrupted.origin.clone())?;
+    assert!(matches!(
+        transport
+            .session_form_document(url.clone(), "a=b", &mut session)
+            .await,
+        Err(Error::Network(_))
+    ));
+    assert!(matches!(
+        transport.session_document(url.clone(), &mut session).await,
+        Err(Error::Network(_))
+    ));
+    assert_eq!(
+        transport.session_document(url, &mut session).await?.status,
+        200
+    );
+    interrupted.stop().await;
     println!(
-        "PASS freetp_fixture search utf8_cyrillic colon_normalized positive nested_racing_search_inspect_resolve empty_acoustica_rezero mismatch_rejected unstarted_rejected malformed_empty_rejected http_challenge_preserved inspect canonical_identity game patch exact_resolve changed_hash limited cancel"
+        "PASS freetp_fixture search utf8_cyrillic colon_normalized positive nested_racing_search_inspect_resolve empty_acoustica_rezero mismatch_rejected unstarted_rejected malformed_empty_rejected http_challenge_preserved inspect canonical_identity game patch exact_resolve changed_hash removed_attachment limited cancel interrupted_get_retry post_not_replayed"
     );
     Ok(())
 }

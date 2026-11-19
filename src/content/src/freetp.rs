@@ -67,22 +67,28 @@ impl FreeTP {
     }
 
     pub async fn inspect(&self, publication: &PublicationRef) -> Result<Work> {
-        Ok(self.release(publication).await?.work)
+        let work = self.release(publication).await?.work;
+        if work.variants.is_empty() {
+            return Err(Error::UnsupportedAcquisition(
+                "FreeTP publication has no available torrent files",
+            ));
+        }
+        Ok(work)
     }
 
     /// Re-fetch the publication and metadata. A changed file under the same
     /// FreeTP download ID cannot replace the selected torrent hash.
     pub async fn resolve(&self, selected: &VariantRef) -> Result<ResolvedContent> {
         selected.validate()?;
-        let release = self.release(&selected.publication).await?;
         let VariantSelector::TorrentHash { info_hash } = &selected.selector else {
             return Err(Error::InvalidReference);
         };
-        let metadata = release
+        let metadata = self
+            .release(&selected.publication)
+            .await?
             .torrents
-            .get(info_hash)
-            .ok_or(Error::VariantUnavailable)?
-            .clone();
+            .remove(info_hash)
+            .ok_or(Error::VariantUnavailable)?;
         Ok(ResolvedContent::TorrentFile {
             reference: selected.clone(),
             metadata,
@@ -140,7 +146,9 @@ impl FreeTP {
             let Some(filename) = self.landing(file_id, &mut session).await? else {
                 continue;
             };
-            let metadata = self.metadata(file_id, &mut session).await?;
+            let Some(metadata) = self.metadata(file_id, &mut session).await? else {
+                continue;
+            };
             let hash = torrent::info_hash(metadata.bytes())?;
             if release.torrents.contains_key(&hash) {
                 continue;
@@ -167,11 +175,6 @@ impl FreeTP {
             });
             release.torrents.insert(hash, metadata);
         }
-        if release.work.variants.is_empty() {
-            return Err(Error::UnsupportedAcquisition(
-                "FreeTP publication has no available torrent files",
-            ));
-        }
         Ok(release)
     }
 
@@ -195,7 +198,11 @@ impl FreeTP {
         Ok(Some(filename))
     }
 
-    async fn metadata(&self, id: u64, session: &mut SourceSession) -> Result<TorrentMetadata> {
+    async fn metadata(
+        &self,
+        id: u64,
+        session: &mut SourceSession,
+    ) -> Result<Option<TorrentMetadata>> {
         let referer = self.origin.join(&format!("/getfile-{id}")).unwrap();
         let url = self
             .origin
@@ -208,7 +215,7 @@ impl FreeTP {
         match response.status {
             200 if response.final_url == url => {}
             403 => return Err(Error::Challenge),
-            404 | 410 => return Err(Error::VariantUnavailable),
+            404 | 410 => return Ok(None),
             200 => return Err(Error::InvalidResponse("FreeTP file identity changed")),
             status => return Err(Error::HttpStatus(status)),
         }
@@ -223,7 +230,7 @@ impl FreeTP {
                 "FreeTP file is not torrent metadata",
             ));
         }
-        TorrentMetadata::new(response.body)
+        TorrentMetadata::new(response.body).map(Some)
     }
 
     async fn document(&self, url: Url, session: &mut SourceSession) -> Result<(Url, String)> {

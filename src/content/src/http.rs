@@ -1,3 +1,4 @@
+use std::error::Error as StdError;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -443,8 +444,14 @@ impl SourceHttp {
                     )
                     .header(ACCEPT_ENCODING, "identity")
                     .send()
-                    .await
-                    .map_err(network_error)?;
+                    .await;
+                let response = match response {
+                    Err(error) if form.is_none() && !retried && interrupted_connect(&error) => {
+                        retried = true;
+                        continue;
+                    }
+                    result => result.map_err(network_error)?,
+                };
 
                 if let Some(session) = session.as_mut() {
                     session.receive(response.headers(), &url)?;
@@ -572,6 +579,29 @@ pub(crate) fn validate_media_url(url: &Url) -> Result<()> {
     } else {
         Err(Error::UnsafeAddress)
     }
+}
+
+fn interrupted_connect(error: &reqwest::Error) -> bool {
+    if !error.is_connect() {
+        return false;
+    }
+    let mut cause = error.source();
+    while let Some(current) = cause {
+        if let Some(io) = current.downcast_ref::<io::Error>() {
+            if matches!(
+                io.kind(),
+                io::ErrorKind::UnexpectedEof
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::ConnectionAborted
+            ) {
+                return true;
+            }
+            cause = io.get_ref().map(|inner| inner as &dyn StdError);
+        } else {
+            cause = current.source();
+        }
+    }
+    false
 }
 
 fn network_error(error: reqwest::Error) -> Error {
