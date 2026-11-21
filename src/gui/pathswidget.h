@@ -38,6 +38,7 @@ private:
 
     Net::PathManager *m_manager;
     QLineEdit *m_url;
+    QPushButton *m_subscriptionRefresh;
     QLineEdit *m_nodeFilter;
     QTreeWidget *m_nodes;
     QCheckBox *m_enabled;

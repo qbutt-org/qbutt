@@ -8006,6 +8006,22 @@ Egress, UDP, public inbound and throughput: unknown (not probed).</source>
         <translation>Сервер подписки вернул код HTTP %1.</translation>
     </message>
     <message>
+        <source>The subscription has expired.</source>
+        <translation>Срок действия подписки истёк.</translation>
+    </message>
+    <message>
+        <source>Subscription device limit reached. Remove an unused device in your provider account.</source>
+        <translation>Достигнут лимит устройств. Удалите неиспользуемое устройство в личном кабинете подписки.</translation>
+    </message>
+    <message>
+        <source>The subscription provider did not accept this device.</source>
+        <translation>Сервис подписки не принял это устройство.</translation>
+    </message>
+    <message>
+        <source>Unable to save the subscription device ID.</source>
+        <translation>Не удалось сохранить идентификатор устройства для подписки.</translation>
+    </message>
+    <message>
         <location filename="../base/net/pathmanager.cpp" line="1505"/>
         <source>Subscription contains too many nodes for one import.</source>
         <translation>В подписке слишком много узлов для одного импорта.</translation>
@@ -10722,6 +10738,15 @@ readme[0-9].txt: фильтровать «readme1.txt», «readme2.txt», но �
     <message>
         <source>Subscription:</source>
         <translation>Подписка:</translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <comment>subscription</comment>
+        <translation>Обновить</translation>
+    </message>
+    <message>
+        <source>Refresh subscription</source>
+        <translation>Обновить подписку</translation>
     </message>
     <message>
         <source>Server / protocol</source>

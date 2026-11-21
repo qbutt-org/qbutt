@@ -87,6 +87,7 @@ namespace Net
         struct PathRollover;
 
         void request(QJsonObject message);
+        void downloadSubscription(const QUrl &url, const QUrl &subscriptionUrl, const QByteArray &deviceId = {});
         void openIdentifiedPath(const QString &configPath, const QString &proxyName,
             const QString &interfaceName, const QString &configuredServerId, const QStringList &reserveNames,
             const QJsonObject &reserveServerIds);
@@ -220,6 +221,7 @@ namespace Net
         QString m_status;
         SettingValue<QString> m_storeSubscriptionUrl;
         SettingValue<QString> m_storeSubscriptionFormat;
+        SettingValue<QByteArray> m_storeSubscriptionDeviceSeed;
         SettingValue<QString> m_storeConfigurationPath;
         SettingValue<QString> m_storeProxyName;
         SettingValue<QString> m_storeInterfaceName;

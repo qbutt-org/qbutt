@@ -68,6 +68,7 @@ PathsWidget::PathsWidget(QWidget *parent)
     : QGroupBox(tr("Mihomo subscription"), parent)
     , m_manager {Net::PathManager::instance()}
     , m_url {new QLineEdit(this)}
+    , m_subscriptionRefresh {new QPushButton(tr("Refresh", "subscription"), this)}
     , m_nodeFilter {new QLineEdit(this)}
     , m_nodes {new QTreeWidget(this)}
     , m_enabled {new QCheckBox(tr("Use Mihomo"), this)}
@@ -98,7 +99,12 @@ PathsWidget::PathsWidget(QWidget *parent)
     m_url->setObjectName(u"mihomoSubscriptionUrl"_s);
     m_url->setPlaceholderText(u"https://…"_s);
     m_url->setText(m_manager->subscriptionUrl());
-    form->addRow(tr("Subscription:"), m_url);
+    m_subscriptionRefresh->setObjectName(u"mihomoRefreshSubscription"_s);
+    m_subscriptionRefresh->setAccessibleName(tr("Refresh subscription"));
+    auto *subscriptionRow = new QHBoxLayout;
+    subscriptionRow->addWidget(m_url, 1);
+    subscriptionRow->addWidget(m_subscriptionRefresh);
+    form->addRow(tr("Subscription:"), subscriptionRow);
     m_nodes->setObjectName(u"mihomoNodes"_s);
     m_nodes->setColumnCount(3);
     m_nodes->setHeaderLabels({tr("Server / protocol"), tr("Connection"), tr("Relay traffic")});
@@ -271,6 +277,11 @@ PathsWidget::PathsWidget(QWidget *parent)
     {
         if (m_manager->isBusy() || !m_enabled->isChecked() || !m_url->isModified())
             return;
+        m_url->setModified(false);
+        m_manager->refreshSubscription(m_url->text());
+    });
+    connect(m_subscriptionRefresh, &QPushButton::clicked, this, [this]()
+    {
         m_url->setModified(false);
         m_manager->refreshSubscription(m_url->text());
     });
@@ -533,6 +544,7 @@ void PathsWidget::refreshState()
         }
     }
     m_url->setEnabled(enabled && !busy);
+    m_subscriptionRefresh->setEnabled(enabled && !busy);
     m_nodeFilter->setEnabled(enabled && (m_nodes->topLevelItemCount() > 0));
     {
         const QSignalBlocker enabledBlocker(m_enabled);
@@ -558,9 +570,10 @@ void PathsWidget::refreshState()
     m_gatewayApply->setEnabled(gatewayEditable);
     if (enabled && !m_manager->status().isEmpty())
         m_status->setText(m_manager->status());
-    else if (m_setupIntent && m_manager->selectedNodes().isEmpty())
+    else if (m_setupIntent && !busy && m_manager->selectedNodes().isEmpty() && (m_nodes->topLevelItemCount() > 0))
         m_status->setText(tr("Choose a node to connect."));
-    else if (m_setupIntent && m_interfaces->currentData().toString().isEmpty())
+    else if (m_setupIntent && !busy && !m_manager->selectedNodes().isEmpty()
+        && m_interfaces->currentData().toString().isEmpty())
         m_status->setText(tr("Choose a network adapter to connect."));
     else
         m_status->clear();

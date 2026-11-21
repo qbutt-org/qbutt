@@ -26,6 +26,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QMessageAuthenticationCode>
 #include <QNetworkAddressEntry>
 #include <QNetworkInterface>
 #include <QNetworkProxy>
@@ -36,6 +37,7 @@
 #include <QSignalBlocker>
 #include <QScopeGuard>
 #include <QUrl>
+#include <QUuid>
 
 #include "base/bittorrent/session.h"
 #include "base/global.h"
@@ -287,6 +289,7 @@ Net::PathManager::PathManager()
         ? tr("Connection stopped. Connect a node to resume.") : QString()}
     , m_storeSubscriptionUrl {u"Network/Paths/SubscriptionUrl"_s}
     , m_storeSubscriptionFormat {u"Network/Paths/SubscriptionFormat"_s}
+    , m_storeSubscriptionDeviceSeed {u"Network/Paths/SubscriptionDeviceSeed"_s}
     , m_storeConfigurationPath {u"Network/Paths/ConfigurationPath"_s}
     , m_storeProxyName {u"Network/Paths/ProxyName"_s}
     , m_storeInterfaceName {u"Network/Paths/InterfaceName"_s}
@@ -1165,12 +1168,22 @@ void Net::PathManager::refreshSubscription(const QString &urlText)
     }
     url.setScheme(u"https"_s);
 
+    m_status.clear();
+    downloadSubscription(url, url);
+}
+
+void Net::PathManager::downloadSubscription(const QUrl &url, const QUrl &subscriptionUrl, const QByteArray &deviceId)
+{
     QNetworkRequest request(url);
     const QString format = subscriptionFormat();
     request.setRawHeader("User-Agent", (format == u"mihomo") ? "mihomo" : "qbutt");
     request.setRawHeader("Accept", (format == u"base64") ? "text/plain, */*;q=0.5"
         : "application/yaml, text/yaml, text/plain;q=0.9, */*;q=0.5");
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    // An authenticated retry must not forward its device ID to a different origin.
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, deviceId.isEmpty()
+        ? QNetworkRequest::NoLessSafeRedirectPolicy : QNetworkRequest::SameOriginRedirectPolicy);
+    if (!deviceId.isEmpty())
+        request.setRawHeader("x-hwid", deviceId);
     request.setMaximumRedirectsAllowed(5);
     request.setTransferTimeout(15000);
     auto *reply = m_network.get(request);
@@ -1191,7 +1204,7 @@ void Net::PathManager::refreshSubscription(const QString &urlText)
     };
     connect(reply, &QNetworkReply::readyRead, reply, checkSize);
     connect(reply, &QNetworkReply::metaDataChanged, reply, checkSize);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, url]()
+    connect(reply, &QNetworkReply::finished, this, [this, reply, subscriptionUrl, hasDeviceId = !deviceId.isEmpty()]()
     {
         m_subscriptionReply = nullptr;
         reply->deleteLater();
@@ -1212,6 +1225,47 @@ void Net::PathManager::refreshSubscription(const QString &urlText)
             reportError(tr("Unable to download the subscription over HTTPS. Check the address and network connection."));
             return;
         }
+        if (reply->rawHeader("subscription-user-status").trimmed().toLower() == "expired")
+        {
+            reportError(tr("The subscription has expired."));
+            return;
+        }
+        if (reply->rawHeader("x-hwid-max-devices-reached").trimmed().toLower() == "true")
+        {
+            reportError(tr("Subscription device limit reached. Remove an unused device in your provider account."));
+            return;
+        }
+        if (reply->rawHeader("x-hwid-not-supported").trimmed().toLower() == "true")
+        {
+            if (hasDeviceId)
+            {
+                reportError(tr("The subscription provider did not accept this device."));
+                return;
+            }
+
+            QByteArray seed = m_storeSubscriptionDeviceSeed;
+            if (seed.isEmpty())
+            {
+                seed = QUuid::createUuid().toRfc4122();
+                m_storeSubscriptionDeviceSeed = seed;
+                if (!SettingsStorage::instance()->save())
+                {
+                    m_storeSubscriptionDeviceSeed = QByteArray {};
+                    reportError(tr("Unable to save the subscription device ID."));
+                    return;
+                }
+            }
+            const QUrl providerUrl = reply->url();
+            QUrl origin;
+            origin.setScheme(providerUrl.scheme());
+            origin.setHost(providerUrl.host());
+            origin.setPort(providerUrl.port(443));
+            const QByteArray providerDeviceId = QMessageAuthenticationCode::hash(
+                origin.toEncoded(), seed, QCryptographicHash::Sha256).toHex();
+            downloadSubscription(providerUrl, subscriptionUrl, providerDeviceId);
+            return;
+        }
+
         const QByteArray config = reply->readAll();
         const QString configPath = (specialFolderLocation(SpecialFolder::Config) / Path(u"mihomo-subscription.yaml"_s)).toString();
         QSaveFile file(configPath);
@@ -1222,7 +1276,7 @@ void Net::PathManager::refreshSubscription(const QString &urlText)
             reportError(tr("Unable to save the subscription in the private qbutt profile."));
             return;
         }
-        m_storeSubscriptionUrl = url.toString(QUrl::FullyEncoded);
+        m_storeSubscriptionUrl = subscriptionUrl.toString(QUrl::FullyEncoded);
         inspectConfiguration(configPath);
     });
     emit changed();
